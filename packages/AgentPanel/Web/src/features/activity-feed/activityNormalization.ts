@@ -75,6 +75,12 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
   return {
     id: typeof source?.id === "string" ? source.id : undefined,
     index: typeof source?.index === "number" ? source.index : -1,
+    // Kept rather than dropped, for the reason `otherModeIndex` below gives: this rebuilds the
+    // event field by field, and without it a transcript's rows could no longer say which of them
+    // are neighbours.
+    ...(source?.previous === null || typeof source?.previous === "number"
+      ? { previous: source.previous as number | null }
+      : {}),
     revision: typeof source?.revision === "number" ? source.revision : undefined,
     phase:
       source?.phase === "streaming" || source?.phase === "complete" || source?.phase === "error"
@@ -103,13 +109,13 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
   };
 }
 
-export function normalizeEventsPage(value: unknown): { events: ActivityEvent[]; total: number } {
+export function normalizeEventsPage(value: unknown): { events: ActivityEvent[]; windowStart: number } {
   const source = record(value);
   const events = Array.isArray(source?.events)
     ? source.events.map(normalizeActivityEvent)
     : [];
   return {
     events,
-    total: typeof source?.total === "number" ? source.total : events.length,
+    windowStart: typeof source?.windowStart === "number" ? source.windowStart : 0,
   };
 }

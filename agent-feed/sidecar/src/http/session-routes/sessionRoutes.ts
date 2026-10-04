@@ -1,18 +1,15 @@
 import {
-  acquireIndex,
-  discardIndexIfUnused,
-  ensureIndexed,
-  followTranscript,
-  getEventCount,
-  getSessionUsage,
+  eventsOf,
+  NotALineStartError,
+  parsedLinesBetween,
   readEventRaw,
-  readEvents,
-  RawEventTooLargeError,
-  releaseIndex,
-  subscribeEvents,
-  syncIndex,
-  type EventNotice,
-} from "@/transcripts/event-index/eventIndex";
+  readPageBefore,
+  readSessionMeter,
+  type ParsedTranscriptLine,
+  type SessionMeter,
+} from "@/transcripts/transcript-reads/transcriptPages";
+import { LineTooLargeError } from "@/transcripts/transcript-reads/transcriptLines";
+import { followTranscript, type FollowHandle } from "@/transcripts/transcript-reads/transcriptFollow";
 import {
   canonicalProjectPath,
   findSession,
@@ -22,6 +19,7 @@ import {
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
 import type {
+  ActivityEvent,
   EventMode,
   TranscriptSourceId,
 } from "@/transcripts/transcriptTypes";
@@ -116,75 +114,62 @@ async function sessionSnapshotResponse(
 /**
  * One page of a transcript-backed session, or null when no such session is known.
  *
- * Exported because the composite timeline endpoint seeds its snapshot from the same
- * read: two ways to page one transcript is exactly the drift this arc is removing.
+ * `before` is the position the page ends before, or null for the newest page. Exported because the
+ * composite timeline endpoint opens on the same read and the summarizer walks back through it:
+ * two ways to page one transcript is exactly the drift this module exists to prevent.
  */
 export async function readTranscriptPage(
   source: TranscriptSourceId,
   sessionId: string,
-  offset: number,
+  before: number | null,
   limit: number,
   mode: EventMode,
 ): Promise<EventsPage | null> {
   const session = findSession(source, sessionId);
   if (!session || !session.transcriptPath) return null;
-  const transcriptPath = session.transcriptPath;
-  acquireIndex(source, sessionId);
-  try {
-    const events = await readEvents(
-      source,
-      sessionId,
-      transcriptPath,
-      offset,
-      limit,
-      mode,
-    );
-    return {
-      events,
-      // Per mode, so the panel's paging arithmetic is in the same units as the
-      // indices it just received.
-      total: getEventCount(source, sessionId, mode),
-      mode,
-      usage: getSessionUsage(source, sessionId),
-      sequence: getEventCount(source, sessionId, mode),
-      runState: "idle",
-      queue: { steer: 0, followUp: 0 },
-    };
-  } finally {
-    releaseIndex(source, sessionId);
-  }
+  const page = await readPageBefore(source, sessionId, session.transcriptPath, before, limit, mode);
+  // The meter is the session's, not the page's, so only the newest page reads it: an older page
+  // is scrollback, and the end of the file is a read of its own.
+  const meter = before === null
+    ? await readSessionMeter(source, session.transcriptPath, page.end)
+    : null;
+  return {
+    events: page.events,
+    windowStart: page.windowStart,
+    mode,
+    usage: meter?.usage ?? null,
+    sequence: page.end,
+    runState: "idle",
+    queue: { steer: 0, followUp: 0 },
+  };
 }
 
 async function paginatedEvents(
   source: TranscriptSourceId,
   sessionId: string,
-  offset: number,
+  before: number | null,
   limit: number,
   mode: EventMode,
 ): Promise<Response> {
-  const page = await readTranscriptPage(source, sessionId, offset, limit, mode);
-  if (!page) return jsonResponse({ error: "session not found" }, 404);
-  return jsonResponse(page);
+  try {
+    const page = await readTranscriptPage(source, sessionId, before, limit, mode);
+    if (!page) return jsonResponse({ error: "session not found" }, 404);
+    return jsonResponse(page);
+  } catch (error) {
+    if (error instanceof NotALineStartError) return jsonResponse({ error: error.message }, 400);
+    throw error;
+  }
 }
 
 async function rawEvent(
   source: TranscriptSourceId,
   sessionId: string,
-  eventIndex: number,
-  mode: EventMode,
+  position: number,
 ): Promise<Response> {
   const session = findSession(source, sessionId);
   if (!session || !session.transcriptPath) return jsonResponse({ error: "session not found" }, 404);
-  const transcriptPath = session.transcriptPath;
-  acquireIndex(source, sessionId);
   try {
-    const raw = await readEventRaw(
-      source,
-      sessionId,
-      transcriptPath,
-      eventIndex,
-      mode,
-    );
+    const raw = await readEventRaw(session.transcriptPath, position);
     if (raw === null) return jsonResponse({ error: "event not found" }, 404);
     return new Response(raw, {
       headers: {
@@ -192,135 +177,111 @@ async function rawEvent(
       },
     });
   } catch (error) {
-    if (error instanceof RawEventTooLargeError) {
+    if (error instanceof LineTooLargeError) {
       return jsonResponse({ error: error.message, byteCount: error.byteCount }, 413);
     }
     throw error;
-  } finally {
-    releaseIndex(source, sessionId);
   }
 }
 
 /**
- * Follows one transcript-backed session from `after`, backfilling everything the
- * index already holds and then streaming rows as the file grows. Returns the
- * teardown, or null when no such session is known.
+ * Follows one transcript-backed session from `after`, the end of the page its reader opened on,
+ * streaming rows as the file grows. Returns the teardown, or null when no such session is known.
  *
- * Transport-free -- it hands envelopes to a callback rather than writing SSE -- so
- * the plain `/stream` route and the composite `/timeline` endpoint follow a
- * transcript through the same code rather than through two copies of the watcher,
- * the backfill arithmetic, and the mode-skipping rule.
+ * Transport-free -- it hands envelopes to a callback rather than writing SSE -- so the composite
+ * `/timeline` endpoint and anything else that follows a transcript share one rule about where a
+ * follow starts and which rows a reader has already been given.
  *
- * What it hands over is decided by `createTimelineFollower`, not here: rows while this
- * reader is keeping up, and a checkpoint when it is not. Both the backfill below and
- * the file growing later go through it, because being a window behind at the moment of
- * opening and falling a window behind afterwards are the same thing to a reader.
+ * What it hands over is decided by `createTimelineFollower`, not here: rows while this reader is
+ * keeping up, and a checkpoint when it is not. A fork writes its whole resumed conversation in one
+ * flush, and a reader who opened before it is a window behind the moment it lands.
  */
 export function subscribeTranscriptTimeline(
   source: TranscriptSourceId,
   sessionId: string,
   after: number,
+  meter: SessionMeter,
   mode: EventMode,
   handlers: {
     onEnvelope: (envelope: TimelineEnvelope) => void;
     onError: (message: string) => void;
   },
+  /** The newest row of the opening page, which is what the first row after it follows. */
+  previous: number | null,
 ): (() => void) | null {
   const session = findSession(source, sessionId);
   if (!session || !session.transcriptPath) return null;
   const transcriptPath = session.transcriptPath;
   let cancelled = false;
-  let unsubscribeEvents: (() => void) | null = null;
   const fail = (error: unknown): void => {
     handlers.onError(error instanceof Error ? error.message : String(error));
   };
-  // Occupancy rides every envelope instead of getting a message type of its own: the
-  // thread stream already writes whenever the record moves, so the panel's meter goes
-  // live with no extra plumbing and the host decodes one optional field. Read per
-  // write rather than captured, so it is never stale.
+  let follow: FollowHandle | null = null;
   const follower = createTimelineFollower({
     mode,
-    // A transcript is only ever appended to, so an index means the same line before and after a
+    // A transcript is only ever appended to, so a position means the same line before and after a
     // checkpoint and a reader keeps whatever they had paged in below it.
     stableIndices: true,
-    usage: () => getSessionUsage(source, sessionId),
+    // Occupancy rides every envelope, read per write rather than captured so it is never stale.
+    usage: () => follow?.usage() ?? meter.usage,
     emit: handlers.onEnvelope,
   });
-  // A stream is opened for ONE mode, so a machinery line is not an event this
-  // subscriber has: it is skipped rather than renumbered, and the nice indices
-  // stay contiguous exactly as the index assigned them.
-  const onNotice = ({ event, niceIndex }: EventNotice): void => {
-    if (mode === "raw") {
-      follower.offer({ ...event, otherModeIndex: niceIndex });
-      return;
+  // Rows are delivered strictly in file order, each once, starting after the opening page. The
+  // follow hands lines over in order; the catch-up read below and the follow can both hold the
+  // same line at the seam, so anything at or before the newest delivered position is dropped.
+  let delivered = after - 1;
+  let last = previous;
+  let lastText: ActivityEvent | null = null;
+  let ready = false;
+  const held: ParsedTranscriptLine[] = [];
+  const deliver = (line: ParsedTranscriptLine): void => {
+    if (line.position <= delivered) return;
+    delivered = line.position;
+    const content = line.result.lineClass !== "machinery";
+    if (!content && line.result.cacheHit && lastText) {
+      // A Codex `token_count` reports the cache for a turn whose prose row was already sent. The
+      // row is re-sent with the badge and a newer revision, which is what the panel's upsert keeps.
+      lastText = { ...lastText, cacheHit: line.result.cacheHit, revision: lastText.revision + 1 };
+      follower.offer(lastText);
     }
-    if (niceIndex === null) return;
-    follower.offer({ ...event, index: niceIndex, otherModeIndex: event.index });
+    const [event] = eventsOf(source, sessionId, [line], mode, last);
+    if (!event) return;
+    last = event.index;
+    if (content && event.blocks.some((block) => block.kind === "text")) lastText = event;
+    follower.offer(event);
   };
-  // The follow and the index reference are one thing here: the index is what this
-  // reads and the follow is what keeps it current, and both are shared with every
-  // other reader of the same transcript.
-  const unfollow = followTranscript(source, sessionId, transcriptPath, fail);
+  follow = followTranscript(
+    source,
+    sessionId,
+    transcriptPath,
+    (line) => {
+      if (cancelled) return;
+      if (ready) deliver(line);
+      else held.push(line);
+    },
+    fail,
+  );
+  const reading = follow;
   void (async () => {
-    await ensureIndexed(source, sessionId, transcriptPath);
-    if (cancelled) {
-      discardIndexIfUnused(source, sessionId);
-      return;
+    const from = reading.start(after, meter);
+    // Another reader started this follow later than this one's page ended, so the lines between
+    // were read before this reader was listening. Read them here; the seam is deduplicated above.
+    if (from > after) {
+      const missed = await parsedLinesBetween(source, transcriptPath, after, from);
+      if (cancelled) return;
+      for (const line of missed) deliver(line);
     }
-    // Subscribed BEFORE the backfill is measured and read, not after, which is what the
-    // subagent stream has always done. Reading a page is real file IO, and the index fans a
-    // line out to its subscribers the moment it parses it -- so a line written during that
-    // read used to land above the `total` the backfill was sized from and below a
-    // subscription that did not exist yet, reaching this stream through neither, with the
-    // closing `syncIndex` finding those bytes already indexed and re-emitting nothing. The
-    // row then appeared only when a later one exposed the hole and the panel paged it in.
-    //
-    // The seam can now deliver a row twice instead, once live and once in the backfill, and
-    // that is the safer half of the trade. The follower holds pending rows in a map keyed by
-    // index, so the two collapse when they land in one flush; when they do not, the second is
-    // an upsert carrying the same index and the same revision, which is what every consumer
-    // of this stream already does nothing with.
-    unsubscribeEvents = subscribeEvents(source, sessionId, onNotice);
-    if (cancelled) {
-      // Left during the index build. The teardown has already run and found nothing to
-      // unsubscribe, so this subscription is ours to take back off.
-      unsubscribeEvents();
-      unsubscribeEvents = null;
-      discardIndexIfUnused(source, sessionId);
-      return;
-    }
-    const total = getEventCount(source, sessionId, mode);
-    if (after < total) {
-      const backfill = await readEvents(
-        source,
-        sessionId,
-        transcriptPath,
-        after,
-        total - after,
-        mode,
-      );
-      if (cancelled) {
-        discardIndexIfUnused(source, sessionId);
-        return;
-      }
-      for (const event of backfill) follower.offer(event);
-    }
-    await syncIndex(source, sessionId, transcriptPath);
-    if (cancelled) discardIndexIfUnused(source, sessionId);
+    ready = true;
+    for (const line of held.splice(0)) deliver(line);
   })().catch((error) => {
-    if (cancelled) {
-      discardIndexIfUnused(source, sessionId);
-      return;
-    }
-    fail(error);
+    if (!cancelled) fail(error);
   });
   return () => {
     cancelled = true;
-    // Before the unsubscribe, so a flush already queued for this microtask cannot write
-    // to a subscriber that has left.
+    // Before the release, so a flush already queued for this microtask cannot write to a
+    // subscriber that has left.
     follower.close();
-    unsubscribeEvents?.();
-    unfollow();
+    reading.release();
   };
 }
 
@@ -456,13 +417,18 @@ export function createSessionRoutes(
 
     const eventMatch = EVENT_ROUTE.exec(url.pathname);
     if (eventMatch) {
-      const offset = integerQuery(url, "offset", 0);
+      // `before` is a position, absent for the newest page. There is no `offset`: nothing here
+      // counts rows from the top any more, which is what made the first page cost the whole file.
+      const before = url.searchParams.has("before") ? integerQuery(url, "before", 0) : null;
       const limit = integerQuery(url, "limit", 100, 500);
-      if (offset === null || limit === null || limit < 1) {
+      if (before === null && url.searchParams.has("before")) {
+        return jsonResponse({ error: "invalid before" }, 400);
+      }
+      if (limit === null || limit < 1) {
         return jsonResponse({ error: "invalid pagination" }, 400);
       }
       if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
-      return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, offset, limit, mode);
+      return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, before, limit, mode);
     }
 
     const lastMessageMatch = LAST_MESSAGE_ROUTE.exec(url.pathname);
@@ -473,8 +439,7 @@ export function createSessionRoutes(
 
     const rawMatch = RAW_EVENT_ROUTE.exec(url.pathname);
     if (rawMatch) {
-      if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
-      return rawEvent(sourceId(rawMatch[1]!), rawMatch[2]!, Number(rawMatch[3]!), mode);
+      return rawEvent(sourceId(rawMatch[1]!), rawMatch[2]!, Number(rawMatch[3]!));
     }
 
     if (url.pathname.startsWith("/api/sessions/")) {

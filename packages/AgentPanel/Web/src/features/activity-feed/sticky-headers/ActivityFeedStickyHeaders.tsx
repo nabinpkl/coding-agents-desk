@@ -27,13 +27,10 @@ export function userMessageText(ev: ActivityEvent): string {
 // Click to jump back to the original message (and break sticky-bottom so the
 // jump actually holds instead of snapping to the live tail).
 export function StickyUserHeader({
-  index, text, onClick, buttonRef,
+  text, onClick, buttonRef,
 }: {
-  /**
-   * The message's row number in this view, or null for one the feed has not loaded. That one is
-   * named by the sidecar by transcript line, and a line is not a row number in the nice view.
-   */
-  index: number | null;
+  // No row number: a transcript row is named by the byte its line starts at (ADR-0124), which is
+  // an address and not something a reader counts by.
   text: string;
   onClick: () => void;
   buttonRef: React.RefObject<HTMLButtonElement | null>;
@@ -49,7 +46,7 @@ export function StickyUserHeader({
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <span className="shrink-0 rounded-md bg-primary/30 px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-semibold uppercase tracking-wider text-primary">
-        {index === null ? "user" : `user #${index}`}
+        user
       </span>
       <span className="min-w-0 flex-1 truncate leading-snug text-foreground">
         {preview || "(no text)"}

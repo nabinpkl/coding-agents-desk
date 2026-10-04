@@ -30,7 +30,9 @@ export interface SessionReference {
 
 export interface EventsPage {
   events: ActivityEvent[];
-  total: number;
+  /** The oldest row's index when older rows exist, and 0 when the page reaches the first row:
+   *  the next older page is the one before this. */
+  windowStart: number;
   /** Session occupancy, not page occupancy: always the latest the transcript has
    *  published, even on a page of older events. */
   usage: TokenUsage | null;
@@ -43,8 +45,6 @@ export interface EventsPage {
 }
 
 export interface SessionEventsSnapshot extends EventsPage {
-  /** First event index present in this window. */
-  windowStart: number;
   /** Whether this session's indices mean the same line on every open, so rows the
    *  reader paged in below `windowStart` are still about this transcript. Absent
    *  means they are not: the window replaces whatever was held. */
@@ -83,7 +83,8 @@ export interface SessionEventsHandlers {
    *  being compacted from one that finished its turn. */
   onCompacting?: (summary: string | null) => void;
   onOpen?: () => void;
-  onError?: () => void;
+  /** The stream dropped, or the sidecar said why it could not serve this session (the message). */
+  onError?: (message?: string) => void;
 }
 
 export interface AgentSessionState {
@@ -95,10 +96,11 @@ export interface AgentSessionState {
 export type AgentSessionControlState = Pick<AgentSessionState, "runState" | "queue">;
 
 export interface AgentDataSource {
-  /** Fetches a page of events for a session. Throws on non-ok HTTP. */
+  /** Fetches the newest `limit` events below `before`, or the newest of all when it is null.
+   *  Throws on non-ok HTTP. */
   fetchEventsPage(
     session: SessionReference,
-    offset: number,
+    before: number | null,
     limit: number,
   ): Promise<EventsPage>;
 

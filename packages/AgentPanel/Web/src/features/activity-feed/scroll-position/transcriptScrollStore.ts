@@ -22,7 +22,10 @@ export interface TranscriptScrollSession {
   sessionId: string;
 }
 
-const STORAGE_KEY = "agent-panel.transcript-scroll";
+// `.positions` since rows are named by the byte their line starts at. A place stored under the old
+// key holds a row NUMBER, which read as a position names a line near the top of the file, so it
+// would have restored every thread to its first page rather than being forgotten.
+const STORAGE_KEY = "agent-panel.transcript-scroll.positions";
 
 /** How many sessions keep a remembered place. Oldest out first, so recent reading survives. */
 const REMEMBERED_SESSIONS = 64;

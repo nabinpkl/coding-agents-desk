@@ -84,7 +84,6 @@
         }
       ],
       "windowStart": 0,
-      "total": 2,
       "stableIndices": false,
       "runState": "idle",
       "queue": {
@@ -117,7 +116,6 @@
         }
       ],
       "windowStart": 0,
-      "total": 3,
       "runState": "running",
       "queue": {
         "steer": 1,
@@ -189,7 +187,7 @@
         ]
       }
     ],
-    "total": 2,
+    "windowStart": 0,
     "mode": "nice",
     "usage": null,
     "sequence": 2,

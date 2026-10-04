@@ -21,9 +21,13 @@ function harness(index: number, blocks: ActivityEvent["blocks"]): ActivityEvent 
   return { ...event(index, "assistant"), type: "user", blocks };
 }
 
-/** Serves a fixed list, honouring offset/limit the way the real readers do. */
+/** Serves a fixed list, honouring before/limit the way the real readers do. */
 function reader(events: ActivityEvent[]): PageReader {
-  return async (offset, limit) => ({ events: events.slice(offset, offset + limit), total: events.length });
+  return async (before, limit) => {
+    const end = before ?? events.length;
+    const start = Math.max(0, end - limit);
+    return { events: events.slice(start, end), windowStart: start };
+  };
 }
 
 const options = {

@@ -28,10 +28,6 @@ afterEach(async () => {
   // started the catalog would otherwise leave running into the next one.
   await stopCatalog();
   state.sessions.clear();
-  state.eventByteOffsets.clear();
-  state.indexed.clear();
-  state.indexedSizes.clear();
-  state.indexReferences.clear();
   await Promise.all(temporaryDirectories.splice(0).map((path) =>
     rm(path, { recursive: true, force: true })
   ));
@@ -146,8 +142,6 @@ describe("transcript catalog identity", () => {
       "Refactor the catalog",
       "fix the flaky test",
     ]);
-    expect(state.eventByteOffsets.size).toBe(0);
-    expect(state.indexed.size).toBe(0);
   });
 
   test("a session with neither a title nor a prompt renders as its id", () => {

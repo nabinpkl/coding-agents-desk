@@ -223,7 +223,7 @@ test("forks one of the Bot's own sessions from a message, and holds the brief fo
       requestId: "fork",
       launch: {
         title: "From ALPHA",
-        from: { ...claudeRef, eventId: `claude:${claudeRef.sessionId}:line:0` },
+        from: { ...claudeRef, eventId: `claude:${claudeRef.sessionId}:at:0` },
         prompt: "the sibling task",
       },
     },
@@ -251,7 +251,7 @@ test("refuses a fork from a row that is not one of the source's messages, before
 
   await expect(registry.addSessions(
     bot.botId,
-    { requestId: "fork", launch: { title: "No", from: { ...claudeRef, eventId: "claude:someone-else:line:0" } } },
+    { requestId: "fork", launch: { title: "No", from: { ...claudeRef, eventId: "claude:someone-else:at:0" } } },
     { kind: "user" },
   )).rejects.toThrow(BotInvalidError);
   expect(launched).toEqual([]);

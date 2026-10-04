@@ -1,7 +1,7 @@
 // The adapter seam: each adapter knows its own JSONL layout and translates one
 // line into an optional ActivityEvent plus whatever state that line updates --
 // turn boundary, title, cwd, context occupancy, and whether the nice view keeps
-// it. The sidecar owns catalog watching, on-demand byte indexing, and streaming.
+// it. The sidecar owns catalog watching, reading pages by byte position, and streaming.
 //
 // The shapes an adapter EMITS are the wire contract and live in
 // `agent-feed/wire`, one definition shared with the Agent Panel; they are

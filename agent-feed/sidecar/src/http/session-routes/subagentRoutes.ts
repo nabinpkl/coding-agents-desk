@@ -6,11 +6,11 @@
 // this endpoint is reachable from a phone, and a route that opened a path a caller handed it
 // would be a read oracle over everything the sidecar can open (ADR-0099).
 //
-// The index is keyed on the parent session AND the agent, which is what keeps a subagent's lines
+// The follow is keyed on the parent session AND the agent, which is what keeps a subagent's lines
 // out of the session's own timeline. Every record in these files carries the PARENT's sessionId,
-// so a key built from the record's own contents would collide by construction. `ensureIndexed`
-// takes the path as an argument and treats the key as opaque, so a composite key reuses the whole
-// index -- build, tail, fan-out -- with no change to it.
+// so a key built from the record's own contents would collide by construction. The transcript
+// reads take the path as an argument and treat the key as opaque, so a composite key reuses the
+// whole of them -- pages, follow, fan-out -- with no change.
 
 import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -21,11 +21,13 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { encodeServerSentEvent, startServerSentEventStream } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
+import { followTranscript } from "@/transcripts/transcript-reads/transcriptFollow";
+import { completeEnd } from "@/transcripts/transcript-reads/transcriptLines";
 import {
-  followTranscript,
-  readEvents,
-  subscribeEvents,
-} from "@/transcripts/event-index/eventIndex";
+  eventsOf,
+  parsedLinesBetween,
+  type ParsedTranscriptLine,
+} from "@/transcripts/transcript-reads/transcriptPages";
 import { claudeTranscriptPath } from "@/tasks/taskIdentity";
 
 // Hex only, and bounded. A subagent id is 17 hex characters today; the width is loose so a
@@ -121,45 +123,42 @@ export function createSubagentRoutes(): RouteHandler {
         }
 
         const key = indexKey(sessionId, agentId);
-        const release = followTranscript("claude", key, path, () => {});
-
-        // Subscribed BEFORE the opening read, because the read is what builds the index and the
-        // index fans events out as it parses them -- so subscribing afterwards drops everything
-        // that arrived while it ran. The cost is that those same events reach this subscriber
-        // before the snapshot exists to append them to, which is why they are held rather than
-        // sent, and then filtered by the snapshot's own length: a nice index below it is already
-        // in the snapshot, and one at or above it is genuinely new.
-        let snapshotLength: number | null = null;
-        const held: { index: number; event: ActivityEvent }[] = [];
-        const unsubscribe = subscribeEvents("claude", key, (notice) => {
-          // A machinery line has no nice index and is not part of what this viewer reads.
-          if (notice.niceIndex === null) return;
-          if (snapshotLength === null) {
-            held.push({ index: notice.niceIndex, event: notice.event });
-            return;
-          }
-          // Append only. Each event is handed out once, so this viewer's list only ever grows --
-          // the property the session timeline had to be taught.
-          if (notice.niceIndex < snapshotLength) return;
-          send({ kind: "append", event: notice.event });
-        });
-        cleanup = () => {
-          unsubscribe();
-          release();
+        // Listening BEFORE the opening read, so a line written while it runs is held rather than
+        // lost in the gap between the two; anything at or before the newest line already sent is
+        // dropped at the seam. Lines go out in file order, each once, so this viewer's list only
+        // ever grows -- the property the session timeline had to be taught.
+        let ready = false;
+        let delivered = -1;
+        let last: number | null = null;
+        const held: ParsedTranscriptLine[] = [];
+        const deliver = (line: ParsedTranscriptLine): void => {
+          if (line.position <= delivered) return;
+          delivered = line.position;
+          const [event] = eventsOf("claude", key, [line], "nice", last);
+          if (!event) return;
+          last = event.index;
+          send({ kind: "append", event });
         };
+        const follow = followTranscript(
+          "claude",
+          key,
+          path,
+          (line) => {
+            if (ready) deliver(line);
+            else held.push(line);
+          },
+          () => {},
+        );
+        cleanup = () => follow.release();
         if (closed) {
-          // Left while the index was being built. Release what was just acquired rather than
-          // waiting for a teardown that has already run.
           cleanup();
           return;
         }
 
-        // Subscribed BEFORE the opening read, so an event parsed while it runs is appended rather
-        // than lost in the gap between the two. A duplicate at the seam is the safer failure and
-        // the index does not produce one: it fans each event out once, as it is first parsed.
         const forkOrigin = await readForkOrigin(path);
         // The whole run, not a tail. See the note on `SubagentTranscriptMessage`.
-        const events = await readEvents("claude", key, path, 0, Number.MAX_SAFE_INTEGER, "nice");
+        const end = await completeEnd(path);
+        const events = eventsOf("claude", key, await parsedLinesBetween("claude", path, 0, end), "nice", null);
         send({
           kind: "snapshot",
           agentId,
@@ -167,12 +166,14 @@ export function createSubagentRoutes(): RouteHandler {
           total: events.length,
           ...(forkOrigin ? { forkOrigin } : {}),
         });
-        snapshotLength = events.length;
-        for (const { index, event } of held) {
-          if (index < snapshotLength) continue;
-          send({ kind: "append", event });
+        delivered = end - 1;
+        last = events.at(-1)?.index ?? null;
+        const from = follow.start(end, { usage: null, model: undefined });
+        if (from > end) {
+          for (const line of await parsedLinesBetween("claude", path, end, from)) deliver(line);
         }
-        held.length = 0;
+        ready = true;
+        for (const line of held.splice(0)) deliver(line);
       })();
 
       return () => {

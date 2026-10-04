@@ -11,7 +11,7 @@
 // one stream and reads messages off it.
 
 import type { AgentBackend } from "@/agents/agentBackend";
-import { stampSessionModel } from "@/agents/agentBackend";
+import { backendPageBefore, stampSessionModel } from "@/agents/agentBackend";
 import {
   findSession,
   getWatcherState,
@@ -26,7 +26,12 @@ import type {
 } from "@/transcripts/transcriptTypes";
 import { TIMELINE_HEARTBEAT_MS, type EventsPage, type TimelineMessage } from "@agentdesk/agent-feed-wire";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
-import { readTranscriptPage, subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
+import { subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
+import {
+  readPageBefore,
+  readSessionMeter,
+  type SessionMeter,
+} from "@/transcripts/transcript-reads/transcriptPages";
 import { TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
 import type { RouteHandler } from "@/http/route";
 
@@ -291,8 +296,7 @@ function timelineStream(options: {
           sequence: window.page.sequence,
           mode: window.page.mode,
           events: window.page.events,
-          windowStart: window.windowStart,
-          total: window.page.total,
+          windowStart: window.page.windowStart,
           // A transcript is append-only, so its indices survive a reconnect and the
           // reader may keep whatever it paged in below this window. Opencode's
           // projection has the same property for its live stream: rows are upserted
@@ -316,11 +320,19 @@ function timelineStream(options: {
       // Followed from the window's own sequence rather than from zero, so the
       // stream resumes exactly where the snapshot ended with no gap to reconcile
       // and no rows delivered twice.
-      if (transcript) {
-        hold(subscribeTranscriptTimeline(transcript, sessionId, window.page.sequence, mode, {
-          onEnvelope: (envelope) => emit({ type: "timeline", envelope }),
-          onError: (message) => fail("timeline-stream-failed", message),
-        }));
+      if (transcript && window.follow) {
+        hold(subscribeTranscriptTimeline(
+          transcript,
+          sessionId,
+          window.follow.end,
+          window.follow.meter,
+          mode,
+          {
+            onEnvelope: (envelope) => emit({ type: "timeline", envelope }),
+            onError: (message) => fail("timeline-stream-failed", message),
+          },
+          window.page.events.at(-1)?.index ?? null,
+        ));
       } else if (backend) {
         // Stamped per envelope rather than captured, the same way usage is read per write in
         // the transcript follower: a model switch mid-stream must travel on the next envelope.
@@ -375,35 +387,43 @@ function timelineStream(options: {
 const HEARTBEAT_BYTES = encodeServerSentEvent({ type: "heartbeat" } satisfies TimelineMessage);
 
 /**
- * The last `TIMELINE_WINDOW` events of a session, and where in the session they
- * start. Null when the session cannot be read at all.
+ * The window a stream opens on: the newest `TIMELINE_WINDOW` rows, read back from the end.
  *
- * Two reads rather than one: the first is a probe for the count, which is what says
- * where the window begins. A session shorter than the window starts at 0 and the
- * probe already answered it.
+ * One read, sized by the window and never by the session. It used to be two -- a probe for the row
+ * count, then the window that count placed -- and the count was what cost the whole file. For a
+ * transcript it also says where the window ENDS and what the meter read there, which is where the
+ * follow that streams the rest has to begin.
  */
 async function openingWindow(
   sessionId: string,
   mode: EventMode,
   backend: AgentBackend | undefined,
   transcript: TranscriptSourceId | null,
-): Promise<{ page: EventsPage; windowStart: number } | null> {
-  const read = async (offset: number, limit: number): Promise<EventsPage | null> => {
-    if (transcript) {
-      return readTranscriptPage(transcript, sessionId, offset, limit, mode);
-    }
-    if (!backend) return null;
-    const page = await backend.page(sessionId, offset, limit, mode);
-    return { ...page, usage: backendUsage(backend, sessionId), ...stampSessionModel(backend, sessionId) };
+): Promise<{ page: EventsPage; follow: { end: number; meter: SessionMeter } | null } | null> {
+  if (transcript) {
+    const session = findSession(transcript, sessionId);
+    if (!session?.transcriptPath) return null;
+    const page = await readPageBefore(transcript, sessionId, session.transcriptPath, null, TIMELINE_WINDOW, mode);
+    const meter = await readSessionMeter(transcript, session.transcriptPath, page.end);
+    return {
+      page: {
+        events: page.events,
+        windowStart: page.windowStart,
+        mode,
+        usage: meter.usage,
+        sequence: page.end,
+        runState: "idle",
+        queue: { steer: 0, followUp: 0 },
+      },
+      follow: { end: page.end, meter },
+    };
+  }
+  if (!backend) return null;
+  const { total: _total, ...page } = await backendPageBefore(backend, sessionId, null, TIMELINE_WINDOW, mode);
+  return {
+    page: { ...page, usage: backendUsage(backend, sessionId), ...stampSessionModel(backend, sessionId) },
+    follow: null,
   };
-
-  const probe = await read(0, 1);
-  if (!probe) return null;
-  const windowStart = Math.max(0, probe.total - TIMELINE_WINDOW);
-  if (windowStart >= probe.total) return { page: { ...probe, events: [] }, windowStart };
-  const page = await read(windowStart, probe.total - windowStart);
-  if (!page) return null;
-  return { page, windowStart };
 }
 
 function errorResponse(code: string, message: string, status: number): Response {

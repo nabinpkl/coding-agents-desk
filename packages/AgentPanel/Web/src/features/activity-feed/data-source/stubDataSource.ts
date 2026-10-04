@@ -12,7 +12,7 @@ import type { AgentDataSource } from "@/features/activity-feed/data-source/Agent
  */
 export function stubDataSource(overrides: Partial<AgentDataSource> = {}): AgentDataSource {
   return {
-    fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
+    fetchEventsPage: async () => ({ events: [], windowStart: 0, usage: null }),
     subscribeSessionEvents: () => () => {},
     fetchRawEvent: async () => "",
     eventImageUrl: () => null,

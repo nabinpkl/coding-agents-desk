@@ -53,7 +53,7 @@ function get(path: string): Promise<Response> {
 test("serves the bytes behind an image block as the image itself", async () => {
   await transcriptWithPastedImage();
 
-  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/image?mode=nice`);
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/image`);
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("image/png");
@@ -64,17 +64,20 @@ test("serves the bytes behind an image block as the image itself", async () => {
 test("refuses a block that is not an image, rather than serving its text as one", async () => {
   await transcriptWithPastedImage();
 
-  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/image?mode=nice`);
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/image`);
 
   expect(response.status).toBe(404);
 });
 
-test("refuses a mode it does not know, because an index means a different line in each", async () => {
+test("names a row by its position alone, so a view in the address changes nothing", async () => {
+  // The index is the byte the line starts at, the same line in the raw and nice views.
   await transcriptWithPastedImage();
 
-  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/image?mode=pretty`);
+  const plain = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/image`);
+  const viewed = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/image?mode=raw`);
 
-  expect(response.status).toBe(400);
+  expect(plain.status).toBe(200);
+  expect(await viewed.arrayBuffer()).toEqual(await plain.arrayBuffer());
 });
 
 test("leaves every other path to the routes after it", async () => {
@@ -121,7 +124,7 @@ test("serves a picture a call handed over, named by its place in that call", asy
   await writeFile(picture, Buffer.from(PNG_BASE64, "base64"));
   await transcriptSendingFiles([picture]);
 
-  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`);
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`);
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("image/png");
@@ -137,10 +140,10 @@ test("serves nothing the transcript did not name, whatever the request asks for"
   await transcriptSendingFiles([picture]);
 
   // Past the end of the list the call actually made.
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1?mode=nice`)).status)
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1`)).status)
     .toBe(404);
   // And a block that hands nothing over.
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/files/0?mode=nice`)).status)
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/files/0`)).status)
     .toBe(404);
 });
 
@@ -152,12 +155,12 @@ test("refuses a file whose bytes are not the picture its name promises", async (
   await transcriptSendingFiles([secret, join(root, "gone.png"), root]);
 
   // Named by the transcript, extension and all, and still refused: the bytes are sniffed.
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`)).status)
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`)).status)
     .toBe(415);
   // A path that is not there, and a directory.
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1?mode=nice`)).status)
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1`)).status)
     .toBe(404);
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/2?mode=nice`)).status)
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/2`)).status)
     .toBe(404);
 });
 
@@ -168,7 +171,7 @@ test("serves a page a call handed over, in an origin of its own", async () => {
   await writeFile(page, "<!doctype html><title>Ten eyes</title>\n");
   await transcriptSendingFiles([page]);
 
-  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`);
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`);
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
@@ -191,7 +194,7 @@ test("serves a text file as text, whatever it is called", async () => {
   await writeFile(report, "1432 tests passed\n");
   await transcriptSendingFiles([report]);
 
-  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`);
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`);
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
@@ -206,7 +209,7 @@ test("hands a file it cannot recognise over as a download rather than rendering 
   await writeFile(blob, Buffer.from([0x00, 0x01, 0xff, 0xfe, 0x00]));
   await transcriptSendingFiles([blob]);
 
-  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`);
+  const response = await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`);
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("application/octet-stream");
@@ -218,7 +221,7 @@ test("hands a file it cannot recognise over as a download rather than rendering 
 test("refuses a relative path, which names a directory nobody agreed on", async () => {
   await transcriptSendingFiles(["render.png"]);
 
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0?mode=nice`)).status)
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`)).status)
     .toBe(404);
 });
 
@@ -245,7 +248,7 @@ function getOpencode(path: string): Promise<Response> {
 }
 
 test("serves an opencode picture by its event and block address", async () => {
-  const response = await getOpencode("/api/sessions/opencode/ses_abc/events/4/blocks/2/image?mode=nice");
+  const response = await getOpencode("/api/sessions/opencode/ses_abc/events/4/blocks/2/image");
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("image/png");
@@ -262,12 +265,7 @@ test("an opencode address naming no picture is a 404, not a neighbouring row's",
     .toBe(404);
 });
 
-test("an opencode image needs a mode it knows, like every event index does", async () => {
-  expect((await getOpencode("/api/sessions/opencode/ses_abc/events/4/blocks/2/image?mode=pretty")).status)
-    .toBe(400);
-});
-
 test("without a store the opencode pattern falls through to the routes after it", async () => {
-  const request = new Request("http://localhost/api/sessions/opencode/ses_abc/events/4/blocks/2/image?mode=nice");
+  const request = new Request("http://localhost/api/sessions/opencode/ses_abc/events/4/blocks/2/image");
   expect(await Promise.resolve(route(request, new URL(request.url), server))).toBeUndefined();
 });

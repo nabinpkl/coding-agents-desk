@@ -181,8 +181,8 @@ describe("live tail collapse state", () => {
     // the text: a collapsed row keeps a one-line preview of its own content, so the
     // message being written is still findable by text with the bug present.
     const durableToggle = screen
-      .getAllByRole("button")
-      .find((button) => (button.getAttribute("title") ?? "").startsWith("#3"));
+      .getAllByLabelText(/^collapse event/)
+      .find((button) => button.getAttribute("title") !== "streaming");
     expect(durableToggle).toBeDefined();
     act(() => durableToggle!.click());
 

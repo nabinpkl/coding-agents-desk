@@ -174,7 +174,6 @@ test("a thread opens at its end, not at its beginning", async () => {
   const envelope = envelopeOf(messages[0]);
   expect(envelope.kind).toBe("snapshot");
   expect(envelope.windowStart).toBe(250 - TIMELINE_WINDOW);
-  expect(envelope.total).toBe(250);
   expect(envelope.events.length).toBe(TIMELINE_WINDOW);
   expect(envelope.events[0]!.index).toBe(150);
   await leave();
@@ -264,7 +263,6 @@ function liveEnvelope(events: ActivityEvent[], sequence: number): TimelineEnvelo
     mode: "nice",
     events,
     windowStart: events[0]?.index ?? 0,
-    total: 1,
     runState: "running",
     queue: { steer: 0, followUp: 0 },
   };

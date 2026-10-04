@@ -41,8 +41,6 @@ function timeline(mode: EventMode): FixtureRoute {
       mode,
       events,
       windowStart: 0,
-      // One past the seed, because a live chunk follows.
-      total: events.length + 1,
       runState: "running",
       queue: { steer: 0, followUp: 0 },
       // Occupancy on the seed. Claude publishes no window in the transcript, so the sidecar
@@ -69,7 +67,6 @@ function timeline(mode: EventMode): FixtureRoute {
         },
       ],
       windowStart: 0,
-      total: events.length + 1,
       runState: "idle",
       queue: { steer: 0, followUp: 0 },
       // A later, larger reading on the appended envelope, so the fixture exercises the thing the
@@ -178,7 +175,6 @@ function liveTurn(mode: EventMode, sequence: number): Array<{ delay: number; pay
             blocks: withTool,
           }],
           windowStart: 0,
-          total: sequence + 1,
           runState: "idle",
           queue: { steer: 0, followUp: 0 },
         },

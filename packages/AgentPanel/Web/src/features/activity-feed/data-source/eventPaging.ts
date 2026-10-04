@@ -1,52 +1,41 @@
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+
 export const PAGE_SIZE = 100;
 
 /**
- * Returns the offset and limit for seeding the last page of events.
- * Mirrors the seed range math in useSessionEventsStream (lines 67-68).
+ * The index of the row before `event` in its mode, or null when nothing precedes it.
+ *
+ * A transcript row says so itself: its index is a byte position, so neighbours are not adjacent
+ * numbers. A runtime-backed row does not, because its ordinals are contiguous and the row before
+ * index N is N - 1.
  */
-export function seedRange(
-  total: number,
-  pageSize = PAGE_SIZE,
-): { offset: number; limit: number } {
-  const offset = Math.max(0, total - pageSize);
-  const limit = total - offset;
-  return { offset, limit };
-}
-
-/**
- * Returns the targetStart and limit for loading one page of older events.
- * Mirrors the older-range math in useSessionEventsStream (lines 115-116).
- */
-export function olderRange(
-  currentStart: number,
-  pageSize = PAGE_SIZE,
-): { targetStart: number; limit: number } {
-  const targetStart = Math.max(0, currentStart - pageSize);
-  const limit = currentStart - targetStart;
-  return { targetStart, limit };
+export function previousIndex(event: Pick<ActivityEvent, "index" | "previous">): number | null {
+  if (event.previous !== undefined) return event.previous;
+  return event.index > 0 ? event.index - 1 : null;
 }
 
 /**
  * The page of missing rows nearest the newest end of what is held, or null when what is held has
  * no hole in it.
  *
- * Indices in a mode have no gaps -- measured on a live session in both modes -- so a hole is rows
- * the reader was never sent, not rows that do not exist. What makes one is a reconnect after a
- * stall longer than a window: the snapshot's window starts past the newest row held from before.
+ * A hole is a held row whose previous row is not the held row below it -- rows the reader was
+ * never sent. What makes one is a reconnect after a stall longer than a window: the snapshot's
+ * window starts past the newest row held from before. Asked for as the page ending before the
+ * row above the hole, so each page lands joined to the rows already on screen, and the next one,
+ * if the hole is deeper than a page, is asked for below that.
  *
- * Newest first, because that is the end the reader is most often at, and each page then lands
- * joined to the rows already on screen rather than as an island in the middle of the hole.
+ * Newest first, because that is the end the reader is most often at.
  */
 export function newestGap(
-  sortedIndices: readonly number[],
+  sorted: readonly Pick<ActivityEvent, "index" | "previous">[],
   pageSize = PAGE_SIZE,
-): { offset: number; limit: number } | null {
-  for (let position = sortedIndices.length - 1; position > 0; position -= 1) {
-    const above = sortedIndices[position]!;
-    const below = sortedIndices[position - 1]!;
-    if (above - below <= 1) continue;
-    const offset = Math.max(below + 1, above - pageSize);
-    return { offset, limit: above - offset };
+): { before: number; limit: number } | null {
+  for (let position = sorted.length - 1; position > 0; position -= 1) {
+    const above = sorted[position]!;
+    const below = sorted[position - 1]!;
+    const previous = previousIndex(above);
+    if (previous === null || previous <= below.index) continue;
+    return { before: above.index, limit: pageSize };
   }
   return null;
 }

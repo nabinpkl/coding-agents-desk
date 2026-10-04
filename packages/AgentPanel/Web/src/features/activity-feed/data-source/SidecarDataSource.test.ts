@@ -59,14 +59,19 @@ describe("SidecarDataSource", () => {
     const transport = new FakeHttpTransport();
     transport.defaultResponse = {
       status: 200,
-      body: JSON.stringify({ events: [event(0)], total: 1, usage: null }),
+      body: JSON.stringify({ events: [event(0)], windowStart: 0, usage: null }),
     };
     const source = new SidecarDataSource(transport);
 
     await source.fetchEventsPage(SESSION, 40, 20);
-
     expect(transport.requests.at(-1)?.path).toBe(
-      "/api/sessions/claude/sid-1/events?offset=40&limit=20&mode=nice",
+      "/api/sessions/claude/sid-1/events?before=40&limit=20&mode=nice",
+    );
+
+    // The newest page names no position at all.
+    await source.fetchEventsPage(SESSION, null, 20);
+    expect(transport.requests.at(-1)?.path).toBe(
+      "/api/sessions/claude/sid-1/events?limit=20&mode=nice",
     );
   });
 
@@ -74,7 +79,7 @@ describe("SidecarDataSource", () => {
     const transport = new FakeHttpTransport();
     transport.defaultResponse = {
       status: 200,
-      body: JSON.stringify({ events: [event(0)], total: 1, usage: null }),
+      body: JSON.stringify({ events: [event(0)], windowStart: 0, usage: null }),
     };
     const source = new SidecarDataSource(transport);
 
@@ -85,7 +90,7 @@ describe("SidecarDataSource", () => {
     );
 
     expect(transport.requests.at(-1)?.path).toBe(
-      "/api/agent-sessions/opencode/ses_abc/events?offset=2400&limit=100&mode=nice",
+      "/api/agent-sessions/opencode/ses_abc/events?before=2400&limit=100&mode=nice",
     );
   });
 
@@ -114,7 +119,6 @@ describe("SidecarDataSource", () => {
         mode: "nice",
         events: [event(0)],
         windowStart: 4,
-        total: 11,
         runState: "running",
         queue: { steer: 1, followUp: 2 },
         usage: { current: 100, limit: 200, updatedAt: 5 },
@@ -129,7 +133,6 @@ describe("SidecarDataSource", () => {
         mode: "nice",
         events: [event(1)],
         windowStart: 4,
-        total: 12,
         runState: "running",
         queue: { steer: 1, followUp: 2 },
       },
@@ -138,7 +141,6 @@ describe("SidecarDataSource", () => {
     expect(sink.snapshots).toEqual([
       {
         events: [event(0)],
-        total: 11,
         usage: { current: 100, limit: 200, updatedAt: 5 },
         sessionModel: "p/m",
         windowStart: 4,
@@ -281,7 +283,7 @@ describe("SidecarDataSource", () => {
 
     expect(line).toBe('{"type":"assistant"}');
     expect(transport.requests.at(-1)?.path).toBe(
-      "/api/sessions/claude/sid-1/events/4/raw?mode=nice",
+      "/api/sessions/claude/sid-1/events/4/raw",
     );
   });
 

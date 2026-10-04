@@ -25,8 +25,8 @@ import {
 } from "@/terminal/claudeSessionLaunch";
 import { LIVE_FORK_REWINDER } from "@/transcripts/session-ops/forkRewind";
 import {
-  anchorAtLine,
-  lineFromEventId,
+  anchorAtPosition,
+  positionFromEventId,
   MessageAnchorError,
   type MessageAnchor,
 } from "@/transcripts/messageAnchor";
@@ -265,10 +265,10 @@ export async function resolveMessageAnchor(
     throw new SessionForkInvalidError("from.eventId must be a string");
   }
   try {
-    return await anchorAtLine(
+    return await anchorAtPosition(
       sessionId,
       transcriptPath,
-      lineFromEventId((from as { eventId: string }).eventId, sessionId),
+      positionFromEventId((from as { eventId: string }).eventId, sessionId),
     );
   } catch (error) {
     if (error instanceof MessageAnchorError) throw new SessionForkInvalidError(`from: ${error.message}`);

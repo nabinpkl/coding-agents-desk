@@ -46,11 +46,12 @@ function subagentTranscriptPath(session: SessionReference, agentId: string): str
     `${encodeURIComponent(session.sessionId)}/agents/${encodeURIComponent(agentId)}/transcript`;
 }
 
-function eventsPath(session: SessionReference, offset: number, limit: number): string {
+function eventsPath(session: SessionReference, before: number | null, limit: number): string {
   // Opencode is backend-owned, so its page lives beside the other live-backend
   // routes. The generic path is for transcript-backed sources and Pi.
   const root = session.source === "opencode" ? "/api/agent-sessions" : "/api/sessions";
-  return `${root}/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events?offset=${offset}&limit=${limit}&mode=${session.mode}`;
+  const from = before === null ? "" : `before=${before}&`;
+  return `${root}/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events?${from}limit=${limit}&mode=${session.mode}`;
 }
 
 /**
@@ -77,15 +78,15 @@ export class SidecarTranscript extends SidecarRoutes {
 
   async fetchEventsPage(
     session: SessionReference,
-    offset: number,
+    before: number | null,
     limit: number,
   ): Promise<EventsPage> {
     const page = parse<WireEventsPage>(
-      await this.transport.request("GET", eventsPath(session, offset, limit)),
+      await this.transport.request("GET", eventsPath(session, before, limit)),
     );
     return {
       events: page.events,
-      total: page.total,
+      windowStart: page.windowStart,
       usage: page.usage ?? null,
       sessionModel: page.sessionModel ?? null,
       projectionId: page.projectionId,
@@ -228,7 +229,6 @@ export class SidecarTranscript extends SidecarRoutes {
         if (envelope.kind === "snapshot") {
           handlers.onSnapshot({
             events: envelope.events,
-            total: envelope.total,
             usage: envelope.usage ?? null,
             sessionModel: envelope.sessionModel ?? null,
             windowStart: envelope.windowStart ?? 0,
@@ -248,7 +248,7 @@ export class SidecarTranscript extends SidecarRoutes {
         this.uiListeners.forEach((listener) => listener(message.event));
         return;
       case "error":
-        handlers.onError?.();
+        handlers.onError?.(message.error.message);
         return;
       case "heartbeat":
         // Already counted: arriving at all is what it is for.
@@ -265,7 +265,7 @@ export class SidecarTranscript extends SidecarRoutes {
   async fetchRawEvent(session: SessionReference, eventIndex: number): Promise<string> {
     const response = await this.transport.request(
       "GET",
-      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/raw?mode=${session.mode}`,
+      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/raw`,
     );
     if (response.status < 200 || response.status >= 300) {
       throw new SidecarError("raw-event-failed", `sidecar answered ${response.status}`, response.status);
@@ -279,7 +279,7 @@ export class SidecarTranscript extends SidecarRoutes {
    */
   eventImageUrl(session: SessionReference, eventIndex: number, blockIndex: number): string | null {
     return this.transport.resourceUrl?.(
-      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/image?mode=${session.mode}`,
+      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/image`,
     ) ?? null;
   }
 
@@ -291,7 +291,7 @@ export class SidecarTranscript extends SidecarRoutes {
     fileIndex: number,
   ): string | null {
     return this.transport.resourceUrl?.(
-      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/files/${fileIndex}?mode=${session.mode}`,
+      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/files/${fileIndex}`,
     ) ?? null;
   }
 

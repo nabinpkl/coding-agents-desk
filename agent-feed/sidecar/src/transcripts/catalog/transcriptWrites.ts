@@ -1,11 +1,11 @@
 // A transcript under one of the watched corpora was written, and who wants to know.
 //
 // The catalog already watches every corpus with ONE recursive `fs.watch` per root, for the
-// reasons `watchTree.ts` sets out. This is the seam that lets the event index read that same
+// reasons `watchTree.ts` sets out. This is the seam that lets a transcript follow read that same
 // signal instead of opening a watch of its own: a transcript that grew has rows to hand to
 // whoever is following it.
 //
-// Why the index stopped watching for itself, measured 2026-09-15 against the running sidecar
+// Why the follow does not watch for itself, measured 2026-09-15 against the running sidecar
 // with a throwaway session and 20 sent messages. Its per-file watches were delivering a
 // transcript's growth 30 to 200 seconds late and in bursts, so a message a reader had just
 // sent did not appear until the turn after it. In the SAME process, at the same instants, the
@@ -16,7 +16,7 @@
 // process. One recursive watch per corpus stays healthy where those do not.
 //
 // Deliberately not typed to a source or a session. A publisher knows a path changed and
-// nothing else, and the index is the half that knows whether anyone is reading it.
+// nothing else, and the follow is the half that knows whether anyone is reading it.
 
 const listeners = new Set<(path: string) => void>();
 

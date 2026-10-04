@@ -18,7 +18,7 @@ import { sessionKey } from "@/bots/botIdempotency";
 import { BotInvalidError } from "@/bots/botTypes";
 
 const MAX_NAME = 64;
-/** A row id is `claude:<sessionId>:line:<n>`; past this it is not one. */
+/** A row id is `claude:<sessionId>:at:<byte>`; past this it is not one. */
 const MAX_EVENT_ID = 256;
 const MAX_DIRECTORY_PATH = 4_096;
 const MAX_ROLE = 120;

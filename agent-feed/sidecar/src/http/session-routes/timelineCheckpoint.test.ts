@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import type { ActivityEvent, TimelineEnvelope, TokenUsage } from "@agentdesk/agent-feed-wire";
 import { createTimelineFollower, TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
 import { subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
-import { syncIndex } from "@/transcripts/event-index/eventIndex";
+import { clearFollowsForTest, syncFollowedTranscript } from "@/transcripts/transcript-reads/transcriptFollow";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
 
@@ -55,7 +55,7 @@ test("a reader who is keeping up is sent the rows themselves", async () => {
   expect(envelopes.map((envelope) => envelope.kind)).toEqual(["upsert", "upsert", "upsert"]);
   expect(envelopes.map((envelope) => envelope.events[0]!.index)).toEqual([40, 41, 42]);
   // Each row names itself as the whole of what it is about, which is what the panel upserts on.
-  expect(envelopes[0]).toMatchObject({ windowStart: 40, total: 41, sequence: 41 });
+  expect(envelopes[0]).toMatchObject({ windowStart: 40, sequence: 41 });
 });
 
 test("a window's worth at once is still rows, not a checkpoint", async () => {
@@ -75,7 +75,6 @@ test("more than a window at once is one checkpoint of the newest rows", async ()
   expect(checkpoint.events[0]!.index).toBe(598 - TIMELINE_WINDOW);
   expect(checkpoint.events.at(-1)!.index).toBe(597);
   expect(checkpoint.windowStart).toBe(598 - TIMELINE_WINDOW);
-  expect(checkpoint.total).toBe(598);
 });
 
 test("a checkpoint says its indices are stable, so scrollback survives it", async () => {
@@ -154,17 +153,7 @@ const roots: string[] = [];
 
 afterEach(async () => {
   state.sessions.clear();
-  state.eventByteOffsets.clear();
-  state.niceToRaw.clear();
-  state.indexedSizes.clear();
-  state.indexed.clear();
-  state.indexBuilds.clear();
-  state.indexResyncs.clear();
-  state.indexReferences.clear();
-  state.sessionUsage.clear();
-  state.eventSubscribers.clear();
-  state.transcriptFollows.clear();
-  state.transcriptFollowsByPath.clear();
+  clearFollowsForTest();
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -202,37 +191,50 @@ test("a transcript that grows past a window after the stream opened hands over a
     transcriptPath,
     lastEventAt: Date.now(),
   });
-  // Growth is driven by the explicit `syncIndex` below, which is exactly what a published write
-  // would have called, so the test is about the checkpoint rule rather than a race between a
-  // filesystem event and its own assertions. Nothing watches this directory.
+  // Growth is driven by the explicit `syncFollowedTranscript` below, which is exactly what a
+  // published write would have called, so the test is about the checkpoint rule rather than a race
+  // between a filesystem event and its own assertions. Nothing watches this directory.
 
   const envelopes: TimelineEnvelope[] = [];
   const errors: string[] = [];
-  // `after` is the opening window's own sequence, which is how the timeline route follows: the
+  // `after` is where the opening window ended, which is how the timeline route follows: the
   // reader already holds those three rows.
-  const stop = subscribeTranscriptTimeline(SOURCE, SESSION_ID, 3, "nice", {
-    onEnvelope: (envelope) => envelopes.push(envelope),
-    onError: (message) => errors.push(message),
-  });
+  const opened = Buffer.byteLength(`${opening.join("\n")}\n`);
+  const stop = subscribeTranscriptTimeline(
+    SOURCE,
+    SESSION_ID,
+    opened,
+    { usage: null, model: undefined },
+    "nice",
+    {
+      onEnvelope: (envelope) => envelopes.push(envelope),
+      onError: (message) => errors.push(message),
+    },
+    opened - Buffer.byteLength(`${opening[2]}\n`),
+  );
   expect(stop).not.toBeNull();
-  await waitFor(() => (state.eventSubscribers.get(key)?.size ?? 0) > 0);
+  await new Promise((resolve) => setTimeout(resolve, 20));
   expect(envelopes).toEqual([]);
 
   // The shape a resumed session writes: the whole prior conversation at once, after the reader
   // was told where the record ended.
   const replayed = Array.from({ length: 240 }, (_, offset) => contentLine(offset + 3));
   await appendFile(transcriptPath, `${replayed.join("\n")}\n`);
-  await syncIndex(SOURCE, SESSION_ID, transcriptPath);
-  await Promise.resolve();
+  syncFollowedTranscript(SOURCE, SESSION_ID);
+  await waitFor(() => envelopes.length > 0);
+  await new Promise((resolve) => setTimeout(resolve, 20));
 
   expect(errors).toEqual([]);
   // One message carrying the end of the record, not 240 appends walking a reader through it.
   expect(envelopes).toHaveLength(1);
   const checkpoint = envelopes[0]!;
   expect(checkpoint.kind).toBe("snapshot");
-  expect(checkpoint.total).toBe(243);
-  expect(checkpoint.windowStart).toBe(243 - TIMELINE_WINDOW);
   expect(checkpoint.events).toHaveLength(TIMELINE_WINDOW);
+  expect(checkpoint.events.at(-1)!.blocks[0]!.text).toBe("turn 242");
+  // A window onto rows the reader does not hold yet: it starts at its own oldest row, and that
+  // row names the one before it, which is what the panel pages the rest in from.
+  expect(checkpoint.windowStart).toBe(checkpoint.events[0]!.index);
+  expect(checkpoint.events[0]!.previous).toBeLessThan(checkpoint.events[0]!.index);
   expect(checkpoint.stableIndices).toBe(true);
   stop!();
 });
@@ -252,18 +254,29 @@ test("an ordinary turn's rows still arrive as rows", async () => {
   });
 
   const envelopes: TimelineEnvelope[] = [];
-  const stop = subscribeTranscriptTimeline(SOURCE, SESSION_ID, 1, "nice", {
-    onEnvelope: (envelope) => envelopes.push(envelope),
-    onError: () => {},
-  });
-  await waitFor(() => (state.eventSubscribers.get(key)?.size ?? 0) > 0);
+  const opened = Buffer.byteLength(`${contentLine(0)}\n`);
+  const stop = subscribeTranscriptTimeline(
+    SOURCE,
+    SESSION_ID,
+    opened,
+    { usage: null, model: undefined },
+    "nice",
+    { onEnvelope: (envelope) => envelopes.push(envelope), onError: () => {} },
+    0,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
 
-  await appendFile(transcriptPath, `${[1, 2, 3].map(contentLine).join("\n")}\n`);
-  await syncIndex(SOURCE, SESSION_ID, transcriptPath);
-  await Promise.resolve();
+  const appended = [1, 2, 3].map(contentLine);
+  await appendFile(transcriptPath, `${appended.join("\n")}\n`);
+  syncFollowedTranscript(SOURCE, SESSION_ID);
+  await waitFor(() => envelopes.length >= 3);
 
   expect(envelopes.map((envelope) => envelope.kind)).toEqual(["upsert", "upsert", "upsert"]);
-  expect(envelopes.map((envelope) => envelope.events[0]!.index)).toEqual([1, 2, 3]);
+  // Each row is named by where its line starts, and says which row came before it.
+  const second = opened + Buffer.byteLength(`${appended[0]}\n`);
+  const third = second + Buffer.byteLength(`${appended[1]}\n`);
+  expect(envelopes.map((envelope) => envelope.events[0]!.index)).toEqual([opened, second, third]);
+  expect(envelopes.map((envelope) => envelope.events[0]!.previous)).toEqual([0, opened, second]);
   stop!();
 });
 

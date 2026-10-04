@@ -98,7 +98,9 @@ export function createTimelineFollower(options: {
     if (closed || pending.size === 0) return;
     const events = [...pending.values()].sort((left, right) => left.index - right.index);
     pending.clear();
-    const total = events[events.length - 1]!.index + 1;
+    // One past the newest row's index orders an envelope after every one before it; for a
+    // transcript that is a byte inside the newest line, which no earlier line can reach.
+    const sequence = events[events.length - 1]!.index + 1;
     if (events.length <= window) {
       for (const event of events) {
         emit({
@@ -107,7 +109,6 @@ export function createTimelineFollower(options: {
           mode,
           events: [event],
           windowStart: event.index,
-          total: event.index + 1,
           runState: "idle",
           queue: { steer: 0, followUp: 0 },
           usage: usage(),
@@ -118,11 +119,11 @@ export function createTimelineFollower(options: {
     const kept = events.slice(-window);
     emit({
       kind: "snapshot",
-      sequence: total,
+      sequence,
       mode,
       events: kept,
-      windowStart: kept[0]!.index,
-      total,
+      // 0 only when nothing precedes the window, as on every page.
+      windowStart: kept[0]!.previous === null ? 0 : kept[0]!.index,
       runState: "idle",
       queue: { steer: 0, followUp: 0 },
       // On an append-only record this is a WINDOW onto something the reader may already hold more

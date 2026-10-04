@@ -105,7 +105,7 @@ describe("LiveAgentProjection", () => {
     const snapshot: TimelineEnvelope[] = [];
     projection.subscribe(0, (envelope) => snapshot.push(envelope))();
     expect(snapshot).toHaveLength(1);
-    expect(snapshot[0]).toMatchObject({ kind: "snapshot", sequence: 3, total: 3 });
+    expect(snapshot[0]).toMatchObject({ kind: "snapshot", sequence: 3, windowStart: 0 });
     expect(snapshot[0]?.events.map((event) => event.id)).toEqual([
       "event:0",
       "event:1",
@@ -133,7 +133,6 @@ describe("LiveAgentProjection", () => {
       kind: "snapshot",
       sequence: 150,
       windowStart: 50,
-      total: 150,
     });
     expect(recovered[0]?.events).toHaveLength(100);
     expect(recovered[0]?.events[0]?.id).toBe("event:50");

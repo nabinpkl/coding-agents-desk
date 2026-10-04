@@ -24,7 +24,7 @@ import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div /> }));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
-  fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
+  fetchEventsPage: async () => ({ events: [], windowStart: 0, usage: null }),
   subscribeSessionEvents: () => () => {},
   fetchRawEvent: async () => "",
 });

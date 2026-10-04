@@ -22,10 +22,10 @@ describe("layered inventory routes", () => {
     expect((response as Response).status).toBe(503);
   });
 
-  test("rejects malformed event pagination before opening an index", async () => {
+  test("rejects a malformed page position before reading anything", async () => {
     state.watcherState = "live";
     const request = new Request(
-      `http://localhost/api/sessions/codex/${sessionId}/events?offset=invalid`,
+      `http://localhost/api/sessions/codex/${sessionId}/events?before=invalid`,
     );
     const response = await handleSessionRoutes(
       request,
@@ -35,7 +35,6 @@ describe("layered inventory routes", () => {
 
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(400);
-    expect(state.eventByteOffsets.size).toBe(0);
   });
 
   test("does not retain the routes the one inventory stream replaced", async () => {

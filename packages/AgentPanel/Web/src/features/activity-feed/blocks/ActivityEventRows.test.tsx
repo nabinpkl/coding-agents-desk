@@ -25,7 +25,7 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
-  fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
+  fetchEventsPage: async () => ({ events: [], windowStart: 0, usage: null }),
   subscribeSessionEvents: () => () => {},
   fetchRawEvent: async () => "",
 });
@@ -268,7 +268,7 @@ describe("event heading", () => {
     expect(heading?.parentElement?.className).toContain("flow-root");
   });
 
-  it("moves the index and timestamp off the row and into its tooltip", () => {
+  it("moves the timestamp off the row and into its tooltip, and names no row number", () => {
     renderRow(
       <SegmentEventRow
         ev={event()}
@@ -280,10 +280,11 @@ describe("event heading", () => {
         isHighlighted={false}
       />,
     );
-    // Two values nobody scans by eye were spending permanent width on every row.
+    // A value nobody scans by eye was spending permanent width on every row. The index is not
+    // shown at all: a transcript row's is the byte its line starts at (ADR-0124).
     expect(screen.queryByText("#7")).toBeNull();
     const heading = screen.getByLabelText("collapse event");
-    expect(heading.getAttribute("title")).toContain("#7");
+    expect(heading.getAttribute("title")).not.toContain("#7");
     expect(heading.getAttribute("title")).toMatch(/\d{1,2}:\d{2}/);
   });
 

@@ -165,7 +165,7 @@ subscription, and optional control. A stable activity id, ordering index, revisi
 `streaming|complete` phase let one logical message or tool result replace itself while it streams.
 Each live session projection carries a monotonic sequence, a 256-mutation replay window, run and
 queue state, and bounded snapshots for gap recovery. Claude and Codex synthesize complete revision-0
-events from their transcript indexes; Pi maps SDK events into the same AgentDesk block vocabulary.
+events from their transcripts, each named by the byte its line starts at (ADR-0124); Pi maps SDK events into the same AgentDesk block vocabulary.
 Pi SDK objects and extension payloads never cross HTTP, Swift, QUIC, or React boundaries.
 
 Pi runtimes use the pinned official SDK and its existing agent directory, authentication, settings,

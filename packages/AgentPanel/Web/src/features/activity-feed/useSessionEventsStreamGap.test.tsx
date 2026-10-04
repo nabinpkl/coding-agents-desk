@@ -3,126 +3,110 @@
 // neither -- so they are fetched, rather than left as a hole that scrolling up never reaches,
 // because paging only ever asks for rows below the oldest one held.
 
-import type { ReactNode } from "react";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import type {
-  AgentDataSource,
-  EventsPage,
-  SessionEventsHandlers,
-} from "@/features/activity-feed/data-source/AgentDataSource";
-import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
-import {
-  useSessionEventsStream,
-  type ActivityEvent,
-} from "@/features/activity-feed/useSessionEventsStream";
+import type { EventsPage } from "@/features/activity-feed/data-source/AgentDataSource";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import { pageOf, renderThread, snapshotOf, thread } from "@/features/activity-feed/sessionEventsHarness";
 
 function row(index: number, label = "row", revision = 0): ActivityEvent {
   return { index, id: `${label}-${index}`, revision, phase: "complete", ts: index, type: "assistant", blocks: [] };
 }
 
-/** A transcript of `rows` rows that grows when told, and records every page asked of it. */
-function transcript(rows: number) {
-  const session = { rows, handlers: undefined as SessionEventsHandlers | undefined };
-  const pages: Array<[number, number]> = [];
-  let answer: (offset: number, limit: number) => Promise<EventsPage> = async (offset, limit) => ({
-    events: Array.from({ length: Math.max(0, Math.min(limit, session.rows - offset)) }, (_, at) => row(offset + at)),
-    total: session.rows,
-    usage: null,
-  });
-  const source: AgentDataSource = stubDataSource({
-    fetchEventsPage: (_session, offset, limit) => {
-      pages.push([offset, limit]);
-      return answer(offset, limit);
-    },
-    subscribeSessionEvents: (_session, _after, handlers) => {
-      session.handlers = handlers;
-      return () => {};
-    },
-    fetchRawEvent: async () => "",
-  });
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <DataSourceProvider source={source}>{children}</DataSourceProvider>
-  );
-  const view = renderHook(() => useSessionEventsStream("claude", "thread", "nice"), { wrapper });
+const range = (from: number, to: number) => Array.from({ length: to - from }, (_, at) => from + at);
+const indices = (events: ActivityEvent[]) => events.map((event) => event.index);
+
+/** A session of `rows` ordinal rows that grows when told, as a runtime projection's does. */
+function growing(rows: number) {
+  const session = { rows };
+  const harness = thread(range(0, rows).map((index) => row(index)), { stableIndices: true });
+  harness.answerWith(async (before, limit) => pageOf(range(0, session.rows).map((index) => row(index)), before, limit));
+  const view = renderThread(harness.source);
   return {
     view,
-    pages,
-    answerWith: (next: typeof answer) => {
-      answer = next;
-    },
-    /** The sidecar's reopened stream: its newest window, of a transcript that is now `rows` long. */
-    reconnect: (rows: number, sequence: number) => {
-      session.rows = rows;
-      act(() => session.handlers?.onSnapshot({
-        events: Array.from({ length: 100 }, (_, at) => row(rows - 100 + at)),
-        total: rows,
-        windowStart: rows - 100,
+    harness,
+    /** The sidecar's reopened stream: its newest window, of a session that is now `rows` long. */
+    reconnect: (next: number, sequence: number) => {
+      session.rows = next;
+      act(() => harness.handlers().onSnapshot(snapshotOf(range(next - 100, next).map((index) => row(index)), {
+        sequence,
+        windowStart: next - 100,
         stableIndices: true,
-        usage: null,
-        state: { sequence, runState: "running", queue: { steer: 0, followUp: 0 } },
-      }));
+      })));
     },
   };
 }
 
-const indices = (events: ActivityEvent[]) => events.map((event) => event.index);
-const range = (from: number, to: number) => Array.from({ length: to - from }, (_, at) => from + at);
-
 test("fetches the rows a reconnect skipped, newest page first", async () => {
-  const thread = transcript(250);
-  await waitFor(() => expect(thread.view.result.current.loading).toBe(false));
-  expect(thread.view.result.current.windowStart).toBe(150);
-  const seedPages = thread.pages.length;
+  const session = growing(250);
+  await waitFor(() => expect(session.view.result.current.loading).toBe(false));
+  expect(session.view.result.current.windowStart).toBe(150);
 
   // 150 rows were written while the stream was stalled: 250..399 are in neither the rows held
   // nor the snapshot, which starts at 400.
-  thread.reconnect(500, 2);
+  session.reconnect(500, 2);
 
-  await waitFor(() => expect(indices(thread.view.result.current.events)).toEqual(range(150, 500)));
-  expect(thread.pages.slice(seedPages)).toEqual([[300, 100], [250, 50]]);
-  expect(thread.view.result.current.windowStart).toBe(150);
+  await waitFor(() => expect(indices(session.view.result.current.events)).toEqual(range(150, 500)));
+  expect(session.harness.pages).toEqual([[400, 100], [300, 100]]);
+  expect(session.view.result.current.windowStart).toBe(150);
 });
 
 test("asks for nothing when the reconnect left no hole", async () => {
-  const thread = transcript(250);
-  await waitFor(() => expect(thread.view.result.current.loading).toBe(false));
-  const seedPages = thread.pages.length;
+  const session = growing(250);
+  await waitFor(() => expect(session.view.result.current.loading).toBe(false));
 
-  thread.reconnect(300, 2);
+  session.reconnect(300, 2);
 
-  expect(indices(thread.view.result.current.events)).toEqual(range(150, 300));
+  expect(indices(session.view.result.current.events)).toEqual(range(150, 300));
   await act(async () => {});
-  expect(thread.pages.slice(seedPages)).toEqual([]);
+  expect(session.harness.pages).toEqual([]);
+});
+
+test("finds the hole by what each row says precedes it, not by adjacent numbers", async () => {
+  // A transcript's rows are named by the byte their line starts at, so neighbours are far apart
+  // numerically. Only `previous` says whether anything is missing between two of them.
+  const at = (n: number) => n * 1000;
+  const transcriptRow = (n: number): ActivityEvent => ({ ...row(at(n)), previous: n === 0 ? null : at(n - 1) });
+  const all = range(0, 300).map(transcriptRow);
+  const harness = thread(all.slice(0, 120), { stableIndices: true });
+  harness.answerWith(async (before, limit) => pageOf(all, before, limit));
+  const view = renderThread(harness.source);
+  await waitFor(() => expect(view.result.current.loading).toBe(false));
+  // Held: rows 20..119. Nothing is missing between them although their indices are 1000 apart.
+  await act(async () => {});
+  expect(harness.pages).toEqual([]);
+
+  act(() => harness.handlers().onSnapshot(snapshotOf(all.slice(200), {
+    windowStart: at(200),
+    stableIndices: true,
+  })));
+
+  await waitFor(() => expect(view.result.current.events).toHaveLength(280));
+  expect(harness.pages).toEqual([[at(200), 100]]);
 });
 
 test("throws away a fill that a newer snapshot overtook, and fills again", async () => {
-  const thread = transcript(250);
-  await waitFor(() => expect(thread.view.result.current.loading).toBe(false));
+  const session = growing(250);
+  await waitFor(() => expect(session.view.result.current.loading).toBe(false));
 
   let answerStale: (() => void) | undefined;
-  thread.answerWith((offset, limit) => new Promise((resolve) => {
+  session.harness.answerWith((before, limit) => new Promise<EventsPage>((resolve) => {
     // A newer revision, so only the epoch check can be what keeps it out.
     answerStale = () => resolve({
-      events: range(offset, offset + limit).map((index) => row(index, "stale", 5)),
-      total: 400,
+      events: range(before! - limit, before!).map((index) => row(index, "stale", 5)),
+      windowStart: before! - limit,
       usage: null,
     });
   }));
-  thread.reconnect(400, 2);
+  session.reconnect(400, 2);
   await waitFor(() => expect(answerStale).toBeDefined());
   const stale = answerStale!;
 
   // The stream reopens again before that page comes back, with the same hole.
-  thread.answerWith(async (offset, limit) => ({
-    events: range(offset, offset + limit).map((index) => row(index)),
-    total: 400,
-    usage: null,
-  }));
-  thread.reconnect(400, 3);
-  await waitFor(() => expect(indices(thread.view.result.current.events)).toEqual(range(150, 400)));
+  session.harness.answerWith(async (before, limit) => pageOf(range(0, 400).map((index) => row(index)), before, limit));
+  session.reconnect(400, 3);
+  await waitFor(() => expect(indices(session.view.result.current.events)).toEqual(range(150, 400)));
 
   await act(async () => stale());
-  expect(thread.view.result.current.events.some((event) => event.id?.startsWith("stale"))).toBe(false);
+  expect(session.view.result.current.events.some((event) => event.id?.startsWith("stale"))).toBe(false);
 });

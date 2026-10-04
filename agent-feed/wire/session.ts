@@ -116,7 +116,7 @@ export interface ForkSessionCommand {
   /**
    * Start the fork just BEFORE one of the source's messages, rather than holding all of it.
    *
-   * `eventId` is the id the event index gave that transcript row (`claude:<id>:line:<n>`), and it
+   * `eventId` is the id the transcript page gave that row (`claude:<id>:at:<byte>`), and it
    * has to name a message a person wrote -- the picker this drives lists nothing else.
    *
    * Best effort by construction, and the response says so. The session is started first and then

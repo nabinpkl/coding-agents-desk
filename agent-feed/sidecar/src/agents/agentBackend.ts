@@ -60,6 +60,27 @@ export function stampSessionModel(
   return model === null ? {} : { sessionModel: model };
 }
 
+/**
+ * The newest `limit` rows of a backend session below `before`, or its newest rows when `before`
+ * is null, in the shape every page route answers with.
+ *
+ * A backend's indices are ordinals in its own projection, so "before" is plain arithmetic here,
+ * where a transcript's positions have to be read for. Both answer the same question so the panel
+ * pages one way whichever is behind a session. `windowStart` is 0 exactly when nothing is older.
+ */
+export async function backendPageBefore(
+  backend: AgentBackend,
+  sessionId: string,
+  before: number | null,
+  limit: number,
+  mode: EventMode,
+): Promise<AgentTimelinePage & { windowStart: number }> {
+  const end = before ?? (await backend.page(sessionId, 0, 0, mode)).total;
+  const offset = Math.max(0, end - limit);
+  const page = await backend.page(sessionId, offset, end - offset, mode);
+  return { ...page, windowStart: offset };
+}
+
 /** A session-id referenced a session this backend does not own (or that has been dropped). */
 export class AgentSessionNotFoundError extends Error {}
 /** A mode the backend does not serve was requested (e.g. `raw` on a nice-only live source). */

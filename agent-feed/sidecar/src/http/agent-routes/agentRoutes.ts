@@ -1,4 +1,4 @@
-import { parseMessageAttachments, stampSessionModel, type AgentBackend, type AgentCommandReceipt, type AgentMessageDelivery } from "@/agents/agentBackend";
+import { backendPageBefore, parseMessageAttachments, stampSessionModel, type AgentBackend, type AgentCommandReceipt, type AgentMessageDelivery } from "@/agents/agentBackend";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
 import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
@@ -201,17 +201,17 @@ async function pageLiveEvents(
   if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
   const mode = liveModeQuery(url);
   if (mode === null) return errorResponse("unsupported-mode", "live sessions support raw and nice only", 400);
-  const offset = integerQuery(url, "offset", 0, Number.MAX_SAFE_INTEGER);
+  const before = beforeQuery(url);
   const limit = integerQuery(url, "limit", 100, 500);
-  if (offset === null || limit === null || limit < 1) {
+  if (before === undefined || limit === null || limit < 1) {
     return errorResponse("invalid-pagination", "invalid pagination", 400);
   }
   try {
-    const page = await backend.page(sessionId, offset, limit, mode);
+    const page = await backendPageBefore(backend, sessionId, before, limit, mode);
     const live = backend as LiveBackend;
     return jsonResponse({
       events: page.events,
-      total: page.total,
+      windowStart: page.windowStart,
       mode: page.mode,
       sequence: page.sequence,
       runState: page.runState,
@@ -286,11 +286,12 @@ async function pageEvents(
   try {
     const backend = resolveBackend(source);
     if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
-    const offset = integerQuery(url, "offset", 0, Number.MAX_SAFE_INTEGER);
+    const before = beforeQuery(url);
     const limit = integerQuery(url, "limit", 100, 500);
-    if (offset === null || limit === null || limit < 1) return errorResponse("invalid-pagination", "invalid pagination", 400);
+    if (before === undefined || limit === null || limit < 1) return errorResponse("invalid-pagination", "invalid pagination", 400);
     if ((url.searchParams.get("mode") ?? "nice") !== "nice") return errorResponse("unsupported-mode", "Pi sessions support nice mode only", 400);
-    return jsonResponse(await backend.page(sessionId, offset, limit, "nice"));
+    const { total: _total, ...page } = await backendPageBefore(backend, sessionId, before, limit, "nice");
+    return jsonResponse(page);
   } catch (error) {
     return routeError(error);
   }
@@ -338,6 +339,12 @@ export async function jsonBody(request: Request, maximumBytes = MAXIMUM_BODY_BYT
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new InvalidJsonError();
   return parsed as Record<string, unknown>;
+}
+
+/** `before`, absent for the newest page; undefined when it is present and not a position. */
+function beforeQuery(url: URL): number | null | undefined {
+  if (!url.searchParams.has("before")) return null;
+  return integerQuery(url, "before", 0, Number.MAX_SAFE_INTEGER) ?? undefined;
 }
 
 function integerQuery(url: URL, name: string, fallback: number, maximum: number): number | null {

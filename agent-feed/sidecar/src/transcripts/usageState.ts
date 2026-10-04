@@ -11,8 +11,8 @@ import type { DeclaredModel, TokenUsage } from "@/transcripts/transcriptTypes";
  * on exactly the records that arrive most often.
  *
  * Pure and stateless so the sticky rule is testable without a transcript; the
- * per-session accumulation lives in the event index, which is the one pass that
- * already sees every line.
+ * per-session accumulation lives in the transcript reads: the meter read back from the end when a
+ * thread opens, and the follow that folds each line it reads after that.
  */
 export function mergeUsage(
   previous: TokenUsage | undefined,

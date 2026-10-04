@@ -114,6 +114,13 @@ async function withTranscript(project: string, sessionId = SESSION_ID): Promise<
   );
 }
 
+/** The id a page gives line `n` of the session's transcript: the byte that line starts at. */
+async function rowId(project: string, n: number, sessionId = SESSION_ID): Promise<string> {
+  const lines = (await Bun.file(join(project, `${sessionId}.jsonl`)).text()).split("\n");
+  const position = lines.slice(0, n).reduce((bytes, line) => bytes + Buffer.byteLength(line) + 1, 0);
+  return `claude:${sessionId}:at:${position}`;
+}
+
 /** A rewinder that records what it was asked for and answers however the test says. */
 function rewinderThat(
   answer: { done: true } | { done: false; reason: string },
@@ -323,7 +330,7 @@ test("starts the fork at a named message, and holds the brief back for after the
 
   const started = await forkClaudeSession(
     SESSION_ID,
-    { title: "From BRAVO", prompt: "the sibling task", from: { eventId: `claude:${SESSION_ID}:line:2` } },
+    { title: "From BRAVO", prompt: "the sibling task", from: { eventId: await rowId(project, 2) } },
     launcher,
     newForkId,
     rewinder,
@@ -346,7 +353,7 @@ test("counts the message back from the newest, not from the top of the file", as
 
   await forkClaudeSession(
     SESSION_ID,
-    { title: "From ALPHA", from: { eventId: `claude:${SESSION_ID}:line:0` } },
+    { title: "From ALPHA", from: { eventId: await rowId(project, 0) } },
     launcher,
     newForkId,
     rewinder,
@@ -364,7 +371,7 @@ test("says when the fork could not be moved, and hands back the fork anyway", as
 
   const started = await forkClaudeSession(
     SESSION_ID,
-    { title: "Doomed", from: { eventId: `claude:${SESSION_ID}:line:2` } },
+    { title: "Doomed", from: { eventId: await rowId(project, 2) } },
     launcher,
     newForkId,
     rewinderThat({ done: false, reason: "rewind refused: no-picker" }),
@@ -399,10 +406,11 @@ test("refuses a row that is not a message before anything is started", async () 
   knownSession(project);
   await withTranscript(project);
 
-  for (const line of [1, 99]) {
+  // The assistant line, and a position past the end of the file.
+  for (const eventId of [await rowId(project, 1), `claude:${SESSION_ID}:at:99999`]) {
     await expect(forkClaudeSession(
       SESSION_ID,
-      { title: "No", from: { eventId: `claude:${SESSION_ID}:line:${line}` } },
+      { title: "No", from: { eventId } },
       launcher,
       newForkId,
       neverRewinds,
@@ -418,7 +426,7 @@ test("refuses an event that belongs to another session", async () => {
 
   const refused = forkClaudeSession(
     SESSION_ID,
-    { title: "No", from: { eventId: "claude:11111111-1111-4111-8111-111111111111:line:0" } },
+    { title: "No", from: { eventId: "claude:11111111-1111-4111-8111-111111111111:at:0" } },
     launcher,
     newForkId,
     neverRewinds,

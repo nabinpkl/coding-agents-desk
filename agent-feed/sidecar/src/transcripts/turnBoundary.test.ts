@@ -1,6 +1,6 @@
 // Adapter turn-boundary signals, as the transcript READER sees them: both adapters
 // translate their own terminal markers into the single `turnClosed` field on
-// LineResult, which the event index folds into a session's rendered turns. These
+// LineResult, which the transcript reads fold into a session's rendered turns. These
 // tests pin the per-line contract so a harness transcript-format drift is caught at
 // the adapter seam.
 //

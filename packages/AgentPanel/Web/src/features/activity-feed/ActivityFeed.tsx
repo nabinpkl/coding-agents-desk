@@ -447,7 +447,6 @@ export function ActivityFeed({
         <div className="absolute inset-x-0 top-0 z-20 flex flex-col">
           {stickyUser && stickyUserIndex !== null ? (
             <StickyUserHeader
-              index={stickyUser.index}
               text={userMessageText(stickyUser)}
               buttonRef={stickyHeaderRef}
               // Jumping to a user row disengages its own bar, so no space is
@@ -456,7 +455,6 @@ export function ActivityFeed({
             />
           ) : unloaded.message ? (
             <StickyUserHeader
-              index={null}
               text={unloaded.message.text}
               buttonRef={stickyHeaderRef}
               // Not loaded yet, so this pages back to the message before landing on it.

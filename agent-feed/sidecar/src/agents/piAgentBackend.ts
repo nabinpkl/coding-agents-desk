@@ -191,7 +191,7 @@ export class PiAgentBackend implements AgentBackend {
     const snapshot = owned.projection.snapshot(offset, limit);
     return {
       events: snapshot.events,
-      total: snapshot.total,
+      total: owned.projection.total,
       mode: "nice",
       sequence: snapshot.sequence,
       runState: snapshot.runState,

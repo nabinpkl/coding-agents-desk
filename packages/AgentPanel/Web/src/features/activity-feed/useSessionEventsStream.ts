@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import { seedRange, olderRange } from "@/features/activity-feed/data-source/eventPaging";
+import { PAGE_SIZE } from "@/features/activity-feed/data-source/eventPaging";
 import { useTimelineGapFill, withNewer } from "@/features/activity-feed/useTimelineGapFill";
 import { lastUsageFromEvents, newerUsage } from "@/features/activity-feed/usageFromEvents";
 import { splitLiveTails, visibleTails, liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
@@ -40,8 +40,12 @@ export interface ActivityBlock {
 
 export interface ActivityEvent {
   id?: string;
-  /** Position in the mode this event was read in. */
+  /** What orders the event. A transcript row's is the byte its line starts at, the same in both
+   *  modes; a runtime-backed row's is its ordinal in the projection's mode. */
   index: number;
+  /** The index of the row before this one in the same mode, or null when nothing precedes it.
+   *  Absent on a runtime-backed row, whose ordinals are contiguous; see `previousIndex`. */
+  previous?: number | null;
   revision?: number;
   phase?: "streaming" | "complete" | "error";
   ts: number;
@@ -94,7 +98,7 @@ export interface TokenUsage {
 
 interface State {
   events: Map<number, ActivityEvent>;
-  total: number;
+  /** The oldest held row's index while older rows exist, and 0 once the first row is held. */
   windowStart: number;
   usage: TokenUsage | null;
   /**
@@ -136,7 +140,6 @@ export function useSessionEventsStream(
 
   const [state, setState] = useState<State>({
     events: new Map(),
-    total: 0,
     windowStart: 0,
     usage: null,
     sessionModel: null,
@@ -160,7 +163,8 @@ export function useSessionEventsStream(
   const timelineEpochRef = useRef(0);
   useEffect(() => { windowStartRef.current = state.windowStart; }, [state.windowStart]);
 
-  // Initial seed (last page) + SSE subscription. SSE never stops on scroll.
+  // One subscription seeds and follows the thread: its opening snapshot is the newest window, and
+  // everything after it arrives on the same stream. SSE never stops on scroll.
   useEffect(() => {
     timelineEpochRef.current += 1;
     // Cleared on every open, not only on unsubscribe. The stream says afresh whether the context
@@ -170,27 +174,18 @@ export function useSessionEventsStream(
     // must not inherit its model, and a reconnect snapshot re-names it immediately below.
     setState((current) => (current.sessionModel === null ? current : { ...current, sessionModel: null }));
     let cancelled = false;
-    const pendingLive = new Map<number, ActivityEvent>();
     let seeded = false;
-    let replacedBySnapshot = false;
     const unsubscribe = ds.subscribeSessionEvents(session, 0, {
 onEvent: (event) => {
-        if (!seeded) {
-          pendingLive.set(event.index, event);
-          return;
-        }
+        // The sidecar sends the snapshot first on every open, so a row ahead of it is one the
+        // snapshot carries.
+        if (!seeded) return;
         setState((current) => {
           const existing = current.events.get(event.index);
           const eventChanged = !existing || (existing.revision ?? 0) < (event.revision ?? 0);
           const events = eventChanged ? new Map(current.events) : current.events;
           if (eventChanged) events.set(event.index, event);
-          const next = {
-            ...current,
-            events,
-            total: eventChanged
-              ? Math.max(current.total, event.index + 1)
-              : current.total,
-          };
+          const next = { ...current, events };
           // Hand a live row off once it is complete AND the durable transcript
           // carries that same message (same id, complete). The transcript can
           // append rows for the same message while the live stream is still
@@ -217,9 +212,7 @@ onEvent: (event) => {
       },
       onSnapshot: (snapshot) => {
         timelineEpochRef.current += 1;
-        replacedBySnapshot = true;
         seeded = true;
-        pendingLive.clear();
         setState((current) => {
           // A live tail can arrive before the first snapshot, so an empty durable map with no
           // identity yet is still the same projection; the snapshot must not throw that row away.
@@ -270,7 +263,6 @@ onEvent: (event) => {
           for (const event of snapshot.events) events.set(event.index, event);
           return {
             events,
-            total: snapshot.total,
             // Only a window that actually kept something reaches below the snapshot's
             // start. On a first open there is nothing held and `current.windowStart`
             // is still 0, which would otherwise claim the whole session was loaded.
@@ -340,69 +332,15 @@ onEvent: (event) => {
         }),
       onCompacting: setCompactionSummary,
       onOpen: () => setConnected(true),
-      onError: () => setConnected(false),
+      onError: (message) => {
+        setConnected(false);
+        // The snapshot is the only way a thread is seeded, so a stream that fails before sending
+        // one is a thread that cannot be read; say why rather than loading forever.
+        if (message !== undefined && !seeded && !cancelled) {
+          setState((current) => ({ ...current, error: message, loading: false }));
+        }
+      },
     });
-
-    (async () => {
-      try {
-        const probe = await ds.fetchEventsPage(session, 0, 1);
-        if (cancelled) return;
-        const total = probe.total;
-
-        const { offset, limit } = seedRange(total);
-        let initial: ActivityEvent[] = [];
-        let seedUsage = probe.usage;
-        let seedModel = probe.sessionModel ?? null;
-        let seedProjectionId = probe.projectionId ?? null;
-        if (limit > 0) {
-          const data = await ds.fetchEventsPage(session, offset, limit);
-          if (cancelled) return;
-          initial = data.events;
-          seedUsage = data.usage;
-          seedModel = data.sessionModel ?? seedModel;
-          seedProjectionId = data.projectionId ?? seedProjectionId;
-        }
-        if (cancelled || replacedBySnapshot) return;
-
-        const map = new Map<number, ActivityEvent>();
-        for (const ev of initial) map.set(ev.index, ev);
-        for (const event of pendingLive.values()) map.set(event.index, event);
-        seeded = true;
-        setState((current) => ({
-          events: map,
-          total: Math.max(total, ...Array.from(map.keys(), (index) => index + 1), 0),
-          windowStart: offset,
-          // A live chunk can land before the seed resolves, so this cannot just
-          // take the page's value: `updatedAt` decides, which makes the outcome
-          // independent of which of the two arrives first. When neither the
-          // page nor a live chunk carried structured occupancy, initialize the
-          // meter from the transcript's own last reading in the seed events.
-          usage:
-            newerUsage(current.usage, seedUsage) ??
-            lastUsageFromEvents(initial),
-          // The seed page names the model outright, so no merge rule: whatever the sidecar
-          // said on this open wins, including across the gap that blanks the usage above.
-          sessionModel: seedModel ?? current.sessionModel,
-          loading: false,
-          error: null,
-          sequence: current.sequence,
-          runState: current.runState,
-          queue: current.queue,
-          projectionId: seedProjectionId,
-          liveRows: current.liveRows,
-          mirroredMessages: current.mirroredMessages,
-          snapshotCount: current.snapshotCount,
-        }));
-      } catch (e) {
-        if (!cancelled && !replacedBySnapshot) {
-          setState((s) => ({
-            ...s,
-            error: String((e as Error).message ?? e),
-            loading: false,
-          }));
-        }
-      }
-    })();
 
     return () => {
       cancelled = true;
@@ -412,18 +350,17 @@ onEvent: (event) => {
 
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current) return;
-    const currentStart = windowStartRef.current;
-    if (currentStart <= 0) return;
+    const before = windowStartRef.current;
+    if (before <= 0) return;
     loadingOlderRef.current = true;
     try {
-      const { targetStart, limit } = olderRange(currentStart);
       const requestEpoch = timelineEpochRef.current;
-      const data = await ds.fetchEventsPage(session, targetStart, limit);
+      const data = await ds.fetchEventsPage(session, before, PAGE_SIZE);
       if (requestEpoch !== timelineEpochRef.current) return;
       setState((s) => {
         const newMap = new Map(s.events);
         for (const ev of data.events) newMap.set(ev.index, ev);
-        return { ...s, events: newMap, windowStart: Math.min(s.windowStart, targetStart) };
+        return { ...s, events: newMap, windowStart: Math.min(s.windowStart, data.windowStart) };
       });
     } finally {
       loadingOlderRef.current = false;
@@ -437,7 +374,7 @@ onEvent: (event) => {
   }, [state.events]);
 
   const fetchGapPage = useCallback(
-    (offset: number, limit: number) => ds.fetchEventsPage(session, offset, limit),
+    (before: number, limit: number) => ds.fetchEventsPage(session, before, limit),
     [session, ds],
   );
   const mergeGapPage = useCallback((page: readonly ActivityEvent[]) => {
@@ -462,7 +399,6 @@ onEvent: (event) => {
 
   return {
     events,
-    total: state.total,
     windowStart: state.windowStart,
     usage: state.usage,
     sessionModel: state.sessionModel,

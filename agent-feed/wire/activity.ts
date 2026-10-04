@@ -100,17 +100,26 @@ export interface ActivityEvent extends ParsedLine {
   // this from their raw JSONL line; live providers retain one id while content
   // streams and increase `revision` instead of appending partial duplicates.
   id: string;
-  // Position in the mode this event was read in.
+  // Where the event sits, and what orders it. A transcript-backed event's index is the byte its
+  // line starts at in the file, the same number in both modes, so nothing above it has to be read
+  // to name it. A runtime-backed event's index is its ordinal in the projection's own mode.
   index: number;
+  // The index of the row before this one in the same mode, or null when nothing comes before it.
+  //
+  // What says whether two held rows are neighbours, and so whether anything is missing between
+  // them. A transcript's positions have gaps by construction -- a line is many bytes -- so
+  // adjacency cannot be read off the numbers. Absent on a runtime-backed event, whose ordinals are
+  // contiguous: there the row before index N is N - 1.
+  previous?: number | null;
   revision: number;
   phase: 'streaming' | 'complete';
   // Position of the same line in the OTHER mode, or null when it has none -- a
   // machinery line read in raw mode is absent from the nice view entirely.
   //
-  // Carried so the panel can switch modes without losing the viewer's place: the
-  // index it is looking at means a different line in the other view, and this is
-  // the only translation available without a round trip. Absent on events read
-  // through a path that does not resolve it.
+  // Carried so the panel can switch modes without losing the viewer's place. For a
+  // transcript it is the event's own index whenever the line is in both views, since
+  // a byte position means the same line in either. Absent on events read through a
+  // path that does not resolve it.
   otherModeIndex?: number | null;
 }
 

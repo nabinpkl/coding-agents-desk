@@ -1105,9 +1105,10 @@ within 3 seconds each time, to the same millisecond value a fresh sidecar report
 per-file watch on that transcript was 35s and 71s late for those same two writes.
 
 So one recursive watch per corpus stays healthy in a long-lived process where hundreds of per-file
-watches do not, and **the event index no longer watches anything**. The catalog's corpus watches
+watches do not, and **a transcript follow watches nothing**. The catalog's corpus watches
 publish every write through `transcriptWrites.ts`, and `followTranscript` routes it to whoever is
-reading that file. What this does NOT cover, and what would need a stat of each followed file on a
+reading that file. (The event index this section was written about is gone too: since 2026-10-04 a
+transcript row is named by the byte its line starts at and read from there, ADR-0124.) What this does NOT cover, and what would need a stat of each followed file on a
 timer rather than a second watcher: a corpus watch that dies leaves a followed transcript sitting
 still with only a line in the catalog's log to say so.
 

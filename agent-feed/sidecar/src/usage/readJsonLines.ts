@@ -2,8 +2,8 @@
 //
 // Not an optimization. The largest rollout in one real Codex history is 338 MB, and a scan runs
 // several files at once, so `Bun.file(path).text()` would allocate gigabytes to look at the 0.1%
-// of lines that carry usage. The event index does its own chunked read for its own reasons
-// (byte offsets per event, resumable from a cursor); this needs neither, so it takes the plainer
+// of lines that carry usage. The transcript reads do their own chunked reads for their own
+// reasons (lines by byte position, in either direction); this needs neither, so it takes the plainer
 // stream rather than borrowing machinery built for a different question.
 
 const decoder = new TextDecoder();

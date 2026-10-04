@@ -253,7 +253,7 @@ export const CODEX_TOP_LEVEL_LABELS: Readonly<Record<string, string>> = {
  * The turn-boundary signal a line carries, or undefined when it carries none.
  *
  * One home for the rule because two readers need it: `processLine`, which feeds
- * the event index, and `readTail`, which decides from a bounded read whether a
+ * the transcript reads, and `readTail`, which decides from a bounded read whether a
  * session's last turn is still open. Two copies would be free to disagree about
  * what "live" means, and both answers land on the same row.
  *

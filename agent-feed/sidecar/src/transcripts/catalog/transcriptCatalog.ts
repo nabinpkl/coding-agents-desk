@@ -72,12 +72,12 @@ function attachSourceWatchers(): void {
   // deleted reconcile the same way here, so the event kind was never read and nothing is lost by
   // `fs.watch` not reporting it. See `watchTree` for what that saves.
   //
-  // It has two consumers now: this catalog, and the event index through `publishTranscriptWrite`.
-  // The index used to keep its own per-file watches and they went minutes late in a long-lived
+  // It has two consumers now: this catalog, and the transcript follows through
+  // `publishTranscriptWrite`. The old event index used to keep its own per-file watches and they went minutes late in a long-lived
   // process while this one stayed current -- `transcriptWrites.ts` carries that measurement.
   const claudeWatcher = watchTree({
     root: config.claudeProjectsDirectory,
-    // Deeper than the catalog itself needs, because this watch is also the event index's:
+    // Deeper than the catalog itself needs, because this watch is also the transcript follows':
     // a subagent's transcript sits at `<project>/<session>/subagents/agent-<id>.jsonl`, three
     // below the root, and it is followed by a reader even though it is not a catalog session.
     // The extra paths cost `refreshClaudeSession` a basename test and nothing else -- it

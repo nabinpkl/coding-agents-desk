@@ -8,10 +8,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  anchorAtLine,
+  anchorAtPosition,
   lastCompactionMessage,
-  lineFromEventId,
   MessageAnchorError,
+  positionFromEventId,
 } from "@/transcripts/messageAnchor";
 
 const roots: string[] = [];
@@ -83,6 +83,11 @@ function compacted(): readonly string[] {
   ];
 }
 
+/** The byte line `n` of `lines` starts at, once written one per line: what a row is named by. */
+function at(lines: readonly string[], n: number): number {
+  return lines.slice(0, n).reduce((bytes, line) => bytes + Buffer.byteLength(line) + 1, 0);
+}
+
 async function transcript(lines: readonly string[]): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "message-anchor-"));
   roots.push(root);
@@ -110,61 +115,70 @@ function conversation(): readonly string[] {
 }
 
 test("counts messages from the end, the way the picker is addressed", async () => {
-  const path = await transcript(conversation());
+  const lines = conversation();
+  const path = await transcript(lines);
 
-  expect(await anchorAtLine(SESSION, path, 6)).toEqual({ fromEnd: 1, text: "CHARLIE three" });
-  expect(await anchorAtLine(SESSION, path, 3)).toEqual({ fromEnd: 2, text: "BRAVO two" });
-  expect(await anchorAtLine(SESSION, path, 0)).toEqual({ fromEnd: 3, text: "ALPHA one" });
+  expect(await anchorAtPosition(SESSION, path, at(lines, 6))).toEqual({ fromEnd: 1, text: "CHARLIE three" });
+  expect(await anchorAtPosition(SESSION, path, at(lines, 3))).toEqual({ fromEnd: 2, text: "BRAVO two" });
+  expect(await anchorAtPosition(SESSION, path, at(lines, 0))).toEqual({ fromEnd: 3, text: "ALPHA one" });
 });
 
 test("a tool result is not a message, however the transcript labels it", async () => {
   // The scar this repository already carries: a summarizer read a tool result as the person
   // speaking because it tested `type === "user"` alone. Counting it here would put every anchor
   // before it off by one.
-  const path = await transcript(conversation());
-  await expect(anchorAtLine(SESSION, path, 2)).rejects.toBeInstanceOf(MessageAnchorError);
+  const lines = conversation();
+  const path = await transcript(lines);
+  await expect(anchorAtPosition(SESSION, path, at(lines, 2))).rejects.toBeInstanceOf(MessageAnchorError);
 });
 
 test("a harness envelope is not a message either", async () => {
-  const path = await transcript(conversation());
-  await expect(anchorAtLine(SESSION, path, 5)).rejects.toBeInstanceOf(MessageAnchorError);
+  const lines = conversation();
+  const path = await transcript(lines);
+  await expect(anchorAtPosition(SESSION, path, at(lines, 5))).rejects.toBeInstanceOf(MessageAnchorError);
   // And it is not counted, which is what the offsets above already assert: CHARLIE is one back
   // from the end rather than two.
 });
 
 test("an assistant line is not something to fork from", async () => {
-  const path = await transcript(conversation());
-  await expect(anchorAtLine(SESSION, path, 1)).rejects.toBeInstanceOf(MessageAnchorError);
+  const lines = conversation();
+  const path = await transcript(lines);
+  await expect(anchorAtPosition(SESSION, path, at(lines, 1))).rejects.toBeInstanceOf(MessageAnchorError);
 });
 
-test("refuses a line that is not in the file at all", async () => {
-  const path = await transcript(conversation());
-  await expect(anchorAtLine(SESSION, path, 99)).rejects.toBeInstanceOf(MessageAnchorError);
+test("refuses a position past the end, and one inside a line", async () => {
+  const lines = conversation();
+  const path = await transcript(lines);
+  await expect(anchorAtPosition(SESSION, path, 1_000_000)).rejects.toBeInstanceOf(MessageAnchorError);
+  // Inside the BRAVO line: reading from there would parse the tail of a record as if it were one.
+  await expect(anchorAtPosition(SESSION, path, at(lines, 3) + 5)).rejects.toBeInstanceOf(MessageAnchorError);
 });
 
-test("reads an event id the way the event index writes one", () => {
-  expect(lineFromEventId(`claude:${SESSION}:line:42`, SESSION)).toBe(42);
+test("reads an event id the way a transcript page writes one", () => {
+  expect(positionFromEventId(`claude:${SESSION}:at:42`, SESSION)).toBe(42);
   // The id the panel holds is lower-case already, but the route lower-cases its path and a caller
   // may not have, so neither side decides the other's casing.
-  expect(lineFromEventId(`claude:${SESSION.toUpperCase()}:line:7`, SESSION)).toBe(7);
+  expect(positionFromEventId(`claude:${SESSION.toUpperCase()}:at:7`, SESSION)).toBe(7);
 });
 
 test("refuses an event that belongs to another session", () => {
   // A panel that sent the row it was looking at while the reader had moved on would otherwise
   // anchor into a transcript nobody asked about, and the count would be valid nonsense.
-  expect(() => lineFromEventId("claude:11111111-1111-4111-8111-111111111111:line:3", SESSION))
+  expect(() => positionFromEventId("claude:11111111-1111-4111-8111-111111111111:at:3", SESSION))
     .toThrow(MessageAnchorError);
 });
 
 test("refuses an id that is not one, and a source that cannot be forked", () => {
-  expect(() => lineFromEventId("nonsense", SESSION)).toThrow(MessageAnchorError);
-  expect(() => lineFromEventId(`codex:${SESSION}:line:3`, SESSION)).toThrow(MessageAnchorError);
+  expect(() => positionFromEventId("nonsense", SESSION)).toThrow(MessageAnchorError);
+  expect(() => positionFromEventId(`codex:${SESSION}:at:3`, SESSION)).toThrow(MessageAnchorError);
+  // The row-number ids pages carried before rows were named by position are not positions.
+  expect(() => positionFromEventId(`claude:${SESSION}:line:3`, SESSION)).toThrow(MessageAnchorError);
 });
 
 test("finds the first thing said after the newest compaction", async () => {
   // Two compactions, so the answer has to be the newer one rather than the first one found walking
   // forwards. The envelope after it is what a real `/compact` leaves behind and is not the answer.
-  const path = await transcript([
+  const lines = [
     said("ALPHA one"),
     ...compacted(),
     said("BRAVO two"),
@@ -175,15 +189,16 @@ test("finds the first thing said after the newest compaction", async () => {
     said("CHARLIE three"),
     replied("OK"),
     said("DELTA four"),
-  ]);
+  ];
+  const path = await transcript(lines);
 
   const found = await lastCompactionMessage(SESSION, path);
 
   expect(found?.text).toBe("CHARLIE three");
   // Addressed the way the fork command takes it, so the panel hands this straight back.
-  expect(found?.eventId).toBe(`claude:${SESSION}:line:9`);
+  expect(found?.eventId).toBe(`claude:${SESSION}:at:${at(lines, 9)}`);
   // And it is an anchor the picker can actually be walked to: two messages sit after it.
-  expect(await anchorAtLine(SESSION, path, 9)).toEqual({ fromEnd: 2, text: "CHARLIE three" });
+  expect(await anchorAtPosition(SESSION, path, at(lines, 9))).toEqual({ fromEnd: 2, text: "CHARLIE three" });
 });
 
 test("a session that was never compacted has no such point", async () => {

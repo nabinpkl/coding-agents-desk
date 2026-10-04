@@ -54,7 +54,6 @@ describe("the shared wire contract", () => {
     expect(sink.snapshots).toHaveLength(1);
     const snapshot = sink.snapshots[0]!;
     expect(snapshot.windowStart).toBe(fixture.timelineSnapshot.envelope.windowStart);
-    expect(snapshot.total).toBe(fixture.timelineSnapshot.envelope.total);
     expect(snapshot.events.map((e) => e.id)).toEqual(
       fixture.timelineSnapshot.envelope.events.map((e) => e.id),
     );
@@ -135,12 +134,13 @@ describe("the shared wire contract", () => {
     expect(projects).toEqual(fixture.projects.projects);
     expect(sessions.get(fixture.sessions.projectPath)).toEqual(fixture.sessions.sessions);
 
-    transport.responses.set("GET /api/sessions/pi/s1/events?offset=0&limit=1&mode=nice", {
+    // The newest page carries no `before`; an older one names the row it ends at.
+    transport.responses.set("GET /api/sessions/pi/s1/events?limit=1&mode=nice", {
       status: 200,
       body: JSON.stringify(fixture.eventsPage),
     });
-    const page = await source.fetchEventsPage(SESSION, 0, 1);
-    expect(page.total).toBe(fixture.eventsPage.total);
+    const page = await source.fetchEventsPage(SESSION, null, 1);
+    expect(page.windowStart).toBe(fixture.eventsPage.windowStart);
     expect(page.events.map((e) => e.id)).toEqual(fixture.eventsPage.events.map((e) => e.id));
 
     transport.responses.set("POST /api/agent-sessions", {

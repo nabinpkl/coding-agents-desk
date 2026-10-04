@@ -325,7 +325,7 @@ test("forking from a message asks the driver to walk back to it", async () => {
 
   const response = await fork(SESSION_ID, {
     title: "From ALPHA",
-    from: { eventId: `claude:${SESSION_ID}:line:0` },
+    from: { eventId: `claude:${SESSION_ID}:at:0` },
   });
 
   expect(response.status).toBe(201);
@@ -347,7 +347,7 @@ test("answers 201 with a reason when the fork started but could not be moved", a
 
   const response = await fork(SESSION_ID, {
     title: "Adrift",
-    from: { eventId: `claude:${SESSION_ID}:line:0` },
+    from: { eventId: `claude:${SESSION_ID}:at:0` },
   });
 
   expect(response.status).toBe(201);
@@ -362,7 +362,8 @@ test("refuses a row that is not something a person said, before starting anythin
 
   const response = await fork(SESSION_ID, {
     title: "No",
-    from: { eventId: `claude:${SESSION_ID}:line:9` },
+    // Nine bytes into ALPHA's line, which is no row at all.
+    from: { eventId: `claude:${SESSION_ID}:at:9` },
   });
 
   expect(response.status).toBe(400);
@@ -382,10 +383,13 @@ test("answers the newest message a person wrote, addressed the way a fork takes 
   await sessionTranscript();
 
   const response = await lastMessage("claude", SESSION_ID);
+  // BRAVO's line starts one past the end of ALPHA's.
+  const path = state.sessions.get(`claude:${SESSION_ID}`)!.transcriptPath!;
+  const alpha = (await Bun.file(path).text()).split("\n")[0]!;
 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
-    eventId: `claude:${SESSION_ID}:line:1`,
+    eventId: `claude:${SESSION_ID}:at:${Buffer.byteLength(alpha) + 1}`,
     text: "BRAVO two",
   });
 });
@@ -401,7 +405,7 @@ test("skips everything that is not a person talking", async () => {
   ]);
 
   expect(await (await lastMessage("claude", SESSION_ID)).json()).toEqual({
-    eventId: `claude:${SESSION_ID}:line:0`,
+    eventId: `claude:${SESSION_ID}:at:0`,
     text: "ALPHA one",
   });
 });

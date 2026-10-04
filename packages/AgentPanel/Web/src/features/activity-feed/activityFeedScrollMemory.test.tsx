@@ -19,7 +19,7 @@ const VIEWPORT = 800;
 const ROW = 88;
 /** Taller than anything these threads reach, so "at the end" is a place you have to scroll to. */
 const CONTENT = 10000;
-const STORAGE_KEY = "agent-panel.transcript-scroll";
+const STORAGE_KEY = "agent-panel.transcript-scroll.positions";
 const SESSION = "sid-scroll";
 
 beforeEach(() => {
@@ -80,7 +80,7 @@ function mountFeed(
   // events field at all.
   transport.defaultResponse = {
     status: 200,
-    body: JSON.stringify({ events: [], windowStart: olderWindowStart, total: windowStart + events.length }),
+    body: JSON.stringify({ events: [], windowStart: olderWindowStart }),
   };
   const view = render(
     <DataSourceProvider source={new SidecarDataSource(transport)}>
@@ -104,7 +104,6 @@ function mountFeed(
         mode,
         events,
         windowStart,
-        total: windowStart + events.length,
         runState: "idle",
         queue: { steer: 0, followUp: 0 },
       },
@@ -204,7 +203,6 @@ describe("where a session was left being read", () => {
           mode: "nice",
           events,
           windowStart: 0,
-          total: events.length,
           stableIndices: true,
           runState: "idle",
           queue: { steer: 0, followUp: 0 },

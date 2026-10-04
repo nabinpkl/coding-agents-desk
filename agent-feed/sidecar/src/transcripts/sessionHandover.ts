@@ -8,8 +8,8 @@
 // rather than structured results. The model gets the facts but resumes nothing; it re-reads
 // files itself.
 //
-// What is source-specific is only how the events are FETCHED. Claude's come off the event index
-// below; opencode's come off the serve, in `opencodeHandover.ts`, which calls back into the two
+// What is source-specific is only how the events are FETCHED. Claude's come off the transcript
+// reads below; opencode's come off the serve, in `opencodeHandover.ts`, which calls back into the two
 // renderers here so the caps are decided once.
 //
 // What is capped and what is not is the whole design. Person and model prose is uncapped (a 16KB
@@ -19,18 +19,12 @@
 // inside one tool output collapse, because fifty identical warnings are one fact; distinct tool
 // calls never collapse against each other, because ten runs of one test are ten results.
 //
-// Read through the event index, never the file: the index is what numbers a transcript, and a
-// second reader counting its own lines would agree until the day something stopped parsing (see
-// `messageAnchor.ts`). Rendering text off index events is what the feed already does.
+// Read through the transcript page reads, never a parse of its own: those are what turn lines into
+// rows, and a second reader parsing its own would agree until the day something stopped parsing
+// (see `messageAnchor.ts`). Rendering text off those rows is what the feed already does.
 
 import type { ActivityBlock, ActivityEvent } from "@agentdesk/agent-feed-wire";
-import {
-  acquireIndex,
-  ensureIndexed,
-  getEventCount,
-  readEvents,
-  releaseIndex,
-} from "@/transcripts/event-index/eventIndex";
+import { completeEnd, readEventsBetween } from "@/transcripts/transcript-reads/transcriptPages";
 
 /** The request names nothing to hand over. */
 export class SessionHandoverError extends Error {}
@@ -176,7 +170,7 @@ export function findCompactionBoundary(
  * Every person and model turn after `fromIndex`, as the prose the next session reads.
  *
  * Takes events rather than a session, and that is what lets the two directions share it. Claude's
- * come off the event index and opencode's off a projection the serve's messages were mapped into,
+ * come off the transcript reads and opencode's off a projection the serve's messages were mapped into,
  * but by the time they reach here both are `ActivityEvent`, so the caps, the line collapse and the
  * turn separator are decided once instead of drifting per source.
  */
@@ -198,26 +192,21 @@ export function renderHandoverTurns(
 /**
  * The summary and the turns since the newest compaction of a CLAUDE session.
  *
- * Read through the event index, never the file: the index is what numbers a transcript, and a
- * second reader counting its own lines would agree until the day something stopped parsing. That
- * is also why this is Claude's alone -- the index takes a `TranscriptSourceId`, which opencode is
- * explicitly not, because opencode has no file to index. It goes through
- * `renderOpencodeHandover` instead.
+ * Read through the same page reads the panel is served from, so the rows rendered here are parsed
+ * by the one rule that made them. That is also why this is Claude's alone -- the reads take a
+ * `TranscriptSourceId`, which opencode is explicitly not, because opencode has no file to read.
+ * It goes through `renderOpencodeHandover` instead.
  */
 export async function renderHandover(sessionId: string, transcriptPath: string): Promise<RenderedHandover> {
-  acquireIndex("claude", sessionId);
-  try {
-    await ensureIndexed("claude", sessionId, transcriptPath);
-    const total = getEventCount("claude", sessionId, "raw");
-    const events = await readEvents("claude", sessionId, transcriptPath, 0, total);
-    const boundary = findCompactionBoundary(events);
-    if (!boundary) {
-      throw new SessionHandoverError(`session "${sessionId}" was never compacted: nothing to hand over`);
-    }
-    return { summary: boundary.summary, ...renderHandoverTurns(events, boundary.index) };
-  } finally {
-    releaseIndex("claude", sessionId);
+  // The whole conversation, because what is handed over is everything since the NEWEST
+  // compaction and the boundary is found by reading all of them.
+  const end = await completeEnd(transcriptPath);
+  const events = await readEventsBetween("claude", sessionId, transcriptPath, 0, end, "raw", null);
+  const boundary = findCompactionBoundary(events);
+  if (!boundary) {
+    throw new SessionHandoverError(`session "${sessionId}" was never compacted: nothing to hand over`);
   }
+  return { summary: boundary.summary, ...renderHandoverTurns(events, boundary.index) };
 }
 
 /**

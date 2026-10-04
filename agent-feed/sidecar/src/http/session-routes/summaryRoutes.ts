@@ -18,7 +18,7 @@ import type {
   SummaryResult,
   SummaryStreamMessage,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentBackend } from "@/agents/agentBackend";
+import { backendPageBefore, type AgentBackend } from "@/agents/agentBackend";
 import { config } from "@/config/config";
 import {
   createSummaryRunner,
@@ -47,7 +47,7 @@ const SUMMARY_ROUTE =
 /**
  * The digest is always taken over the `nice` view.
  *
- * Not a caller choice, unlike every other event-index endpoint. `raw` is the fidelity guarantee
+ * Not a caller choice, unlike every other transcript page endpoint. `raw` is the fidelity guarantee
  * for a human reading the transcript; for a summarizer it is thousands of `token_count` records
  * and encrypted reasoning blobs spending context to say nothing (ADR-0086).
  */
@@ -223,7 +223,7 @@ async function summarize(options: {
 
   const cached = options.cache.get(options.key);
   // A running turn is never served from cache: its whole point is "what is happening NOW", and
-  // the event index can sit still for a minute while a build runs.
+  // the transcript can sit still for a minute while a long tool call runs.
   if (cached && options.runState !== "running" && cached.toEventIndex === window.coverage.toEventIndex) {
     return cached.result;
   }
@@ -245,15 +245,15 @@ function pageReader(
   sessionId: string,
 ): PageReader {
   if (transcript) {
-    return async (offset, limit) => {
-      const page = await readTranscriptPage(transcript, sessionId, offset, limit, SUMMARY_MODE);
-      return page ? { events: page.events, total: page.total } : null;
+    return async (before, limit) => {
+      const page = await readTranscriptPage(transcript, sessionId, before, limit, SUMMARY_MODE);
+      return page ? { events: page.events, windowStart: page.windowStart } : null;
     };
   }
   const owner = backend!;
-  return async (offset, limit) => {
-    const page = await owner.page(sessionId, offset, limit, SUMMARY_MODE);
-    return { events: page.events, total: page.total };
+  return async (before, limit) => {
+    const page = await backendPageBefore(owner, sessionId, before, limit, SUMMARY_MODE);
+    return { events: page.events, windowStart: page.windowStart };
   };
 }
 

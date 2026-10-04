@@ -36,12 +36,13 @@ const MAX_SCAN_PAGES = 10;
  *  underestimating gets the request refused by the model, and only one of those is recoverable. */
 const CHARS_PER_TOKEN = 3.5;
 
-/** Reads one page of a session's events. Injected so this module never learns whether the
- *  session is backed by a transcript on disk or by an agent backend -- the route already knows. */
+/** Reads the newest `limit` events below `before` (the newest of all when null), and where that
+ *  page starts: 0 when nothing is older. Injected so this module never learns whether the session
+ *  is backed by a transcript on disk or by an agent backend -- the route already knows. */
 export type PageReader = (
-  offset: number,
+  before: number | null,
   limit: number,
-) => Promise<{ events: ActivityEvent[]; total: number } | null>;
+) => Promise<{ events: ActivityEvent[]; windowStart: number } | null>;
 
 export interface TurnWindow {
   /** The events the summarizer will be shown, oldest first, starting at the user message. */
@@ -70,28 +71,26 @@ export interface TurnWindowOptions {
 export async function resolveTurnWindow(options: TurnWindowOptions): Promise<TurnWindow | null> {
   const { readPage, mode, tokenCeiling } = options;
 
-  const first = await readPage(Math.max(0, 0), SCAN_PAGE);
-  if (!first) return null;
-  const total = first.total;
-  if (total === 0) return null;
-
   const collected: ActivityEvent[] = [];
   let boundaryFound = false;
-  let offset = Math.max(0, total - SCAN_PAGE);
+  let before: number | null = null;
   for (let page = 0; page < MAX_SCAN_PAGES; page += 1) {
-    const limit = Math.min(SCAN_PAGE, total - offset);
-    const read = limit > 0 ? await readPage(offset, limit) : null;
-    const events = read?.events ?? [];
-    collected.unshift(...events);
+    const read = await readPage(before, SCAN_PAGE);
+    if (!read) {
+      if (page === 0) return null;
+      break;
+    }
+    collected.unshift(...read.events);
     const boundary = lastHumanIndex(collected);
     if (boundary !== -1) {
       collected.splice(0, boundary);
       boundaryFound = true;
       break;
     }
-    if (offset === 0) break;
-    offset = Math.max(0, offset - SCAN_PAGE);
+    if (read.windowStart === 0) break;
+    before = read.windowStart;
   }
+  if (collected.length === 0) return null;
 
   const { events, truncated } = fitToCeiling(collected, tokenCeiling);
 

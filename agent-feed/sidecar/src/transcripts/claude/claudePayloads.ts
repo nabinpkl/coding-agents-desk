@@ -14,7 +14,7 @@ import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/pla
  * The turn-boundary signal a line carries, or undefined when it carries none.
  *
  * One home for the rule because two readers need it: `processLine`, which feeds
- * the event index, and `readHeader`, which decides from a bounded tail read
+ * the transcript reads, and `readHeader`, which decides from a bounded tail read
  * whether a session's last turn is still open. Two copies would be free to
  * disagree about what "live" means, and both answers land on the same row.
  *
@@ -289,7 +289,7 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
 
 // The harness stamps `<synthetic>` as the model on lines it injected itself.
 // That is not a model switch and not an unknown model, so it must not resolve to
-// a null window: the merge in the event index carries the last real model and
+// a null window: the meter's merge carries the last real model and
 // limit forward for any line that names no model.
 const SYNTHETIC_MODEL = '<synthetic>';
 

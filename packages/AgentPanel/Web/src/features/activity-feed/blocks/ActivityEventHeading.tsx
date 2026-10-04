@@ -207,9 +207,9 @@ export function EventHeading({
       aria-label={
         (isCollapsed ? "expand event" : "collapse event") + (isLive ? ", streaming" : "")
       }
-      // A live row has no transcript position yet, so it says what it is instead
-      // of naming an index that would read as `#-1`.
-      title={isLive ? "streaming" : when ? `#${ev.index} · ${when}` : `#${ev.index}`}
+      // The time alone: a transcript row's index is the byte its line starts at, an address rather
+      // than a number a reader counts by (ADR-0124). A live row says what it is instead.
+      title={isLive ? "streaming" : when || undefined}
       // `max-w-full` is what keeps a phone from scrolling sideways. A float is sized shrink-to-fit,
       // which floors at its min-content width, and the intent span below caps itself in `ch` --
       // an absolute bound that a 390px column cannot afford, so the float grew past the viewport

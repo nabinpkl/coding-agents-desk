@@ -1,16 +1,7 @@
-import type { ReactNode } from "react";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import type {
-  AgentDataSource,
-  SessionEventsHandlers,
-} from "@/features/activity-feed/data-source/AgentDataSource";
-import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
-import {
-  useSessionEventsStream,
-  type ActivityEvent,
-} from "@/features/activity-feed/useSessionEventsStream";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import { renderThread, thread } from "@/features/activity-feed/sessionEventsHarness";
 
 /**
  * `ts` is the moment the message began streaming, which is what the mirror stamps
@@ -33,23 +24,10 @@ function tailEvent(index: number, messageId: string, ts = index): ActivityEvent 
 
 describe("useSessionEventsStream live tail", () => {
   it("shows a live tail and hands it off when the durable transcript has it", async () => {
-    let handlers: SessionEventsHandlers | undefined;
-    const source: AgentDataSource = stubDataSource({
-      fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
-      subscribeSessionEvents: (_session, _after, nextHandlers) => {
-        handlers = nextHandlers;
-        return () => {};
-      },
-      fetchRawEvent: async () => "",
-    });
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <DataSourceProvider source={source}>{children}</DataSourceProvider>
-    );
-    const view = renderHook(
-      () => useSessionEventsStream("claude", "thread", "nice"),
-      { wrapper },
-    );
+    const session = thread([]);
+    const view = renderThread(session.source, "claude", "nice");
     await waitFor(() => expect(view.result.current.loading).toBe(false));
+    const handlers = session.handlers();
 
     // A streaming live message becomes the tail.
     act(() => handlers?.onLiveTail?.(tailEvent(0, "msg_1")));
@@ -103,23 +81,10 @@ describe("useSessionEventsStream live tail", () => {
     // Measured against a live session: a finished message from three hours earlier sat
     // below the thread as a 9,554px block while the transcript streamed correctly above
     // it, and a feed that follows its own bottom showed nothing but the block.
-    let handlers: SessionEventsHandlers | undefined;
-    const source: AgentDataSource = stubDataSource({
-      fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
-      subscribeSessionEvents: (_session, _after, nextHandlers) => {
-        handlers = nextHandlers;
-        return () => {};
-      },
-      fetchRawEvent: async () => "",
-    });
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <DataSourceProvider source={source}>{children}</DataSourceProvider>
-    );
-    const view = renderHook(
-      () => useSessionEventsStream("claude", "thread", "nice"),
-      { wrapper },
-    );
+    const session = thread([]);
+    const view = renderThread(session.source, "claude", "nice");
     await waitFor(() => expect(view.result.current.loading).toBe(false));
+    const handlers = session.handlers();
 
     act(() => handlers?.onLiveTail?.(tailEvent(0, "orphan", 100)));
     expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["orphan"]);
@@ -164,23 +129,10 @@ describe("useSessionEventsStream live tail", () => {
     // The mirror opens a row per message and moves on. Measured 2026-09-10, the
     // durable stream delivered nothing for ninety seconds while four messages went
     // through, so a single slot showed one of them and lost the other three.
-    let handlers: SessionEventsHandlers | undefined;
-    const source: AgentDataSource = stubDataSource({
-      fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
-      subscribeSessionEvents: (_session, _after, nextHandlers) => {
-        handlers = nextHandlers;
-        return () => {};
-      },
-      fetchRawEvent: async () => "",
-    });
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <DataSourceProvider source={source}>{children}</DataSourceProvider>
-    );
-    const view = renderHook(
-      () => useSessionEventsStream("claude", "thread", "nice"),
-      { wrapper },
-    );
+    const session = thread([]);
+    const view = renderThread(session.source, "claude", "nice");
     await waitFor(() => expect(view.result.current.loading).toBe(false));
+    const handlers = session.handlers();
 
     // Three messages stream, one after another, with nothing durable arriving. Each
     // finishes before the next starts, exactly as the mirror publishes them.

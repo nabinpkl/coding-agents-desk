@@ -34,11 +34,17 @@ export interface SessionsPayload {
   sessions: SessionSummary[];
 }
 
-/** `GET /api/sessions/{source}/{sessionId}/events?offset=&limit=&mode=`. */
+/**
+ * `GET /api/sessions/{source}/{sessionId}/events?before=&limit=&mode=`: the newest `limit` rows
+ * whose index is below `before`, or the newest rows of all when `before` is absent.
+ */
 export interface EventsPage {
   events: ActivityEvent[];
-  /** Counted in `mode`, so the panel's paging arithmetic is in the same units as the indices. */
-  total: number;
+  /**
+   * Where this page starts: the oldest row's index when there are older rows, and 0 when the page
+   * reaches the first row. The next older page is the one `before` this; at 0 there is none.
+   */
+  windowStart: number;
   mode: EventMode;
   usage: TokenUsage | null;
   /**
@@ -75,8 +81,8 @@ export interface TimelineEnvelope {
   sequence: number;
   mode: EventMode;
   events: ActivityEvent[];
+  /** As on `EventsPage`: the oldest row's index when older rows exist, and 0 when none do. */
   windowStart: number;
-  total: number;
   runState: AgentRunState;
   queue: AgentQueueState;
   /**

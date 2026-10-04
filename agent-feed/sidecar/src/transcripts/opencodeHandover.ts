@@ -2,7 +2,7 @@
 //
 // The Claude direction opens a file; this one makes HTTP calls. That is ADR-0116 showing through:
 // opencode sessions are registered and reconciled off the serve's own list, never discovered on
-// disk, so there is no path to hand the event index and no file whose bytes are the record.
+// disk, so there is no path to hand the transcript reads and no file whose bytes are the record.
 //
 // Two decisions are worth not rediscovering.
 //

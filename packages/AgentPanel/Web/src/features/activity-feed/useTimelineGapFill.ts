@@ -29,20 +29,20 @@ export function useTimelineGapFill({
 }: {
   /** Every row held, oldest first. */
   events: readonly ActivityEvent[];
-  fetchPage: (offset: number, limit: number) => Promise<EventsPage>;
+  fetchPage: (before: number, limit: number) => Promise<EventsPage>;
   /** Moved by every snapshot; a page fetched under an older value is about a window that is gone. */
   epochRef: { readonly current: number };
   snapshotCount: number;
   onPage: (events: readonly ActivityEvent[]) => void;
 }): void {
-  const gap = useMemo(() => newestGap(events.map((event) => event.index)), [events]);
-  const gapOffset = gap?.offset ?? -1;
+  const gap = useMemo(() => newestGap(events), [events]);
+  const gapBefore = gap?.before ?? -1;
   const gapLimit = gap?.limit ?? 0;
   useEffect(() => {
     if (gapLimit <= 0) return;
     const requestEpoch = epochRef.current;
     let superseded = false;
-    fetchPage(gapOffset, gapLimit).then(
+    fetchPage(gapBefore, gapLimit).then(
       (page) => {
         if (superseded || requestEpoch !== epochRef.current) return;
         onPage(page.events);
@@ -52,7 +52,7 @@ export function useTimelineGapFill({
         // Not the thread's `error`: that replaces an empty transcript, and this one has rows on
         // both sides of the hole. The next snapshot tries again.
         console.warn(
-          `[timeline] could not fetch rows ${gapOffset}..${gapOffset + gapLimit - 1}: ` +
+          `[timeline] could not fetch the rows before ${gapBefore}: ` +
             String((error as Error)?.message ?? error),
         );
       },
@@ -60,7 +60,7 @@ export function useTimelineGapFill({
     return () => {
       superseded = true;
     };
-  }, [fetchPage, onPage, epochRef, gapOffset, gapLimit, snapshotCount]);
+  }, [fetchPage, onPage, epochRef, gapBefore, gapLimit, snapshotCount]);
 }
 
 /** The rows held with a page merged in, keeping whichever copy of a row has the newer revision. */
