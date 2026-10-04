@@ -34,11 +34,12 @@ export function createCursorMirror(ctx: ViewportRuntime) {
     },
     /**
      * The cursor moved, by this viewer's hand or by the Mac's word: follow it to the edge of a
-     * zoomed view and redraw. Not while two fingers are on the picture, which is the reader
-     * moving the view themselves.
+     * zoomed view and redraw. Not while the reader is moving the view themselves: two fingers on
+     * the picture, or any finger on a picture that does not drive the pointer, which is a pan.
      */
     cursorChanged: (change: RemoteCursorChange) => {
-      if ((change === "local" || change === "host") && ctx.pointers.size < 2) {
+      const readerMovingView = ctx.pointers.size >= 2 || (!ctx.pointerMode && ctx.pointers.size > 0);
+      if ((change === "local" || change === "host") && !readerMovingView) {
         const { w, h } = ctx.size();
         if (ctx.view.follow(ctx.input.cursor.position, w, h)) {
           if (change === "local") ctx.gestureEdgeFollowed = true;

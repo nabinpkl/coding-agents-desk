@@ -130,6 +130,18 @@ try {
   const stripMid = [(layout.strip.left + layout.strip.right) / 2, (layout.strip.top + layout.strip.bottom) / 2];
   await inputs();
 
+  // In Trackpad mode the picture is looked at, not driven: a finger pans it and sends nothing,
+  // and the pad's cursor is still drawn on it.
+  const picture = [layout.pad.left + 120, layout.videoBottom - 120];
+  await drag(picture, [picture[0] - 60, picture[1] - 40], { steps: 6, stepMs: 16 });
+  await touch('touchStart', [picture]);
+  await touch('touchEnd', []);
+  await page.waitForTimeout(400);
+  const onPicture = await inputs();
+  check('a finger on the picture sends the Mac nothing', onPicture.length === 0, JSON.stringify(onPicture));
+  check('the cursor is drawn on the picture',
+    await page.evaluate(() => document.querySelector('[data-testid="client-cursor-overlay"]')?.hidden === false));
+
   // A tap on the pad is a left click where the pointer is.
   await touch('touchStart', [padMid]);
   await page.waitForTimeout(40);

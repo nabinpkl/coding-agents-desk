@@ -77,6 +77,7 @@ export function TileViewport({
   children,
   className = "",
   pointerMode = false,
+  showCursor = false,
   absolutePointer = false,
   sendPointerInput,
   input: providedInput,
@@ -93,6 +94,11 @@ export function TileViewport({
   children: ReactNode;
   className?: string;
   pointerMode?: boolean;
+  /**
+   * Draw the Mac's cursor though the picture does not drive it: in Trackpad mode the deck moves
+   * the pointer, and the picture is where you watch it go.
+   */
+  showCursor?: boolean;
   /** Mouse only: put the remote cursor where the pointer is, instead of nudging it by deltas. */
   absolutePointer?: boolean;
   sendPointerInput?: (input: DesktopPointerInput) => boolean;
@@ -177,6 +183,7 @@ export function TileViewport({
       keyboardPresentedRef,
       pointerGestureStartRef,
       pointerMode,
+      showCursor,
       scrollEngagedRef,
       input,
       setScrollEngaged,
@@ -333,6 +340,7 @@ export function TileViewport({
     initialCursor?.x,
     initialCursor?.y,
     pointerMode,
+    showCursor,
     sourceHeight,
     sourceWidth,
     subscribeCursorEvents,

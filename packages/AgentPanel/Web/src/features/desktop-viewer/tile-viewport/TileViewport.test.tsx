@@ -241,3 +241,48 @@ describe("TileViewport pointer mode", () => {
     expect(screen.getByTestId("pointer-scroll-puck")).not.toBeVisible();
   });
 });
+
+describe("TileViewport under the trackpad deck", () => {
+  const { pointer, scaleOf } = tileViewportHarness();
+
+  it("draws the cursor, pans a zoomed picture under one finger, and sends the Mac nothing", () => {
+    const inputs: DesktopPointerInput[] = [];
+    render(
+      <TileViewport
+        showCursor
+        sendPointerInput={(input) => { inputs.push(input); return true; }}
+        sourceWidth={800}
+        sourceHeight={500}
+        initialCursor={{ x: 400, y: 250 }}
+      >
+        <div data-testid="content" />
+      </TileViewport>,
+    );
+    const surface = screen.getByTestId("content").parentElement!.parentElement!;
+    Object.defineProperties(surface, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    act(() => window.dispatchEvent(new Event("resize")));
+    const overlay = screen.getByTestId("client-cursor-overlay");
+    expect(overlay.hidden).toBe(false);
+    expect(overlay.style.transform).toBe("translate3d(400px, 250px, 0)");
+    expect(screen.queryByTestId("pointer-scroll-puck")).not.toBeInTheDocument();
+
+    // A double tap zooms, as the iPhone's As Is does with Touch off.
+    pointer(surface, "pointerdown", 1, 400, 250);
+    pointer(surface, "pointerup", 1, 400, 250);
+    pointer(surface, "pointerdown", 2, 400, 250);
+    pointer(surface, "pointerup", 2, 400, 250);
+    const transformed = screen.getByTestId("content").parentElement!;
+    expect(scaleOf(transformed.style.transform)).toBeCloseTo(2.5);
+
+    // One finger then moves the view, not the pointer.
+    const before = transformed.style.transform;
+    pointer(surface, "pointerdown", 3, 400, 250);
+    pointer(surface, "pointermove", 3, 300, 200);
+    pointer(surface, "pointerup", 3, 300, 200);
+    expect(transformed.style.transform).not.toBe(before);
+    expect(inputs).toEqual([]);
+  });
+});

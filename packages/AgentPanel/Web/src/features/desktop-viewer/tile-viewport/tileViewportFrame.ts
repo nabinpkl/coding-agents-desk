@@ -43,7 +43,7 @@ export function createFrameGeometry(ctx: ViewportRuntime) {
       const { w, h } = ctx.size();
       ctx.view.paint(ctx.layers, w, h);
       const projected = ctx.view.project(ctx.input.cursor.position, w, h);
-      ctx.overlay.hidden = !ctx.pointerMode || ctx.cursorHidden || projected === null;
+      ctx.overlay.hidden = !(ctx.pointerMode || ctx.showCursor) || ctx.cursorHidden || projected === null;
       // Drawn grey while the Mac has not confirmed where the cursor went (ADR-0058).
       ctx.overlay.dataset.confidence = ctx.input.cursor.confidence;
       if (projected) {

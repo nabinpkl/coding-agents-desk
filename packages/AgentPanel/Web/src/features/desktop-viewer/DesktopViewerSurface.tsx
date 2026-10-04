@@ -75,7 +75,19 @@ export function DesktopViewerSurface({
   const [source, setSource] = useState<WebrtcTileSourceMetadata | null>(null);
   const [tile, setTile] = useState<DesktopStreamState>({ kind: "connecting" });
   const [controlTransport, setControlTransport] = useState<DesktopControlTransport | null>(null);
-  const [pointerMode, setPointerMode] = useState(true);
+  // What a finger on the picture does, as the iPhone client's layouts had it. Pointer: the picture
+  // is the pointer's surface. Trackpad: the deck under the picture drives the pointer and the
+  // picture is only looked at, panned and zoomed ("As Is"). View: nothing reaches the Mac.
+  // Trackpad is only offered to a touch device, so only a touch device can come back to it.
+  const [pictureMode, setPictureMode] = useState<"view" | "trackpad" | "pointer">(
+    () => (primaryPointerIsTouch() && storedTrackpadDeck() ? "trackpad" : "pointer"),
+  );
+  const pointerMode = pictureMode === "pointer";
+  const choosePictureMode = useCallback((next: "view" | "trackpad" | "pointer") => {
+    setPictureMode(next);
+    // Remembered as the choice between the two ways of driving the pointer; View is a glance.
+    if (next !== "view") storeTrackpadDeck(next === "trackpad");
+  }, []);
   // Mouse only. A finger has no position to honour between taps, so touch keeps the relative
   // trackpad path regardless of this; it decides what a MOUSE does, and defaults to following.
   const [absolutePointer, setAbsolutePointer] = useState(() => {
@@ -151,13 +163,6 @@ export function DesktopViewerSurface({
   const pointerInput = usePointerInputSession(sendPointerInput);
   // The deck is a touch device's: a mouse already points at the picture itself (Follow).
   const [touchDevice] = useState(primaryPointerIsTouch);
-  const [deckChosen, setDeckChosen] = useState(storedTrackpadDeck);
-  const toggleDeck = useCallback(() => {
-    setDeckChosen((current) => {
-      storeTrackpadDeck(!current);
-      return !current;
-    });
-  }, []);
   const mainRef = useRef<HTMLElement>(null);
   const [viewerHeight, setViewerHeight] = useState(0);
   useLayoutEffect(() => {
@@ -219,7 +224,7 @@ export function DesktopViewerSurface({
     && compatibleControlTransport !== null
     && tile.kind === "playing";
   // Typing takes the bottom of the screen for the keyboard; the deck gives it back.
-  const deckShown = touchDevice && deckChosen && interactive && !keyboard.keyboardPresented;
+  const deckShown = touchDevice && pictureMode === "trackpad" && interactive && !keyboard.keyboardPresented;
   const deckHeight = deckShown ? trackpadDeckHeight(viewerHeight) : 0;
   const zoomMode = useZoomMode();
   const overviewLayer = useOverviewLayer();
@@ -248,6 +253,7 @@ export function DesktopViewerSurface({
         <TileViewport
           className="size-full"
           pointerMode={pointerMode && source !== null}
+          showCursor={pictureMode === "trackpad"}
           absolutePointer={absolutePointer}
           input={pointerInput}
           keyboardPresented={keyboard.keyboardPresented}
@@ -369,19 +375,20 @@ export function DesktopViewerSurface({
                 />
               ) : null}
               <ModeButton
-                active={!pointerMode}
+                active={pictureMode === "view"}
                 label="View"
                 icon={<Hand className="size-3.5" aria-hidden />}
-                onClick={() => setPointerMode(false)}
+                onClick={() => choosePictureMode("view")}
               />
               {touchDevice ? (
                 // Follow decides what a MOUSE does, which a finger never reaches; on a touch
-                // device this slot is the trackpad deck instead.
+                // device this slot is the trackpad mode instead.
                 <ModeButton
-                  active={deckChosen}
+                  active={pictureMode === "trackpad"}
+                  disabled={!pointerReady}
                   label="Trackpad"
                   icon={<Touchpad className="size-3.5" aria-hidden />}
-                  onClick={toggleDeck}
+                  onClick={() => choosePictureMode("trackpad")}
                 />
               ) : (
                 <ModeButton
@@ -399,7 +406,7 @@ export function DesktopViewerSurface({
                   ? `Control v${source.desktopControlVersion || "unknown"} unsupported`
                   : pointerReady ? "Pointer" : "Input connecting"}
                 icon={<MousePointer2 className="size-3.5" aria-hidden />}
-                onClick={() => setPointerMode(true)}
+                onClick={() => choosePictureMode("pointer")}
               />
             </>
           ) : null}

@@ -276,6 +276,11 @@ Steps 1-6 need no wire change and no native build. Step 8 is the only one that t
 8. **Checked by ported test cases, the constants parity test, Chrome for Testing touch runs, and
    the owner's feel on the phone.** No side-by-side with the iPhone app, so no native client build.
 
+9. **Trackpad is a mode of its own** (added after the first build): View, Trackpad and Pointer
+   are exclusive, like the iPhone's layouts. In Trackpad mode the picture behaves like "As Is" with
+   Touch off: one finger pans a zoomed picture, two pinch, a double tap zooms, a tap sends nothing,
+   and the cursor the pad moves is still drawn on it.
+
 What this changes in section 4:
 - Step 5 sets the hold to 250ms and 1:1 drag motion on the picture as well as the pad.
 - Step 6 shows the deck's mode button only on a coarse pointer, and the row holds Right click only.

@@ -89,6 +89,8 @@ export interface ViewportRuntime {
   readonly keyboardPresentedRef: { current: boolean };
   readonly setScrollEngaged: (engaged: boolean) => void;
   readonly pointerMode: boolean;
+  /** Draws the cursor without the picture driving it (Trackpad mode). */
+  readonly showCursor: boolean;
   readonly sourceWidth: number;
   readonly sourceHeight: number;
 
