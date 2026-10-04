@@ -2,12 +2,13 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
+import type { ViewportPoint } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
+import { storedPointerScrollPuckOffset } from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
 import {
-  advanceRemoteCursor,
-  pointerAccelerationGain,
-  scrollAccelerationGain,
-  type ViewportPoint,
-} from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
+  usePointerInputSession,
+  type PointerInputSession,
+} from "@/features/desktop-viewer/pointer-input/pointerInputSession";
+import { VelocityTracker } from "@/features/desktop-viewer/pointer-input/velocityTracker";
 import { createZoomView, type SettleOutcome, type ViewLayers } from "@/features/desktop-viewer/zoom/zoomModels";
 import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "@/features/desktop-viewer/zoom/captureCrop";
 import { useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
@@ -54,60 +55,6 @@ export type ViewportGestureTelemetry = {
   detail: SettleOutcome;
 };
 
-const CURSOR_MIRROR_RENDER_SCALE = 0.7;
-/** How long after the last zoom or pan before the capture is re-aimed. DeskZoom's settle delay. */
-const VIEW_SETTLE_MS = 150;
-/** Shortest gap between two re-aims; each one swaps the picture while the new stream negotiates. */
-const VIEW_REAIM_INTERVAL_MS = 350;
-const POINTER_SLOP = 3;
-/** How long one finger stays still before it becomes a held button. */
-const TOUCH_DRAG_HOLD_MS = 500;
-/**
- * How long a finger rests before the priming ring appears at all.
- *
- * Drawing it on touch-down would put a ring under every tap, and almost every tap is a click. The
- * ring waits out the length of an ordinary tap and then shows the progress already made, so it
- * only ever appears for someone who is holding on purpose.
- */
-const DRAG_PRIMING_DELAY_MS = 150;
-const DRAG_PRIMING_RADIUS = 12;
-const DRAG_PRIMING_CIRCUMFERENCE = 2 * Math.PI * DRAG_PRIMING_RADIUS;
-const SCROLL_SLOP = 10;
-const SCROLL_MOMENTUM_FLICK_THRESHOLD = 200;
-const SCROLL_MOMENTUM_STOP_THRESHOLD = 30;
-const SCROLL_MOMENTUM_DECAY_K = 2.8;
-/**
- * How long the wheel has to be quiet before the remote scroll is ended.
- *
- * Long enough that neither a notched wheel between clicks nor a trackpad's own momentum stream
- * (both under ~60ms apart in Chrome on macOS) reads as a stop, short enough that the far Mac is
- * not left inside an open scroll phase after the hand is off.
- */
-const WHEEL_SCROLL_IDLE_MS = 150;
-const POINTER_SCROLL_PUCK_SIDE = 56;
-const POINTER_SCROLL_PUCK_STORAGE_KEY = "agentdesk.pointer-scroll-puck-offset.v1";
-const DEFAULT_POINTER_SCROLL_PUCK_OFFSET = { right: 16, bottom: 120 };
-
-interface PointerScrollPuckOffset {
-  right: number;
-  bottom: number;
-}
-
-function storedPointerScrollPuckOffset(): PointerScrollPuckOffset {
-  try {
-    const stored = window.localStorage.getItem(POINTER_SCROLL_PUCK_STORAGE_KEY);
-    if (!stored) return DEFAULT_POINTER_SCROLL_PUCK_OFFSET;
-    const parsed = JSON.parse(stored) as Partial<PointerScrollPuckOffset>;
-    if (typeof parsed.right !== "number" || !Number.isFinite(parsed.right)
-        || typeof parsed.bottom !== "number" || !Number.isFinite(parsed.bottom)) {
-      return DEFAULT_POINTER_SCROLL_PUCK_OFFSET;
-    }
-    return { right: parsed.right, bottom: parsed.bottom };
-  } catch {
-    return DEFAULT_POINTER_SCROLL_PUCK_OFFSET;
-  }
-}
-
 /**
  * A map-style viewport around a live tile, or a relative Mac pointer surface.
  *
@@ -132,6 +79,7 @@ export function TileViewport({
   pointerMode = false,
   absolutePointer = false,
   sendPointerInput,
+  input: providedInput,
   keyboardPresented = false,
   onPointerGestureStart,
   onBeforeRemoteClick,
@@ -148,6 +96,11 @@ export function TileViewport({
   /** Mouse only: put the remote cursor where the pointer is, instead of nudging it by deltas. */
   absolutePointer?: boolean;
   sendPointerInput?: (input: DesktopPointerInput) => boolean;
+  /**
+   * The viewer's shared pointer input, when something else (the trackpad) drives the same
+   * cursor. Without it the viewport makes its own and points it at `sendPointerInput`.
+   */
+  input?: PointerInputSession;
   keyboardPresented?: boolean;
   /** Returns true when the keyboard consumed the entire new pointer sequence. */
   onPointerGestureStart?: () => boolean;
@@ -177,14 +130,12 @@ export function TileViewport({
   const dragPriming = useRef<HTMLSpanElement>(null);
   const dragPrimingArc = useRef<SVGCircleElement>(null);
   const cursorImageCache = useRef(new CursorImageCache());
-  const sendPointerInputRef = useRef(sendPointerInput);
+  const input = usePointerInputSession(sendPointerInput, providedInput);
   const pointerGestureStartRef = useRef(onPointerGestureStart);
   const beforeRemoteClickRef = useRef(onBeforeRemoteClick);
   const keyboardPresentedRef = useRef(keyboardPresented);
   const gestureTelemetryRef = useRef(onGestureTelemetry);
-  const cursorRevision = useRef(0);
   const absolutePointerRef = useRef(absolutePointer);
-  const acknowledgedCursorRevision = useRef(0);
   const scrollEngagedRef = useRef(false);
   const [scrollEngaged, setScrollEngagedState] = useState(false);
 
@@ -193,9 +144,6 @@ export function TileViewport({
     setScrollEngagedState(engaged);
   };
 
-  useEffect(() => {
-    sendPointerInputRef.current = sendPointerInput;
-  }, [sendPointerInput]);
   useEffect(() => {
     absolutePointerRef.current = absolutePointer;
   }, [absolutePointer]);
@@ -220,10 +168,8 @@ export function TileViewport({
   useLayoutEffect(() => {
     const ctx = {
       absolutePointerRef,
-      acknowledgedCursorRevision,
       beforeRemoteClickRef,
       cursorImageCache,
-      cursorRevision,
       dragHalo,
       dragPriming,
       dragPrimingArc,
@@ -232,7 +178,7 @@ export function TileViewport({
       pointerGestureStartRef,
       pointerMode,
       scrollEngagedRef,
-      sendPointerInputRef,
+      input,
       setScrollEngaged,
       sourceHeight,
       sourceWidth,
@@ -263,13 +209,7 @@ export function TileViewport({
     );
     /** The view to put back when the keyboard stops occluding the box, or null when it is not. */
     ctx.viewBeforeKeyboard = null;
-    ctx.remoteCursor = advanceRemoteCursor(
-      initialCursor ?? { x: sourceWidth / 2, y: sourceHeight / 2 },
-      0,
-      0,
-      sourceWidth,
-      sourceHeight,
-    );
+    input.cursor.reset({ width: sourceWidth, height: sourceHeight }, initialCursor);
     ctx.cursorHidden = false;
     ctx.pointers = new Map<number, { x: number; y: number; startX: number; startY: number }>();
     ctx.lastTapAt = 0;
@@ -281,22 +221,8 @@ export function TileViewport({
     ctx.touchHoldTimer = 0;
     ctx.touchPrimingTimer = 0;
     ctx.touchPrimingArc = null;
-    ctx.touchDragHeld = false;
-    ctx.pendingPointerDx = 0;
-    ctx.pendingPointerDy = 0;
-    ctx.pointerFrame = 0;
-    ctx.lastPointerFrameAt = performance.now();
-    ctx.pendingScrollDx = 0;
-    ctx.pendingScrollDy = 0;
-    ctx.scrollFrame = 0;
-    ctx.scrollActive = false;
-    ctx.lastScrollFrameAt = performance.now();
-    ctx.lastScrollSampleAt = performance.now();
-    ctx.lastScrollVelocity = { x: 0, y: 0 };
-    ctx.momentumFrame = 0;
-    ctx.momentumLastTime = 0;
-    ctx.momentumVelocity = { x: 0, y: 0 };
-    ctx.didEmitMomentumBegan = false;
+    ctx.scrollVelocity = new VelocityTracker();
+    ctx.scrollBegun = false;
     ctx.wheelIdleTimer = 0;
     ctx.puckOffset = storedPointerScrollPuckOffset();
     ctx.puckPointer = null;
@@ -373,6 +299,7 @@ export function TileViewport({
     // Non-passive on purpose: preventDefault on a wheel only works that way.
     ctx.frame.addEventListener("wheel", ctx.wheel, { passive: false });
     const unsubscribeCursorEvents = subscribeCursorEvents?.(ctx.applyCursorEvent);
+    const unsubscribeCursor = input.cursor.subscribe(ctx.cursorChanged);
     ctx.applyPuckOffset(false);
     ctx.apply();
     return () => {
@@ -392,14 +319,15 @@ export function TileViewport({
       ctx.puck?.removeEventListener("pointerup", ctx.puckUp);
       ctx.puck?.removeEventListener("pointercancel", ctx.puckCancel);
       unsubscribeCursorEvents?.();
-      if (ctx.pointerFrame !== 0) window.cancelAnimationFrame(ctx.pointerFrame);
+      unsubscribeCursor();
       if (ctx.wheelIdleTimer !== 0) window.clearTimeout(ctx.wheelIdleTimer);
-      if (ctx.scrollFrame !== 0 || ctx.scrollActive) ctx.endScroll(false);
-      ctx.stopMomentum(true);
       if (ctx.pendingPuckTap !== 0) window.clearTimeout(ctx.pendingPuckTap);
       ctx.cancelTouchHold();
       ctx.releaseTouchDrag();
       ctx.releaseMouseButton();
+      // Every phase this viewport could have opened is closed while the transport is still there:
+      // a scroll left open or a button left down on the far Mac outlives the page.
+      input.translator.dispose();
     };
   }, [
     initialCursor?.x,
@@ -408,6 +336,7 @@ export function TileViewport({
     sourceHeight,
     sourceWidth,
     subscribeCursorEvents,
+    input,
     zoomMode,
     overviewLayer,
   ]);

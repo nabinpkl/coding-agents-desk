@@ -85,7 +85,7 @@ describe("TileViewport cursor mirror", () => {
     expect(surface.contains(overlay)).toBe(true);
   });
 
-  it("sends immediately and corrects only from the newest applied move", () => {
+  it("sends immediately, corrects only from the newest applied move, and replays unconfirmed travel over the Mac's own", () => {
     const inputs: DesktopPointerInput[] = [];
     let listener: ((event: WebrtcCursorEvent) => void) | undefined;
     const surface = renderPointerSurface(
@@ -110,13 +110,19 @@ describe("TileViewport cursor mirror", () => {
     expect(inputs).toHaveLength(2);
     expect(inputs[0]).toMatchObject({ type: "pointer-move", revision: 1 });
     expect(inputs[1]).toMatchObject({ type: "pointer-move", revision: 2 });
-    const predicted = overlay.style.transform;
 
+    // The Mac moved its cursor itself while both moves were unconfirmed. Its position is the new
+    // base and the finger's unconfirmed travel is replayed on top (ADR-0058), so the drawing moves
+    // by exactly the Mac's own displacement and keeps what the finger did.
+    const drawnX = () => Number(/translate3d\(([^p]+)px/.exec(overlay.style.transform)![1]);
+    const predictedX = drawnX();
     act(() => listener?.({ type: "cursor-position", x: 50, y: 250 }));
-    expect(overlay.style.transform).toBe(predicted);
+    expect(drawnX()).toBeCloseTo(predictedX - 50, 9);
+    expect(overlay.style.transform).toMatch(/, 250px, 0\)$/);
 
+    const replayed = overlay.style.transform;
     act(() => listener?.({ type: "cursor-applied", revision: 1, x: 300, y: 250 }));
-    expect(overlay.style.transform).toBe(predicted);
+    expect(overlay.style.transform).toBe(replayed);
 
     act(() => listener?.({ type: "cursor-applied", revision: 2, x: 600, y: 250 }));
     expect(overlay.style.transform).toBe("translate3d(600px, 250px, 0)");

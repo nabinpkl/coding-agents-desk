@@ -4,11 +4,6 @@
 // pinch, and none of that is known at the press. Everything here is that decision and what
 // it does once made.
 
-import {
-  POINTER_SLOP,
-  SCROLL_SLOP,
-  TOUCH_DRAG_HOLD_MS,
-} from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
 import type { ViewportPoint } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
 import type { ViewportRuntime } from "@/features/desktop-viewer/tile-viewport/tileViewportRuntime";
 
@@ -47,25 +42,21 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
         return;
       }
       if (countBefore === 0) {
-        if (ctx.pointerMode && ctx.scrollEngagedRef.current) ctx.stopMomentum(true);
         ctx.didCrossPointerSlop = false;
         ctx.hadMultiplePointers = false;
-        ctx.pendingPointerDx = 0;
-        ctx.pendingPointerDy = 0;
-        ctx.lastPointerFrameAt = performance.now();
-        ctx.pendingScrollDx = 0;
-        ctx.pendingScrollDy = 0;
-        ctx.scrollActive = false;
-        ctx.lastScrollVelocity = { x: 0, y: 0 };
-        ctx.lastScrollFrameAt = performance.now();
-        ctx.lastScrollSampleAt = Number.isFinite(event.timeStamp) ? event.timeStamp : performance.now();
+        if (ctx.pointerMode && ctx.scrollEngagedRef.current) {
+          // Touching aborts a coast, as it does on a Mac trackpad.
+          ctx.input.translator.scroll.stopMomentum(true);
+          ctx.beginFingerScroll(at, sampledAt(event));
+        } else if (ctx.pointerMode) {
+          ctx.input.translator.cursorBegin(at);
+        }
       } else {
         ctx.hadMultiplePointers = true;
-        if (ctx.pointerFrame !== 0) window.cancelAnimationFrame(ctx.pointerFrame);
-        ctx.pointerFrame = 0;
-        ctx.pendingPointerDx = 0;
-        ctx.pendingPointerDy = 0;
-        if (ctx.scrollFrame !== 0 || ctx.scrollActive) ctx.endScroll(false);
+        // A second finger makes this a pinch: the first finger's unsent travel is not the
+        // pointer's, and a scroll it had opened is closed without a coast.
+        ctx.input.translator.cursorCancel();
+        ctx.cancelFingerScroll();
       }
       ctx.pointers.set(event.pointerId, { ...at, startX: at.x, startY: at.y });
       if (countBefore === 0) {
@@ -94,37 +85,22 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
       if (!previous) return;
       if (ctx.pointerSequenceConsumed) return;
       if (ctx.pointerMode && ctx.pointers.size === 1) {
-        const samples = event.getCoalescedEvents?.() ?? [event];
-        for (const sample of samples.length > 0 ? samples : [event]) {
-          const before = ctx.pointers.get(event.pointerId);
-          if (!before) break;
-          const now = ctx.local(sample);
-          ctx.pointers.set(event.pointerId, { ...before, ...now });
-          if (ctx.hadMultiplePointers) continue;
-          if (!ctx.didCrossPointerSlop) {
-            const slop = ctx.scrollEngagedRef.current ? SCROLL_SLOP : POINTER_SLOP;
-            if (Math.hypot(now.x - before.startX, now.y - before.startY) < slop) continue;
-            ctx.cancelTouchHold();
-            ctx.didCrossPointerSlop = true;
-            ctx.reportGestureStart();
-          }
-          const dx = now.x - before.x;
-          const dy = now.y - before.y;
-          if (ctx.scrollEngagedRef.current) {
-            const sampleAt = Number.isFinite(sample.timeStamp) ? sample.timeStamp : performance.now();
-            const elapsed = Math.max((sampleAt - ctx.lastScrollSampleAt) / 1_000, 0.001);
-            ctx.lastScrollSampleAt = sampleAt;
-            if (dx !== 0 || dy !== 0) {
-              ctx.lastScrollVelocity = { x: dx / elapsed, y: dy / elapsed };
-              ctx.pendingScrollDx += dx;
-              ctx.pendingScrollDy += dy;
-              ctx.scheduleScrollFlush();
-            }
-          } else {
-            ctx.pendingPointerDx += dx;
-            ctx.pendingPointerDy += dy;
-            ctx.schedulePointerFlush();
-          }
+        const coalesced = event.getCoalescedEvents?.() ?? [];
+        const samples = (coalesced.length > 0 ? coalesced : [event])
+          .map((sample) => ({ at: ctx.local(sample), sampledAt: sampledAt(sample) }));
+        const latest = samples.at(-1)!.at;
+        ctx.pointers.set(event.pointerId, { ...previous, ...latest });
+        if (ctx.hadMultiplePointers) return;
+        if (ctx.scrollEngagedRef.current) {
+          ctx.fingerScrollSamples(samples);
+        } else if (ctx.input.translator.isDragging) {
+          const { w, h } = ctx.size();
+          ctx.input.translator.dragMove(latest, { width: w, height: h });
+        } else if (ctx.input.translator.cursorSamples(samples.map((sample) => sample.at))
+            && !ctx.didCrossPointerSlop) {
+          ctx.cancelTouchHold();
+          ctx.didCrossPointerSlop = true;
+          ctx.reportGestureStart();
         }
         return;
       }
@@ -172,23 +148,16 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
       }
       if (ctx.pointerMode) {
         if (countBefore === 1) {
-          if (ctx.pointerFrame !== 0) window.cancelAnimationFrame(ctx.pointerFrame);
-          ctx.pointerFrame = 0;
           if (ctx.scrollEngagedRef.current && !ctx.hadMultiplePointers) {
-            ctx.endScroll(ctx.didCrossPointerSlop);
-          } else {
-            ctx.flushPointer();
+            ctx.endFingerScroll(ctx.didCrossPointerSlop);
+          } else if (!ctx.hadMultiplePointers) {
+            ctx.input.translator.cursorEnd();
           }
           ctx.cancelTouchHold();
           const dropped = ctx.releaseTouchDrag();
           if (!dropped && !ctx.hadMultiplePointers && !ctx.didCrossPointerSlop) {
             const focusRequestId = ctx.beforeRemoteClickRef.current?.();
-            ctx.gestureInputAccepted = ctx.send({
-              type: "click",
-              button: "left",
-              ...(focusRequestId ? { focusRequestId } : {}),
-            })
-              && ctx.gestureInputAccepted;
+            ctx.input.translator.tap("left", focusRequestId);
           }
           if (ctx.activeGesture?.kind === "pinch-pan") {
             ctx.finishGesture(ctx.gestureTransformed ? "transformed" : "unchanged");
@@ -236,11 +205,8 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
         return;
       }
       if (ctx.pointers.size === 0) {
-        if (ctx.pointerFrame !== 0) window.cancelAnimationFrame(ctx.pointerFrame);
-        ctx.pointerFrame = 0;
-        ctx.pendingPointerDx = 0;
-        ctx.pendingPointerDy = 0;
-        if (ctx.scrollFrame !== 0 || ctx.scrollActive) ctx.endScroll(false);
+        ctx.input.translator.cursorCancel();
+        ctx.cancelFingerScroll();
         ctx.finishGesture("cancelled");
       }
     },
@@ -259,8 +225,7 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
         const dx = -event.deltaX;
         const dy = -event.deltaY;
         if (dx === 0 && dy === 0) return;
-        // Leftover momentum from a finger belongs to a gesture this wheel just replaced.
-        if (ctx.wheelIdleTimer === 0) ctx.stopMomentum(true);
+        // A coast left by a finger is stopped by the translator: this wheel replaced its gesture.
         ctx.sendWheelScroll(dx, dy);
         ctx.armWheelIdle();
         return;
@@ -277,4 +242,9 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
       if (moved) ctx.scheduleSettle();
     },
   };
+}
+
+/** When a sample was taken, in the same clock as `performance.now()`. */
+function sampledAt(event: Event): number {
+  return Number.isFinite(event.timeStamp) && event.timeStamp > 0 ? event.timeStamp : performance.now();
 }

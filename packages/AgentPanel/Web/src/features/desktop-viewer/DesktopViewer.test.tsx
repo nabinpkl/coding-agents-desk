@@ -430,3 +430,58 @@ describe("DesktopViewer", () => {
     expect(document.activeElement).toBe(capture);
   });
 });
+
+describe("DesktopViewer trackpad deck", () => {
+  function coarsePointer(coarse: boolean) {
+    return vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: coarse && query === "(pointer: coarse)",
+      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
+      addListener() {}, removeListener() {}, dispatchEvent: () => false,
+    }) as MediaQueryList);
+  }
+
+  it("offers the deck on a touch device, puts it under the picture, and gives it back to the keyboard", async () => {
+    const media = coarsePointer(true);
+    try {
+      tileMock.publishSource = true;
+      tileMock.controlVersion = 2;
+      render(<DesktopViewer transport={transport()} />);
+      const toggle = await screen.findByRole("button", { name: "Trackpad" });
+      // Follow is a mouse's, which a touch device's primary pointer is not.
+      expect(screen.queryByRole("button", { name: "Follow" })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("trackpad-deck")).not.toBeInTheDocument();
+      const box = screen.getByTestId("desktop-video-box");
+      const before = Number.parseFloat(box.style.bottom);
+
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      const deck = screen.getByTestId("trackpad-deck");
+      expect(Number.parseFloat(box.style.bottom)).toBe(before + Number.parseFloat(deck.style.height));
+      expect(localStorage.getItem("agentdesk.desktop.trackpadDeck")).toBe("true");
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Right click" })).toBeEnabled());
+      tileMock.sent = [];
+      fireEvent.click(screen.getByRole("button", { name: "Right click" }));
+      expect(tileMock.sent).toContainEqual({ type: "click", button: "right" });
+
+      fireEvent.click(screen.getByRole("button", { name: "Keyboard" }));
+      expect(screen.queryByTestId("trackpad-deck")).not.toBeInTheDocument();
+    } finally {
+      media.mockRestore();
+    }
+  });
+
+  it("keeps Follow and no deck where the primary pointer is a mouse", async () => {
+    const media = coarsePointer(false);
+    try {
+      localStorage.setItem("agentdesk.desktop.trackpadDeck", "true");
+      tileMock.publishSource = true;
+      tileMock.controlVersion = 2;
+      render(<DesktopViewer transport={transport()} />);
+      expect(await screen.findByRole("button", { name: "Follow" })).toBeInTheDocument();
+      expect(screen.queryByTestId("trackpad-deck")).not.toBeInTheDocument();
+    } finally {
+      media.mockRestore();
+    }
+  });
+});

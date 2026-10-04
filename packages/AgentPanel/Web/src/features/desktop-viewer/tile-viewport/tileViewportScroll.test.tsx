@@ -32,9 +32,11 @@ describe("TileViewport scroll clutch", () => {
 
     expect(puck).toHaveAttribute("aria-pressed", "true");
     pointer(surface, "pointerdown", 1, 20, 20);
+    // The travel that crosses the slop opens the scroll and is not itself sent, as UIKit's pan
+    // does not send it; the move after it is the first scroll.
     pointer(surface, "pointermove", 1, 45, 35);
-    act(() => animationFrames.shift()?.(performance.now() + 16));
-    pointer(surface, "pointerup", 1, 45, 35);
+    pointer(surface, "pointermove", 1, 70, 50);
+    pointer(surface, "pointerup", 1, 70, 50);
 
     expect(inputs.some((input) => input.type === "pointer-move")).toBe(false);
     expect(inputs.some((input) => input.type === "click")).toBe(false);

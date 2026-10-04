@@ -1,20 +1,15 @@
-// The numbers the viewport's gestures are tuned against, and where the puck's resting
-// place is remembered.
+// The numbers the viewport itself is tuned against, and where the puck's resting place is
+// remembered.
 //
-// Every one of them is a measurement about a finger or a frame, which is why they are
-// named rather than inline, and why they are here rather than in whichever handler happens
-// to read one.
-
-
+// Each is a measurement about a frame or a mark on the picture, which is why they are named
+// rather than inline. What a finger means to the Mac -- slop, curves, the coast, the hold -- is
+// tuned against the iPhone client and lives in `pointer-input/gestureConstants.ts`.
 
 export const CURSOR_MIRROR_RENDER_SCALE = 0.7;
 /** How long after the last zoom or pan before the capture is re-aimed. DeskZoom's settle delay. */
 export const VIEW_SETTLE_MS = 150;
 /** Shortest gap between two re-aims; each one swaps the picture while the new stream negotiates. */
 export const VIEW_REAIM_INTERVAL_MS = 350;
-export const POINTER_SLOP = 3;
-/** How long one finger stays still before it becomes a held button. */
-export const TOUCH_DRAG_HOLD_MS = 500;
 /**
  * How long a finger rests before the priming ring appears at all.
  *
@@ -25,10 +20,6 @@ export const TOUCH_DRAG_HOLD_MS = 500;
 export const DRAG_PRIMING_DELAY_MS = 150;
 export const DRAG_PRIMING_RADIUS = 12;
 export const DRAG_PRIMING_CIRCUMFERENCE = 2 * Math.PI * DRAG_PRIMING_RADIUS;
-export const SCROLL_SLOP = 10;
-export const SCROLL_MOMENTUM_FLICK_THRESHOLD = 200;
-export const SCROLL_MOMENTUM_STOP_THRESHOLD = 30;
-export const SCROLL_MOMENTUM_DECAY_K = 2.8;
 /**
  * How long the wheel has to be quiet before the remote scroll is ended.
  *

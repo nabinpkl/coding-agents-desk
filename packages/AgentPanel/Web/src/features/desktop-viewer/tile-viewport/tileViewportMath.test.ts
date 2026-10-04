@@ -1,41 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
-  advanceRemoteCursor,
   clampPan,
   coverOnRemoteCursor,
   followRemoteCursor,
   IDENTITY,
   panBy,
-  pointerAccelerationGain,
   projectRemoteCursor,
   unprojectRemoteCursor,
-  scrollAccelerationGain,
   toContentPoint,
   zoomAt,
 } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
 
 const W = 800;
 const H = 500;
-
-describe("remote pointer acceleration", () => {
-  it("matches the native pointer gain and cap", () => {
-    expect(pointerAccelerationGain(0)).toBe(1.5);
-    expect(pointerAccelerationGain(400)).toBe(3.5);
-    expect(pointerAccelerationGain(10_000)).toBe(10);
-  });
-
-  it("advances and clamps the same source-point cursor model as native", () => {
-    expect(advanceRemoteCursor({ x: 790, y: 5 }, 50, -20, W, H)).toEqual({ x: 799, y: 0 });
-  });
-});
-
-describe("remote scroll acceleration", () => {
-  it("matches the native precision floor, slope, and cap", () => {
-    expect(scrollAccelerationGain(0)).toBe(1);
-    expect(scrollAccelerationGain(800)).toBe(4.6);
-    expect(scrollAccelerationGain(10_000)).toBe(12);
-  });
-});
 
 describe("followRemoteCursor", () => {
   it("pans at the safe-band edge without changing zoom", () => {

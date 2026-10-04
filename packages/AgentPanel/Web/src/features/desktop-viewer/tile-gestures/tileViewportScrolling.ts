@@ -1,140 +1,84 @@
-// Scrolling: what a frame coalesces, the momentum a flick leaves behind, and the wheel
-// events that go to the Mac instead of moving the view.
+// Scrolling the Mac from the picture: a finger under the puck, and the wheel.
+//
+// The scroll itself -- its phases, its curve, its coast -- is the shared translator's
+// (`pointer-input/scrollTranslator.ts`), so a finger on the picture and a finger on the
+// trackpad's scroll strip scroll the same way and share one coast. What is left here is
+// what only the picture has: the slop a finger crosses before a touch is a scroll rather than a
+// tap, and a wheel's end, which has to be inferred.
 
-import {
-  SCROLL_MOMENTUM_DECAY_K,
-  SCROLL_MOMENTUM_FLICK_THRESHOLD,
-  SCROLL_MOMENTUM_STOP_THRESHOLD,
-  WHEEL_SCROLL_IDLE_MS,
-} from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
-import { scrollAccelerationGain } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
+import { SCROLL_SLOP } from "@/features/desktop-viewer/pointer-input/gestureConstants";
+import { WHEEL_SCROLL_IDLE_MS } from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
+import type { ViewportPoint } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
 import type { ViewportRuntime } from "@/features/desktop-viewer/tile-viewport/tileViewportRuntime";
 
 export function createScrolling(ctx: ViewportRuntime) {
+  let start: ViewportPoint = { x: 0, y: 0 };
+  let last: ViewportPoint = { x: 0, y: 0 };
   return {
-    flushScroll: (now = performance.now()) => {
-      ctx.scrollFrame = 0;
-      if (ctx.pendingScrollDx === 0 && ctx.pendingScrollDy === 0) return;
-      const dx = ctx.pendingScrollDx;
-      const dy = ctx.pendingScrollDy;
-      ctx.pendingScrollDx = 0;
-      ctx.pendingScrollDy = 0;
-      const elapsed = Math.max((now - ctx.lastScrollFrameAt) / 1_000, 0.001);
-      ctx.lastScrollFrameAt = now;
-      const gain = scrollAccelerationGain(Math.hypot(dx, dy) / elapsed);
-      // Deliberately matches the native client's current LinearMouse-calibrated default:
-      // raw finger deltas pass through with the same sign on both axes.
-      ctx.gestureInputAccepted = ctx.send({
-        type: "scroll",
-        dx: dx * gain,
-        dy: dy * gain,
-        phase: ctx.scrollActive ? "changed" : "began",
-      }) && ctx.gestureInputAccepted;
-      ctx.scrollActive = true;
+    beginFingerScroll: (at: ViewportPoint, sampledAt: number) => {
+      start = at;
+      last = at;
+      ctx.scrollBegun = false;
+      ctx.scrollVelocity.reset();
+      ctx.scrollVelocity.add(at.x, at.y, sampledAt);
     },
-    scheduleScrollFlush: () => {
-      if (ctx.scrollFrame !== 0) return;
-      ctx.scrollFrame = window.requestAnimationFrame(ctx.flushScroll);
-    },
-    stopMomentum: (emitEnd: boolean) => {
-      const wasRunning = ctx.momentumFrame !== 0;
-      if (ctx.momentumFrame !== 0) window.cancelAnimationFrame(ctx.momentumFrame);
-      ctx.momentumFrame = 0;
-      ctx.momentumVelocity = { x: 0, y: 0 };
-      if (emitEnd && wasRunning && ctx.didEmitMomentumBegan) {
-        ctx.gestureInputAccepted = ctx.send({
-          type: "scroll", dx: 0, dy: 0, phase: "momentumEnded",
-        }) && ctx.gestureInputAccepted;
+    /**
+     * Free-axis, like the Swift client's puck: the finger is on the content, and a real trackpad
+     * scrolls both axes at once. The slop travel is not sent, as UIKit's pan does not send it; the
+     * scroll starts from where the finger was when it became one.
+     */
+    fingerScrollSamples: (samples: readonly { at: ViewportPoint; sampledAt: number }[]) => {
+      for (const { at, sampledAt } of samples) {
+        ctx.scrollVelocity.add(at.x, at.y, sampledAt);
+        last = at;
+        if (ctx.scrollBegun) continue;
+        if (Math.hypot(at.x - start.x, at.y - start.y) < SCROLL_SLOP) continue;
+        ctx.scrollBegun = true;
+        ctx.didCrossPointerSlop = true;
+        ctx.cancelTouchHold();
+        ctx.reportGestureStart();
+        ctx.input.translator.scroll.begin({ x: at.x - start.x, y: at.y - start.y }, "free");
       }
-      ctx.didEmitMomentumBegan = false;
+      if (!ctx.scrollBegun) return;
+      ctx.input.translator.scroll.change(
+        { x: last.x - start.x, y: last.y - start.y },
+        ctx.scrollVelocity.velocity(),
+      );
     },
-    tickMomentum: (now: number) => {
-      ctx.momentumFrame = 0;
-      const elapsed = Math.max((now - ctx.momentumLastTime) / 1_000, 0.001);
-      ctx.momentumLastTime = now;
-      const decay = Math.exp(-SCROLL_MOMENTUM_DECAY_K * elapsed);
-      ctx.momentumVelocity = {
-        x: ctx.momentumVelocity.x * decay,
-        y: ctx.momentumVelocity.y * decay,
-      };
-      const speed = Math.hypot(ctx.momentumVelocity.x, ctx.momentumVelocity.y);
-      if (speed < SCROLL_MOMENTUM_STOP_THRESHOLD) {
-        if (ctx.didEmitMomentumBegan) {
-          ctx.gestureInputAccepted = ctx.send({
-            type: "scroll", dx: 0, dy: 0, phase: "momentumEnded",
-          }) && ctx.gestureInputAccepted;
-        }
-        ctx.didEmitMomentumBegan = false;
-        return;
-      }
-      const gain = scrollAccelerationGain(speed);
-      ctx.gestureInputAccepted = ctx.send({
-        type: "scroll",
-        dx: ctx.momentumVelocity.x * elapsed * gain,
-        dy: ctx.momentumVelocity.y * elapsed * gain,
-        phase: ctx.didEmitMomentumBegan ? "momentumChanged" : "momentumBegan",
-      }) && ctx.gestureInputAccepted;
-      ctx.didEmitMomentumBegan = true;
-      ctx.momentumFrame = window.requestAnimationFrame(ctx.tickMomentum);
+    endFingerScroll: (allowMomentum: boolean) => {
+      if (!ctx.scrollBegun) return;
+      ctx.scrollBegun = false;
+      ctx.input.translator.scroll.end(ctx.scrollVelocity.velocity(), allowMomentum);
     },
-    startMomentum: (velocity: { x: number; y: number }) => {
-      ctx.stopMomentum(false);
-      ctx.momentumVelocity = velocity;
-      ctx.momentumLastTime = performance.now();
-      ctx.momentumFrame = window.requestAnimationFrame(ctx.tickMomentum);
-    },
-    endScroll: (allowMomentum: boolean) => {
-      if (ctx.scrollFrame !== 0) window.cancelAnimationFrame(ctx.scrollFrame);
-      ctx.scrollFrame = 0;
-      ctx.flushScroll();
-      if (ctx.scrollActive) {
-        ctx.gestureInputAccepted = ctx.send({
-          type: "scroll", dx: 0, dy: 0, phase: "ended",
-        }) && ctx.gestureInputAccepted;
-      }
-      const liftVelocity = ctx.lastScrollVelocity;
-      ctx.scrollActive = false;
-      ctx.pendingScrollDx = 0;
-      ctx.pendingScrollDy = 0;
-      ctx.lastScrollVelocity = { x: 0, y: 0 };
-      if (allowMomentum && Math.hypot(liftVelocity.x, liftVelocity.y) >= SCROLL_MOMENTUM_FLICK_THRESHOLD) {
-        ctx.startMomentum(liftVelocity);
-      }
+    cancelFingerScroll: () => {
+      if (!ctx.scrollBegun) return;
+      ctx.scrollBegun = false;
+      ctx.input.translator.scroll.cancel();
     },
     /**
      * A wheel delta is already the scroll the OS decided on, so it goes out as it is.
      *
-     * The finger path accumulates raw travel and accelerates it at flush time, because a finger
-     * reports where it is and the curve is what turns that into a scroll. A wheel reports a scroll
-     * directly, with macOS's own acceleration already in it, and it arrives whole inside one
-     * frame: measured, five notches pushed through the finger curve came out as 7500 points,
-     * because 500 points in 16ms reads as a flick. Sending each event as it lands also keeps the
-     * wheel off the animation frame, which a hidden or throttled tab never runs.
+     * The finger path accelerates raw travel, because a finger reports where it is and the curve
+     * is what turns that into a scroll. A wheel reports a scroll directly, with macOS's own
+     * acceleration already in it: measured, five notches pushed through the finger curve came out
+     * as 7500 points, because 500 points in 16ms reads as a flick.
      */
     sendWheelScroll: (dx: number, dy: number) => {
-      ctx.gestureInputAccepted = ctx.send({
-        type: "scroll",
-        dx,
-        dy,
-        phase: ctx.scrollActive ? "changed" : "began",
-      }) && ctx.gestureInputAccepted;
-      ctx.scrollActive = true;
+      ctx.input.translator.scroll.wheelScroll(dx, dy);
     },
     /**
      * A wheel has no lift, so the end of a wheel scroll is inferred from silence.
      *
-     * The finger path closes its scroll on pointerup, and the Mac needs that `ended` to close the
-     * phase the first delta opened. Nothing in a wheel stream says the hand stopped: a trackpad's
-     * own inertia keeps arriving as ordinary wheel events and a notched wheel simply goes quiet.
-     * A timer restarted on every wheel event is therefore the lift. It also means the trackpad's
-     * momentum is forwarded as the real `changed` deltas it already is, rather than being thrown
-     * away and re-synthesised here on top of itself.
+     * Nothing in a wheel stream says the hand stopped: a trackpad's own inertia keeps arriving as
+     * ordinary wheel events and a notched wheel simply goes quiet. A timer restarted on every wheel
+     * event is therefore the lift. It also means the trackpad's momentum is forwarded as the real
+     * `changed` deltas it already is, rather than being re-synthesised here on top of itself.
      */
     armWheelIdle: () => {
       if (ctx.wheelIdleTimer !== 0) window.clearTimeout(ctx.wheelIdleTimer);
       ctx.wheelIdleTimer = window.setTimeout(() => {
         ctx.wheelIdleTimer = 0;
-        ctx.endScroll(false);
+        ctx.input.translator.scroll.wheelEnd();
       }, WHEEL_SCROLL_IDLE_MS);
     },
     /** Close a wheel scroll now, for anything that supersedes it or tears the surface down. */
@@ -142,7 +86,7 @@ export function createScrolling(ctx: ViewportRuntime) {
       if (ctx.wheelIdleTimer === 0) return;
       window.clearTimeout(ctx.wheelIdleTimer);
       ctx.wheelIdleTimer = 0;
-      ctx.endScroll(false);
+      ctx.input.translator.scroll.wheelEnd();
     },
   };
 }

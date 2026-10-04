@@ -18,7 +18,7 @@ export function createGestureTelemetry(ctx: ViewportRuntime) {
       ...(outcome ? { outcome } : {}),
       ...((ctx.activeGesture!.kind === "pointer" || ctx.activeGesture!.kind === "scroll") && outcome
         ? {
-            inputAccepted: ctx.gestureInputAccepted,
+            inputAccepted: ctx.gestureInputAccepted && ctx.input.translator.accepted,
             ...(ctx.activeGesture!.kind === "pointer" ? { edgeFollowed: ctx.gestureEdgeFollowed } : {}),
           }
         : {}),
@@ -42,6 +42,7 @@ export function createGestureTelemetry(ctx: ViewportRuntime) {
         startReported: false,
       };
       ctx.gestureInputAccepted = true;
+      ctx.input.translator.accepted = true;
       ctx.gestureTransformed = false;
       ctx.gestureEdgeFollowed = false;
       // Multi-touch is meaningful from the second finger down. One-finger

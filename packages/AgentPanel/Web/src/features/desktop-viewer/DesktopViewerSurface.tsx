@@ -7,7 +7,7 @@ import type {
   WebrtcCursorEvent,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
-import { Crop, Crosshair, Hand, Layers, MousePointer2 } from "lucide-react";
+import { Crop, Crosshair, Hand, Layers, MousePointer2, Touchpad } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 import {
@@ -35,6 +35,14 @@ const OVERVIEW_FPS = 8;
 import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-viewer/tile-viewport/TileViewport";
 import { DesktopKeyboardChrome } from "@/features/desktop-viewer/keyboard-input/DesktopKeyboardChrome";
 import { useDesktopKeyboard } from "@/features/desktop-viewer/keyboard-input/useDesktopKeyboard";
+import { usePointerInputSession } from "@/features/desktop-viewer/pointer-input/pointerInputSession";
+import { TrackpadDeck } from "@/features/desktop-viewer/trackpad/TrackpadDeck";
+import {
+  primaryPointerIsTouch,
+  storeTrackpadDeck,
+  storedTrackpadDeck,
+  trackpadDeckHeight,
+} from "@/features/desktop-viewer/trackpad/trackpadConstants";
 
 const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
 /**
@@ -139,6 +147,28 @@ export function DesktopViewerSurface({
     ),
     [interactive, keyboard.sendControl, source],
   );
+  // One pointer for the whole viewer: the picture and the trackpad deck both drive it.
+  const pointerInput = usePointerInputSession(sendPointerInput);
+  // The deck is a touch device's: a mouse already points at the picture itself (Follow).
+  const [touchDevice] = useState(primaryPointerIsTouch);
+  const [deckChosen, setDeckChosen] = useState(storedTrackpadDeck);
+  const toggleDeck = useCallback(() => {
+    setDeckChosen((current) => {
+      storeTrackpadDeck(!current);
+      return !current;
+    });
+  }, []);
+  const mainRef = useRef<HTMLElement>(null);
+  const [viewerHeight, setViewerHeight] = useState(0);
+  useLayoutEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const measure = () => setViewerHeight(main.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(main);
+    return () => observer.disconnect();
+  }, []);
   const publishControlEvent = useCallback((event: DesktopControlEvent) => {
     if (
       event.type === "cursor-applied"
@@ -188,6 +218,9 @@ export function DesktopViewerSurface({
     && source !== null
     && compatibleControlTransport !== null
     && tile.kind === "playing";
+  // Typing takes the bottom of the screen for the keyboard; the deck gives it back.
+  const deckShown = touchDevice && deckChosen && interactive && !keyboard.keyboardPresented;
+  const deckHeight = deckShown ? trackpadDeckHeight(viewerHeight) : 0;
   const zoomMode = useZoomMode();
   const overviewLayer = useOverviewLayer();
   const twoStreams = zoomMode === "crop" && overviewLayer;
@@ -203,7 +236,7 @@ export function DesktopViewerSurface({
     };
   }, [displayId, zoomMode, overviewLayer]);
   return (
-    <main className="relative h-full overflow-hidden bg-black text-white">
+    <main ref={mainRef} className="relative h-full overflow-hidden bg-black text-white">
       {/*
         The video's own box, so it can end above the keyboard rather than run full height under it.
         Shortening it is only half the answer: `object-contain` would re-centre the picture in the
@@ -211,12 +244,12 @@ export function DesktopViewerSurface({
         cursor for as long as the keyboard occludes this box.
       */}
       <div data-testid="desktop-video-box" className="absolute inset-x-0 top-0"
-        style={{ bottom: Math.max(keyboard.occludedBottom, chromeHeight) }}>
+        style={{ bottom: Math.max(keyboard.occludedBottom, chromeHeight + deckHeight) }}>
         <TileViewport
           className="size-full"
           pointerMode={pointerMode && source !== null}
           absolutePointer={absolutePointer}
-          sendPointerInput={sendPointerInput}
+          input={pointerInput}
           keyboardPresented={keyboard.keyboardPresented}
           onPointerGestureStart={keyboard.consumePointerGesture}
           onBeforeRemoteClick={keyboard.beforeRemoteClick}
@@ -265,6 +298,17 @@ export function DesktopViewerSurface({
           )}
         </TileViewport>
       </div>
+
+      {deckShown ? (
+        <div className="absolute inset-x-0 z-20" style={{ bottom: chromeHeight }}>
+          <TrackpadDeck
+            input={pointerInput}
+            height={deckHeight}
+            disabled={!pointerReady}
+            beforeClick={keyboard.beforeRemoteClick}
+          />
+        </div>
+      ) : null}
 
       <div ref={chromeRef} data-testid="desktop-bottom-chrome"
         className={`pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col
@@ -330,13 +374,24 @@ export function DesktopViewerSurface({
                 icon={<Hand className="size-3.5" aria-hidden />}
                 onClick={() => setPointerMode(false)}
               />
-              <ModeButton
-                active={absolutePointer}
-                disabled={!pointerReady}
-                label={absolutePointer ? "Follow" : "Trackpad"}
-                icon={<Crosshair className="size-3.5" aria-hidden />}
-                onClick={toggleAbsolutePointer}
-              />
+              {touchDevice ? (
+                // Follow decides what a MOUSE does, which a finger never reaches; on a touch
+                // device this slot is the trackpad deck instead.
+                <ModeButton
+                  active={deckChosen}
+                  label="Trackpad"
+                  icon={<Touchpad className="size-3.5" aria-hidden />}
+                  onClick={toggleDeck}
+                />
+              ) : (
+                <ModeButton
+                  active={absolutePointer}
+                  disabled={!pointerReady}
+                  label={absolutePointer ? "Follow" : "Trackpad"}
+                  icon={<Crosshair className="size-3.5" aria-hidden />}
+                  onClick={toggleAbsolutePointer}
+                />
+              )}
               <ModeButton
                 active={pointerMode}
                 disabled={!pointerReady}

@@ -1,43 +1,22 @@
-// Where the Mac's cursor is, as this viewer believes it: what the host reported, what this
-// viewer predicted, and the moves still waiting to be sent.
+// The cursor as this viewport draws it: the Mac's cursor image, where the shared cursor model
+// says the pointer is, and the view following it to the edge.
+//
+// The position itself is not kept here. It belongs to the viewer's `RemoteCursor`, which the
+// trackpad moves too; this redraws when it changes.
 
 import { CURSOR_MIRROR_RENDER_SCALE } from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
 import type { WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
-import {
-  advanceRemoteCursor,
-  pointerAccelerationGain,
-  type ViewportPoint,
-} from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
+import type { ViewportPoint } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
+import type { RemoteCursorChange } from "@/features/desktop-viewer/pointer-input/remoteCursor";
 import type { ViewportRuntime } from "@/features/desktop-viewer/tile-viewport/tileViewportRuntime";
 
 export function createCursorMirror(ctx: ViewportRuntime) {
   return {
     applyCursorEvent: (event: WebrtcCursorEvent) => {
-      if (event.type === "cursor-applied") {
-        ctx.acknowledgedCursorRevision.current = Math.max(
-          ctx.acknowledgedCursorRevision.current,
-          event.revision,
-        );
-        if (event.revision !== ctx.cursorRevision.current) return;
-        ctx.remoteCursor = advanceRemoteCursor(event, 0, 0, ctx.sourceWidth, ctx.sourceHeight);
-        if (ctx.pointers.size < 2) {
-          const { w, h } = ctx.size();
-          if (ctx.view.follow(ctx.remoteCursor, w, h)) ctx.scheduleSettle();
-        }
-        ctx.apply();
+      if (event.type === "cursor-applied" || event.type === "cursor-position") {
+        ctx.input.cursor.applyEvent(event);
         return;
       }
-      if (event.type === "cursor-position") {
-        if (ctx.acknowledgedCursorRevision.current < ctx.cursorRevision.current) return;
-        ctx.remoteCursor = advanceRemoteCursor(event, 0, 0, ctx.sourceWidth, ctx.sourceHeight);
-        if (ctx.pointers.size < 2) {
-          const { w, h } = ctx.size();
-          if (ctx.view.follow(ctx.remoteCursor, w, h)) ctx.scheduleSettle();
-        }
-        ctx.apply();
-        return;
-      }
-
       ctx.cursorHidden = event.hidden;
       ctx.overlay.dataset.cursorKind = event.cursorKind;
       const resolved = ctx.cursorImageCache.current.resolve(event);
@@ -53,17 +32,16 @@ export function createCursorMirror(ctx: ViewportRuntime) {
       }
       ctx.apply();
     },
-    applyRemoteMove: (dx: number, dy: number) => {
-      const revision = ctx.cursorRevision.current + 1;
-      const accepted = ctx.send({ type: "pointer-move", revision, dx, dy });
-      ctx.gestureInputAccepted = accepted && ctx.gestureInputAccepted;
-      if (!accepted || ctx.sourceWidth <= 0 || ctx.sourceHeight <= 0) return;
-      ctx.cursorRevision.current = revision;
-      ctx.remoteCursor = advanceRemoteCursor(ctx.remoteCursor, dx, dy, ctx.sourceWidth, ctx.sourceHeight);
-      if (ctx.pointers.size < 2) {
+    /**
+     * The cursor moved, by this viewer's hand or by the Mac's word: follow it to the edge of a
+     * zoomed view and redraw. Not while two fingers are on the picture, which is the reader
+     * moving the view themselves.
+     */
+    cursorChanged: (change: RemoteCursorChange) => {
+      if ((change === "local" || change === "host") && ctx.pointers.size < 2) {
         const { w, h } = ctx.size();
-        if (ctx.view.follow(ctx.remoteCursor, w, h)) {
-          ctx.gestureEdgeFollowed = true;
+        if (ctx.view.follow(ctx.input.cursor.position, w, h)) {
+          if (change === "local") ctx.gestureEdgeFollowed = true;
           ctx.scheduleSettle();
         }
       }
@@ -78,35 +56,10 @@ export function createCursorMirror(ctx: ViewportRuntime) {
     absoluteMouse: (event: PointerEvent) =>
       ctx.pointerMode && ctx.absolutePointerRef.current && event.pointerType === "mouse",
     warpRemoteCursor: (screen: ViewportPoint) => {
-      if (ctx.sourceWidth <= 0 || ctx.sourceHeight <= 0) return;
       const { w, h } = ctx.size();
       const target = ctx.view.unproject(screen, w, h);
       if (!target) return;
-      if (Math.round(target.x) === Math.round(ctx.remoteCursor.x)
-          && Math.round(target.y) === Math.round(ctx.remoteCursor.y)) return;
-      const revision = ctx.cursorRevision.current + 1;
-      if (!ctx.send({ type: "pointer-warp", revision, x: target.x, y: target.y })) return;
-      ctx.cursorRevision.current = revision;
-      ctx.remoteCursor = target;
-      ctx.apply();
-    },
-    flushPointer: (now = performance.now()) => {
-      ctx.pointerFrame = 0;
-      if (ctx.pendingPointerDx === 0 && ctx.pendingPointerDy === 0) return;
-      const dx = ctx.pendingPointerDx;
-      const dy = ctx.pendingPointerDy;
-      ctx.pendingPointerDx = 0;
-      ctx.pendingPointerDy = 0;
-      const elapsed = Math.max((now - ctx.lastPointerFrameAt) / 1_000, 0.001);
-      ctx.lastPointerFrameAt = now;
-      const gain = pointerAccelerationGain(Math.hypot(dx, dy) / elapsed);
-      const remoteDx = dx * gain;
-      const remoteDy = dy * gain;
-      ctx.applyRemoteMove(remoteDx, remoteDy);
-    },
-    schedulePointerFlush: () => {
-      if (ctx.pointerFrame !== 0) return;
-      ctx.pointerFrame = window.requestAnimationFrame(ctx.flushPointer);
+      ctx.input.cursor.warp(target);
     },
   };
 }

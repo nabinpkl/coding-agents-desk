@@ -7,6 +7,9 @@
 
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
 import type { ViewportPoint } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
+import type { PointerInputSession } from "@/features/desktop-viewer/pointer-input/pointerInputSession";
+import type { RemoteCursorChange } from "@/features/desktop-viewer/pointer-input/remoteCursor";
+import type { VelocityTracker } from "@/features/desktop-viewer/pointer-input/velocityTracker";
 import type { createZoomView, ViewLayers } from "@/features/desktop-viewer/zoom/zoomModels";
 import type { CursorImageCache } from "@/features/desktop-viewer/tile-viewport/cursorImageCache";
 import type {
@@ -29,7 +32,6 @@ export interface ViewportRuntime {
   // --- what a gesture in flight is ---
   /** The view to put back when the keyboard stops occluding the box, or null when it is not. */
   viewBeforeKeyboard: unknown;
-  remoteCursor: ViewportPoint;
   cursorHidden: boolean;
   pointers: Map<number, { x: number; y: number; startX: number; startY: number }>;
   lastTapAt: number;
@@ -41,22 +43,10 @@ export interface ViewportRuntime {
   touchHoldTimer: number;
   touchPrimingTimer: number;
   touchPrimingArc: Animation | null;
-  touchDragHeld: boolean;
-  pendingPointerDx: number;
-  pendingPointerDy: number;
-  pointerFrame: number;
-  lastPointerFrameAt: number;
-  pendingScrollDx: number;
-  pendingScrollDy: number;
-  scrollFrame: number;
-  scrollActive: boolean;
-  lastScrollFrameAt: number;
-  lastScrollSampleAt: number;
-  lastScrollVelocity: { x: number; y: number };
-  momentumFrame: number;
-  momentumLastTime: number;
-  momentumVelocity: { x: number; y: number };
-  didEmitMomentumBegan: boolean;
+  /** The finger scrolling under the puck: where it has been, for the coast it leaves. */
+  scrollVelocity: VelocityTracker;
+  /** Whether that finger has crossed the slop and opened a scroll yet. */
+  scrollBegun: boolean;
   wheelIdleTimer: number;
   puckOffset: { right: number; bottom: number };
   puckPointer: {
@@ -86,17 +76,16 @@ export interface ViewportRuntime {
 
   // --- what the mount was handed, copied here so the parts need only this object ---
   readonly absolutePointerRef: { current: boolean };
-  readonly acknowledgedCursorRevision: { current: number };
   readonly beforeRemoteClickRef: { current: (() => string | undefined) | undefined };
   readonly cursorImageCache: { current: CursorImageCache };
-  readonly cursorRevision: { current: number };
   readonly dragHalo: { current: HTMLSpanElement | null };
   readonly dragPriming: { current: HTMLSpanElement | null };
   readonly dragPrimingArc: { current: SVGCircleElement | null };
   readonly gestureTelemetryRef: { current: ((event: ViewportGestureTelemetry) => void) | undefined };
   readonly pointerGestureStartRef: { current: (() => boolean) | undefined };
   readonly scrollEngagedRef: { current: boolean };
-  readonly sendPointerInputRef: { current: ((input: DesktopPointerInput) => boolean) | undefined };
+  /** The cursor model and the gesture translator, shared with any trackpad on the same viewer. */
+  readonly input: PointerInputSession;
   readonly keyboardPresentedRef: { current: boolean };
   readonly setScrollEngaged: (engaged: boolean) => void;
   readonly pointerMode: boolean;
@@ -131,17 +120,13 @@ export interface ViewportRuntime {
   applyPuckOffset: (persist: boolean) => void;
   toggleZoomAtPointer: () => void;
   applyCursorEvent: (event: WebrtcCursorEvent) => void;
-  applyRemoteMove: (dx: number, dy: number) => void;
+  cursorChanged: (change: RemoteCursorChange) => void;
   absoluteMouse: (event: PointerEvent) => boolean;
   warpRemoteCursor: (screen: ViewportPoint) => void;
-  flushPointer: (now?: number) => void;
-  schedulePointerFlush: () => void;
-  flushScroll: (now?: number) => void;
-  scheduleScrollFlush: () => void;
-  stopMomentum: (emitEnd: boolean) => void;
-  tickMomentum: (now: number) => void;
-  startMomentum: (velocity: { x: number; y: number }) => void;
-  endScroll: (allowMomentum: boolean) => void;
+  beginFingerScroll: (at: ViewportPoint, sampledAt: number) => void;
+  fingerScrollSamples: (samples: readonly { at: ViewportPoint; sampledAt: number }[]) => void;
+  endFingerScroll: (allowMomentum: boolean) => void;
+  cancelFingerScroll: () => void;
   sendWheelScroll: (dx: number, dy: number) => void;
   armWheelIdle: () => void;
   endWheelScroll: () => void;

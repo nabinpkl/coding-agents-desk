@@ -46,30 +46,6 @@ function aspectFitPicture(
   };
 }
 
-/** Matches GestureTranslator's default relative pointer acceleration. */
-export function pointerAccelerationGain(speed: number): number {
-  return 1.5 + Math.min(Math.max(0, speed) * 0.005, 8.5);
-}
-
-/** Matches GestureTranslator's free-axis scroll acceleration curve. */
-export function scrollAccelerationGain(speed: number): number {
-  return 1 + Math.min(Math.max(0, speed) * 0.0045, 11);
-}
-
-/** Mirrors the native current + delta + display-bounds clamp. */
-export function advanceRemoteCursor(
-  current: ViewportPoint,
-  dx: number,
-  dy: number,
-  sourceWidth: number,
-  sourceHeight: number,
-): ViewportPoint {
-  return {
-    x: Math.min(Math.max(0, current.x + dx), Math.max(0, sourceWidth - 1)),
-    y: Math.min(Math.max(0, current.y + dy), Math.max(0, sourceHeight - 1)),
-  };
-}
-
 /** Projects a source-display cursor into the transformed viewport. */
 export function projectRemoteCursor(
   transform: ViewportTransform,

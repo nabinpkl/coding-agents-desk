@@ -9,8 +9,8 @@ import {
   DRAG_PRIMING_DELAY_MS,
   POINTER_SCROLL_PUCK_SIDE,
   POINTER_SCROLL_PUCK_STORAGE_KEY,
-  TOUCH_DRAG_HOLD_MS,
 } from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
+import { TOUCH_DRAG_HOLD_MS } from "@/features/desktop-viewer/pointer-input/gestureConstants";
 import type { ViewportRuntime } from "@/features/desktop-viewer/tile-viewport/tileViewportRuntime";
 
 export function createDragVisuals(ctx: ViewportRuntime) {
@@ -62,10 +62,8 @@ export function createDragVisuals(ctx: ViewportRuntime) {
     },
     /** True when a held button was actually let go, which is what suppresses the tap-click. */
     releaseTouchDrag: () => {
-      if (!ctx.touchDragHeld) return false;
-      ctx.touchDragHeld = false;
+      if (!ctx.input.translator.dragEnd()) return false;
       ctx.showDragHeld(false);
-      ctx.gestureInputAccepted = ctx.send({ type: "mouse-up", button: "left" }) && ctx.gestureInputAccepted;
       return true;
     },
     armTouchHold: () => {
@@ -82,11 +80,11 @@ export function createDragVisuals(ctx: ViewportRuntime) {
         // The finger has to still be down, alone, and to have stayed inside the slop. Any of those
         // failing means this was a move, a pinch, or a tap that already ended.
         if (ctx.didCrossPointerSlop || ctx.hadMultiplePointers || ctx.pointers.size !== 1) return;
-        if (!ctx.send({ type: "mouse-down", button: "left" })) {
-          ctx.gestureInputAccepted = false;
-          return;
-        }
-        ctx.touchDragHeld = true;
+        const finger = [...ctx.pointers.values()][0]!;
+        // The pointer's own travel stops here: from now on the finger carries the held button,
+        // 1:1, and the translator mutes the accelerated path so the two never both move it.
+        ctx.input.translator.cursorCancel();
+        if (!ctx.input.translator.dragBegin(finger)) return;
         ctx.showDragHeld(true);
       }, TOUCH_DRAG_HOLD_MS);
     },
@@ -110,7 +108,7 @@ export function createDragVisuals(ctx: ViewportRuntime) {
     },
     toggleZoomAtPointer: () => {
       const { w, h } = ctx.size();
-      const projected = ctx.view.project(ctx.remoteCursor, w, h) ?? { x: w / 2, y: h / 2 };
+      const projected = ctx.view.project(ctx.input.cursor.position, w, h) ?? { x: w / 2, y: h / 2 };
       if (ctx.view.isZoomed()) ctx.view.reset();
       else ctx.view.zoomAt(2.5, projected.x, projected.y, w, h);
       ctx.scheduleSettle();

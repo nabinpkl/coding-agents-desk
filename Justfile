@@ -1111,6 +1111,17 @@ panel-scroll-memory-verify:
       PANEL_PROJECT='{{justfile_directory()}}' \
       node '{{justfile_directory()}}/chrome-test/panel-scroll-memory-verify.mjs'
 
+# Checks the Desktop viewer's trackpad deck with real touch in a phone-sized Chrome for Testing.
+# NOT in `just check`: it needs a live panel (`just host-run`). Every pointer input the page would
+# send is recorded and dropped in the page, so the Mac under it is never clicked or scrolled; it
+# does open the Desktop surface, which costs the sidecar one more encoder while it runs.
+trackpad-deck-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    PANEL_ORIGIN="${PANEL_ORIGIN:-https://$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh'):5173}" \
+      node '{{justfile_directory()}}/chrome-test/trackpad-deck-verify.mjs'
+
 # Checks a long message survives Claude collapsing it into a `[Pasted text #N]` handle.
 # NOT in `just check`: it needs a live panel (`just host-run`) and it starts its own throwaway
 # Claude session to type into, because it drives the composer it is testing.

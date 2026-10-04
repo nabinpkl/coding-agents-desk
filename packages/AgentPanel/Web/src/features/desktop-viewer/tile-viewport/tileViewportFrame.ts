@@ -42,8 +42,10 @@ export function createFrameGeometry(ctx: ViewportRuntime) {
     apply: () => {
       const { w, h } = ctx.size();
       ctx.view.paint(ctx.layers, w, h);
-      const projected = ctx.view.project(ctx.remoteCursor, w, h);
+      const projected = ctx.view.project(ctx.input.cursor.position, w, h);
       ctx.overlay.hidden = !ctx.pointerMode || ctx.cursorHidden || projected === null;
+      // Drawn grey while the Mac has not confirmed where the cursor went (ADR-0058).
+      ctx.overlay.dataset.confidence = ctx.input.cursor.confidence;
       if (projected) {
         // The overlay origin is the hotspot. The glyph supplies its own offset and stays
         // phone-sized outside the transformed content while that origin follows the video.
@@ -54,7 +56,7 @@ export function createFrameGeometry(ctx: ViewportRuntime) {
       const box = ctx.frame.getBoundingClientRect();
       return { x: event.clientX - box.left, y: event.clientY - box.top };
     },
-    send: (input: DesktopPointerInput) => ctx.sendPointerInputRef.current?.(input) ?? false,
+    send: (input: DesktopPointerInput) => ctx.input.send(input),
     handleResize: () => {
       const { w, h } = ctx.size();
       if (ctx.keyboardPresentedRef.current) {
@@ -71,7 +73,7 @@ export function createFrameGeometry(ctx: ViewportRuntime) {
           ctx.view.reclamp(w, h);
         } else {
           if (ctx.viewBeforeKeyboard === null) ctx.viewBeforeKeyboard = ctx.view.snapshot();
-          ctx.view.cover(ctx.remoteCursor, w, h);
+          ctx.view.cover(ctx.input.cursor.position, w, h);
         }
       } else if (ctx.viewBeforeKeyboard !== null) {
         // The cover was this viewer's doing, not the user's, so leaving the keyboard leaves it.
