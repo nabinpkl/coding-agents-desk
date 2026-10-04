@@ -47,8 +47,9 @@ export type FatherResolution =
 /**
  * Which session the home shows, if any.
  *
- * The first Bot in canvas order that names one: two Fathers would be two homes, and the strip
- * already decided what "first" means. A reference the catalog has forgotten resolves as missing
+ * There is one Father: a sidecar clears its other Bots' Fathers in the write that names one, and
+ * the panel clears other machines' after it. First in canvas order is only the answer for the
+ * moment between those two writes, when the strip already decided what "first" means. A reference the catalog has forgotten resolves as missing
  * rather than as nothing, because a Father that silently unnames itself is the home closing for
  * no reason the reader can see.
  */

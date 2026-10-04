@@ -108,7 +108,7 @@ test("rejects structurally invalid Bot records before the registry can consume t
   await expect(new BotStore(path).snapshot()).rejects.toThrow("contains an invalid Bot record");
 });
 
-test("keeps a Bot's Father declaration, and rejects one that names no session", async () => {
+test("keeps a Bot's Father declaration, and rejects one that names no session or a second Father", async () => {
   // The Father is a reference like any other: well-formed rides along, malformed fails the whole
   // record before the registry can consume it.
   const { path } = await fixture();
@@ -137,6 +137,14 @@ test("keeps a Bot's Father declaration, and rejects one that names no session", 
     idempotency: {},
   }), "utf8");
   await expect(new BotStore(path).snapshot()).rejects.toThrow("contains an invalid Bot record");
+
+  await writeFile(path, JSON.stringify({
+    version: 3,
+    revision: 3,
+    bots: [record, { ...record, botId: "bot-2", environment: { kind: "directory", path: "/other" } }],
+    idempotency: {},
+  }), "utf8");
+  await expect(new BotStore(path).snapshot()).rejects.toThrow("names more than one Father");
 });
 
 test("announces a write made by another process, without anyone polling for it", async () => {

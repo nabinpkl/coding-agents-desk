@@ -43,7 +43,7 @@ const BOT = { botId: "bot-1", environment: { kind: "directory", path: "/repo" } 
 function commands(feed: SidecarDataSource) {
   const machine = { label: "this machine", feed };
   return renderHook(() => useBotCommands(
-    botFeeds(feed, [machine], () => machine, () => machine),
+    botFeeds(feed, [machine], () => machine, () => machine, () => []),
     {
       putBotOnCanvas: () => {},
       setCanvasOpenKeys: () => {},

@@ -198,6 +198,8 @@ export interface BotFeeds {
   forBot(botId: string): SidecarDataSource;
   /** The sidecar that owns this session. */
   forSession(ref: BotSessionRef): SidecarDataSource;
+  /** Every machine's Bots as they stand when called. */
+  bots(): readonly BotView[];
 }
 
 export function botFeeds(
@@ -205,10 +207,12 @@ export function botFeeds(
   machines: readonly BotMachine[],
   machineOf: (botId: string) => BotMachine | undefined,
   machineOfSession: (ref: BotSessionRef) => BotMachine | undefined,
+  bots: () => readonly BotView[],
 ): BotFeeds {
   return {
     home,
     machines,
+    bots,
     forBot(botId) {
       const machine = machineOf(botId);
       // Thrown rather than defaulted to home, for the reason `requireBot` throws next door: every

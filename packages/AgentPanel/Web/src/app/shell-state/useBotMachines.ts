@@ -100,8 +100,8 @@ export function useBotMachines(
   // Identity-stable, because `machineOf` and `machineOfSession` are: every command callback in the
   // shell closes over this, and a new object on each Bot-stream push would rebuild all of them.
   const feeds = useMemo(
-    () => botFeeds(feed, all, roster.machineOf, roster.machineOfSession),
-    [feed, all, roster.machineOf, roster.machineOfSession],
+    () => botFeeds(feed, all, roster.machineOf, roster.machineOfSession, roster.botsNow),
+    [feed, all, roster.machineOf, roster.machineOfSession, roster.botsNow],
   );
 
   /**

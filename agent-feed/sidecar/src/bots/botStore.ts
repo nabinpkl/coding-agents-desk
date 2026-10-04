@@ -120,6 +120,11 @@ function validateSnapshot(value: unknown): StoredBotSnapshot {
   if (botIds.size !== bots.length) {
     throw new Error("bots.json contains duplicate Bot ids");
   }
+  // One Father per machine, which every write keeps (`updateBotRecord`). A file holding two is a
+  // hand edit or an older sidecar's, and reading it would show one and hide the other.
+  if (bots.filter((bot) => bot.fatherSession !== undefined).length > 1) {
+    throw new Error("bots.json names more than one Father");
+  }
   if (!Object.values(value.idempotency).every((entry) =>
     isRecord(entry)
     && typeof entry.signature === "string"

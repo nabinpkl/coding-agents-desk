@@ -38,7 +38,7 @@ function commands(feed: SidecarDataSource, openKeys: Set<string> = new Set()) {
   const machine = { label: "this machine", feed };
   return {
     result: renderHook(() => useBotCommands(
-      botFeeds(feed, [machine], () => machine, () => machine),
+      botFeeds(feed, [machine], () => machine, () => machine, () => []),
       {
         putBotOnCanvas: () => {},
         setCanvasOpenKeys: (update: React.SetStateAction<ReadonlySet<string>>) => {

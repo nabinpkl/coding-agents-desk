@@ -12,6 +12,7 @@ import type {
   BotSessionRef,
   BotView,
 } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { BotFeeds, BotMachine } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 
@@ -40,6 +41,11 @@ export function useBotRecordCommands(
   /**
    * Names this session the Bot's Father, or clears it when the ref is null.
    *
+   * There is one Father across every machine. The Bot's own sidecar clears its siblings in the
+   * same write; a peer's sidecar cannot see that write, so the Fathers other machines name are
+   * cleared here once the naming has landed -- after rather than before, so a naming that fails
+   * leaves the old Father where it was instead of leaving none.
+   *
    * Nothing is set here on success, for `detachBotSession`'s reason: the Bot stream publishes
    * the new record and the home follows it, which is also what happens when the same Bot is
    * edited from another surface. A failure is named against the session because its row and
@@ -51,23 +57,40 @@ export function useBotRecordCommands(
       : bot.sessions
         .find((session) => session.source === ref.source && session.sessionId === ref.sessionId)
         ?.title || ref.sessionId;
+    const reason = (error: unknown) => error instanceof Error ? error.message : String(error);
     setBotCommandError(null);
-    void Promise.resolve()
-      .then(() => feeds.forBot(bot.botId).updateBot(bot.botId, {
-        fatherSession: ref === null ? null : { source: ref.source, sessionId: ref.sessionId },
-      }))
-      .catch((error: unknown) => {
+    void (async () => {
+      let home: SidecarDataSource;
+      try {
+        home = feeds.forBot(bot.botId);
+        await home.updateBot(bot.botId, {
+          fatherSession: ref === null ? null : { source: ref.source, sessionId: ref.sessionId },
+        });
+      } catch (error) {
         setBotCommandError({
           session: ref === null ? null : `${ref.source}:${ref.sessionId}`,
           message: ref === null
-            ? `Could not clear the Father of ${bot.name}: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-            : `Could not name ${label} the Father of ${bot.name}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            ? `Could not clear the Father of ${bot.name}: ${reason(error)}`
+            : `Could not name ${label} the Father of ${bot.name}: ${reason(error)}`,
         });
-      });
+        return;
+      }
+      if (ref === null) return;
+      const elsewhere = feeds.bots().filter((other) =>
+        other.fatherSession !== undefined && feeds.forBot(other.botId) !== home
+      );
+      const failed = (await Promise.allSettled(elsewhere.map((other) =>
+        feeds.forBot(other.botId).updateBot(other.botId, { fatherSession: null })
+      ))).flatMap((result, index) =>
+        result.status === "rejected" ? [`${elsewhere[index]!.name}: ${reason(result.reason)}`] : []
+      );
+      if (failed.length > 0) {
+        setBotCommandError({
+          session: `${ref.source}:${ref.sessionId}`,
+          message: `${label} is the Father now, but another machine still names one. ${failed.join("; ")}`,
+        });
+      }
+    })();
   }, [feeds]);
 
   /**

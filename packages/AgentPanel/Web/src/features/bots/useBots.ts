@@ -19,6 +19,8 @@ export interface BotRosterState {
   machineOf: (botId: string) => BotMachine | undefined;
   /** The same, for a command addressed at a session rather than at the Bot holding it. */
   machineOfSession: (ref: BotSessionRef) => BotMachine | undefined;
+  /** The roster as it stands when called, for a command that has to look past its own Bot. */
+  botsNow: () => readonly BotView[];
   /** Nothing has arrived and nothing has failed: the canvas has no answer yet, good or bad. */
   loading: boolean;
   /** No machine can be read at all. Set only when there is nothing to show, never as a warning. */
@@ -144,18 +146,20 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
   // roster as it is when the button is PRESSED rather than as it was when the button rendered,
   // which is the correct answer for a Bot that moved between the two.
   const indexes = useRef({
+    bots: [] as readonly BotView[],
     bot: new Map<string, BotMachine>() as ReadonlyMap<string, BotMachine>,
     session: new Map<string, BotMachine>() as ReadonlyMap<string, BotMachine>,
   });
   indexes.current = useMemo(
-    () => ({ bot: indexBotMachines(rosters), session: indexSessionMachines(rosters) }),
-    [rosters],
+    () => ({ bots, bot: indexBotMachines(rosters), session: indexSessionMachines(rosters) }),
+    [bots, rosters],
   );
   const machineOf = useCallback((botId: string) => indexes.current.bot.get(botId), []);
   const machineOfSession = useCallback(
     (ref: BotSessionRef) => indexes.current.session.get(`${ref.source}:${ref.sessionId}`),
     [],
   );
+  const botsNow = useCallback(() => indexes.current.bots, []);
   const machineErrors = useMemo(
     () =>
       machines.flatMap((machine) => {
@@ -169,6 +173,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
     bots,
     machineOf,
     machineOfSession,
+    botsNow,
     loading: snapshots.size === 0 && errors.size === 0,
     error:
       snapshots.size === 0 && machineErrors.length > 0

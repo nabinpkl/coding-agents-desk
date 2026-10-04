@@ -27,7 +27,7 @@ const feed = {
   },
 } as unknown as SidecarDataSource;
 const machine = { label: "this machine", feed };
-const feeds = botFeeds(feed, [machine], () => machine, () => machine);
+const feeds = botFeeds(feed, [machine], () => machine, () => machine, () => []);
 const roster = (initial: BotView[] = bots) => renderHook(
   ({ roster: current }) => useCanvasRoster({ bots: current, settled: true }, feeds),
   { initialProps: { roster: initial } },

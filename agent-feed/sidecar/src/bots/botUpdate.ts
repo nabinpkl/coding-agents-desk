@@ -1,5 +1,6 @@
 // Renaming a Bot, restyling it, or naming its Father: the record with the named fields
-// replaced and everything else kept.
+// replaced and everything else kept -- except that naming a Father un-names every other Bot's,
+// because a machine has one Father.
 //
 // A setting, not an act: no idempotency record, and the same command twice lands the same
 // record. Only the keys the caller named move -- the normalizer carries presence, so an
@@ -93,7 +94,29 @@ export function updateBotRecord(
 
   const bots = [...snapshot.bots];
   bots[index] = updated;
-  return { snapshot: { ...snapshot, revision: snapshot.revision + 1, bots }, value: updated };
+  return {
+    snapshot: {
+      ...snapshot,
+      revision: snapshot.revision + 1,
+      bots: command.fatherSession ? withOneFather(bots, botId) : bots,
+    },
+    value: updated,
+  };
+}
+
+/**
+ * Clears the Father on every Bot but this one.
+ *
+ * One Father at a time across the machine, in the same write that names it, so the store never
+ * holds two. It used to hold one per Bot, and the home shows only the first in canvas order: a
+ * second Father named on another Bot was saved, reported as named, and never shown anywhere.
+ */
+function withOneFather(bots: readonly BotRecord[], fatherBotId: string): BotRecord[] {
+  return bots.map((bot) => {
+    if (bot.botId === fatherBotId || !bot.fatherSession) return bot;
+    const { fatherSession: _dropped, ...rest } = bot;
+    return rest;
+  });
 }
 
 /**

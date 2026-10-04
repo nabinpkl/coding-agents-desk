@@ -5,12 +5,12 @@ import { describe, expect, test } from "bun:test";
 import { BotConflictError, BotForbiddenError, BotInvalidError, BotNotFoundError } from "@/bots/botTypes";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
-const { addBot, addSessions, fixture } = botRegistryHarness();
+const { addBot, addSessions, fixture, sessions, summary } = botRegistryHarness();
 const user = { kind: "user" } as const;
 const agent = { kind: "agent", session: { source: "pi", sessionId: "session-1" } } as const;
 
 async function botWithSession() {
-  const { project, ref, registry } = await fixture();
+  const { project, secondProject, ref, registry } = await fixture();
   const bot = await addBot(registry, {
     requestId: "create-1",
     name: "Captain",
@@ -20,7 +20,7 @@ async function botWithSession() {
     requestId: "attach-1",
     sessionRefs: [ref],
   }, user);
-  return { project, ref, registry, bot: withSession };
+  return { project, secondProject, ref, registry, bot: withSession };
 }
 
 describe("updateBot", () => {
@@ -73,6 +73,29 @@ describe("updateBot", () => {
     await expect(registry.updateBot(bot.botId, {
       fatherSession: { source: "claude", sessionId: "stranger" },
     }, user)).rejects.toBeInstanceOf(BotNotFoundError);
+  });
+
+  test("naming a Father clears every other Bot's in the same write", async () => {
+    const { registry, bot, ref, secondProject } = await botWithSession();
+    const otherRef = { source: "claude" as const, sessionId: "session-9" };
+    sessions.set("claude:session-9", { projectPath: secondProject, summary: summary(otherRef) });
+    const other = await addBot(registry, {
+      requestId: "create-2",
+      name: "Sweeper",
+      directoryPath: secondProject,
+    }, user);
+    await addSessions(registry, other.botId, { requestId: "attach-2", sessionRefs: [otherRef] }, user);
+
+    await registry.updateBot(bot.botId, { fatherSession: ref }, user);
+    await registry.updateBot(other.botId, { fatherSession: otherRef }, user);
+    const fathers = (await registry.snapshot()).bots.filter((each) => each.fatherSession);
+    expect(fathers.map((each) => [each.botId, each.fatherSession])).toEqual([[other.botId, otherRef]]);
+
+    // Clearing names nobody, and a rename leaves the one Father where it is.
+    await registry.updateBot(bot.botId, { name: "Commodore" }, user);
+    expect((await registry.snapshot()).bots.filter((each) => each.fatherSession)).toHaveLength(1);
+    await registry.updateBot(other.botId, { fatherSession: null }, user);
+    expect((await registry.snapshot()).bots.filter((each) => each.fatherSession)).toHaveLength(0);
   });
 
   test("detaching the Father clears it in the same write", async () => {

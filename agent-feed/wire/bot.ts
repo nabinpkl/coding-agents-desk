@@ -80,7 +80,8 @@ export interface BotRecord {
    * The session that speaks as this Bot's Father, and the panel renders as its home.
    *
    * One of `sessionRefs`: the Father is a member of the Bot, not a session from elsewhere.
-   * Absent means the Bot has no Father and the home stays shut. Named rather than derived
+   * Absent means the Bot has no Father and the home stays shut. At most one Bot on a machine
+   * carries one, and the panel keeps that true across machines too. Named rather than derived
    * (newest, livest) because derivation would promote a different session every reload and the
    * home would follow it.
    */
@@ -290,6 +291,8 @@ export interface UpdateBotCommand {
    * The session that speaks as this Bot's Father. Must be one the Bot holds -- the Father is a
    * member, not a session from elsewhere -- and null clears it. Detaching the named session
    * clears it in the same write, so no update can strand a Father the Bot no longer holds.
+   * Naming one clears every other Bot's Father on this machine in the same write: there is one
+   * Father, and the home has room for one.
    */
   fatherSession?: BotSessionRef | null;
 }
