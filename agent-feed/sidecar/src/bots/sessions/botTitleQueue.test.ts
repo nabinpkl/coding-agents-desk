@@ -18,12 +18,28 @@ function startQueue(
   store: Fixture["store"],
   renamer: (ref: BotSessionRef, title: string) => Promise<void>,
   renamable: (source: string) => boolean = () => true,
+  whenReady: (ref: BotSessionRef) => Promise<boolean> = async () => true,
 ) {
   const lines: string[] = [];
-  const queue = new BotTitleQueue({ store, catalog, renamer, renamable, log: (line) => lines.push(line) });
+  const paneListeners = new Set<(sessionId: string) => void>();
+  const queue = new BotTitleQueue({
+    store,
+    catalog,
+    renamer,
+    renamable,
+    paneStarts: (listener) => {
+      paneListeners.add(listener);
+      return () => paneListeners.delete(listener);
+    },
+    whenReady,
+    log: (line) => lines.push(line),
+  });
   queues.push(queue);
   queue.start();
-  return { queue, lines };
+  const paneStarted = (sessionId: string) => {
+    for (const listener of paneListeners) listener(sessionId);
+  };
+  return { queue, lines, paneStarted };
 }
 
 /** Sets a session's title and how recently it moved, the way the catalog would after a write. */
@@ -156,4 +172,55 @@ test("no rename for a source without a mechanism, a session two Bots hold, or on
   }, (source) => source !== "codex");
   await queue.settled();
   expect(asked).toEqual([]);
+});
+
+test("a session reopened in a pane is renamed once it is ready, without waiting to move", async () => {
+  const { project, ref, registry, store } = await fixture();
+  const bot = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+
+  let running = false;
+  let ready: (value: boolean) => void = () => {};
+  const asked: string[] = [];
+  const { queue, paneStarted } = startQueue(store, async (_at, title) => {
+    asked.push(title);
+    if (!running) throw new Error("this session is not running, and only a running session can rename itself");
+  }, () => true, () => new Promise<boolean>((resolve) => { ready = resolve; }));
+  await queue.settled();
+  expect(asked).toHaveLength(1);
+
+  // Its pane starts. Nothing is sent while the CLI is still loading.
+  paneStarted("session-1");
+  await queue.settled();
+  expect(asked).toHaveLength(1);
+
+  // Its composer is drawn: the rename goes in although the transcript has not moved.
+  running = true;
+  ready(true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await queue.settled();
+  expect(asked).toEqual(["Aaron (pi session)", "Aaron (pi session)"]);
+});
+
+test("a pane that never came up, or one no Bot holds, asks nothing", async () => {
+  const { project, ref, registry, store } = await fixture();
+  const bot = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+
+  const asked: string[] = [];
+  const waited: string[] = [];
+  const { queue, paneStarted } = startQueue(store, async (_at, title) => {
+    asked.push(title);
+    throw new Error("this session is not running, and only a running session can rename itself");
+  }, () => true, async (at) => {
+    waited.push(at.sessionId);
+    return false;
+  });
+  await queue.settled();
+  paneStarted("session-1");
+  paneStarted("not-on-any-bot");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await queue.settled();
+  expect(waited).toEqual(["session-1"]);
+  expect(asked).toHaveLength(1);
 });

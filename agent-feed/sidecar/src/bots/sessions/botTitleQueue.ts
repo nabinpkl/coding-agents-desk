@@ -11,11 +11,13 @@
 // no second record to drift. What is kept in memory is only WHEN each session was last asked, so
 // a session that cannot take a rename is asked again when it next moves rather than on a timer.
 //
-// Two ways a rename waits, both answered by the same event. A stopped Claude session has no pane
-// to type `/rename` into, and a running one may have unsent text in its composer. Either way the
-// session is asked again once its transcript moves on -- which, for a stopped session, means it
-// has started again. Writing the title into the transcript instead is deliberately not a fallback:
-// it moves the title and leaves the session's address behind (`renameSession.ts` has why).
+// Two ways a rename waits. A stopped Claude session has no pane to type `/rename` into, and a
+// running one may have unsent text in its composer. Either way the session is asked again once its
+// transcript moves on. A stopped session reopened from the panel does not wait for that: the pane
+// it was started in is announced, and the rename goes in as soon as its composer is drawn, before
+// anyone has typed into it. Writing the title into the transcript instead is deliberately not a
+// fallback: it moves the title and leaves the session's address behind (`renameSession.ts` has
+// why).
 //
 // Per machine, because the store is: each sidecar keeps its own Bots' titles and no other.
 
@@ -60,6 +62,10 @@ export interface BotTitleQueueOptions {
   renamer: BotSessionRenamer;
   /** Sources the renamer has a mechanism for. Anything else keeps its title and is never asked. */
   renamable: (source: SourceId) => boolean;
+  /** Hears a session id whose pane was just started. See `sessionPaneStarts.ts`. */
+  paneStarts: (listener: (sessionId: string) => void) => () => void;
+  /** Resolves true once that session can take a rename, false if it never came up. */
+  whenReady: (ref: BotSessionRef) => Promise<boolean>;
   log?: (line: string) => void;
 }
 
@@ -76,6 +82,8 @@ interface Asked {
 export class BotTitleQueue {
   private latest: StoredBotSnapshot | null = null;
   private readonly asked = new Map<string, Asked>();
+  /** Sessions that just came up, asked on the next pass whether or not they have moved. */
+  private readonly started = new Set<string>();
   private running: Promise<void> | null = null;
   private owed = false;
   private readonly stops: (() => void)[] = [];
@@ -97,7 +105,25 @@ export class BotTitleQueue {
       this.wake();
     }));
     this.stops.push(this.options.catalog.subscribe(() => this.wake()));
+    this.stops.push(this.options.paneStarts((sessionId) => this.paneStarted(sessionId)));
     this.wake();
+  }
+
+  /**
+   * A session is running again: once it can take the rename, ask it on the next pass.
+   *
+   * The wait happens here rather than in the pass, which would otherwise stall every other
+   * session's rename behind one CLI that is still loading its transcript.
+   */
+  private paneStarted(sessionId: string): void {
+    const snapshot = this.latest;
+    const ref = snapshot?.bots.flatMap((bot) => bot.sessionRefs).find((one) => one.sessionId === sessionId);
+    if (!ref || !this.options.renamable(ref.source)) return;
+    void this.options.whenReady(ref).then((ready) => {
+      if (!ready) return;
+      this.started.add(sessionKey(ref));
+      this.wake();
+    }, (error: unknown) => console.error("agent feed bot titles: waiting for a started session failed", error));
   }
 
   stop(): void {
@@ -136,6 +162,7 @@ export class BotTitleQueue {
 
   private async pass(): Promise<void> {
     let snapshot = this.latest ?? await this.options.store.snapshot();
+    this.latest = snapshot;
     if (snapshot.bots.some((bot) => bot.sessionRefs.some((ref) => !bot.sessionAnchors?.[sessionKey(ref)]))) {
       // Records from before anchors existed: spend theirs first-free, in one write.
       snapshot = await this.options.store.mutate((current) => {
@@ -153,6 +180,8 @@ export class BotTitleQueue {
       this.latest = snapshot;
     }
 
+    const started = new Set(this.started);
+    this.started.clear();
     const holders = new Map<string, number>();
     for (const bot of snapshot.bots) {
       for (const ref of bot.sessionRefs) {
@@ -165,12 +194,12 @@ export class BotTitleQueue {
         const anchor = bot.sessionAnchors?.[key];
         // Held by two Bots means two anchors, and one title cannot wear both.
         if (!anchor || holders.get(key) !== 1) continue;
-        await this.keep(ref, anchor);
+        await this.keep(ref, anchor, started.has(key));
       }
     }
   }
 
-  private async keep(ref: BotSessionRef, anchor: string): Promise<void> {
+  private async keep(ref: BotSessionRef, anchor: string, justStarted: boolean): Promise<void> {
     if (!this.options.renamable(ref.source)) return;
     const resolved = this.options.catalog.resolveSession(ref);
     if (!resolved) return;
@@ -183,8 +212,9 @@ export class BotTitleQueue {
     const at = resolved.summary.lastEventAt;
     const before = this.asked.get(key);
     // A sent rename is fire-and-forget into a pane, so it is not sent twice: the title changing is
-    // the answer. A refused one is asked again once the session has moved since.
-    if (before && (before.sent || before.at >= at)) return;
+    // the answer. A refused one is asked again once the session has moved since, or has just come
+    // up in a pane of its own.
+    if (before && (before.sent || (before.at >= at && !justStarted))) return;
     try {
       await this.options.renamer(ref, title);
       this.asked.set(key, { at, sent: true });

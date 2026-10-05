@@ -73,6 +73,8 @@ import { BotRegistry } from "@/bots/botRegistry";
 import type { BotRegistryCatalog } from "@/bots/botTypes";
 import type { BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
 import { BotTitleQueue } from "@/bots/sessions/botTitleQueue";
+import { subscribeSessionPaneStarts } from "@/terminal/sessionPaneStarts";
+import { awaitComposer } from "@/input/tmuxComposer";
 import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
 import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpencode";
@@ -189,6 +191,8 @@ const usageScanner = createUsageScanner();
 // failed. One closure because three callers need it: the Bot routes' completion path, the
 // opencode adapter answering hub directives, and the title queue below.
 const renamableSources = new Set<string>(["claude", "opencode"]);
+/** How long a reopened session has to draw its composer before its rename waits for it to move. */
+const SESSION_READY_LIMIT_MS = 60_000;
 const renameSession: BotSessionRenamer = async (ref, title) => {
   if (ref.source === "claude") {
     await renameClaudeSession(ref.sessionId, title);
@@ -208,6 +212,11 @@ new BotTitleQueue({
   catalog: botCatalog,
   renamer: renameSession,
   renamable: (source) => renamableSources.has(source),
+  paneStarts: subscribeSessionPaneStarts,
+  // A just-started Claude draws its composer when it has loaded, and nothing announces that, so
+  // this is the same bounded wait a fork's rewind uses. Opencode renames through its serve.
+  whenReady: (ref) =>
+    ref.source === "claude" ? awaitComposer(ref.sessionId, SESSION_READY_LIMIT_MS) : Promise.resolve(true),
 }).start();
 
 const routes: RouteHandler[] = [

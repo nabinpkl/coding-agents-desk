@@ -11,6 +11,7 @@
 
 import { PtyManagerClient, type PtySessionConnection } from "@/terminal/pty/ptyClient";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
+import { announceSessionPaneStarted } from "@/terminal/sessionPaneStarts";
 import type { PtySessionSummary } from "@/terminal/pty/ptyProtocol";
 import { AgentTerminalConflictError, AgentTerminalUnavailableError } from "@/terminal/agentTerminalErrors";
 import type { TerminalIdentity } from "@/terminal/agentTerminalIdentity";
@@ -95,6 +96,8 @@ export async function connectTmuxTerminal(
         .catch(() => {});
     }
   }
+  // Said once the pane is named, so whoever acts on a session that is running again finds it.
+  if (created && identity.stampSession) announceSessionPaneStarted(identity.stampSession);
   return attachTmux(backend, target, dimensions);
 }
 

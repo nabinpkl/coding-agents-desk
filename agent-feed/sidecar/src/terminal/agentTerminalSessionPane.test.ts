@@ -18,6 +18,7 @@ import {
   SESSION_ID,
   type SessionTmuxFakes,
 } from "@/terminal/agentTerminalHarness";
+import { subscribeSessionPaneStarts } from "@/terminal/sessionPaneStarts";
 
 const {
   roots,
@@ -63,6 +64,28 @@ test("starts a tmux session that resumes the agent session when nothing is runni
     rows: 30,
   }]);
   expect(attached).toEqual([{ session: `agentdesk-${SESSION_ID}`, columns: 100, rows: 30 }]);
+});
+
+test("says a session is running again when it starts its pane, and not when it joins one", async () => {
+  const heard: string[] = [];
+  const stop = subscribeSessionPaneStarts((sessionId) => heard.push(sessionId));
+  try {
+    const started: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+    await (await sessionTmuxService(started, [])).open(
+      { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+      { columns: 100, rows: 30 },
+    );
+    expect(heard).toEqual([SESSION_ID]);
+
+    const joined: SessionTmuxFakes = { owner: "composerprobe", running: new Set(), created: [] };
+    await (await sessionTmuxService(joined, [])).open(
+      { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+      { columns: 100, rows: 30 },
+    );
+    expect(heard).toEqual([SESSION_ID]);
+  } finally {
+    stop();
+  }
 });
 
 test("waits for a pane it just created to settle, and never for one it merely joins", async () => {
