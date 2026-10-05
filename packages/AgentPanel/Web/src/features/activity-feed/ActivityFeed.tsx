@@ -172,18 +172,18 @@ export function ActivityFeed({
     events.length > 0 || liveTails.length > 0,
   );
 
-  // Scroll offset the sticky bars are computed from.
-  //
-  // This has to be state, not a read of `scrollTop` inside a memo keyed on the
-  // virtualizer's visible range. That range only changes identity when the
-  // window of rendered rows changes, so on a thread short enough to fit inside
-  // the overscan it never changes at all -- and the bars, computed once at
-  // mount, then never updated again for the life of the thread.
-  const [scrollTop, setScrollTop] = useState(0);
+  // Scroll offset the sticky bars are computed from, read from a ref at every render. A scroll
+  // re-renders only when it moves a bar or the top line (`changesAt`, in `useStickyIndices`), not
+  // on the virtualizer's range, which never changes on a thread short enough to fit its overscan.
+  const scrollTopRef = useRef(0);
+  const [, setStickyScroll] = useState(0);
+  const changesAtRef = useRef<(offset: number) => boolean>(() => true);
   const handleScroll = useCallback(() => {
     onScroll();
     const el = parentRef.current;
-    if (el) setScrollTop(el.scrollTop);
+    if (!el) return;
+    scrollTopRef.current = el.scrollTop;
+    if (changesAtRef.current(el.scrollTop)) setStickyScroll(el.scrollTop);
   }, [onScroll]);
   const {
     allCollapsed,
@@ -276,16 +276,18 @@ export function ActivityFeed({
     stickyUser,
     stickyUserIndex,
     topEvent,
+    changesAt,
   } = useStickyIndices({
     items,
     mode,
     rowItems,
     rowVirtualizer,
-    scrollTop,
+    scrollTop: scrollTopRef.current,
     stickyHeaderRef,
     unloadedUserBar: unloaded.message !== null,
     virtualItems,
   });
+  changesAtRef.current = changesAt;
 
   const { restoring } = useTranscriptScrollRestore({
     following,
