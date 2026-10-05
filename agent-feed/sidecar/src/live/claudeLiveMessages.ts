@@ -9,12 +9,10 @@ import { contextWindowFor } from "@/config/config";
 import { longContextModelId } from "@/config/contextWindows";
 import { cacheTtlFromUsage } from "@/cacheTtl";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import type { ActivityBlock, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
+import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type EventCacheHit, type TokenUsage } from "@/transcripts/transcriptTypes";
 import type { AnthropicStreamEvent } from "@/live/claudeNetworkSource";
 import type { ToolResultItem } from "@/live/claudeRequestBody";
 import { summarizeToolUse } from "@/transcripts/claude/claudePayloads";
-
-const TOOL_RESULT_PREVIEW_CAP = 16_000;
 
 export interface LiveMessage {
   id: string;

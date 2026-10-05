@@ -5,7 +5,7 @@
 // Everything here is about reading one of those, not about turning it into blocks.
 
 import { basename } from 'node:path';
-import type { ActivityBlock, LineResult } from "@/transcripts/transcriptTypes";
+import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type LineResult } from "@/transcripts/transcriptTypes";
 import { metadataBlock, metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
 import { joinTextContent } from "@/transcripts/codex/codexReasoning";
 import {
@@ -34,12 +34,11 @@ export function truncate(s: string, n: number): string {
 // Build a tool_result block with truncation metadata so the Agent Panel can
 // render a "+N lines / +M chars" footer when the sidecar had to cap output.
 export function makeToolResultBlock(raw: string): ActivityBlock {
-  const PREVIEW_CAP = 16000;
-  if (raw.length <= PREVIEW_CAP) {
+  if (raw.length <= TOOL_RESULT_PREVIEW_CAP) {
     return { kind: 'tool_result', preview: raw };
   }
-  const kept = raw.slice(0, PREVIEW_CAP);
-  const dropped = raw.slice(PREVIEW_CAP);
+  const kept = raw.slice(0, TOOL_RESULT_PREVIEW_CAP);
+  const dropped = raw.slice(TOOL_RESULT_PREVIEW_CAP);
   return {
     kind: 'tool_result',
     preview: kept,

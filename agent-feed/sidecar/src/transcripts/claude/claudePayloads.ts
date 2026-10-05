@@ -6,7 +6,7 @@ import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
 import { contextWindowFor } from "@/config/config";
 import { cacheTtlFromUsage } from "@/cacheTtl";
 import { toolFilePaths } from "@/transcripts/claude/claudeFiles";
-import type { ActivityBlock, DeclaredModel, EventCacheHit, TokenUsage } from "@/transcripts/transcriptTypes";
+import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type DeclaredModel, type EventCacheHit, type TokenUsage } from "@/transcripts/transcriptTypes";
 import { basename } from 'node:path';
 import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
 
@@ -210,7 +210,6 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
         }
       }
       if (preview) {
-        const PREVIEW_CAP = 16000;
         // Harness persisted the full output to a sidecar file. Mark the
         // block as truncated using the size hint in the envelope so the
         // Agent Panel can offer "Show full output" — extractBlockRaw will
@@ -221,7 +220,7 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
           out.push({
             block: {
               kind: 'tool_result',
-              preview: preview.slice(0, PREVIEW_CAP),
+              preview: preview.slice(0, TOOL_RESULT_PREVIEW_CAP),
               hiddenChars: persistedSize - preview.length,
               hiddenLines: 0,
               ...idPart,
@@ -229,9 +228,9 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
             raw: preview,
             ...(sidecarPath ? { sidecarPath } : {}),
           });
-        } else if (preview.length > PREVIEW_CAP) {
-          const kept = preview.slice(0, PREVIEW_CAP);
-          const dropped = preview.slice(PREVIEW_CAP);
+        } else if (preview.length > TOOL_RESULT_PREVIEW_CAP) {
+          const kept = preview.slice(0, TOOL_RESULT_PREVIEW_CAP);
+          const dropped = preview.slice(TOOL_RESULT_PREVIEW_CAP);
           out.push({
             block: {
               kind: 'tool_result',

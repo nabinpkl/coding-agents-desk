@@ -19,9 +19,10 @@ import type {
   SessionMessage,
 } from "@opencode-ai/sdk/v2/client";
 import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
-import type {
-  ActivityBlock,
-  ParsedLine,
+import {
+  TOOL_RESULT_PREVIEW_CAP,
+  type ActivityBlock,
+  type ParsedLine,
 } from "@/transcripts/transcriptTypes";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import { sanitizeAgentValue } from "@/agents/liveAgentProjection";
@@ -45,13 +46,6 @@ export interface OpencodeImagePayload {
   /** Base64 bytes, straight off the serve. */
   data: string;
 }
-
-/**
- * Output text past this is capped with a footer, the way the transcript
- * adapters cap tool previews: one pasted screenshot's worth of tool output
- * must not ride every page and every reconnect.
- */
-const TOOL_OUTPUT_CAP = 8000;
 
 export interface OpencodeSyncResult {
   /** True when the last envelope closes the turn rather than continuing it. */
@@ -464,9 +458,9 @@ function capText(text: string): { text: string; preview: string; hiddenChars?: n
   // tool result from `preview`, so a result with only `text` reads as
   // "(empty result)" no matter how much output it holds. Measured in the
   // panel against a shell call that returned two lines.
-  if (text.length <= TOOL_OUTPUT_CAP) return { text, preview: text };
-  const kept = text.slice(0, TOOL_OUTPUT_CAP);
-  const hidden = text.slice(TOOL_OUTPUT_CAP);
+  if (text.length <= TOOL_RESULT_PREVIEW_CAP) return { text, preview: text };
+  const kept = text.slice(0, TOOL_RESULT_PREVIEW_CAP);
+  const hidden = text.slice(TOOL_RESULT_PREVIEW_CAP);
   return {
     text: kept,
     preview: kept,

@@ -29,6 +29,14 @@ export type {
 
 export type TranscriptSourceId = Exclude<SourceId, 'pi' | 'opencode'>;
 
+/**
+ * How much of a tool result rides an event, in string length (about a megabyte of ASCII). Past it
+ * the block carries `hiddenChars`/`hiddenLines` and "Show full output" fetches the rest. One value
+ * for every provider and both the transcript and live paths, so a result reads the same however
+ * it arrived.
+ */
+export const TOOL_RESULT_PREVIEW_CAP = 1_000_000;
+
 // What a bounded metadata read yields about a session, without reading its body.
 //
 // Everything the session LIST renders comes from here. The read that produces it

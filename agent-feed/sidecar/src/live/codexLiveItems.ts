@@ -7,9 +7,7 @@
 // socket has something to complete.
 
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import type { ActivityBlock, EventCacheHit } from "@/transcripts/transcriptTypes";
-
-const TOOL_RESULT_PREVIEW_CAP = 16_000;
+import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type EventCacheHit } from "@/transcripts/transcriptTypes";
 
 export interface LiveItem {
   id: string;

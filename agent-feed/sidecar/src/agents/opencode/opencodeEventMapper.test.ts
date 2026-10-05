@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
+import { TOOL_RESULT_PREVIEW_CAP } from "@/transcripts/transcriptTypes";
 
 function user(id: string, text: string): SessionMessage {
   return { id, time: { created: 100 }, text, type: "user" };
@@ -225,7 +226,7 @@ test("long tool output is capped with a footer", () => {
         state: {
           status: "completed",
           input: {},
-          content: [{ type: "text", text: `${"x".repeat(9000)}\nline2\nline3` }],
+          content: [{ type: "text", text: `${"x".repeat(TOOL_RESULT_PREVIEW_CAP)}\nline2\nline3` }],
           structured: {},
         },
         time: { created: 1, ran: 2, completed: 3 },
