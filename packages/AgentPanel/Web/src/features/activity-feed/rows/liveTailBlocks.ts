@@ -12,6 +12,53 @@ export function liveRowKey(event: ActivityEvent): string {
 }
 
 /**
+ * The live rows the transcript has not taken over yet, decided from what both sources hold now.
+ *
+ * Two rules, and both are about the file rather than a clock:
+ *
+ * - **A message it names, and everything before it.** Once the file carries a message the mirror
+ *   finished, the file is the authority for it, and for every row the mirror published before it:
+ *   the file writes messages in the mirror's own order, so reaching one is reaching all of them.
+ *   That retires the mirror's tool-result rows too, which belong to no message and so can never be
+ *   named themselves. Only a FINISHED live row is named: the file appends a line per block while
+ *   the message is still streaming, and taking that as the handoff would end the preview early.
+ * - **Results it already pairs.** A tool-result row whose every result the file already carries is
+ *   on screen twice -- once under its call, once loose below the thread -- until the next message
+ *   is named, which on a long tool step is a long time.
+ *
+ * Run at every transition -- a durable row arriving, a snapshot, a live row arriving or finishing
+ * -- because either side can be the late one. It used to run only when a durable row arrived, so a
+ * live row that finished after its line landed, or that arrived after the snapshot already held
+ * it, was never retired: measured 2026-10-05, a session opened after its turn ended drew its tool
+ * results again as loose RESULT rows below the final reply, and kept them.
+ */
+export function retireLiveRows(
+  liveRows: Map<string, ActivityEvent>,
+  durable: Iterable<ActivityEvent>,
+): Map<string, ActivityEvent> {
+  if (liveRows.size === 0) return liveRows;
+  const named = new Set<string>();
+  const results = new Set<string>();
+  for (const event of durable) {
+    if (event.phase === "complete" && event.messageId !== undefined) named.add(event.messageId);
+    for (const block of event.blocks) {
+      if (block.kind === "tool_result" && block.callId !== undefined) results.add(block.callId);
+    }
+  }
+  let reached = Number.NEGATIVE_INFINITY;
+  for (const row of liveRows.values()) {
+    if (row.phase === "complete" && row.messageId !== undefined && named.has(row.messageId)) {
+      reached = Math.max(reached, row.index);
+    }
+  }
+  const paired = (row: ActivityEvent) =>
+    row.blocks.length > 0 &&
+    row.blocks.every((block) => block.kind === "tool_result" && block.callId !== undefined && results.has(block.callId));
+  const kept = [...liveRows].filter(([, row]) => row.index > reached && !paired(row));
+  return kept.length === liveRows.size ? liveRows : new Map(kept);
+}
+
+/**
  * The live rows to draw under the thread, oldest first.
  *
  * The mirror runs AHEAD of the file: a transcript line is written after the fact, so
@@ -29,10 +76,8 @@ export function liveRowKey(event: ActivityEvent): string {
  *
  * What retires a row is therefore two separate things, and neither is a clock:
  *
- * - The file NAMING it. That is the handoff, settled on `messageId` in `onEvent`,
- *   which also retires every row the mirror published before it: the file writes
- *   messages in the order the mirror made them, so naming one says the file has
- *   reached that point in the mirror's own order.
+ * - The file NAMING it. That is the handoff, `retireLiveRows` above, which also
+ *   retires every row the mirror published before it.
  * - The file moving PAST it, which is what this function decides. A mirror that
  *   stops mid-turn keeps publishing a row whose id never reaches the file, so the
  *   handoff can never fire and the preview sits under a thread that is streaming

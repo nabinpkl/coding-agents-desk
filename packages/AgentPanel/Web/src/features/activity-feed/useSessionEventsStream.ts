@@ -5,7 +5,7 @@ import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSou
 import { PAGE_SIZE } from "@/features/activity-feed/data-source/eventPaging";
 import { useTimelineGapFill, withNewer } from "@/features/activity-feed/useTimelineGapFill";
 import { lastUsageFromEvents, newerUsage } from "@/features/activity-feed/usageFromEvents";
-import { splitLiveTails, visibleTails, liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
+import { retireLiveRows, splitLiveTails, visibleTails, liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 
 export interface ActivityBlock {
@@ -185,29 +185,8 @@ onEvent: (event) => {
           const eventChanged = !existing || (existing.revision ?? 0) < (event.revision ?? 0);
           const events = eventChanged ? new Map(current.events) : current.events;
           if (eventChanged) events.set(event.index, event);
-          const next = { ...current, events };
-          // Hand a live row off once it is complete AND the durable transcript
-          // carries that same message (same id, complete). The transcript can
-          // append rows for the same message while the live stream is still
-          // delivering it (per tool step), so a row is cleared only once the live
-          // message has itself finished; otherwise a mid-stream durable row would
-          // kill the preview before it appears. Runs even for a duplicate revision
-          // so the handoff is not skipped by buffer dedup.
-          if (event.phase === "complete" && event.messageId) {
-            const named = [...next.liveRows.values()].find(
-              (row) => row.phase === "complete" && row.messageId === event.messageId,
-            );
-            // Everything the mirror published BEFORE the named row goes with it: the
-            // file writes messages in the mirror's own order, so reaching one means
-            // reaching all of them, and a row whose durable line has scrolled out of
-            // the panel's window would otherwise linger below the thread forever.
-            if (named) {
-              next.liveRows = new Map(
-                [...next.liveRows].filter(([, row]) => row.index > named.index),
-              );
-            }
-          }
-          return next;
+          // Runs even for a duplicate revision, so the handoff is not skipped by buffer dedup.
+          return { ...current, events, liveRows: retireLiveRows(current.liveRows, events.values()) };
         });
       },
       onSnapshot: (snapshot) => {
@@ -221,23 +200,9 @@ onEvent: (event) => {
             : snapshot.projectionId === undefined
               ? current.projectionId === null
               : current.projectionId === snapshot.projectionId;
-          // A reconnect snapshot is authoritative: every live row whose message it
-          // already carries is owned by the durable rows now.
-          const named = [...current.liveRows.values()]
-            .filter(
-              (row) =>
-                row.phase === "complete" &&
-                row.messageId !== undefined &&
-                snapshot.events.some(
-                  (event) => event.messageId === row.messageId && event.phase === "complete",
-                ),
-            )
-            .reduce((newest, row) => (newest === null || row.index > newest.index ? row : newest), null as ActivityEvent | null);
-          const liveRows = !sameProjection
-            ? new Map()
-            : named
-              ? new Map([...current.liveRows].filter(([, row]) => row.index > named.index))
-              : current.liveRows;
+          // A reconnect snapshot is authoritative: every live row whose message it already
+          // carries is owned by the durable rows now.
+          const liveRows = sameProjection ? retireLiveRows(current.liveRows, snapshot.events) : new Map();
           const mirroredMessages = sameProjection ? current.mirroredMessages : new Set<string>();
           // The snapshot always owns the window it covers. What it does NOT own is
           // what the reader paged in BELOW that window: on a transcript-backed
@@ -323,8 +288,11 @@ onEvent: (event) => {
               ? current
               : { ...current, liveRows: new Map() };
           }
-          const liveRows = new Map(current.liveRows);
-          liveRows.set(liveRowKey(event), event);
+          // Retired here as well as on a durable row, because the live row can be the late one: a
+          // message that finishes after its line landed, or a tail replayed after the snapshot. A
+          // streaming delta can retire nothing, so only a finished row pays for the scan.
+          const added = new Map(current.liveRows).set(liveRowKey(event), event);
+          const liveRows = event.phase === "complete" ? retireLiveRows(added, current.events.values()) : added;
           const mirroredMessages = event.messageId === undefined
             ? current.mirroredMessages
             : new Set(current.mirroredMessages).add(event.messageId);

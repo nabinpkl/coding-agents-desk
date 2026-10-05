@@ -184,4 +184,63 @@ describe("useSessionEventsStream live tail", () => {
     );
     expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_c"]);
   });
+
+  // Either side can be the late one, and the handoff used to run only when the file's row arrived.
+  describe("whichever side lands last", () => {
+    const line = (index: number, messageId: string): ActivityEvent => ({
+      index, id: `row-${index}`, revision: 0, phase: "complete", ts: index, type: "assistant", messageId,
+      blocks: [{ kind: "text", text: "Done." }],
+    });
+    /** The mirror's row for a follow-up request's tool results: no message, one result per call. */
+    const results = (index: number, ...callIds: string[]): ActivityEvent => ({
+      index, id: `claude-live:user:flow-${index}`, revision: 0, phase: "complete", ts: index, type: "user",
+      blocks: callIds.map((callId) => ({ kind: "tool_result", callId, preview: "contents" })),
+    });
+
+    it("retires a message that finishes after its line landed, and the results before it", async () => {
+      const session = thread([]);
+      const view = renderThread(session.source, "claude", "nice");
+      await waitFor(() => expect(view.result.current.loading).toBe(false));
+      const handlers = session.handlers();
+
+      act(() => handlers.onLiveTail?.(results(0, "call-a")));
+      act(() => handlers.onLiveTail?.(tailEvent(1, "msg_done", 1)));
+      act(() => handlers.onEvent(line(9, "msg_done")));
+      expect(view.result.current.liveTails.length).toBeGreaterThan(0);
+
+      act(() => handlers.onLiveTail?.({ ...tailEvent(1, "msg_done", 1), phase: "complete" }));
+      expect(view.result.current.liveTails).toEqual([]);
+    });
+
+    it("retires a tail replayed after the snapshot already carried its message", async () => {
+      const session = thread([line(9, "msg_done")]);
+      const view = renderThread(session.source, "claude", "nice");
+      await waitFor(() => expect(view.result.current.loading).toBe(false));
+      const handlers = session.handlers();
+
+      // A stream opened after the turn ended replays the mirror's rows behind its snapshot.
+      act(() => handlers.onLiveTail?.(results(0, "call-a")));
+      act(() => handlers.onLiveTail?.({ ...tailEvent(1, "msg_done", 1), phase: "complete" }));
+      expect(view.result.current.liveTails).toEqual([]);
+    });
+
+    it("drops a results row once the file pairs every result in it", async () => {
+      const session = thread([]);
+      const view = renderThread(session.source, "claude", "nice");
+      await waitFor(() => expect(view.result.current.loading).toBe(false));
+      const handlers = session.handlers();
+      const paired = (index: number, callId: string): ActivityEvent => ({
+        ...results(index, callId), id: `row-${index}`,
+      });
+
+      act(() => handlers.onLiveTail?.(results(0, "call-a", "call-b")));
+      act(() => handlers.onLiveTail?.(tailEvent(1, "msg_next", 1)));
+      act(() => handlers.onEvent(paired(8, "call-a")));
+      // Half of it is still only in the mirror.
+      expect(view.result.current.liveTails.map((row) => row.type)).toEqual(["user", "assistant"]);
+
+      act(() => handlers.onEvent(paired(9, "call-b")));
+      expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_next"]);
+    });
+  });
 });
