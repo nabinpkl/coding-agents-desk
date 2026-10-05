@@ -230,10 +230,13 @@ export function EventHeading({
       {/* The ONLY thing a still-streaming row shows that a landed one does not.
           Inline and sub-chip sized, so when the transcript takes the message over
           and the dot goes away, one line loses a few pixels of width and nothing
-          moves vertically. */}
+          moves vertically. It pulses a few times as the row goes live and then holds
+          solid: an infinite pulse kept the compositor drawing every frame for as long
+          as the row was live, and a row whose message never finishes is live for good. */}
       {isLive ? (
         <span
-          className="ml-[0.15em] inline-block size-[0.45em] shrink-0 animate-pulse rounded-full bg-primary"
+          className="ml-[0.15em] inline-block size-[0.45em] shrink-0 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
+          style={{ animationIterationCount: 3 }}
           aria-hidden
         />
       ) : null}

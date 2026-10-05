@@ -30,10 +30,18 @@ export function RunningTasksChip({
         data-testid="running-tasks-chip"
         className="flex items-center gap-2 rounded-full px-2 py-1 text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground hover:bg-muted hover:text-foreground"
       >
-        {/* Two rings: a steady dot under a pulsing halo. Motion is the point -- it says work is
-            happening now, which a static badge cannot. */}
+        {/* Two rings: a steady dot under a halo that pings a few times when the count changes and
+            then rests. It used to ping forever, and an infinite animation keeps the compositor
+            drawing a frame per refresh for as long as it runs -- measured 2026-10-05 on a canvas
+            of six cards, three of these took the GPU process from about 2% of a core to 13%. Keyed
+            on the count, so each change restarts it: the motion marks the change, and the dot
+            says the work is still running. */}
         <span className="relative flex size-2.5 shrink-0 items-center justify-center">
-          <span className="absolute inline-flex size-2.5 animate-ping rounded-full bg-amber-500 opacity-60" />
+          <span
+            key={count}
+            className="absolute inline-flex size-2.5 animate-ping rounded-full bg-amber-500 opacity-60 motion-reduce:animate-none"
+            style={{ animationIterationCount: 3, animationFillMode: "forwards" }}
+          />
           <span className="relative inline-flex size-1.5 rounded-full bg-amber-500" />
         </span>
         <span className="truncate">
