@@ -47,6 +47,7 @@ export {
   backfillTaskText,
   ANCHOR_POOLS,
   firstFreeAnchor,
+  isPoolAnchor,
   formatBotSessionTitle,
   parseBotSessionTitle,
   refuseTaskText,

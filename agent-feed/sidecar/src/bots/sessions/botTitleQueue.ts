@@ -25,6 +25,7 @@ import type { BotSessionRef, SourceId } from "@agentdesk/agent-feed-wire";
 import {
   backfillTaskText,
   formatBotSessionTitle,
+  isPoolAnchor,
   parseBotSessionTitle,
   refuseTaskText,
 } from "@agentdesk/agent-feed-wire";
@@ -38,14 +39,19 @@ import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 /**
  * The title a session should wear under its anchor, read off the title it wears now.
  *
- * Already in this anchor's shape reads back as its task. Anything else sheds the previous era's
+ * Already in this anchor's shape reads back as its task, and so does a title made under any other
+ * pool name: a session that moved to a new name keeps what it was doing, rather than wearing its
+ * old name as the task. (A title that is itself a pool name, `Maple`, reads as one and starts
+ * bare; rare enough to accept.) Anything else sheds the previous era's
  * trailing suffixes (`(fork 3)`) and becomes the task whole, so a hand-typed `/rename` survives as
  * the bracket rather than being thrown away. A task that cannot bracket, or would make the title
  * too long, is dropped and the session starts bare: the anchor is the half that matters.
  */
 export function anchoredTitle(anchor: string, current: string): { title: string; dropped?: string } {
   const parsed = parseBotSessionTitle(current);
-  const rawTask = parsed.anchor === anchor ? parsed.task : backfillTaskText(current);
+  const rawTask = parsed.anchor === anchor || isPoolAnchor(parsed.anchor)
+    ? parsed.task
+    : backfillTaskText(current);
   const fits = rawTask
     && !refuseTaskText(rawTask)
     && !sessionTitleRefusal(formatBotSessionTitle(anchor, rawTask));

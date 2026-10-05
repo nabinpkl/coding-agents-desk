@@ -65,6 +65,18 @@ export const ANCHOR_POOLS: Readonly<Record<string, readonly string[]>> = {
   trees: TREES,
 };
 
+/**
+ * Whether a name was handed out from some pool, on any lap (`Aaron`, `Acacia 2`).
+ *
+ * How a title made under an anchor from another pool is recognised as one, so its task survives
+ * when the session moves to a new name rather than being nested under it.
+ */
+export function isPoolAnchor(name: string): boolean {
+  const lapped = /^(.*\S) ([2-9]|[1-9]\d+)$/.exec(name);
+  const base = lapped ? lapped[1]! : name;
+  return Object.values(ANCHOR_POOLS).some((pool) => pool.includes(base));
+}
+
 /** The first name in the pool nobody holds, so allocation is deterministic given the same state. */
 export function firstFreeAnchor(taken: Iterable<string>, pool: readonly string[]): string {
   const held = new Set(taken);

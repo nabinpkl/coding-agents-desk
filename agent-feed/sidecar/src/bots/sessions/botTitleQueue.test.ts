@@ -62,6 +62,14 @@ test("anchoredTitle keeps a hand-typed title as the task and sheds old suffixes"
   expect(anchoredTitle("Aaron", "x".repeat(239))).toEqual({ title: "Aaron", dropped: "x".repeat(239) });
 });
 
+test("a session moved to a new name keeps its task, not its old name", () => {
+  expect(anchoredTitle("Acacia", "Adam (See where are we)")).toEqual({ title: "Acacia (See where are we)" });
+  expect(anchoredTitle("Acacia", "Aaron 2 (Rags 2)")).toEqual({ title: "Acacia (Rags 2)" });
+  expect(anchoredTitle("Acacia", "Adam")).toEqual({ title: "Acacia" });
+  // Not a pool name, so still the previous era's title with its suffix shed.
+  expect(anchoredTitle("Acacia", "Windows canvas (fork 1)")).toEqual({ title: "Acacia (Windows canvas)" });
+});
+
 test("spends anchors a record predates and renames every session it can", async () => {
   const { project, ref, secondRef, claudeRef, registry, store } = await fixture();
   sessions.set("pi:session-1", { projectPath: project, summary: { ...summary(ref), title: "Windows canvas" } });
