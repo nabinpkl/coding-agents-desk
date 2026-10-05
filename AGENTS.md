@@ -1292,16 +1292,20 @@ Four things the script does that a hand-rolled one keeps not doing:
   afterwards by grepping `~/.claude/projects/` for the title you passed, which races every other
   session starting in the same second. Three namespaces name one session and none converts to
   another -- see the trap above -- so being handed the transcript uuid up front is most of the job.
-- **No tools, via `--disallowedTools`.** A script cannot answer a permission question: the prompt
+- **No tools, via `--tools ""`.** A script cannot answer a permission question: the prompt
   appears in the pane and the probe hangs there until somebody looks. This is not sandboxing, it is
-  a session with nothing to ask about. `THROWAWAY_TOOLS` widens it, and then answering the pane is
-  yours.
+  a session with nothing to ask about. `THROWAWAY_TOOLS='Read,Bash'` names the ones a probe needs,
+  and then answering the pane is yours. An allow list, because the deny list it replaced went stale:
+  asked to say one word, a probe called a tool the list had never heard of.
 - **`say` chunks the text.** `tmux send-keys -l` drops a long string silently, which is already
   written down two sections up; this is where it is implemented, once.
-- **Ready means the transcript file exists, not that the pane drew a prompt.** The prompt character
-  appears while plugins are still loading. Measured on this repo: ready in about one second, 59k of
-  context from the project's own `CLAUDE.md`, which is also why the default cwd is the repo -- a
-  probe about compaction needs a context worth compacting.
+- **Ready means the session has registered, not that the pane drew a prompt.** Its record under
+  `~/.claude/sessions` names the chosen id; the prompt character appears while plugins are still
+  loading. Not the transcript either: since 2026-10-05 the CLI writes none until the first prompt,
+  and waiting for it timed out every start while the session sat ready. Measured on this repo:
+  registered in about two seconds, 50k of context from the project's own `CLAUDE.md`, which is
+  also why the default cwd is the repo -- a probe about compaction needs a context worth
+  compacting.
 
 It runs as the console user in tmux like everything else here, and it is a probe rather than a
 worker: give it no job that matters, and stop it when you are done.

@@ -12,10 +12,12 @@
 #   - The session id is CHOSEN, with `--session-id`, and printed. Otherwise the caller has to find
 #     the transcript afterwards by grepping `~/.claude/projects` for its title, which is a race
 #     against every other session starting at the same moment.
-#   - No tools, via `--disallowedTools`. An interactive session cannot be asked a permission
-#     question by a script: the prompt appears in the pane and the probe hangs there forever. This
-#     is not a sandbox -- it is a session that has nothing to ask about. `--tools` widens it when a
-#     probe genuinely needs one, and then the caller owns answering.
+#   - No tools, via `--tools ""`. An interactive session cannot be asked a permission question by
+#     a script: the prompt appears in the pane and the probe hangs there forever. This is not a
+#     sandbox -- it is a session that has nothing to ask about. `THROWAWAY_TOOLS` names the ones a
+#     probe genuinely needs, and then the caller owns answering. An allow list rather than the
+#     deny list this used to carry, which went stale: a probe asked to say one word answered by
+#     calling a tool the list had never heard of.
 #   - `tmux send-keys -l` silently drops a long string, so `say` chunks it and sends Enter as its
 #     own call. Same rule as the one in AGENTS.md, implemented once.
 #
@@ -35,9 +37,8 @@ EFFORT="${THROWAWAY_EFFORT:-low}"
 # comes up with a context big enough to be worth compacting. Point it elsewhere for a probe that
 # wants to start small.
 DIR="${THROWAWAY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-# Everything a probe could be asked to approve. Widen with THROWAWAY_TOOLS='' and answer the pane
-# yourself, or with a specific list.
-TOOLS="${THROWAWAY_TOOLS:-Bash Edit Write Read Glob Grep Agent Task WebFetch WebSearch NotebookEdit}"
+# The built-in tools the probe may use: none unless named, e.g. THROWAWAY_TOOLS='Read,Bash'.
+TOOLS="${THROWAWAY_TOOLS:-}"
 READY_TIMEOUT="${THROWAWAY_READY_TIMEOUT:-60}"
 
 usage() {
@@ -58,24 +59,26 @@ case "$verb" in
     fi
     id="$(uuidgen | tr 'A-Z' 'a-z')"
     args=(claude --model "$MODEL" --effort "$EFFORT" --session-id "$id" -n "$name" --strict-mcp-config)
-    [ -n "$TOOLS" ] && args+=(--disallowedTools "$TOOLS")
+    args+=(--tools "$TOOLS")
     # One argument per array element, quoted by tmux's own `--` handling rather than by a string
     # this script assembles: a name with a space in it is what broke the last hand-rolled one.
     tmux new-session -d -s "$name" -c "$DIR" "${args[@]}"
-    # Ready means the transcript exists: the session has registered and will answer a prompt. The
-    # pane's own prompt character appears earlier, while plugins are still loading.
-    slug="$(echo "$DIR" | sed 's#/#-#g')"
-    transcript="$HOME/.claude/projects/$slug/$id.jsonl"
+    # Ready means the session has REGISTERED: its record under ~/.claude/sessions names this id.
+    # Not the transcript, which the CLI no longer writes until the first prompt arrives (measured
+    # 2026-10-05 on 2.1.x: a session sat at its prompt for a minute with no transcript, and every
+    # start here timed out while the session was up). Not the pane's prompt character either, which
+    # is drawn while plugins are still loading. Read-only: nothing here writes under ~/.claude.
+    sessions="${THROWAWAY_SESSIONS_DIR:-$HOME/.claude/sessions}"
     waited=0
-    while [ ! -f "$transcript" ] && [ "$waited" -lt "$READY_TIMEOUT" ]; do
+    until grep -lqs "\"sessionId\": *\"$id\"" "$sessions"/*.json; do
+      if [ "$waited" -ge "$READY_TIMEOUT" ]; then
+        echo "throwaway-session: $name did not register within ${READY_TIMEOUT}s" >&2
+        tmux capture-pane -p -t "$name" | tail -12 >&2
+        exit 1
+      fi
       sleep 1
       waited=$((waited + 1))
     done
-    if [ ! -f "$transcript" ]; then
-      echo "throwaway-session: $name did not register within ${READY_TIMEOUT}s" >&2
-      tmux capture-pane -p -t "$name" | tail -12 >&2
-      exit 1
-    fi
     echo "$id"
     ;;
   say)
