@@ -209,14 +209,16 @@ export function botRegistryHarness() {
     sessions.set("claude:session-3", { projectPath: project, summary: summary(claudeRef) });
     let nextId = 0;
     let nextSessionId = 0;
+    const store = new BotStore(join(directory, "bots.json"));
     return {
       project,
       secondProject,
       ref,
       secondRef,
       claudeRef,
+      store,
       registry: new BotRegistry(
-        new BotStore(join(directory, "bots.json")),
+        store,
         catalog,
         () => 123,
         () => `bot-${++nextId}`,
@@ -244,6 +246,7 @@ export function botRegistryHarness() {
   return {
     addBot,
     addSessions,
+    catalog,
     checkoutWithWorktree,
     endedPanes,
     fixture,

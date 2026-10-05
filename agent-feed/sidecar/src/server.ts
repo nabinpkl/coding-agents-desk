@@ -70,7 +70,9 @@ import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import { BotStore } from "@/bots/botStore";
 import { BotRegistry } from "@/bots/botRegistry";
+import type { BotRegistryCatalog } from "@/bots/botTypes";
 import type { BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
+import { BotTitleQueue } from "@/bots/sessions/botTitleQueue";
 import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
 import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpencode";
@@ -97,7 +99,7 @@ const resolveBackend = (id: string) => backends.get(id);
 const describeAgentSession = (source: string, sessionId: string) =>
   backends.get(source)?.describeSession(sessionId);
 const botStore = new BotStore(config.botsPath);
-const botRegistry = new BotRegistry(botStore, {
+const botCatalog: BotRegistryCatalog = {
   resolveProject(path) {
     // The catalog first, then any directory this machine has under home: a project nobody has
     // started a session in yet is not in the catalog, and it is the one the panel's folder picker
@@ -118,7 +120,8 @@ const botRegistry = new BotRegistry(botStore, {
   subscribe(listener) {
     return subscribeCatalog(() => listener());
   },
-});
+};
+const botRegistry = new BotRegistry(botStore, botCatalog);
 const agentTerminals = new AgentTerminalService(
   config.ptyManagerSocketPath,
   (source, sessionId) => {
@@ -183,8 +186,9 @@ const usageScanner = createUsageScanner();
 
 // Renames through the same doors the Rename dialog uses: Claude's own `/rename` in its pane,
 // opencode's serve through its backend. Anything else has no mechanism and is reported, not
-// failed. One closure because two callers need it: the Bot routes' completion path and the
-// opencode adapter answering hub directives.
+// failed. One closure because three callers need it: the Bot routes' completion path, the
+// opencode adapter answering hub directives, and the title queue below.
+const renamableSources = new Set<string>(["claude", "opencode"]);
 const renameSession: BotSessionRenamer = async (ref, title) => {
   if (ref.source === "claude") {
     await renameClaudeSession(ref.sessionId, title);
@@ -197,6 +201,15 @@ const renameSession: BotSessionRenamer = async (ref, title) => {
   throw new Error(`sessions from ${ref.source} cannot be renamed`);
 };
 
+// Every Bot session on this machine wears its anchor: a running one is renamed now, a stopped one
+// once it starts again. `botTitleQueue.ts` carries why it is derived rather than stored.
+new BotTitleQueue({
+  store: botStore,
+  catalog: botCatalog,
+  renamer: renameSession,
+  renamable: (source) => renamableSources.has(source),
+}).start();
+
 const routes: RouteHandler[] = [
   // The one route about the process ABOVE this one: its state rides on `/api/config` and this is
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
@@ -205,7 +218,7 @@ const routes: RouteHandler[] = [
   createBotRoutes(botRegistry, repositoryGitWatch, {
     maxTextBytes: config.workspaceMaxTextBytes,
     maxDocumentBytes: config.workspaceMaxDocumentBytes,
-  }, { renameSession }),
+  }),
   createAgentTerminalRoutes(agentTerminals),
   createTmuxRoutes(),
   // Ahead of the generic agent-session routes: opencode's own paths live under the same

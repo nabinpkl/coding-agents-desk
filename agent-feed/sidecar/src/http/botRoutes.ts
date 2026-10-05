@@ -19,7 +19,6 @@ import {
   BotNotFoundError,
   type BotRegistry,
 } from "@/bots/botRegistry";
-import type { BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
 import {
   encodeServerSentEvent,
   errorResponse,
@@ -47,7 +46,6 @@ export function createBotRoutes(
   registry: BotRegistry,
   repositories: RepositoryGitWatch,
   limits: WorkspaceFileLimits,
-  dependencies: { renameSession: BotSessionRenamer },
 ): RouteHandler {
   return (request, url, server) => {
     if (request.method === "GET" && url.pathname === BOTS_ROUTE) {
@@ -116,15 +114,7 @@ export function createBotRoutes(
     if (request.method === "PATCH" && canvasMatch) {
       return setBotCanvas(request, canvasMatch[1]!, registry);
     }
-    // One pass that brings every attached session's title into the anchor shape. A POST with no
-    // body: sending it twice lands the same titles, and the response names what each session got
-    // and what was skipped instead.
-    if (request.method === "POST" && url.pathname === "/api/bots/normalize-titles") {
-      return normalizeBotTitles(registry, dependencies.renameSession);
-    }
     // One Bot's record, renamed, restyled, or given its Father -- or forgotten entirely.
-    //
-    // After the literals above, where `normalize-titles` would otherwise read as a Bot id.
     // PATCH carries the fields to change, DELETE carries nothing but the address: the body
     // must still parse as an object, so the panel sends an empty one.
     const botMatch = /^\/api\/bots\/([^/]+)$/.exec(url.pathname);
@@ -376,17 +366,6 @@ async function setBotCanvas(
     return jsonResponse(
       await registry.setCanvas(decodedBotId, body as unknown as SetBotCanvasCommand, { kind: "user" }),
     );
-  } catch (error) {
-    return routeError(error);
-  }
-}
-
-async function normalizeBotTitles(
-  registry: BotRegistry,
-  renameSession: BotSessionRenamer,
-): Promise<Response> {
-  try {
-    return jsonResponse(await registry.normalizeTitles(renameSession));
   } catch (error) {
     return routeError(error);
   }

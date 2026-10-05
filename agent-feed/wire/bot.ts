@@ -52,8 +52,8 @@ export interface BotRecord {
    *
    * Allocated once from the pool, first-free machine-wide, and never reused -- the same rule as
    * slots, for the same reason. Detaching keeps the entry, so a reattach restores the same name.
-   * Absent on records written before anchors existed, which normalize on the next rename or
-   * on the normalize-titles pass.
+   * Absent on records written before anchors existed, until the machine's title queue spends
+   * them; the queue also keeps each session's title in its anchor's shape.
    */
   sessionAnchors?: Record<string, string>;
   metadata: BotMetadata;

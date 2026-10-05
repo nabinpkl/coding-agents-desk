@@ -37,12 +37,7 @@ import { BotRecordEditor } from "@/bots/botUpdate";
 import { BotViewer } from "@/bots/botViews";
 import { attachRefs } from "@/bots/sessions/botSessionAttach";
 import { sessionWorkedIn } from "@/bots/sessions/botSessionHistory";
-import {
-  normalizeBotTitles,
-  renameBracketTitle,
-  type BotSessionRenamer,
-  type TitleNormalization,
-} from "@/bots/sessions/botTitleNormalize";
+import { renameBracketTitle, type BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
 import { BotSessionRetirer, detachRefs } from "@/bots/sessions/botSessionRemoval";
 import { reorderRefs } from "@/bots/sessions/botSessionOrder";
 import { normalizeBotCanvas, setBotCanvas } from "@/bots/botCanvas";
@@ -312,17 +307,6 @@ export class BotRegistry {
       detachRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
     );
     return this.viewer.viewRecord(record);
-  }
-
-  /**
-   * Brings every attached session's title into the anchor shape. See `botTitleNormalize.ts`.
-   */
-  async normalizeTitles(renamer: BotSessionRenamer): Promise<{
-    bots: BotView[];
-    normalizations: TitleNormalization[];
-  }> {
-    const normalizations = await normalizeBotTitles(this.store, this.catalog, renamer);
-    return { bots: (await this.snapshot()).bots, normalizations };
   }
 
   /** One session's bracket task: the completion path every `set_task` door forwards to. */

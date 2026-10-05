@@ -96,7 +96,7 @@ test("the retired Bot address answers nothing now", async () => {
       throw new Error("unreached: the old address is gone");
     },
   } as unknown as BotRegistry;
-  const route = createBotRoutes(registry, repositories, LIMITS, DEPENDENCIES);
+  const route = createBotRoutes(registry, repositories, LIMITS);
   const request = post("/api/bots/sessions/rename-bracket", {
     source: "claude",
     sessionId: "session-1",

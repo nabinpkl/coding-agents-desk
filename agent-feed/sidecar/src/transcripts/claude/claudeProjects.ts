@@ -8,6 +8,7 @@ import { config } from "@/config/config";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
 import type { Header } from "@/transcripts/transcriptTypes";
 import { turnClosedFor } from "@/transcripts/claude/claudePayloads";
+import { currentTitles, titlesOf, type Titles } from "@/transcripts/claude/claudeTitles";
 
 const HEADER_EDGE_BYTES = 32 * 1024;
 /**
@@ -167,9 +168,12 @@ export async function readHeader(filePath: string): Promise<Header | null> {
     // order, because file order gives the wrong answer: the harness re-emits its
     // generated title as a session goes on, so a name the USER chose is routinely
     // followed by a generated one, and last-write-wins would rename their session
-    // back for them.
-    let aiTitle: string | undefined;
-    let customTitle: string | undefined;
+    // back for them. Per window, because which window said it decides whether it is
+    // current: `claudeTitles.ts` has why.
+    const head: Titles = {};
+    const tail: Titles = {};
+    let tailFrom = 0;
+    let through = 0;
     for (const [index, range] of ranges.entries()) {
       // A small file is one range that is both edges, so it answers both
       // questions. A large one splits them, and each question has exactly one
@@ -181,6 +185,11 @@ export async function readHeader(filePath: string): Promise<Header | null> {
       const buf = Buffer.alloc(range.length);
       const { bytesRead } = await fh.read(buf, 0, buf.length, range.start);
       const window = buf.toString('utf-8', 0, bytesRead);
+      if (isTail) {
+        // In bytes, not characters: these are file offsets a later read resumes from.
+        tailFrom = range.start > 0 ? range.start + buf.indexOf(0x0a) + 1 : 0;
+        through = range.start + buf.lastIndexOf(0x0a, bytesRead - 1) + 1;
+      }
       const lines = window.split('\n');
       // A window that starts mid-file almost certainly starts mid-line.
       if (range.start > 0) lines.shift();
@@ -203,10 +212,8 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         }
         if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
         if (typeof ev.entrypoint === 'string') out.entrypoint = ev.entrypoint;
-        if (typeof ev.aiTitle === 'string' && ev.aiTitle.trim()) aiTitle = ev.aiTitle.trim();
-        if (typeof ev.customTitle === 'string' && ev.customTitle.trim()) {
-          customTitle = ev.customTitle.trim();
-        }
+        if (isHead) titlesOf(line, head);
+        if (isTail) titlesOf(line, tail);
         // Last one in the window wins: this is the turn state as of the most
         // recent line that spoke to it.
         if (isTail) {
@@ -229,7 +236,14 @@ export async function readHeader(filePath: string): Promise<Header | null> {
     if (!out.cwd && ranges.length > 1) {
       out.cwd = await scanForOpeningCwd(fh, HEADER_EDGE_BYTES, metadata.size);
     }
-    out.title = customTitle ?? aiTitle;
+    const titles = await currentTitles(fh, filePath, {
+      whole: ranges.length === 1,
+      head,
+      tail,
+      tailFrom,
+      through,
+    });
+    out.title = titles.customTitle ?? titles.aiTitle;
     return out.cwd ? out : null;
   } finally {
     await fh.close();

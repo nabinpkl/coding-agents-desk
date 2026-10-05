@@ -278,13 +278,8 @@ export class BotSessionStarter {
   }
 }
 
-/**
- * The `-n` title a Bot session starts under: its allocated anchor, bracketed with its task.
- *
- * Exported so the attach path and the normalize-titles pass compose the same string the launch
- * paths do.
- */
-export function composeAnchoredTitle(anchor: string, requested: string): string {
+/** The `-n` title a Bot session starts under: its allocated anchor, bracketed with its task. */
+function composeAnchoredTitle(anchor: string, requested: string): string {
   const task = taskFromText(requested, anchor);
   const taskRefusal = task ? refuseTaskText(task) : null;
   if (taskRefusal) throw new BotInvalidError(`launch.title: ${taskRefusal}`);
