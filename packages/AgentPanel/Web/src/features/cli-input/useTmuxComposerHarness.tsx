@@ -13,7 +13,7 @@ import { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 export const SESSION: SessionAddress = { source: "claude", sessionId: "s1" };
 
 export function holding(text: string, wrapped = false, hint: string | null = null): TmuxComposerState {
-  return { text, hint, reason: null, exact: !wrapped, commands: [], pastes: [] };
+  return { text, hint, reason: null, exact: !wrapped, commands: [], pastes: [], images: [] };
 }
 
 /**
@@ -71,7 +71,7 @@ export function pane(initial = "", opening?: TmuxComposerState) {
     },
     acceptTmuxComposerHint: async (): Promise<TmuxComposerState> => {
       feed.accepts += 1;
-      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     },
     /** Every rail press, so a test can ask what reached the pane and what was held when it did. */
     keys: [] as { key: RailKey; modifiers: RailModifiers }[],
@@ -81,7 +81,7 @@ export function pane(initial = "", opening?: TmuxComposerState) {
       modifiers: RailModifiers,
     ): Promise<TmuxComposerState> => {
       feed.keys.push({ key, modifiers });
-      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     },
     /**
      * What the sidecar is holding for each handle, so a test can make a chip openable or not.
@@ -102,7 +102,7 @@ export function pane(initial = "", opening?: TmuxComposerState) {
       image: Blob,
     ): Promise<TmuxComposerState> => {
       feed.drops.push(image.size);
-      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     },
   };
   return feed;

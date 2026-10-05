@@ -135,6 +135,24 @@ export interface TmuxComposerState {
    * message back in the field after a reload.
    */
   pastes: readonly ComposerPaste[];
+  /**
+   * The images the box is holding, each with the file it was dropped from when this side dropped
+   * it.
+   *
+   * Claude numbers its images, and the number is not the image: when an edit has to retype across
+   * one, the sidecar drops the same file again and Claude gives it a new number. `file` is what
+   * says `#2` is the picture that was `#1`, so the panel's thumbnail follows it rather than turning
+   * into a bare chip.
+   */
+  images: readonly ComposerImageRef[];
+}
+
+/** One `[Image #N]` in the box. */
+export interface ComposerImageRef {
+  /** The number Claude gave it. */
+  id: number;
+  /** The name of the file the sidecar dropped, unique per drop; null for an image dropped elsewhere. */
+  file: string | null;
 }
 
 /**

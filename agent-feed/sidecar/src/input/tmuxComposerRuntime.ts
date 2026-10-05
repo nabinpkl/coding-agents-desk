@@ -15,6 +15,7 @@ import {
 } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
+import { imageTokens } from "@/input/composerKeystrokes";
 import {
   composerPastes,
   pasteTokens,
@@ -301,7 +302,16 @@ export async function readComposerAt(
       id,
       held: runtime.pastes?.heldFor(pane, token) ?? null,
     })),
+    images: imageTokens(text).map((token) => ({
+      id: Number(/#(\d+)/.exec(token)![1]),
+      file: imageFile(runtime.pastes?.imageFor(pane, token) ?? null),
+    })),
   };
+}
+
+/** The file's own name, which is all the panel needs to tell two images apart: not where it lives. */
+function imageFile(path: string | null): string | null {
+  return path === null ? null : path.slice(path.lastIndexOf("/") + 1);
 }
 
 /**
@@ -317,5 +327,5 @@ export async function readComposerAt(
  */
 
 export function unavailable(reason: NonNullable<TmuxComposerState["reason"]>): TmuxComposerState {
-  return { text: null, hint: null, reason, exact: true, commands: [], pastes: [] };
+  return { text: null, hint: null, reason, exact: true, commands: [], pastes: [], images: [] };
 }

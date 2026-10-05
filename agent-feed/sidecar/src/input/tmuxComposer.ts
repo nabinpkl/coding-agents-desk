@@ -153,7 +153,7 @@ export async function syncTmuxComposer(
       // for instead, and the menu under it is redrawn from that. An empty push is the one case
       // where a suggestion comes back, and a push beginning `/` opens a menu -- the watcher
       // reports both a moment later, which is the only reading that is not a guess.
-      return { text: desired, hint: null, reason: null, exact: true, commands: [], pastes: [] };
+      return { text: desired, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
     }
@@ -197,7 +197,7 @@ export async function dropTmuxComposerImage(
       // And the token it swapped in is bound to the file, so an edit that later has to retype
       // across it drops the file again rather than typing the token's name.
       await bindNewImage(pane, imageTokens(before), path, runtime);
-      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
+      return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
     }
@@ -313,7 +313,7 @@ export async function submitTmuxComposer(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  return press(sessionId, CARRIAGE_RETURN, { text: "", hint: null, reason: null, exact: true, commands: [], pastes: [] }, runtime);
+  return press(sessionId, CARRIAGE_RETURN, { text: "", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] }, runtime);
 }
 
 /**
@@ -329,7 +329,7 @@ export async function acceptTmuxComposerHint(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  return press(sessionId, TAB, { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] }, runtime);
+  return press(sessionId, TAB, { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] }, runtime);
 }
 
 /**
@@ -356,7 +356,7 @@ export async function pressTmuxComposerKey(
   return press(
     sessionId,
     bytesForRailKey(key, held),
-    { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] },
+    { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
     runtime,
   );
 }

@@ -43,6 +43,43 @@ describe("the images a composer is holding", () => {
     expect(strip["7"]).not.toBe(strip["8"]);
   });
 
+  it("keeps the picture with an image the pane renumbered, because it is the same file", async () => {
+    // An edit that retypes across an image makes the sidecar drop its file again, and Claude
+    // names the second drop `#2`. Same picture, so the preview follows it rather than the strip
+    // turning into a bare number for an image this panel sent.
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await press("drop");
+    await act(async () => {
+      feed.emit({ ...holding("[Image #1] hi"), images: [{ id: 1, file: "a.png" }] });
+    });
+    const picture = shown()["1"];
+    expect(picture).toMatch(/^blob:/);
+
+    await act(async () => {
+      feed.emit({ ...holding("[Image #2] hi"), images: [{ id: 2, file: "a.png" }] });
+    });
+    expect(shown()).toEqual({ "2": picture });
+  });
+
+  it("does not hand a picture to a different image that took a new number", async () => {
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await press("drop");
+    await act(async () => {
+      feed.emit({ ...holding("[Image #1] hi"), images: [{ id: 1, file: "a.png" }] });
+    });
+    const first = shown()["1"];
+    await act(async () => {
+      feed.emit({ ...holding("[Image #2] hi"), images: [{ id: 2, file: "b.png" }] });
+    });
+    // The drop sent two pictures, so the new image takes the one still waiting, never #1's.
+    expect(shown()["2"]).toMatch(/^blob:/);
+    expect(shown()["2"]).not.toBe(first);
+  });
+
   it("shows an image somebody else put in the box, as its number", async () => {
     // Dropped into the pane by whoever is sitting there: the box says it is holding an image and
     // this panel has never seen the bytes. Named rather than hidden, so the strip and the text
@@ -183,6 +220,7 @@ describe("pasted text", () => {
         exact: true,
         commands: [],
         pastes: [{ token: "[Pasted text #1]", id: 1, held: { chars: 13, lines: 3 } }],
+        images: [],
       });
     });
     expect(screen.getByTestId("pastes").textContent).toBe("[Pasted text #1]:3L13C");
@@ -202,6 +240,7 @@ describe("pasted text", () => {
         exact: true,
         commands: [],
         pastes: [{ token: "[Pasted text #9 +38 lines]", id: 9, held: null }],
+        images: [],
       });
     });
     expect(screen.getByTestId("pastes").textContent).toBe("[Pasted text #9 +38 lines]:unheld");
@@ -223,6 +262,7 @@ describe("pasted text", () => {
         exact: true,
         commands: [],
         pastes: [{ token: "[Pasted text #1]", id: 1, held: { chars: 23, lines: 1 } }],
+        images: [],
       });
     });
     expect(draft()).toBe("[Pasted text #1]");
@@ -250,6 +290,7 @@ describe("pasted text", () => {
         exact: true,
         commands: [],
         pastes: [{ token: "[Pasted text #1]", id: 1, held: { chars: 5, lines: 1 } }],
+        images: [],
       });
     });
     expect(screen.getByTestId("pastes").textContent).toBe("[Pasted text #1]:1L5C");

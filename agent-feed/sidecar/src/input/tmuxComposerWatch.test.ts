@@ -45,7 +45,7 @@ test("reports what the composer holds without waiting for the pane to write", as
   // One reading of the pane carries both halves now: the box, and whatever dialog stands in
   // front of it. There is no dialog here, which is a statement rather than an absence.
   expect(seen).toEqual([{
-    composer: { text: "make the hover ring stronger", hint: null, reason: null, exact: true, commands: [], pastes: [] },
+    composer: { text: "make the hover ring stronger", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
     question: null,
   }]);
   expect(state.watching).toBe(true);
@@ -89,9 +89,9 @@ test("reports only what changed, so a redraw above the box costs nobody anything
   write();
   await settle(300);
   expect(seen).toEqual([
-    { composer: { text: "hello", hint: null, reason: null, exact: true, commands: [], pastes: [] }, question: null },
+    { composer: { text: "hello", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] }, question: null },
     {
-      composer: { text: "hello there", hint: null, reason: null, exact: true, commands: [], pastes: [] },
+      composer: { text: "hello there", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
       question: null,
     },
   ]);
@@ -112,7 +112,7 @@ test("says a session has no pane, ends, and hangs no pipe on nothing", async () 
   }, tmux);
   await settle(60);
   expect(seen).toEqual([{
-    composer: { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] },
+    composer: { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] },
     question: null,
   }]);
   expect(ended).toBe(1);
@@ -191,9 +191,9 @@ test("a pane that stops answering is dropped, so the next push says the session 
     screen: async () => { throw new TmuxUnavailable("can't find session"); },
   });
   expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", exact: true, commands: [], pastes: [] });
+    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", exact: true, commands: [], pastes: [], images: [] });
   expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [] });
+    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] });
 });
 
 test("two watchers hold one pane independently, and the first to leave does not take it", async () => {
@@ -280,7 +280,7 @@ test("a send that never shows up on screen gives the push back rather than holdi
   const tmux = runtime({ screen: async () => screenWith(["frozen"]) });
   const started = Date.now();
   expect(await syncTmuxComposer("session", "something else", tmux))
-    .toEqual({ text: "something else", hint: null, reason: null, exact: true, commands: [], pastes: [] });
+    .toEqual({ text: "something else", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] });
   expect(Date.now() - started).toBeLessThan(2_000);
 });
 
@@ -302,7 +302,7 @@ test("a failed turn does not take the next one down with it", async () => {
     syncTmuxComposer("shared", "two", tmux),
   ]);
   expect(broken.reason).toBe("tmux-unavailable");
-  expect(fine).toEqual({ text: "two", hint: null, reason: null, exact: true, commands: [], pastes: [] });
+  expect(fine).toEqual({ text: "two", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] });
 });
 
 test("a push that landed is not reported as failed because the pane stopped answering afterwards", async () => {
@@ -321,7 +321,7 @@ test("a push that landed is not reported as failed because the pane stopped answ
     },
   });
   expect(await syncTmuxComposer("session", "alpha", tmux))
-    .toEqual({ text: "alpha", hint: null, reason: null, exact: true, commands: [], pastes: [] });
+    .toEqual({ text: "alpha", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] });
   expect(tmux.sent).toEqual([`${END}${OPEN}alpha${CLOSE}`]);
 });
 

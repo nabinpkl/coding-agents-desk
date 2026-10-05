@@ -20,6 +20,7 @@ export type {
 export type {
   ComposerCommand,
   ComposerImageDrop,
+  ComposerImageRef,
   ComposerPaste,
   ComposerKeyPress,
   ComposerImageMediaType,

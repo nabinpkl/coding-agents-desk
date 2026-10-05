@@ -74,12 +74,29 @@ export function useComposerAttachments({
    * says which one it used.
    */
   const reported = useRef(new Map<string, ComposerPaste>());
+  /**
+   * Which dropped file each image number is, as readings report it.
+   *
+   * Claude renumbers an image the sidecar had to drop again -- an edit that retyped across it --
+   * so `#1` becomes `#2` while it is the same picture. The file is what lets the preview move with
+   * it instead of the strip showing a bare number for an image this panel sent.
+   */
+  const imageFiles = useRef(new Map<number, string>());
 
   /** Keeps the image strip agreeing with the tokens in the field. */
   useEffect(() => {
     const ids = composerImageIds(draft);
     for (const id of ids) {
       if (previews.current.has(id)) continue;
+      const file = imageFiles.current.get(id);
+      const renumbered = file === undefined
+        ? undefined
+        : [...previews.current.keys()].find((was) => !ids.includes(was) && imageFiles.current.get(was) === file);
+      if (renumbered !== undefined) {
+        previews.current.set(id, previews.current.get(renumbered)!);
+        previews.current.delete(renumbered);
+        continue;
+      }
       const blob = awaiting.current.shift();
       if (blob === undefined) break;
       previews.current.set(id, URL.createObjectURL(blob));
@@ -135,6 +152,11 @@ export function useComposerAttachments({
    * say nothing rather than throw under a reader mid-sentence.
    */
   const observe = useCallback((next: TmuxComposerState) => {
+    if (Array.isArray(next.images)) {
+      for (const image of next.images) {
+        if (image.file !== null) imageFiles.current.set(image.id, image.file);
+      }
+    }
     if (!Array.isArray(next.pastes)) return;
     for (const paste of next.pastes) reported.current.set(paste.token, paste);
   }, []);
@@ -155,6 +177,7 @@ export function useComposerAttachments({
     previews.current.clear();
     awaiting.current = [];
     reported.current.clear();
+    imageFiles.current.clear();
     shown.current = "";
     setImages([]);
     setPastes([]);

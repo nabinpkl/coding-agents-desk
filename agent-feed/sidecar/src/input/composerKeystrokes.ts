@@ -100,7 +100,10 @@ export function keystrokesFor(
   const images: string[] = [];
   const current = markImages(composerText(rows), image, images);
   const desired = markImages(requested, image, images);
-  const retype = (text: string): string => insertion(text, images);
+  // A retype also pastes the WORDS of every paste handle this side knows, for the same reason it
+  // re-drops images: the characters `[Pasted text #1]` pasted back are a literal string to Claude,
+  // and the nine hundred words they stood for would be gone from the message.
+  const retype = (text: string): string => insertion(meaning(text, pasted), images);
   // Both sides read through their paste handles, which is what keeps typing cheap once a draft
   // has grown past the length Claude collapses. `[Pasted text #1]` and the nine hundred
   // characters it stands for share no prefix at all, so without this every further keystroke fell
@@ -312,11 +315,13 @@ export async function waitFor(
  * to text that is not in it.
  */
 export function insertedText(keys: string): string {
+  // An edit that re-drops an image sends the text after the last image as its own write, and that
+  // write is the one a new handle can stand for: the image pastes are paths and the text before
+  // them went in earlier writes. If one of THOSE collapsed too, `bindNewPaste` sees two new
+  // handles and binds neither.
+  keys = keys.slice(keys.lastIndexOf(IMAGE_SETTLE) + 1);
   const at = keys.indexOf(PASTE_START);
   if (at === -1) return "";
-  // An edit that re-drops an image inserts several pastes, and a handle Claude answers with could
-  // stand for any of them. Unbound is the safe answer; see `bindNewPaste`.
-  if (keys.indexOf(PASTE_START, at + 1) !== -1) return "";
   const end = keys.indexOf(PASTE_END, at);
   if (end === -1) return "";
   // Back through the escape guard `paste` applies, so what is remembered is the text the reader

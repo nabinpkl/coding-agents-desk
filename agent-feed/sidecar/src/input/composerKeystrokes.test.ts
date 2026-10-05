@@ -14,6 +14,7 @@ import {
   keystrokesFor,
   syncTmuxComposer,
 } from "@/input/tmuxComposer";
+import { insertedText } from "@/input/composerKeystrokes";
 
 const PNG = "/tmp/composer-images/a.png";
 const known = (token: string) => (token === "[Image #1]" || token === "[Image #2]" ? PNG : null);
@@ -118,4 +119,37 @@ test("dropped, typed after and corrected once: the box still holds a picture, no
   const writes = pane.sent.length;
   await syncTmuxComposer("session", `${message.slice(0, -1)}h!`, pane.tmux);
   expect(pane.sent.slice(writes)).toEqual([`${END}${OPEN}h!${CLOSE}`]);
+});
+
+test("a clear and retype pastes a known paste's words, not its handle", () => {
+  // The same loss as the image, for a long paste: its handle typed back is a literal string.
+  const words = "zebra ".repeat(150);
+  const store = composerPastes();
+  store.bind("pane-1", "[Pasted text #1]", words);
+  const pasted = (token: string) => store.textFor("pane-1", token);
+  const box = held(["[Pasted text #1] and then a sentence long enough that", "it wraps onto a second row"]);
+  const keys = keystrokesFor(box, "[Pasted text #1] and then a sentence long enough that it wraps onto a second ro", pasted);
+  expect(keys.startsWith(END + KILL)).toBe(true);
+  expect(keys).toContain(`${OPEN}${words} and then a sentence`);
+  expect(keys).not.toContain("[Pasted text #1]");
+});
+
+test("a paste nobody here made is still retyped as the handle the box shows", () => {
+  const box = held(["[Pasted text #9] and then a sentence long enough that", "it wraps onto a second row"]);
+  expect(keystrokesFor(box, "[Pasted text #9] short")).toContain(`${OPEN}[Pasted text #9] short${CLOSE}`);
+});
+
+test("the text after a re-dropped image is what a new paste handle stands for", () => {
+  // Left unbound, the box's new `[Pasted text #4]` matched nothing in the draft, and every later
+  // keystroke cleared the box and dropped the image again.
+  const words = "zebra ".repeat(150);
+  const store = composerPastes();
+  store.bind("pane-1", "[Pasted text #2]", words);
+  const keys = keystrokesFor(
+    held(["[Image #1][Pasted text #2] and then a sentence long enough to", "wrap"]),
+    "[Image #1][Pasted text #2] and then a sentence long enough to wra",
+    (token) => store.textFor("pane-1", token),
+    known,
+  );
+  expect(insertedText(keys)).toBe(`${words} and then a sentence long enough to wra`);
 });
