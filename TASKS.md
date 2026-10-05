@@ -122,6 +122,9 @@ bun add @codemirror/state @codemirror/view @codemirror/commands \
         @codemirror/language @codemirror/language-data @codemirror/theme-one-dark docx-preview
 ```
 
+The registry answered on 2026-10-05: `bun add` installed `pdfjs-dist` and `docx-preview` cleanly,
+and the Word preview now renders (`editor/DocxPreview.tsx`). The CodeMirror half is still open.
+
 ### Read back a second time, against the SURFACE, 2026-09-10
 
 The first read-back covered the editing path, which is where text gets lost, and was reported as

@@ -15,7 +15,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { parse } from "@/features/activity-feed/data-source/sidecarRoutes";
+import {
+  describeFailure,
+  DocumentNotice,
+  fetchDocumentBytes,
+} from "@/features/workspace-ide/editor/documentPreview";
 
 type PdfJs = typeof import("pdfjs-dist");
 
@@ -34,16 +38,6 @@ function loadPdfJs(): Promise<PdfJs> {
       throw cause;
     });
   return library;
-}
-
-/**
- * The file's bytes, or the sidecar's refusal as an error. `parse` is what turns a route this
- * sidecar does not have yet into "restart it", which a peer that has not been shipped to needs.
- */
-async function fetchBytes(url: string, signal: AbortSignal): Promise<Uint8Array> {
-  const response = await fetch(url, { signal });
-  if (!response.ok) parse({ status: response.status, body: await response.text() });
-  return new Uint8Array(await response.arrayBuffer());
 }
 
 /** How much of the scroller's height ahead of and behind the visible part has its pages drawn. */
@@ -85,7 +79,7 @@ export function PdfPreview({
     let task: PDFDocumentLoadingTask | null = null;
     let current = true;
     void (async () => {
-      const [pdfjs, data] = await Promise.all([loadPdfJs(), fetchBytes(url, abort.signal)]);
+      const [pdfjs, data] = await Promise.all([loadPdfJs(), fetchDocumentBytes(url, abort.signal)]);
       if (!current) return;
       task = pdfjs.getDocument({ data });
       const document = await task.promise;
@@ -93,7 +87,7 @@ export function PdfPreview({
       if (current) setLoaded({ status: "ready", document, ratio: first.height / first.width });
     })().catch((cause: unknown) => {
       if (current) {
-        setLoaded({ status: "failed", reason: cause instanceof Error ? cause.message : String(cause) });
+        setLoaded({ status: "failed", reason: describeFailure(cause) });
       }
     });
     return () => {
@@ -104,12 +98,12 @@ export function PdfPreview({
   }, [url, revision]);
 
   if (url === null) {
-    return <Notice title="PDF preview is not available" detail={`${name} has no address this panel can load it from.`} />;
+    return <DocumentNotice title="PDF preview is not available" detail={`${name} has no address this panel can load it from.`} />;
   }
   if (loaded.status === "failed") {
-    return <Notice title={`Could not open ${name}`} detail={loaded.reason} />;
+    return <DocumentNotice title={`Could not open ${name}`} detail={loaded.reason} />;
   }
-  if (loaded.status === "loading") return <Notice title={`Opening ${name}…`} />;
+  if (loaded.status === "loading") return <DocumentNotice title={`Opening ${name}…`} />;
 
   const pages = Array.from({ length: loaded.document.numPages }, (_, at) => at + 1);
   return (
@@ -195,7 +189,7 @@ function PdfPage({
       .catch((cause: unknown) => {
         // A cancelled draw is this effect being replaced, not a page that failed.
         if (!current || (cause instanceof Error && cause.name === "RenderingCancelledException")) return;
-        setFailure(cause instanceof Error ? cause.message : String(cause));
+        setFailure(describeFailure(cause));
       });
     return () => {
       current = false;
@@ -249,15 +243,4 @@ function useSettledWidth(element: HTMLElement | null): number {
     };
   }, [element]);
   return width;
-}
-
-function Notice({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <div className="grid h-full place-items-center p-6 text-center text-sm text-muted-foreground">
-      <div className="grid max-w-sm gap-1">
-        <p className="m-0 text-foreground">{title}</p>
-        {detail ? <p className="m-0 break-words">{detail}</p> : null}
-      </div>
-    </div>
-  );
 }
