@@ -4,10 +4,15 @@
 // what it had left over, which is why the width and height it remembers are the CARD's and the
 // open session's are its own. `BotSessionCard.tsx` holds the row this renders.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import {
+  FilePathOpenerContext,
+  type FilePathOpener,
+  type FilePathTarget,
+} from "@/features/activity-feed/markdown/filePathLinks";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import { BotCanvasHeader } from "@/features/bots/cards/BotCanvasHeader";
 import { botSessionSlots, botSurfaceStyle } from "@/features/bots/botSurface";
@@ -159,6 +164,14 @@ export function BotCanvasCard({
   // transcripts and sessions taken off the canvas -- and ranking either subset would repaint the
   // rest of the roster whenever one left it. See `botSessionSlots`.
   const slots = useMemo(() => botSessionSlots(bot.sessionRefs, bot.sessionSlots), [bot.sessionRefs, bot.sessionSlots]);
+  // A path a session names opens in this Bot's code dialog, read against the Bot's directory: the
+  // sessions in a Bot run there, so that is what their relative paths are relative to.
+  const [fileRequest, setFileRequest] = useState<FilePathTarget | null>(null);
+  const directory = bot.environmentAvailability === "missing" ? null : bot.environment.path;
+  const opener = useMemo<FilePathOpener | null>(
+    () => (directory === null ? null : { root: directory, open: setFileRequest }),
+    [directory],
+  );
   // The same carry the strip does with Bot cards, one level down and over this Bot's own roster.
   // What it moves is the BOT's order rather than anything held here, so the drop translates the
   // positions on screen into the full order and hands that over; nothing local remembers it.
@@ -255,6 +268,8 @@ export function BotCanvasCard({
           onDetachBot={onDetachBot}
           onRenameBot={onRenameBot}
           onDeleteBot={onDeleteBot}
+          fileRequest={fileRequest}
+          onCloseFile={() => setFileRequest(null)}
         />
 
         {shown.length === 0 && shownMissing.length === 0 && starting.length === 0 ? (
@@ -273,121 +288,123 @@ export function BotCanvasCard({
           // up: a strip of boxes each at its own width, and nothing wrapping out of it. A column
           // per session is what makes opening one a local act -- it grows downwards in its own
           // place while the rest keep theirs, instead of taking over the width of a list.
-          <ul
-            ref={roster}
-            role="list"
-            aria-label={`${bot.name} sessions`}
-            // The leading inset stays small on purpose. A session's rail sitting 8px inside
-            // the Bot's read as one thick striped edge rather than as a bar inside a card --
-            // two rails of the same colour that close together are one rail, and the nesting
-            // they exist to show is the thing that goes missing. Eight here, on top of the
-            // Bot's own six-pixel rail, leaves 14px of plain Bot surface before the first
-            // session's edge, which is enough for the emptiness itself to say one contains
-            // the other.
-            //
-            // The other three are ten, and they are not the same question. Nothing runs along
-            // them, so all they have to do is show that the card sits ON the Bot rather than
-            // being it. Sixteen did that and then kept going: on an open card, which fills its
-            // Bot, the surplus reads as a band of Bot colour framing the transcript, and a band
-            // is what a reader calls a border. Ten still shows the surface and stops there.
-            //
-            // A Bot is exactly as big as the sessions in it, so trimming this shrank the BOT card
-            // and gave the transcript nothing. `DEFAULT_CARD_WIDTH` and `DEFAULT_CARD_HEIGHT` take
-            // the difference back, which puts the Bot at the size it was and spends the trim on
-            // the transcript. Move these numbers and move those.
-            //
-            // The gap between sessions is the larger number rather than the inset's, because it
-            // separates two cards that each have a rail, where the inset separates a card from an
-            // edge.
-            className="flex items-start gap-4 p-2.5 pl-2"
-          >
-            {shown.map((session, index) => (
-              <BotSessionCard
-                key={sessionKey(session)}
-                bot={bot}
-                session={session}
-                offset={moveSession.offsetOf(index)}
-                lifted={moveSession.liftedIndex === index}
-                onMoveStart={(clientX) => moveSession.start(index, clientX)}
-                onMoveBy={moveSession.to}
-                onMoveEnd={moveSession.end}
-                onMoveBySteps={(steps) => rearrangeSessions(index, index + steps)}
-                canMoveEarlier={index > 0}
-                canMoveLater={index < shown.length - 1}
-                hue={hue}
-                rank={rank}
-                slot={slots.get(sessionKey(session))}
-                solo={bot.sessionRefs.length === 1}
-                open={openKeys.has(sessionKey(session))}
-                onToggle={() => onToggleSession(sessionKey(session))}
-                size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}
-                onResize={(next) => onResizeSession(sessionKey(session), next, false)}
-                onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
-                sessionContext={sessionContext}
-                botError={botError}
-                // The forks are Claude-only, and absent rather than inert on a Codex row: forking
-                // asks the Claude CLI for a branch it alone has. `canRenameSession` answers the
-                // same question for a title, and it is not Claude's alone.
-                onFork={
-                  session.source === "claude" ? () => onForkSession(bot, session) : undefined
-                }
-                onForkFromLastMessage={
-                  session.source === "claude"
-                    ? () => onForkFromLastMessage(bot, session)
-                    : undefined
-                }
-                onForkFromLastCompaction={
-                  session.source === "claude"
-                    ? () => onForkFromLastCompaction(bot, session)
-                    : undefined
-                }
-                handover={handoverMenuProp(session, () => onHandoverSession(bot, session))}
-                onRename={
-                  canRenameSession(session) ? () => onRenameSession(session) : undefined
-                }
-                // Every source: `/new` and `/fork` are opencode's, but a session made from any
-                // session's composer belongs to the Bot whose card asked.
-                onAttachSession={attachSessionToBot(bot)}
-                onDetach={() => onDetachSession(bot, session)}
-                onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
-                isFather={isFatherSession(bot, session)}
-                onSetFather={() => onSetFatherSession(bot, session)}
-                onClearFather={() => onSetFatherSession(bot, null)}
-              />
-            ))}
-            {/* After the Bot's own sessions, because that is where each one lands the moment its
-                first turn writes a transcript: the card keeps its place in the row rather than
-                jumping to the end of it. */}
-            {starting.map((each) => (
-              <BotNewSessionCard
-                key={`claude:${each.sessionId}`}
-                feed={sessionContext.feed}
-                session={each}
-                open={openKeys.has(`claude:${each.sessionId}`)}
-                onToggle={() => onToggleSession(`claude:${each.sessionId}`)}
-                size={sessionSizes[`claude:${each.sessionId}`] ?? DEFAULT_CARD_SIZE}
-                onResize={(next) => onResizeSession(`claude:${each.sessionId}`, next, false)}
-                onResizeCommit={(next) => onResizeSession(`claude:${each.sessionId}`, next, true)}
-                onClose={() => onCloseNewSession(each.sessionId)}
-              />
-            ))}
-            {/* Shown rather than hidden: a curated reference whose transcript the catalog has
-                forgotten is the row a reader most needs to see, and removing it is the Bots view's
-                job, not this one's. Only the ones this canvas is showing, though -- a reference the
-                reader took off it is counted in `hidden` above, like any other session they put
-                away. */}
-            {shownMissing.map((ref) => (
-              <li
-                key={sessionKey(ref)}
-                className="flex min-h-9 shrink-0 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
-              >
-                <span className="min-w-0 flex-1 truncate font-mono">{ref.sessionId}</span>
-                <SourceBadge source={ref.source} />
-                <span>missing</span>
-                <SessionRowMenu label={ref.sessionId} onDetach={() => onDetachSession(bot, ref)} />
-              </li>
-            ))}
-          </ul>
+          <FilePathOpenerContext.Provider value={opener}>
+            <ul
+              ref={roster}
+              role="list"
+              aria-label={`${bot.name} sessions`}
+              // The leading inset stays small on purpose. A session's rail sitting 8px inside
+              // the Bot's read as one thick striped edge rather than as a bar inside a card --
+              // two rails of the same colour that close together are one rail, and the nesting
+              // they exist to show is the thing that goes missing. Eight here, on top of the
+              // Bot's own six-pixel rail, leaves 14px of plain Bot surface before the first
+              // session's edge, which is enough for the emptiness itself to say one contains
+              // the other.
+              //
+              // The other three are ten, and they are not the same question. Nothing runs along
+              // them, so all they have to do is show that the card sits ON the Bot rather than
+              // being it. Sixteen did that and then kept going: on an open card, which fills its
+              // Bot, the surplus reads as a band of Bot colour framing the transcript, and a band
+              // is what a reader calls a border. Ten still shows the surface and stops there.
+              //
+              // A Bot is exactly as big as the sessions in it, so trimming this shrank the BOT card
+              // and gave the transcript nothing. `DEFAULT_CARD_WIDTH` and `DEFAULT_CARD_HEIGHT` take
+              // the difference back, which puts the Bot at the size it was and spends the trim on
+              // the transcript. Move these numbers and move those.
+              //
+              // The gap between sessions is the larger number rather than the inset's, because it
+              // separates two cards that each have a rail, where the inset separates a card from an
+              // edge.
+              className="flex items-start gap-4 p-2.5 pl-2"
+            >
+              {shown.map((session, index) => (
+                <BotSessionCard
+                  key={sessionKey(session)}
+                  bot={bot}
+                  session={session}
+                  offset={moveSession.offsetOf(index)}
+                  lifted={moveSession.liftedIndex === index}
+                  onMoveStart={(clientX) => moveSession.start(index, clientX)}
+                  onMoveBy={moveSession.to}
+                  onMoveEnd={moveSession.end}
+                  onMoveBySteps={(steps) => rearrangeSessions(index, index + steps)}
+                  canMoveEarlier={index > 0}
+                  canMoveLater={index < shown.length - 1}
+                  hue={hue}
+                  rank={rank}
+                  slot={slots.get(sessionKey(session))}
+                  solo={bot.sessionRefs.length === 1}
+                  open={openKeys.has(sessionKey(session))}
+                  onToggle={() => onToggleSession(sessionKey(session))}
+                  size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}
+                  onResize={(next) => onResizeSession(sessionKey(session), next, false)}
+                  onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
+                  sessionContext={sessionContext}
+                  botError={botError}
+                  // The forks are Claude-only, and absent rather than inert on a Codex row: forking
+                  // asks the Claude CLI for a branch it alone has. `canRenameSession` answers the
+                  // same question for a title, and it is not Claude's alone.
+                  onFork={
+                    session.source === "claude" ? () => onForkSession(bot, session) : undefined
+                  }
+                  onForkFromLastMessage={
+                    session.source === "claude"
+                      ? () => onForkFromLastMessage(bot, session)
+                      : undefined
+                  }
+                  onForkFromLastCompaction={
+                    session.source === "claude"
+                      ? () => onForkFromLastCompaction(bot, session)
+                      : undefined
+                  }
+                  handover={handoverMenuProp(session, () => onHandoverSession(bot, session))}
+                  onRename={
+                    canRenameSession(session) ? () => onRenameSession(session) : undefined
+                  }
+                  // Every source: `/new` and `/fork` are opencode's, but a session made from any
+                  // session's composer belongs to the Bot whose card asked.
+                  onAttachSession={attachSessionToBot(bot)}
+                  onDetach={() => onDetachSession(bot, session)}
+                  onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
+                  isFather={isFatherSession(bot, session)}
+                  onSetFather={() => onSetFatherSession(bot, session)}
+                  onClearFather={() => onSetFatherSession(bot, null)}
+                />
+              ))}
+              {/* After the Bot's own sessions, because that is where each one lands the moment its
+                  first turn writes a transcript: the card keeps its place in the row rather than
+                  jumping to the end of it. */}
+              {starting.map((each) => (
+                <BotNewSessionCard
+                  key={`claude:${each.sessionId}`}
+                  feed={sessionContext.feed}
+                  session={each}
+                  open={openKeys.has(`claude:${each.sessionId}`)}
+                  onToggle={() => onToggleSession(`claude:${each.sessionId}`)}
+                  size={sessionSizes[`claude:${each.sessionId}`] ?? DEFAULT_CARD_SIZE}
+                  onResize={(next) => onResizeSession(`claude:${each.sessionId}`, next, false)}
+                  onResizeCommit={(next) => onResizeSession(`claude:${each.sessionId}`, next, true)}
+                  onClose={() => onCloseNewSession(each.sessionId)}
+                />
+              ))}
+              {/* Shown rather than hidden: a curated reference whose transcript the catalog has
+                  forgotten is the row a reader most needs to see, and removing it is the Bots view's
+                  job, not this one's. Only the ones this canvas is showing, though -- a reference the
+                  reader took off it is counted in `hidden` above, like any other session they put
+                  away. */}
+              {shownMissing.map((ref) => (
+                <li
+                  key={sessionKey(ref)}
+                  className="flex min-h-9 shrink-0 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
+                >
+                  <span className="min-w-0 flex-1 truncate font-mono">{ref.sessionId}</span>
+                  <SourceBadge source={ref.source} />
+                  <span>missing</span>
+                  <SessionRowMenu label={ref.sessionId} onDetach={() => onDetachSession(bot, ref)} />
+                </li>
+              ))}
+            </ul>
+          </FilePathOpenerContext.Provider>
         )}
 
       </div>

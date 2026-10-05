@@ -20,6 +20,7 @@ import { BotCardMenu } from "@/features/bots/menus/BotCardMenu";
 import type { RowMenuItem } from "@/features/bots/menus/RowMenu";
 import { BotCodeButton } from "@/features/bots/code/BotCodeButton";
 import { BotCodeDialog } from "@/features/bots/code/BotCodeDialog";
+import type { FilePathTarget } from "@/features/activity-feed/markdown/filePathLinks";
 import { BotGitButton, BotGitUnavailable, gitHeaderAction } from "@/features/bots/git/BotGitButton";
 import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
 import { BotTerminalButton, BotTerminalDialog } from "@/features/bots/BotTerminalButton";
@@ -44,6 +45,8 @@ export function BotCanvasHeader({
   onDetachBot,
   onRenameBot,
   onDeleteBot,
+  fileRequest,
+  onCloseFile,
 }: {
   bot: BotView;
   /** This Bot's place on the colour wheel, or nothing if the roster does not know it yet. */
@@ -68,6 +71,12 @@ export function BotCanvasHeader({
   onRenameBot: (bot: BotView) => void;
   /** Forgets this Bot; its sessions survive. */
   onDeleteBot: (bot: BotView) => void;
+  /**
+   * A file one of this Bot's sessions named in its transcript and the reader clicked, opened in
+   * the code dialog here because this is where the Bot's git subscription lives.
+   */
+  fileRequest: FilePathTarget | null;
+  onCloseFile: () => void;
 }) {
   const projectName = bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path;
   // One subscription for the header: the git button counts from it, and the code button re-reads
@@ -225,6 +234,18 @@ export function BotCanvasHeader({
         git={git}
         initialSection={dialog === "git" ? "sourceControl" : "explorer"}
         onClose={closeDialog}
+      />
+    ) : null}
+    {fileRequest !== null ? (
+      <BotCodeDialog
+        // A different file is a fresh look, opened where that file is.
+        key={`${fileRequest.path}:${fileRequest.line ?? ""}`}
+        bot={bot}
+        feed={feed}
+        git={git}
+        initialSection="explorer"
+        initialFile={fileRequest}
+        onClose={onCloseFile}
       />
     ) : null}
     {dialog === "terminal" ? (

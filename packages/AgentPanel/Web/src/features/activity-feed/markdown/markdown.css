@@ -115,6 +115,22 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* A path that opens the file it names (`filePathLinks.ts`). Dotted rather than solid, so it reads
+   as a way into this machine's files rather than as a link out to the web. */
+.agent-panel-md__prose [data-file-path] {
+  cursor: pointer;
+  color: var(--primary);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  border-radius: 3px;
+  outline: none;
+}
+.agent-panel-md__prose [data-file-path]:hover {
+  text-decoration-style: solid;
+}
+.agent-panel-md__prose [data-file-path]:focus-visible {
+  box-shadow: 0 0 0 2px var(--primary);
+}
 .agent-panel-md__prose :not(pre) > code {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.9em;

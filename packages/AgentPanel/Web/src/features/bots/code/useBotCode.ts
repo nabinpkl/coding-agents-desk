@@ -27,10 +27,19 @@ export interface BotCode {
   toggle(path: string, expanded: boolean): void;
 }
 
-export function useBotCode(feed: SidecarDataSource, botId: string, refresh: unknown): BotCode {
-  const [expanded, setExpanded] = useState<string[]>([]);
+/**
+ * `initialPath` opens with that file showing and the directories above it expanded, which is how a
+ * path named in a session's transcript arrives.
+ */
+export function useBotCode(
+  feed: SidecarDataSource,
+  botId: string,
+  refresh: unknown,
+  initialPath: string | null = null,
+): BotCode {
+  const [expanded, setExpanded] = useState<string[]>(() => (initialPath === null ? [] : ancestors(initialPath)));
   const [tree, setTree] = useState<WorkspaceTreeNode[] | null>(null);
-  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [openPath, setOpenPath] = useState<string | null>(initialPath);
   const [file, setFile] = useState<ViewedFile | null>(null);
   const [treeError, setTreeError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -91,6 +100,12 @@ export function useBotCode(feed: SidecarDataSource, botId: string, refresh: unkn
         : current.filter((each) => each !== path)));
     }, []),
   };
+}
+
+/** `a/b/c.ts` -> `["a", "a/b"]`: what has to be expanded for the tree to show the file. */
+function ancestors(path: string): string[] {
+  const parts = path.split("/").slice(0, -1);
+  return parts.map((_, at) => parts.slice(0, at + 1).join("/"));
 }
 
 function describe(cause: unknown, fallback: string): string {

@@ -1,11 +1,16 @@
 "use client";
 
-import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useContext, useLayoutEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import "katex/dist/katex.min.css";
 import "@/features/activity-feed/markdown/markdown.css";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { MermaidBlock } from "@/features/activity-feed/markdown/MermaidBlock";
+import {
+  filePathAt,
+  FilePathOpenerContext,
+  linkFilePaths,
+} from "@/features/activity-feed/markdown/filePathLinks";
 import { applyProseHtml } from "@/features/activity-feed/markdown/patchProse";
 import {
   createStreamingBlocks,
@@ -19,6 +24,10 @@ import {
 // so an entry dies with the node, and a reused node can never inherit another
 // block's history.
 const renderedHtml = new WeakMap<Element, string>();
+// Prose `linkFilePaths` marked. Its DOM no longer matches the string it was given -- text nodes may
+// have been split into spans -- so the next change replaces it rather than extending a text node
+// that moved.
+const restructured = new WeakSet<Element>();
 
 /**
  * One sanitized prose run.
@@ -45,23 +54,47 @@ const ProseBlock = memo(function ProseBlock({
   // is what keeps that second pass inside the same paint, so a fence never flashes at zero height
   // in a feed that measures its rows.
   const [slots, setSlots] = useState<readonly Element[]>([]);
+  const opener = useContext(FilePathOpenerContext);
+  const root = opener?.root ?? null;
   useLayoutEffect(() => {
     const el = ref.current;
     if (el === null) return;
-    if (renderedHtml.get(el) !== html) {
-      applyProseHtml(el, renderedHtml.get(el) ?? "", html);
+    // Marked paths whose opener has gone are links to nowhere, so they go with it.
+    const stale = root === null && restructured.has(el);
+    if (renderedHtml.get(el) !== html || stale) {
+      applyProseHtml(el, restructured.has(el) ? "" : renderedHtml.get(el) ?? "", html);
+      restructured.delete(el);
       renderedHtml.set(el, html);
     }
+    // Only once the block has settled: a streaming block is patched in place on every tick, and a
+    // path still being typed is not yet the path it will be.
+    if (root !== null && settled && linkFilePaths(el, root)) restructured.add(el);
     const found = [...el.querySelectorAll(`[${FENCE_SLOT_ATTRIBUTE}]`)];
     setSlots((current) => (
       current.length === found.length && current.every((node, at) => node === found[at])
         ? current
         : found
     ));
-  }, [html]);
+  }, [html, root, settled]);
+  const openPath = (event: SyntheticEvent<HTMLDivElement>): void => {
+    if (opener === null) return;
+    const target = filePathAt(event.target, event.currentTarget);
+    if (target === null) return;
+    // A drag that selected some of the path is a reader copying it, not opening it.
+    if (event.type === "click" && !(window.getSelection()?.isCollapsed ?? true)) return;
+    event.preventDefault();
+    opener.open(target);
+  };
   return (
     <>
-      <div ref={ref} className="agent-panel-md__prose" />
+      <div
+        ref={ref}
+        className="agent-panel-md__prose"
+        onClick={opener === null ? undefined : openPath}
+        onKeyDown={opener === null ? undefined : (event) => {
+          if (event.key === "Enter") openPath(event);
+        }}
+      />
       {slots.map((slot, at) => {
         // The slot's own number, not its position: the prose is sanitized but still
         // transcript-authored, so a message that wrote this attribute itself must not be able to

@@ -14,6 +14,7 @@ import { ArrowLeft, FileCode2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { BotView, WorkspaceGitEntry } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { FilePathTarget } from "@/features/activity-feed/markdown/filePathLinks";
 import { useBotCode } from "@/features/bots/code/useBotCode";
 import { BACK_TO_LIST, BotWideDialog } from "@/features/bots/dialogs/BotWideDialog";
 import type { BotGitState } from "@/features/bots/git/useBotGitStatus";
@@ -38,6 +39,7 @@ export function BotCodeDialog({
   feed,
   git,
   initialSection,
+  initialFile = null,
   onClose,
 }: {
   bot: BotView;
@@ -45,21 +47,29 @@ export function BotCodeDialog({
   /** The card's git subscription: the changes list, and what makes the files re-read. */
   git: BotGitState;
   initialSection: SidebarSection;
+  /** A file to open on, named in a session's transcript; its line is scrolled to and marked. */
+  initialFile?: FilePathTarget | null;
   onClose: () => void;
 }) {
   const { status } = git;
   const repository = status?.repository === true;
   const entries = status?.entries ?? [];
   const count = changedFileCount(entries);
-  const code = useBotCode(feed, bot.botId, status);
+  const code = useBotCode(feed, bot.botId, status, initialFile?.path ?? null);
   const [section, setSection] = useState<SidebarSection>(
     initialSection === "sourceControl" && !repository ? "explorer" : initialSection,
   );
-  const [showing, setShowing] = useState<Showing>(null);
+  const [showing, setShowing] = useState<Showing>(
+    initialFile === null ? null : { kind: "file", path: initialFile.path },
+  );
   // The reader's choice for each file this look, falling back to the kind's own default. Only
   // markdown has two views worth offering here: the IDE's preview of any other source kind is the
   // same text without its line numbers.
-  const [chosen, setChosen] = useState<Record<string, boolean>>({});
+  // A named line is in the source, so a markdown file asked for at a line opens there rather than
+  // on its preview, which has no lines to mark.
+  const [chosen, setChosen] = useState<Record<string, boolean>>(
+    () => (initialFile?.line == null ? {} : { [initialFile.path]: false }),
+  );
 
   // A change committed or reverted while its diff was open is no longer a change, and asking for
   // it would answer a 404 about a row the reader can see is gone from the list.
@@ -191,7 +201,13 @@ export function BotCodeDialog({
                     read={() => feed.botGitDiff(bot.botId, showing.path)}
                   />
                 ) : file ? (
-                  <FileBody file={file} preview={preview} />
+                  <FileBody
+                    file={file}
+                    preview={preview}
+                    reveal={initialFile?.line != null && file.path === initialFile.path
+                      ? { line: initialFile.line, start: 0, end: 0, nonce: 1 }
+                      : undefined}
+                  />
                 ) : (
                   <p className="m-0 p-6 text-center text-sm text-muted-foreground">Opening file…</p>
                 )}

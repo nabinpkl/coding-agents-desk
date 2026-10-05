@@ -77,6 +77,8 @@ const PROPS = {
   onDetachBot: () => {},
   onRenameBot: () => {},
   onDeleteBot: () => {},
+  fileRequest: null,
+  onCloseFile: () => {},
 };
 
 /** The header's own width, and every observer the hook left running. */
