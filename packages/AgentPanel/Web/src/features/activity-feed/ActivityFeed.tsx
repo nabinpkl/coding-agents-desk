@@ -409,21 +409,22 @@ export function ActivityFeed({
         >
           {virtualItems.map((virtualRow) => {
             const it = rowItems[virtualRow.index];
+            const own = it !== undefined && it.kind !== "tail" && it.kind !== "cluster" ? it.ev.index : null;
             return (
               <ActivityFeedRow
                 key={it?.kind === "tail"
                   ? `live-tail:${liveRowKey(it.ev)}`
                   : it ? itemKey(it) : virtualRow.index}
-                collapsed={collapsed}
                 expandCluster={expandCluster}
-                highlightedEvIdx={highlightedEvIdx}
+                index={virtualRow.index}
+                isCollapsed={it?.kind === "tail" ? collapsedTails.has(liveRowKey(it.ev)) : own !== null && collapsed.has(own)}
+                isHighlighted={own !== null && highlightedEvIdx === own}
                 it={it}
-                collapsedTails={collapsedTails}
+                measureElement={rowVirtualizer.measureElement}
                 rowContext={rowContext}
-                rowVirtualizer={rowVirtualizer}
+                start={virtualRow.start}
                 toggleEvent={toggleEvent}
                 toggleLiveTail={toggleLiveTail}
-                virtualRow={virtualRow}
               />
             );
           })}
