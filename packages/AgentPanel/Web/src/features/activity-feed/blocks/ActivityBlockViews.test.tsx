@@ -265,4 +265,35 @@ describe("search bodies", () => {
     expect(container.textContent).not.toContain("host/Provider.swift:38");
     unmount();
   });
+
+  it("renders a web fetch as prose with no generic result behind it", () => {
+    const { container, unmount } = searchRow(
+      "WebFetch",
+      { url: "https://example.com/a", prompt: "Summarize" },
+      "WebFetch https://example.com/a",
+      "# Cost Analysis\n\n**Author:** Someone",
+    );
+    expect(screen.getByRole("heading", { name: "Cost Analysis" })).toBeInTheDocument();
+    expect(container.textContent).not.toContain("**Author:**");
+    expect(container.querySelector("pre")).toBeNull();
+    unmount();
+  });
+
+  it("draws a web search as links and prose, without its frame", () => {
+    const { container, unmount } = searchRow(
+      "WebSearch",
+      { query: "bun watch" },
+      "WebSearch bun watch",
+      'Web search results for query: "bun watch"\n\n' +
+        'Links: [{"title":"Watch mode","url":"https://bun.sh/docs/watch"}]\n\n' +
+        "Bun reloads on **content** changes.\n\n\n" +
+        "REMINDER: You MUST include the sources above in your response to the user using markdown hyperlinks.",
+    );
+    expect(screen.getByRole("link", { name: "Watch mode" })).toHaveAttribute("href", "https://bun.sh/docs/watch");
+    expect(screen.getByText("content").tagName).toBe("STRONG");
+    expect(container.textContent).not.toContain("Links: [");
+    expect(container.textContent).not.toContain("REMINDER");
+    expect(container.querySelector("pre")).toBeNull();
+    unmount();
+  });
 });

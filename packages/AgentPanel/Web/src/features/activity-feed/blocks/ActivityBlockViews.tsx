@@ -10,6 +10,7 @@ import { ChevronRight } from "lucide-react";
 import { DiffBlock } from "@/features/activity-feed/blocks/diff/DiffBlock";
 import { describeEditChange } from "@/features/activity-feed/blocks/diff/describeEditChange";
 import { SearchResultBody, parseSearchResult } from "@/features/activity-feed/blocks/SearchResultBody";
+import { WebResultBody, parseWebResult } from "@/features/activity-feed/blocks/WebResultBody";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
@@ -184,6 +185,9 @@ export function Block({
     // A search the call drew structured above: content matches grouped by file, file lists as
     // rows. Parsed off the same result text; null stays on the generic `pre` below.
     const searchBody = parseSearchResult(b.tool, readText ?? "");
+    // A web fetch or search, whose result is Markdown by the tool's own contract. Named by tool,
+    // never sniffed: see `WebResultBody`.
+    const webBody = parseWebResult(b.tool, readText ?? "");
     // The header truncates the command to one line. Expanding shows it as a
     // shell code block, which highlights it and scrolls horizontally rather
     // than cutting it off at the row's width.
@@ -321,6 +325,7 @@ export function Block({
               <CodeBlock code={stripReadLineNumbers(readText!)} lang={readPath!} />
             ) : null}
             {searchBody ? <SearchResultBody body={searchBody} /> : null}
+            {webBody ? <WebResultBody body={webBody} /> : null}
             {namedFiles ? (
               <SentFilesBlock
                 files={namedFiles}
@@ -341,7 +346,7 @@ export function Block({
                   // drawer, which is the part that would otherwise become unreachable. A read
                   // or search the call drew structured above is the same: the text lives in the
                   // body, not twice.
-                  pairedResult.skillBody || isMarkdownRead || isCodeRead || searchBody !== null
+                  pairedResult.skillBody || isMarkdownRead || isCodeRead || searchBody !== null || webBody !== null
                     ? ""
                     : namedFiles
                       ? withoutFileHandles(pairedResult.block.preview)
