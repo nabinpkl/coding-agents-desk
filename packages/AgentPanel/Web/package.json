@@ -25,6 +25,7 @@
     "marked-katex-extension": "^5.1.10",
     "mermaid": "^11.16.0",
     "next-themes": "^0.4.6",
+    "pdfjs-dist": "6.4.299",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "shiki": "^4.3.0",

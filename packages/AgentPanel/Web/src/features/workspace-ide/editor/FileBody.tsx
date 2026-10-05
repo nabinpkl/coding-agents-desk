@@ -31,19 +31,19 @@ export const FILE_CONTROL_LABELLED = "w-auto grid-flow-col gap-1 px-2 text-xs";
  * the source anyway, because rendering it would run someone else's script inside the one origin
  * that can reach this machine's sidecar.
  *
- * A notebook and a Word document have no source view at all, so their default is the only thing
- * they have; `hasSource` says so for the toggle.
+ * A notebook, a Word document and a PDF have no source view at all, so their default is the only
+ * thing they have; `hasSource` says so for the toggle.
  */
 export function defaultFileView(kind: WorkspaceFileKind | undefined): FileView {
-  return kind === "markdown" || kind === "docx" || kind === "notebook" ? "preview" : "source";
+  return kind === "markdown" || !hasSource(kind) ? "preview" : "source";
 }
 
 /**
- * Whether a kind has a source view to switch to. A notebook and a Word document are drawn from a
- * parsed model, and the sidecar refuses a write to either, so no toggle is offered for them.
+ * Whether a kind has a source view to switch to. A notebook, a Word document and a PDF are drawn
+ * from a parsed model, and the sidecar refuses a write to any of them, so no toggle is offered.
  */
 export function hasSource(kind: WorkspaceFileKind | undefined): boolean {
-  return kind !== "docx" && kind !== "notebook";
+  return kind !== "docx" && kind !== "notebook" && kind !== "pdf";
 }
 
 export function FileBody({

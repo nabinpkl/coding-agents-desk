@@ -1,5 +1,5 @@
 /**
- * What is in a Bot's directory: its uncommitted changes, its files, and one file's text.
+ * What is in a Bot's directory: its uncommitted changes, its files, and one file's text or bytes.
  *
  * One more layer in the chain `sidecarRoutes.ts` describes, holding every read the panel makes
  * INTO a Bot's directory rather than about the Bot. The Bot's own routes rather than the IDE's,
@@ -71,5 +71,14 @@ export class SidecarBotDirectory extends SidecarAgentSessions {
   async botFile(botId: string, path: string): Promise<BotFileRead> {
     const query = new URLSearchParams({ path });
     return parse<BotFileRead>(await this.transport.request("GET", botPath(botId, `file?${query}`)));
+  }
+
+  /**
+   * Where a binary-backed file's bytes are fetched from, which its read answers without. Null where
+   * the transport has no address the page can load on its own.
+   */
+  botContentUrl(botId: string, path: string): string | null {
+    const query = new URLSearchParams({ path });
+    return this.transport.resourceUrl?.(botPath(botId, `content?${query}`)) ?? null;
   }
 }

@@ -15,7 +15,14 @@ import {
   workspaceErrorResponse,
   workspaceRoute,
 } from "@/http/workspace-routes/workspaceResponses";
-import { fileKind, readDocumentFile, readTextFile, writeTextFile } from "@/workspace/workspaceFiles";
+import {
+  fileKind,
+  isBinaryKind,
+  readDocumentFile,
+  readTextFile,
+  type WorkspaceDocumentFile,
+  writeTextFile,
+} from "@/workspace/workspaceFiles";
 import type { WorkspaceService } from "@/workspace/workspaceService";
 
 export interface WorkspaceFileLimits {
@@ -64,7 +71,7 @@ export function createWorkspaceFileRoutes(
  * A file's text and its revision.
  *
  * A binary-backed kind answers with its metadata and no text; the bytes come from `content`.
- * Sending them base64 inside this JSON would double a docx's size on the wire and put it in the
+ * Sending them base64 inside this JSON would double a document's size on the wire and put it in the
  * same response as the tab's title.
  */
 async function readOne(
@@ -75,7 +82,7 @@ async function readOne(
 ): Promise<Response> {
   try {
     const kind = fileKind(path);
-    const revision = kind === "docx"
+    const revision = isBinaryKind(kind)
       ? (await readDocumentFile(root, path, limits.maxDocumentBytes)).revision
       : null;
     if (revision !== null) {
@@ -103,18 +110,28 @@ async function readBytes(
   limits: WorkspaceFileLimits,
 ): Promise<Response> {
   try {
-    const document = await readDocumentFile(root, path, limits.maxDocumentBytes);
-    return new Response(document.bytes, {
-      headers: {
-        "content-type": "application/octet-stream",
-        // The revision is the sha256 of exactly these bytes, so it is already a strong ETag.
-        etag: `"${document.revision}"`,
-        "cache-control": "no-cache",
-      },
-    });
+    return documentResponse(await readDocumentFile(root, path, limits.maxDocumentBytes));
   } catch (error) {
     return refusalResponse(error, id, path);
   }
+}
+
+/**
+ * A file's bytes as the content routes answer them, the IDE's and a Bot's alike.
+ *
+ * `octet-stream` whatever the kind: the panel fetches these and hands them to its own renderer, and
+ * a type the browser would render itself is a document running on the panel's origin if someone
+ * opens the address directly.
+ */
+export function documentResponse(document: WorkspaceDocumentFile): Response {
+  return new Response(document.bytes, {
+    headers: {
+      "content-type": "application/octet-stream",
+      // The revision is the sha256 of exactly these bytes, so it is already a strong ETag.
+      etag: `"${document.revision}"`,
+      "cache-control": "no-cache",
+    },
+  });
 }
 
 async function write(

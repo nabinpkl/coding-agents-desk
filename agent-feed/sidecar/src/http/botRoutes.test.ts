@@ -6,6 +6,7 @@ import type { BotView } from "@agentdesk/agent-feed-wire";
 import { BotConflictError, BotNotFoundError, type BotRegistry } from "@/bots/botRegistry";
 import { createBotRoutes } from "@/http/botRoutes";
 import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
+import { revisionOf } from "@/workspace/workspaceFiles";
 
 const server = { timeout() {} } as never;
 const repositories = new RepositoryGitWatch({ quietMs: 50, longestWaitMs: 200 });
@@ -396,6 +397,9 @@ test("reads a Bot's tree and files from its own directory, decorated from where 
     await mkdir(join(root, "src"), { recursive: true });
     await writeFile(join(root, "src", "index.ts"), "export {};\n");
     await writeFile(join(root, "big.txt"), "x".repeat(100));
+    // Past the text cap and carrying a NUL, both of which the text read refuses.
+    const pdf = new Uint8Array([...new TextEncoder().encode("%PDF-1.7\n"), 0, ...new Array(100).fill(7)]);
+    await writeFile(join(root, "paper.pdf"), pdf);
     await Bun.spawn(["git", "init", "--initial-branch=main"], { cwd: top, stdout: "ignore" }).exited;
     const registry = {
       async snapshot() {
@@ -412,6 +416,7 @@ test("reads a Bot's tree and files from its own directory, decorated from where 
     expect(collapsed.tree.map((node) => [node.name, node.gitStatus, node.children.length])).toEqual([
       ["src", "??", 0],
       ["big.txt", "??", 0],
+      ["paper.pdf", "??", 0],
     ]);
     const expanded = await (await ask("/api/bots/bot-1/tree?expanded=src")).json() as { tree: { children: { path: string }[] }[] };
     expect(expanded.tree[0]!.children.map((node) => node.path)).toEqual(["src/index.ts"]);
@@ -420,8 +425,23 @@ test("reads a Bot's tree and files from its own directory, decorated from where 
       botId: "bot-1",
       path: "src/index.ts",
       kind: "text",
+      revision: revisionOf(new TextEncoder().encode("export {};\n")),
       text: "export {};\n",
     });
+    // A PDF is read without its text, and its bytes come from the content route, unchanged.
+    expect(await (await ask("/api/bots/bot-1/file?path=paper.pdf")).json()).toEqual({
+      botId: "bot-1",
+      path: "paper.pdf",
+      kind: "pdf",
+      revision: revisionOf(pdf),
+      text: null,
+    });
+    const content = await ask("/api/bots/bot-1/content?path=paper.pdf");
+    expect(content.headers.get("content-type")).toBe("application/octet-stream");
+    expect(new Uint8Array(await content.arrayBuffer())).toEqual(pdf);
+    expect((await ask("/api/bots/bot-1/content?path=gone.pdf")).status).toBe(404);
+    expect((await ask("/api/bots/bot-1/content?path=../escape.pdf")).status).toBeGreaterThanOrEqual(400);
+    expect((await ask("/api/bots/bot-1/content")).status).toBe(400);
     expect((await ask("/api/bots/bot-1/file?path=big.txt")).status).toBe(422);
     expect((await ask("/api/bots/bot-1/file?path=gone.ts")).status).toBe(404);
     expect((await ask("/api/bots/bot-1/file?path=../escape.ts")).status).toBeGreaterThanOrEqual(400);

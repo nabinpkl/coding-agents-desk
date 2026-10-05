@@ -449,11 +449,13 @@ export interface BotTree {
  * `GET /api/bots/:botId/file?path=` response: one file in the Bot's directory, read-only.
  *
  * The IDE's read without its workspace: text for every kind the IDE opens, null for a binary-backed
- * one, which this route has no content route beside it to fetch.
+ * one, whose bytes come from `GET /api/bots/:botId/content?path=` beside it.
  */
 export interface BotFileRead {
   botId: string;
   path: string;
   kind: WorkspaceFileKind;
+  /** The sha256 of the bytes on disk, so a re-read can tell whether a rendered document moved. */
+  revision: string;
   text: string | null;
 }

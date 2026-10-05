@@ -169,7 +169,7 @@ export function EditorPane({
           : file && ide.workspaceId
           ? (
             <FileBody
-              file={file}
+              file={{ ...file, contentUrl: ide.client.contentUrl(ide.workspaceId, file.path) }}
               preview={preview}
               onChange={(text) => ide.edit(file.path, text)}
               reveal={ide.reveal?.path === file.path ? ide.reveal : undefined}

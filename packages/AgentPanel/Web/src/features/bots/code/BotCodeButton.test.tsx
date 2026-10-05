@@ -52,9 +52,11 @@ function feedWithFiles(texts: Record<string, string>) {
     botId,
     path,
     kind: path.endsWith(".md") ? "markdown" : "text",
+    revision: `revision of ${path}`,
     text: texts[path] ?? "",
   }));
-  return { feed: { botTree, botFile } as unknown as SidecarDataSource, botTree, botFile };
+  const botContentUrl = (botId: string, path: string) => `fake:/api/bots/${botId}/content?path=${path}`;
+  return { feed: { botTree, botFile, botContentUrl } as unknown as SidecarDataSource, botTree, botFile };
 }
 
 it("opens a tree of the Bot's files and reads the one chosen, read-only", async () => {

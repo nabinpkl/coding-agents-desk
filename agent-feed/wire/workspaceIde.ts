@@ -15,11 +15,12 @@ export interface WorkspaceSummary {
 /**
  * What a file is, which decides whether it can be edited and how it is shown.
  *
- * Ported from `WorkspaceKit.WorkspaceFileKind`. `docx` and `notebook` are read-only because the
- * panel renders them from a parsed model rather than from their bytes, so an edit would have
- * nowhere to go.
+ * Ported from `WorkspaceKit.WorkspaceFileKind`. `docx`, `pdf` and `notebook` are read-only because
+ * the panel renders them from a parsed model rather than from their bytes, so an edit would have
+ * nowhere to go. `docx` and `pdf` are binary-backed: a read answers without their text, and the
+ * bytes come from the content route.
  */
-export type WorkspaceFileKind = "text" | "markdown" | "html" | "notebook" | "docx";
+export type WorkspaceFileKind = "text" | "markdown" | "html" | "notebook" | "docx" | "pdf";
 
 export type WorkspaceFileMode = "edit" | "preview";
 
@@ -121,7 +122,7 @@ export interface WorkspaceFileRead {
   path: string;
   kind: WorkspaceFileKind;
   revision: WorkspaceFileRevision;
-  /** Null for a binary-backed kind (`docx`), whose bytes are fetched from the content route. */
+  /** Null for a binary-backed kind (`docx`, `pdf`), whose bytes are fetched from the content route. */
   text: string | null;
 }
 

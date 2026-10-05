@@ -26,9 +26,12 @@ import {
   startServerSentEventStream,
 } from "@/http/httpResponses";
 import type { RouteHandler } from "@/http/route";
-import type { WorkspaceFileLimits } from "@/http/workspace-routes/workspaceFileRoutes";
+import {
+  documentResponse,
+  type WorkspaceFileLimits,
+} from "@/http/workspace-routes/workspaceFileRoutes";
 import type { RepositoryGitWatch } from "@/workspace/repositoryWatch";
-import { fileKind, readDocumentFile, readTextFile } from "@/workspace/workspaceFiles";
+import { fileKind, isBinaryKind, readDocumentFile, readTextFile } from "@/workspace/workspaceFiles";
 import { directoryGitEntries, workingTreeFileDiff } from "@/workspace/workspaceGit";
 import { WorkspaceFailure } from "@/workspace/workspacePaths";
 import { buildTree } from "@/workspace/workspaceTree";
@@ -144,6 +147,11 @@ export function createBotRoutes(
     if (request.method === "GET" && fileMatch) {
       return botFile(fileMatch[1]!, url.searchParams.get("path"), registry, limits);
     }
+    // A binary-backed file's bytes, which its read above answers without.
+    const contentMatch = /^\/api\/bots\/([^/]+)\/content$/.exec(url.pathname);
+    if (request.method === "GET" && contentMatch) {
+      return botContent(contentMatch[1]!, url.searchParams.get("path"), registry, limits);
+    }
     return undefined;
   };
 }
@@ -248,13 +256,34 @@ async function botFile(
     if (!path) throw new BotInvalidError("path is required");
     const directory = await botDirectory(botId, registry);
     const kind = fileKind(path);
-    let text: string | null = null;
-    // A Word document is read to prove it is there and within bounds, and answered without its
-    // bytes: the IDE's preview has no renderer for it either, and says so by name.
-    if (kind === "docx") await readDocumentFile(directory, path, limits.maxDocumentBytes);
-    else text = (await readTextFile(directory, path, limits.maxTextBytes)).text;
-    const answer: BotFileRead = { botId: decodeBotId(botId), path, kind, text };
+    // A binary-backed file is read to prove it is there and within bounds, and answered without
+    // its bytes, which the content route carries.
+    const read = isBinaryKind(kind)
+      ? { ...(await readDocumentFile(directory, path, limits.maxDocumentBytes)), text: null }
+      : await readTextFile(directory, path, limits.maxTextBytes);
+    const answer: BotFileRead = {
+      botId: decodeBotId(botId),
+      path,
+      kind,
+      revision: read.revision,
+      text: read.text,
+    };
     return jsonResponse(answer);
+  } catch (error) {
+    return fileRouteError(error, path);
+  }
+}
+
+async function botContent(
+  botId: string,
+  path: string | null,
+  registry: BotRegistry,
+  limits: WorkspaceFileLimits,
+): Promise<Response> {
+  try {
+    if (!path) throw new BotInvalidError("path is required");
+    const directory = await botDirectory(botId, registry);
+    return documentResponse(await readDocumentFile(directory, path, limits.maxDocumentBytes));
   } catch (error) {
     return fileRouteError(error, path);
   }

@@ -46,12 +46,14 @@ test("names a file's kind from its extension", () => {
   expect(fileKind("page.htm")).toBe("html");
   expect(fileKind("analysis.ipynb")).toBe("notebook");
   expect(fileKind("report.docx")).toBe("docx");
+  expect(fileKind("paper.PDF")).toBe("pdf");
   expect(fileKind("Justfile")).toBe("text");
   expect(fileKind("archive.tar/name")).toBe("text");
 });
 
-test("docx and notebooks are read-only, everything else is not", () => {
+test("docx, pdf and notebooks are read-only, everything else is not", () => {
   expect(isReadOnlyKind("docx")).toBe(true);
+  expect(isReadOnlyKind("pdf")).toBe(true);
   expect(isReadOnlyKind("notebook")).toBe(true);
   expect(isReadOnlyKind("markdown")).toBe(false);
   expect(isReadOnlyKind("html")).toBe(false);

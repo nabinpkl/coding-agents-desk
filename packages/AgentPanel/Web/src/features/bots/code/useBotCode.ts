@@ -74,7 +74,13 @@ export function useBotCode(
     feed.botFile(botId, openPath)
       .then((answer) => {
         if (!current) return;
-        setFile({ path: answer.path, kind: answer.kind, text: answer.text ?? "" });
+        setFile({
+          path: answer.path,
+          kind: answer.kind,
+          text: answer.text ?? "",
+          revision: answer.revision,
+          contentUrl: feed.botContentUrl(botId, answer.path),
+        });
         setFileError(null);
       })
       .catch((cause: unknown) => {

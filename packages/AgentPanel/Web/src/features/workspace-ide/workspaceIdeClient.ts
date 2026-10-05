@@ -213,10 +213,14 @@ export class WorkspaceIdeClient {
     return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/file?${query}`);
   }
 
-  /** The path a binary-backed document's bytes are fetched from, for the docx renderer. */
-  contentPath(id: string, path: string): string {
+  /**
+   * Where a binary-backed document's bytes are fetched from, for its renderer. Null where the
+   * transport has no address the page can load on its own.
+   */
+  contentUrl(id: string, path: string): string | null {
     const query = new URLSearchParams({ path });
-    return `/api/workspaces/${encodeURIComponent(id)}/content?${query}`;
+    return this.transport.resourceUrl?.(`/api/workspaces/${encodeURIComponent(id)}/content?${query}`)
+      ?? null;
   }
 
   /**

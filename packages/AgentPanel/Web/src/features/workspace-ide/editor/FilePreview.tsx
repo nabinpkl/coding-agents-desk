@@ -1,11 +1,13 @@
 // A file rendered rather than shown as source.
 //
-// Every renderer here is one the panel already has. The IDE this replaces shipped its own
+// Every text renderer here is one the panel already has. The IDE this replaces shipped its own
 // markdown-it, its own mermaid and its own notebook renderer, which is three copies of a job
-// `features/activity-feed/markdown` was already doing.
+// `features/activity-feed/markdown` was already doing. A PDF is the one kind with a renderer of
+// its own, pdf.js, because nothing else in the panel draws one (`PdfPreview.tsx`).
 
 import type { WorkspaceFileKind } from "@agentdesk/agent-feed-wire";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
+import { PdfPreview } from "@/features/workspace-ide/editor/PdfPreview";
 
 /**
  * What a file view needs to draw a file, and nothing about where it came from: an IDE tab, with
@@ -15,11 +17,21 @@ export interface ViewedFile {
   path: string;
   kind: WorkspaceFileKind;
   text: string;
+  /** The hash of the bytes on disk, which is what tells a rendered document it moved. */
+  revision: string;
+  /**
+   * Where a binary-backed kind's bytes are fetched from: the IDE's content route or the Bot's.
+   * Null where the transport has no address the page can load on its own.
+   */
+  contentUrl: string | null;
 }
 
 export function FilePreview({ file }: { file: ViewedFile }) {
   if (file.kind === "notebook") return <NotebookPreview text={file.text} />;
   if (file.kind === "docx") return <DocxPreview path={file.path} />;
+  if (file.kind === "pdf") {
+    return <PdfPreview name={fileName(file.path)} url={file.contentUrl} revision={file.revision} />;
+  }
   if (file.kind === "html") {
     // Shown as source rather than executed. Rendering it would run someone else's script inside
     // the panel's origin, which is the one origin that can reach this machine's sidecar.
@@ -104,9 +116,13 @@ function DocxPreview({ path }: { path: string }) {
       <div className="grid max-w-sm gap-1">
         <p className="m-0 text-foreground">Word preview is not available</p>
         <p className="m-0">
-          {path.split("/").pop()} is readable, but the panel has no Word renderer installed yet.
+          {fileName(path)} is readable, but the panel has no Word renderer installed yet.
         </p>
       </div>
     </div>
   );
+}
+
+function fileName(path: string): string {
+  return path.split("/").pop() ?? path;
 }

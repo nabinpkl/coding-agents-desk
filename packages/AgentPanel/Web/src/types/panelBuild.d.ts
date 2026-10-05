@@ -1,7 +1,7 @@
-// Two things the panel reads from its own bundler, neither of which the DOM lib knows about.
+// Three things the panel reads from its own bundler, none of which the DOM lib knows about.
 //
 // `vite/client` is deliberately not pulled in for these: it declares the whole `import.meta.env`
-// surface and every asset-import module, and this tree uses exactly the two members below.
+// surface and every asset-import module, and this tree uses exactly the three members below.
 
 /**
  * Which commit the panel's Vite config was loaded at, substituted at transform time.
@@ -16,4 +16,13 @@ interface ImportMeta {
     on(event: string, listener: (data?: unknown) => void): void;
     off(event: string, listener: (data?: unknown) => void): void;
   };
+}
+
+/**
+ * A file's address rather than its contents, which Vite emits as an asset beside the bundle. The
+ * PDF preview hands pdf.js its worker this way, because a worker is loaded by URL.
+ */
+declare module "*?url" {
+  const url: string;
+  export default url;
 }

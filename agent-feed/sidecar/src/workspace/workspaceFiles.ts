@@ -32,6 +32,8 @@ export function fileKind(path: string): WorkspaceFileKind {
   switch (extension) {
     case "docx":
       return "docx";
+    case "pdf":
+      return "pdf";
     case "html":
     case "htm":
       return "html";
@@ -48,11 +50,20 @@ export function fileKind(path: string): WorkspaceFileKind {
 /**
  * Whether the panel may edit this kind.
  *
- * `docx` and `notebook` are rendered from a parsed model rather than from their bytes, so an edit
- * in the panel has nowhere to be written back to. Refusing the write is the loud version of that.
+ * `docx`, `pdf` and `notebook` are rendered from a parsed model rather than from their bytes, so an
+ * edit in the panel has nowhere to be written back to. Refusing the write is the loud version of
+ * that.
  */
 export function isReadOnlyKind(kind: WorkspaceFileKind): boolean {
-  return kind === "docx" || kind === "notebook";
+  return kind === "notebook" || isBinaryKind(kind);
+}
+
+/**
+ * Whether this kind is read as bytes rather than text: a read answers with its revision and no
+ * text, and the panel's renderer fetches the bytes from the content route.
+ */
+export function isBinaryKind(kind: WorkspaceFileKind): boolean {
+  return kind === "docx" || kind === "pdf";
 }
 
 /** A file's identity for conflict detection: the sha256 of exactly the bytes on disk. */
@@ -196,7 +207,7 @@ export async function readTextFile(
   return { text, revision: revisionOf(bytes) };
 }
 
-/** Read a file as opaque bytes, which is how `docx` reaches the panel's renderer. */
+/** Read a file as opaque bytes, which is how `docx` and `pdf` reach the panel's renderers. */
 export async function readDocumentFile(
   root: string,
   path: string,
