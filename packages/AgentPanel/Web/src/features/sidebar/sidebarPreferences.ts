@@ -1,4 +1,5 @@
 import type { AgentSidebarMode } from "@/features/sidebar/AgentSidebar";
+import type { CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 
 export const MIN_SIDEBAR_WIDTH = 220;
 export const MAX_SIDEBAR_WIDTH = 420;
@@ -24,6 +25,8 @@ export interface SidebarPreferences {
    * for is a rename nobody made.
    */
   botFaces: boolean;
+  /** Which of the Canvas tab's views is selected, kept for the reason `mode` is. */
+  canvasView: CanvasSidebarView;
 }
 
 const SIDEBAR_MODES: readonly AgentSidebarMode[] = ["sessions", "bots", "canvas", "messages"];
@@ -33,6 +36,7 @@ export const DEFAULT_SIDEBAR_PREFERENCES: SidebarPreferences = {
   width: 264,
   mode: "sessions",
   botFaces: false,
+  canvasView: "bots",
 };
 
 const STORAGE_KEY = "agent-panel.sidebar.preferences";
@@ -63,6 +67,7 @@ export function loadSidebarPreferences(): SidebarPreferences {
       botFaces: typeof parsed.botFaces === "boolean"
         ? parsed.botFaces
         : DEFAULT_SIDEBAR_PREFERENCES.botFaces,
+      canvasView: parsed.canvasView === "sessions" ? "sessions" : "bots",
     };
   } catch {
     return DEFAULT_SIDEBAR_PREFERENCES;
@@ -76,6 +81,7 @@ export function storeSidebarPreferences(preferences: SidebarPreferences): void {
       width: clampSidebarWidth(preferences.width),
       mode: preferences.mode,
       botFaces: preferences.botFaces === true,
+      canvasView: preferences.canvasView,
     }));
   } catch {
     // The panel remains usable with in-memory state when WebKit storage is disabled.

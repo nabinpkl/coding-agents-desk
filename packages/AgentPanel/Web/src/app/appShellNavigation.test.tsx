@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { storeSidebarPreferences } from "@/features/sidebar/sidebarPreferences";
 import {
   FIXTURE_PROJECT_A,
@@ -21,6 +21,10 @@ import {
 import {
   terminalPaneMock,
 } from "@/app/agentPanelAppMocks";
+
+/** The sidebar's top row, scoped because the Canvas tab has its own Bots and Sessions tabs. */
+const agentTab = (name: string) =>
+  within(screen.getByRole("tablist", { name: "Agent views" })).getByRole("tab", { name });
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -60,8 +64,8 @@ describe("App shell", () => {
   it("opens on the Sessions view", () => {
     const { unmount } = setup();
     expect(screen.getByText("Agent Feed")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "false");
+    expect(agentTab("Sessions")).toHaveAttribute("aria-selected", "true");
+    expect(agentTab("Bots")).toHaveAttribute("aria-selected", "false");
     unmount();
   });
 
@@ -76,7 +80,7 @@ describe("App shell", () => {
 
     const restored = setup();
     expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "false");
+    expect(agentTab("Sessions")).toHaveAttribute("aria-selected", "false");
     restored.unmount();
   });
 
@@ -89,7 +93,7 @@ describe("App shell", () => {
     // The address is what a reload actually carries, so a stored preference must not override it.
     window.history.replaceState(null, "", "/?view=bots");
     const restored = setup();
-    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "true");
+    expect(agentTab("Bots")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "false");
     restored.unmount();
   });
@@ -129,7 +133,7 @@ describe("App shell", () => {
 
     // And a view that DOES have a session under the bar keeps it either way.
     fireEvent.click(screen.getByRole("button", { name: "Pin agent sidebar" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Sessions" }));
+    fireEvent.click(agentTab("Sessions"));
     expect(screen.getByRole("banner")).toBeInTheDocument();
     unmount();
   });
@@ -140,8 +144,8 @@ describe("App shell", () => {
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
     expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
-    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(agentTab("Bots"));
+    expect(agentTab("Bots")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("No bots yet")).toBeInTheDocument();
     expect(screen.queryByText("Alpha Project")).not.toBeInTheDocument();
     expect(screen.getByRole("main")).toBeEmptyDOMElement();
@@ -149,8 +153,8 @@ describe("App shell", () => {
     expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bots");
 
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Bots" }), { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(agentTab("Bots"), { key: "ArrowLeft" });
+    expect(agentTab("Sessions")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
     expect(screen.queryByText("No bots yet")).not.toBeInTheDocument();
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
@@ -340,7 +344,7 @@ describe("App shell", () => {
     expect(drawer).toHaveAttribute("open");
 
     // Bots keeps its content inside the drawer, so the drawer stays.
-    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    fireEvent.click(agentTab("Bots"));
     expect(drawer).toHaveAttribute("open");
 
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -374,7 +378,7 @@ describe("App shell", () => {
     // The Agents window is 480pt wide, which is compact, and it is on a Mac, which hovers. Both
     // at once is the case that used to fall through to the touch story and ignore the mouse.
     installViewport({ compact: true, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false });
+    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false, canvasView: "bots" });
     const { transport, unmount } = setup();
     deliverProjects(transport);
 
@@ -409,7 +413,7 @@ describe("App shell", () => {
   it("previews on desktop hover, pins on click, and restores the saved width", () => {
     vi.useFakeTimers();
     installViewport({ compact: false, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false });
+    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false, canvasView: "bots" });
     const first = setup();
     deliverProjects(first.transport);
 
@@ -425,6 +429,7 @@ describe("App shell", () => {
       width: 300,
       mode: "sessions",
       botFaces: false,
+      canvasView: "bots",
     });
 
     fireEvent.pointerLeave(trigger);
@@ -445,6 +450,7 @@ describe("App shell", () => {
       width: 316,
       mode: "sessions",
       botFaces: false,
+      canvasView: "bots",
     });
 
     firePointerEvent(separator, "pointerdown", { pointerId: 7, clientX: 316 });
@@ -456,6 +462,7 @@ describe("App shell", () => {
       width: 356,
       mode: "sessions",
       botFaces: false,
+      canvasView: "bots",
     });
 
     first.unmount();
@@ -471,6 +478,7 @@ describe("App shell", () => {
       width: 356,
       mode: "sessions",
       botFaces: false,
+      canvasView: "bots",
     });
     restored.unmount();
     vi.useRealTimers();

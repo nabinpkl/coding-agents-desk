@@ -1,15 +1,9 @@
-import {
-  ChevronDown,
-  LoaderCircle,
-  Plus,
-  X,
-} from "lucide-react";
+import { X } from "lucide-react";
 import {
   useCallback,
   useEffect,
   useId,
   useRef,
-  useState,
   type KeyboardEvent,
   type RefObject,
 } from "react";
@@ -22,11 +16,8 @@ import { MessagesPanel } from "@/features/messages/MessagesPanel";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import type { UsageHandle } from "@/features/usage/useUsage";
-import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
-import { SourceBadge } from "@/features/sidebar/SourceBadge";
-import { ProjectSidebarItem } from "@/features/sidebar/ProjectSidebarItem";
-import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
-
+import { ProjectSessionList } from "@/features/sidebar/ProjectSidebarItem";
+import { CanvasSidebarViews, type CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 
 export type AgentSidebarMode = "sessions" | "bots" | "canvas" | "messages";
 
@@ -149,6 +140,13 @@ interface AgentSidebarProps {
    */
   onOpenSessionOnCanvas: (bot: BotView, session: SessionSummary) => void;
   onAddBot: () => void;
+  /** Which of the Canvas tab's two views is showing: its Bots, or every session. */
+  canvasView: CanvasSidebarView;
+  onCanvasViewChange: (view: CanvasSidebarView) => void;
+  /** Opens a session in a modal over the canvas, from the Canvas tab's Sessions view. */
+  onOpenSessionInModal: (project: ProjectSummary, session: SessionSummary) => void;
+  /** The session that modal is showing, so its row reads as the one picked. */
+  modalSelection: { projectPath: string; sessionKey: string } | null;
   /** The inbox's data and writes. Owned by the app, so all three sidebar mounts share one poll. */
   messages: MessagesHandle;
   onClose?: () => void;
@@ -190,6 +188,16 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const tabId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-tab`;
   const panelId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-panel`;
   const tabRefs = useRef(new Map<AgentSidebarMode, HTMLButtonElement | null>());
+  // What both project lists share; they differ in what is selected and what a pick does.
+  const listProps = {
+    projects: props.projects,
+    sessionsByProject: props.sessionsByProject,
+    loading: props.loading,
+    error: props.error,
+    retrying: props.retrying,
+    expandedProjectPaths: props.expandedProjectPaths,
+    onToggleProject: props.onToggleProject,
+  };
 
   const revealSelectedTab = useCallback(() => {
     revealInStrip(tabRefs.current.get(props.mode));
@@ -284,35 +292,17 @@ export function AgentSidebar(props: AgentSidebarProps) {
           aria-labelledby={tabId("sessions")}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         >
-          {props.loading ? (
-            <SidebarStatus>Loading projects…</SidebarStatus>
-          ) : props.error ? (
-            <SidebarError message={`Projects unavailable: ${props.error}`} retrying={props.retrying} />
-          ) : props.projects.length === 0 ? (
-            <SidebarStatus>No projects yet</SidebarStatus>
-          ) : (
-            <ul role="list" aria-label="Projects">
-              {props.projects.map((project) => (
-                <ProjectSidebarItem
-                  key={project.projectPath}
-                  project={project}
-                  sessions={props.sessionsByProject.get(project.projectPath)}
-                  expanded={props.expandedProjectPaths.has(project.projectPath)}
-                  active={props.selectedProjectPath === project.projectPath}
-                  selectedSessionKey={
-                    props.selectedProjectPath === project.projectPath
-                      ? props.selectedSessionKey
-                      : null
-                  }
-                  creating={props.creatingProjectPath === project.projectPath}
-                  creationError={props.creationErrors.get(project.projectPath) ?? null}
-                  onToggle={() => props.onToggleProject(project.projectPath)}
-                  onSelectSession={(session) => props.onSelectSession(project, session)}
-                  onCreatePiSession={() => props.onCreatePiSession(project)}
-                />
-              ))}
-            </ul>
-          )}
+          <ProjectSessionList
+            {...listProps}
+            selectedProjectPath={props.selectedProjectPath}
+            selectedSessionKey={props.selectedSessionKey}
+            onSelectSession={props.onSelectSession}
+            pi={{
+              creatingProjectPath: props.creatingProjectPath,
+              creationErrors: props.creationErrors,
+              onCreate: props.onCreatePiSession,
+            }}
+          />
         </div>
       ) : props.mode === "canvas" ? (
         // The same roster the Bots tab shows, not a lesser copy of it: every Bot with its sessions,
@@ -323,58 +313,72 @@ export function AgentSidebar(props: AgentSidebarProps) {
           id={panelId("canvas")}
           role="tabpanel"
           aria-labelledby={tabId("canvas")}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          className="flex min-h-0 flex-1 flex-col"
         >
-          <BotSidebarPanel
-            bots={props.bots}
-            machineLabels={props.botMachineLabels}
-            feedForBot={props.feedForBot}
-            loading={props.botsLoading}
-            error={props.botsError}
-            // Marked from what the CANVAS has open, not from what the app has selected: over here
-            // a highlighted row means "this is a card that is unfolded", and nothing on the canvas
-            // is selected in the sense the other two tabs mean. Every Bot holding an open session
-            // is marked, not the first one found, because the canvas opens as many as it is asked
-            // to and a roster that marked one of them would be pointing at the wrong card.
-            selectedBotIds={
-              new Set(
-                props.bots
-                  .filter((bot) =>
-                    bot.sessions.some((session) =>
-                      props.canvasOpenSessionKeys.has(`${session.source}:${session.sessionId}`),
-                    ),
-                  )
-                  .map((bot) => bot.botId),
-              )
+          <CanvasSidebarViews
+            view={props.canvasView}
+            onViewChange={props.onCanvasViewChange}
+            sessions={
+              <ProjectSessionList
+                {...listProps}
+                selectedProjectPath={props.modalSelection?.projectPath ?? null}
+                selectedSessionKey={props.modalSelection?.sessionKey ?? null}
+                onSelectSession={props.onOpenSessionInModal}
+              />
             }
-            selectedSessionKeys={props.canvasOpenSessionKeys}
-            onSelectSession={props.onOpenSessionOnCanvas}
-            onAddSession={props.onAddBotSession}
-            onRenameSession={props.onRenameSession}
-            onDetachSession={props.onDetachBotSession}
-            onSetFatherSession={props.onSetFatherBotSession}
-            onAddBot={props.onAddBot}
-            canvas={{
-              detachedBotIds: props.detachedBotIds,
-              machineHiddenBotIds: props.machineHiddenBotIds,
-              detachedSessionKeys: props.detachedSessionKeys,
-              onToggle: props.onToggleBotOnCanvas,
-            }}
-            // Nothing while the roster is still arriving or has failed: the panel below says both
-            // of those itself, and a count of zero read as a canvas someone had emptied.
-            status={
-              props.botsLoading || props.botsError ? null : (
-                <BotCanvasStatus
-                  total={props.canvasMachines.total}
-                  shown={props.canvasMachines.shown}
-                  machines={props.canvasMachines.machines}
-                  hidden={props.canvasMachines.hidden}
-                  countOf={props.canvasMachines.countOf}
-                  onToggle={props.canvasMachines.onToggle}
-                  zoom={props.canvasMachines.zoom}
-                  room={props.canvasMachines.room}
-                />
-              )
+            bots={
+              <BotSidebarPanel
+                bots={props.bots}
+                machineLabels={props.botMachineLabels}
+                feedForBot={props.feedForBot}
+                loading={props.botsLoading}
+                error={props.botsError}
+                // Marked from what the CANVAS has open, not from what the app has selected: over here
+                // a highlighted row means "this is a card that is unfolded", and nothing on the canvas
+                // is selected in the sense the other two tabs mean. Every Bot holding an open session
+                // is marked, not the first one found, because the canvas opens as many as it is asked
+                // to and a roster that marked one of them would be pointing at the wrong card.
+                selectedBotIds={
+                  new Set(
+                    props.bots
+                      .filter((bot) =>
+                        bot.sessions.some((session) =>
+                          props.canvasOpenSessionKeys.has(`${session.source}:${session.sessionId}`),
+                        ),
+                      )
+                      .map((bot) => bot.botId),
+                  )
+                }
+                selectedSessionKeys={props.canvasOpenSessionKeys}
+                onSelectSession={props.onOpenSessionOnCanvas}
+                onAddSession={props.onAddBotSession}
+                onRenameSession={props.onRenameSession}
+                onDetachSession={props.onDetachBotSession}
+                onSetFatherSession={props.onSetFatherBotSession}
+                onAddBot={props.onAddBot}
+                canvas={{
+                  detachedBotIds: props.detachedBotIds,
+                  machineHiddenBotIds: props.machineHiddenBotIds,
+                  detachedSessionKeys: props.detachedSessionKeys,
+                  onToggle: props.onToggleBotOnCanvas,
+                }}
+                // Nothing while the roster is still arriving or has failed: the panel below says both
+                // of those itself, and a count of zero read as a canvas someone had emptied.
+                status={
+                  props.botsLoading || props.botsError ? null : (
+                    <BotCanvasStatus
+                      total={props.canvasMachines.total}
+                      shown={props.canvasMachines.shown}
+                      machines={props.canvasMachines.machines}
+                      hidden={props.canvasMachines.hidden}
+                      countOf={props.canvasMachines.countOf}
+                      onToggle={props.canvasMachines.onToggle}
+                      zoom={props.canvasMachines.zoom}
+                      room={props.canvasMachines.room}
+                    />
+                  )
+                }
+              />
             }
           />
         </div>

@@ -126,6 +126,15 @@ export function sidebarProps({
     // one, and a Bot is a curated view over transcripts it does not own, so a made session that
     // nobody attached belongs to nobody.
     attachSessionToBot: roster.attachSessionToBot,
+    canvasView: chrome.sidebarPreferences.canvasView,
+    onCanvasViewChange: chrome.changeCanvasView,
+    onOpenSessionInModal: thread.openSessionInModal,
+    modalSelection: thread.modalThread
+      ? {
+        projectPath: thread.modalThread.project.projectPath,
+        sessionKey: `${thread.modalThread.session.source}:${thread.modalThread.session.sessionId}`,
+      }
+      : null,
     onAddBot: () => {
       commands.setBotCreatorOpen(true);
       chrome.setHoverPreviewOpen(false);

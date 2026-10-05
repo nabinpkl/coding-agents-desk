@@ -48,9 +48,6 @@ import { SessionView } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 
-
-
-
 /**
  * The panel's two collaborators, kept apart because they are different systems.
  *
@@ -314,6 +311,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
           startFork={commands.startFork}
           startHandover={commands.startHandover}
           startNewSession={commands.startNewSession}
+          sessionModal={{ thread: thread.modalThread, context: sessionViewContext, onClose: thread.closeSessionModal }}
         />
         {chrome.usesModalSidebar ? (
           <AgentSidebarDialog

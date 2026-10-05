@@ -56,7 +56,9 @@ infer backwards from the shape of the tree:
   a width, a colour or a scroll judged in one says little about the other. What is NOT dormant is
   `SessionView` and everything under it (`features/session-view/`, `features/activity-feed/`): the
   card renders that same component, so a transcript change lands on the card too, and retiring the
-  tab means removing the tab and its main-column arm, not the view.
+  tab means removing the tab and its main-column arm, not the view. Nor is the tab's project list
+  (`ProjectSessionList`): since 2026-10-05 it is also the Canvas tab's Sessions view, which opens a
+  session in `SessionModal` over the canvas rather than in the main column.
 
 # Repository layout
 

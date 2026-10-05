@@ -37,6 +37,9 @@ export function useThreadSelection({
 }) {
   const [selectedThread, setSelectedThread] = useState<SelectedThread | null>(null);
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
+  // A session read over the canvas, apart from the selection: the canvas has no thread of its own,
+  // and opening one there must not change what the Sessions tab comes back to.
+  const [modalThread, setModalThread] = useState<SelectedThread | null>(null);
   const restoredSelection = useRef(false);
   // Owned here rather than in the feed so the choice survives switching threads, and
   // so the feed can remount on a change -- every event index it holds is counted in
@@ -105,6 +108,13 @@ export function useThreadSelection({
     openSession(project, session);
   }, [openSession, projects]);
 
+  const openSessionInModal = useCallback((project: ProjectSummary, session: SessionSummary) => {
+    setModalThread({ project, session });
+    setHoverPreviewOpen(false);
+    if (usesModalSidebar) setSidebarOpen(false);
+  }, [setHoverPreviewOpen, setSidebarOpen, usesModalSidebar]);
+  const closeSessionModal = useCallback(() => setModalThread(null), []);
+
   /**
    * Reopen whatever was on screen before the last reload.
    *
@@ -139,5 +149,8 @@ export function useThreadSelection({
     openSession,
     openCatalogSession,
     openBotSession,
+    modalThread,
+    openSessionInModal,
+    closeSessionModal,
   };
 }

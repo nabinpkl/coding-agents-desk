@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentSidebarMode } from "@/features/sidebar/AgentSidebar";
+import type { CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 import { useSidebarEnvironment } from "@/features/sidebar/SidebarPresentation";
 import {
   loadSidebarPreferences,
@@ -162,6 +163,14 @@ export function useSidebarChrome() {
     }
   }, [setSidebarOpen, usesModalSidebar]);
 
+  const changeCanvasView = useCallback((canvasView: CanvasSidebarView) => {
+    setSidebarPreferences((current) => {
+      if (current.canvasView === canvasView) return current;
+      const next = { ...current, canvasView };
+      storeSidebarPreferences(next);
+      return next;
+    });
+  }, []);
 
   return {
     compact,
@@ -184,5 +193,6 @@ export function useSidebarChrome() {
     dismissHoverPreview,
     closePinnedSidebar,
     changeSidebarMode,
+    changeCanvasView,
   };
 }

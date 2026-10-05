@@ -5,7 +5,7 @@ import { useId, useState, type KeyboardEvent } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
-import { InlineStatus } from "@/features/sidebar/SidebarStatusRows";
+import { InlineStatus, SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
 
 const INITIAL_SESSION_COUNT = 3;
@@ -32,7 +32,8 @@ export function ProjectSidebarItem({
   creationError: string | null;
   onToggle: () => void;
   onSelectSession: (session: SessionSummary) => void;
-  onCreatePiSession: () => void;
+  /** Absent where a new Pi session is not offered, which is everywhere but the Sessions tab. */
+  onCreatePiSession?: () => void;
 }) {
   const regionId = useId();
   const displayName = project.displayName || project.projectPath.split("/").pop() || project.projectPath;
@@ -63,7 +64,7 @@ export function ProjectSidebarItem({
               </span>
             </span>
           </button>
-          {expanded ? (
+          {expanded && onCreatePiSession ? (
             <button
               type="button"
               onClick={onCreatePiSession}
@@ -161,5 +162,57 @@ export function ProjectSessionPreview({
         </button>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Every project and, under each one the reader unfolded, its sessions.
+ *
+ * Shared by the Sessions tab and the Canvas tab's Sessions view, which differ only in what picking
+ * a session does: the first opens it in the main column, the second in a modal over the canvas.
+ */
+export function ProjectSessionList(props: {
+  projects: ProjectSummary[];
+  sessionsByProject: ReadonlyMap<string, SessionSummary[]>;
+  loading: boolean;
+  error: string | null;
+  retrying: boolean;
+  selectedProjectPath: string | null;
+  selectedSessionKey: string | null;
+  expandedProjectPaths: ReadonlySet<string>;
+  onToggleProject: (projectPath: string) => void;
+  onSelectSession: (project: ProjectSummary, session: SessionSummary) => void;
+  /** The Sessions tab's Pi controls; absent elsewhere. */
+  pi?: {
+    creatingProjectPath: string | null;
+    creationErrors: ReadonlyMap<string, string>;
+    onCreate: (project: ProjectSummary) => void;
+  };
+}) {
+  if (props.loading) return <SidebarStatus>Loading projects…</SidebarStatus>;
+  if (props.error) {
+    return <SidebarError message={`Projects unavailable: ${props.error}`} retrying={props.retrying} />;
+  }
+  if (props.projects.length === 0) return <SidebarStatus>No projects yet</SidebarStatus>;
+  return (
+    <ul role="list" aria-label="Projects">
+      {props.projects.map((project) => (
+        <ProjectSidebarItem
+          key={project.projectPath}
+          project={project}
+          sessions={props.sessionsByProject.get(project.projectPath)}
+          expanded={props.expandedProjectPaths.has(project.projectPath)}
+          active={props.selectedProjectPath === project.projectPath}
+          selectedSessionKey={
+            props.selectedProjectPath === project.projectPath ? props.selectedSessionKey : null
+          }
+          creating={props.pi?.creatingProjectPath === project.projectPath}
+          creationError={props.pi?.creationErrors.get(project.projectPath) ?? null}
+          onToggle={() => props.onToggleProject(project.projectPath)}
+          onSelectSession={(session) => props.onSelectSession(project, session)}
+          {...(props.pi ? { onCreatePiSession: () => props.pi!.onCreate(project) } : {})}
+        />
+      ))}
+    </ul>
   );
 }

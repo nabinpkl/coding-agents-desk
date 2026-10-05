@@ -1,4 +1,4 @@
-// The five dialogs the shell opens over everything else.
+// The dialogs the shell opens over everything else, and the session modal beside them.
 //
 // One component because they are one layer, not because they are alike: each is mounted
 // unconditionally and decides for itself whether it is showing, so this is the whole of what the
@@ -21,6 +21,8 @@ import type { NewSessionHarness } from "@/features/bots/dialogs/BotSessionPicker
 import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import { HandoverDialog, type HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
+import { SessionModal } from "@/features/session-view/SessionModal";
+import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 
 export function AppDialogs({
   attachBotSessions,
@@ -49,6 +51,7 @@ export function AppDialogs({
   startFork,
   startHandover,
   startNewSession,
+  sessionModal,
 }: {
   attachBotSessions: (bot: BotView, sessionRefs: BotSessionRef[]) => Promise<void>;
   botCreatorOpen: boolean;
@@ -83,6 +86,12 @@ export function AppDialogs({
   ) => Promise<void>;
   startHandover: (request: HandoverRequest, message: string) => Promise<void>;
   startNewSession: (bot: BotView, title: string, harness: NewSessionHarness) => Promise<void>;
+  /** The session the Canvas tab's Sessions view opened, or null; mounted only while it is open. */
+  sessionModal: {
+    thread: { project: ProjectSummary; session: SessionSummary } | null;
+    context: SessionViewContext;
+    onClose: () => void;
+  };
 }) {
   const keyOf = (session: Pick<SessionSummary, "source" | "sessionId">): string =>
     `${session.source}:${session.sessionId}`;
@@ -152,6 +161,15 @@ export function AppDialogs({
           onAttach={attachBotSessions}
           onStartNew={startNewSession}
         />
+      {sessionModal.thread ? (
+        <SessionModal
+          key={keyOf(sessionModal.thread.session)}
+          context={sessionModal.context}
+          project={sessionModal.thread.project}
+          session={sessionModal.thread.session}
+          onClose={sessionModal.onClose}
+        />
+      ) : null}
     </>
   );
 }
