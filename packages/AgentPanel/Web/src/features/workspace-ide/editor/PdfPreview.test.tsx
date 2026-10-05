@@ -36,8 +36,8 @@ it("lays out every page of the document fetched from the content address", async
 
   render(<PdfPreview name="paper.pdf" url="/api/bots/b/content?path=paper.pdf" revision="r1" />);
 
-  expect(await screen.findByRole("img", { name: "Page 3 of 3" })).toBeInTheDocument();
-  expect(screen.getAllByRole("img")).toHaveLength(3);
+  expect(await screen.findByRole("group", { name: "Page 3 of 3" })).toBeInTheDocument();
+  expect(screen.getAllByRole("group")).toHaveLength(3);
   expect(fetch).toHaveBeenCalledWith("/api/bots/b/content?path=paper.pdf", expect.anything());
   expect(getDocument).toHaveBeenCalledWith({ data: new Uint8Array([37, 80, 68, 70]) });
 });
