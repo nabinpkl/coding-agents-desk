@@ -6,7 +6,10 @@
 // `[Image #1]` and no picture: measured on a live pane, a two-row message corrected by one
 // backspace was submitted as a plain string with no image in it. So a retype drops the file again.
 
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { BACKSPACE, CLOSE, END, held, KILL, OPEN, runtime, screenWith } from "@/input/tmuxComposerHarness";
 import {
   composerPastes,
@@ -16,7 +19,10 @@ import {
 } from "@/input/tmuxComposer";
 import { insertedText } from "@/input/composerKeystrokes";
 
-const PNG = "/tmp/composer-images/a.png";
+// A real file: the store will not re-drop a path whose file has been swept.
+const PNG = join(mkdtempSync(join(tmpdir(), "composer-redrop-")), "a.png");
+writeFileSync(PNG, "png");
+afterAll(() => rmSync(dirname(PNG), { recursive: true, force: true }));
 const known = (token: string) => (token === "[Image #1]" || token === "[Image #2]" ? PNG : null);
 
 test("a clear and retype drops a known image again instead of typing its name", () => {

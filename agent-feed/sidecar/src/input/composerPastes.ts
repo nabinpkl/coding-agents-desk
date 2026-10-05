@@ -27,6 +27,10 @@
 // Only pastes the panel itself made are ever bound. A paste somebody made at the keyboard leaves
 // a handle this side never saw the text of, and it stays unknown rather than guessed at.
 
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
 /**
  * A paste handle as Claude writes it, which is the image token's sibling in `composerBox`.
  *
@@ -97,9 +101,10 @@ const BUDGET_ENTRIES = 512;
  * allowance would either be too small for the pane somebody is actually working in or large
  * enough, times fifty panes, to be no budget at all.
  */
-export function composerPastes(): ComposerPasteStore {
-  const held = new Map<string, string>();
-  let bytes = 0;
+export function composerPastes(file: string | null = null): ComposerPasteStore {
+  const held = new Map<string, string>(file === null ? [] : loadHandles(file));
+  let bytes = [...held.values()].reduce((total, value) => total + value.length, 0);
+  const persist = file === null ? () => {} : handleWriter(file, held);
 
   const at = (pane: string, token: string): string => `${pane}\u0000${token}`;
   // Its own namespace, so an image can never answer `textFor` and be expanded into a path.
@@ -121,6 +126,7 @@ export function composerPastes(): ComposerPasteStore {
       if (oldest.done) break;
       drop(oldest.value);
     }
+    persist();
   };
 
   return {
@@ -135,7 +141,10 @@ export function composerPastes(): ComposerPasteStore {
       put(imageAt(pane, token), path);
     },
     imageFor(pane, token) {
-      return held.get(imageAt(pane, token)) ?? null;
+      const path = held.get(imageAt(pane, token)) ?? null;
+      // Dropped files are swept after a day. Re-dropping a path that is gone would put the path in
+      // somebody's message as text, which is worse than the token's name.
+      return path !== null && existsSync(path) ? path : null;
     },
     textFor(pane, token) {
       return held.get(at(pane, token)) ?? null;
@@ -150,7 +159,63 @@ export function composerPastes(): ComposerPasteStore {
       for (const key of [...held.keys()]) {
         if (key.startsWith(prefix)) drop(key);
       }
+      persist();
     },
+  };
+}
+
+/**
+ * The handles a previous run kept, oldest first, or none when there is no file yet.
+ *
+ * An unreadable file is reported and started over rather than thrown: what is lost is a binding,
+ * which costs a re-paste, where a sidecar that would not start costs every surface.
+ */
+function loadHandles(file: string): [string, string][] {
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error(`composer handles: could not read ${file}, starting empty`, error);
+    }
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as { version?: unknown; entries?: unknown };
+    if (parsed.version !== 1 || !Array.isArray(parsed.entries)) throw new Error("not version 1");
+    return parsed.entries.filter((entry): entry is [string, string] => (
+      Array.isArray(entry) && entry.length === 2
+        && typeof entry[0] === "string" && typeof entry[1] === "string"
+    ));
+  } catch (error) {
+    console.error(`composer handles: ${file} is not a handles file, starting empty`, error);
+    return [];
+  }
+}
+
+/**
+ * Writes the store a moment after it changes, whole, by rename so a reader never sees half a file.
+ *
+ * A moment rather than at once because a push binds at most one handle and a burst of them is a
+ * burst of keystrokes. 0600, because what it holds is what somebody pasted.
+ */
+function handleWriter(file: string, held: ReadonlyMap<string, string>): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const write = async (): Promise<void> => {
+    timer = null;
+    const temporary = `${file}.${process.pid}.tmp`;
+    try {
+      await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+      await writeFile(temporary, JSON.stringify({ version: 1, entries: [...held] }), { mode: 0o600 });
+      await rename(temporary, file);
+    } catch (error) {
+      console.error(`composer handles: could not write ${file}`, error);
+    }
+  };
+  return () => {
+    if (timer !== null) return;
+    timer = setTimeout(() => void write(), 250);
+    timer.unref?.();
   };
 }
 

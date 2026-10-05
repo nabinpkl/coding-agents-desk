@@ -138,16 +138,17 @@ export async function syncTmuxComposer(
       const box = composerBox(await runtime.screen(pane));
       if (!box) return unavailable("no-composer");
       const before = composerText(box.rows);
+      const key = await runtime.paneKey(pane);
       const keys = keystrokesFor(
         box,
         desired,
-        (token) => runtime.pastes.textFor(pane, token),
-        (token) => runtime.pastes.imageFor(pane, token),
+        (token) => runtime.pastes.textFor(key, token),
+        (token) => runtime.pastes.imageFor(key, token),
       );
       if (keys.length > 0) {
-        await sendEdit(pane, keys, runtime);
+        await sendEdit(pane, key, keys, runtime);
         await settle(pane, before, runtime);
-        await bindNewPaste(pane, before, insertedText(keys), runtime);
+        await bindNewPaste(pane, key, before, insertedText(keys), runtime);
       }
       // No hint and no menu: whatever Claude was offering, the box now holds what was asked
       // for instead, and the menu under it is redrawn from that. An empty push is the one case
@@ -196,7 +197,7 @@ export async function dropTmuxComposerImage(
       await settle(pane, before, runtime);
       // And the token it swapped in is bound to the file, so an edit that later has to retype
       // across it drops the file again rather than typing the token's name.
-      await bindNewImage(pane, imageTokens(before), path, runtime);
+      await bindNewImage(pane, await runtime.paneKey(pane), imageTokens(before), path, runtime);
       return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
@@ -223,6 +224,7 @@ export async function dropTmuxComposerImage(
  */
 async function bindNewPaste(
   pane: string,
+  key: string,
   before: string,
   inserted: string,
   runtime: TmuxComposerRuntime,
@@ -238,7 +240,7 @@ async function bindNewPaste(
   if (!after) return;
   const fresh = pasteTokens(composerText(after.rows)).filter((found) => !had.has(found.token));
   if (fresh.length !== 1) return;
-  runtime.pastes.bind(pane, fresh[0]!.token, inserted);
+  runtime.pastes.bind(key, fresh[0]!.token, inserted);
 }
 
 /**

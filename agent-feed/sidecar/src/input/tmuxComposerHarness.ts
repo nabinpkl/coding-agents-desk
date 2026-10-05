@@ -114,6 +114,8 @@ export function runtime(overrides: Partial<TmuxComposerRuntime> = {}): TmuxCompo
       sent.push(new TextDecoder().decode(bytes));
     },
     panes: composerPanes(),
+    // The pane name stands in for its identity: these panes are never recreated.
+    paneKey: async (pane: string) => pane,
     pastes: composerPastes(),
     ...overrides,
   };
@@ -154,6 +156,8 @@ export function watchable(initial: string[] = ["hello"]) {
       state.sent.push(new TextDecoder().decode(bytes));
     },
     panes: composerPanes(),
+    // The pane name stands in for its identity: these panes are never recreated.
+    paneKey: async (pane: string) => pane,
     pastes: composerPastes(),
     watch: async (_pane, onOutput) => {
       state.watching = true;

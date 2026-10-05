@@ -192,6 +192,7 @@ export function imageTokens(text: string): string[] {
  */
 export async function bindNewImage(
   pane: string,
+  key: string,
   before: readonly string[],
   path: string,
   runtime: Pick<TmuxComposerRuntime, "screen" | "pastes">,
@@ -204,7 +205,7 @@ export async function bindNewImage(
   }
   if (!after) return;
   const fresh = imageTokens(composerText(after.rows)).filter((token) => !before.includes(token));
-  if (fresh.length === 1) runtime.pastes.bindImage(pane, fresh[0]!, path);
+  if (fresh.length === 1) runtime.pastes.bindImage(key, fresh[0]!, path);
 }
 
 /**
@@ -234,6 +235,7 @@ export async function bindNewImage(
  */
 export async function sendEdit(
   pane: string,
+  key: string,
   keys: string,
   runtime: Pick<TmuxComposerRuntime, "screen" | "send" | "pastes">,
 ): Promise<void> {
@@ -260,7 +262,7 @@ export async function sendEdit(
     if (write.length > 0) await runtime.send(pane, encoder.encode(write));
     if (!dropping) continue;
     await waitFor(pane, runtime, (text) => imageTokens(text).some((token) => !before.includes(token)));
-    await bindNewImage(pane, before, lastPasted(write), runtime);
+    await bindNewImage(pane, key, before, lastPasted(write), runtime);
   }
 }
 

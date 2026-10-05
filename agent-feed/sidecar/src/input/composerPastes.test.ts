@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { composerPastes, meaning, pasteTokens } from "@/input/composerPastes";
 
 const look = (store: ReturnType<typeof composerPastes>, pane: string) =>
@@ -59,4 +62,45 @@ test("re-binding the same handle replaces it instead of counting it twice", () =
   store.bind("pane-1", "[Pasted text #1]", "first");
   store.bind("pane-1", "[Pasted text #1]", "second");
   expect(store.textFor("pane-1", "[Pasted text #1]")).toBe("second");
+});
+
+describe("kept across a restart", () => {
+  const work = mkdtempSync(join(tmpdir(), "composer-handles-"));
+  afterAll(() => rmSync(work, { recursive: true, force: true }));
+
+  test("a new store over the same file knows what the old one bound", async () => {
+    // The live sidecar restarts on every edit to its own tree, and a message being written then
+    // used to lose its paste and its picture on the next correction.
+    const file = join(work, "kept.json");
+    const image = join(work, "a.png");
+    writeFileSync(image, "png");
+    const first = composerPastes(file);
+    first.bind("1234:%7", "[Pasted text #1]", "nine hundred characters");
+    first.bindImage("1234:%7", "[Image #2]", image);
+    await Bun.sleep(400);
+
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    const second = composerPastes(file);
+    expect(second.textFor("1234:%7", "[Pasted text #1]")).toBe("nine hundred characters");
+    expect(second.heldFor("1234:%7", "[Pasted text #1]")).toEqual({ chars: 23, lines: 1 });
+    expect(second.imageFor("1234:%7", "[Image #2]")).toBe(image);
+  });
+
+  test("forgets an image whose file has been swept, rather than dropping a dead path", () => {
+    const store = composerPastes();
+    store.bindImage("1234:%7", "[Image #1]", join(work, "gone.png"));
+    expect(store.imageFor("1234:%7", "[Image #1]")).toBeNull();
+  });
+
+  test("starts empty from a file that is not a handles file, rather than failing to start", () => {
+    const file = join(work, "broken.json");
+    writeFileSync(file, "{not json");
+    const quiet = console.error;
+    console.error = () => {};
+    try {
+      expect(composerPastes(file).textFor("1234:%7", "[Pasted text #1]")).toBeNull();
+    } finally {
+      console.error = quiet;
+    }
+  });
 });

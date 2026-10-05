@@ -10,9 +10,11 @@ import {
   captureTmuxPaneView,
   captureTmuxQuestionView,
   hexSend,
+  tmuxPaneIdentity,
   TmuxUnavailable,
   type TmuxPaneView,
 } from "@/terminal/tmux/tmuxSessions";
+import { config } from "@/config/config";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
 import { imageTokens } from "@/input/composerKeystrokes";
@@ -54,6 +56,11 @@ export interface TmuxComposerRuntime {
    */
   questionScreen: (pane: string) => Promise<TmuxPaneView>;
   send: (pane: string, bytes: Uint8Array) => Promise<void>;
+  /**
+   * The key `pastes` files a pane's handles under: the pane's own identity rather than its name,
+   * because the store outlives the process and a name can pass to another session.
+   */
+  paneKey: (pane: string) => Promise<string>;
   panes: TmuxComposerPanes;
   /**
    * What the paste handles in each pane's box stand for, for the ones this side pasted.
@@ -94,10 +101,11 @@ export const LIVE: TmuxComposerRuntime = {
   screen: captureTmuxPaneView,
   questionScreen: captureTmuxQuestionView,
   send: hexSend,
+  paneKey: tmuxPaneIdentity,
   // One registry for the process, so a watch opened through the routes is visible to a push that
   // took the default runtime. Two would be two answers to one question.
   panes: composerPanes(),
-  pastes: composerPastes(),
+  pastes: composerPastes(config.composerHandlesPath),
 };
 
 /** The live runtime, given the pane signal only the terminal service can supply. */
@@ -275,7 +283,7 @@ export async function readQuestionAt(
 /** What the composer in `pane` is showing, or why it cannot be seen. */
 export async function readComposerAt(
   pane: string,
-  runtime: Pick<TmuxComposerRuntime, "screen"> & Partial<Pick<TmuxComposerRuntime, "pastes">>,
+  runtime: Pick<TmuxComposerRuntime, "screen"> & Partial<Pick<TmuxComposerRuntime, "pastes" | "paneKey">>,
 ): Promise<TmuxComposerState> {
   let box: ComposerBox | null;
   try {
@@ -286,6 +294,11 @@ export async function readComposerAt(
   }
   if (!box) return unavailable("no-composer");
   const text = composerText(box.rows);
+  // Asked only when the box holds a handle, which is the only time the answer is needed: this runs
+  // on every redraw, and most boxes hold plain text.
+  const key = runtime.pastes && runtime.paneKey && /\[(?:Image|Pasted text) #/.test(text)
+    ? await runtime.paneKey(pane).catch(() => null)
+    : null;
   return {
     text,
     hint: box.hint,
@@ -300,11 +313,11 @@ export async function readComposerAt(
     pastes: pasteTokens(text).map(({ token, id }) => ({
       token,
       id,
-      held: runtime.pastes?.heldFor(pane, token) ?? null,
+      held: key === null ? null : runtime.pastes?.heldFor(key, token) ?? null,
     })),
     images: imageTokens(text).map((token) => ({
       id: Number(/#(\d+)/.exec(token)![1]),
-      file: imageFile(runtime.pastes?.imageFor(pane, token) ?? null),
+      file: imageFile(key === null ? null : runtime.pastes?.imageFor(key, token) ?? null),
     })),
   };
 }

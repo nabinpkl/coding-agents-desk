@@ -107,6 +107,20 @@ export function parsePaneDescription(out: string): TmuxPaneDescription {
   return { pid, columns, rows, mouseReporting: fields[3] === "1" && fields[4] === "1" };
 }
 
+/**
+ * What names this pane and nothing else, for as long as it exists: tmux's own pane id, under the
+ * pid of the server that issued it.
+ *
+ * Not the session NAME, which is reused -- panes are renamed to their session's title, and titles
+ * repeat. Something remembered about a pane across a sidecar restart has to be keyed by this, or a
+ * different session that later takes the name inherits it.
+ */
+export async function tmuxPaneIdentity(session: string): Promise<string> {
+  const { out, err, code } = await tmux(["display-message", "-p", "-t", session, "#{pid}:#{pane_id}"]);
+  if (code !== 0) throw new TmuxUnavailable(`tmux display-message exited ${code}: ${err.trim()}`);
+  return out.trim();
+}
+
 export async function describeTmuxPane(session: string): Promise<TmuxPaneDescription> {
   const { out, err, code } = await tmux(paneDescriptionArgs(session));
   if (code !== 0) throw new TmuxUnavailable(`tmux display-message exited ${code}: ${err.trim()}`);

@@ -133,7 +133,10 @@ export function liveTmuxComposerDependencies(
       // Resolved through the same held pane the pushes use, so a fetch never costs the session
       // lookup a live watch has already paid for.
       const pane = runtime.panes.get(sessionId) ?? await runtime.pane(sessionId);
-      return pane === null ? null : runtime.pastes.textFor(pane, token);
+      if (pane === null) return null;
+      // A pane tmux cannot name any more holds nothing this side can vouch for.
+      const key = await runtime.paneKey(pane).catch(() => null);
+      return key === null ? null : runtime.pastes.textFor(key, token);
     },
   };
 }
