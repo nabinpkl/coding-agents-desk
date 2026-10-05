@@ -87,11 +87,20 @@ const REDRAW_POLL_MS = 5;
  */
 export function keystrokesFor(
   box: ComposerBox,
-  desired: string,
+  requested: string,
   pasted: (token: string) => string | null = () => null,
+  image: (token: string) => string | null = () => null,
 ): string {
   const { rows } = box;
-  const current = composerText(rows);
+  // Images this side dropped are diffed by the FILE they are, not by their number, and retyped by
+  // dropping that file again. Both halves are needed. By number, a re-drop renumbers the image
+  // (`#1` comes back `#2`) and every later push would see a difference and re-drop it again. By
+  // name, a retype pastes the characters `[Image #1]`, which Claude keeps as text with no picture
+  // behind it -- a two-row message corrected by one backspace went to the model that way.
+  const images: string[] = [];
+  const current = markImages(composerText(rows), image, images);
+  const desired = markImages(requested, image, images);
+  const retype = (text: string): string => insertion(text, images);
   // Both sides read through their paste handles, which is what keeps typing cheap once a draft
   // has grown past the length Claude collapses. `[Pasted text #1]` and the nine hundred
   // characters it stands for share no prefix at all, so without this every further keystroke fell
@@ -106,12 +115,12 @@ export function keystrokesFor(
   // after whitespace nobody can see, and a backspace count taken from the visible text would rub
   // out one character too few. The clear below needs none of that -- Ctrl+U kills a whole visual
   // row whatever is in it, whether or not the text in it was read correctly.
-  if (!box.exact) return END + KILL_ROW.repeat(box.clearPresses) + paste(desired);
+  if (!box.exact) return END + KILL_ROW.repeat(box.clearPresses) + retype(desired);
   if (held === wanted) return "";
   // Every branch below is written as though the text ends at the cursor. Going to the end is what
   // makes that so, and it is free when the cursor is already there.
   if (held.length > 0 && wanted.startsWith(held)) {
-    return END + paste(wanted.slice(held.length));
+    return END + retype(wanted.slice(held.length));
   }
   // A single row is known exactly, so a correction rubs out only what diverged -- which keeps a
   // backspace in the panel costing a backspace in the pane rather than a whole retype.
@@ -124,9 +133,75 @@ export function keystrokesFor(
   if (rows.length === 1) {
     const shared = sharedPrefix(current, desired);
     const removed = backspacesFor(current.slice(shared));
-    return END + BACKSPACE.repeat(removed) + paste(desired.slice(shared));
+    return END + BACKSPACE.repeat(removed) + retype(desired.slice(shared));
   }
-  return END + KILL_ROW.repeat(box.clearPresses) + paste(desired);
+  return END + KILL_ROW.repeat(box.clearPresses) + retype(desired);
+}
+
+/**
+ * Where a known image stands while the diff runs: one character to the arithmetic, which is what
+ * it costs in the box, and an index into the paths for the retype. Private-use code points, so no
+ * reader's text produces one; a stray pair that indexes nothing is pasted as the text it is.
+ */
+const IMAGE_MARK = /\uE000(\d+)\uE001/g;
+const IMAGE_TOKEN = /\[Image #\d+\]/g;
+
+/**
+ * Written between the writes of an edit that re-drops an image, and never sent. Claude reads the
+ * file a path names before swapping in its token, so text pasted in the same write could land on
+ * either side of it; `sendEdit` waits there for the token instead.
+ */
+const IMAGE_SETTLE = "\uE002";
+
+function markImages(text: string, image: (token: string) => string | null, paths: string[]): string {
+  return text.replace(IMAGE_TOKEN, (token) => {
+    const path = image(token);
+    if (path === null) return token;
+    let index = paths.indexOf(path);
+    if (index === -1) index = paths.push(path) - 1;
+    return `\uE000${index}\uE001`;
+  });
+}
+
+/** Marked text as keys: words as a paste, and each image as its file dropped on its own. */
+function insertion(text: string, paths: readonly string[]): string {
+  let keys = "";
+  let from = 0;
+  for (const mark of text.matchAll(IMAGE_MARK)) {
+    const path = paths[Number(mark[1])];
+    if (path === undefined) continue;
+    keys += paste(text.slice(from, mark.index)) + paste(path) + IMAGE_SETTLE;
+    from = mark.index + mark[0].length;
+  }
+  return keys + paste(text.slice(from));
+}
+
+/** The image tokens a box shows, so the one a drop added can be told from those already there. */
+export function imageTokens(text: string): string[] {
+  return [...text.matchAll(IMAGE_TOKEN)].map((match) => match[0]);
+}
+
+/**
+ * Binds the image token a drop of `path` just produced, read off the box against `before`.
+ *
+ * Silent when the reading fails or more than one token appeared, for the reason `bindNewPaste`
+ * gives: a wrong binding would re-drop the wrong picture into somebody's message.
+ */
+export async function bindNewImage(
+  pane: string,
+  before: readonly string[],
+  path: string,
+  runtime: Pick<TmuxComposerRuntime, "screen" | "pastes">,
+): Promise<void> {
+  let after: ComposerBox | null;
+  try {
+    after = composerBox(await runtime.screen(pane));
+  } catch {
+    return;
+  }
+  if (!after) return;
+  const fresh = imageTokens(composerText(after.rows)).filter((token) => !before.includes(token));
+  if (fresh.length === 1) runtime.pastes.bindImage(pane, fresh[0]!, path);
 }
 
 /**
@@ -157,22 +232,49 @@ export function keystrokesFor(
 export async function sendEdit(
   pane: string,
   keys: string,
-  runtime: Pick<TmuxComposerRuntime, "screen" | "send">,
+  runtime: Pick<TmuxComposerRuntime, "screen" | "send" | "pastes">,
 ): Promise<void> {
   const encoder = new TextEncoder();
   const at = keys.indexOf(PASTE_START);
   const edit = at === -1 ? keys : keys.slice(0, at);
-  if (at === -1 || !edit.includes(KILL_ROW)) {
-    await runtime.send(pane, encoder.encode(keys));
-    return;
+  let rest = keys;
+  if (at !== -1 && edit.includes(KILL_ROW)) {
+    await runtime.send(pane, encoder.encode(edit));
+    // Waiting on the SCREEN rather than on a sleep, which is the discipline `settle` already uses:
+    // it is what keeps this right on a pane that is busy rather than right on the one it was
+    // measured against. A clear is done when the box reads empty, and that is a fact this can
+    // check, which is the other reason the split is drawn here rather than around every edit.
+    await waitFor(pane, runtime, (text) => text.length === 0);
+    rest = keys.slice(at);
   }
-  await runtime.send(pane, encoder.encode(edit));
-  // Waiting on the SCREEN rather than on a sleep, which is the discipline `settle` already uses:
-  // it is what keeps this right on a pane that is busy rather than right on the one it was
-  // measured against. A clear is done when the box reads empty, and that is a fact this can
-  // check, which is the other reason the split is drawn here rather than around every edit.
-  await waitFor(pane, runtime, (text) => text.length === 0);
-  await runtime.send(pane, encoder.encode(keys.slice(at)));
+  // One write per re-dropped image, each ending on that image's path. What follows waits for the
+  // token Claude swaps in, and the token is bound to the file so the next edit knows it too.
+  const writes = rest.split(IMAGE_SETTLE);
+  for (let index = 0; index < writes.length; index += 1) {
+    const write = writes[index]!;
+    const dropping = index < writes.length - 1;
+    const before = dropping ? await tokensInBox(pane, runtime) : [];
+    if (write.length > 0) await runtime.send(pane, encoder.encode(write));
+    if (!dropping) continue;
+    await waitFor(pane, runtime, (text) => imageTokens(text).some((token) => !before.includes(token)));
+    await bindNewImage(pane, before, lastPasted(write), runtime);
+  }
+}
+
+async function tokensInBox(pane: string, runtime: Pick<TmuxComposerRuntime, "screen">): Promise<string[]> {
+  try {
+    const box = composerBox(await runtime.screen(pane));
+    return box ? imageTokens(composerText(box.rows)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The content of the last bracketed paste in `keys`, which for an image write is its path. */
+function lastPasted(keys: string): string {
+  const start = keys.lastIndexOf(PASTE_START);
+  const end = keys.lastIndexOf(PASTE_END);
+  return start === -1 || end < start ? "" : keys.slice(start + PASTE_START.length, end);
 }
 
 /**
@@ -212,6 +314,9 @@ export async function waitFor(
 export function insertedText(keys: string): string {
   const at = keys.indexOf(PASTE_START);
   if (at === -1) return "";
+  // An edit that re-drops an image inserts several pastes, and a handle Claude answers with could
+  // stand for any of them. Unbound is the safe answer; see `bindNewPaste`.
+  if (keys.indexOf(PASTE_START, at + 1) !== -1) return "";
   const end = keys.indexOf(PASTE_END, at);
   if (end === -1) return "";
   // Back through the escape guard `paste` applies, so what is remembered is the text the reader
@@ -235,7 +340,7 @@ export function paste(text: string): string {
  * one backspace rather than two.
  */
 function backspacesFor(text: string): number {
-  return [...text.replaceAll(ATTACHMENT, "\u0000")].length;
+  return [...text.replaceAll(ATTACHMENT, "\u0000").replaceAll(IMAGE_MARK, "\u0000")].length;
 }
 
 /**
@@ -247,7 +352,7 @@ function backspacesFor(text: string): number {
  */
 function sharedPrefix(current: string, desired: string): number {
   let shared = commonPrefix(current, desired).length;
-  for (const token of current.matchAll(ATTACHMENT)) {
+  for (const token of [...current.matchAll(ATTACHMENT), ...current.matchAll(IMAGE_MARK)]) {
     const start = token.index;
     if (shared > start && shared < start + token[0].length) shared = start;
   }

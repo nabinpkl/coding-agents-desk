@@ -61,6 +61,16 @@ export interface ComposerPasteStore {
   textFor(pane: string, token: string): string | null;
   /** Its shape without its content, which is what a reading carries. */
   heldFor(pane: string, token: string): HeldPaste | null;
+  /**
+   * Remembers that the image `token` (`[Image #N]`) in `pane` is the file at `path`.
+   *
+   * An image is not text to expand, so it is held apart from the pastes: what it buys is that an
+   * edit which has to retype the stretch holding the token can put the image back by dropping the
+   * file again, where retyping the token's name gave Claude the words `[Image #1]` and no picture.
+   */
+  bindImage(pane: string, token: string, path: string): void;
+  /** The file an image token was dropped from, or null when this side did not drop it. */
+  imageFor(pane: string, token: string): string | null;
   /** Drops everything remembered for a pane, for a session that ended. */
   forget(pane: string): void;
 }
@@ -92,6 +102,8 @@ export function composerPastes(): ComposerPasteStore {
   let bytes = 0;
 
   const at = (pane: string, token: string): string => `${pane}\u0000${token}`;
+  // Its own namespace, so an image can never answer `textFor` and be expanded into a path.
+  const imageAt = (pane: string, token: string): string => `${pane}\u0000image\u0000${token}`;
 
   const drop = (key: string): void => {
     const text = held.get(key);
@@ -100,19 +112,30 @@ export function composerPastes(): ComposerPasteStore {
     held.delete(key);
   };
 
+  const put = (key: string, value: string): void => {
+    drop(key);
+    held.set(key, value);
+    bytes += value.length;
+    while ((bytes > BUDGET_BYTES || held.size > BUDGET_ENTRIES) && held.size > 1) {
+      const oldest = held.keys().next();
+      if (oldest.done) break;
+      drop(oldest.value);
+    }
+  };
+
   return {
     bind(pane, token, text) {
-      const key = at(pane, token);
       // Re-binding the same handle replaces it rather than counting twice. Claude reuses a number
       // only after a restart, but a push that lands twice is ordinary.
-      drop(key);
-      held.set(key, text);
-      bytes += text.length;
-      while ((bytes > BUDGET_BYTES || held.size > BUDGET_ENTRIES) && held.size > 1) {
-        const oldest = held.keys().next();
-        if (oldest.done) break;
-        drop(oldest.value);
-      }
+      put(at(pane, token), text);
+    },
+    bindImage(pane, token, path) {
+      // Under the same budget as the pastes: a path is short, and a forgotten one costs what not
+      // knowing it cost before.
+      put(imageAt(pane, token), path);
+    },
+    imageFor(pane, token) {
+      return held.get(imageAt(pane, token)) ?? null;
     },
     textFor(pane, token) {
       return held.get(at(pane, token)) ?? null;

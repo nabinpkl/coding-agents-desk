@@ -86,7 +86,9 @@ import {
 import { hexSend, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
 import {
+  bindNewImage,
   CARRIAGE_RETURN,
+  imageTokens,
   insertedText,
   keystrokesFor,
   paste,
@@ -136,7 +138,12 @@ export async function syncTmuxComposer(
       const box = composerBox(await runtime.screen(pane));
       if (!box) return unavailable("no-composer");
       const before = composerText(box.rows);
-      const keys = keystrokesFor(box, desired, (token) => runtime.pastes.textFor(pane, token));
+      const keys = keystrokesFor(
+        box,
+        desired,
+        (token) => runtime.pastes.textFor(pane, token),
+        (token) => runtime.pastes.imageFor(pane, token),
+      );
       if (keys.length > 0) {
         await sendEdit(pane, keys, runtime);
         await settle(pane, before, runtime);
@@ -181,11 +188,15 @@ export async function dropTmuxComposerImage(
       const box = composerBox(await runtime.screen(pane));
       if (!box) return unavailable("no-composer");
       const keys = separator(box) + paste(path);
+      const before = composerText(box.rows);
       await runtime.send(pane, new TextEncoder().encode(keys));
       // Claude swaps the path for its own `[Image #N]`, so the box always ends up reading
       // differently. Waiting for that is what stops the next push diffing against a box that
       // still shows the moment before the drop.
-      await settle(pane, composerText(box.rows), runtime);
+      await settle(pane, before, runtime);
+      // And the token it swapped in is bound to the file, so an edit that later has to retype
+      // across it drops the file again rather than typing the token's name.
+      await bindNewImage(pane, imageTokens(before), path, runtime);
       return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
