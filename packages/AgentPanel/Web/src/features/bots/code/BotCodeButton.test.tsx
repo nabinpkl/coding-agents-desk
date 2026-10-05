@@ -17,6 +17,7 @@ const bot: BotView = {
   environmentAvailability: "available",
   sessions: [],
   missingSessionRefs: [],
+  nextAnchor: "Adam",
 };
 
 const NO_GIT = { status: null, error: null };

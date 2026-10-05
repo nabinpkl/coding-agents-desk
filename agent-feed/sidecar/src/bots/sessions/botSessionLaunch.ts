@@ -12,6 +12,7 @@ import {
   refuseTaskText,
   taskFromText,
 } from "@agentdesk/agent-feed-wire";
+import { anchorPool } from "@/config/configAnchors";
 import { WorktreeError } from "@/git/worktree";
 import {
   type ForkRewinder,
@@ -42,6 +43,11 @@ export function spentAnchors(bots: readonly Pick<BotRecord, "sessionAnchors">[])
     for (const anchor of Object.values(bot.sessionAnchors ?? {})) taken.add(anchor);
   }
   return taken;
+}
+
+/** The anchor this machine hands out next: first-free over the taken set, from its own pool. */
+export function nextAnchor(taken: Iterable<string>): string {
+  return firstFreeAnchor(taken, anchorPool);
 }
 
 export class BotSessionStarter {
@@ -198,7 +204,7 @@ export class BotSessionStarter {
       const current = snapshot.bots[index]!;
       const backed = ensureSessionSlots(current, current.sessionRefs);
       const slot = backed.nextSessionSlot;
-      const anchor = firstFreeAnchor(spentAnchors(snapshot.bots));
+      const anchor = nextAnchor(spentAnchors(snapshot.bots));
       const updated: BotRecord = {
         ...current,
         sessionSlots: { ...backed.sessionSlots, [key]: slot },
@@ -231,7 +237,7 @@ export class BotSessionStarter {
       if (current.sessionAnchors?.[key] !== undefined) {
         return { snapshot, value: current.sessionAnchors[key]! };
       }
-      const anchor = firstFreeAnchor(spentAnchors(snapshot.bots));
+      const anchor = nextAnchor(spentAnchors(snapshot.bots));
       const updated: BotRecord = {
         ...current,
         sessionAnchors: { ...(current.sessionAnchors ?? {}), [key]: anchor },

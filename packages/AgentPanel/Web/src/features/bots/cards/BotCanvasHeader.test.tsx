@@ -39,6 +39,7 @@ const bot: BotView = {
   environmentAvailability: "available",
   sessions: [],
   missingSessionRefs: [],
+  nextAnchor: "Adam",
 };
 
 /** Two uncommitted files, so the git act has a count to carry. */

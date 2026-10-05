@@ -354,3 +354,16 @@ test("creates a Bot whose first session is a fork of one already in its director
   }, { kind: "user" })).rejects.toThrow(BotConflictError);
   expect(launched).toEqual([]);
 });
+
+test("every Bot's view carries the name its machine hands out next, whichever Bot spent the last", async () => {
+  const { project, secondProject, ref, registry } = await fixture();
+  const first = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
+  const second = await addBot(registry, { requestId: "add-2", name: "Second", directoryPath: secondProject }, { kind: "user" });
+  expect((await registry.snapshot()).bots.map((bot) => bot.nextAnchor)).toEqual(["Aaron", "Aaron"]);
+
+  // One Bot spends a name; both now offer the next one, because the pool is the machine's.
+  const attached = await addSessions(registry, first.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+  expect(attached.nextAnchor).toBe("Adam");
+  const views = (await registry.snapshot()).bots;
+  expect(views.find((bot) => bot.botId === second.botId)!.nextAnchor).toBe("Adam");
+});

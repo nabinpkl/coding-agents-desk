@@ -17,6 +17,7 @@ const bot: BotView = {
   environmentAvailability: "available",
   sessions: [],
   missingSessionRefs: [],
+  nextAnchor: "Adam",
 };
 
 /** The button as the card mounts it: under the card's one git subscription. */

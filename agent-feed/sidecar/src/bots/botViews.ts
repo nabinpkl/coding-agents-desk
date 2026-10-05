@@ -17,6 +17,7 @@ import { type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import {
   type BotRegistryCatalog,
 } from "@/bots/botTypes";
+import { nextAnchor, spentAnchors } from "@/bots/sessions/botSessionLaunch";
 
 async function directoryAvailability(path: string): Promise<"available" | "missing"> {
   try {
@@ -99,7 +100,8 @@ export class BotViewer {
    * snapshot. A line from here would report every other Bot's still-missing reference as resolved.
    */
   async viewRecord(record: BotRecord): Promise<BotView> {
-    return (await this.resolveRecord(record)).view;
+    const snapshot = await this.store.snapshot();
+    return (await this.resolveRecord(record, nextAnchor(spentAnchors(snapshot.bots)))).view;
   }
 
   /**
@@ -108,7 +110,9 @@ export class BotViewer {
    * every other Bot's still-missing reference as resolved, once per Bot, on every broadcast.
    */
   private async view(snapshot: StoredBotSnapshot): Promise<BotSnapshot> {
-    const resolved = await Promise.all(snapshot.bots.map((record) => this.resolveRecord(record)));
+    // One answer for every Bot: the next name is the machine's, not any one Bot's.
+    const next = nextAnchor(spentAnchors(snapshot.bots));
+    const resolved = await Promise.all(snapshot.bots.map((record) => this.resolveRecord(record, next)));
     noteBotSessionOutcomes(resolved.flatMap((one) => one.outcomes));
     return {
       // The STREAM's version, which is the wire's and not the store's: `BOT_STORE_VERSION` just
@@ -119,7 +123,10 @@ export class BotViewer {
     };
   }
 
-  private async resolveRecord(record: BotRecord): Promise<{ view: BotView; outcomes: BotSessionOutcome[] }> {
+  private async resolveRecord(
+    record: BotRecord,
+    next: string,
+  ): Promise<{ view: BotView; outcomes: BotSessionOutcome[] }> {
     const { outcomes, ...split } = await resolveBotSessions(
       record,
       (ref) => this.catalog.resolveSession(ref),
@@ -129,6 +136,7 @@ export class BotViewer {
         ...record,
         environmentAvailability: await directoryAvailability(record.environment.path),
         ...split,
+        nextAnchor: next,
       },
       outcomes,
     };

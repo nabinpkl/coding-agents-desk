@@ -6,7 +6,6 @@
 // above -- nothing here holds state.
 
 import {
-  firstFreeAnchor,
   type AddBotCommand,
   type BotSessionRef,
   type BotView,
@@ -87,18 +86,13 @@ export function AppDialogs({
 }) {
   const keyOf = (session: Pick<SessionSummary, "source" | "sessionId">): string =>
     `${session.source}:${session.sessionId}`;
-  // Every anchor already spent, across every Bot the panel knows: the preview is first-free over
-  // this set, the same answer the sidecar gives its own store. A race still belongs to the
-  // sidecar, which spends the real one at launch.
-  const takenAnchors = useMemo(
-    () => bots.flatMap((bot) => Object.values(bot.sessionAnchors ?? {})),
-    [bots],
-  );
-  // The anchor a fork onto a Bot will most likely start under. Absent for a fork that belongs to
-  // nobody, which keeps counting past its project's titles instead.
+  // The anchor a fork onto a Bot will most likely start under: the name that Bot's own machine
+  // hands out next, which the sidecar puts on its view because only it knows its pool. A race
+  // still belongs to the sidecar, which spends the real one at launch. Absent for a fork that
+  // belongs to nobody, which keeps counting past its project's titles instead.
   const forkBotAnchor = useMemo(
-    () => (forkRequest?.botId ? firstFreeAnchor(takenAnchors) : undefined),
-    [forkRequest?.botId, takenAnchors],
+    () => (forkRequest?.botId ? bots.find((bot) => bot.botId === forkRequest.botId)?.nextAnchor : undefined),
+    [forkRequest?.botId, bots],
   );
   // The anchor a rename must leave alone, when exactly one Bot holds the session with one stored.
   // Held twice over, or held with none yet, and the dialog edits the whole title the way it
@@ -110,10 +104,7 @@ export function AppDialogs({
     return holders[0]!.sessionAnchors![keyOf(renamingSession)]!;
   }, [bots, renamingSession]);
   // The picker's preview, same rule as the fork's.
-  const pickerAnchor = useMemo(
-    () => (botSessionPicker ? firstFreeAnchor(takenAnchors) : ""),
-    [botSessionPicker, takenAnchors],
-  );
+  const pickerAnchor = botSessionPicker?.nextAnchor ?? "";
   return (
     <>
         <BotCreatorDialog

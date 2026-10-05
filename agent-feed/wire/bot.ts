@@ -94,6 +94,12 @@ export interface BotView extends BotRecord {
   sessions: SessionSummary[];
   /** Durable references retained when their catalog session is no longer available. */
   missingSessionRefs: BotSessionRef[];
+  /**
+   * The anchor the next session this Bot names would take: first-free over every Bot on its
+   * machine, from that machine's pool. Computed by the sidecar that will spend it, so a dialog
+   * shows the machine's own answer instead of guessing which pool a peer draws from.
+   */
+  nextAnchor: string;
 }
 
 export interface BotSnapshot {

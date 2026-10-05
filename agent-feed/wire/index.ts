@@ -45,6 +45,7 @@ export type {
 
 export {
   backfillTaskText,
+  ANCHOR_POOLS,
   firstFreeAnchor,
   formatBotSessionTitle,
   parseBotSessionTitle,

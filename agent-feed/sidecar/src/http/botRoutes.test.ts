@@ -22,6 +22,7 @@ const bot: BotView = {
   environmentAvailability: "available",
   sessions: [],
   missingSessionRefs: [],
+  nextAnchor: "Adam",
 };
 
 test("creates a Bot through the authenticated user route and returns its durable view", async () => {

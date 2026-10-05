@@ -6,13 +6,12 @@
 
 import type { BotRecord, BotSessionRef, RenamedBracket } from "@agentdesk/agent-feed-wire";
 import {
-  firstFreeAnchor,
   formatBotSessionTitle,
   refuseTaskText,
 } from "@agentdesk/agent-feed-wire";
 import type { BotStore } from "@/bots/botStore";
 import { sessionKey } from "@/bots/botIdempotency";
-import { spentAnchors } from "@/bots/sessions/botSessionLaunch";
+import { nextAnchor, spentAnchors } from "@/bots/sessions/botSessionLaunch";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import {
   BotConflictError,
@@ -45,7 +44,7 @@ export function allocateAnchors(
   for (const ref of refs) {
     const key = sessionKey(ref);
     if (anchors[key] === undefined) {
-      anchors[key] = firstFreeAnchor(taken);
+      anchors[key] = nextAnchor(taken);
       taken.add(anchors[key]!);
     }
   }
@@ -80,7 +79,7 @@ export async function renameBracketTitle(
       );
     }
     const bot = holders[0]!;
-    const anchor = bot.sessionAnchors?.[key] ?? firstFreeAnchor(spentAnchors(snapshot.bots));
+    const anchor = bot.sessionAnchors?.[key] ?? nextAnchor(spentAnchors(snapshot.bots));
     const bots = snapshot.bots.map((one) =>
       one.botId === bot.botId
         ? { ...one, sessionAnchors: { ...(one.sessionAnchors ?? {}), [key]: anchor } }

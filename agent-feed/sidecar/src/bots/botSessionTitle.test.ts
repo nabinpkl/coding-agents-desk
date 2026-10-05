@@ -1,6 +1,7 @@
 // Anchor plus bracket: the anchor never moves, the task says what the session is doing.
 import { expect, test } from "bun:test";
 import {
+  ANCHOR_POOLS,
   backfillTaskText,
   firstFreeAnchor,
   formatBotSessionTitle,
@@ -9,11 +10,23 @@ import {
   taskFromText,
 } from "@agentdesk/agent-feed-wire";
 
+const people = ANCHOR_POOLS.people!;
+const trees = ANCHOR_POOLS.trees!;
+
 test("allocation is first-free, deterministic, and never reuses", () => {
-  expect(firstFreeAnchor([])).toBe("Aaron");
-  expect(firstFreeAnchor(["Aaron", "Adam"])).toBe("Alan");
+  expect(firstFreeAnchor([], people)).toBe("Aaron");
+  expect(firstFreeAnchor(["Aaron", "Adam"], people)).toBe("Alan");
   // A freed name stays spent: the set is history, not occupancy.
-  expect(firstFreeAnchor(["Adam"])).toBe("Aaron");
+  expect(firstFreeAnchor(["Adam"], people)).toBe("Aaron");
+});
+
+test("two machines on two pools never hand out one name, laps included", () => {
+  const all = Object.values(ANCHOR_POOLS).flat();
+  expect(new Set(all).size).toBe(all.length);
+  expect(firstFreeAnchor([], trees)).toBe("Acacia");
+  // Past the end of a pool the laps stay in that pool's names.
+  expect(firstFreeAnchor(trees, trees)).toBe("Acacia 2");
+  expect(firstFreeAnchor(people, people)).toBe("Aaron 2");
 });
 
 test("an empty task leaves the bare anchor", () => {

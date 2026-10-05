@@ -59,6 +59,11 @@ HEALTH_INTERVAL="${AGENTDESK_REMOTE_SIDECAR_HEALTH_SECONDS:-60}"
 # judging, and a ship that takes longer than this simply gets judged twice, which costs one extra
 # restart and nothing else.
 SETTLE_MS="${AGENTDESK_REMOTE_SIDECAR_SETTLE_MS:-2000}"
+# Which pool of names a peer gives its Bot sessions (`agent-feed/wire/botSessionTitle.ts`). This
+# Mac draws from the default pool and a peer from another, because the pools are disjoint and that
+# is the only thing that keeps two machines from handing out one name: neither can see the other's
+# Bots. A second peer needs its own, set here for it, or it shares the first peer's names.
+ANCHOR_POOL="${AGENTDESK_REMOTE_ANCHOR_POOL:-trees}"
 
 on_peer() {
     # BatchMode so a missing key fails loudly instead of hanging on a password prompt.
@@ -206,6 +211,7 @@ launch_sidecar() {
         AGENTDESK_RUNTIME_ROOT='${remote_root}/runtime' \
         AGENTDESK_SIDECAR_REGISTRY='${remote_root}/sidecars' \
         AGENT_FEED_SUPERVISOR_SETTLE_MS='${SETTLE_MS}' \
+        AGENT_FEED_ANCHOR_POOL='${ANCHOR_POOL}' \
         AGENT_FEED_HOST='${1}' \
         AGENT_FEED_PORT='${port}' \
         ${proxy_observer_env}\

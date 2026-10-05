@@ -89,6 +89,7 @@ export const BOT_WITH_ONE_SESSION = {
           environmentAvailability: "available",
           sessions: [FIXTURE_SESSIONS[0]!],
           missingSessionRefs: [],
+          nextAnchor: "Adam",
         };
 
 export const originalMatchMedia = globalThis.matchMedia;
@@ -306,6 +307,7 @@ export function deliverTwoBots(transport: FakeHttpTransport) {
           environmentAvailability: "available",
           sessions: [FIXTURE_SESSIONS[0]!],
           missingSessionRefs: [],
+          nextAnchor: "Adam",
         },
         {
           botId: "bot-2",
@@ -319,6 +321,7 @@ export function deliverTwoBots(transport: FakeHttpTransport) {
           environmentAvailability: "available",
           sessions: [FIXTURE_SESSIONS[1]!],
           missingSessionRefs: [],
+          nextAnchor: "Adam",
         },
       ],
     });

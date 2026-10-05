@@ -1,6 +1,6 @@
 // A Bot session's title in two halves: a stable anchor, then what it is doing.
 //
-// The anchor is a plain English name (`Aaron`, `Maya`), allocated once per session from the pool
+// The anchor is a plain name (`Aaron`, `Maple`), allocated once per session from its machine's pool
 // below and stored on the Bot's record. It is never the Bot's name plus a number: numbers get
 // re-read as ranks and re-counted from titles, which is the collision this replaces. The bracket
 // holds the task (`Aaron (checkout flow)`), which the reader sets at launch and a Bot will later
@@ -9,12 +9,15 @@
 // nothing about addressing changes, only what the string is made of.
 //
 // Allocation is first-free over the names already stored, machine-wide: two Bots never hand out
-// the same anchor, and a freed name is never reused, so history cannot collide. Both trees import
-// this: the sidecar allocates and composes at launch, the panel previews the same answer in its
-// dialogs. One home for the format, so the two cannot drift.
+// the same anchor, and a freed name is never reused, so history cannot collide. ACROSS machines
+// it is the pools that keep names apart: each sidecar draws from the pool it is configured with
+// and cannot see any other machine's store, so two machines on two pools can never hand out one
+// name, with no conversation between them. That is the whole of the coordination: which pool a
+// machine uses, decided once when it is set up. Both trees import this: the sidecar allocates and
+// composes, the panel shows the sidecar's own next name rather than computing one.
 
-/** Every anchor ever handed out, in allocation order. Plain first names, nothing to re-read. */
-const ANCHOR_POOL = [
+/** First names, in allocation order: the pool of the machine everything started on. */
+const PEOPLE = [
   "Aaron", "Adam", "Alan", "Albert", "Alice", "Amelia", "Andrew", "Angela",
   "Anna", "Arthur", "Audrey", "Austin", "Beatrice", "Benjamin", "Bernard", "Bonnie",
   "Bradley", "Brenda", "Brian", "Bridget", "Bruce", "Caleb", "Calvin", "Cameron",
@@ -33,17 +36,46 @@ const ANCHOR_POOL = [
   "Jeffrey", "Jennifer", "Jeremy", "Jerome", "Jesse", "Jessica", "Jill", "Joan",
 ];
 
-/** The first pool name nobody holds, so allocation is deterministic given the same state. */
-export function firstFreeAnchor(taken: Iterable<string>): string {
+/** Trees, in allocation order. Nothing here is also a first name above. */
+const TREES = [
+  "Acacia", "Alder", "Almond", "Apple", "Ash", "Aspen", "Balsa", "Banyan",
+  "Baobab", "Bay", "Beech", "Birch", "Blackthorn", "Boxwood", "Buckeye", "Butternut",
+  "Buttonwood", "Catalpa", "Cedar", "Cherry", "Chestnut", "Cinnamon", "Citron", "Cork",
+  "Cottonwood", "Crabapple", "Cypress", "Damson", "Date", "Dogwood", "Ebony", "Elder",
+  "Elm", "Eucalyptus", "Fig", "Fir", "Ginkgo", "Guava", "Hackberry", "Hawthorn",
+  "Hemlock", "Hickory", "Hornbeam", "Jacaranda", "Juniper", "Kapok", "Kauri", "Larch",
+  "Lemon", "Lilac", "Lime", "Linden", "Locust", "Loquat", "Magnolia", "Mahogany",
+  "Mango", "Maple", "Medlar", "Mesquite", "Mimosa", "Mulberry", "Neem", "Nutmeg",
+  "Oak", "Olive", "Orange", "Osage", "Palm", "Papaya", "Peach", "Pear",
+  "Pecan", "Persimmon", "Pine", "Pistachio", "Plane", "Plum", "Pomelo", "Poplar",
+  "Quince", "Redbud", "Redwood", "Rowan", "Sandalwood", "Sassafras", "Sequoia", "Sorrel",
+  "Spruce", "Sumac", "Sycamore", "Tamarack", "Tamarind", "Teak", "Tupelo", "Walnut",
+  "Wattle", "Willow", "Wingnut", "Witchhazel", "Yew", "Yucca",
+];
+
+/**
+ * Every pool a machine can name its sessions from, by the name its sidecar is configured with.
+ *
+ * Disjoint, and that is the property everything rests on: a name, and every lap of it, belongs to
+ * exactly one pool, so it can only ever have been handed out by the machines using that pool. A
+ * new machine gets a new pool rather than a share of an old one.
+ */
+export const ANCHOR_POOLS: Readonly<Record<string, readonly string[]>> = {
+  people: PEOPLE,
+  trees: TREES,
+};
+
+/** The first name in the pool nobody holds, so allocation is deterministic given the same state. */
+export function firstFreeAnchor(taken: Iterable<string>, pool: readonly string[]): string {
   const held = new Set(taken);
-  for (const name of ANCHOR_POOL) {
+  for (const name of pool) {
     if (!held.has(name)) return name;
   }
   // Past the pool: the name stays stable, the number only says which lap. Rare enough that the
   // numbering carries no meaning worth designing around.
   let lap = 2;
   for (;;) {
-    for (const name of ANCHOR_POOL) {
+    for (const name of pool) {
       if (!held.has(`${name} ${lap}`)) return `${name} ${lap}`;
     }
     lap += 1;
