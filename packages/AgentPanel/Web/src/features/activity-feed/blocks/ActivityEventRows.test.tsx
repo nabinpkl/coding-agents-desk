@@ -236,7 +236,7 @@ describe("event heading", () => {
     // body, costing every event ~30px that carried no content.
     const { container } = renderRow(
       <SegmentEventRow
-        ev={event()}
+        ev={event({ type: "reasoning", blocks: [{ kind: "reasoning", text: "thinking" }] })}
         ctx={CTX}
         isFirst
         isLast
@@ -256,7 +256,7 @@ describe("event heading", () => {
   it("contains the float so a short body cannot let it escape the row", () => {
     const { container } = renderRow(
       <SegmentEventRow
-        ev={event()}
+        ev={event({ type: "reasoning", blocks: [{ kind: "reasoning", text: "thinking" }] })}
         ctx={CTX}
         isFirst
         isLast
@@ -272,7 +272,7 @@ describe("event heading", () => {
   it("moves the timestamp off the row and into its tooltip, and names no row number", () => {
     renderRow(
       <SegmentEventRow
-        ev={event()}
+        ev={event({ type: "reasoning", blocks: [{ kind: "reasoning", text: "thinking" }] })}
         ctx={CTX}
         isFirst
         isLast
@@ -357,10 +357,19 @@ describe("prompt cache badge", () => {
 });
 
 describe("collapsed row", () => {
+  it("leaves a model's prose open, with no toggle, even when told to collapse", () => {
+    const { container } = renderRow(
+      <SegmentEventRow ev={event({ blocks: [{ kind: "text", text: "first line\nsecond line" }] })} ctx={NICE_CTX} isFirst isLast isCollapsed onToggle={() => {}} isHighlighted={false} />,
+    );
+    expect(screen.getByText(/second line/)).toBeTruthy();
+    expect(container.querySelector("button[aria-expanded]")).toBeNull();
+  });
+
+  // Reasoning, since a model's prose never folds.
   it("shows a one-line gist instead of a bare chip", () => {
     renderRow(
       <SegmentEventRow
-        ev={event({ blocks: [{ kind: "text", text: "first line\nsecond line" }] })}
+        ev={event({ type: "reasoning", blocks: [{ kind: "reasoning", text: "first line\nsecond line" }] })}
         ctx={CTX}
         isFirst
         isLast
@@ -376,7 +385,7 @@ describe("collapsed row", () => {
   it("says so when an event has nothing to preview", () => {
     renderRow(
       <SegmentEventRow
-        ev={event({ blocks: [{ kind: "text", text: "" }] })}
+        ev={event({ type: "reasoning", blocks: [{ kind: "reasoning", text: "" }] })}
         ctx={CTX}
         isFirst
         isLast
@@ -391,7 +400,7 @@ describe("collapsed row", () => {
   it("places the gist in its own formatting context so it clears the float", () => {
     const { container } = renderRow(
       <SegmentEventRow
-        ev={event({ blocks: [{ kind: "text", text: "gist" }] })}
+        ev={event({ type: "reasoning", blocks: [{ kind: "reasoning", text: "gist" }] })}
         ctx={CTX}
         isFirst
         isLast

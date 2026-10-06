@@ -147,6 +147,24 @@ export const COLUMN_GUTTER_CLASS = "px-[clamp(0.75rem,3%,1.5rem)]";
 export const SESSION_MEASURE_CLASS = "mx-auto w-full max-w-[48rem]";
 
 /**
+ * Whether a row of this role folds. A model's prose is the answer the reader came for, so it is
+ * always open and carries no chevron; tool work, reasoning and the rest fold.
+ */
+export function isFoldableRole(role: DisplayRole): boolean {
+  return role !== "assistant";
+}
+
+function LiveDot() {
+  return (
+    <span
+      className="ml-[0.15em] inline-block size-[0.45em] shrink-0 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
+      style={{ animationIterationCount: 3 }}
+      aria-hidden
+    />
+  );
+}
+
+/**
  * An event's role chip and collapse toggle, floated so the first line of the
  * body sits beside it.
  *
@@ -192,11 +210,27 @@ export function EventHeading({
    * Collapsed it keeps the chevron, because the call's own header is not on screen then and this
    * is the only way back into the row.
    */
-  const showChevron = isCollapsed || role !== "tool";
+  const showChevron = isFoldableRole(role) && (isCollapsed || role !== "tool");
   // And with the chevron gone there is often nothing left at all: a bare tool call in nice mode
   // has no chip and no intent. An empty heading is not free -- it is a focus stop, a hover target
   // and a float the first block has to clear -- so it is not drawn.
   if (!showChevron && !showRole && !isLive && !showCacheBadge && !showIntent) return null;
+  // Nothing to open or close, so what is left is a label and not a control.
+  if (!isFoldableRole(role)) {
+    return (
+      <div
+        title={isLive ? "streaming" : when || undefined}
+        // The live state is announced here, as it is on a foldable row's toggle.
+        role={isLive ? "status" : undefined}
+        aria-label={isLive ? "streaming" : undefined}
+        className="float-left mt-[0.15em] mr-[0.4em] flex max-w-full items-center gap-[0.2em]"
+      >
+        {showRole ? <span className={CHIP_CLASS + ROLE_STYLES[role]}>{role}</span> : null}
+        {isLive ? <LiveDot /> : null}
+        {showCacheBadge ? <CacheBadge cacheHit={ev.cacheHit!} /> : null}
+      </div>
+    );
+  }
   // With nothing in front of it, the intent lines up with the call's name under it rather than
   // with that call's chevron: the header's chevron is `size-[1em]` and its gap `gap-1.5`
   // (ActivityBlockViews), so that is how far in the name starts.
@@ -237,13 +271,7 @@ export function EventHeading({
           moves vertically. It pulses a few times as the row goes live and then holds
           solid: an infinite pulse kept the compositor drawing every frame for as long
           as the row was live, and a row whose message never finishes is live for good. */}
-      {isLive ? (
-        <span
-          className="ml-[0.15em] inline-block size-[0.45em] shrink-0 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
-          style={{ animationIterationCount: 3 }}
-          aria-hidden
-        />
-      ) : null}
+      {isLive ? <LiveDot /> : null}
       {showCacheBadge ? <CacheBadge cacheHit={ev.cacheHit!} /> : null}
       {/* Why the tool ran, above the call that ran it. Only when expanded: a collapsed
           row already spends this space on its gist, and the heading is otherwise blank here. */}

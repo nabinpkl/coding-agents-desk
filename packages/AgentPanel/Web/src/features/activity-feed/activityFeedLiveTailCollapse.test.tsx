@@ -48,9 +48,9 @@ function durable(index: number, text: string): ActivityEvent {
     revision: 0,
     phase: "complete",
     ts: 1000 + index,
-    type: "assistant",
+    type: "reasoning",
     messageId: `msg_durable_${index}`,
-    blocks: [{ kind: "text", text }],
+    blocks: [{ kind: "reasoning", text }],
   };
 }
 
@@ -62,9 +62,9 @@ const liveRow: ActivityEvent = {
   revision: 0,
   phase: "streaming",
   ts: 9000,
-  type: "assistant",
+  type: "reasoning",
   messageId: "msg_live",
-  blocks: [{ kind: "text", text: "the message being written" }],
+  blocks: [{ kind: "reasoning", text: "the message being written" }],
 };
 
 /** The mirror's next row: the turn moved on to a second message before the file caught up. */
@@ -75,9 +75,9 @@ const laterLiveRow: ActivityEvent = {
   revision: 0,
   phase: "streaming",
   ts: 9100,
-  type: "assistant",
+  type: "reasoning",
   messageId: "msg_live_2",
-  blocks: [{ kind: "text", text: "the next message of the same turn" }],
+  blocks: [{ kind: "reasoning", text: "the next message of the same turn" }],
 };
 
 const systemRow: ActivityEvent = {
@@ -97,6 +97,7 @@ const systemRow: ActivityEvent = {
  * transcript. Both are small integers on the same session and they overlap constantly,
  * so the feed must not key anything on the two of them together.
  */
+// Reasoning rather than prose: a model's prose never folds, so it has no collapse state to share.
 describe("live tail collapse state", () => {
   it("hides a System-only Nice snapshot but keeps the Raw escape hatch", async () => {
     const transport = new FakeHttpTransport();

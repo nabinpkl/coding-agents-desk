@@ -31,6 +31,7 @@ import {
   CacheBadge,
   EventHeading,
   COLUMN_GUTTER_CLASS,
+  isFoldableRole,
   showEventRoleLabel,
 } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
@@ -188,6 +189,8 @@ function EventRowShell({
   isLive?: boolean;
 }) {
   const showRole = showEventRoleLabel(ctx.session.mode, role);
+  // Collapse-all reaches every row; one that does not fold ignores it.
+  const collapsed = isCollapsed && isFoldableRole(role);
   // A heading with no chip and no intent has nothing for a block to run into: a tool row draws
   // none at all, and anywhere else it is a lone chevron the first block sits beside.
   const bareHeading = !showRole && !(role === "tool" && toolIntent(ev));
@@ -196,13 +199,13 @@ function EventRowShell({
       <EventHeading
         ev={ev}
         role={role}
-        isCollapsed={isCollapsed}
+        isCollapsed={collapsed}
         onToggle={onToggle}
         showCacheHits={ctx.showCacheHits}
         isLive={isLive}
         showRole={showRole}
       />
-      {isCollapsed
+      {collapsed
         ? <CollapsedPreview ev={ev} />
         : (
           <EventBody

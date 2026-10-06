@@ -169,10 +169,12 @@ describe("LiveTailRow", () => {
     const ev = tail([{ kind: "text", text: "Working" }]);
     ev.phase = "complete";
     const live = renderLive(ev);
-    // Nice omits the repeated Assistant role chip from both forms. Live-ness
-    // rides the heading as a pulse and an accessible label, not a text band.
+    // Nice omits the repeated Assistant role chip from both forms, and prose does not fold, so
+    // there is no toggle either. Live-ness rides the heading as a pulse and an accessible label,
+    // not a text band.
     expect(live.container.textContent).not.toContain("assistant");
-    expect(live.getByLabelText(/, streaming/)).toBeDefined();
+    expect(live.getByLabelText("streaming")).toBeDefined();
+    expect(live.container.querySelector("button[aria-expanded]")).toBeNull();
     expect(live.container.textContent).toBe(
       renderLanded(ev).container.textContent,
     );

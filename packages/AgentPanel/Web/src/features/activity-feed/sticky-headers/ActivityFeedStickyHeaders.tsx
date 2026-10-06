@@ -4,7 +4,6 @@
 // scrolled past, and the event they are inside now.
 
 import type { RefObject } from "react";
-import { ChevronRight } from "lucide-react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { eventPreview } from "@/features/activity-feed/rows/activityEventText";
@@ -79,10 +78,6 @@ export function StickyEventHeader({
       }
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
-      <ChevronRight
-        className="size-[1.1em] shrink-0 rotate-90 text-muted-foreground"
-        aria-hidden
-      />
       {showEventRoleLabel(mode, role) ? (
         <span
           className={
