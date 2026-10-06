@@ -27,7 +27,7 @@
  *   lists only the live conversation. Counting here does not make that agree -- nothing can --
  *   which is exactly why the count travels with the text that has to match it.
  */
-import { isSaidText } from "@agentdesk/agent-feed-wire";
+import { isSaidText, type LastSessionMessage } from "@agentdesk/agent-feed-wire";
 import {
   completeEnd,
   isLineStart,
@@ -119,7 +119,7 @@ export async function lastHumanMessage(
   sessionId: string,
   transcriptPath: string,
   { said = false, before = null }: { said?: boolean; before?: number | null } = {},
-): Promise<{ eventId: string; text: string } | null> {
+): Promise<LastSessionMessage | null> {
   let from = before;
   for (;;) {
     const page = await readPageBefore("claude", sessionId, transcriptPath, from, MESSAGE_PAGE, "raw");
@@ -127,7 +127,7 @@ export async function lastHumanMessage(
       const event = page.events[at]!;
       if (event.humanTurn !== true) continue;
       const text = messageText(event);
-      if (text && (!said || isSaidText(text))) return { eventId: event.id, text };
+      if (text && (!said || isSaidText(text))) return { eventId: event.id, index: event.index, text };
     }
     if (page.windowStart === 0) return null;
     from = page.windowStart;
@@ -166,7 +166,7 @@ function messageText(parsed: { blocks: readonly { kind: string; text?: string }[
 export async function lastCompactionMessage(
   sessionId: string,
   transcriptPath: string,
-): Promise<{ eventId: string; text: string } | null> {
+): Promise<LastSessionMessage | null> {
   const compaction = await newestCompaction(sessionId, transcriptPath);
   if (compaction === null) return null;
   // Forward from the boundary rather than from the summary that follows it: both carry the same
@@ -178,7 +178,7 @@ export async function lastCompactionMessage(
     const text = messageText(event);
     // Same skip `lastHumanMessage` makes: an anchor with no prose is one the picker could only be
     // walked to blind, and this repository does not walk blind.
-    if (text) return { eventId: `claude:${sessionId}:at:${line.position}`, text };
+    if (text) return { eventId: `claude:${sessionId}:at:${line.position}`, index: line.position, text };
   }
   return null;
 }

@@ -65,11 +65,14 @@ window still pays the distance, and the turn index reintroduces the whole-file r
   a reconnect's hole closed at once wherever the reader was; now that hole waits until the reader
   scrolls to it, like any other.
 - **The user bar** stands for the last message the reader said above the top row on screen. Inside
-  the range holding that row it is found among loaded rows, by the rules that exist. When that range
-  holds none above it, the sidecar is asked for the last such message before the range's start:
-  `last-message?before=<position>&said=1`, a backward read that stops at the first match. The panel
-  keeps that one answer while the range's start is unchanged; a message the reader sends arrives in
-  the stream and is found locally.
+  the range holding that row it is found among loaded rows, by the rules that exist; a message held
+  above a gap does not count, since the gap may hold a newer one. When that range holds none above
+  the top, the sidecar is asked for the last such message before the range's start (the row under
+  the gap that opens it, or the oldest range's first row): `last-message?before=<position>&said=1`,
+  a backward read that stops at the first match. The answer carries the message's `index` as well
+  as its id, which is what the jump reads around. The panel keeps that one answer while the range's
+  start is unchanged; a message the reader sends arrives in the stream and is found locally. Claude
+  only, as before: the walk back reads a Claude transcript.
 - **"Said"** is one rule in `agent-feed/wire`: a message that only runs a slash command is not
   something the reader said. Both ends import it.
 - **Jump and restore** open a range around the position (`around`) and scroll to the row. One read.
@@ -90,8 +93,11 @@ window still pays the distance, and the turn index reintroduces the whole-file r
 
 ### Confirmation
 
-- A jump to an unloaded message makes exactly one events request (Chrome for Testing network log)
-  and lands the row at the top of the viewport.
+- A jump to an unloaded message reads exactly one page, `around` it, and lands the row at the top
+  of the viewport. Older paging may then fetch the page above the range it opened, as it does above
+  any range whose first rows are on screen; that is scrollback being read ahead, not the jump.
+  Measured 2026-10-06 on a 155MB session, a message about 2MB above the live window: one `around`
+  read, the row at y=0, and one `after` read closing the gap when scrolled down to the live end.
 - A thread with every row loaded renders the same rows, bars and scroll positions as before
   (the paging and sticky sequences recorded in the ledger's checks).
 - Route tests for `after`, `around` and `last-message?before&said`, a nice-mode page around a

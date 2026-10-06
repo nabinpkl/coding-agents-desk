@@ -25,7 +25,6 @@ import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayou
 import {
   jumpScrollTop,
   selectStickyCurrentIndex,
-  selectStickyUserIndex,
 } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
 import {
   forgetTranscriptAnchor,
@@ -53,7 +52,7 @@ import {
   StickyUserHeader,
   userMessageText,
 } from "@/features/activity-feed/sticky-headers/ActivityFeedStickyHeaders";
-import { useUnloadedLastMessage } from "@/features/activity-feed/sticky-headers/useUnloadedLastMessage";
+import { useJumpToMessage, useRemoteUserBar } from "@/features/activity-feed/sticky-headers/useRemoteUserBar";
 import { ActivityFeedRow } from "@/features/activity-feed/ActivityFeedRow";
 import { useFeedRows } from "@/features/activity-feed/rows/useFeedRows";
 import { useStickyIndices } from "@/features/activity-feed/sticky-headers/useStickyIndices";
@@ -131,7 +130,7 @@ export function ActivityFeed({
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }) {
   const {
-    events, loadOlder, fillGap, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary,
+    events, loadOlder, fillGap, loadAround, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary,
   } = useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
@@ -259,16 +258,12 @@ export function ActivityFeed({
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
 
-  const unloaded = useUnloadedLastMessage({
-    flashHighlight,
-    items,
-    loadOlder,
-    pause,
-    rowVirtualizer,
-    sessionId,
-    source,
-    windowStart,
-  });
+  // The position the bar needs the sidecar for, from the last answer below. Held in state so the
+  // answer can size the bars on the render after it arrives; one render behind is what that costs.
+  const [askBefore, setAskBefore] = useState<number | null>(null);
+  // Claude only: the sidecar's walk back reads a Claude transcript.
+  const remoteBar = useRemoteUserBar(sessionId, source === "claude" ? askBefore : null);
+  const jumpToMessage = useJumpToMessage({ flashHighlight, items, loadAround, pause, rowVirtualizer });
 
   const {
     stickyCurrent,
@@ -277,18 +272,22 @@ export function ActivityFeed({
     stickyUserIndex,
     topEvent,
     topRowIndex,
+    userBarBefore,
     changesAt,
   } = useStickyIndices({
     items,
     mode,
+    oldestStart: source === "claude" ? windowStart : null,
+    remote: remoteBar.remote,
     rowItems,
     rowVirtualizer,
     scrollTop: scrollTopRef.current,
     stickyHeaderRef,
-    unloadedUserBar: unloaded.message !== null,
     virtualItems,
   });
   changesAtRef.current = changesAt;
+  useEffect(() => { setAskBefore(userBarBefore); }, [userBarBefore]);
+  const remoteMessage = userBarBefore !== null && remoteBar.remote?.before === userBarBefore ? remoteBar.message : null;
 
   const { restoring } = useTranscriptScrollRestore({
     following,
@@ -431,7 +430,7 @@ export function ActivityFeed({
           </span>
         </div>
       ) : null}
-      {(stickyUser || unloaded.message || stickyCurrent) ? (
+      {(stickyUser || remoteMessage || stickyCurrent) ? (
         <div className="absolute inset-x-0 top-0 z-20 flex flex-col">
           {stickyUser && stickyUserIndex !== null ? (
             <StickyUserHeader
@@ -441,12 +440,12 @@ export function ActivityFeed({
               // reserved: the row lands flush with the top of the viewport.
               onClick={() => jumpTo(stickyUserIndex, 0)}
             />
-          ) : unloaded.message ? (
+          ) : remoteMessage ? (
             <StickyUserHeader
-              text={unloaded.message.text}
+              text={remoteMessage.text}
               buttonRef={stickyHeaderRef}
-              // Not loaded yet, so this pages back to the message before landing on it.
-              onClick={unloaded.jump}
+              // Not held, so this reads the rows around the message and lands on it.
+              onClick={() => jumpToMessage(remoteMessage)}
             />
           ) : null}
           {stickyCurrent && stickyCurrentIndex !== null ? (
@@ -458,7 +457,7 @@ export function ActivityFeed({
               onClick={() =>
                 jumpTo(
                   stickyCurrentIndex,
-                  stickyUser || unloaded.message ? (stickyHeaderRef.current?.offsetHeight ?? 0) : 0,
+                  stickyUser || remoteMessage ? (stickyHeaderRef.current?.offsetHeight ?? 0) : 0,
                 )
               }
             />

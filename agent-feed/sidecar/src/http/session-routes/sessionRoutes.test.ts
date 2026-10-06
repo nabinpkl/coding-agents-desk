@@ -390,6 +390,7 @@ test("answers the newest message a person wrote, addressed the way a fork takes 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
     eventId: `claude:${SESSION_ID}:at:${Buffer.byteLength(alpha) + 1}`,
+    index: Buffer.byteLength(alpha) + 1,
     text: "BRAVO two",
   });
 });
@@ -406,6 +407,7 @@ test("skips everything that is not a person talking", async () => {
 
   expect(await (await lastMessage("claude", SESSION_ID)).json()).toEqual({
     eventId: `claude:${SESSION_ID}:at:0`,
+    index: 0,
     text: "ALPHA one",
   });
 });
@@ -419,6 +421,7 @@ test("passes over a bare slash command when asked for the last thing said", asyn
   expect(await (await lastMessage("claude", SESSION_ID)).json()).toMatchObject({ text: "/compact" });
   expect(await (await lastMessage("claude", SESSION_ID, "?said=1")).json()).toEqual({
     eventId: `claude:${SESSION_ID}:at:0`,
+    index: 0,
     text: "ALPHA one",
   });
 });
@@ -434,6 +437,7 @@ test("asked for the last thing said before a position, walks back from there", a
 
   expect(await (await lastMessage("claude", SESSION_ID, `?before=${bravo}&said=1`)).json()).toEqual({
     eventId: `claude:${SESSION_ID}:at:0`,
+    index: 0,
     text: "ALPHA one",
   });
   expect((await lastMessage("claude", SESSION_ID, "?before=0")).status).toBe(404);
@@ -449,13 +453,8 @@ function eventsPage(query: string): Promise<Response> {
 test("reads a page before, after or around a position, and refuses two at once", async () => {
   state.watcherState = "live";
   await transcriptHolding((root) => Array.from({ length: 9 }, (_, turn) => answered(root, `turn ${turn}`)));
-  const path = state.sessions.get(`claude:${SESSION_ID}`)!.transcriptPath!;
-  const starts: number[] = [];
-  let at = 0;
-  for (const line of (await Bun.file(path).text()).split("\n").filter(Boolean)) {
-    starts.push(at);
-    at += Buffer.byteLength(line) + 1;
-  }
+  const lines = (await Bun.file(state.sessions.get(`claude:${SESSION_ID}`)!.transcriptPath!).text()).split("\n");
+  const starts = lines.map((_, n) => lines.slice(0, n).reduce((sum, line) => sum + Buffer.byteLength(line) + 1, 0));
   const texts = async (response: Response) =>
     ((await response.json()) as { events: { blocks: { text?: string }[] }[] }).events.map((event) =>
       event.blocks.find((block) => block.text)?.text);

@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   HEADER_OBSCURED_PX,
-  hasPersonRow,
   jumpScrollTop,
   selectStickyCurrentIndex,
-  selectStickyUserIndex,
+  selectUserBar,
   type StickyMeasurement,
   type StickyRow,
 } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
@@ -46,21 +45,21 @@ describe("sticky user bar", () => {
     // restating text the viewer can already read 20px below it, on a thread
     // whose whole content fits the viewport.
     const layout = stack(114, 107);
-    expect(selectStickyUserIndex(rows("user", "segment_event"), layout, 0, STICKY_H)).toBeNull();
+    expect(selectUserBar(rows("user", "segment_event"), layout, 0, STICKY_H, 0)).toBeNull();
   });
 
   it("stays off until the row's own heading has scrolled away", () => {
     const layout = stack(114, 107);
     const list = rows("user", "segment_event");
-    expect(selectStickyUserIndex(list, layout, HEADER_OBSCURED_PX - 1, STICKY_H)).toBeNull();
-    expect(selectStickyUserIndex(list, layout, HEADER_OBSCURED_PX, STICKY_H)).toBe(0);
+    expect(selectUserBar(list, layout, HEADER_OBSCURED_PX - 1, STICKY_H, 0)).toBeNull();
+    expect(selectUserBar(list, layout, HEADER_OBSCURED_PX, STICKY_H, 0)).toEqual({ row: 0 });
   });
 
   it("pins the most recent user row once scrolled past it", () => {
     const layout = stack(100, 100, 100, 100);
     const list = rows("user", "segment_event", "user", "segment_event");
-    expect(selectStickyUserIndex(list, layout, 150, STICKY_H)).toBe(0);
-    expect(selectStickyUserIndex(list, layout, 260, STICKY_H)).toBe(2);
+    expect(selectUserBar(list, layout, 150, STICKY_H, 0)).toEqual({ row: 0 });
+    expect(selectUserBar(list, layout, 260, STICKY_H, 0)).toEqual({ row: 2 });
   });
 
   it("flips to an incoming user row as its heading goes behind the bar", () => {
@@ -69,7 +68,7 @@ describe("sticky user bar", () => {
     // covering row 2's heading, so it has to be the one it stands for.
     const layout = stack(100, 100, 100, 100);
     const list = rows("user", "segment_event", "user", "segment_event");
-    expect(selectStickyUserIndex(list, layout, 200, STICKY_H)).toBe(2);
+    expect(selectUserBar(list, layout, 200, STICKY_H, 0)).toEqual({ row: 2 });
   });
 
   it("never blanks between turns", () => {
@@ -79,7 +78,7 @@ describe("sticky user bar", () => {
     const layout = stack(100, 100, 100, 100);
     const list = rows("user", "segment_event", "user", "segment_event");
     for (let scrollTop = HEADER_OBSCURED_PX; scrollTop < 400; scrollTop += 1) {
-      expect(selectStickyUserIndex(list, layout, scrollTop, STICKY_H)).not.toBeNull();
+      expect(selectUserBar(list, layout, scrollTop, STICKY_H, 0)).not.toBeNull();
     }
   });
 
@@ -87,36 +86,60 @@ describe("sticky user bar", () => {
     // After `/compact` the newest user row was its `<local-command-stdout>`, and the bar named it.
     const layout = stack(100, 100, 100, 100);
     const list = rows("user", "segment_event", "harness", "segment_event");
-    expect(selectStickyUserIndex(list, layout, 360, STICKY_H)).toBe(0);
-    expect(selectStickyUserIndex(rows("harness", "segment_event"), stack(100, 100), 150, STICKY_H)).toBeNull();
+    expect(selectUserBar(list, layout, 360, STICKY_H, 0)).toEqual({ row: 0 });
+    expect(selectUserBar(rows("harness", "segment_event"), stack(100, 100), 150, STICKY_H, 0)).toBeNull();
   });
 
   it("passes over a slash command a person typed, but not prose that starts with a path", () => {
     const layout = stack(100, 100, 100, 100);
-    expect(selectStickyUserIndex(rows("user", "segment_event", "command", "segment_event"), layout, 360, STICKY_H)).toBe(0);
+    expect(selectUserBar(rows("user", "segment_event", "command", "segment_event"), layout, 360, STICKY_H, 0)).toEqual({ row: 0 });
     const pathFirst = [said("hi"), { kind: "segment_event" }, said("/Users/dev/x is wrong"), { kind: "segment_event" }];
-    expect(selectStickyUserIndex(pathFirst, layout, 360, STICKY_H)).toBe(2);
+    expect(selectUserBar(pathFirst, layout, 360, STICKY_H, 0)).toEqual({ row: 2 });
     const renamed = [said("hi"), { kind: "segment_event" }, said("/rename New title"), { kind: "segment_event" }];
-    expect(selectStickyUserIndex(renamed, layout, 360, STICKY_H)).toBe(0);
+    expect(selectUserBar(renamed, layout, 360, STICKY_H, 0)).toEqual({ row: 0 });
   });
 
-  it("knows when no loaded row can stand for the reader's message", () => {
-    // What sends the bar to the sidecar: a turn longer than the first page leaves only harness
-    // rows and slash commands loaded.
-    expect(hasPersonRow(rows("segment_event", "harness", "command"))).toBe(false);
-    expect(hasPersonRow([{ kind: "segment_event" }, said("fix the parser")])).toBe(true);
+  it("treats a bare slash command as nothing said, and a leading path as prose", () => {
     expect(isSaidText("/compact")).toBe(false);
     expect(isSaidText("/Users/dev/x is wrong")).toBe(true);
   });
 
   it("returns null when the thread holds no user row", () => {
     expect(
-      selectStickyUserIndex(rows("segment_event", "compaction"), stack(80, 40), 300, STICKY_H),
+      selectUserBar(rows("segment_event", "compaction"), stack(80, 40), 300, STICKY_H, 0),
     ).toBeNull();
   });
 
   it("tolerates measurements the virtualizer has not caught up with", () => {
-    expect(selectStickyUserIndex(rows("user", "user"), stack(100), 400, STICKY_H)).toBe(0);
+    expect(selectUserBar(rows("user", "user"), stack(100), 400, STICKY_H, 0)).toEqual({ row: 0 });
+  });
+});
+
+describe("sticky user bar across ranges", () => {
+  const gap = (below: number): StickyRow => ({ kind: "gap", below });
+
+  it("asks the sidecar from where the oldest range starts when it holds nothing said above the top", () => {
+    // A long unattended turn: the reader's message is above the first page, at rest.
+    const list = rows("segment_event", "segment_event", "segment_event");
+    expect(selectUserBar(list, stack(100, 100, 100), 0, STICKY_H, 5_000)).toEqual({ before: 5_000 });
+    // The oldest range starts the session: nothing is above, so no bar.
+    expect(selectUserBar(list, stack(100, 100, 100), 150, STICKY_H, 0)).toBeNull();
+    // A source the sidecar cannot be asked about keeps the held-row rule alone.
+    expect(selectUserBar(list, stack(100, 100, 100), 150, STICKY_H, null)).toBeNull();
+  });
+
+  it("does not reach across a gap for a message, and asks from the row under it instead", () => {
+    // A message held above a gap is not the last one said: the gap may hold a newer one.
+    const list = [said("old"), { kind: "segment_event" }, gap(9_000), { kind: "segment_event" }, { kind: "segment_event" }];
+    expect(selectUserBar(list, stack(100, 100, 32, 100, 100), 300, STICKY_H, 0)).toEqual({ before: 9_000 });
+    // Above the gap, the held message is the answer as before.
+    expect(selectUserBar(list, stack(100, 100, 32, 100, 100), 150, STICKY_H, 0)).toEqual({ row: 0 });
+  });
+
+  it("takes a held message over the sidecar's once its heading slides behind the bar", () => {
+    const list = rows("segment_event", "user", "segment_event");
+    expect(selectUserBar(list, stack(100, 100, 100), 70, STICKY_H, 5_000)).toEqual({ before: 5_000 });
+    expect(selectUserBar(list, stack(100, 100, 100), 100, STICKY_H, 5_000)).toEqual({ row: 1 });
   });
 });
 

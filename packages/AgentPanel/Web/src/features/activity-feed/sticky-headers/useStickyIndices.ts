@@ -20,18 +20,25 @@ import {
 } from "@/features/activity-feed/rows/activityDisplayItems";
 import {
   selectStickyCurrentIndex,
-  selectStickyUserIndex,
+  selectUserBar,
   type StickyMeasurement,
+  type UserBar,
 } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
 
 /** Fallback for the sticky bar's height before it has rendered once. */
 const STICKY_HEIGHT_ESTIMATE = 44;
 
 interface StickyAnswer {
-  stickyUserIndex: number | null;
+  userBar: UserBar;
   stickyCurrentIndex: number | null;
   /** The row at the top of the viewport, as an index into `rowItems`. */
   topRowIndex: number | null;
+}
+
+/** Where the user bar's answer comes from the sidecar: the position asked about, and whether a message came back. */
+export interface RemoteUserBar {
+  before: number;
+  found: boolean;
 }
 
 /** The three answers for one scroll offset, from one read of the measurement cache. */
@@ -41,16 +48,20 @@ function answerAt(
   rowCount: number,
   scrollTop: number,
   barHeight: number,
-  unloadedUserBar: boolean,
+  oldestStart: number | null,
+  remote: RemoteUserBar | null,
 ): StickyAnswer {
-  if (items.length === 0) return { stickyUserIndex: null, stickyCurrentIndex: null, topRowIndex: null };
-  const stickyUserIndex = selectStickyUserIndex(items, measurements, scrollTop, barHeight);
+  if (items.length === 0) return { userBar: null, stickyCurrentIndex: null, topRowIndex: null };
+  const userBar = selectUserBar(items, measurements, scrollTop, barHeight, oldestStart);
+  // A bar the sidecar has not answered for, or answered with nothing, takes no room.
+  const barShown = userBar !== null
+    && ("row" in userBar || (remote !== null && remote.before === userBar.before && remote.found));
   const stickyCurrentIndex = selectStickyCurrentIndex(
     items,
     measurements,
     scrollTop,
-    stickyUserIndex !== null || unloadedUserBar ? barHeight : 0,
-    stickyUserIndex,
+    barShown ? barHeight : 0,
+    userBar !== null && "row" in userBar ? userBar.row : null,
   );
   let topRowIndex: number | null = null;
   const limit = Math.min(rowCount, measurements.length);
@@ -60,11 +71,18 @@ function answerAt(
       break;
     }
   }
-  return { stickyUserIndex, stickyCurrentIndex, topRowIndex };
+  return { userBar, stickyCurrentIndex, topRowIndex };
+}
+
+function sameBar(left: UserBar, right: UserBar): boolean {
+  if (left === null || right === null) return left === right;
+  return "row" in left
+    ? "row" in right && left.row === right.row
+    : "before" in right && left.before === right.before;
 }
 
 function sameAnswer(left: StickyAnswer, right: StickyAnswer): boolean {
-  return left.stickyUserIndex === right.stickyUserIndex
+  return sameBar(left.userBar, right.userBar)
     && left.stickyCurrentIndex === right.stickyCurrentIndex
     && left.topRowIndex === right.topRowIndex;
 }
@@ -86,22 +104,25 @@ function sameAnswer(left: StickyAnswer, right: StickyAnswer): boolean {
 export function useStickyIndices({
   items,
   mode,
+  oldestStart,
+  remote,
   rowItems,
   rowVirtualizer,
   scrollTop,
   stickyHeaderRef,
-  unloadedUserBar,
   virtualItems,
 }: {
   items: FeedItem[];
   mode: EventMode;
+  /** Where the oldest held range starts, or null for a source the sidecar cannot be asked about. */
+  oldestStart: number | null;
+  /** The sidecar's answer for the bar, when it has been asked. */
+  remote: RemoteUserBar | null;
   /** The rows on screen, including the live tail the durable list does not know about. */
   rowItems: readonly (FeedItem | { kind: "tail" })[];
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   scrollTop: number;
   stickyHeaderRef: RefObject<HTMLButtonElement | null>;
-  /** The user bar is up for a message the feed has not loaded, so the current bar sits below it. */
-  unloadedUserBar: boolean;
   virtualItems: { index: number; end: number }[];
 }) {
   const barHeight = () => stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE;
@@ -111,21 +132,22 @@ export function useStickyIndices({
   // for every row, including those scrolled off. `virtualItems` stays a dependency so a
   // re-measure is picked up even without a scroll.
   const answer = useMemo(
-    () => answerAt(items, rowVirtualizer.measurementsCache, rowItems.length, scrollTop, barHeight(), unloadedUserBar),
+    () => answerAt(items, rowVirtualizer.measurementsCache, rowItems.length, scrollTop, barHeight(), oldestStart, remote),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scrollTop, virtualItems, items, rowItems.length, unloadedUserBar],
+    [scrollTop, virtualItems, items, rowItems.length, oldestStart, remote],
   );
 
   // What the scroll handler compares against, kept current with every render.
-  const latest = useRef({ answer, items, rowCount: rowItems.length, unloadedUserBar });
-  latest.current = { answer, items, rowCount: rowItems.length, unloadedUserBar };
+  const latest = useRef({ answer, items, rowCount: rowItems.length, oldestStart, remote });
+  latest.current = { answer, items, rowCount: rowItems.length, oldestStart, remote };
   const changesAt = useRef((offset: number): boolean => {
     const now = latest.current;
-    const next = answerAt(now.items, rowVirtualizer.measurementsCache, now.rowCount, offset, barHeight(), now.unloadedUserBar);
+    const next = answerAt(now.items, rowVirtualizer.measurementsCache, now.rowCount, offset, barHeight(), now.oldestStart, now.remote);
     return !sameAnswer(next, now.answer);
   }).current;
 
-  const { stickyUserIndex, stickyCurrentIndex, topRowIndex } = answer;
+  const { userBar, stickyCurrentIndex, topRowIndex } = answer;
+  const stickyUserIndex = userBar !== null && "row" in userBar ? userBar.row : null;
   // Only ever a user row, which is always a single event, but resolved through the
   // shared accessor so this does not have to be revisited if another multi-event row
   // kind appears.
@@ -154,5 +176,8 @@ export function useStickyIndices({
   // so it is not an anchor -- and a reader sitting on it is at the end, which needs none.
   const topEvent = !topOrUnder || topOrUnder.kind === "tail" || !isEventItem(topOrUnder) ? null : leadEvent(topOrUnder);
 
-  return { changesAt, stickyCurrent, stickyCurrentIndex, stickyUser, stickyUserIndex, topEvent, topRowIndex };
+  // The position the bar needs the sidecar's answer for, when no held row stands for it.
+  const userBarBefore = userBar !== null && "before" in userBar ? userBar.before : null;
+
+  return { changesAt, stickyCurrent, stickyCurrentIndex, stickyUser, stickyUserIndex, topEvent, topRowIndex, userBarBefore };
 }

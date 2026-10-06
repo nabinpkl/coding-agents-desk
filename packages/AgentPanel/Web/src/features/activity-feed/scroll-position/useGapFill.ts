@@ -26,7 +26,9 @@ export function gapIdentity(gap: Gap): string {
  * between it and the live end unread until somebody scrolls to them.
  *
  * A page that fails marks its gap, which then offers a retry rather than asking again on every
- * scroll. `failedGaps` holds `gapIdentity`s.
+ * scroll; so does a page that was kept and left the gap where it was, which a sidecar answering
+ * correctly never does, and which would otherwise be asked for again on every render. `failedGaps`
+ * holds `gapIdentity`s.
  */
 export function useGapFill({
   fillGap,
@@ -34,13 +36,17 @@ export function useGapFill({
   topRowIndex,
   virtualItems,
 }: {
-  fillGap: (gap: Gap, from: "below" | "above") => Promise<void>;
+  /** Resolves to whether the page was kept; one a snapshot overtook is not. */
+  fillGap: (gap: Gap, from: "below" | "above") => Promise<boolean>;
   rowItems: readonly (FeedItem | { kind: "tail" })[];
   /** The row at the top of the viewport, as an index into `rowItems`. */
   topRowIndex: number | null;
   virtualItems: readonly { index: number }[];
 }): { failedGaps: ReadonlySet<string>; retryGap: (gap: GapItem) => void } {
   const pendingRef = useRef(new Set<string>());
+  // Gaps a kept page was read into. Every kept page moves an edge, so seeing one again is a page
+  // that reached none of the rows it was for.
+  const filledRef = useRef(new Set<string>());
   const [failedGaps, setFailedGaps] = useState<ReadonlySet<string>>(() => new Set());
 
   useEffect(() => {
@@ -49,14 +55,19 @@ export function useGapFill({
       if (item?.kind !== "gap") continue;
       const key = gapIdentity(item);
       if (pendingRef.current.has(key) || failedGaps.has(key)) continue;
+      if (filledRef.current.has(key)) {
+        console.error(`[timeline] a page into the rows between ${item.above} and ${item.below} did not reach them`);
+        setFailedGaps((current) => new Set(current).add(key));
+        continue;
+      }
       pendingRef.current.add(key);
       const from = index <= (topRowIndex ?? 0) ? "below" : "above";
       fillGap({ above: item.above, below: item.below }, from).then(
-        // A page that landed moved an edge, so what is left is a new gap and this runs again for it.
-        // One that changed nothing (a snapshot overtook it) waits for the next scroll rather than
-        // asking again at once, which is what keeps a page that cannot move a gap from looping.
-        () => {
+        // A kept page moved an edge, so what is left is a new gap and this runs again for it. One a
+        // snapshot overtook changed nothing and is simply asked for again.
+        (kept) => {
           pendingRef.current.delete(key);
+          if (kept) filledRef.current.add(key);
         },
         (error: unknown) => {
           pendingRef.current.delete(key);
@@ -68,6 +79,7 @@ export function useGapFill({
   }, [virtualItems, rowItems, topRowIndex, fillGap, failedGaps]);
 
   const retryGap = useCallback((gap: GapItem) => {
+    filledRef.current.delete(gapIdentity(gap));
     setFailedGaps((current) => {
       const next = new Set(current);
       next.delete(gapIdentity(gap));

@@ -137,8 +137,10 @@ export interface ForkSessionCommand {
  * closed card and a roster row hold no transcript at all, so there is nothing there to count.
  */
 export interface LastSessionMessage {
-  /** The row's id, `claude:<sessionId>:line:<rawIndex>`, exactly as `ForkSessionCommand.from` takes it. */
+  /** The row's id, `claude:<sessionId>:at:<position>`, exactly as `ForkSessionCommand.from` takes it. */
   eventId: string;
+  /** The row's index: the byte its line starts at, which a page `around` it lands on (ADR-0125). */
+  index: number;
   /** What it says, which is what the fork offers back to be edited. */
   text: string;
 }

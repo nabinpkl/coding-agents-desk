@@ -322,13 +322,15 @@ onEvent: (event) => {
   /**
    * Reads one page from `at` into the rows held, or drops it when a snapshot replaced the window
    * while it was in flight: a rebuilt projection numbers its rows differently, so the page would be
-   * about a session that is gone. Rejects on a failed read, for the caller to say so where it asked.
+   * about a session that is gone. Resolves to whether the page was kept, and rejects on a failed
+   * read, for the caller to say so where it asked.
    */
-  const readInto = useCallback(async (at: EventsPageAt) => {
+  const readInto = useCallback(async (at: EventsPageAt): Promise<boolean> => {
     const requestEpoch = timelineEpochRef.current;
     const page = await ds.fetchEventsPage(session, at, PAGE_SIZE);
-    if (requestEpoch !== timelineEpochRef.current) return;
+    if (requestEpoch !== timelineEpochRef.current) return false;
     setState((current) => ({ ...current, events: withNewer(current.events, page.events) }));
+    return true;
   }, [session, ds]);
 
   /** The page above the oldest row held, while older rows exist. */
@@ -355,7 +357,7 @@ onEvent: (event) => {
   );
 
   /** A range opened around `position`, for landing on a row that is not held. One read. */
-  const loadAround = useCallback((position: number) => readInto({ around: position }), [readInto]);
+  const loadAround = useCallback(async (position: number) => { await readInto({ around: position }); }, [readInto]);
 
   // Derived rather than cleared on arrival, so the rule holds whatever order the two
   // sources land in. The clear inside `onEvent` still runs, to let a finished message
