@@ -2,15 +2,18 @@
  * through the background. The server is the only home for annotations; the
  * panel shows what it returns. Text the user typed stays in its field until
  * the server has accepted it. */
-import type { Annotation, ElementMetadata, NewAnnotation, Tag } from "../../../shared/annotation.ts";
+import type { Annotation, ElementMetadata, Tag } from "../../../shared/annotation.ts";
 import { buildBrief } from "../../../shared/brief.ts";
 import type { Recipient, SendInfo, SendOutcome } from "../../../shared/send.ts";
 import { send, type AuthStatus, type HttpMethod, type Result, type TabMessage } from "../messages.ts";
 import { captureElement, captureRegion, type Shot } from "./capture.ts";
 import { awaitingSend, createPanel, HOST_ID, SETTLED_STATES, type CaptureMode, type ConnStatus, type Panel, type PanelState } from "./panel.ts";
-import { describeElement, findBySelector, pickContainer, regionAnchor } from "./picker.ts";
+import { changeText, createFormFlow, matchCount } from "./formFlow.ts";
+import { findBySelector, pickContainer, regionAnchor } from "./picker.ts";
+import type { PreviewView } from "./previewBanner.ts";
+import { draftKey } from "./previewDraft.ts";
+import { createPreviewSession } from "./previewSession.ts";
 import { createRegionSelector, type RegionSelector } from "./region.ts";
-import { previewFontSize, type FontSizePreview } from "./stylePreview.ts";
 
 type Region = NonNullable<ElementMetadata["region"]>;
 
@@ -81,11 +84,6 @@ function main(): void {
   let active = false;
   let panel: Panel | null = null;
   let hoverEl: Element | null = null;
-  /** The element as it was picked, before any preview changed its size or its box. */
-  let pendingMeta: ElementMetadata | null = null;
-  let pendingPreview: FontSizePreview | null = null;
-  let pendingShot: Shot | null = null;
-  let pendingRegion: Region | null = null;
   let regionSel: RegionSelector | null = null;
   let capturing = false;
   let dim: HTMLDivElement | null = null;
@@ -109,6 +107,7 @@ function main(): void {
     sending: boolean;
     sendError: string;
     sends: Map<number, SendInfo>;
+    preview: PreviewView | null;
   } = {
     status: "unknown",
     statusDetail: "",
@@ -127,10 +126,25 @@ function main(): void {
     sending: false,
     sendError: "",
     sends: new Map(),
+    preview: null,
   };
+
+  const session = createPreviewSession(() => {
+    // A draft that was on comes back on its own after a reload, before anyone opens the panel.
+    if (session.on()) ensurePanel();
+    render();
+  });
 
   function render(): void {
     if (!panel) return;
+    state.preview = session.on()
+      ? {
+          changes: session.changes().map((c) => ({ selector: c.selector, text: changeText(c), matches: matchCount(c.selector) })),
+          saved: session.savedCount(),
+          comparing: session.comparing(),
+          problem: session.problem(),
+        }
+      : null;
     panel.render(state as PanelState);
     syncRegionArm();
     drawMarkers();
@@ -272,78 +286,26 @@ function main(): void {
 
   // ----- form -----
 
+  const forms = createFormFlow({
+    session,
+    panel: () => panel,
+    call,
+    replace,
+    render,
+    uploadShot,
+    sendSaved,
+    formChanged: syncRegionArm,
+  });
+
   function openForm(el: Element, shot: Shot | null, region: Region | null = null): void {
-    pendingPreview?.restore();
-    pendingShot = shot;
-    pendingRegion = region;
-    pendingMeta = describeElement(el);
-    // A region is about an area, and its anchor is only the element that happens to contain it, so
-    // only a picked container offers a size to change.
-    pendingPreview = region ? null : previewFontSize(el);
-    const selector = pendingMeta.selector ?? "?";
-    const detail = region ? `${region.width} \u00d7 ${region.height} in ${selector}` : selector;
-    panel?.openForm(
-      region ? "region" : "container",
-      shot ? `${detail}  +  screenshot` : detail,
-      pendingPreview ? pendingPreview.from : null,
-      region ? toViewport(region) : el.getBoundingClientRect(),
-    );
-    syncRegionArm();
+    forms.openComment(el, shot, region, region ? toViewport(region) : el.getBoundingClientRect());
   }
 
-  function setFontSize(px: number | null): void {
-    if (!pendingPreview) return;
-    if (px === null) pendingPreview.restore();
-    else pendingPreview.set(px);
-    panel?.showFontSize(pendingPreview.current(), pendingPreview.change());
-  }
-
-  /** Closing the form, saved or not, hands the page back as its code has it. */
-  function cancelForm(): void {
-    pendingPreview?.restore();
-    pendingPreview = null;
-    pendingMeta = null;
-    pendingShot = null;
-    pendingRegion = null;
-    panel?.closeForm();
-    syncRegionArm();
-  }
-
-  async function save(text: string, tag: Tag, to: string): Promise<void> {
-    if (!panel || !pendingMeta) return;
-    if (!text) {
-      panel.setFormError("Write what is wrong first.");
-      return;
-    }
-    const change = pendingPreview?.change();
-    const metadata: ElementMetadata = {
-      ...pendingMeta,
-      ...(pendingRegion ? { region: pendingRegion } : {}),
-      ...(change ? { styleChanges: [change] } : {}),
-    };
-    const input: NewAnnotation = { url: location.href, title: document.title, text, tag, metadata };
-    panel.setFormBusy(true);
-    panel.setFormError("");
-    const created = await call<Annotation>("POST", "/api/v1/annotations", input);
-    if (!created.ok) {
-      panel.setFormBusy(false);
-      panel.setFormError(created.kind === "signed-out" ? "Signed out: sign in from the list, then Save again." : `Not saved: ${created.error}`);
-      render();
-      return;
-    }
-    replace(created.data);
-    const shot = pendingShot;
-    panel.setFormBusy(false);
-    cancelForm();
+  /** Sends what was just saved. Saved either way: an item that did not go says so, and the send bar still offers it. */
+  async function sendSaved(ids: number[], to: string): Promise<void> {
+    const sent = await sendIds(ids, to);
+    if (!sent.ok) for (const id of ids) state.errors.set(id, `Saved, not sent: ${sent.error}`);
     render();
-    // The screenshot lands before the send, so a session that reads the annotation at once finds it.
-    if (shot) await uploadShot(created.data, shot);
-    if (to) {
-      const sent = await sendIds([created.data.id], to);
-      // Saved either way; the item says it did not go, and the send bar still offers it.
-      if (!sent.ok) state.errors.set(created.data.id, `Saved, not sent: ${sent.error}`);
-      render();
-    }
   }
 
   async function uploadShot(a: Annotation, shot: Shot): Promise<void> {
@@ -379,7 +341,8 @@ function main(): void {
   }
 
   function ensurePanel(): Panel {
-    panel ??= createPanel({
+    if (panel) return panel;
+    panel = createPanel({
       setMode(mode) {
         state.mode = mode;
         void chrome.storage.local.set({ [MODE_KEY]: mode });
@@ -499,11 +462,37 @@ function main(): void {
           render();
         }
       },
-      save(text, tag, to) {
-        void save(text, tag, to);
+      save: forms.save,
+      cancelForm: forms.cancelForm,
+      setFontSize: forms.setFontSize,
+      togglePreview() {
+        if (forms.variant() === "edit") forms.cancelForm();
+        session.setOn(!session.on());
       },
-      cancelForm,
-      setFontSize,
+      compare: (holding) => session.compare(holding),
+      saveDraft() {
+        // A comment being written is not closed under the reader to make room for the batch form.
+        if (forms.variant() === "comment") panel?.setFormError("Save or cancel this annotation first, then save the preview.");
+        else forms.openBatch();
+      },
+      discardDraft() {
+        const n = session.changes().length;
+        if (!window.confirm(`Discard ${n} previewed change${n === 1 ? "" : "s"}? This cannot be undone.`)) return;
+        if (forms.variant() === "edit" || forms.variant() === "batch") forms.cancelForm();
+        session.discard();
+      },
+      leavePreview() {
+        if (forms.variant() === "edit") forms.cancelForm();
+        session.setOn(false);
+      },
+      undoChange(selector) {
+        if (forms.editing() === selector) forms.cancelForm();
+        session.remove(selector);
+      },
+      locateChange(selector) {
+        const el = findBySelector(selector);
+        if (el) flashRegion(toRegion(el.getBoundingClientRect()));
+      },
       pickRecipient(address) {
         state.to = address;
         void chrome.storage.local.set({ [toKey()]: address });
@@ -513,6 +502,8 @@ function main(): void {
         void sendToAgent();
       },
     });
+    // Made for the preview banner alone, after a reload, the toolbar stays away until it is asked for.
+    panel.show(active);
     return panel;
   }
 
@@ -625,6 +616,10 @@ function main(): void {
     e.preventDefault();
     e.stopPropagation();
     const target = pickContainer(e.target);
+    if (session.on()) {
+      forms.openEditor(target);
+      return;
+    }
     if (state.mode === "element") {
       openForm(target, null);
       return;
@@ -641,12 +636,15 @@ function main(): void {
   function onKey(e: KeyboardEvent): void {
     const t = e.target as HTMLElement | null;
     const editable = t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
-    if (e.altKey && e.shiftKey && e.code === "KeyA" && !editable) {
+    if (e.key === "`" && session.on() && !editable) {
+      e.preventDefault();
+      if (!e.repeat) session.compare(true);
+    } else if (e.altKey && e.shiftKey && e.code === "KeyA" && !editable) {
       e.preventDefault();
       setActive(!active);
     } else if (e.key === "Escape" && active) {
       if (regionSel?.dragging()) regionSel.cancelDrag();
-      else if (panel?.formOpen()) cancelForm();
+      else if (panel?.formOpen()) forms.cancelForm();
       else setActive(false);
     }
   }
@@ -660,7 +658,7 @@ function main(): void {
       requestAnimationFrame(paint);
       void pull();
     } else {
-      cancelForm();
+      forms.cancelForm();
       hoverEl = null;
       paint();
       drawMarkers();
@@ -671,6 +669,22 @@ function main(): void {
   document.addEventListener("mousemove", onMove, true);
   document.addEventListener("click", onClick, true);
   document.addEventListener("keydown", onKey, true);
+  document.addEventListener("keyup", (e) => {
+    if (e.key === "`") session.compare(false);
+  }, true);
+  // A compare held while the window loses focus never sees its key come up.
+  window.addEventListener("blur", () => session.compare(false));
+
+  // A single-page app changes the address without a reload. Each page keeps its own draft, so the
+  // preview follows the address: the old page's changes stop drawing and the new page's come back.
+  let draftPage = draftKey();
+  (window as unknown as { navigation?: EventTarget }).navigation?.addEventListener("currententrychange", () => {
+    if (draftKey() === draftPage) return;
+    draftPage = draftKey();
+    if (forms.variant()) forms.cancelForm();
+    void session.load();
+  });
+  void session.load();
   window.addEventListener("scroll", () => active && drawMarkers(), { passive: true });
 
   chrome.runtime.onMessage.addListener((msg: TabMessage) => {

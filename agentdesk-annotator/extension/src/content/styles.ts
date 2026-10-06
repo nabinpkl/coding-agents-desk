@@ -134,6 +134,7 @@ button[aria-busy="true"] { cursor: progress; }
 textarea { width: 100%; box-sizing: border-box; font: 13px/1.5 var(--sans); color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; resize: vertical; }
 textarea:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
 .form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.form-row[hidden] { display: none; }
 .form-actions { justify-content: flex-end; }
 .form-to { flex: 1; min-width: 0; }
 .form-to[hidden] { display: none; }
@@ -150,6 +151,29 @@ select { font: 12px var(--sans); color: var(--ink); background: var(--surface); 
 .change { font: 11px/1.5 var(--mono); color: var(--ink-2); }
 .form-error { margin-top: 8px; color: var(--danger); font-size: 12px; }
 .form-error:empty { display: none; }
+
+/* Preview: a frame around the whole window and a banner at the top, so a page carrying changes can
+ * never pass for the page as its code has it. The frame goes quiet while the reader compares. */
+.pframe { position: fixed; inset: 0; z-index: 2147483646; pointer-events: none; box-shadow: inset 0 0 0 3px var(--tag-change); }
+.pframe[data-comparing] { box-shadow: inset 0 0 0 3px var(--hint); }
+.pframe[hidden], .pbanner[hidden], .pbanner-list[hidden] { display: none; }
+.pbanner { position: fixed; z-index: 2147483647; top: 10px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 24px); box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--tag-change); border-radius: 12px; box-shadow: var(--shadow); padding: 5px 6px 5px 10px; }
+.pbanner[data-comparing] { border-top-color: var(--hint); }
+.pbanner-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pbanner-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tag-change); margin-right: 2px; }
+.pbanner[data-comparing] .pbanner-dot { background: var(--hint); }
+.pbanner-text { font-weight: 600; margin-right: 6px; font-variant-numeric: tabular-nums; }
+.pbanner .primary { height: 26px; padding: 0 12px; }
+.danger-text:hover:not(:disabled) { color: var(--danger); }
+.pbanner-problem { margin-top: 4px; color: var(--danger); font-size: 11px; max-width: 520px; }
+.pbanner-problem:empty { display: none; }
+.pbanner-list { margin-top: 6px; max-height: 40vh; overflow: auto; border-top: 1px solid var(--border); padding-top: 4px; }
+.pchange { display: flex; align-items: center; gap: 2px; }
+.pchange-show { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 4px 6px; text-align: left; }
+.pchange-what { color: var(--ink); }
+.pchange-sel { font: 11px/1.5 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.pchange-where { font-size: 11px; color: var(--warn); }
 
 .light { position: fixed; inset: 0; z-index: 2147483647; background: oklch(0 0 0 / 0.8); display: grid; place-items: center; cursor: zoom-out; }
 .light[hidden] { display: none; }

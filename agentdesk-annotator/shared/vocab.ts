@@ -22,6 +22,15 @@ export const STATUSES = ["open", "resolved"] as const;
 /** CSS properties the reader can change on a picked element and preview on the page before saving. */
 export const STYLE_PROPERTIES = ["font-size"] as const;
 export type StyleProperty = (typeof STYLE_PROPERTIES)[number];
+
+/** How each property is named in a comment the panel writes for the reader. */
+export const STYLE_PROPERTY_LABELS: Record<StyleProperty, string> = { "font-size": "Font size" };
+
+/**
+ * A CSS pixel length the extension wrote itself, such as `14px` or `13.33px`. A previewed value is
+ * held to this shape on the wire and in a stored draft, so it carries no page text.
+ */
+export const CSS_PIXELS = /^\d{1,4}(\.\d{1,2})?px$/;
 export const ACTORS = ["user", "agent"] as const;
 export const SCREENSHOT_MIMES = ["image/jpeg", "image/png"] as const;
 

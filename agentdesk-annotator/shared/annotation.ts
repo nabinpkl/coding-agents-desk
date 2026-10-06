@@ -1,7 +1,7 @@
 /* Wire types shared by the server and the extension. The zod schemas are the
  * single source; TypeScript types are inferred from them. */
 import * as z from "zod";
-import { ACTORS, DEFAULT_TAG, SCREENSHOT_MIMES, STATUSES, STYLE_PROPERTIES, TAGS } from "./vocab.ts";
+import { ACTORS, CSS_PIXELS, DEFAULT_TAG, SCREENSHOT_MIMES, STATUSES, STYLE_PROPERTIES, TAGS } from "./vocab.ts";
 
 export const Tag = z.enum(TAGS);
 export const Status = z.enum(STATUSES);
@@ -17,11 +17,8 @@ export const BBox = z.object({
   height: z.number(),
 });
 
-/**
- * A CSS pixel length the extension wrote itself, such as `14px` or `13.33px`. Held to this shape so
- * a style change carries no page text, and the brief can print it outside the page-text wrapper.
- */
-const CssPixels = z.string().regex(/^\d{1,4}(\.\d{1,2})?px$/);
+/** Held to `CSS_PIXELS` so a style change carries no page text, and the brief can print it outside the page-text wrapper. */
+const CssPixels = z.string().regex(CSS_PIXELS);
 
 /** One property the reader changed on the element and saw on the page: the computed value before, and theirs. */
 export const StyleChange = z.object({

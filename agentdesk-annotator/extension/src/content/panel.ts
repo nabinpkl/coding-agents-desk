@@ -4,9 +4,11 @@
  * text only ever reaches the DOM through textContent. */
 import type { Annotation, StyleChange, Tag } from "../../../shared/annotation.ts";
 import type { Recipient, SendInfo, SendState } from "../../../shared/send.ts";
-import { DEFAULT_TAG, TAG_MEANINGS, TAGS } from "../../../shared/vocab.ts";
+import { DEFAULT_TAG, STYLE_PROPERTY_LABELS, TAG_MEANINGS, TAGS } from "../../../shared/vocab.ts";
 import { makeDraggable, placeBeside } from "./formPlacement.ts";
-import { icon, type IconName } from "./icons.ts";
+import { h, iconButton, textButton } from "./dom.ts";
+import { icon } from "./icons.ts";
+import { createPreviewBanner, type PreviewBannerHandlers, type PreviewView } from "./previewBanner.ts";
 import { PANEL_CSS } from "./styles.ts";
 
 export type ConnStatus = "unknown" | "connected" | "offline" | "signed-out";
@@ -111,9 +113,21 @@ export interface PanelState {
   sendError: string;
   /** Each annotation's newest send, so the item can say where it got to. */
   sends: ReadonlyMap<number, SendInfo>;
+  /** The page's preview while it is on, or null when it is off. */
+  preview: PreviewView | null;
 }
 
-export interface PanelHandlers {
+/**
+ * What the form is open for. `comment` annotates one thing; `edit` changes an element's style in the
+ * preview, with no comment; `batch` saves every previewed change, one annotation each.
+ */
+export type FormSpec =
+  | { variant: "comment"; region: boolean; detail: string; fontSize: number | null; target: DOMRect }
+  | { variant: "edit"; detail: string; fontSize: number; target: DOMRect }
+  | { variant: "batch"; detail: string; count: number };
+
+export interface PanelHandlers extends PreviewBannerHandlers {
+  togglePreview(): void;
   setMode(mode: CaptureMode): void;
   copy(): void;
   download(): void;
@@ -131,7 +145,7 @@ export interface PanelHandlers {
   draftReply(a: Annotation, text: string): void;
   sendReply(a: Annotation): void;
   shoot(a: Annotation): void;
-  /** `to` is the address to send this annotation to once saved, or "" to keep it for a later send. */
+  /** The form's primary action. `to` is the address to send to once saved, or "" to keep it for a later send. */
   save(text: string, tag: Tag, to: string): void;
   cancelForm(): void;
   /** Show the picked element at this font size, or put its own size back when null. */
@@ -144,54 +158,17 @@ declare const __BUILD__: { version: string; sha: string; at: string };
 
 export const HOST_ID = "__agentdesk_annotator_host";
 
-type Attrs = Record<string, string | boolean | undefined>;
-
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ...children: Array<Node | string>): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (v === undefined || v === false) continue;
-    if (k === "class") el.className = String(v);
-    else el.setAttribute(k, v === true ? "" : v);
-  }
-  for (const c of children) el.append(c);
-  return el;
-}
-
-function iconButton(name: IconName, label: string, onClick: () => void, opts: { danger?: boolean; disabled?: boolean; busy?: boolean } = {}): HTMLButtonElement {
-  const b = h("button", {
-    class: `icon-btn${opts.danger ? " danger" : ""}`,
-    type: "button",
-    "aria-label": label,
-    title: label,
-    disabled: opts.disabled || opts.busy,
-    "aria-busy": opts.busy ? "true" : undefined,
-  }, icon(name));
-  b.addEventListener("click", (e) => {
-    e.stopPropagation();
-    onClick();
-  });
-  return b;
-}
-
-function textButton(label: string, onClick: () => void, attrs: Attrs = {}): HTMLButtonElement {
-  const b = h("button", { class: "text-btn", type: "button", ...attrs }, label);
-  b.addEventListener("click", (e) => {
-    e.stopPropagation();
-    onClick();
-  });
-  return b;
-}
-
 export interface Panel {
   host: HTMLElement;
   render(state: PanelState): void;
   show(visible: boolean): void;
-  /** `fontSize` is the picked element's computed size, or null when its size cannot be previewed. */
-  /** `target` is what the form is about, in viewport coordinates, so the form can open beside it. */
-  openForm(kind: "container" | "region", detail: string, fontSize: number | null, target: DOMRect): void;
+  /** Opens the form beside its target where it has one, and in the middle of the page where it does not. */
+  openForm(spec: FormSpec): void;
   /** The size now shown on the page, and what that changes, or null when it is back where it started. */
   showFontSize(px: number, change: StyleChange | null): void;
   setFormBusy(busy: boolean): void;
+  /** How many a batch save has left to write, after some of it was saved. */
+  setBatchCount(count: number): void;
   setFormError(message: string): void;
   closeForm(): void;
   formOpen(): boolean;
@@ -263,12 +240,18 @@ export function createPanel(on: PanelHandlers): Panel {
   // is collected, and the send bar hands over everything collected later.
   const formTo = h("select", { class: "form-to", "aria-label": "Send to" });
   let formToKey = "";
-  const saveLabel = () => (formTo.value ? "Save and send" : "Save");
+  let spec: FormSpec | null = null;
+  const saveLabel = () => {
+    if (spec?.variant === "edit") return "Done";
+    const what = spec?.variant === "batch" ? `Save ${spec.count}` : "Save";
+    return formTo.value ? `${what} and send` : what;
+  };
   formTo.addEventListener("change", () => {
     saveBtn.textContent = saveLabel();
   });
   const submit = () => on.save(textarea.value.trim(), tagSelect.value as Tag, formTo.value);
 
+  const tagRow = h("div", { class: "form-row" }, tagSelect, formTo);
   const formHead = h("div", { class: "form-head", title: "Drag to move" }, formTitle, iconButton("x", "Cancel", () => on.cancelForm()));
   const form = h(
     "div",
@@ -277,7 +260,7 @@ export function createPanel(on: PanelHandlers): Panel {
     selectorLine,
     textarea,
     sizeRow,
-    h("div", { class: "form-row" }, tagSelect, formTo),
+    tagRow,
     h("div", { class: "form-row form-actions" }, cancelBtn, saveBtn),
     formError,
   );
@@ -307,7 +290,13 @@ export function createPanel(on: PanelHandlers): Panel {
   toSelect.addEventListener("change", () => on.pickRecipient(toSelect.value));
 
   const dock = h("div", { class: "dock" }, bar, sendBar, list);
-  root.append(dock, form, light);
+  const preview = createPreviewBanner(on);
+  root.append(preview.frame, preview.banner, dock, form, light);
+  // The toolbar sits below the banner rather than on top of it, following the banner's height as it
+  // changes: a wrapped row, an error line, the review list opening.
+  new ResizeObserver(() => {
+    dock.style.top = preview.banner.hidden ? "" : `${preview.banner.getBoundingClientRect().bottom + 8}px`;
+  }).observe(preview.banner);
 
   /** The form's recipient list, rebuilt only when the directory changes so a poll never closes an open dropdown. */
   function renderFormRecipients(s: PanelState): void {
@@ -363,6 +352,7 @@ export function createPanel(on: PanelHandlers): Panel {
       iconButton(s.listOpen ? "chevronUp" : "chevronDown", s.listOpen ? "Hide list" : "Show list", on.toggleList),
       iconButton("trash", "Clear this page's annotations", on.clear, { danger: true, disabled: s.items.length === 0 || s.status !== "connected" }),
       ...(s.status === "connected" ? [iconButton("logOut", `Sign out of ${s.serverLabel}`, on.signOut)] : []),
+      textButton("Preview", on.togglePreview, { "aria-pressed": s.preview ? "true" : "false", title: s.preview ? "Leave preview (your changes are kept)" : "Try out changes on the page before saving them" }),
       iconButton("x", "Turn off annotate mode", on.close),
     );
   }
@@ -451,35 +441,48 @@ export function createPanel(on: PanelHandlers): Panel {
       renderSendBar(s);
       renderList(s);
       renderFormRecipients(s);
+      preview.render(s.preview);
     },
     show(visible) {
       dock.hidden = !visible;
     },
-    openForm(kind, detail, size, target) {
-      formTitle.textContent = kind === "region" ? "Annotate region" : "Annotate container";
-      textarea.placeholder = kind === "region" ? "What is wrong in this area?" : "What is wrong with this container?";
-      selectorLine.textContent = detail;
+    openForm(next) {
+      spec = next;
+      const edit = next.variant === "edit";
+      formTitle.textContent =
+        next.variant === "batch" ? `Save ${next.count} previewed change${next.count === 1 ? "" : "s"}` : edit ? "Preview a change" : next.region ? "Annotate region" : "Annotate container";
+      form.setAttribute("aria-label", formTitle.textContent);
+      textarea.placeholder =
+        next.variant === "batch" ? "A note added to each of them (optional)" : next.variant === "comment" && next.region ? "What is wrong in this area?" : "What is wrong with this container?";
+      selectorLine.textContent = next.detail;
       formError.textContent = "";
       textarea.value = "";
+      textarea.hidden = edit;
+      tagRow.hidden = cancelBtn.hidden = edit;
       tagSelect.value = DEFAULT_TAG;
       formTo.value = "";
       suggestedText = "";
+      const size = next.variant === "batch" ? null : next.fontSize;
       sizeRow.hidden = size === null;
       fontSize = size ?? 0;
       sizeInput.value = String(fontSize);
       resetSize.disabled = true;
       form.hidden = false;
-      placeBeside(form, target);
+      if (next.variant === "batch") {
+        form.style.left = form.style.top = form.style.transform = "";
+      } else {
+        placeBeside(form, next.target);
+      }
       saveBtn.disabled = false;
       saveBtn.textContent = saveLabel();
-      queueMicrotask(() => textarea.focus());
+      queueMicrotask(() => (edit ? sizeInput : textarea).focus());
     },
     showFontSize(px, change) {
       fontSize = px;
       // Not while the reader is typing in it: rewriting the field would fight their keystrokes.
       if (shadow.activeElement !== sizeInput) sizeInput.value = String(px);
       resetSize.disabled = change === null;
-      const text = change ? `Font size ${change.from} → ${change.to}` : "";
+      const text = change ? `${STYLE_PROPERTY_LABELS[change.property]} ${change.from} → ${change.to}` : "";
       if (textarea.value === suggestedText) {
         textarea.value = text;
         suggestedText = text;
@@ -492,11 +495,18 @@ export function createPanel(on: PanelHandlers): Panel {
       saveBtn.textContent = busy ? "Saving" : saveLabel();
       textarea.readOnly = busy;
     },
+    setBatchCount(count) {
+      if (spec?.variant !== "batch") return;
+      spec = { ...spec, count };
+      formTitle.textContent = `Save ${count} previewed change${count === 1 ? "" : "s"}`;
+      saveBtn.textContent = saveLabel();
+    },
     setFormError(message) {
       formError.textContent = message;
     },
     closeForm() {
       form.hidden = true;
+      spec = null;
     },
     formOpen() {
       return !form.hidden;
