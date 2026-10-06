@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-react";
@@ -57,6 +57,7 @@ import { ActivityFeedRow } from "@/features/activity-feed/ActivityFeedRow";
 import { useFeedRows } from "@/features/activity-feed/rows/useFeedRows";
 import { useStickyIndices } from "@/features/activity-feed/sticky-headers/useStickyIndices";
 import { useTranscriptScrollRestore } from "@/features/activity-feed/scroll-position/useTranscriptScrollRestore";
+import { useOlderPageAnchor } from "@/features/activity-feed/scroll-position/useOlderPageAnchor";
 
 export function ActivityFeed({
   source,
@@ -151,12 +152,6 @@ export function ActivityFeed({
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);
-  // Anchor for scroll-up paging: when loadOlder prepends a page, totalSize
-  // grows by the new rows' height. Capturing scrollHeight before the fetch
-  // lets us add the delta to scrollTop after the layout settles, so the row
-  // the user was looking at stays put instead of jumping downward.
-  const pendingAnchorRef = useRef<number | null>(null);
-  const prevWindowStartRef = useRef<number>(0);
 
   // Follow-the-tail: stick to the bottom as the thread grows, release when the
   // user scrolls up. The hook owns a ResizeObserver on the measured content and
@@ -243,6 +238,9 @@ export function ActivityFeed({
       return 88;
     },
     overscan: 8,
+    // Keeps the row the reader is on in place when an older page is prepended (see
+    // `useOlderPageAnchor`). Following the bottom stays `useStickToBottom`'s job.
+    anchorTo: "end",
     // Key by event identity (not index) so that when loadOlder prepends a
     // page and every existing event's array index shifts, the virtualizer
     // keeps its cached measurements. Without this, scrolling up after a
@@ -305,7 +303,10 @@ export function ActivityFeed({
 
   // One synchronous scroll write per jump. The earlier two-step (jump to the
   // row top, then rAF-correct for the bar) showed the row under the bar before
-  // it slid into place.
+  // it slid into place. A flush jump goes through the virtualizer instead, which
+  // re-aims until the row holds still: a jump upward counts as a backward scroll,
+  // and the virtualizer does not compensate re-measured rows above the fold during
+  // one, so a direct write landed the row 47px short (measured 2026-10-05).
   const jumpTo = useCallback(
     (rowIndex: number, reservedHeight: number) => {
       const el = parentRef.current;
@@ -313,39 +314,14 @@ export function ActivityFeed({
       const item = items[rowIndex];
       if (!el || !measurement || !item) return;
       pause();
-      el.scrollTop = jumpScrollTop(measurement, reservedHeight);
+      if (reservedHeight === 0) rowVirtualizer.scrollToIndex(rowIndex, { align: "start" });
+      else el.scrollTop = jumpScrollTop(measurement, reservedHeight);
       flashHighlight(leadEvent(item).index);
     },
     [items, rowVirtualizer, flashHighlight, pause],
   );
 
-  useEffect(() => {
-    if (virtualItems.length === 0) return;
-    const first = virtualItems[0];
-    if (first && first.index < 20 && windowStart > 0 && pendingAnchorRef.current === null) {
-      const el = parentRef.current;
-      pendingAnchorRef.current = el ? el.scrollHeight : 0;
-      void loadOlder();
-    }
-  }, [virtualItems, windowStart, loadOlder]);
-  useLayoutEffect(() => {
-    const el = parentRef.current;
-    // Restore pages from the top; the prepend offset below is for a chosen visible row.
-    if (restoring) {
-      if (el) el.scrollTop = 0;
-      pendingAnchorRef.current = null;
-      prevWindowStartRef.current = windowStart;
-      return;
-    }
-    if (windowStart < prevWindowStartRef.current && pendingAnchorRef.current !== null) {
-      if (el) {
-        const delta = el.scrollHeight - pendingAnchorRef.current;
-        if (delta > 0) el.scrollTop += delta;
-      }
-      pendingAnchorRef.current = null;
-    }
-    prevWindowStartRef.current = windowStart;
-  }, [windowStart, totalSize, restoring]);
+  useOlderPageAnchor({ loadOlder, parentRef, restoring, totalSize, virtualItems, windowStart });
 
   const threadControls = (
     <ActivityFeedControls

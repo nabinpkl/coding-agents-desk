@@ -1,0 +1,60 @@
+"use client";
+
+// Paging older transcript in from the top.
+
+import { useEffect, useLayoutEffect, useRef } from "react";
+import type { RefObject } from "react";
+
+/**
+ * Loads an older page when the reader nears the top of what is loaded.
+ *
+ * What it does NOT do is move the scroll when the page lands: the virtualizer runs with
+ * `anchorTo: "end"`, which finds the row that was at the viewport before the prepend and puts it
+ * back where it was, in the same pass that compensates for rows being measured. Doing it here as
+ * well was the bug this replaced. The correction used to be the growth of `scrollHeight` between
+ * the request and the page landing, which also counted every row above the viewport measured in
+ * between -- growth the virtualizer had already compensated for. A jump to a user message near the
+ * top of the window measured 6,667px of those and then paged, and landed 13,000px below the
+ * message it was asked for (measured 2026-10-05).
+ */
+export function useOlderPageAnchor({
+  loadOlder,
+  parentRef,
+  restoring,
+  totalSize,
+  virtualItems,
+  windowStart,
+}: {
+  loadOlder: () => Promise<void>;
+  parentRef: RefObject<HTMLDivElement | null>;
+  /** A restore pages from the top on purpose, so it holds the scroll there while it does. */
+  restoring: boolean;
+  totalSize: number;
+  virtualItems: readonly { index: number }[];
+  windowStart: number;
+}) {
+  // One page at a time: set when a page is asked for, cleared when the window moves back.
+  const pendingRef = useRef(false);
+  const prevWindowStartRef = useRef<number>(0);
+
+  useEffect(() => {
+    const first = virtualItems[0];
+    if (first && first.index < 20 && windowStart > 0 && !pendingRef.current) {
+      pendingRef.current = true;
+      void loadOlder();
+    }
+  }, [virtualItems, windowStart, loadOlder]);
+
+  useLayoutEffect(() => {
+    if (restoring) {
+      const el = parentRef.current;
+      if (el) el.scrollTop = 0;
+      pendingRef.current = false;
+    } else if (windowStart < prevWindowStartRef.current) {
+      pendingRef.current = false;
+    }
+    prevWindowStartRef.current = windowStart;
+    // `totalSize` reruns this while a restore pages in, so each page it brings stays at the top.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowStart, totalSize, restoring]);
+}
