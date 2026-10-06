@@ -42,54 +42,48 @@ const RESTORE_HOLD_MS = 1500;
 const SCROLL_SETTLE_MS = 200;
 
 /**
- * Finds the row an anchor names, preferring identity over position.
+ * Finds the row an anchor names, preferring identity over position, or -1 while it may still be
+ * read.
  *
- * A backend projection can be rebuilt with the same messages at different indices. An exact event id
- * therefore wins whenever it is loaded. The index remains the fallback for old stored anchors and
- * for sources whose rows have no id. An anchor older than the loaded window returns -1 so the feed's
- * normal paging effect can fetch the page that may contain its exact id.
+ * A backend projection can be rebuilt with the same messages at different indices. An exact event
+ * id therefore wins whenever it is held. Until the rows around the anchor have been read
+ * (`read`), an anchor that is not held is left pending rather than matched by position: the
+ * nearest held row may be in another range entirely, and landing there would read as having been
+ * restored to the wrong place. Once they have been read, the index is the fallback, for anchors
+ * stored without an id and for a line the view does not show: the first row at or after it, or the
+ * last row when the session is shorter than the remembered position.
  */
 function findAnchorRow(
   rowItems: readonly (FeedItem | { kind: "tail" })[],
   anchor: TranscriptScrollAnchor,
-  canPageOlder: boolean,
+  read: boolean,
 ): number {
   const durable = rowItems
     .map((item, index) => item.kind === "tail" || !isEventItem(item) ? null : { item, index })
     .filter((entry): entry is { item: DisplayItem; index: number } => entry !== null);
   if (durable.length === 0) return -1;
-
   if (anchor.eventId) {
     const exact = durable.find(({ item }) => leadEvent(item).id === anchor.eventId);
     if (exact) return exact.index;
   }
-
-  const first = durable[0]!;
-  // Everything currently loaded is newer than the anchor. Its exact id may be on the next older
-  // page, so leave the restore pending rather than jumping to an unrelated row. This check must
-  // precede the index fallback: that fallback would otherwise return this same first row and
-  // make an older anchor look restored at the top of the opening window. Once paging has reached
-  // the beginning, that first row is the nearest place that exists.
-  if (leadEvent(first.item).index > anchor.index) return canPageOlder ? -1 : first.index;
-
+  if (!read) return -1;
   const byIndex = durable.find(({ item }) => leadEvent(item).index >= anchor.index);
-  if (byIndex) return byIndex.index;
-
-  const last = durable[durable.length - 1]!;
-  // The projection is shorter than the remembered position. Its last row is the nearest place.
-  return last.index;
+  return (byIndex ?? durable[durable.length - 1]!).index;
 }
 
 /**
  * Holds the reader's place while the rows settle, then remembers where they stopped.
  *
- * Returns whether a saved anchor is still waiting for its page. The feed hides the rows
- * while that is true so the opening window's first row is not mistaken for the saved place.
+ * A saved place the feed does not hold is read with one page around it (`loadAround`, ADR-0125),
+ * where this used to page back from the top of the window until it was loaded, however far that
+ * was. Returns whether that page is still on its way. The feed hides the rows while that is true so
+ * the opening window's first row is not mistaken for the saved place.
  * `holdingEvent` stays inside because letting it out would invite a caller to treat a
  * transient hold as state worth rendering.
  */
 export function useTranscriptScrollRestore({
   following,
+  loadAround,
   parentRef,
   pause,
   rowItems,
@@ -99,9 +93,10 @@ export function useTranscriptScrollRestore({
   timelineEpoch,
   topEvent,
   virtualItems,
-  windowStart,
 }: {
   following: boolean;
+  /** Opens a range around a position, for a saved place the feed does not hold. */
+  loadAround: (position: number) => Promise<void>;
   parentRef: RefObject<HTMLDivElement | null>;
   pause: () => void;
   /** The rows on screen, including the live tail the durable list does not know about. */
@@ -111,8 +106,6 @@ export function useTranscriptScrollRestore({
   source: string;
   /** Changes whenever the timeline replaces its window, including after a sidecar restart. */
   timelineEpoch: number;
-  /** First loaded event. Above zero means there is still an older page to fetch. */
-  windowStart: number;
   topEvent: ActivityEvent | null;
   virtualItems: { index: number }[];
 }): { restoring: boolean } {
@@ -126,10 +119,12 @@ export function useTranscriptScrollRestore({
   //
   // The epoch is part of the restore key because a sidecar restart replaces the projection without
   // remounting this component. The saved event is then still the right place even though the rows
-  // and their indices have just been rebuilt. An anchor older than the loaded window stays pending
-  // so the feed's paging effect can fetch the page that may contain its exact id.
+  // and their indices have just been rebuilt. An anchor the feed does not hold stays pending while
+  // the page around it is read.
   const [holdingEvent, setHoldingEvent] = useState<TranscriptScrollAnchor | null>(null);
   const [pendingAnchor, setPendingAnchor] = useState<TranscriptScrollAnchor | null>(null);
+  // The restore key whose page around the anchor has been asked for, and whether it has come back.
+  const [around, setAround] = useState<{ key: string; read: boolean } | null>(null);
   useLayoutEffect(() => {
     const key = `${source}:${sessionId}:${timelineEpoch}`;
     if (restoredFor.current === key || rowItems.length === 0) return;
@@ -139,17 +134,27 @@ export function useTranscriptScrollRestore({
       restoredFor.current = key;
       return;
     }
-    const rowIndex = findAnchorRow(rowItems, anchor, windowStart > 0);
+    const read = around?.key === key && around.read;
+    const rowIndex = findAnchorRow(rowItems, anchor, read);
     if (rowIndex < 0) {
-      // The anchor is older than the opening window. Detach the tail follower now, or its
-      // resize handling keeps the viewport at the newest rows while the paging effect works
-      // backwards from the top, and the next page stops asking for the one before it.
+      // Not held. Detach the tail follower now, or its resize handling keeps the viewport at the
+      // newest rows, then read the rows around the anchor once.
       pause();
       setPendingAnchor((current) =>
         current?.index === anchor.index && current?.eventId === anchor.eventId
           ? current
           : anchor,
       );
+      if (around?.key !== key) {
+        setAround({ key, read: false });
+        loadAround(anchor.index).then(
+          () => setAround((current) => current?.key === key ? { key, read: true } : current),
+          (error: unknown) => {
+            console.error(`[restore] could not read the rows around ${anchor.eventId ?? anchor.index}`, error);
+            setAround((current) => current?.key === key ? { key, read: true } : current);
+          },
+        );
+      }
       return;
     }
     // The rows exist before the virtualiser has measured any of them, and a restore that gave up
@@ -168,7 +173,7 @@ export function useTranscriptScrollRestore({
     pause();
     setHoldingEvent(anchor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, sessionId, timelineEpoch, windowStart, rowItems, virtualItems, rowVirtualizer, pause]);
+  }, [source, sessionId, timelineEpoch, around, rowItems, virtualItems, rowVirtualizer, pause, loadAround]);
 
   /**
    * Puts the held row back at the top after every commit that could have moved it.
@@ -179,13 +184,13 @@ export function useTranscriptScrollRestore({
    */
   useLayoutEffect(() => {
     if (holdingEvent === null) return;
-    const rowIndex = findAnchorRow(rowItems, holdingEvent, windowStart > 0);
+    const rowIndex = findAnchorRow(rowItems, holdingEvent, true);
     if (rowIndex >= 0) rowVirtualizer.scrollToIndex(rowIndex, { align: "start" });
   });
 
   // The hold ends on its own, and early if the reader takes over -- fighting somebody who is
   // already scrolling is worse than landing a little short of where they were. A pending
-  // restore has no hold timer: it waits for its page, but a real input cancels it immediately.
+  // restore has no hold timer: it waits for its one page, but a real input cancels it immediately.
   useEffect(() => {
     if (holdingEvent === null && pendingAnchor === null) return;
     const el = parentRef.current;

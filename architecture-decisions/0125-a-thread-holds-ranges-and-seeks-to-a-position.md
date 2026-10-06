@@ -76,6 +76,7 @@ window still pays the distance, and the turn index reintroduces the whole-file r
 - **"Said"** is one rule in `agent-feed/wire`: a message that only runs a slash command is not
   something the reader said. Both ends import it.
 - **Jump and restore** open a range around the position (`around`) and scroll to the row. One read.
+  A restore keeps the feed hidden for that one read, rather than for as long as paging took.
 - **Older paging** is unchanged: `windowStart` is the start of the oldest range.
 - **Layout** (`rows/activityFeedLayout.ts`) stops runs of tool calls and visual segments at a gap,
   and still pairs results with calls across the whole held set.

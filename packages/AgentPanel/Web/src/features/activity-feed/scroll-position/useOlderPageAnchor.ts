@@ -3,7 +3,6 @@
 // Paging older transcript in from the top.
 
 import { useEffect, useLayoutEffect, useRef } from "react";
-import type { RefObject } from "react";
 
 /**
  * Loads an older page when the reader nears the top of what is loaded.
@@ -19,17 +18,10 @@ import type { RefObject } from "react";
  */
 export function useOlderPageAnchor({
   loadOlder,
-  parentRef,
-  restoring,
-  totalSize,
   virtualItems,
   windowStart,
 }: {
   loadOlder: () => Promise<void>;
-  parentRef: RefObject<HTMLDivElement | null>;
-  /** A restore pages from the top on purpose, so it holds the scroll there while it does. */
-  restoring: boolean;
-  totalSize: number;
   virtualItems: readonly { index: number }[];
   windowStart: number;
 }) {
@@ -46,15 +38,7 @@ export function useOlderPageAnchor({
   }, [virtualItems, windowStart, loadOlder]);
 
   useLayoutEffect(() => {
-    if (restoring) {
-      const el = parentRef.current;
-      if (el) el.scrollTop = 0;
-      pendingRef.current = false;
-    } else if (windowStart < prevWindowStartRef.current) {
-      pendingRef.current = false;
-    }
+    if (windowStart < prevWindowStartRef.current) pendingRef.current = false;
     prevWindowStartRef.current = windowStart;
-    // `totalSize` reruns this while a restore pages in, so each page it brings stays at the top.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowStart, totalSize, restoring]);
+  }, [windowStart]);
 }

@@ -256,7 +256,6 @@ export function ActivityFeed({
   });
 
   const virtualItems = rowVirtualizer.getVirtualItems();
-  const totalSize = rowVirtualizer.getTotalSize();
 
   // The position the bar needs the sidecar for, from the last answer below. Held in state so the
   // answer can size the bars on the render after it arrives; one render behind is what that costs.
@@ -291,6 +290,7 @@ export function ActivityFeed({
 
   const { restoring } = useTranscriptScrollRestore({
     following,
+    loadAround,
     parentRef,
     pause,
     rowItems,
@@ -298,7 +298,6 @@ export function ActivityFeed({
     sessionId,
     source,
     timelineEpoch: snapshotCount,
-    windowStart,
     topEvent,
     virtualItems,
   });
@@ -323,7 +322,7 @@ export function ActivityFeed({
     [items, rowVirtualizer, flashHighlight, pause],
   );
 
-  useOlderPageAnchor({ loadOlder, parentRef, restoring, totalSize, virtualItems, windowStart });
+  useOlderPageAnchor({ loadOlder, virtualItems, windowStart });
   const { failedGaps, retryGap } = useGapFill({ fillGap, rowItems, topRowIndex, virtualItems });
 
   const threadControls = (

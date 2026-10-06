@@ -277,17 +277,19 @@ describe("where a session was left being read", () => {
     view.unmount();
   });
 
-  it("lands on the oldest line it has when the one it kept is older than the loaded window", async () => {
+  it("reads once around a line older than the loaded window, and lands on the nearest it has", async () => {
     // A reader who paged far up and reloaded: the feed opens on the newest window, so the line they
-    // were on is not loaded yet. It pages back until there is no older page, then the window's first
-    // row is the nearest place to the remembered line that exists.
+    // were on is not loaded yet. It reads one page around that line rather than paging back to it;
+    // this fake's page holds nothing, so the window's first row is the nearest place that exists.
     localStorage.setItem(STORAGE_KEY, JSON.stringify([[`claude:${SESSION}`, 3]]));
-    const { scroller, view } = mountFeed(
+    const { scroller, view, transport } = mountFeed(
       Array.from({ length: 20 }, (_, index) => durable(index + 40)),
       40,
     );
     await screen.findByText("line 40");
-    expect(scroller.scrollTop).toBe(rowTop("line 40"));
+    await waitFor(() => expect(scroller.scrollTop).toBe(rowTop("line 40")));
+    const reads = transport.requests.filter((request) => request.path.includes("/events?"));
+    expect(reads.filter((request) => request.path.includes("around=3&"))).toHaveLength(1);
     view.unmount();
   });
 });
