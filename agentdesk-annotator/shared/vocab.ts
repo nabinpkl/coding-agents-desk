@@ -18,6 +18,10 @@ export function tagGuide(): string {
   return TAGS.map((t) => `${t}: ${TAG_MEANINGS[t]}.`).join(" ");
 }
 export const STATUSES = ["open", "resolved"] as const;
+
+/** CSS properties the reader can change on a picked element and preview on the page before saving. */
+export const STYLE_PROPERTIES = ["font-size"] as const;
+export type StyleProperty = (typeof STYLE_PROPERTIES)[number];
 export const ACTORS = ["user", "agent"] as const;
 export const SCREENSHOT_MIMES = ["image/jpeg", "image/png"] as const;
 

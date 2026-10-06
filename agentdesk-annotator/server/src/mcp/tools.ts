@@ -48,7 +48,7 @@ export function buildMcpServer(service: AnnotationService): McpServer {
   server.registerTool(
     `${P}_get`,
     {
-      description: `Full detail of one annotation: comment, tag, selector, DOM path, styles, bounding box, dragged region if any, replies. The tag says what to do: ${tagGuide()}`,
+      description: `Full detail of one annotation: comment, tag, selector, DOM path, styles, bounding box, dragged region if any, a font size the reader previewed on the page if any (styleChanges, from and to), replies. The tag says what to do: ${tagGuide()}`,
       inputSchema: z.object({ id: Id }),
     },
     async ({ id }) => guard(() => json(service.get(id))),

@@ -71,6 +71,9 @@ function one(a: BriefItem, i: number): string {
     const g = m.region;
     lines.push(`- **Region:** x=${Number(g.x)} y=${Number(g.y)} w=${Number(g.width)} h=${Number(g.height)} (page coordinates, inside the element above)`);
   }
+  for (const c of m.styleChanges ?? []) {
+    lines.push(`- **Change:** \`${c.property}\` ${c.from} → ${c.to} on the element above (the reader previewed this on the page)`);
+  }
   lines.push(`- **Tag:** \`${a.tag}\`: ${TAG_MEANINGS[a.tag]}`);
   return lines.join("\n");
 }

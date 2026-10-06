@@ -136,6 +136,16 @@ textarea:focus-visible, select:focus-visible { outline: 2px solid var(--focus); 
 .form-row .spacer { flex: 1; }
 .form-row .primary { margin-left: auto; }
 select { font: 12px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 6px; }
+.size-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.size-row[hidden] { display: none; }
+.size-label { color: var(--ink-2); }
+.stepper { display: inline-flex; align-items: center; gap: 1px; padding: 1px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.size-input { width: 48px; padding: 2px 0; font: 12px var(--mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink); background: transparent; border: 0; border-radius: 4px; appearance: textfield; }
+.size-input::-webkit-inner-spin-button, .size-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.size-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
+.size-input:disabled { color: var(--hint); }
+.unit { padding-right: 3px; font: 11px var(--mono); color: var(--hint); }
+.change { font: 11px/1.5 var(--mono); color: var(--ink-2); }
 .form-error { margin-top: 8px; color: var(--danger); font-size: 12px; }
 .form-error:empty { display: none; }
 

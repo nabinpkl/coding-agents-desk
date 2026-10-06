@@ -1,7 +1,7 @@
 /* Wire types shared by the server and the extension. The zod schemas are the
  * single source; TypeScript types are inferred from them. */
 import * as z from "zod";
-import { ACTORS, DEFAULT_TAG, SCREENSHOT_MIMES, STATUSES, TAGS } from "./vocab.ts";
+import { ACTORS, DEFAULT_TAG, SCREENSHOT_MIMES, STATUSES, STYLE_PROPERTIES, TAGS } from "./vocab.ts";
 
 export const Tag = z.enum(TAGS);
 export const Status = z.enum(STATUSES);
@@ -17,6 +17,20 @@ export const BBox = z.object({
   height: z.number(),
 });
 
+/**
+ * A CSS pixel length the extension wrote itself, such as `14px` or `13.33px`. Held to this shape so
+ * a style change carries no page text, and the brief can print it outside the page-text wrapper.
+ */
+const CssPixels = z.string().regex(/^\d{1,4}(\.\d{1,2})?px$/);
+
+/** One property the reader changed on the element and saw on the page: the computed value before, and theirs. */
+export const StyleChange = z.object({
+  property: z.enum(STYLE_PROPERTIES),
+  from: CssPixels,
+  to: CssPixels,
+});
+export type StyleChange = z.infer<typeof StyleChange>;
+
 /** What the picker records about the annotated container, or the element containing a dragged region. */
 export const ElementMetadata = z.object({
   tagName: z.string().max(64).optional(),
@@ -29,6 +43,8 @@ export const ElementMetadata = z.object({
   /** A dragged region, in document CSS pixels. Absent when a whole element was picked. */
   region: BBox.optional(),
   styles: z.string().max(1000).optional(),
+  /** Changes the reader previewed on the element before saving. Absent when nothing was changed. */
+  styleChanges: z.array(StyleChange).max(STYLE_PROPERTIES.length).optional(),
 });
 export type ElementMetadata = z.infer<typeof ElementMetadata>;
 

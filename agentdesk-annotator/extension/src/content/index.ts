@@ -10,6 +10,7 @@ import { captureElement, captureRegion, type Shot } from "./capture.ts";
 import { createPanel, HOST_ID, SETTLED_STATES, type CaptureMode, type ConnStatus, type Panel, type PanelState } from "./panel.ts";
 import { describeElement, findBySelector, pickContainer, regionAnchor } from "./picker.ts";
 import { createRegionSelector, type RegionSelector } from "./region.ts";
+import { previewFontSize, type FontSizePreview } from "./stylePreview.ts";
 
 type Region = NonNullable<ElementMetadata["region"]>;
 
@@ -80,7 +81,9 @@ function main(): void {
   let active = false;
   let panel: Panel | null = null;
   let hoverEl: Element | null = null;
-  let pendingEl: Element | null = null;
+  /** The element as it was picked, before any preview changed its size or its box. */
+  let pendingMeta: ElementMetadata | null = null;
+  let pendingPreview: FontSizePreview | null = null;
   let pendingShot: Shot | null = null;
   let pendingRegion: Region | null = null;
   let regionSel: RegionSelector | null = null;
@@ -263,17 +266,31 @@ function main(): void {
   // ----- form -----
 
   function openForm(el: Element, shot: Shot | null, region: Region | null = null): void {
-    pendingEl = el;
+    pendingPreview?.restore();
     pendingShot = shot;
     pendingRegion = region;
-    const selector = describeElement(el).selector ?? "?";
+    pendingMeta = describeElement(el);
+    // A region is about an area, and its anchor is only the element that happens to contain it, so
+    // only a picked container offers a size to change.
+    pendingPreview = region ? null : previewFontSize(el);
+    const selector = pendingMeta.selector ?? "?";
     const detail = region ? `${region.width} \u00d7 ${region.height} in ${selector}` : selector;
-    panel?.openForm(region ? "region" : "container", shot ? `${detail}  +  screenshot` : detail);
+    panel?.openForm(region ? "region" : "container", shot ? `${detail}  +  screenshot` : detail, pendingPreview ? pendingPreview.from : null);
     syncRegionArm();
   }
 
+  function setFontSize(px: number | null): void {
+    if (!pendingPreview) return;
+    if (px === null) pendingPreview.restore();
+    else pendingPreview.set(px);
+    panel?.showFontSize(pendingPreview.current(), pendingPreview.change());
+  }
+
+  /** Closing the form, saved or not, hands the page back as its code has it. */
   function cancelForm(): void {
-    pendingEl = null;
+    pendingPreview?.restore();
+    pendingPreview = null;
+    pendingMeta = null;
     pendingShot = null;
     pendingRegion = null;
     panel?.closeForm();
@@ -281,12 +298,17 @@ function main(): void {
   }
 
   async function save(text: string, tag: Tag): Promise<void> {
-    if (!panel || !pendingEl) return;
+    if (!panel || !pendingMeta) return;
     if (!text) {
       panel.setFormError("Write what is wrong first.");
       return;
     }
-    const metadata: ElementMetadata = pendingRegion ? { ...describeElement(pendingEl), region: pendingRegion } : describeElement(pendingEl);
+    const change = pendingPreview?.change();
+    const metadata: ElementMetadata = {
+      ...pendingMeta,
+      ...(pendingRegion ? { region: pendingRegion } : {}),
+      ...(change ? { styleChanges: [change] } : {}),
+    };
     const input: NewAnnotation = { url: location.href, title: document.title, text, tag, metadata };
     panel.setFormBusy(true);
     panel.setFormError("");
@@ -462,6 +484,7 @@ function main(): void {
         void save(text, tag);
       },
       cancelForm,
+      setFontSize,
       pickRecipient(address) {
         state.to = address;
         void chrome.storage.local.set({ [toKey()]: address });

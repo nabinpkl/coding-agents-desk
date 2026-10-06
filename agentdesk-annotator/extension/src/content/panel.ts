@@ -2,7 +2,7 @@
  * Shadow DOM so page styles never leak in or out. Pure view: it renders the
  * state it is given and reports user intent through handlers. Page and user
  * text only ever reaches the DOM through textContent. */
-import type { Annotation, Tag } from "../../../shared/annotation.ts";
+import type { Annotation, StyleChange, Tag } from "../../../shared/annotation.ts";
 import type { Recipient, SendInfo, SendState } from "../../../shared/send.ts";
 import { DEFAULT_TAG, TAG_MEANINGS, TAGS } from "../../../shared/vocab.ts";
 import { icon, type IconName } from "./icons.ts";
@@ -120,6 +120,8 @@ export interface PanelHandlers {
   shoot(a: Annotation): void;
   save(text: string, tag: Tag): void;
   cancelForm(): void;
+  /** Show the picked element at this font size, or put its own size back when null. */
+  setFontSize(px: number | null): void;
   pickRecipient(address: string): void;
   sendToAgent(): void;
 }
@@ -170,7 +172,10 @@ export interface Panel {
   host: HTMLElement;
   render(state: PanelState): void;
   show(visible: boolean): void;
-  openForm(kind: "container" | "region", detail: string): void;
+  /** `fontSize` is the picked element's computed size, or null when its size cannot be previewed. */
+  openForm(kind: "container" | "region", detail: string, fontSize: number | null): void;
+  /** The size now shown on the page, and what that changes, or null when it is back where it started. */
+  showFontSize(px: number, change: StyleChange | null): void;
   setFormBusy(busy: boolean): void;
   setFormError(message: string): void;
   closeForm(): void;
@@ -197,12 +202,57 @@ export function createPanel(on: PanelHandlers): Panel {
   const formTitle = h("span", {}, "Annotate container");
   const saveBtn = h("button", { class: "primary", type: "button" }, "Save");
   const cancelBtn = h("button", { class: "ghost", type: "button" }, "Cancel");
+
+  // ----- font size -----
+
+  // The comment and tag a size change suggests, kept only while the reader has not written their own.
+  let fontSize = 0;
+  let suggestedText = "";
+  let tagChosen = false;
+
+  const sizeInput = h("input", { id: "ax-font-size", class: "size-input", type: "number", step: "1", inputmode: "decimal" });
+  const sizeButton = (name: "minus" | "plus", label: string, sign: number): HTMLButtonElement => {
+    const b = h("button", { class: "icon-btn", type: "button", "aria-label": label, title: `${label} (Shift: 4px)` }, icon(name));
+    b.addEventListener("click", (e) => on.setFontSize(fontSize + sign * (e.shiftKey ? 4 : 1)));
+    return b;
+  };
+  const smaller = sizeButton("minus", "Smaller", -1);
+  const larger = sizeButton("plus", "Larger", 1);
+  const resetSize = textButton("Reset", () => on.setFontSize(null));
+  const sizeRow = h(
+    "div",
+    { class: "size-row" },
+    h("label", { class: "size-label", for: "ax-font-size" }, "Font size"),
+    h("span", { class: "stepper", role: "group", "aria-label": "Font size" }, smaller, sizeInput, h("span", { class: "unit" }, "px"), larger),
+    resetSize,
+  );
+  sizeInput.addEventListener("input", () => {
+    const px = sizeInput.valueAsNumber;
+    if (Number.isFinite(px) && px > 0) on.setFontSize(px);
+  });
+  sizeInput.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      on.setFontSize(fontSize + (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 4 : 1));
+    }
+    if (e.key === "Escape") on.cancelForm();
+  });
+  // A half-typed or out-of-range number gives way to the size actually on the page.
+  sizeInput.addEventListener("blur", () => {
+    sizeInput.value = String(fontSize);
+  });
+  tagSelect.addEventListener("change", () => {
+    tagChosen = true;
+  });
+
   const form = h(
     "div",
     { class: "form", role: "dialog", "aria-label": "Annotate container", hidden: true },
     h("div", { class: "form-head" }, formTitle, iconButton("x", "Cancel", () => on.cancelForm())),
     selectorLine,
     textarea,
+    sizeRow,
     h("div", { class: "form-row" }, tagSelect, h("span", { class: "spacer" }), cancelBtn, saveBtn),
     formError,
   );
@@ -284,6 +334,7 @@ export function createPanel(on: PanelHandlers): Panel {
       { class: "label" },
       h("span", {}, `${i + 1}. `),
       h("span", { class: "text" }, a.text),
+      ...(a.metadata.styleChanges ?? []).map((c) => h("div", { class: "change" }, `${c.property} ${c.from} → ${c.to}`)),
       resolved ? h("div", { class: "meta" }, `resolved by ${a.resolvedBy ?? "?"}`) : "",
     );
     const actions = [
@@ -361,19 +412,38 @@ export function createPanel(on: PanelHandlers): Panel {
     show(visible) {
       dock.hidden = !visible;
     },
-    openForm(kind, detail) {
+    openForm(kind, detail, size) {
       formTitle.textContent = kind === "region" ? "Annotate region" : "Annotate container";
       textarea.placeholder = kind === "region" ? "What is wrong in this area?" : "What is wrong with this container?";
       selectorLine.textContent = detail;
       formError.textContent = "";
       textarea.value = "";
       tagSelect.value = DEFAULT_TAG;
+      suggestedText = "";
+      tagChosen = false;
+      sizeRow.hidden = size === null;
+      fontSize = size ?? 0;
+      sizeInput.value = String(fontSize);
+      resetSize.disabled = true;
       form.hidden = false;
       saveBtn.disabled = false;
       queueMicrotask(() => textarea.focus());
     },
+    showFontSize(px, change) {
+      fontSize = px;
+      // Not while the reader is typing in it: rewriting the field would fight their keystrokes.
+      if (shadow.activeElement !== sizeInput) sizeInput.value = String(px);
+      resetSize.disabled = change === null;
+      const text = change ? `Font size ${change.from} → ${change.to}` : "";
+      if (textarea.value === suggestedText) {
+        textarea.value = text;
+        suggestedText = text;
+      }
+      if (!tagChosen) tagSelect.value = change ? "change" : DEFAULT_TAG;
+    },
     setFormBusy(busy) {
       saveBtn.disabled = busy;
+      for (const control of [smaller, larger, sizeInput, resetSize]) control.disabled = busy;
       saveBtn.setAttribute("aria-busy", busy ? "true" : "false");
       saveBtn.textContent = busy ? "Saving" : "Save";
       textarea.readOnly = busy;

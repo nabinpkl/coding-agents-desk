@@ -48,3 +48,11 @@ test("xmlEscape escapes what can open a tag and leaves selectors copyable", () =
   assert.equal(xmlEscape(`<a href="x">'&'</a>`), `&lt;a href="x">'&amp;'&lt;/a>`);
   assert.equal(xmlEscape(`form > button[type="submit"]`), `form > button[type="submit"]`);
 });
+
+test("a previewed style change is a line the agent can act on, outside the page-text wrapper", () => {
+  const brief = buildBrief(
+    [{ text: "Font size 14px → 18px", tag: "change", metadata: { selector: "h1", styleChanges: [{ property: "font-size", from: "14px", to: "18px" }] } }],
+    { url: "https://example.com", title: "Home" },
+  );
+  assert.match(brief, /^- \*\*Change:\*\* `font-size` 14px → 18px on the element above/m);
+});
