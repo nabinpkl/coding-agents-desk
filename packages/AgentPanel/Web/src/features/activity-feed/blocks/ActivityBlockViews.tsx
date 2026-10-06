@@ -257,7 +257,7 @@ export function Block({
             <span className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-(length:--agent-panel-fs-tile-chip,12px) font-semibold text-foreground/80">
               {headerChip}
             </span>
-            <span className="min-w-0 flex-1 truncate text-foreground/80">
+            <span className="min-w-0 flex-1 truncate text-foreground/80" title={headerLabel || undefined}>
               {headerLabel}
             </span>
           </button>
@@ -296,14 +296,11 @@ export function Block({
         ) : null}
         {isExpanded ? (
           <>
-            {/* The header truncates the summary to the row's width; expanded,
-                the full line reads here above the command it names. Shell rows
-                only: other calls already draw their full content below. */}
-            {command !== null && summary ? (
-              <div className="text-muted-foreground">{summary}</div>
-            ) : null}
-            {/* Wrapped: this is one command, not source, so it has no indentation to read and
-                nothing is gained by putting the rest of it behind a horizontal scroll. */}
+            {/* Straight to the command, with nothing between it and the header: the summary
+                is usually that same command, and spelled out in full here it read as the
+                command three times over. Where it says something else, the header's tooltip
+                holds the whole line. Wrapped: this is one command, not source, so it has no
+                indentation to read and nothing is gained by a horizontal scroll. */}
             {command !== null ? <CodeBlock code={command} lang="bash" wrap /> : null}
             {isEditDiff ? (
               <DiffBlock

@@ -139,7 +139,7 @@ describe("opencode file shapes", () => {
     unmount();
   });
 
-  it("shows the full summary above the command once expanded", () => {
+  it("opens straight onto the command, with the summary once in the header", () => {
     const label = "Test describeEditChange.test.ts, filter for FAIL";
     const blocks: ActivityEvent["blocks"] = [
       { kind: "tool_use", tool: "shell", input: { command: "npx vitest" }, summary: label, callId: "c1" },
@@ -159,9 +159,10 @@ describe("opencode file shapes", () => {
         />
       </DataSourceProvider>,
     );
-    // Header truncates; the expanded body carries the whole line: one
-    // truncated span up top, one full div below.
-    expect(screen.getAllByText(label)).toHaveLength(2);
+    // Said once, in the header, with the whole line on hover; the body is the command.
+    expect(screen.getAllByText(label)).toHaveLength(1);
+    expect(screen.getByText(label)).toHaveAttribute("title", label);
+    expect(screen.getByText("npx vitest")).toBeInTheDocument();
     unmount();
   });
 });
