@@ -56,12 +56,16 @@ export const ROLE_BORDER: Record<DisplayRole, string> = {
 
 /**
  * Nice lets model prose and reasoning read as one response, and leaves a tool call to its own chip
- * (`Bash`, `Read`), which already says a tool ran and which one. Raw keeps every role label.
+ * (`Bash`, `Read`), which already says a tool ran and which one. Raw keeps every other role label.
+ *
+ * A person's message is never labelled, in either mode: its card sits on the right in the
+ * reader's own tint, which says who wrote it before a word of it is read.
  */
 export function showEventRoleLabel(
   mode: SessionReference["mode"],
   role: DisplayRole,
 ): boolean {
+  if (role === "user") return false;
   return mode === "raw" || (role !== "assistant" && role !== "reasoning" && role !== "tool");
 }
 

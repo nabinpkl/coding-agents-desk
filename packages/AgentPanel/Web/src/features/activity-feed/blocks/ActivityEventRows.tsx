@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, GitBranch } from "lucide-react";
+import { ChevronDown, ChevronRight, GitBranch } from "lucide-react";
 import { DiffBlock } from "@/features/activity-feed/blocks/diff/DiffBlock";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
@@ -276,13 +276,75 @@ export function UserRow({
           (isHighlighted ? "ring-2 ring-primary ring-inset" : "")
         }
       >
-        <EventRowShell
-          ev={ev}
-          role="user"
-          isCollapsed={isCollapsed}
-          onToggle={onToggle}
-          ctx={ctx}
-        />
+        <UserMessageBody ev={ev} ctx={ctx} isCollapsed={isCollapsed} onToggle={onToggle} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Past this a message folds, and only then carries a chevron: most of what a person types is a line
+ * or two, and a toggle on each was a control beside text with nothing to hide. Lines as well as
+ * characters, because six one-word lines are as tall as a paragraph.
+ */
+function isFoldableUserMessage(ev: ActivityEvent): boolean {
+  const text = ev.blocks.map((block) => (block.kind === "text" ? block.text ?? "" : "")).join("\n").trim();
+  return text.length > 280 || text.split("\n").length > 6;
+}
+
+/**
+ * What a person said, with no heading in front of it. A short message is only its text, whatever
+ * the feed's collapse state says, since folding it would hide nothing. A long one ends in a
+ * chevron: after the last line when open, after its one-line gist when folded, so the control sits
+ * where the reader stops reading rather than ahead of the first word.
+ */
+function UserMessageBody({
+  ev, ctx, isCollapsed, onToggle,
+}: {
+  ev: ActivityEvent;
+  ctx: EventRowContext;
+  isCollapsed: boolean;
+  onToggle: () => void;
+}) {
+  if (!isFoldableUserMessage(ev)) {
+    return <EventBody ev={ev} ctx={ctx} besideHeading bareHeading={false} />;
+  }
+  const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : undefined;
+  const chevron = (
+    <ChevronDown
+      className={"size-[1em] shrink-0 text-muted-foreground transition-transform " + (isCollapsed ? "" : "rotate-180")}
+      aria-hidden
+    />
+  );
+  if (isCollapsed) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={false}
+        aria-label="expand event"
+        title={when}
+        className="flex w-full min-w-0 items-center gap-[0.3em] rounded-sm text-left outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        <span className="min-w-0 flex-1"><CollapsedPreview ev={ev} /></span>
+        {chevron}
+      </button>
+    );
+  }
+  return (
+    <div>
+      <EventBody ev={ev} ctx={ctx} besideHeading bareHeading={false} />
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded
+          aria-label="collapse event"
+          title={when}
+          className="-mb-[0.1em] rounded-sm p-[0.1em] leading-none outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          {chevron}
+        </button>
       </div>
     </div>
   );

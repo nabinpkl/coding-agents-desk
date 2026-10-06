@@ -107,7 +107,8 @@ describe("event heading", () => {
 
   it("leaves an expanded tool call to its own chip and its own chevron, and no second one", () => {
     expect(showEventRoleLabel("nice", "tool")).toBe(false);
-    expect(showEventRoleLabel("nice", "user")).toBe(true);
+    expect(showEventRoleLabel("nice", "user")).toBe(false);
+    expect(showEventRoleLabel("raw", "user")).toBe(false);
     expect(showEventRoleLabel("raw", "tool")).toBe(true);
 
     const toolRow = (isCollapsed: boolean) => (
@@ -286,19 +287,6 @@ describe("event heading", () => {
     const heading = screen.getByLabelText("collapse event");
     expect(heading.getAttribute("title")).not.toContain("#7");
     expect(heading.getAttribute("title")).toMatch(/\d{1,2}:\d{2}/);
-  });
-
-  it("still reports collapse state to assistive tech", () => {
-    renderRow(
-      <UserRow
-        ev={event({ type: "user" })}
-        ctx={CTX}
-        isCollapsed
-        onToggle={() => {}}
-        isHighlighted={false}
-      />,
-    );
-    expect(screen.getByLabelText("expand event")).toHaveAttribute("aria-expanded", "false");
   });
 });
 

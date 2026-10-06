@@ -45,9 +45,6 @@ export function StickyUserHeader({
       className={`flex w-full items-center gap-2 border-b session-view-dock ${COLUMN_GUTTER_CLASS} py-2 text-left shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
-      <span className="shrink-0 rounded-md bg-primary/30 px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-semibold uppercase tracking-wider text-primary">
-        user
-      </span>
       <span className="min-w-0 flex-1 truncate leading-snug text-foreground">
         {preview || "(no text)"}
       </span>
