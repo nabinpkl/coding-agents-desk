@@ -11,7 +11,7 @@
 // one stream and reads messages off it.
 
 import type { AgentBackend } from "@/agents/agentBackend";
-import { backendPageBefore, stampSessionModel } from "@/agents/agentBackend";
+import { backendPage, stampSessionModel } from "@/agents/agentBackend";
 import {
   findSession,
   getWatcherState,
@@ -419,7 +419,7 @@ async function openingWindow(
     };
   }
   if (!backend) return null;
-  const { total: _total, ...page } = await backendPageBefore(backend, sessionId, null, TIMELINE_WINDOW, mode);
+  const { total: _total, ...page } = await backendPage(backend, sessionId, { before: null }, TIMELINE_WINDOW, mode);
   return {
     page: { ...page, usage: backendUsage(backend, sessionId), ...stampSessionModel(backend, sessionId) },
     follow: null,

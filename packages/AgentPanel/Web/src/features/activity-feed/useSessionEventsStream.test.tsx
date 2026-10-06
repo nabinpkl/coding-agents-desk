@@ -71,7 +71,7 @@ describe("useSessionEventsStream", () => {
     await waitFor(() => expect(view.result.current.loading).toBe(false));
 
     await act(async () => { await view.result.current.loadOlder(); });
-    expect(session.pages).toEqual([[50, 100]]);
+    expect(session.pages).toEqual([[{ before: 50 }, 100]]);
     expect(view.result.current.events).toHaveLength(150);
     expect(view.result.current.windowStart).toBe(0);
 

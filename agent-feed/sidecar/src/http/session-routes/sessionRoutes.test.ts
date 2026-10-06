@@ -423,6 +423,50 @@ test("passes over a bare slash command when asked for the last thing said", asyn
   });
 });
 
+test("asked for the last thing said before a position, walks back from there", async () => {
+  // The bar asks from the start of the rows it holds, so a message below that start is one it
+  // already has, and the answer it needs is the one above.
+  state.watcherState = "live";
+  await transcriptHolding((root) => [said(root, "ALPHA one"), answered(root, "ok"), said(root, "BRAVO two")]);
+  const path = state.sessions.get(`claude:${SESSION_ID}`)!.transcriptPath!;
+  const [alpha, ok] = (await Bun.file(path).text()).split("\n");
+  const bravo = Buffer.byteLength(alpha!) + 1 + Buffer.byteLength(ok!) + 1;
+
+  expect(await (await lastMessage("claude", SESSION_ID, `?before=${bravo}&said=1`)).json()).toEqual({
+    eventId: `claude:${SESSION_ID}:at:0`,
+    text: "ALPHA one",
+  });
+  expect((await lastMessage("claude", SESSION_ID, "?before=0")).status).toBe(404);
+  expect((await lastMessage("claude", SESSION_ID, "?before=3")).status).toBe(400);
+  expect((await lastMessage("claude", SESSION_ID, "?before=x")).status).toBe(400);
+});
+
+function eventsPage(query: string): Promise<Response> {
+  const request = new Request(`http://localhost/api/sessions/claude/${SESSION_ID}/events?${query}`);
+  return Promise.resolve(route(request, new URL(request.url), server) as Promise<Response>);
+}
+
+test("reads a page before, after or around a position, and refuses two at once", async () => {
+  state.watcherState = "live";
+  await transcriptHolding((root) => Array.from({ length: 9 }, (_, turn) => answered(root, `turn ${turn}`)));
+  const path = state.sessions.get(`claude:${SESSION_ID}`)!.transcriptPath!;
+  const starts: number[] = [];
+  let at = 0;
+  for (const line of (await Bun.file(path).text()).split("\n").filter(Boolean)) {
+    starts.push(at);
+    at += Buffer.byteLength(line) + 1;
+  }
+  const texts = async (response: Response) =>
+    ((await response.json()) as { events: { blocks: { text?: string }[] }[] }).events.map((event) =>
+      event.blocks.find((block) => block.text)?.text);
+
+  expect(await texts(await eventsPage(`after=${starts[2]}&limit=3`))).toEqual(["turn 3", "turn 4", "turn 5"]);
+  expect(await texts(await eventsPage(`around=${starts[4]}&limit=4`))).toEqual(["turn 2", "turn 3", "turn 4", "turn 5"]);
+  expect(await texts(await eventsPage(`before=${starts[2]}&limit=5`))).toEqual(["turn 0", "turn 1"]);
+  expect((await eventsPage(`after=1&before=2`)).status).toBe(400);
+  expect((await eventsPage(`around=${starts[4]! + 1}`)).status).toBe(400);
+});
+
 test("says so when nobody has written a message yet", async () => {
   // 404 with a reason rather than an empty body: the caller opens a dialog quoting this, and an
   // empty quote would read as a message that says nothing.

@@ -35,8 +35,12 @@ export interface SessionsPayload {
 }
 
 /**
- * `GET /api/sessions/{source}/{sessionId}/events?before=&limit=&mode=`: the newest `limit` rows
- * whose index is below `before`, or the newest rows of all when `before` is absent.
+ * `GET /api/sessions/{source}/{sessionId}/events?(before|after|around)=&limit=&mode=`: `limit`
+ * rows read from where `EventsPageAt` says, or the newest rows of all when no position is named.
+ *
+ * Every row carries `previous`, so a page read after or around a position joins the rows already
+ * held exactly where it touches them, and a reader tells a gap from a neighbour without the page
+ * saying where it ends.
  */
 export interface EventsPage {
   events: ActivityEvent[];

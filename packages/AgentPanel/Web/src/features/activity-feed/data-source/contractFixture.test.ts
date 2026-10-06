@@ -139,7 +139,7 @@ describe("the shared wire contract", () => {
       status: 200,
       body: JSON.stringify(fixture.eventsPage),
     });
-    const page = await source.fetchEventsPage(SESSION, null, 1);
+    const page = await source.fetchEventsPage(SESSION, { before: null }, 1);
     expect(page.windowStart).toBe(fixture.eventsPage.windowStart);
     expect(page.events.map((e) => e.id)).toEqual(fixture.eventsPage.events.map((e) => e.id));
 
@@ -156,7 +156,7 @@ describe("the shared wire contract", () => {
     const source = new SidecarDataSource(transport);
     transport.defaultResponse = { status: 404, body: JSON.stringify(fixture.errorPayload) };
 
-    await expect(source.fetchEventsPage(SESSION, 0, 1)).rejects.toMatchObject({
+    await expect(source.fetchEventsPage(SESSION, { before: 0 }, 1)).rejects.toMatchObject({
       code: fixture.errorPayload.error.code,
       status: 404,
     });

@@ -20,7 +20,7 @@ const indices = (events: ActivityEvent[]) => events.map((event) => event.index);
 function growing(rows: number) {
   const session = { rows };
   const harness = thread(range(0, rows).map((index) => row(index)), { stableIndices: true });
-  harness.answerWith(async (before, limit) => pageOf(range(0, session.rows).map((index) => row(index)), before, limit));
+  harness.answerWith(async (at, limit) => pageOf(range(0, session.rows).map((index) => row(index)), at, limit));
   const view = renderThread(harness.source);
   return {
     view,
@@ -47,7 +47,7 @@ test("fetches the rows a reconnect skipped, newest page first", async () => {
   session.reconnect(500, 2);
 
   await waitFor(() => expect(indices(session.view.result.current.events)).toEqual(range(150, 500)));
-  expect(session.harness.pages).toEqual([[400, 100], [300, 100]]);
+  expect(session.harness.pages).toEqual([[{ before: 400 }, 100], [{ before: 300 }, 100]]);
   expect(session.view.result.current.windowStart).toBe(150);
 });
 
@@ -69,7 +69,7 @@ test("finds the hole by what each row says precedes it, not by adjacent numbers"
   const transcriptRow = (n: number): ActivityEvent => ({ ...row(at(n)), previous: n === 0 ? null : at(n - 1) });
   const all = range(0, 300).map(transcriptRow);
   const harness = thread(all.slice(0, 120), { stableIndices: true });
-  harness.answerWith(async (before, limit) => pageOf(all, before, limit));
+  harness.answerWith(async (at, limit) => pageOf(all, at, limit));
   const view = renderThread(harness.source);
   await waitFor(() => expect(view.result.current.loading).toBe(false));
   // Held: rows 20..119. Nothing is missing between them although their indices are 1000 apart.
@@ -82,7 +82,7 @@ test("finds the hole by what each row says precedes it, not by adjacent numbers"
   })));
 
   await waitFor(() => expect(view.result.current.events).toHaveLength(280));
-  expect(harness.pages).toEqual([[at(200), 100]]);
+  expect(harness.pages).toEqual([[{ before: at(200) }, 100]]);
 });
 
 test("throws away a fill that a newer snapshot overtook, and fills again", async () => {
@@ -90,7 +90,8 @@ test("throws away a fill that a newer snapshot overtook, and fills again", async
   await waitFor(() => expect(session.view.result.current.loading).toBe(false));
 
   let answerStale: (() => void) | undefined;
-  session.harness.answerWith((before, limit) => new Promise<EventsPage>((resolve) => {
+  session.harness.answerWith((at, limit) => new Promise<EventsPage>((resolve) => {
+    const before = "before" in at ? at.before : null;
     // A newer revision, so only the epoch check can be what keeps it out.
     answerStale = () => resolve({
       events: range(before! - limit, before!).map((index) => row(index, "stale", 5)),
@@ -103,7 +104,7 @@ test("throws away a fill that a newer snapshot overtook, and fills again", async
   const stale = answerStale!;
 
   // The stream reopens again before that page comes back, with the same hole.
-  session.harness.answerWith(async (before, limit) => pageOf(range(0, 400).map((index) => row(index)), before, limit));
+  session.harness.answerWith(async (at, limit) => pageOf(range(0, 400).map((index) => row(index)), at, limit));
   session.reconnect(400, 3);
   await waitFor(() => expect(indices(session.view.result.current.events)).toEqual(range(150, 400)));
 

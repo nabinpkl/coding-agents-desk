@@ -5,6 +5,7 @@ import type {
   AgentSessionCapabilities,
   AgentSessionDescriptor,
   AgentUiEvent,
+  EventsPageAt,
 } from "@agentdesk/agent-feed-wire";
 
 // Everything a backend publishes about itself, or that a command answers with,
@@ -61,22 +62,28 @@ export function stampSessionModel(
 }
 
 /**
- * The newest `limit` rows of a backend session below `before`, or its newest rows when `before`
- * is null, in the shape every page route answers with.
+ * `limit` rows of a backend session read from where `at` says, in the shape every page route
+ * answers with.
  *
- * A backend's indices are ordinals in its own projection, so "before" is plain arithmetic here,
- * where a transcript's positions have to be read for. Both answer the same question so the panel
- * pages one way whichever is behind a session. `windowStart` is 0 exactly when nothing is older.
+ * A backend's indices are ordinals in its own projection, so a position is plain arithmetic here,
+ * where a transcript's positions have to be read for. Both answer the same three questions so the
+ * panel pages and seeks one way whichever is behind a session. `windowStart` is 0 exactly when
+ * nothing is older than the page.
  */
-export async function backendPageBefore(
+export async function backendPage(
   backend: AgentBackend,
   sessionId: string,
-  before: number | null,
+  at: EventsPageAt,
   limit: number,
   mode: EventMode,
 ): Promise<AgentTimelinePage & { windowStart: number }> {
-  const end = before ?? (await backend.page(sessionId, 0, 0, mode)).total;
-  const offset = Math.max(0, end - limit);
+  const total = (await backend.page(sessionId, 0, 0, mode)).total;
+  const offset = "after" in at
+    ? Math.min(total, at.after + 1)
+    : "around" in at
+      ? Math.max(0, Math.min(at.around, total) - Math.floor(limit / 2))
+      : Math.max(0, (at.before ?? total) - limit);
+  const end = "before" in at ? (at.before ?? total) : Math.min(total, offset + limit);
   const page = await backend.page(sessionId, offset, end - offset, mode);
   return { ...page, windowStart: offset };
 }

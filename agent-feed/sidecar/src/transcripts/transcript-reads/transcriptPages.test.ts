@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import {
   readEventRaw,
   readEventsBetween,
+  readPageAfter,
+  readPageAround,
   readPageBefore,
   readSessionMeter,
 } from "@/transcripts/transcript-reads/transcriptPages";
@@ -168,6 +170,67 @@ describe("reading a page back from a position", () => {
     await writeFile(path, "");
     const page = await readPageBefore(source, sessionId, path, null, 5, "nice");
     expect(page).toEqual({ events: [], windowStart: 0, end: 0 });
+  });
+});
+
+describe("reading a page after or around a position", () => {
+  test("after a row: the rows that follow it, joined to it, in either view", async () => {
+    const lines = interleaved(9);
+    const path = await transcript(lines);
+    const at = positions(lines);
+    const turnAt = (turn: number) => at[lines.findIndex((line) => line.includes(`"turn ${turn}"`))]!;
+
+    const nice = await readPageAfter(source, sessionId, path, turnAt(3), 3, "nice");
+    expect(texts(nice.events)).toEqual(["turn 4", "turn 5", "turn 6"]);
+    expect(nice.events[0]!.previous).toBe(turnAt(3));
+    expect(nice.windowStart).toBe(turnAt(4));
+
+    // Turn 3 is followed by its machinery line, which only the raw view shows.
+    const raw = await readPageAfter(source, sessionId, path, turnAt(3), 2, "raw");
+    expect(raw.events.map((event) => event.index)).toEqual([turnAt(3) + Buffer.byteLength(lines[at.indexOf(turnAt(3))]!) + 1, turnAt(4)]);
+  });
+
+  test("after the newest row: nothing, and a position inside a line is refused", async () => {
+    const lines = interleaved(3);
+    const path = await transcript(lines);
+    const at = positions(lines);
+    expect((await readPageAfter(source, sessionId, path, at.at(-1)!, 5, "raw")).events).toEqual([]);
+    await expect(readPageAfter(source, sessionId, path, at[1]! + 1, 5, "raw")).rejects.toThrow("not where a line starts");
+  });
+
+  test("around a row: the row and rows either side, joined in one run", async () => {
+    const lines = interleaved(12);
+    const path = await transcript(lines);
+    const at = positions(lines);
+    const turnAt = (turn: number) => at[lines.findIndex((line) => line.includes(`"turn ${turn}"`))]!;
+
+    const page = await readPageAround(source, sessionId, path, turnAt(6), 4, "nice");
+    expect(texts(page.events)).toEqual(["turn 4", "turn 5", "turn 6", "turn 7"]);
+    for (let row = 1; row < page.events.length; row += 1) {
+      expect(page.events[row]!.previous).toBe(page.events[row - 1]!.index);
+    }
+    expect(page.windowStart).toBe(turnAt(4));
+  });
+
+  test("around a machinery line in the nice view: the rows either side of where it sits", async () => {
+    const lines = interleaved(9);
+    const path = await transcript(lines);
+    const at = positions(lines);
+    // Turn 3's machinery line, which sits between turn 3 and turn 4.
+    const machinery = lines.findIndex((line, index) => index > 1 && line.includes("token_count"));
+
+    const page = await readPageAround(source, sessionId, path, at[machinery]!, 4, "nice");
+    expect(texts(page.events)).toEqual(["turn 2", "turn 3", "turn 4", "turn 5"]);
+    expect(page.events[2]!.previous).toBe(page.events[1]!.index);
+  });
+
+  test("around the first row: nothing is older, so the page starts the file", async () => {
+    const lines = interleaved(6);
+    const path = await transcript(lines);
+    const page = await readPageAround(source, sessionId, path, 0, 4, "nice");
+    expect(texts(page.events)).toEqual(["turn 0", "turn 1"]);
+    expect(page.windowStart).toBe(0);
+    expect(page.events[0]!.previous).toBeNull();
   });
 });
 

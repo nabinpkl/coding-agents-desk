@@ -7,11 +7,13 @@
 // that asked it, and `deliver` is what hands it on.
 
 import {
+  eventsPageAtQuery,
   TIMELINE_HEARTBEAT_MS,
   type ActivityEvent,
   type AgentUiEvent,
   type BackgroundTaskSnapshot,
   type EventsPage as WireEventsPage,
+  type EventsPageAt,
   type SubagentTranscriptMessage,
   type TaskOutputMessage,
   type TimelineMessage,
@@ -46,11 +48,12 @@ function subagentTranscriptPath(session: SessionReference, agentId: string): str
     `${encodeURIComponent(session.sessionId)}/agents/${encodeURIComponent(agentId)}/transcript`;
 }
 
-function eventsPath(session: SessionReference, before: number | null, limit: number): string {
+function eventsPath(session: SessionReference, at: EventsPageAt, limit: number): string {
   // Opencode is backend-owned, so its page lives beside the other live-backend
   // routes. The generic path is for transcript-backed sources and Pi.
   const root = session.source === "opencode" ? "/api/agent-sessions" : "/api/sessions";
-  const from = before === null ? "" : `before=${before}&`;
+  const where = eventsPageAtQuery(at);
+  const from = where === "" ? "" : `${where}&`;
   return `${root}/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events?${from}limit=${limit}&mode=${session.mode}`;
 }
 
@@ -78,11 +81,11 @@ export class SidecarTranscript extends SidecarRoutes {
 
   async fetchEventsPage(
     session: SessionReference,
-    before: number | null,
+    at: EventsPageAt,
     limit: number,
   ): Promise<EventsPage> {
     const page = parse<WireEventsPage>(
-      await this.transport.request("GET", eventsPath(session, before, limit)),
+      await this.transport.request("GET", eventsPath(session, at, limit)),
     );
     return {
       events: page.events,

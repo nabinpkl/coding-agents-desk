@@ -124,6 +124,43 @@ test("a live page carries the runtime projection identity", async () => {
   expect(await response?.json()).toMatchObject({ projectionId: "projection-live" });
 });
 
+test("a live page is read before, after or around an ordinal by arithmetic", async () => {
+  const base = fakeBackend();
+  const asked: { offset: number; limit: number }[] = [];
+  const backend: AgentBackend = {
+    ...base,
+    id: "opencode",
+    page: async (_sessionId, offset, limit) => {
+      if (limit > 0) asked.push({ offset, limit });
+      return {
+        events: [],
+        total: 20,
+        mode: "nice" as const,
+        sequence: 0,
+        runState: "idle" as const,
+        queue: { steer: 0, followUp: 0 },
+      };
+    },
+  };
+  const route = createAgentRoutes((id) => id === "opencode" ? backend : undefined);
+  const page = async (query: string) => {
+    const request = new Request(`http://localhost/api/agent-sessions/opencode/s1/events?mode=nice&${query}`);
+    return (await route(request, new URL(request.url), server))!;
+  };
+
+  expect(await (await page("before=10&limit=4")).json()).toMatchObject({ windowStart: 6 });
+  expect(await (await page("after=10&limit=4")).json()).toMatchObject({ windowStart: 11 });
+  expect(await (await page("around=10&limit=4")).json()).toMatchObject({ windowStart: 8 });
+  expect(await (await page("after=18&limit=4")).json()).toMatchObject({ windowStart: 19 });
+  expect(asked).toEqual([
+    { offset: 6, limit: 4 },
+    { offset: 11, limit: 4 },
+    { offset: 8, limit: 4 },
+    { offset: 19, limit: 1 },
+  ]);
+  expect((await page("before=1&after=2")).status).toBe(400);
+});
+
 test("extension UI responses are correlated through the backend broker", async () => {
   const backend = fakeBackend();
   const route = createAgentRoutes(() => backend);

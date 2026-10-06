@@ -27,7 +27,7 @@ import {
   NotALineStartError,
 } from "@/transcripts/transcript-reads/transcriptLines";
 
-/** One page, read backwards from a position. */
+/** One page, read from a position. */
 export interface TranscriptPage {
   events: ActivityEvent[];
   /**
@@ -134,6 +134,121 @@ export async function readPageBefore(
   }
   const events = eventsOf(source, sessionId, collected.slice(from), mode, extra);
   return { events, windowStart: extra === null ? 0 : (events[0]?.index ?? 0), end };
+}
+
+/**
+ * The oldest `limit` rows from `from` onwards, `from` included when a row starts there, oldest
+ * first, with `previous` as the caller names it.
+ *
+ * Stops at the first row past the page, so a page that ends among machinery lines still carries
+ * them and a Codex cache badge they report lands on the row it belongs to.
+ */
+async function readRowsFrom(
+  source: TranscriptSourceId,
+  sessionId: string,
+  path: string,
+  from: number,
+  end: number,
+  limit: number,
+  mode: EventMode,
+  previous: number | null,
+): Promise<ActivityEvent[]> {
+  const adapter = adapterFor(source);
+  const collected: ParsedTranscriptLine[] = [];
+  let visible = 0;
+  await linesFrom(path, from, end, (line) => {
+    const result = adapter.processLine(line.text);
+    if (!result?.event) return true;
+    if (visibleIn(result, mode)) {
+      if (visible === limit) return false;
+      visible += 1;
+    }
+    collected.push({ position: line.position, result: result as ParsedTranscriptLine["result"] });
+    return true;
+  });
+  return eventsOf(source, sessionId, collected, mode, previous);
+}
+
+/** The newest row in `mode` that starts before `end`, or null when there is none. */
+async function rowBefore(
+  source: TranscriptSourceId,
+  path: string,
+  end: number,
+  mode: EventMode,
+): Promise<number | null> {
+  const adapter = adapterFor(source);
+  let found: number | null = null;
+  await linesBefore(path, end, (line) => {
+    const result = adapter.processLine(line.text);
+    if (!result?.event || !visibleIn(result, mode)) return true;
+    found = line.position;
+    return false;
+  });
+  return found;
+}
+
+/**
+ * The oldest `limit` rows after the row at `after`, which is not among them: the page that closes
+ * a gap from the side above it.
+ *
+ * `windowStart` is the page's own oldest row, since the row it follows exists by construction.
+ */
+export async function readPageAfter(
+  source: TranscriptSourceId,
+  sessionId: string,
+  path: string,
+  after: number,
+  limit: number,
+  mode: EventMode,
+): Promise<TranscriptPage> {
+  if (!(await isLineStart(path, after))) throw new NotALineStartError(`${after} is not where a line starts`);
+  const end = await completeEnd(path);
+  // Where the line at `after` ends, and whether it is a row in this view: the page's first row
+  // follows it when it is, and the row before it otherwise.
+  let next = after;
+  let shown = false;
+  await linesFrom(path, after, end, (line) => {
+    if (line.position === after) {
+      const result = adapterFor(source).processLine(line.text);
+      shown = result?.event !== undefined && result.event !== null && visibleIn(result, mode);
+      next = line.end;
+    }
+    return false;
+  });
+  const previous = shown ? after : await rowBefore(source, path, after, mode);
+  const events = await readRowsFrom(source, sessionId, path, next, end, limit, mode, previous);
+  return { events, windowStart: events[0]?.index ?? next, end };
+}
+
+/**
+ * The row at `around` with rows either side of it, half the page before and the rest from it on:
+ * what landing on a row the reader has not loaded reads, wherever it is in the file.
+ *
+ * A position whose line is not a row in `mode` (a machinery line in the nice view) is still a
+ * place to land: the page is the rows either side of it.
+ */
+export async function readPageAround(
+  source: TranscriptSourceId,
+  sessionId: string,
+  path: string,
+  around: number,
+  limit: number,
+  mode: EventMode,
+): Promise<TranscriptPage> {
+  if (!(await isLineStart(path, around))) throw new NotALineStartError(`${around} is not where a line starts`);
+  const end = await completeEnd(path);
+  const half = Math.floor(limit / 2);
+  const before = half > 0 ? await readPageBefore(source, sessionId, path, around, half, mode) : null;
+  // A page before that came back empty is a position with nothing before it in this view.
+  const previous = before === null
+    ? await rowBefore(source, path, around, mode)
+    : (before.events.at(-1)?.index ?? null);
+  const from = await readRowsFrom(source, sessionId, path, around, end, limit - half, mode, previous);
+  const events = [...(before?.events ?? []), ...from];
+  const windowStart = before !== null
+    ? before.windowStart
+    : previous === null ? 0 : (events[0]?.index ?? around);
+  return { events, windowStart, end };
 }
 
 /**

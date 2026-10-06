@@ -11,6 +11,7 @@
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import { errorResponse, jsonResponse } from "@/http/httpResponses";
 import { lastCompactionMessage, lastHumanMessage } from "@/transcripts/messageAnchor";
+import { NotALineStartError } from "@/transcripts/transcript-reads/transcriptLines";
 
 /** `/api/sessions/claude/:id/last-message`, and Claude only for `--fork-session`'s reason. */
 export const LAST_MESSAGE_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/last-message$/i;
@@ -28,9 +29,21 @@ export const LAST_COMPACTION_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\
 export async function lastMessageResponse(sessionId: string, url: URL): Promise<Response> {
   const session = findSession("claude", sessionId);
   if (!session || !session.transcriptPath) return errorResponse("session-not-found", "no such session", 404);
-  // `?said=1` passes over a message that only ran a slash command, for the user bar.
+  // `?said=1` passes over a message that only ran a slash command, and `?before=` asks for the last
+  // one above a position rather than the newest: both are the user bar's (`messageAnchor.ts`).
   const said = url.searchParams.get("said") === "1";
-  const message = await lastHumanMessage(sessionId, session.transcriptPath, { said });
+  const rawBefore = url.searchParams.get("before");
+  if (rawBefore !== null && !/^\d+$/.test(rawBefore)) {
+    return errorResponse("invalid-position", "before must be a position", 400);
+  }
+  const before = rawBefore === null ? null : Number(rawBefore);
+  let message: Awaited<ReturnType<typeof lastHumanMessage>>;
+  try {
+    message = await lastHumanMessage(sessionId, session.transcriptPath, { said, before });
+  } catch (error) {
+    if (error instanceof NotALineStartError) return errorResponse("invalid-position", error.message, 400);
+    throw error;
+  }
   // 404 rather than an empty body. "Nobody has written one" and "here is one that says nothing"
   // are different answers, and a caller that could not tell them apart would open a fork dialog
   // quoting nothing and start a fork anchored to a row that does not exist.

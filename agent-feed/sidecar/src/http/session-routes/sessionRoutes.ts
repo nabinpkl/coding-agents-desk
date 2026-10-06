@@ -3,6 +3,8 @@ import {
   NotALineStartError,
   parsedLinesBetween,
   readEventRaw,
+  readPageAfter,
+  readPageAround,
   readPageBefore,
   readSessionMeter,
   type ParsedTranscriptLine,
@@ -23,7 +25,13 @@ import type {
   EventMode,
   TranscriptSourceId,
 } from "@/transcripts/transcriptTypes";
-import type { EventsPage, ForkSessionCommand, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
+import {
+  eventsPageAtFromQuery,
+  type EventsPage,
+  type EventsPageAt,
+  type ForkSessionCommand,
+  type TimelineEnvelope,
+} from "@agentdesk/agent-feed-wire";
 import { createTimelineFollower } from "@/http/session-routes/timelineCheckpoint";
 import {
   renameClaudeSession,
@@ -114,24 +122,29 @@ async function sessionSnapshotResponse(
 /**
  * One page of a transcript-backed session, or null when no such session is known.
  *
- * `before` is the position the page ends before, or null for the newest page. Exported because the
+ * `at` says where it is read from; the newest page is `{ before: null }`. Exported because the
  * composite timeline endpoint opens on the same read and the summarizer walks back through it:
  * two ways to page one transcript is exactly the drift this module exists to prevent.
  */
 export async function readTranscriptPage(
   source: TranscriptSourceId,
   sessionId: string,
-  before: number | null,
+  at: EventsPageAt,
   limit: number,
   mode: EventMode,
 ): Promise<EventsPage | null> {
   const session = findSession(source, sessionId);
   if (!session || !session.transcriptPath) return null;
-  const page = await readPageBefore(source, sessionId, session.transcriptPath, before, limit, mode);
-  // The meter is the session's, not the page's, so only the newest page reads it: an older page
+  const path = session.transcriptPath;
+  const page = "after" in at
+    ? await readPageAfter(source, sessionId, path, at.after, limit, mode)
+    : "around" in at
+      ? await readPageAround(source, sessionId, path, at.around, limit, mode)
+      : await readPageBefore(source, sessionId, path, at.before, limit, mode);
+  // The meter is the session's, not the page's, so only the newest page reads it: any other page
   // is scrollback, and the end of the file is a read of its own.
-  const meter = before === null
-    ? await readSessionMeter(source, session.transcriptPath, page.end)
+  const meter = "before" in at && at.before === null
+    ? await readSessionMeter(source, path, page.end)
     : null;
   return {
     events: page.events,
@@ -147,12 +160,12 @@ export async function readTranscriptPage(
 async function paginatedEvents(
   source: TranscriptSourceId,
   sessionId: string,
-  before: number | null,
+  at: EventsPageAt,
   limit: number,
   mode: EventMode,
 ): Promise<Response> {
   try {
-    const page = await readTranscriptPage(source, sessionId, before, limit, mode);
+    const page = await readTranscriptPage(source, sessionId, at, limit, mode);
     if (!page) return jsonResponse({ error: "session not found" }, 404);
     return jsonResponse(page);
   } catch (error) {
@@ -417,18 +430,17 @@ export function createSessionRoutes(
 
     const eventMatch = EVENT_ROUTE.exec(url.pathname);
     if (eventMatch) {
-      // `before` is a position, absent for the newest page. There is no `offset`: nothing here
-      // counts rows from the top any more, which is what made the first page cost the whole file.
-      const before = url.searchParams.has("before") ? integerQuery(url, "before", 0) : null;
+      // A position to read before, after or around, or none for the newest page. There is no
+      // `offset`: nothing here counts rows from the top any more, which is what made the first
+      // page cost the whole file.
+      const at = eventsPageAtFromQuery(url.searchParams);
       const limit = integerQuery(url, "limit", 100, 500);
-      if (before === null && url.searchParams.has("before")) {
-        return jsonResponse({ error: "invalid before" }, 400);
-      }
+      if (at === null) return jsonResponse({ error: "invalid position" }, 400);
       if (limit === null || limit < 1) {
         return jsonResponse({ error: "invalid pagination" }, 400);
       }
       if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
-      return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, before, limit, mode);
+      return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, at, limit, mode);
     }
 
     const lastMessageMatch = LAST_MESSAGE_ROUTE.exec(url.pathname);

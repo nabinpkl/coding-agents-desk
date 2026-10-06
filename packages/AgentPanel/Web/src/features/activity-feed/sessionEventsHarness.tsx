@@ -1,6 +1,6 @@
 // A session for the stream hook's tests that opens the way the sidecar opens one: the timeline
-// stream's first message is a snapshot of the newest window, and older rows are paged in BEFORE
-// the oldest one held. Rows are ordinals here, as a runtime-backed session's are; the transcript's
+// stream's first message is a snapshot of the newest window, and rows are paged in before, after
+// or around a position. Rows are ordinals here, as a runtime-backed session's are; the transcript's
 // byte positions are exercised through `previous` where a test needs gaps between indices.
 
 import type { ReactNode } from "react";
@@ -13,6 +13,7 @@ import type {
   SessionEventsSnapshot,
 } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
+import type { EventsPageAt } from "@agentdesk/agent-feed-wire";
 import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 import { useSessionEventsStream, type ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
@@ -20,22 +21,31 @@ export function event(index: number, id: string, type: ActivityEvent["type"]): A
   return { index, id, revision: 0, phase: "complete", ts: index, type, blocks: [] };
 }
 
-/** The newest `limit` of `rows` below `before`, answered the way every page route answers. */
-export function pageOf(rows: readonly ActivityEvent[], before: number | null, limit: number): EventsPage {
-  const below = rows.filter((row) => before === null || row.index < before);
-  const events = below.slice(-limit);
-  const older = below.length > events.length;
-  return { events, windowStart: older ? events[0]!.index : 0, usage: null };
+/** `limit` of `rows` read from where `at` says, answered the way every page route answers. */
+export function pageOf(rows: readonly ActivityEvent[], at: EventsPageAt, limit: number): EventsPage {
+  if ("before" in at) {
+    const below = rows.filter((row) => at.before === null || row.index < at.before);
+    const events = below.slice(-limit);
+    const older = below.length > events.length;
+    return { events, windowStart: older ? events[0]!.index : 0, usage: null };
+  }
+  const position = "after" in at ? at.after : at.around;
+  const from = rows.findIndex((row) => "after" in at ? row.index > position : row.index >= position);
+  const start = from < 0
+    ? rows.length
+    : "after" in at ? from : Math.max(0, from - Math.floor(limit / 2));
+  const events = rows.slice(start, start + limit);
+  return { events, windowStart: start === 0 ? 0 : (events[0]?.index ?? position), usage: null };
 }
 
-type PageAnswer = (before: number | null, limit: number) => Promise<EventsPage>;
+type PageAnswer = (at: EventsPageAt, limit: number) => Promise<EventsPage>;
 
 export interface ThreadHarness {
   source: AgentDataSource;
   /** The stream's handlers, once the hook has subscribed. */
   handlers(): SessionEventsHandlers;
-  /** Every page asked for, as `[before, limit]`. */
-  pages: Array<[number | null, number]>;
+  /** Every page asked for, as `[at, limit]`. */
+  pages: Array<[EventsPageAt, number]>;
   /** Replaces how pages are answered from here on. */
   answerWith(answer: PageAnswer): void;
 }
@@ -50,17 +60,17 @@ export function thread(
   opening: Partial<SessionEventsSnapshot> | null = {},
 ): ThreadHarness {
   let handlers: SessionEventsHandlers | undefined;
-  const pages: Array<[number | null, number]> = [];
-  let answer: PageAnswer = async (before, limit) => pageOf(rows, before, limit);
+  const pages: Array<[EventsPageAt, number]> = [];
+  let answer: PageAnswer = async (at, limit) => pageOf(rows, at, limit);
   const source = stubDataSource({
-    fetchEventsPage: (_session, before, limit) => {
-      pages.push([before, limit]);
-      return answer(before, limit);
+    fetchEventsPage: (_session, at, limit) => {
+      pages.push([at, limit]);
+      return answer(at, limit);
     },
     subscribeSessionEvents: (_session, _after, next) => {
       handlers = next;
       if (opening !== null) {
-        const page = pageOf(rows, null, 100);
+        const page = pageOf(rows, { before: null }, 100);
         queueMicrotask(() => next.onSnapshot({
           ...page,
           state: { sequence: 1, runState: "idle", queue: { steer: 0, followUp: 0 } },

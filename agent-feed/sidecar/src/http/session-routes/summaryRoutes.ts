@@ -18,7 +18,7 @@ import type {
   SummaryResult,
   SummaryStreamMessage,
 } from "@agentdesk/agent-feed-wire";
-import { backendPageBefore, type AgentBackend } from "@/agents/agentBackend";
+import { backendPage, type AgentBackend } from "@/agents/agentBackend";
 import { config } from "@/config/config";
 import {
   createSummaryRunner,
@@ -246,13 +246,13 @@ function pageReader(
 ): PageReader {
   if (transcript) {
     return async (before, limit) => {
-      const page = await readTranscriptPage(transcript, sessionId, before, limit, SUMMARY_MODE);
+      const page = await readTranscriptPage(transcript, sessionId, { before }, limit, SUMMARY_MODE);
       return page ? { events: page.events, windowStart: page.windowStart } : null;
     };
   }
   const owner = backend!;
   return async (before, limit) => {
-    const page = await backendPageBefore(owner, sessionId, before, limit, SUMMARY_MODE);
+    const page = await backendPage(owner, sessionId, { before }, limit, SUMMARY_MODE);
     return { events: page.events, windowStart: page.windowStart };
   };
 }

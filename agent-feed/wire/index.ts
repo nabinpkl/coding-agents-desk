@@ -54,6 +54,8 @@ export {
   taskFromText,
 } from "./botSessionTitle.ts";
 export { isSaidText } from "./saidText.ts";
+export type { EventsPageAt } from "./pageAt.ts";
+export { eventsPageAtFromQuery, eventsPageAtQuery } from "./pageAt.ts";
 
 export type {
   AddBotCommand,

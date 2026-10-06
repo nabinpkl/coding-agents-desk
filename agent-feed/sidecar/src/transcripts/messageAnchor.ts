@@ -108,19 +108,21 @@ export async function anchorAtPosition(
  * picker is driven by matching what its rows say, so an anchor with nothing to match on is one the
  * fork could only reach by counting blind, which is what this repository does not do.
  *
- * `said` also skips a message that only runs a slash command (`isSaidText`). The panel's user bar
- * asks that way, because it names the last thing the reader said and passes over a `/compact` to
- * the message before it; asked without it, a session whose newest message was `/compact` answered
- * with that, the bar refused it, and showed nothing at all.
+ * `said` also skips a message that only runs a slash command (`isSaidText`), and `before` starts the
+ * walk at a position rather than the end. The panel's user bar asks both ways: it names the last
+ * thing the reader said above the rows it holds, so it asks from the start of those rows and
+ * passes over a `/compact` to the message before it. Asked from the end without `said`, a session
+ * whose newest message was `/compact` answered with that, the bar refused it, and showed nothing.
+ * A walk back stops at the first match, so its cost is the distance to the message, never the file.
  */
 export async function lastHumanMessage(
   sessionId: string,
   transcriptPath: string,
-  { said = false }: { said?: boolean } = {},
+  { said = false, before = null }: { said?: boolean; before?: number | null } = {},
 ): Promise<{ eventId: string; text: string } | null> {
-  let before: number | null = null;
+  let from = before;
   for (;;) {
-    const page = await readPageBefore("claude", sessionId, transcriptPath, before, MESSAGE_PAGE, "raw");
+    const page = await readPageBefore("claude", sessionId, transcriptPath, from, MESSAGE_PAGE, "raw");
     for (let at = page.events.length - 1; at >= 0; at -= 1) {
       const event = page.events[at]!;
       if (event.humanTurn !== true) continue;
@@ -128,7 +130,7 @@ export async function lastHumanMessage(
       if (text && (!said || isSaidText(text))) return { eventId: event.id, text };
     }
     if (page.windowStart === 0) return null;
-    before = page.windowStart;
+    from = page.windowStart;
   }
 }
 

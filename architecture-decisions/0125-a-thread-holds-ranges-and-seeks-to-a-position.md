@@ -52,12 +52,18 @@ window still pays the distance, and the turn index reintroduces the whole-file r
 
 - **Ranges are derived, not stored.** Every row carries `previous` (ADR-0124), so where one range
   ends and a gap begins is read off the held rows. The thread keeps no range list to drift from them.
-- **Reads.** A page may be asked for `before` a position (as now), `after` one, or `around` one.
-  `EventsPage` gains `next`: where the row after the page starts, or null at the end of the file.
-  Runtime-backed sources answer all three by arithmetic, as they answer `before` today.
-- **Gaps.** A gap is a row in the feed. It loads a page when it is on screen, from the side the
-  reader is moving toward, until it closes. This replaces `useTimelineGapFill`: a reconnect's hole
-  at the live end is on screen and closes at once, as now; one the reader is not looking at waits.
+- **Reads.** A page may be asked for `before` a position (as now), `after` one, or `around` one
+  (`EventsPageAt` in `agent-feed/wire`, which both ends build and parse the query from). A page
+  carries no "where it ends": every row carries `previous`, so the held row below a gap already
+  says whether a page reached it. Runtime-backed sources answer all three by arithmetic, as they
+  answer `before` today.
+- **Gaps.** A gap is a row in the feed. It loads a page when it comes within the virtualizer's
+  overscan, from the side the reader is approaching it from, until it closes: from below a page
+  read `before` the row under it, from above a page read `after` the row over it. Either way the
+  row at the top of the viewport is not the gap, so the virtualizer's end anchor keeps what the
+  reader is looking at still while the page lands. This replaces `useTimelineGapFill`, which paged
+  a reconnect's hole closed at once wherever the reader was; now that hole waits until the reader
+  scrolls to it, like any other.
 - **The user bar** stands for the last message the reader said above the top row on screen. Inside
   the range holding that row it is found among loaded rows, by the rules that exist. When that range
   holds none above it, the sidecar is asked for the last such message before the range's start:
@@ -88,8 +94,8 @@ window still pays the distance, and the turn index reintroduces the whole-file r
   and lands the row at the top of the viewport.
 - A thread with every row loaded renders the same rows, bars and scroll positions as before
   (the paging and sticky sequences recorded in the ledger's checks).
-- Route tests for `after`, `around` and `last-message?before&said`, including a nice-mode page
-  around a machinery line.
+- Route tests for `after`, `around` and `last-message?before&said`, a nice-mode page around a
+  machinery line, and the runtime-backed arithmetic for all three.
 
 ## Links
 

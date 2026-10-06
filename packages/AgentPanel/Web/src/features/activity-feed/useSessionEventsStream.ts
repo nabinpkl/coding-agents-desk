@@ -323,7 +323,7 @@ onEvent: (event) => {
     loadingOlderRef.current = true;
     try {
       const requestEpoch = timelineEpochRef.current;
-      const data = await ds.fetchEventsPage(session, before, PAGE_SIZE);
+      const data = await ds.fetchEventsPage(session, { before }, PAGE_SIZE);
       if (requestEpoch !== timelineEpochRef.current) return;
       setState((s) => {
         const newMap = new Map(s.events);
@@ -342,7 +342,7 @@ onEvent: (event) => {
   }, [state.events]);
 
   const fetchGapPage = useCallback(
-    (before: number, limit: number) => ds.fetchEventsPage(session, before, limit),
+    (before: number, limit: number) => ds.fetchEventsPage(session, { before }, limit),
     [session, ds],
   );
   const mergeGapPage = useCallback((page: readonly ActivityEvent[]) => {

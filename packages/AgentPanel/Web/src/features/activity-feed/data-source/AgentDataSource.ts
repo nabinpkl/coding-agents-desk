@@ -2,6 +2,7 @@ import type { ActivityEvent, TokenUsage } from "@/features/activity-feed/useSess
 import type {
   BackgroundTaskSnapshot,
   EventMode,
+  EventsPageAt,
   LastSessionMessage,
   SubagentTranscriptMessage,
   TaskOutputMessage,
@@ -96,11 +97,11 @@ export interface AgentSessionState {
 export type AgentSessionControlState = Pick<AgentSessionState, "runState" | "queue">;
 
 export interface AgentDataSource {
-  /** Fetches the newest `limit` events below `before`, or the newest of all when it is null.
-   *  Throws on non-ok HTTP. */
+  /** Fetches `limit` events read before, after or around a position (`EventsPageAt`), or the
+   *  newest of all for `{ before: null }`. Throws on non-ok HTTP. */
   fetchEventsPage(
     session: SessionReference,
-    before: number | null,
+    at: EventsPageAt,
     limit: number,
   ): Promise<EventsPage>;
 
@@ -191,10 +192,11 @@ export interface AgentDataSource {
   ): () => void;
 
   /**
-   * The newest message a person wrote in a Claude session, found across the whole transcript.
+   * The newest message a person wrote in a Claude session, or with `before` the newest above that
+   * position, found by walking back from it.
    *
-   * Rejects when there is none. The user bar reads it for a message the feed has not paged back to,
-   * with `said`, which passes over a message that only ran a slash command.
+   * Rejects when there is none. The user bar asks with `before` set to the start of the rows it
+   * holds and with `said`, which passes over a message that only ran a slash command.
    */
-  lastMessage(sessionId: string, options?: { said?: boolean }): Promise<LastSessionMessage>;
+  lastMessage(sessionId: string, options?: { said?: boolean; before?: number }): Promise<LastSessionMessage>;
 }
