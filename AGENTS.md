@@ -1114,9 +1114,10 @@ transcript row is named by the byte its line starts at and read from there, ADR-
 timer rather than a second watcher: a corpus watch that dies leaves a followed transcript sitting
 still with only a line in the catalog's log to say so.
 
-Two things hid all of this for weeks. The panel backfills a hole once a later row exposes it
-(`useTimelineGapFill`), so a row that was 90 seconds late usually arrived alongside the reply and
-read as normal. And a sidecar that has just reloaded is prompt, so it worked right after every edit
+Two things hid all of this for weeks. The panel backfilled a hole once a later row exposed it
+(then `useTimelineGapFill`; since 2026-10-06 a gap row that fills as the reader reaches it,
+ADR-0125), so a row that was 90 seconds late usually arrived alongside the reply and read as
+normal. And a sidecar that has just reloaded is prompt, so it worked right after every edit
 and rotted from there.
 
 ## Reach for an event first, and a poll last
