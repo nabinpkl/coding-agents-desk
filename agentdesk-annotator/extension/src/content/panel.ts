@@ -5,6 +5,7 @@
 import type { Annotation, StyleChange, Tag } from "../../../shared/annotation.ts";
 import type { Recipient, SendInfo, SendState } from "../../../shared/send.ts";
 import { DEFAULT_TAG, TAG_MEANINGS, TAGS } from "../../../shared/vocab.ts";
+import { makeDraggable, placeBeside } from "./formPlacement.ts";
 import { icon, type IconName } from "./icons.ts";
 import { PANEL_CSS } from "./styles.ts";
 
@@ -77,6 +78,18 @@ export function recipientGroups(recipients: Recipient[]): RecipientGroup[] {
   return [...bots].map(([key, group]) => ({ label: `All bots · ${botNames.get(key) ?? key.replace(/^bot:/, "")}`, entries: render(group) }));
 }
 
+/**
+ * The open annotations no send has reached a session with yet: never sent, or sent and expired or
+ * cancelled. These are what the send bar offers, so one already handed over from the comment form is
+ * not sent a second time with the rest.
+ */
+export function awaitingSend(items: Annotation[], sends: ReadonlyMap<number, SendInfo>): Annotation[] {
+  return items.filter((a) => {
+    const sent = sends.get(a.id);
+    return a.status === "open" && (!sent || sent.state === "expired" || sent.state === "cancelled");
+  });
+}
+
 export interface PanelState {
   status: ConnStatus;
   statusDetail: string;
@@ -118,7 +131,8 @@ export interface PanelHandlers {
   draftReply(a: Annotation, text: string): void;
   sendReply(a: Annotation): void;
   shoot(a: Annotation): void;
-  save(text: string, tag: Tag): void;
+  /** `to` is the address to send this annotation to once saved, or "" to keep it for a later send. */
+  save(text: string, tag: Tag, to: string): void;
   cancelForm(): void;
   /** Show the picked element at this font size, or put its own size back when null. */
   setFontSize(px: number | null): void;
@@ -173,7 +187,8 @@ export interface Panel {
   render(state: PanelState): void;
   show(visible: boolean): void;
   /** `fontSize` is the picked element's computed size, or null when its size cannot be previewed. */
-  openForm(kind: "container" | "region", detail: string, fontSize: number | null): void;
+  /** `target` is what the form is about, in viewport coordinates, so the form can open beside it. */
+  openForm(kind: "container" | "region", detail: string, fontSize: number | null, target: DOMRect): void;
   /** The size now shown on the page, and what that changes, or null when it is back where it started. */
   showFontSize(px: number, change: StyleChange | null): void;
   setFormBusy(busy: boolean): void;
@@ -205,10 +220,9 @@ export function createPanel(on: PanelHandlers): Panel {
 
   // ----- font size -----
 
-  // The comment and tag a size change suggests, kept only while the reader has not written their own.
+  // The comment a size change suggests, kept only while the reader has not written their own.
   let fontSize = 0;
   let suggestedText = "";
-  let tagChosen = false;
 
   const sizeInput = h("input", { id: "ax-font-size", class: "size-input", type: "number", step: "1", inputmode: "decimal" });
   const sizeButton = (name: "minus" | "plus", label: string, sign: number): HTMLButtonElement => {
@@ -242,25 +256,37 @@ export function createPanel(on: PanelHandlers): Panel {
   sizeInput.addEventListener("blur", () => {
     sizeInput.value = String(fontSize);
   });
-  tagSelect.addEventListener("change", () => {
-    tagChosen = true;
-  });
 
+  // ----- send to -----
+
+  // Who this one annotation goes to once saved. None by default, every time: an annotation kept back
+  // is collected, and the send bar hands over everything collected later.
+  const formTo = h("select", { class: "form-to", "aria-label": "Send to" });
+  let formToKey = "";
+  const saveLabel = () => (formTo.value ? "Save and send" : "Save");
+  formTo.addEventListener("change", () => {
+    saveBtn.textContent = saveLabel();
+  });
+  const submit = () => on.save(textarea.value.trim(), tagSelect.value as Tag, formTo.value);
+
+  const formHead = h("div", { class: "form-head", title: "Drag to move" }, formTitle, iconButton("x", "Cancel", () => on.cancelForm()));
   const form = h(
     "div",
     { class: "form", role: "dialog", "aria-label": "Annotate container", hidden: true },
-    h("div", { class: "form-head" }, formTitle, iconButton("x", "Cancel", () => on.cancelForm())),
+    formHead,
     selectorLine,
     textarea,
     sizeRow,
-    h("div", { class: "form-row" }, tagSelect, h("span", { class: "spacer" }), cancelBtn, saveBtn),
+    h("div", { class: "form-row" }, tagSelect, formTo),
+    h("div", { class: "form-row form-actions" }, cancelBtn, saveBtn),
     formError,
   );
-  saveBtn.addEventListener("click", () => on.save(textarea.value.trim(), tagSelect.value as Tag));
+  makeDraggable(form, formHead);
+  saveBtn.addEventListener("click", submit);
   cancelBtn.addEventListener("click", () => on.cancelForm());
   textarea.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) on.save(textarea.value.trim(), tagSelect.value as Tag);
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
     if (e.key === "Escape") on.cancelForm();
   });
 
@@ -283,8 +309,24 @@ export function createPanel(on: PanelHandlers): Panel {
   const dock = h("div", { class: "dock" }, bar, sendBar, list);
   root.append(dock, form, light);
 
+  /** The form's recipient list, rebuilt only when the directory changes so a poll never closes an open dropdown. */
+  function renderFormRecipients(s: PanelState): void {
+    const groups = s.status === "connected" ? recipientGroups(s.recipients) : [];
+    const key = JSON.stringify(groups);
+    if (key === formToKey) return;
+    formToKey = key;
+    const chosen = formTo.value;
+    formTo.replaceChildren(
+      h("option", { value: "" }, "Send to: none, keep for later"),
+      ...groups.map((g) => h("optgroup", { label: g.label }, ...g.entries.map((e) => h("option", { value: e.address, title: e.label }, e.label)))),
+    );
+    formTo.value = groups.some((g) => g.entries.some((e) => e.address === chosen)) ? chosen : "";
+    formTo.hidden = groups.length === 0;
+    saveBtn.textContent = saveLabel();
+  }
+
   function renderSendBar(s: PanelState): void {
-    const open = s.items.filter((a) => a.status === "open");
+    const open = awaitingSend(s.items, s.sends);
     // Nothing to send, or nowhere to send it: the row is taken away rather than shown disabled,
     // because a control that cannot be used is a question the panel cannot answer.
     const show = s.status === "connected" && open.length > 0;
@@ -408,25 +450,28 @@ export function createPanel(on: PanelHandlers): Panel {
       renderBar(s);
       renderSendBar(s);
       renderList(s);
+      renderFormRecipients(s);
     },
     show(visible) {
       dock.hidden = !visible;
     },
-    openForm(kind, detail, size) {
+    openForm(kind, detail, size, target) {
       formTitle.textContent = kind === "region" ? "Annotate region" : "Annotate container";
       textarea.placeholder = kind === "region" ? "What is wrong in this area?" : "What is wrong with this container?";
       selectorLine.textContent = detail;
       formError.textContent = "";
       textarea.value = "";
       tagSelect.value = DEFAULT_TAG;
+      formTo.value = "";
       suggestedText = "";
-      tagChosen = false;
       sizeRow.hidden = size === null;
       fontSize = size ?? 0;
       sizeInput.value = String(fontSize);
       resetSize.disabled = true;
       form.hidden = false;
+      placeBeside(form, target);
       saveBtn.disabled = false;
+      saveBtn.textContent = saveLabel();
       queueMicrotask(() => textarea.focus());
     },
     showFontSize(px, change) {
@@ -439,13 +484,12 @@ export function createPanel(on: PanelHandlers): Panel {
         textarea.value = text;
         suggestedText = text;
       }
-      if (!tagChosen) tagSelect.value = change ? "change" : DEFAULT_TAG;
     },
     setFormBusy(busy) {
       saveBtn.disabled = busy;
-      for (const control of [smaller, larger, sizeInput, resetSize]) control.disabled = busy;
+      for (const control of [smaller, larger, sizeInput, resetSize, formTo]) control.disabled = busy;
       saveBtn.setAttribute("aria-busy", busy ? "true" : "false");
-      saveBtn.textContent = busy ? "Saving" : "Save";
+      saveBtn.textContent = busy ? "Saving" : saveLabel();
       textarea.readOnly = busy;
     },
     setFormError(message) {

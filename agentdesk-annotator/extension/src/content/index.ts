@@ -7,7 +7,7 @@ import { buildBrief } from "../../../shared/brief.ts";
 import type { Recipient, SendInfo, SendOutcome } from "../../../shared/send.ts";
 import { send, type AuthStatus, type HttpMethod, type Result, type TabMessage } from "../messages.ts";
 import { captureElement, captureRegion, type Shot } from "./capture.ts";
-import { createPanel, HOST_ID, SETTLED_STATES, type CaptureMode, type ConnStatus, type Panel, type PanelState } from "./panel.ts";
+import { awaitingSend, createPanel, HOST_ID, SETTLED_STATES, type CaptureMode, type ConnStatus, type Panel, type PanelState } from "./panel.ts";
 import { describeElement, findBySelector, pickContainer, regionAnchor } from "./picker.ts";
 import { createRegionSelector, type RegionSelector } from "./region.ts";
 import { previewFontSize, type FontSizePreview } from "./stylePreview.ts";
@@ -220,14 +220,9 @@ function main(): void {
     }, SEND_POLL_MS);
   }
 
-  async function sendToAgent(): Promise<void> {
-    const ids = state.items.filter((a) => a.status === "open").map((a) => a.id);
-    if (!state.to || ids.length === 0 || state.sending) return;
-    state.sending = true;
-    state.sendError = "";
-    render();
-    const res = await call<SendOutcome>("POST", "/api/v1/send", { ids, to: state.to });
-    state.sending = false;
+  /** Hands these annotations to `to` in one message, and records where each one went. */
+  async function sendIds(ids: number[], to: string): Promise<Result<SendOutcome>> {
+    const res = await call<SendOutcome>("POST", "/api/v1/send", { ids, to });
     if (res.ok) {
       for (const id of res.data.annotationIds) {
         state.sends.set(id, {
@@ -240,9 +235,21 @@ function main(): void {
         });
       }
       pollSends();
-    } else {
+    }
+    return res;
+  }
+
+  async function sendToAgent(): Promise<void> {
+    const ids = awaitingSend(state.items, state.sends).map((a) => a.id);
+    if (!state.to || ids.length === 0 || state.sending) return;
+    state.sending = true;
+    state.sendError = "";
+    render();
+    const res = await sendIds(ids, state.to);
+    state.sending = false;
+    if (!res.ok) {
       // The annotations are untouched, and the panel says so rather than looking like it worked.
-      state.sendError = res.kind === "http" ? `Not sent: ${res.error}` : `Not sent: ${res.error}`;
+      state.sendError = `Not sent: ${res.error}`;
     }
     render();
   }
@@ -275,7 +282,12 @@ function main(): void {
     pendingPreview = region ? null : previewFontSize(el);
     const selector = pendingMeta.selector ?? "?";
     const detail = region ? `${region.width} \u00d7 ${region.height} in ${selector}` : selector;
-    panel?.openForm(region ? "region" : "container", shot ? `${detail}  +  screenshot` : detail, pendingPreview ? pendingPreview.from : null);
+    panel?.openForm(
+      region ? "region" : "container",
+      shot ? `${detail}  +  screenshot` : detail,
+      pendingPreview ? pendingPreview.from : null,
+      region ? toViewport(region) : el.getBoundingClientRect(),
+    );
     syncRegionArm();
   }
 
@@ -297,7 +309,7 @@ function main(): void {
     syncRegionArm();
   }
 
-  async function save(text: string, tag: Tag): Promise<void> {
+  async function save(text: string, tag: Tag, to: string): Promise<void> {
     if (!panel || !pendingMeta) return;
     if (!text) {
       panel.setFormError("Write what is wrong first.");
@@ -324,7 +336,14 @@ function main(): void {
     panel.setFormBusy(false);
     cancelForm();
     render();
+    // The screenshot lands before the send, so a session that reads the annotation at once finds it.
     if (shot) await uploadShot(created.data, shot);
+    if (to) {
+      const sent = await sendIds([created.data.id], to);
+      // Saved either way; the item says it did not go, and the send bar still offers it.
+      if (!sent.ok) state.errors.set(created.data.id, `Saved, not sent: ${sent.error}`);
+      render();
+    }
   }
 
   async function uploadShot(a: Annotation, shot: Shot): Promise<void> {
@@ -480,8 +499,8 @@ function main(): void {
           render();
         }
       },
-      save(text, tag) {
-        void save(text, tag);
+      save(text, tag, to) {
+        void save(text, tag, to);
       },
       cancelForm,
       setFontSize,

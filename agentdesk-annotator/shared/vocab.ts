@@ -1,7 +1,7 @@
 /* Closed vocabularies shared by the server and the extension. Kept free of
  * zod so the content script can import them without bundling a validator. */
-/** Order is the picker's order; the first is the default. */
-export const TAGS = ["comment", "bug", "change", "suggestion", "question", "info"] as const;
+/** Order is the picker's order; the first is the default. Most annotations ask for a change, so it leads. */
+export const TAGS = ["change", "comment", "bug", "suggestion", "question", "info"] as const;
 export const DEFAULT_TAG = TAGS[0];
 
 /** What each tag asks an agent to do. The one definition agents read, via MCP tool text and the brief. */

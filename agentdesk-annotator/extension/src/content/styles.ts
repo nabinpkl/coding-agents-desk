@@ -128,13 +128,15 @@ button[aria-busy="true"] { cursor: progress; }
 
 .form { left: 50%; top: 16%; transform: translateX(-50%); width: 380px; max-width: calc(100vw - 24px); box-sizing: border-box; border-radius: 14px; padding: 14px; font-size: 13px; }
 .form[hidden] { display: none; }
-.form-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-weight: 600; }
+.form-head { display: flex; align-items: center; justify-content: space-between; margin: -6px -6px 6px; padding: 6px 6px 0; font-weight: 600; cursor: grab; touch-action: none; user-select: none; }
+.form-head:active { cursor: grabbing; }
 .selector { font: 11px/1.5 var(--mono); color: var(--ink-2); margin-bottom: 8px; overflow-wrap: anywhere; max-height: 50px; overflow: hidden; }
 textarea { width: 100%; box-sizing: border-box; font: 13px/1.5 var(--sans); color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; resize: vertical; }
 textarea:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
 .form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
-.form-row .spacer { flex: 1; }
-.form-row .primary { margin-left: auto; }
+.form-actions { justify-content: flex-end; }
+.form-to { flex: 1; min-width: 0; }
+.form-to[hidden] { display: none; }
 select { font: 12px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 6px; }
 .size-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .size-row[hidden] { display: none; }

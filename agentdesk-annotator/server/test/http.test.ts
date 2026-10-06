@@ -118,6 +118,12 @@ test("a previewed style change round-trips in metadata, and only as a pixel size
   }
 });
 
+test("an annotation posted without a tag asks for a change", async () => {
+  const r = await h.fetch("/api/v1/annotations", { method: "POST", headers: json, body: JSON.stringify({ url: `${page}/untagged`, text: "Wider" }) });
+  assert.equal(r.status, 201);
+  assert.equal(((await r.json()) as { tag: string }).tag, "change");
+});
+
 test("validation errors are 400 with issues, not 500", async () => {
   const bad = await h.fetch("/api/v1/annotations", { method: "POST", headers: json, body: JSON.stringify({ url: "not a url", text: "" }) });
   assert.equal(bad.status, 400);
