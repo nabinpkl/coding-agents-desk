@@ -1,4 +1,5 @@
 import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import type { Gap } from "@/features/activity-feed/data-source/eventPaging";
 
 export type DisplayItem =
   | { kind: "user"; ev: ActivityEvent }
@@ -8,6 +9,20 @@ export type DisplayItem =
   | { kind: "cluster"; events: ActivityEvent[] };
 
 /**
+ * Rows the thread does not hold, between two that it does (ADR-0125): drawn as a row of its own,
+ * which loads as it comes near the viewport. It stands for no event, so it has no lead.
+ */
+export type GapItem = { kind: "gap" } & Gap;
+
+/** A row of the transcript: one or more events, or a gap between the ranges held. */
+export type FeedItem = DisplayItem | GapItem;
+
+/** The rows that stand for events, which is every row but a gap. */
+export function isEventItem(item: FeedItem): item is DisplayItem {
+  return item.kind !== "gap";
+}
+
+/**
  * Every event a row stands for, in order.
  *
  * A cluster is the first display item that is not one event, which ends the 1:1
@@ -15,7 +30,8 @@ export type DisplayItem =
  * They go through this and `leadEvent` instead, so adding another multi-event row
  * later does not have to find them again.
  */
-export function itemEvents(item: DisplayItem): ActivityEvent[] {
+export function itemEvents(item: FeedItem): ActivityEvent[] {
+  if (item.kind === "gap") return [];
   return item.kind === "cluster" ? item.events : [item.ev];
 }
 
@@ -31,7 +47,9 @@ export function leadEvent(item: DisplayItem): ActivityEvent {
 }
 
 /** Stable identity for the virtualizer's measurement cache. */
-export function itemKey(item: DisplayItem): string {
+export function itemKey(item: FeedItem): string {
+  // By the row under it, which a page read after the row over it does not move.
+  if (item.kind === "gap") return `gap-${item.below}`;
   if (item.kind !== "cluster") return `${item.kind}-${item.ev.index}`;
   // Both ends, because expanding a neighbouring cluster can change where this one
   // starts without changing where it ends, and a key that moved would drop the
@@ -152,6 +170,12 @@ export interface DisplayItemOptions {
   /** Show only what each cumulative Codex reasoning snapshot added. */
   incrementalReasoning?: boolean;
   /**
+   * The gaps between the ranges held, oldest first, found on every held row rather than on the
+   * ones shown: a row the view leaves out still joins the rows either side of it. A run of tool
+   * calls and a segment both end at a gap, since what is missing may be anything.
+   */
+  gaps?: readonly Gap[];
+  /**
    * Lead event indices of runs the viewer folded. A run is open, one row per call, until it is
    * folded: the calls are what a reader of a live session is watching, and a line saying
    * `Bash ×3` hid exactly that.
@@ -162,8 +186,8 @@ export interface DisplayItemOptions {
 export function buildActivityDisplayItems(
   events: ActivityEvent[],
   options: DisplayItemOptions = {},
-): { items: DisplayItem[]; runLeads: number[] } {
-  const items: DisplayItem[] = [];
+): { items: FeedItem[]; runLeads: number[] } {
+  const items: FeedItem[] = [];
   // Every clusterable run's lead, open or folded. An open run leaves no cluster row to find it
   // by, and fold-all has to reach it anyway.
   const runLeads: number[] = [];
@@ -208,7 +232,20 @@ export function buildActivityDisplayItems(
     segmentEvents = [];
   };
 
+  const gaps = options.gaps ?? [];
+  let nextGap = 0;
+  // Every gap that ends at or before `index`, each as its own row after whatever was open.
+  const gapsUpTo = (index: number) => {
+    if (nextGap >= gaps.length || gaps[nextGap]!.below > index) return;
+    flush();
+    while (nextGap < gaps.length && gaps[nextGap]!.below <= index) {
+      items.push({ kind: "gap", ...gaps[nextGap]! });
+      nextGap += 1;
+    }
+  };
+
   for (const event of events) {
+    gapsUpTo(event.index);
     if (isCompactionEvent(event)) {
       flush();
       items.push({ kind: "compaction", ev: event });
@@ -226,5 +263,6 @@ export function buildActivityDisplayItems(
     }
   }
   flush();
+  gapsUpTo(Number.POSITIVE_INFINITY);
   return { items, runLeads };
 }

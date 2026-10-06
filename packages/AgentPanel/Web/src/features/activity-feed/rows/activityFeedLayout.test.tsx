@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leadEvent } from "@/features/activity-feed/rows/activityDisplayItems";
+import { leadEvent, isEventItem, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import { buildFeedLayout, partitionEventBlocks } from "@/features/activity-feed/rows/activityFeedLayout";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
@@ -40,7 +40,7 @@ describe("feed layout", () => {
 
     const layout = buildFeedLayout(events);
     // The images do not make the result event more than its results, so it still folds away.
-    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([10]);
+    expect(layout.items.filter(isEventItem).map((item) => leadEvent(item).index)).toEqual([10]);
     expect(layout.pairedToolResults.get("call-1")?.images).toEqual([1]);
     expect(layout.pairedToolResults.get("call-2")?.images).toEqual([3]);
   });
@@ -105,7 +105,7 @@ describe("feed layout", () => {
     ];
 
     const layout = buildFeedLayout(events);
-    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([10]);
+    expect(layout.items.filter(isEventItem).map((item) => leadEvent(item).index)).toEqual([10]);
     expect(layout.allEventIds).toEqual([10]);
 
     // The result event surrendered its row, so its metadata and raw line ride
@@ -165,7 +165,7 @@ describe("feed layout", () => {
       },
     ]);
 
-    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([30, 31]);
+    expect(layout.items.filter(isEventItem).map((item) => leadEvent(item).index)).toEqual([30, 31]);
     expect(layout.pairedToolResults.size).toBe(0);
   });
 
@@ -179,7 +179,7 @@ describe("feed layout", () => {
       },
     ]);
 
-    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([40]);
+    expect(layout.items.filter(isEventItem).map((item) => leadEvent(item).index)).toEqual([40]);
     expect(layout.pairedToolResults.size).toBe(0);
   });
 
@@ -218,7 +218,7 @@ describe("feed layout", () => {
 
     // One row for all three: the call. The body used to be a right-aligned USER card holding
     // several hundred lines of instructions attributed to the reader.
-    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([80]);
+    expect(layout.items.filter(isEventItem).map((item) => leadEvent(item).index)).toEqual([80]);
     const body = layout.pairedToolResults.get("call-1")?.skillBody;
     expect(body?.text).toContain("Approach this as the design lead");
     // The folded record's own raw line and metadata ride into the call, as a paired result's do.
@@ -245,7 +245,7 @@ describe("feed layout", () => {
       NICE,
     );
 
-    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([80, 82]);
+    expect(layout.items.filter(isEventItem).map((item) => leadEvent(item).index)).toEqual([80, 82]);
     expect(layout.pairedToolResults.get("call-1")?.skillBody).toBeUndefined();
   });
 
@@ -261,7 +261,7 @@ describe("feed layout", () => {
       NICE,
     );
 
-    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([80, 82]);
+    expect(layout.items.filter(isEventItem).map((item) => leadEvent(item).index)).toEqual([80, 82]);
     expect(layout.pairedToolResults.get("call-1")?.skillBody).toBeUndefined();
   });
 
@@ -296,7 +296,7 @@ describe("feed layout", () => {
     );
 
     expect(layout.items.map((item) => item.kind)).toEqual(["compaction"]);
-    expect(leadEvent(layout.items[0]!).index).toBe(51);
+    expect(leadEvent(layout.items[0]! as DisplayItem).index).toBe(51);
   });
 
   it("draws one banner for the two records a compaction is written as", () => {
@@ -319,7 +319,7 @@ describe("feed layout", () => {
     );
 
     expect(layout.items.map((item) => item.kind)).toEqual(["compaction", "segment_event"]);
-    const banner = leadEvent(layout.items[0]!);
+    const banner = leadEvent(layout.items[0]! as DisplayItem);
     expect(banner.index).toBe(60);
     expect(banner.blocks[0]).toEqual({ kind: "compaction", text: "Summary:\n1. Intent" });
   });
@@ -388,5 +388,38 @@ describe("event block partition", () => {
     });
 
     expect(layout.inline.map(({ index }) => index)).toEqual([0, 2]);
+  });
+});
+
+describe("gaps between the ranges held", () => {
+  // Transcript rows, named by byte position and joined by `previous`.
+  const prose = (index: number, previous: number | null): ActivityEvent =>
+    ({ index, previous, ts: index, type: "assistant", blocks: [{ kind: "text", text: `at ${index}` }] });
+  const tool = (index: number, previous: number | null): ActivityEvent =>
+    ({ index, previous, ts: index, type: "assistant", blocks: [{ kind: "tool_use", tool: "Bash", summary: "ls" }] });
+  const system = (index: number, previous: number | null): ActivityEvent =>
+    ({ index, previous, ts: index, type: "system", blocks: [{ kind: "metadata", label: "init", text: "x" }] });
+
+  it("draws a gap row where a held row's previous row is not held, and ends the segment there", () => {
+    const layout = buildFeedLayout([prose(0, null), prose(10, 0), prose(50, 40), prose(60, 50)]);
+
+    expect(layout.items.map((item) => item.kind)).toEqual(["segment_event", "segment_event", "gap", "segment_event", "segment_event"]);
+    expect(layout.items[2]).toEqual({ kind: "gap", above: 10, below: 50 });
+    const [, before, , after] = layout.items as { isFirst?: boolean; isLast?: boolean }[];
+    expect(before!.isLast).toBe(true);
+    expect(after!.isFirst).toBe(true);
+  });
+
+  it("does not fold a run of tool calls across a gap", () => {
+    const layout = buildFeedLayout(
+      [tool(0, null), tool(10, 0), tool(50, 40), tool(60, 50)],
+      { cluster: true, foldedClusters: new Set([0, 50]) },
+    );
+    expect(layout.items.map((item) => item.kind)).toEqual(["cluster", "gap", "cluster"]);
+  });
+
+  it("reads a row the view hides as joining its neighbours, not as a gap", () => {
+    const layout = buildFeedLayout([prose(0, null), system(10, 0), prose(20, 10)], NICE);
+    expect(layout.items.map((item) => item.kind)).toEqual(["segment_event", "segment_event"]);
   });
 });

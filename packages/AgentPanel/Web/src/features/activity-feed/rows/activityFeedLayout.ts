@@ -9,9 +9,10 @@ import {
   displayRole,
   isCompactionEvent,
   isSkillActivation,
-  type DisplayItem,
   type DisplayItemOptions,
+  type FeedItem,
 } from "@/features/activity-feed/rows/activityDisplayItems";
+import { gapsIn, type Gap } from "@/features/activity-feed/data-source/eventPaging";
 
 /**
  * The instructions a skill loaded, folded into the call that loaded them.
@@ -126,7 +127,8 @@ function isHarnessUserText(ev: ActivityEvent): boolean {
 
 /** Everything the feed needs to render one window of events. */
 export interface FeedLayout {
-  items: DisplayItem[];
+  /** The rows, with a gap row wherever the held ranges leave rows out. */
+  items: FeedItem[];
   /** Indices of the single-event rows that own a collapse toggle. */
   allEventIds: number[];
   /** Lead indices of every clusterable run, folded or not, for the fold-all control. */
@@ -245,8 +247,11 @@ function withCompactionSummary(event: ActivityEvent, summary: string): ActivityE
 // hidden inside someone else's row.
 export function buildFeedLayout(
   events: ActivityEvent[],
-  options: DisplayItemOptions = {},
+  options: Omit<DisplayItemOptions, "gaps"> = {},
 ): FeedLayout {
+  // On every held row, before the view leaves any out: a hidden system line between two shown rows
+  // is what the second one's `previous` names, and that is no gap.
+  const gaps = gapsIn(events);
   const contentEvents = options.hideSystem ? contentOnly(events) : events;
   const visibleEvents = options.incrementalReasoning
     ? projectIncrementalReasoning(contentEvents)
@@ -327,6 +332,9 @@ export function buildFeedLayout(
   for (let position = 1; position < visibleEvents.length; position++) {
     const body = visibleEvents[position]!;
     if (!isHarnessUserText(body)) continue;
+    // Straight after means with nothing missing between: across a gap, whatever answered the call
+    // may be a line that is not held.
+    if (gapBetween(gaps, visibleEvents[position - 1]!.index, body.index)) continue;
     const answered = visibleEvents[position - 1]!.blocks.flatMap((block) =>
       block.kind === "tool_result" && block.callId && skillCallIds.has(block.callId)
         ? [block.callId]
@@ -354,16 +362,21 @@ export function buildFeedLayout(
   const displayEvents = visibleEvents
     .filter((event) => !pairedResultEventIds.has(event.index))
     .map((event) => withoutPairedToolResults(event, pairedResultCallIdsByEvent.get(event.index) ?? new Map()));
-  const { items, runLeads } = buildActivityDisplayItems(displayEvents, options);
+  const { items, runLeads } = buildActivityDisplayItems(displayEvents, { ...options, gaps });
   // Derived from the items rather than the events, so a member of a folded run does
   // not appear to own a collapse toggle it has no row to carry. Run leads are a list of
   // their own because `foldedClusters` folds a run where `collapsed` closes a row, and a
   // run's lead index is also its first row's index.
   const allEventIds: number[] = [];
   for (const item of items) {
-    if (item.kind !== "cluster") allEventIds.push(item.ev.index);
+    if (item.kind !== "cluster" && item.kind !== "gap") allEventIds.push(item.ev.index);
   }
   return { items, allEventIds, clusterLeadIds: runLeads, pairedToolResults };
+}
+
+/** Whether a gap lies between the held rows at `older` and `newer`. */
+function gapBetween(gaps: readonly Gap[], older: number, newer: number): boolean {
+  return gaps.some((gap) => gap.below > older && gap.below <= newer);
 }
 
 /** How one event's blocks split between its visible body and its Raw drawer. */

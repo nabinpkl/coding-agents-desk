@@ -7,7 +7,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
-import { leadEvent, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import { isEventItem, leadEvent, type DisplayItem, type FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import {
   forgetTranscriptAnchor,
@@ -50,12 +50,12 @@ const SCROLL_SETTLE_MS = 200;
  * normal paging effect can fetch the page that may contain its exact id.
  */
 function findAnchorRow(
-  rowItems: readonly (DisplayItem | { kind: "tail" })[],
+  rowItems: readonly (FeedItem | { kind: "tail" })[],
   anchor: TranscriptScrollAnchor,
   canPageOlder: boolean,
 ): number {
   const durable = rowItems
-    .map((item, index) => item.kind === "tail" ? null : { item, index })
+    .map((item, index) => item.kind === "tail" || !isEventItem(item) ? null : { item, index })
     .filter((entry): entry is { item: DisplayItem; index: number } => entry !== null);
   if (durable.length === 0) return -1;
 
@@ -105,7 +105,7 @@ export function useTranscriptScrollRestore({
   parentRef: RefObject<HTMLDivElement | null>;
   pause: () => void;
   /** The rows on screen, including the live tail the durable list does not know about. */
-  rowItems: readonly (DisplayItem | { kind: "tail" })[];
+  rowItems: readonly (FeedItem | { kind: "tail" })[];
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   sessionId: string;
   source: string;

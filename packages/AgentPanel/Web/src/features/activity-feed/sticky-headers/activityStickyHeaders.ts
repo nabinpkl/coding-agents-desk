@@ -124,8 +124,8 @@ export function selectStickyCurrentIndex(
     if (measurement.start + measurement.size <= threshold) continue;
     if (threshold - measurement.start < HEADER_OBSCURED_PX) return null;
     // Compaction banners are milestones, not turns, so a role chip for one
-    // would be meaningless.
-    if (rows[index]!.kind === "compaction") return null;
+    // would be meaningless; a gap stands for rows that are not loaded.
+    if (rows[index]!.kind === "compaction" || rows[index]!.kind === "gap") return null;
     // The primary bar already stands for this row.
     if (stickyUserIndex === index) return null;
     return index;

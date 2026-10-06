@@ -14,7 +14,7 @@ import type { Virtualizer } from "@tanstack/react-virtual";
 import type { LastSessionMessage } from "@agentdesk/agent-feed-wire";
 import type { AgentSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import { leadEvent, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import { isEventItem, leadEvent, type FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import { hasPersonRow } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
 
 export function useUnloadedLastMessage({
@@ -28,7 +28,7 @@ export function useUnloadedLastMessage({
   windowStart,
 }: {
   flashHighlight: (eventIndex: number) => void;
-  items: readonly DisplayItem[];
+  items: readonly FeedItem[];
   loadOlder: () => Promise<void>;
   pause: () => void;
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
@@ -67,10 +67,11 @@ export function useUnloadedLastMessage({
   useEffect(() => {
     if (seeking === null) return;
     const rowIndex = items.findIndex((item) => item.kind === "user" && leadEvent(item).id === seeking);
-    if (rowIndex >= 0) {
+    const found = items[rowIndex];
+    if (found && isEventItem(found)) {
       setSeeking(null);
       rowVirtualizer.scrollToIndex(rowIndex, { align: "start" });
-      flashHighlight(leadEvent(items[rowIndex]!).index);
+      flashHighlight(leadEvent(found).index);
       return;
     }
     // Paged back to the start without meeting it, which a rewound transcript can do: stop.

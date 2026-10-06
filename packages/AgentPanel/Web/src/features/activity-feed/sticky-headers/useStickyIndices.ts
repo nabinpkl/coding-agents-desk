@@ -12,7 +12,12 @@ import type { RefObject } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
-import { leadEvent, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import {
+  isEventItem,
+  leadEvent,
+  type DisplayItem,
+  type FeedItem,
+} from "@/features/activity-feed/rows/activityDisplayItems";
 import {
   selectStickyCurrentIndex,
   selectStickyUserIndex,
@@ -31,7 +36,7 @@ interface StickyAnswer {
 
 /** The three answers for one scroll offset, from one read of the measurement cache. */
 function answerAt(
-  items: DisplayItem[],
+  items: FeedItem[],
   measurements: readonly (StickyMeasurement & { end: number })[],
   rowCount: number,
   scrollTop: number,
@@ -88,10 +93,10 @@ export function useStickyIndices({
   unloadedUserBar,
   virtualItems,
 }: {
-  items: DisplayItem[];
+  items: FeedItem[];
   mode: EventMode;
   /** The rows on screen, including the live tail the durable list does not know about. */
-  rowItems: readonly (DisplayItem | { kind: "tail" })[];
+  rowItems: readonly (FeedItem | { kind: "tail" })[];
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   scrollTop: number;
   stickyHeaderRef: RefObject<HTMLButtonElement | null>;
@@ -125,13 +130,13 @@ export function useStickyIndices({
   // shared accessor so this does not have to be revisited if another multi-event row
   // kind appears.
   const stickyUserItem = stickyUserIndex === null ? null : items[stickyUserIndex];
-  const stickyUser: ActivityEvent | null = stickyUserItem ? leadEvent(stickyUserItem) : null;
+  const stickyUser: ActivityEvent | null = stickyUserItem && isEventItem(stickyUserItem) ? leadEvent(stickyUserItem) : null;
 
   // Event row currently straddling the top of the viewport: its heading has
   // scrolled past, but its content is still on screen. Drives the secondary
   // sticky which lets the viewer jump back to that row's start.
-  const stickyCurrent: DisplayItem | null =
-    stickyCurrentIndex === null ? null : items[stickyCurrentIndex] ?? null;
+  const currentItem = stickyCurrentIndex === null ? undefined : items[stickyCurrentIndex];
+  const stickyCurrent: DisplayItem | null = currentItem && isEventItem(currentItem) ? currentItem : null;
 
   // The transcript line at the top of the viewport: the first row still on screen.
   //
@@ -140,10 +145,14 @@ export function useStickyIndices({
   // until they are measured, the feed opens on a window of the newest events rather than the whole
   // thread, and a live session has grown in the meantime -- where the event is the one thing every
   // one of those preserves.
-  const topItem = topRowIndex === null ? undefined : rowItems[topRowIndex];
+  // A gap at the top stands for no line, so the place is the row under it, which is what the
+  // reader sees next and what a page into the gap keeps still.
+  const topOrUnder = topRowIndex === null
+    ? undefined
+    : rowItems[topRowIndex]?.kind === "gap" ? rowItems[topRowIndex + 1] : rowItems[topRowIndex];
   // The live tail counts rows in the sidecar's projection rather than lines in the transcript,
   // so it is not an anchor -- and a reader sitting on it is at the end, which needs none.
-  const topEvent = !topItem || topItem.kind === "tail" ? null : leadEvent(topItem);
+  const topEvent = !topOrUnder || topOrUnder.kind === "tail" || !isEventItem(topOrUnder) ? null : leadEvent(topOrUnder);
 
-  return { changesAt, stickyCurrent, stickyCurrentIndex, stickyUser, stickyUserIndex, topEvent };
+  return { changesAt, stickyCurrent, stickyCurrentIndex, stickyUser, stickyUserIndex, topEvent, topRowIndex };
 }

@@ -1,3 +1,11 @@
+// The ranges a thread holds, read off the rows themselves.
+//
+// A thread holds any number of contiguous ranges of its transcript, with gaps between them
+// (ADR-0125): the live window, a range opened around a row the reader jumped to, rows paged in
+// above either. Nothing records where one ends. Every row names the row before it (`previous`), so
+// a held row whose previous row is not the held row below it is the first row after a gap, and
+// the ranges are derived wherever they are needed rather than kept beside the rows to drift.
+
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 export const PAGE_SIZE = 100;
@@ -14,28 +22,42 @@ export function previousIndex(event: Pick<ActivityEvent, "index" | "previous">):
   return event.index > 0 ? event.index - 1 : null;
 }
 
-/**
- * The page of missing rows nearest the newest end of what is held, or null when what is held has
- * no hole in it.
- *
- * A hole is a held row whose previous row is not the held row below it -- rows the reader was
- * never sent. What makes one is a reconnect after a stall longer than a window: the snapshot's
- * window starts past the newest row held from before. Asked for as the page ending before the
- * row above the hole, so each page lands joined to the rows already on screen, and the next one,
- * if the hole is deeper than a page, is asked for below that.
- *
- * Newest first, because that is the end the reader is most often at.
- */
-export function newestGap(
-  sorted: readonly Pick<ActivityEvent, "index" | "previous">[],
-  pageSize = PAGE_SIZE,
-): { before: number; limit: number } | null {
-  for (let position = sorted.length - 1; position > 0; position -= 1) {
-    const above = sorted[position]!;
-    const below = sorted[position - 1]!;
-    const previous = previousIndex(above);
-    if (previous === null || previous <= below.index) continue;
-    return { before: above.index, limit: pageSize };
+/** Rows missing between two held rows: `above` is the older held row, `below` the newer one. */
+export interface Gap {
+  above: number;
+  below: number;
+}
+
+/** Every gap between the held rows, oldest first. `sorted` is every held row, oldest first. */
+export function gapsIn(sorted: readonly Pick<ActivityEvent, "index" | "previous">[]): Gap[] {
+  const gaps: Gap[] = [];
+  for (let position = 1; position < sorted.length; position += 1) {
+    const above = sorted[position - 1]!;
+    const below = sorted[position]!;
+    const previous = previousIndex(below);
+    if (previous !== null && previous > above.index) gaps.push({ above: above.index, below: below.index });
   }
-  return null;
+  return gaps;
+}
+
+/**
+ * Where the oldest held range starts: its first row's index while older rows exist, and 0 once the
+ * first row of the session is held. Older paging asks for the page before this.
+ */
+export function windowStartOf(sorted: readonly Pick<ActivityEvent, "index" | "previous">[]): number {
+  const first = sorted[0];
+  return first === undefined || previousIndex(first) === null ? 0 : first.index;
+}
+
+/** The rows held with a page merged in, keeping whichever copy of a row has the newer revision. */
+export function withNewer(
+  held: Map<number, ActivityEvent>,
+  page: readonly ActivityEvent[],
+): Map<number, ActivityEvent> {
+  const events = new Map(held);
+  for (const event of page) {
+    const existing = events.get(event.index);
+    if (!existing || (existing.revision ?? 0) < (event.revision ?? 0)) events.set(event.index, event);
+  }
+  return events;
 }

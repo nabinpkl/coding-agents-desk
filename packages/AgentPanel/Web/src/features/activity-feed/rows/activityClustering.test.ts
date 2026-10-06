@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  clusterLabel,
-  isSkillActivation,
-  itemKey,
-  leadEvent,
-} from "@/features/activity-feed/rows/activityDisplayItems";
+import { clusterLabel, isSkillActivation, itemKey, leadEvent, isEventItem, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
@@ -60,6 +55,7 @@ describe("nice-mode clustering", () => {
     ];
 
     const niceReasoning = buildFeedLayout(events, NICE).items
+      .filter(isEventItem)
       .map(leadEvent)
       .flatMap((event) => event.blocks)
       .filter((block) => block.kind === "reasoning")
@@ -72,6 +68,7 @@ describe("nice-mode clustering", () => {
     ]);
 
     const rawReasoning = buildFeedLayout(events).items
+      .filter(isEventItem)
       .map(leadEvent)
       .flatMap((event) => event.blocks)
       .filter((block) => block.kind === "reasoning")
@@ -83,9 +80,9 @@ describe("nice-mode clustering", () => {
     nextIndex = 0;
     const events = [system("session initialized"), prose("Ready")];
 
-    expect(buildFeedLayout(events, NICE).items.map(leadEvent).map((event) => event.type))
+    expect(buildFeedLayout(events, NICE).items.filter(isEventItem).map(leadEvent).map((event) => event.type))
       .toEqual(["assistant"]);
-    expect(buildFeedLayout(events).items.map(leadEvent).map((event) => event.type))
+    expect(buildFeedLayout(events).items.filter(isEventItem).map(leadEvent).map((event) => event.type))
       .toEqual(["system", "assistant"]);
   });
 
@@ -202,8 +199,8 @@ describe("nice-mode clustering", () => {
     const layout = foldedLayout([call("Read"), call("Read"), prose("Done.")]);
 
     // A member of a folded run has no row, so it cannot own a collapse toggle.
-    expect(layout.allEventIds).toEqual([leadEvent(layout.items[1]!).index]);
-    expect(layout.clusterLeadIds).toEqual([leadEvent(layout.items[0]!).index]);
+    expect(layout.allEventIds).toEqual([leadEvent(layout.items[1]! as DisplayItem).index]);
+    expect(layout.clusterLeadIds).toEqual([leadEvent(layout.items[0]! as DisplayItem).index]);
   });
 
   it("keys a cluster by both ends so a neighbour opening does not re-measure it", () => {

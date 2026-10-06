@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import { PAGE_SIZE } from "@/features/activity-feed/data-source/eventPaging";
-import { useTimelineGapFill, withNewer } from "@/features/activity-feed/useTimelineGapFill";
+import {
+  PAGE_SIZE,
+  windowStartOf,
+  withNewer,
+  type Gap,
+} from "@/features/activity-feed/data-source/eventPaging";
 import { lastUsageFromEvents, newerUsage } from "@/features/activity-feed/usageFromEvents";
 import { retireLiveRows, splitLiveTails, visibleTails, liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
+import type { EventsPageAt } from "@agentdesk/agent-feed-wire";
 
 export interface ActivityBlock {
   kind:
@@ -97,9 +102,8 @@ export interface TokenUsage {
 }
 
 interface State {
+  /** Every row held, in however many ranges; where each range ends is read off `previous`. */
   events: Map<number, ActivityEvent>;
-  /** The oldest held row's index while older rows exist, and 0 once the first row is held. */
-  windowStart: number;
   usage: TokenUsage | null;
   /**
    * The session's current model as `providerID/modelID`, or null while unnamed. Beside usage
@@ -122,8 +126,8 @@ interface State {
   mirroredMessages: Set<string>;
   /** Which runtime projection produced the held rows, when the source has one. */
   projectionId: string | null;
-  /** How many snapshots this subscription has applied. What re-arms the gap fill below after a
-   *  snapshot overtakes one of its pages and leaves the same hole behind. */
+  /** How many snapshots this subscription has applied: the restore keys on it, because a snapshot
+   *  from a rebuilt projection replaces the rows without remounting the feed. */
   snapshotCount: number;
 }
 
@@ -140,7 +144,6 @@ export function useSessionEventsStream(
 
   const [state, setState] = useState<State>({
     events: new Map(),
-    windowStart: 0,
     usage: null,
     sessionModel: null,
     loading: true,
@@ -159,9 +162,7 @@ export function useSessionEventsStream(
   // afresh whether the context is being rewritten.
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const loadingOlderRef = useRef(false);
-  const windowStartRef = useRef(0);
   const timelineEpochRef = useRef(0);
-  useEffect(() => { windowStartRef.current = state.windowStart; }, [state.windowStart]);
 
   // One subscription seeds and follows the thread: its opening snapshot is the newest window, and
   // everything after it arrives on the same stream. SSE never stops on scroll.
@@ -213,8 +214,8 @@ onEvent: (event) => {
           // The sidecar re-sends its opening window on every open, and EventSource
           // reopens on its own after any drop, so without this a reader who had
           // scrolled up watched the transcript collapse back to its last hundred rows
-          // for no reason they could see. A stall longer than a window leaves a hole
-          // between what is kept and the snapshot; the gap fill below fetches it.
+          // for no reason they could see. A stall longer than a window leaves a gap
+          // between what is kept and the snapshot, which the feed draws and fills like any other.
           // Stable indices are not enough on their own. A sidecar restart rebuilds a
           // runtime projection, and the new projection can renumber the same session.
           // Its id is the boundary: an ordinary reconnect keeps the id and the paged
@@ -228,13 +229,6 @@ onEvent: (event) => {
           for (const event of snapshot.events) events.set(event.index, event);
           return {
             events,
-            // Only a window that actually kept something reaches below the snapshot's
-            // start. On a first open there is nothing held and `current.windowStart`
-            // is still 0, which would otherwise claim the whole session was loaded.
-            windowStart:
-              retained.length > 0
-                ? Math.min(current.windowStart, snapshot.windowStart)
-                : snapshot.windowStart,
             // The snapshot's structured occupancy, or -- when the runtime did
             // not deliver it -- the transcript's own last reading, which the
             // events already carry. Live readings still win later: `updatedAt`
@@ -316,45 +310,52 @@ onEvent: (event) => {
     };
   }, [session, ds]);
 
+  const events = useMemo(() => {
+    const arr = Array.from(state.events.values());
+    arr.sort((a, b) => a.index - b.index);
+    return arr;
+  }, [state.events]);
+  const windowStart = windowStartOf(events);
+  const windowStartRef = useRef(windowStart);
+  useEffect(() => { windowStartRef.current = windowStart; }, [windowStart]);
+
+  /**
+   * Reads one page from `at` into the rows held, or drops it when a snapshot replaced the window
+   * while it was in flight: a rebuilt projection numbers its rows differently, so the page would be
+   * about a session that is gone. Rejects on a failed read, for the caller to say so where it asked.
+   */
+  const readInto = useCallback(async (at: EventsPageAt) => {
+    const requestEpoch = timelineEpochRef.current;
+    const page = await ds.fetchEventsPage(session, at, PAGE_SIZE);
+    if (requestEpoch !== timelineEpochRef.current) return;
+    setState((current) => ({ ...current, events: withNewer(current.events, page.events) }));
+  }, [session, ds]);
+
+  /** The page above the oldest row held, while older rows exist. */
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current) return;
     const before = windowStartRef.current;
     if (before <= 0) return;
     loadingOlderRef.current = true;
     try {
-      const requestEpoch = timelineEpochRef.current;
-      const data = await ds.fetchEventsPage(session, { before }, PAGE_SIZE);
-      if (requestEpoch !== timelineEpochRef.current) return;
-      setState((s) => {
-        const newMap = new Map(s.events);
-        for (const ev of data.events) newMap.set(ev.index, ev);
-        return { ...s, events: newMap, windowStart: Math.min(s.windowStart, data.windowStart) };
-      });
+      await readInto({ before });
     } finally {
       loadingOlderRef.current = false;
     }
-  }, [session, ds]);
+  }, [readInto]);
 
-  const events = useMemo(() => {
-    const arr = Array.from(state.events.values());
-    arr.sort((a, b) => a.index - b.index);
-    return arr;
-  }, [state.events]);
-
-  const fetchGapPage = useCallback(
-    (before: number, limit: number) => ds.fetchEventsPage(session, { before }, limit),
-    [session, ds],
+  /**
+   * A page into a gap, from the side the reader is approaching it from: from `below`, the page
+   * that ends at the row under the gap; from `above`, the page that follows the row over it. Each
+   * page lands joined to the rows on that side, so the gap shrinks away from the reader.
+   */
+  const fillGap = useCallback(
+    (gap: Gap, from: "below" | "above") => readInto(from === "below" ? { before: gap.below } : { after: gap.above }),
+    [readInto],
   );
-  const mergeGapPage = useCallback((page: readonly ActivityEvent[]) => {
-    setState((current) => ({ ...current, events: withNewer(current.events, page) }));
-  }, []);
-  useTimelineGapFill({
-    events,
-    fetchPage: fetchGapPage,
-    epochRef: timelineEpochRef,
-    snapshotCount: state.snapshotCount,
-    onPage: mergeGapPage,
-  });
+
+  /** A range opened around `position`, for landing on a row that is not held. One read. */
+  const loadAround = useCallback((position: number) => readInto({ around: position }), [readInto]);
 
   // Derived rather than cleared on arrival, so the rule holds whatever order the two
   // sources land in. The clear inside `onEvent` still runs, to let a finished message
@@ -367,10 +368,12 @@ onEvent: (event) => {
 
   return {
     events,
-    windowStart: state.windowStart,
+    windowStart,
     usage: state.usage,
     sessionModel: state.sessionModel,
     loadOlder,
+    fillGap,
+    loadAround,
     loading: state.loading,
     error: state.error,
     connected,

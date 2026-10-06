@@ -7,7 +7,7 @@
 // does not.
 
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
-import { itemKey, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import { itemKey, type FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 
 function sameList<T>(left: readonly T[], right: readonly T[]): boolean {
@@ -29,7 +29,10 @@ function sameEvent(left: ActivityEvent, right: ActivityEvent): boolean {
     key === "blocks" ? sameList(left.blocks, right.blocks) : left[key] === right[key]);
 }
 
-function sameItem(left: DisplayItem, right: DisplayItem): boolean {
+function sameItem(left: FeedItem, right: FeedItem): boolean {
+  if (left.kind === "gap" || right.kind === "gap") {
+    return left.kind === "gap" && right.kind === "gap" && left.above === right.above && left.below === right.below;
+  }
   if (left.kind === "cluster" || right.kind === "cluster") {
     return left.kind === "cluster" && right.kind === "cluster"
       && left.events.length === right.events.length
@@ -41,7 +44,7 @@ function sameItem(left: DisplayItem, right: DisplayItem): boolean {
 }
 
 /** `next`, with each item that matches the previous one at its key replaced by that previous one. */
-export function keepUnchangedItems(previous: readonly DisplayItem[], next: DisplayItem[]): DisplayItem[] {
+export function keepUnchangedItems(previous: readonly FeedItem[], next: FeedItem[]): FeedItem[] {
   if (previous.length === 0) return next;
   const byKey = new Map(previous.map((item) => [itemKey(item), item]));
   let reused = 0;

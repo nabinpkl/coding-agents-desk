@@ -16,6 +16,7 @@ import {
   type DisplayItem,
   type DisplayRole,
   displayRole,
+  isEventItem,
   itemKey,
   leadEvent,
 } from "@/features/activity-feed/rows/activityDisplayItems";
@@ -58,6 +59,7 @@ import { useFeedRows } from "@/features/activity-feed/rows/useFeedRows";
 import { useStickyIndices } from "@/features/activity-feed/sticky-headers/useStickyIndices";
 import { useTranscriptScrollRestore } from "@/features/activity-feed/scroll-position/useTranscriptScrollRestore";
 import { useOlderPageAnchor } from "@/features/activity-feed/scroll-position/useOlderPageAnchor";
+import { gapIdentity, useGapFill } from "@/features/activity-feed/scroll-position/useGapFill";
 
 export function ActivityFeed({
   source,
@@ -129,7 +131,7 @@ export function ActivityFeed({
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }) {
   const {
-    events, loadOlder, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary,
+    events, loadOlder, fillGap, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary,
   } = useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
@@ -232,8 +234,8 @@ export function ActivityFeed({
       const it = rowItems[i];
       if (!it) return 88;
       if (it.kind === "tail") return collapsedTails.has(liveRowKey(it.ev)) ? 32 : 88;
-      // A folded cluster is always one line, whatever it holds.
-      if (it.kind === "cluster") return 32;
+      // A folded cluster is always one line, whatever it holds, and so is a gap.
+      if (it.kind === "cluster" || it.kind === "gap") return 32;
       if (collapsed.has(it.ev.index)) return 32;
       return 88;
     },
@@ -274,6 +276,7 @@ export function ActivityFeed({
     stickyUser,
     stickyUserIndex,
     topEvent,
+    topRowIndex,
     changesAt,
   } = useStickyIndices({
     items,
@@ -312,7 +315,7 @@ export function ActivityFeed({
       const el = parentRef.current;
       const measurement = rowVirtualizer.measurementsCache[rowIndex];
       const item = items[rowIndex];
-      if (!el || !measurement || !item) return;
+      if (!el || !measurement || !item || !isEventItem(item)) return;
       pause();
       if (reservedHeight === 0) rowVirtualizer.scrollToIndex(rowIndex, { align: "start" });
       else el.scrollTop = jumpScrollTop(measurement, reservedHeight);
@@ -322,6 +325,7 @@ export function ActivityFeed({
   );
 
   useOlderPageAnchor({ loadOlder, parentRef, restoring, totalSize, virtualItems, windowStart });
+  const { failedGaps, retryGap } = useGapFill({ fillGap, rowItems, topRowIndex, virtualItems });
 
   const threadControls = (
     <ActivityFeedControls
@@ -387,19 +391,23 @@ export function ActivityFeed({
         >
           {virtualItems.map((virtualRow) => {
             const it = rowItems[virtualRow.index];
-            const own = it !== undefined && it.kind !== "tail" && it.kind !== "cluster" ? it.ev.index : null;
+            const own = it !== undefined && it.kind !== "tail" && it.kind !== "cluster" && it.kind !== "gap"
+              ? it.ev.index
+              : null;
             return (
               <ActivityFeedRow
                 key={it?.kind === "tail"
                   ? `live-tail:${liveRowKey(it.ev)}`
                   : it ? itemKey(it) : virtualRow.index}
                 expandCluster={expandCluster}
+                gapFailed={it?.kind === "gap" && failedGaps.has(gapIdentity(it))}
                 index={virtualRow.index}
                 isCollapsed={it?.kind === "tail" ? collapsedTails.has(liveRowKey(it.ev)) : own !== null && collapsed.has(own)}
                 isHighlighted={own !== null && highlightedEvIdx === own}
                 it={it}
                 measureElement={rowVirtualizer.measureElement}
                 pairedToolResults={pairedToolResults}
+                retryGap={retryGap}
                 rowContext={rowContext}
                 start={virtualRow.start}
                 toggleEvent={toggleEvent}

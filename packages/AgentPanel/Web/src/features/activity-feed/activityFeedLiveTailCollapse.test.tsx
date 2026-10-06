@@ -42,6 +42,8 @@ function durable(index: number, text: string): ActivityEvent {
   return {
     id: `claude:line:${index}`,
     index,
+    // The transcript's first row, as every transcript row says what precedes it.
+    previous: null,
     otherModeIndex: index,
     revision: 0,
     phase: "complete",

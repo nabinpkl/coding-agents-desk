@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode, AgentSource } from "@/features/activity-feed/data-source/AgentDataSource";
-import type { DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import type { FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import { buildFeedLayout, type PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 import { keepUnchangedItems, keepUnchangedPairs } from "@/features/activity-feed/rows/keepUnchanged";
 
@@ -97,7 +97,7 @@ export function useFeedRows({
 
   // The previous layout's items and results, so a rebuild hands back the same object for every
   // row a new line did not change and the memoized rows skip them (`keepUnchanged.ts`).
-  const previousLayout = useRef<{ items: DisplayItem[]; pairedToolResults: ReadonlyMap<string, PairedToolResult> }>({
+  const previousLayout = useRef<{ items: FeedItem[]; pairedToolResults: ReadonlyMap<string, PairedToolResult> }>({
     items: [],
     pairedToolResults: new Map(),
   });
@@ -130,7 +130,7 @@ export function useFeedRows({
   // separate from `items` so sticky/jump logic never treats them as real
   // conversation rows.
   const rowItems = useMemo(() => {
-    const rows: Array<DisplayItem | { kind: "tail"; ev: ActivityEvent }> = [...items];
+    const rows: Array<FeedItem | { kind: "tail"; ev: ActivityEvent }> = [...items];
     for (const tail of liveTails) rows.push({ kind: "tail", ev: tail });
     return rows;
   }, [items, liveTails]);

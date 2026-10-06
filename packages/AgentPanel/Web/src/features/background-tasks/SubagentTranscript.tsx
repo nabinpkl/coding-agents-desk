@@ -11,7 +11,7 @@ import type {
   SessionReference,
 } from "@/features/activity-feed/data-source/AgentDataSource";
 import { useFeedRows } from "@/features/activity-feed/rows/useFeedRows";
-import { itemKey } from "@/features/activity-feed/rows/activityDisplayItems";
+import { isEventItem, itemKey } from "@/features/activity-feed/rows/activityDisplayItems";
 import { useSubagentTranscript } from "@/features/background-tasks/useSubagentTranscript";
 
 /** A finished run has no live mirror behind it. Module-level so the identity is
@@ -103,7 +103,8 @@ export function SubagentTranscript({
       {/* Capped and scrolled rather than growing the panel: a long run would otherwise push every
           other task off the screen. */}
       <div className="max-h-96 overflow-y-auto py-1">
-        {items.map((item) => (
+        {/* A subagent's file is read whole, so it holds one range and never draws a gap. */}
+        {items.filter(isEventItem).map((item) => (
           <div key={itemKey(item)}>
             {item.kind === "cluster" ? (
               <ClusterRow

@@ -8,7 +8,8 @@
 import { memo, useMemo } from "react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import { liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
-import { itemEvents, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import { itemEvents, type FeedItem, type GapItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import { GapRow } from "@/features/activity-feed/rows/GapRow";
 import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 import {
   ClusterRow,
@@ -35,10 +36,12 @@ import {
  * (`keepUnchanged.ts`), and the paired results come apart from `rowContext` so a row compares only
  * the results for its own calls (`sameRow` below). A new result re-renders the call it answers.
  */
-type RowItem = DisplayItem | { kind: "tail"; ev: ActivityEvent } | undefined;
+type RowItem = FeedItem | { kind: "tail"; ev: ActivityEvent } | undefined;
 
 type ActivityFeedRowProps = {
   expandCluster: (leadIndex: number) => void;
+  /** On a gap row: its last page failed to load, so it offers to try again. */
+  gapFailed: boolean;
   /** The virtual row's position in the list, which the virtualizer reads back when it measures. */
   index: number;
   isCollapsed: boolean;
@@ -47,6 +50,7 @@ type ActivityFeedRowProps = {
   measureElement: (node: Element | null) => void;
   /** Every paired result in the thread. A row re-renders only when one of ITS calls' changes. */
   pairedToolResults: ReadonlyMap<string, PairedToolResult>;
+  retryGap: (gap: GapItem) => void;
   rowContext: Omit<EventRowContext, "pairedToolResults">;
   start: number;
   toggleEvent: (eventIdx: number) => void;
@@ -73,12 +77,14 @@ function sameRow(previous: ActivityFeedRowProps, next: ActivityFeedRowProps): bo
 
 export const ActivityFeedRow = memo(function ActivityFeedRow({
   expandCluster,
+  gapFailed,
   index,
   isCollapsed,
   isHighlighted,
   it,
   measureElement,
   pairedToolResults,
+  retryGap,
   rowContext: sharedContext,
   start,
   toggleEvent,
@@ -118,7 +124,9 @@ export const ActivityFeedRow = memo(function ActivityFeedRow({
         overflowX: "auto",
       }}
     >
-      {it.kind === "tail" ? (
+      {it.kind === "gap" ? (
+        <GapRow failed={gapFailed} onRetry={() => retryGap(it)} />
+      ) : it.kind === "tail" ? (
         <LiveTailRow
           ev={it.ev}
           ctx={rowContext}
