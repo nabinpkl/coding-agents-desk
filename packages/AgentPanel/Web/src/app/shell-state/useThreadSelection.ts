@@ -17,6 +17,14 @@ interface SelectedThread {
   session: SessionSummary;
 }
 
+/**
+ * A session read in the modal. `botId` when it was opened from a Bot's card, which is what lets the
+ * modal reach the machine that Bot is on rather than the one the tab bar's picker points at.
+ */
+interface ModalThread extends SelectedThread {
+  botId?: string;
+}
+
 export function useThreadSelection({
   projects,
   sessionsByProject,
@@ -39,7 +47,7 @@ export function useThreadSelection({
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   // A session read over the canvas, apart from the selection: the canvas has no thread of its own,
   // and opening one there must not change what the Sessions tab comes back to.
-  const [modalThread, setModalThread] = useState<SelectedThread | null>(null);
+  const [modalThread, setModalThread] = useState<ModalThread | null>(null);
   const restoredSelection = useRef(false);
   // Owned here rather than in the feed so the choice survives switching threads, and
   // so the feed can remount on a change -- every event index it holds is counted in
@@ -96,23 +104,31 @@ export function useThreadSelection({
     openSession(project, session);
   }, [openSession]);
 
-  const openBotSession = useCallback((bot: BotView, session: SessionSummary) => {
-    const project = projects.find((candidate) => candidate.projectPath === bot.environment.path) ?? {
+  // A Bot's directory as a project, made up when the inventory has none for it: a peer's Bot, or a
+  // directory no session has reported from yet.
+  const projectOfBot = useCallback((bot: BotView, session: SessionSummary): ProjectSummary =>
+    projects.find((candidate) => candidate.projectPath === bot.environment.path) ?? {
       projectPath: bot.environment.path,
       displayName: bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path,
       sourceCounts: { [session.source]: 1 },
       sessionCount: 1,
       lastEventAt: session.lastEventAt,
-    };
+    }, [projects]);
+
+  const openBotSession = useCallback((bot: BotView, session: SessionSummary) => {
     setSelectedBotId(bot.botId);
-    openSession(project, session);
-  }, [openSession, projects]);
+    openSession(projectOfBot(bot, session), session);
+  }, [openSession, projectOfBot]);
 
   const openSessionInModal = useCallback((project: ProjectSummary, session: SessionSummary) => {
     setModalThread({ project, session });
     setHoverPreviewOpen(false);
     if (usesModalSidebar) setSidebarOpen(false);
   }, [setHoverPreviewOpen, setSidebarOpen, usesModalSidebar]);
+  const openBotSessionInModal = useCallback((bot: BotView, session: SessionSummary) => {
+    setModalThread({ project: projectOfBot(bot, session), session, botId: bot.botId });
+    setHoverPreviewOpen(false);
+  }, [projectOfBot, setHoverPreviewOpen]);
   const closeSessionModal = useCallback(() => setModalThread(null), []);
 
   /**
@@ -151,6 +167,7 @@ export function useThreadSelection({
     openBotSession,
     modalThread,
     openSessionInModal,
+    openBotSessionInModal,
     closeSessionModal,
   };
 }

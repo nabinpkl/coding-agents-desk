@@ -4,7 +4,7 @@
 // `SessionView` the app's thread view renders, with its streams, its terminal and its composer --
 // and that is a different thing from the Bot card that holds it.
 
-import { Bot, ChevronDown } from "lucide-react";
+import { Bot, ChevronDown, Maximize2 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
@@ -63,6 +63,7 @@ export function BotSessionCard({
   onAttachSession,
   onDetach,
   onRemoveFromCanvas,
+  onMaximize,
   isFather,
   onSetFather,
   onClearFather,
@@ -120,6 +121,8 @@ export function BotSessionCard({
   onDetach: () => void;
   /** Takes this card off the canvas. The Bot keeps the session, and the sidebar still lists it. */
   onRemoveFromCanvas: () => void;
+  /** Opens this session in the modal over the canvas. The card stays as it was, open or shut. */
+  onMaximize: () => void;
   /**
    * Names this session the Bot's Father, or clears it. The card knows neither act's label --
    * the menu shows the other one -- so both arrive and `isFather` picks: derived here from
@@ -366,6 +369,16 @@ export function BotSessionCard({
                 className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 @[560px]:order-none @[560px]:basis-auto @[560px]:pb-0"
               />
             ) : null}
+            {/* Beside the menu rather than in it: one tap to a session at full size is the point. */}
+            <button
+              type="button"
+              onClick={onMaximize}
+              aria-label={`Maximize ${title}`}
+              title="Maximize"
+              className="mt-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md session-muted-ink outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:bg-background focus-visible:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary active:bg-background/70"
+            >
+              <Maximize2 className="size-4" aria-hidden />
+            </button>
             <span className="mt-1">
               <SessionRowMenu
                 label={title}

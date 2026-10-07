@@ -86,10 +86,15 @@ export function AppDialogs({
   ) => Promise<void>;
   startHandover: (request: HandoverRequest, message: string) => Promise<void>;
   startNewSession: (bot: BotView, title: string, harness: NewSessionHarness) => Promise<void>;
-  /** The session the Canvas tab's Sessions view opened, or null; mounted only while it is open. */
+  /**
+   * The session opened in the modal, or null; mounted only while it is open. From the Canvas tab's
+   * Sessions view, or maximized from a Bot's card, which names its Bot.
+   */
   sessionModal: {
-    thread: { project: ProjectSummary; session: SessionSummary } | null;
+    thread: { project: ProjectSummary; session: SessionSummary; botId?: string } | null;
     context: SessionViewContext;
+    /** A Bot's session reads from that Bot's machine, the way its card does. */
+    contextFor: (botId: string) => SessionViewContext;
     onClose: () => void;
     /** Moves the session onto its directory's Bot. Not offered on a session a Bot already holds. */
     canvasMove: { held: ReadonlySet<string>; onMove: (session: SessionSummary) => Promise<void> };
@@ -166,7 +171,10 @@ export function AppDialogs({
       {sessionModal.thread ? (
         <SessionModal
           key={keyOf(sessionModal.thread.session)}
-          context={sessionModal.context}
+          context={sessionModal.thread.botId === undefined
+            ? sessionModal.context
+            : sessionModal.contextFor(sessionModal.thread.botId)}
+          {...(sessionModal.thread.botId === undefined ? {} : { botId: sessionModal.thread.botId })}
           project={sessionModal.thread.project}
           session={sessionModal.thread.session}
           onClose={sessionModal.onClose}

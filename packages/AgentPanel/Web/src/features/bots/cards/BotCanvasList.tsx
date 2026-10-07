@@ -52,6 +52,7 @@ export function BotCanvasList({
   onRenameSession,
   onDetachSession,
   onRemoveSessionFromCanvas,
+  onMaximizeSession,
   onDetachBot,
   onSetFatherSession,
   onRenameBot,
@@ -88,6 +89,8 @@ export function BotCanvasList({
   onRenameSession: (session: SessionSummary) => void;
   onDetachSession: (bot: BotView, session: BotSessionRef) => void;
   onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
+  /** Opens this session in the modal, over the canvas, without changing what the card shows. */
+  onMaximizeSession: (bot: BotView, session: SessionSummary) => void;
   onDetachBot: (bot: BotView) => void;
   /** Names a session the Bot's Father, or clears it with a null ref. */
   onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
@@ -219,6 +222,7 @@ export function BotCanvasList({
           onRenameSession={onRenameSession}
           onDetachSession={onDetachSession}
           onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
+          onMaximizeSession={onMaximizeSession}
           onDetachBot={onDetachBot}
           onSetFatherSession={onSetFatherSession}
           onRenameBot={onRenameBot}

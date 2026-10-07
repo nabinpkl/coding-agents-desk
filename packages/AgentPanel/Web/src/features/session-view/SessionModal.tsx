@@ -1,14 +1,15 @@
 // A session read in a modal, over whatever the main column is showing.
 //
 // The canvas owns the main column, so a session that is on no Bot -- picked from the Canvas tab's
-// Sessions view -- opens here instead of replacing it. The same `SessionView` every other surface
+// Sessions view -- opens here instead of replacing it, and so does a Bot's session maximized from
+// its card. The same `SessionView` every other surface
 // renders, with its own header for the controls it portals and its own box for files dropped on it.
 //
 // An overlay at z-40 rather than a `<dialog>` in the top layer: the session's popovers portal to
 // the body at z-50, and anything outside the top layer paints under it whatever its z-index.
 
 import { LayoutDashboard, LoaderCircle, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView } from "@/features/session-view/SessionView";
@@ -27,6 +28,7 @@ export function SessionModal({
   session,
   onClose,
   onMoveToCanvas,
+  botId,
 }: {
   context: SessionViewContext;
   project: ProjectSummary;
@@ -37,6 +39,11 @@ export function SessionModal({
    * Bot already holds, which is on the canvas already.
    */
   onMoveToCanvas?: (session: SessionSummary) => Promise<void>;
+  /**
+   * The Bot this session was maximized from. A fork from one of its messages names that Bot, so it
+   * lands as a card beside this session's, the same as a fork from the card itself.
+   */
+  botId?: string;
 }) {
   const titleId = useId();
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -49,6 +56,13 @@ export function SessionModal({
     [],
   );
   const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
+  const contextFork = context.onForkFromMessage;
+  const forkFromMessage = useMemo(
+    () => contextFork === undefined || botId === undefined
+      ? contextFork
+      : (request: Parameters<typeof contextFork>[0]) => contextFork({ ...request, botId }),
+    [botId, contextFork],
+  );
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   // Closes on success, because the session's card is now open on the canvas behind this box. A
@@ -142,6 +156,7 @@ export function SessionModal({
         <div className="relative min-h-0 flex-1 bg-background" {...drop.dropProps}>
           <SessionView
             {...context}
+            {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
             projectPath={project.projectPath}
             session={session}
             controlsHost={controlsHost}

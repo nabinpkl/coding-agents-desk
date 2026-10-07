@@ -54,6 +54,7 @@ export function BotCanvas({
   onRenameSession,
   onDetachSession,
   onRemoveSessionFromCanvas,
+  onMaximizeSession,
   onDetachBot,
   onSetFatherSession,
   onRenameBot,
@@ -165,6 +166,8 @@ export function BotCanvas({
    * address.
    */
   onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
+  /** Opens this session in the modal, over the canvas, without changing what the card shows. */
+  onMaximizeSession: (bot: BotView, session: SessionSummary) => void;
   /**
    * Takes the whole Bot off this canvas. The Bot, its curated sessions and their transcripts are
    * untouched -- this arranges the view, and the sidebar's canvas panel is where it waits to come
@@ -267,6 +270,7 @@ export function BotCanvas({
         onRenameSession={onRenameSession}
         onDetachSession={onDetachSession}
         onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
+        onMaximizeSession={onMaximizeSession}
         onDetachBot={onDetachBot}
         onSetFatherSession={onSetFatherSession}
         onRenameBot={onRenameBot}

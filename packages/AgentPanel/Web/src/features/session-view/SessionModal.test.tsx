@@ -5,7 +5,14 @@ import { SessionModal } from "@/features/session-view/SessionModal";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 
 // The modal's own chrome is the subject; the transcript inside it has suites of its own.
-vi.mock("@/features/session-view/SessionView", () => ({ SessionView: () => <div data-testid="session-view" /> }));
+// Captures what the session was handed, which is how a fork from a message is checked.
+const viewProps = vi.hoisted(() => ({ current: null as null | Record<string, unknown> }));
+vi.mock("@/features/session-view/SessionView", () => ({
+  SessionView: (props: Record<string, unknown>) => {
+    viewProps.current = props;
+    return <div data-testid="session-view" />;
+  },
+}));
 
 const project = { projectPath: "/repo", displayName: "repo" } as ProjectSummary;
 const session = { source: "claude", sessionId: "s-1", title: "Probe" } as SessionSummary;
@@ -38,5 +45,17 @@ describe("SessionModal's Move to canvas", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain("already exists");
     expect(screen.getByRole("button", { name: "Move to canvas" })).not.toBeDisabled();
+  });
+});
+
+describe("SessionModal for a Bot's session", () => {
+  it("names the Bot on a fork from one of its messages, so the fork lands on that Bot", () => {
+    const onForkFromMessage = vi.fn();
+    const withFork = { onForkFromMessage } as unknown as SessionViewContext;
+    render(<SessionModal context={withFork} project={project} session={session} onClose={() => {}} botId="bot-1" />);
+
+    (viewProps.current!.onForkFromMessage as (request: object) => void)({ index: 4 });
+
+    expect(onForkFromMessage).toHaveBeenCalledWith({ index: 4, botId: "bot-1" });
   });
 });

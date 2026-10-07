@@ -312,6 +312,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
           startHandover={commands.startHandover}
           startNewSession={commands.startNewSession}
           sessionModal={{ thread: thread.modalThread, context: sessionViewContext, onClose: thread.closeSessionModal,
+            contextFor: (botId) => shellMachines.contextFor(sessionViewContext, botId),
             canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveSessionToCanvas } }}
         />
         {chrome.usesModalSidebar ? (
@@ -462,6 +463,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
                 onDeleteBot={commands.deleteBot}
                 onReorderSessions={commands.reorderBotSessions}
                 onRemoveSessionFromCanvas={roster.removeSessionFromCanvas}
+                onMaximizeSession={thread.openBotSessionInModal}
                 onDetachBot={roster.toggleBotOnCanvas}
                 onMoveBot={roster.moveBot}
                 detachedCount={botsState.bots.length - roster.canvasBots.length}
