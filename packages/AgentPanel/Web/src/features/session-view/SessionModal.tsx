@@ -7,7 +7,7 @@
 // An overlay at z-40 rather than a `<dialog>` in the top layer: the session's popovers portal to
 // the body at z-50, and anything outside the top layer paints under it whatever its z-index.
 
-import { X } from "lucide-react";
+import { LayoutDashboard, LoaderCircle, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
@@ -26,11 +26,17 @@ export function SessionModal({
   project,
   session,
   onClose,
+  onMoveToCanvas,
 }: {
   context: SessionViewContext;
   project: ProjectSummary;
   session: SessionSummary;
   onClose: () => void;
+  /**
+   * Puts the session on its directory's Bot, made for it when there is none. Absent for a session a
+   * Bot already holds, which is on the canvas already.
+   */
+  onMoveToCanvas?: (session: SessionSummary) => Promise<void>;
 }) {
   const titleId = useId();
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -43,6 +49,22 @@ export function SessionModal({
     [],
   );
   const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  // Closes on success, because the session's card is now open on the canvas behind this box. A
+  // failure stays here, beside the button, since the canvas band is under the overlay.
+  const moveToCanvas = async () => {
+    if (!onMoveToCanvas) return;
+    setMoving(true);
+    setMoveError(null);
+    try {
+      await onMoveToCanvas(session);
+      onClose();
+    } catch (error) {
+      setMoveError(error instanceof Error ? error.message : String(error));
+      setMoving(false);
+    }
+  };
 
   // Focus moves in on open and back to whatever held it on close, the way a dialog's does.
   useEffect(() => {
@@ -86,6 +108,20 @@ export function SessionModal({
               {project.displayName || project.projectPath}
             </p>
           </div>
+          {onMoveToCanvas ? (
+            <button
+              type="button"
+              onClick={() => void moveToCanvas()}
+              disabled={moving}
+              aria-busy={moving || undefined}
+              className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {moving
+                ? <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                : <LayoutDashboard className="size-4" aria-hidden />}
+              Move to canvas
+            </button>
+          ) : null}
           <div ref={setControlsHost} className="flex shrink-0 items-center gap-1" />
           <button
             ref={closeButton}
@@ -98,6 +134,11 @@ export function SessionModal({
             <X className="size-4" aria-hidden />
           </button>
         </header>
+        {moveError ? (
+          <p role="alert" className="shrink-0 border-b border-border px-4 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
+            Could not move this session to the canvas: {moveError}
+          </p>
+        ) : null}
         <div className="relative min-h-0 flex-1 bg-background" {...drop.dropProps}>
           <SessionView
             {...context}

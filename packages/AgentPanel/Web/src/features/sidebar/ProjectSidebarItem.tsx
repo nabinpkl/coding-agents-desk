@@ -1,14 +1,25 @@
 "use client";
 
-import { ChevronDown, LoaderCircle, Plus } from "lucide-react";
+import { ChevronDown, LayoutDashboard, LoaderCircle, Plus } from "lucide-react";
 import { useId, useState, type KeyboardEvent } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { RowMenu } from "@/features/bots/menus/RowMenu";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { InlineStatus, SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
 
 const INITIAL_SESSION_COUNT = 3;
+
+/**
+ * Moving a session onto the canvas from its row. Offered only by the Canvas tab's list, and only
+ * on rows no Bot holds: a held session is on the canvas already, or one click from it in the roster.
+ */
+export interface SessionCanvasMove {
+  /** `source:sessionId` of every session some Bot holds, on any machine. */
+  held: ReadonlySet<string>;
+  onMove: (session: SessionSummary) => void;
+}
 const SESSION_BATCH_SIZE = 10;
 
 export function ProjectSidebarItem({
@@ -22,6 +33,7 @@ export function ProjectSidebarItem({
   onToggle,
   onSelectSession,
   onCreatePiSession,
+  canvasMove,
 }: {
   project: ProjectSummary;
   sessions: SessionSummary[] | undefined;
@@ -34,6 +46,7 @@ export function ProjectSidebarItem({
   onSelectSession: (session: SessionSummary) => void;
   /** Absent where a new Pi session is not offered, which is everywhere but the Sessions tab. */
   onCreatePiSession?: () => void;
+  canvasMove?: SessionCanvasMove;
 }) {
   const regionId = useId();
   const displayName = project.displayName || project.projectPath.split("/").pop() || project.projectPath;
@@ -90,6 +103,7 @@ export function ProjectSidebarItem({
             sessions={sessions}
             selectedSessionKey={selectedSessionKey}
             onSelect={onSelectSession}
+            canvasMove={canvasMove}
           />
         </div>
       ) : null}
@@ -101,10 +115,12 @@ export function ProjectSessionPreview({
   sessions,
   selectedSessionKey,
   onSelect,
+  canvasMove,
 }: {
   sessions: SessionSummary[] | undefined;
   selectedSessionKey: string | null;
   onSelect: (session: SessionSummary) => void;
+  canvasMove?: SessionCanvasMove | undefined;
 }) {
   // How much of a long list is unfolded is this row's own business, and it lives and
   // dies with the row: collapsing a project unmounts this, so reopening it starts folded.
@@ -127,13 +143,13 @@ export function ProjectSessionPreview({
           const key = `${session.source}:${session.sessionId}`;
           const active = key === selectedSessionKey;
           return (
-            <li key={key}>
+            <li key={key} className={`flex items-center ${active ? "bg-muted" : ""}`}>
               <button
                 type="button"
                 onClick={() => onSelect(session)}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-11 w-full items-start gap-2 border-l-2 py-2 pr-3 pl-8 text-left hover:bg-muted/60 ${
-                  active ? "border-primary bg-muted text-foreground" : "border-transparent"
+                className={`flex min-h-11 min-w-0 flex-1 items-start gap-2 border-l-2 py-2 pr-3 pl-8 text-left hover:bg-muted/60 ${
+                  active ? "border-primary text-foreground" : "border-transparent"
                 }`}
               >
                 <ActivityDot activity={session.activity} className="mt-1.5" />
@@ -148,6 +164,14 @@ export function ProjectSessionPreview({
                   />
                 </span>
               </button>
+              {canvasMove && !canvasMove.held.has(key) ? (
+                <span className="pr-1">
+                  <RowMenu
+                    label={session.title || session.sessionId}
+                    items={[{ label: "Move to canvas", icon: LayoutDashboard, onSelect: () => canvasMove.onMove(session) }]}
+                  />
+                </span>
+              ) : null}
             </li>
           );
         })}
@@ -188,6 +212,8 @@ export function ProjectSessionList(props: {
     creationErrors: ReadonlyMap<string, string>;
     onCreate: (project: ProjectSummary) => void;
   };
+  /** The Canvas tab's row action; absent on the Sessions tab, whose sessions open in place. */
+  canvasMove?: SessionCanvasMove;
 }) {
   if (props.loading) return <SidebarStatus>Loading projects…</SidebarStatus>;
   if (props.error) {
@@ -211,6 +237,7 @@ export function ProjectSessionList(props: {
           onToggle={() => props.onToggleProject(project.projectPath)}
           onSelectSession={(session) => props.onSelectSession(project, session)}
           {...(props.pi ? { onCreatePiSession: () => props.pi!.onCreate(project) } : {})}
+          {...(props.canvasMove ? { canvasMove: props.canvasMove } : {})}
         />
       ))}
     </ul>

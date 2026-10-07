@@ -10,6 +10,8 @@
 import type {
   AddBotCommand,
   AddBotSessionsCommand,
+  BotSessionPlaced,
+  BotSessionRef,
   BotSessionsAdded,
   BotSnapshot,
   BotView,
@@ -102,6 +104,18 @@ export class SidecarBots extends SidecarBotDirectory {
         `/api/bots/${encodeURIComponent(botId)}/sessions`,
         { body: { ...command, requestId: crypto.randomUUID() } },
       ),
+    );
+  }
+
+  /**
+   * Puts a session on the Bot of the directory it works in, which the sidecar makes first when
+   * there is none. Asked of the session's own machine, because that is where its directory is.
+   */
+  async placeSessionOnBot(sessionRef: BotSessionRef): Promise<BotSessionPlaced> {
+    return parse<BotSessionPlaced>(
+      await this.transport.request("POST", "/api/bots/placements", {
+        body: { sessionRef, requestId: crypto.randomUUID() },
+      }),
     );
   }
 

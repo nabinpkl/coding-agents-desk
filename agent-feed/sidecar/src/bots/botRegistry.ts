@@ -7,12 +7,14 @@ import type {
   BotMetadata,
   BotRecord,
   BotSessionRef,
+  BotSessionPlaced,
   BotSessionsAdded,
   BotSessionsRetired,
   BotSnapshot,
   BotView,
   StartedSession,
   DetachBotSessionsCommand,
+  PlaceBotSessionCommand,
   ReorderBotSessionsCommand,
   RenamedBracket,
   RetireBotSessionsCommand,
@@ -24,8 +26,10 @@ import { LIVE_FORK_REWINDER } from "@/transcripts/session-ops/forkRewind";
 import { type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
 import { type BotSubscribeOptions } from "@/bots/botSubscriptionChanges";
 import {
+  MAX_NAME,
   normalizeAddBot,
   normalizeLaunchFor,
+  normalizePlaceSession,
   normalizeRetire,
   normalizeSessionRef,
   normalizeSessionRefCommand,
@@ -37,6 +41,7 @@ import { BotRecordEditor } from "@/bots/botUpdate";
 import { BotViewer } from "@/bots/botViews";
 import { attachRefs } from "@/bots/sessions/botSessionAttach";
 import { sessionWorkedIn } from "@/bots/sessions/botSessionHistory";
+import { placementBot, placementDirectory, placementName } from "@/bots/sessions/botSessionPlacement";
 import { renameBracketTitle, type BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
 import { BotSessionRetirer, detachRefs } from "@/bots/sessions/botSessionRemoval";
 import { reorderRefs } from "@/bots/sessions/botSessionOrder";
@@ -285,6 +290,49 @@ export class BotRegistry {
       ),
       started,
     };
+  }
+
+  /**
+   * Puts one session on the Bot of the directory it works in, making that Bot when there is none.
+   *
+   * Built from `add` and `addSessions` rather than beside them, so the refusals are theirs: a name
+   * or directory taken in between, a session that never worked where the Bot is bound. Each step
+   * spends the request id under its own suffix, so a replay makes no second Bot and attaches
+   * nothing twice. A session some Bot already holds is answered with that Bot: it is on the canvas.
+   */
+  async placeSession(command: PlaceBotSessionCommand, actor: BotActor): Promise<BotSessionPlaced> {
+    if (actor.kind !== "user") {
+      throw new BotForbiddenError("only the authenticated user may move a session onto a Bot");
+    }
+    const { requestId, sessionRef } = normalizePlaceSession(command);
+    const session = this.catalog.resolveSession(sessionRef);
+    if (!session) throw new BotNotFoundError(`session ${sessionKey(sessionRef)} is not in the current catalog`);
+    const bots = (await this.store.snapshot()).bots;
+    const holder = bots.find((bot) => bot.sessionRefs.some((ref) => sessionKey(ref) === sessionKey(sessionRef)));
+    if (holder) return { bot: await this.viewer.viewRecord(holder), created: false };
+
+    const home = await placementBot(bots, session.projectPath);
+    if (home) {
+      const attached = await this.addSessions(home.botId, { requestId: `${requestId}:attach`, sessionRefs: [sessionRef] }, actor);
+      return { bot: attached.bot, created: false };
+    }
+    const directory = await placementDirectory(session.projectPath);
+    const { bot } = await this.add(
+      { requestId: `${requestId}:bot`, name: placementName(directory, bots, MAX_NAME), directoryPath: directory },
+      actor,
+    );
+    try {
+      const attached = await this.addSessions(bot.botId, { requestId: `${requestId}:attach`, sessionRefs: [sessionRef] }, actor);
+      return { bot: attached.bot, created: true };
+    } catch (error) {
+      // The Bot is written and holds nothing, the same half-done state a failed first launch
+      // leaves, so it is reported the same way: as something that survived.
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new BotLaunchError(
+        `Bot "${bot.name}" was made for ${directory}, but the session could not be attached: ${reason}`,
+        { cause: error },
+      );
+    }
   }
 
   async detachSessions(

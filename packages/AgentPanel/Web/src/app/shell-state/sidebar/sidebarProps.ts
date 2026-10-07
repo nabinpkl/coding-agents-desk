@@ -129,6 +129,7 @@ export function sidebarProps({
     canvasView: chrome.sidebarPreferences.canvasView,
     onCanvasViewChange: chrome.changeCanvasView,
     onOpenSessionInModal: thread.openSessionInModal,
+    canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveListedSessionToCanvas },
     modalSelection: thread.modalThread
       ? {
         projectPath: thread.modalThread.project.projectPath,

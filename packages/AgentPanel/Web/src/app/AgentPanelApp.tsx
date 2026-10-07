@@ -311,7 +311,8 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
           startFork={commands.startFork}
           startHandover={commands.startHandover}
           startNewSession={commands.startNewSession}
-          sessionModal={{ thread: thread.modalThread, context: sessionViewContext, onClose: thread.closeSessionModal }}
+          sessionModal={{ thread: thread.modalThread, context: sessionViewContext, onClose: thread.closeSessionModal,
+            canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveSessionToCanvas } }}
         />
         {chrome.usesModalSidebar ? (
           <AgentSidebarDialog

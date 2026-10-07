@@ -91,6 +91,8 @@ export function AppDialogs({
     thread: { project: ProjectSummary; session: SessionSummary } | null;
     context: SessionViewContext;
     onClose: () => void;
+    /** Moves the session onto its directory's Bot. Not offered on a session a Bot already holds. */
+    canvasMove: { held: ReadonlySet<string>; onMove: (session: SessionSummary) => Promise<void> };
   };
 }) {
   const keyOf = (session: Pick<SessionSummary, "source" | "sessionId">): string =>
@@ -168,6 +170,9 @@ export function AppDialogs({
           project={sessionModal.thread.project}
           session={sessionModal.thread.session}
           onClose={sessionModal.onClose}
+          {...(sessionModal.canvasMove.held.has(keyOf(sessionModal.thread.session))
+            ? {}
+            : { onMoveToCanvas: sessionModal.canvasMove.onMove })}
         />
       ) : null}
     </>

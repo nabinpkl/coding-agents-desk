@@ -216,6 +216,26 @@ export interface BotSessionsAdded {
 }
 
 /**
+ * Puts one existing session on the Bot of the directory it works in, making that Bot first when
+ * there is none. `POST /api/bots/placements`.
+ *
+ * One command rather than a create and an attach from the panel, because the question in between
+ * -- does this directory have a Bot yet -- is the registry's to answer: the panel's roster can be a
+ * stream behind, and the answer has to be the one the create is checked against.
+ */
+export interface PlaceBotSessionCommand {
+  requestId: string;
+  sessionRef: BotSessionRef;
+}
+
+/** `POST /api/bots/placements` response. */
+export interface BotSessionPlaced {
+  bot: BotView;
+  /** True when this call made the Bot; false when the directory already had one. */
+  created: boolean;
+}
+
+/**
  * Removes references from a Bot's projection. The sessions themselves are untouched: a Bot is a
  * curated view over transcripts it does not own, so detaching is forgetting, not deleting.
  *

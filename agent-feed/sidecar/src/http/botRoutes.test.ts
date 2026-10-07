@@ -94,6 +94,35 @@ test("adds sessions through the Bot-scoped route, existing or newly started", as
   }]);
 });
 
+test("places a session on its directory's Bot, 201 when the Bot is new and 200 when it was there", async () => {
+  const calls: unknown[] = [];
+  let created = true;
+  const registry = {
+    async placeSession(command: unknown, actor: unknown) {
+      calls.push({ command, actor });
+      return { bot, created };
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry, repositories, LIMITS);
+  const place = () => {
+    const request = new Request("http://localhost/api/bots/placements", {
+      method: "POST",
+      body: JSON.stringify({ requestId: "place-1", sessionRef: { source: "claude", sessionId: "c-1" } }),
+    });
+    return route(request, new URL(request.url), server);
+  };
+
+  const fresh = await place();
+  expect(fresh?.status).toBe(201);
+  expect(await fresh?.json()).toEqual({ bot, created: true });
+  created = false;
+  expect((await place())?.status).toBe(200);
+  expect(calls[0]).toEqual({
+    command: { requestId: "place-1", sessionRef: { source: "claude", sessionId: "c-1" } },
+    actor: { kind: "user" },
+  });
+});
+
 test("maps registry conflicts to a typed 409 response", async () => {
   const registry = {
     async add() {

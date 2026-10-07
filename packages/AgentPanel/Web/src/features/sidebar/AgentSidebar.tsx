@@ -16,7 +16,7 @@ import { MessagesPanel } from "@/features/messages/MessagesPanel";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import type { UsageHandle } from "@/features/usage/useUsage";
-import { ProjectSessionList } from "@/features/sidebar/ProjectSidebarItem";
+import { ProjectSessionList, type SessionCanvasMove } from "@/features/sidebar/ProjectSidebarItem";
 import { CanvasSidebarViews, type CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 
 export type AgentSidebarMode = "sessions" | "bots" | "canvas" | "messages";
@@ -145,6 +145,7 @@ interface AgentSidebarProps {
   onCanvasViewChange: (view: CanvasSidebarView) => void;
   /** Opens a session in a modal over the canvas, from the Canvas tab's Sessions view. */
   onOpenSessionInModal: (project: ProjectSummary, session: SessionSummary) => void;
+  canvasMove: SessionCanvasMove;
   /** The session that modal is showing, so its row reads as the one picked. */
   modalSelection: { projectPath: string; sessionKey: string } | null;
   /** The inbox's data and writes. Owned by the app, so all three sidebar mounts share one poll. */
@@ -324,6 +325,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 selectedProjectPath={props.modalSelection?.projectPath ?? null}
                 selectedSessionKey={props.modalSelection?.sessionKey ?? null}
                 onSelectSession={props.onOpenSessionInModal}
+                canvasMove={props.canvasMove}
               />
             }
             bots={

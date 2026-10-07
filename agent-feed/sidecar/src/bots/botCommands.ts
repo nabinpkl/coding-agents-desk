@@ -17,7 +17,7 @@ import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import { sessionKey } from "@/bots/botIdempotency";
 import { BotInvalidError } from "@/bots/botTypes";
 
-const MAX_NAME = 64;
+export const MAX_NAME = 64;
 /** A row id is `claude:<sessionId>:at:<byte>`; past this it is not one. */
 const MAX_EVENT_ID = 256;
 const MAX_DIRECTORY_PATH = 4_096;
@@ -357,6 +357,24 @@ export function normalizeSessionRefCommand(
     throw new BotInvalidError("sessionRefs cannot contain duplicates");
   }
   return { requestId: normalizeRequestId(command.requestId), sessionRefs };
+}
+
+/**
+ * A placement's request id is spent twice -- once on the Bot it may make, once on the attach --
+ * each under a suffix, so it is held short enough that both still fit the bound.
+ */
+const MAX_PLACEMENT_REQUEST_ID = 120;
+
+export function normalizePlaceSession(command: unknown): { requestId: string; sessionRef: BotSessionRef } {
+  if (!command || typeof command !== "object" || Array.isArray(command)) {
+    throw new BotInvalidError("a placement must be an object");
+  }
+  const { requestId, sessionRef } = command as { requestId?: unknown; sessionRef?: unknown };
+  const normalized = normalizeRequestId(requestId);
+  if (normalized.length > MAX_PLACEMENT_REQUEST_ID) {
+    throw new BotInvalidError(`requestId must be at most ${MAX_PLACEMENT_REQUEST_ID} characters`);
+  }
+  return { requestId: normalized, sessionRef: normalizeSessionRef(sessionRef) };
 }
 
 export interface NormalizedRetire extends NormalizedSessionRefCommand {

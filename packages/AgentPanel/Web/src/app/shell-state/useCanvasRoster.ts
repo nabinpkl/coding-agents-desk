@@ -49,6 +49,11 @@ export function useCanvasRoster(
       (bot.offCanvasSessionRefs ?? []).map((ref) => `${ref.source}:${ref.sessionId}`))),
     [botsState.bots],
   );
+  // Every session some Bot holds, on any machine, which is what "Move to canvas" is not offered on.
+  const heldSessionKeys = useMemo<ReadonlySet<string>>(
+    () => new Set(botsState.bots.flatMap((bot) => bot.sessionRefs.map((ref) => `${ref.source}:${ref.sessionId}`))),
+    [botsState.bots],
+  );
   // Read through a ref so the commands below keep one identity while the roster moves under them.
   const currentBots = useRef(botsState.bots);
   currentBots.current = botsState.bots;
@@ -272,6 +277,31 @@ export function useCanvasRoster(
     [feeds, setBotCanvas, setCanvasOpenKeys],
   );
   /**
+   * Moves a session no Bot holds onto the canvas: onto the Bot of its directory, which its machine
+   * makes first when there is none, and then opens its card.
+   *
+   * Throws rather than reporting, because the two places it is asked from say a failure in
+   * different places: the session's modal sits over the canvas and says it beside the button, the
+   * sidebar's row has nothing of its own and uses the canvas band (`moveListedSessionToCanvas`).
+   */
+  const moveSessionToCanvas = useCallback(async (session: SessionSummary): Promise<void> => {
+    const ref = { source: session.source, sessionId: session.sessionId };
+    const { bot } = await feeds.forSession(ref).placeSessionOnBot(ref);
+    if (bot.offCanvas) void setBotCanvas(bot.botId, { onCanvas: true });
+    setCanvasOpenKeys((current) => new Set(current).add(`${ref.source}:${ref.sessionId}`));
+  }, [feeds, setBotCanvas, setCanvasOpenKeys]);
+  const moveListedSessionToCanvas = useCallback((session: SessionSummary) => {
+    setCanvasError(null);
+    void moveSessionToCanvas(session).catch((error: unknown) => {
+      setCanvasError({
+        session: null,
+        message: `Could not move ${session.title || session.sessionId} to the canvas: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    });
+  }, [moveSessionToCanvas]);
+  /**
    * Machines the canvas is not showing, and the chip that changes that.
    *
    * Here rather than inside the canvas for the same reason the open keys are: this is the one
@@ -332,6 +362,9 @@ export function useCanvasRoster(
     toggleCanvasSession,
     openSessionOnCanvas,
     attachSessionToBot,
+    heldSessionKeys,
+    moveSessionToCanvas,
+    moveListedSessionToCanvas,
     toggleBotOnCanvas,
   };
 }
