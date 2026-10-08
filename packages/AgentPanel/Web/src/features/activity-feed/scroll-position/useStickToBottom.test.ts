@@ -39,6 +39,7 @@ function makeScrollEl(scrollHeight = 1000, clientHeight = 300) {
       set.add(fn);
       listeners.set(type, set);
     },
+    clientWidth: 600,
     removeEventListener(type: string, fn: EventListener) {
       listeners.get(type)?.delete(fn);
     },
@@ -51,6 +52,11 @@ function makeScrollEl(scrollHeight = 1000, clientHeight = 300) {
 /** Two-finger flick. Negative deltaY is towards earlier content. */
 function wheel(el: ReturnType<typeof makeScrollEl>, deltaY: number) {
   el.dispatch("wheel", { deltaY });
+}
+
+/** A press on the native scrollbar, which lands on the scroller itself at its right edge. */
+function grabScrollbar(el: ReturnType<typeof makeScrollEl>) {
+  el.dispatch("pointerdown", { target: el, offsetX: el.clientWidth + 4 });
 }
 
 beforeEach(() => {
@@ -189,17 +195,67 @@ describe("useStickToBottom", () => {
     }
   });
 
-it("detaches when the user scrolls up (scrollTop decreases)", () => {
+  it("detaches on a drag of the scrollbar, which fires no wheel, touch or key", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => grabScrollbar(scrollEl));
+    act(() => {
+      scrollEl.scrollTop = 400;
+      view.result.current.onScroll();
+    });
+    expect(view.result.current.following).toBe(false);
+  });
+
+  it("a press on a row, not the scrollbar, does not authorize a decrease", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => scrollEl.dispatch("pointerdown", { target: {}, offsetX: 590 }));
+    act(() => {
+      scrollEl.scrollTop = 400;
+      view.result.current.onScroll();
+    });
+    expect(view.result.current.following).toBe(true);
+  });
+
+  it("a released scrollbar no longer authorizes one", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => grabScrollbar(scrollEl));
+    act(() => {
+      window.dispatchEvent(new Event("pointerup"));
+    });
+    act(() => {
+      scrollEl.scrollTop = 400;
+      view.result.current.onScroll();
+    });
+    expect(view.result.current.following).toBe(true);
+  });
+
+  // Measured at the end of every assistant message: the live row hands off to its durable row, the
+  // content dips and comes back to the SAME height inside one frame, and the browser clamped
+  // scrollTop on the way down. The ResizeObserver sees no change, so this scroll event is the only
+  // thing that can put the viewport back.
+  it("re-pins a following viewport left short of the end with the height unchanged", () => {
     const { view, scrollEl } = setup();
     act(() => {
       roCallback!();
       flushRaf();
     });
     act(() => {
-      scrollEl.scrollTop = 400;
+      scrollEl.scrollTop = 621; // 79px short of the end of a list still 1000 tall
       view.result.current.onScroll();
     });
-    expect(view.result.current.following).toBe(false);
+    expect(view.result.current.following).toBe(true);
+    expect(scrollEl.scrollTop).toBe(1000);
   });
 
   it("does not re-pin while browsing when content grows", () => {
@@ -208,6 +264,7 @@ it("detaches when the user scrolls up (scrollTop decreases)", () => {
       roCallback!();
       flushRaf();
     });
+    act(() => wheel(scrollEl, -120));
     act(() => {
       scrollEl.scrollTop = 400;
       view.result.current.onScroll();
@@ -223,6 +280,7 @@ it("detaches when the user scrolls up (scrollTop decreases)", () => {
       roCallback!();
       flushRaf();
     });
+    act(() => wheel(scrollEl, -120));
     act(() => {
       scrollEl.scrollTop = 400;
       view.result.current.onScroll();

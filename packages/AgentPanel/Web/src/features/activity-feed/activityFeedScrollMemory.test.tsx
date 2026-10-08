@@ -186,7 +186,6 @@ describe("where a session was left being read", () => {
       STORAGE_KEY,
       JSON.stringify([[`claude:${SESSION}`, 100, "claude:line:4"]]),
     );
-    scrollTo(scroller, rowTop("line 4"));
     fireEvent.wheel(scroller, { deltaY: -240 });
     scrollTo(scroller, rowTop("line 4"));
 
@@ -218,10 +217,11 @@ describe("where a session was left being read", () => {
     const { scroller, view } = mountFeed();
     await screen.findByText("line 0");
 
-    // Down the thread first: moving towards the end never detaches, so nothing is remembered yet.
-    scrollTo(scroller, rowTop("line 8"));
-    // Then up, which only an input can say -- the scroll event it produces cannot.
+    // Up, which only an input can say -- the scroll event it produces cannot. From line 8, because
+    // jsdom opens the scroller at 0 rather than at the end; a move with no input behind it would be
+    // pinned straight back to the tail, so this one comes under the same flick.
     fireEvent.wheel(scroller, { deltaY: -240 });
+    scrollTo(scroller, rowTop("line 8"));
     scrollTo(scroller, rowTop("line 4"));
 
     await waitFor(
