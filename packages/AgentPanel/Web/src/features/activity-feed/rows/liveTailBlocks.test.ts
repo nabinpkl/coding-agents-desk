@@ -62,11 +62,27 @@ describe("splitLiveTails", () => {
     expect(rows.map((row) => row.id)).toEqual(["claude-live:msg_1:2", "claude-live:msg_1:3"]);
   });
 
-  it("keeps the last block of a streaming message even once its line landed", () => {
+  it("drops the last block once its line landed, whether or not the mirror saw the message end", () => {
     expect(splitLiveTails([message("streaming", [firstThought])], [line(1, firstThought)]))
-      .toHaveLength(1);
+      .toEqual([]);
     expect(splitLiveTails([message("complete", [firstThought])], [line(1, firstThought)]))
       .toEqual([]);
+  });
+
+  it("drops a mirror that stopped short of a message the transcript finished", () => {
+    const reply: ActivityBlock = { kind: "text", text: "The fourth review passed." };
+    // The observer dropped after the thinking, so the mirror never heard the reply or the end.
+    expect(splitLiveTails(
+      [message("streaming", [firstThought])],
+      [line(1, firstThought), line(2, reply)],
+    )).toEqual([]);
+  });
+
+  it("keeps the blocks a streaming message has not had written yet", () => {
+    const rows = splitLiveTails([message("streaming", [firstThought, listCall])], [line(1, firstThought)]);
+
+    expect(rows.map((row) => row.blocks[0])).toEqual([listCall]);
+    expect(rows[0]!.phase).toBe("streaming");
   });
 
   it("counts only the lines of the message itself", () => {

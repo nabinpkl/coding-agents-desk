@@ -29,13 +29,15 @@ describe("useSessionEventsStream live tail", () => {
     await waitFor(() => expect(view.result.current.loading).toBe(false));
     const handlers = session.handlers();
 
-    // A streaming live message becomes the tail.
-    act(() => handlers?.onLiveTail?.(tailEvent(0, "msg_1")));
-    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_1"]);
-    expect(view.result.current.liveTails[0]?.phase).toBe("streaming");
+    // A streaming live message becomes the tail: prose, then a call still being written.
+    const call = { kind: "tool_use", tool: "Bash", summary: "ls", callId: "c1" } as const;
+    const streaming = { ...tailEvent(0, "msg_1"), blocks: [{ kind: "text", text: "hello" } as const, call] };
+    act(() => handlers?.onLiveTail?.(streaming));
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_1", "msg_1"]);
+    expect(view.result.current.liveTails.at(-1)?.phase).toBe("streaming");
 
-    // A durable row for the same message arrives WHILE it is still streaming
-    // (transcripts append per tool step). It must NOT clear the tail early.
+    // The file's line for the prose arrives while the mirror still calls the message
+    // streaming. It takes over the prose only, and the call stays previewed below it.
     act(() =>
       handlers?.onEvent({
         index: 4,
@@ -48,11 +50,11 @@ describe("useSessionEventsStream live tail", () => {
         blocks: [{ kind: "text", text: "hello" }],
       }),
     );
-    expect(view.result.current.liveTails).toHaveLength(1);
+    expect(view.result.current.liveTails.map((row) => row.blocks)).toEqual([[call]]);
 
     // The live message finishes; the durable transcript now contains it
     // (same id, complete): the tail is handed off and dropped.
-    act(() => handlers?.onLiveTail?.({ ...tailEvent(0, "msg_1"), phase: "complete" }));
+    act(() => handlers?.onLiveTail?.({ ...streaming, phase: "complete" }));
     act(() =>
       handlers?.onEvent({
         index: 4,

@@ -20,8 +20,10 @@ export function liveRowKey(event: ActivityEvent): string {
  *   finished, the file is the authority for it, and for every row the mirror published before it:
  *   the file writes messages in the mirror's own order, so reaching one is reaching all of them.
  *   That retires the mirror's tool-result rows too, which belong to no message and so can never be
- *   named themselves. Only a FINISHED live row is named: the file appends a line per block while
- *   the message is still streaming, and taking that as the handoff would end the preview early.
+ *   named themselves. Only a FINISHED live row is named: the file writes a message one line per
+ *   block, and a later line can trail the first by seconds (a call's line, 4s after its prose's),
+ *   so taking the first line as the handoff would drop blocks the file has not written yet. Those
+ *   lines are `splitLiveTails`' business, which drops each block as its line lands.
  * - **Results it already pairs.** A tool-result row whose every result the file already carries is
  *   on screen twice -- once under its call, once loose below the thread -- until the next message
  *   is named, which on a long tool step is a long time.
@@ -130,8 +132,15 @@ const CONTENT_KINDS: ReadonlySet<ActivityBlock["kind"]> = new Set(["text", "reas
  * that heading and ran into it.
  *
  * Splitting gives each block the row it will keep, so the hand-off moves nothing. A message's first
- * N blocks are dropped once the transcript holds N lines for it -- never the last block of a message
- * still streaming, which may be the one being written.
+ * N blocks are dropped once the transcript holds N lines for it, the last one included, whatever
+ * phase the mirror says the message is in. Claude writes a message's lines only once the message
+ * has ended: every line carries the message's final `stop_reason` (measured 2026-10-08 across the
+ * fifteen newest transcripts, 23,341 assistant lines and 8 without one). So a line is never the
+ * block being written, and a mirror row still marked streaming whose lines are all in the file is
+ * a mirror that lost the message's end. That happens when the proxy observer's connection drops
+ * mid-message: measured 2026-10-08, the observer ended at 00:55:17.725, the thinking line landed at
+ * 00:55:17.708 and the text line at 00:55:18.459, and the row kept its thinking under the finished
+ * reply for good, below the text and repeating the thinking row above it.
  *
  * Each row's id is its message row's key plus the block's index, so dropping earlier blocks does not
  * rename the ones left, and a row the reader collapsed stays collapsed.
@@ -154,7 +163,7 @@ export function splitLiveTails(
     }
     const rest = tail.blocks.filter((block) => !CONTENT_KINDS.has(block.kind));
     const held = tail.messageId === undefined ? 0 : written.get(tail.messageId) ?? 0;
-    const skip = Math.min(held, tail.phase === "complete" ? content.length : content.length - 1);
+    const skip = Math.min(held, content.length);
     content.forEach((blockIndex, position) => {
       if (position < skip) return;
       const block = tail.blocks[blockIndex]!;
