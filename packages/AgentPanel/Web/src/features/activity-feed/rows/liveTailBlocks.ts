@@ -11,6 +11,9 @@ export function liveRowKey(event: ActivityEvent): string {
   return event.id ?? `live:${event.index}`;
 }
 
+/** The blocks a transcript writes a line for. Anything else rides on the message's last row. */
+const CONTENT_KINDS: ReadonlySet<ActivityBlock["kind"]> = new Set(["text", "reasoning", "tool_use"]);
+
 /**
  * The live rows the transcript has not taken over yet, decided from what both sources hold now.
  *
@@ -24,6 +27,9 @@ export function liveRowKey(event: ActivityEvent): string {
  *   block, and a later line can trail the first by seconds (a call's line, 4s after its prose's),
  *   so taking the first line as the handoff would drop blocks the file has not written yet. Those
  *   lines are `splitLiveTails`' business, which drops each block as its line lands.
+ *   A row the mirror still calls streaming is named too once the file holds a line for every
+ *   block it has: a line is written only after its message ended (see `splitLiveTails`), so that
+ *   row is a mirror that lost the message's end, and it would otherwise be held for good.
  * - **Results it already pairs.** A tool-result row whose every result the file already carries is
  *   on screen twice -- once under its call, once loose below the thread -- until the next message
  *   is named, which on a long tool step is a long time.
@@ -39,19 +45,23 @@ export function retireLiveRows(
   durable: Iterable<ActivityEvent>,
 ): Map<string, ActivityEvent> {
   if (liveRows.size === 0) return liveRows;
-  const named = new Set<string>();
+  const written = new Map<string, number>();
   const results = new Set<string>();
   for (const event of durable) {
-    if (event.phase === "complete" && event.messageId !== undefined) named.add(event.messageId);
+    if (event.phase === "complete" && event.messageId !== undefined) {
+      written.set(event.messageId, (written.get(event.messageId) ?? 0) + 1);
+    }
     for (const block of event.blocks) {
       if (block.kind === "tool_result" && block.callId !== undefined) results.add(block.callId);
     }
   }
   let reached = Number.NEGATIVE_INFINITY;
   for (const row of liveRows.values()) {
-    if (row.phase === "complete" && row.messageId !== undefined && named.has(row.messageId)) {
-      reached = Math.max(reached, row.index);
-    }
+    if (row.messageId === undefined) continue;
+    const lines = written.get(row.messageId) ?? 0;
+    if (lines === 0) continue;
+    const blocks = row.blocks.filter((block) => CONTENT_KINDS.has(block.kind)).length;
+    if (row.phase === "complete" || lines >= blocks) reached = Math.max(reached, row.index);
   }
   const paired = (row: ActivityEvent) =>
     row.blocks.length > 0 &&
@@ -117,9 +127,6 @@ export function visibleTails(
   }
   return visible.sort((left, right) => left.index - right.index);
 }
-
-/** The blocks a transcript writes a line for. Anything else rides on the message's last row. */
-const CONTENT_KINDS: ReadonlySet<ActivityBlock["kind"]> = new Set(["text", "reasoning", "tool_use"]);
 
 /**
  * The live tail split into one row per content block, less the blocks the transcript already has.

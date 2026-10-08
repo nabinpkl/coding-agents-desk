@@ -284,9 +284,14 @@ onEvent: (event) => {
           }
           // Retired here as well as on a durable row, because the live row can be the late one: a
           // message that finishes after its line landed, or a tail replayed after the snapshot. A
-          // streaming delta can retire nothing, so only a finished row pays for the scan.
+          // streaming row is retired when the file already holds a line for each of its blocks,
+          // which is a mirror that lost the message's end; only its first delta can be that late
+          // one, so a message pays for the scan once, not on every token.
           const added = new Map(current.liveRows).set(liveRowKey(event), event);
-          const liveRows = event.phase === "complete" ? retireLiveRows(added, current.events.values()) : added;
+          const firstSight = event.messageId !== undefined && !current.mirroredMessages.has(event.messageId);
+          const liveRows = event.phase === "complete" || firstSight
+            ? retireLiveRows(added, current.events.values())
+            : added;
           const mirroredMessages = event.messageId === undefined
             ? current.mirroredMessages
             : new Set(current.mirroredMessages).add(event.messageId);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitLiveTails } from "@/features/activity-feed/rows/liveTailBlocks";
+import { retireLiveRows, splitLiveTails } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 function message(phase: ActivityEvent["phase"], blocks: ActivityBlock[]): ActivityEvent {
@@ -99,5 +99,27 @@ describe("splitLiveTails", () => {
     const rows = splitLiveTails([message("complete", [firstThought, error])], []);
 
     expect(rows.map((row) => row.blocks)).toEqual([[firstThought, error]]);
+  });
+});
+
+describe("retireLiveRows", () => {
+  const reply: ActivityBlock = { kind: "text", text: "The fourth review passed." };
+  const rows = (...events: ActivityEvent[]) => new Map(events.map((event) => [event.id!, event]));
+
+  it("retires a streaming row once the file holds a line for every block it has", () => {
+    // The observer dropped after the thinking: the mirror never heard the reply or the end.
+    const stalled = message("streaming", [firstThought]);
+    expect(retireLiveRows(rows(stalled), [line(1, firstThought), line(2, reply)]).size).toBe(0);
+  });
+
+  it("keeps a streaming row while the file is short of its blocks", () => {
+    const streaming = message("streaming", [firstThought, listCall]);
+    expect(retireLiveRows(rows(streaming), [line(1, firstThought)]).size).toBe(1);
+  });
+
+  it("retires the rows the mirror published before a row it retires", () => {
+    const earlier: ActivityEvent = { ...message("complete", [listCall]), id: "claude-live:msg_0", index: 3, messageId: "msg_0" };
+    const stalled = message("streaming", [firstThought]);
+    expect(retireLiveRows(rows(earlier, stalled), [line(1, firstThought)]).size).toBe(0);
   });
 });

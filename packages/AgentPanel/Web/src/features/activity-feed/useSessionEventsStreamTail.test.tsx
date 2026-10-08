@@ -205,12 +205,15 @@ describe("useSessionEventsStream live tail", () => {
       await waitFor(() => expect(view.result.current.loading).toBe(false));
       const handlers = session.handlers();
 
+      // Prose and a call, so the prose's line alone does not cover the message.
+      const call = { kind: "tool_use", tool: "Bash", summary: "ls", callId: "c1" } as const;
+      const done = { ...tailEvent(1, "msg_done", 1), blocks: [{ kind: "text", text: "hello" } as const, call] };
       act(() => handlers.onLiveTail?.(results(0, "call-a")));
-      act(() => handlers.onLiveTail?.(tailEvent(1, "msg_done", 1)));
+      act(() => handlers.onLiveTail?.(done));
       act(() => handlers.onEvent(line(9, "msg_done")));
       expect(view.result.current.liveTails.length).toBeGreaterThan(0);
 
-      act(() => handlers.onLiveTail?.({ ...tailEvent(1, "msg_done", 1), phase: "complete" }));
+      act(() => handlers.onLiveTail?.({ ...done, phase: "complete" }));
       expect(view.result.current.liveTails).toEqual([]);
     });
 
@@ -223,6 +226,17 @@ describe("useSessionEventsStream live tail", () => {
       // A stream opened after the turn ended replays the mirror's rows behind its snapshot.
       act(() => handlers.onLiveTail?.(results(0, "call-a")));
       act(() => handlers.onLiveTail?.({ ...tailEvent(1, "msg_done", 1), phase: "complete" }));
+      expect(view.result.current.liveTails).toEqual([]);
+    });
+
+    it("retires a stalled row replayed after the snapshot holds every block of it", async () => {
+      const session = thread([line(9, "msg_done")]);
+      const view = renderThread(session.source, "claude", "nice");
+      await waitFor(() => expect(view.result.current.loading).toBe(false));
+      const handlers = session.handlers();
+
+      // The mirror lost this message's end, so it still calls it streaming.
+      act(() => handlers.onLiveTail?.(tailEvent(1, "msg_done", 1)));
       expect(view.result.current.liveTails).toEqual([]);
     });
 
