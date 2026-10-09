@@ -22,7 +22,7 @@ import type {
   WorkspaceTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
-import { claudeSessionPaneName } from "@/terminal/claudeSessionLaunch";
+import { claudeSessionPaneName, resumeClaudeSessionCommand } from "@/terminal/claudeSessionLaunch";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,
@@ -449,7 +449,7 @@ async function identifySessionTmux(
     createTmux: {
       cwd: projectPath,
       command: context.source === "claude"
-        ? ["claude", "--resume", sessionId]
+        ? resumeClaudeSessionCommand(sessionId)
         : ["codex", "resume", sessionId],
     },
     // Resuming, not creating: the session already exists and already has whatever name it has.

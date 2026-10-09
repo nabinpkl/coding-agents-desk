@@ -19,6 +19,7 @@ import {
   tmuxSessionExists,
 } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
+import { claudeLaunchPermissionArgs } from "@/config/configClaudeLaunch";
 
 /**
  * The pane a session started or resumed by this sidecar is BORN in.
@@ -59,13 +60,21 @@ export function claudeSessionPaneName(sessionId: string): string {
  * The prompt is a positional argument, which is how the CLI takes a first turn. It goes through
  * the same per-argument shell quoting as everything else on this path (`newSessionArgs`), so a
  * brief carrying quotes, parentheses or newlines arrives whole.
+ *
+ * Every argv this file builds -- this one, the fork's and the resume's -- carries the permission
+ * flags from `configClaudeLaunch.ts`, so a session opens in one mode however it was started.
  */
 export function newClaudeSessionCommand(
   options: { sessionId: string; title: string; prompt?: string },
 ): string[] {
-  const command = ["claude", "--session-id", options.sessionId, "-n", options.title];
+  const command = ["claude", ...claudeLaunchPermissionArgs, "--session-id", options.sessionId, "-n", options.title];
   if (options.prompt) command.push(options.prompt);
   return command;
+}
+
+/** The argv that reopens a stopped session in a pane, in the same mode a fresh one gets. */
+export function resumeClaudeSessionCommand(sessionId: string): string[] {
+  return ["claude", ...claudeLaunchPermissionArgs, "--resume", sessionId];
 }
 
 /**
@@ -176,6 +185,7 @@ export function forkClaudeSessionCommand(
 ): string[] {
   const command = [
     "claude",
+    ...claudeLaunchPermissionArgs,
     "--resume",
     options.sessionId,
     "--fork-session",

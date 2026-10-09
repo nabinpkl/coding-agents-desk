@@ -19,6 +19,7 @@ import {
   type SessionTmuxFakes,
 } from "@/terminal/agentTerminalHarness";
 import { subscribeSessionPaneStarts } from "@/terminal/sessionPaneStarts";
+import { resumeClaudeSessionCommand } from "@/terminal/claudeSessionLaunch";
 
 const {
   roots,
@@ -59,7 +60,7 @@ test("starts a tmux session that resumes the agent session when nothing is runni
   expect(fakes.created).toEqual([{
     session: `agentdesk-${SESSION_ID}`,
     cwd: expect.stringContaining("projects/agent-desk"),
-    command: ["claude", "--resume", SESSION_ID],
+    command: resumeClaudeSessionCommand(SESSION_ID),
     columns: 100,
     rows: 30,
   }]);

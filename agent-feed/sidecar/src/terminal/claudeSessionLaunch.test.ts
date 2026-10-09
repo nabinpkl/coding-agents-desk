@@ -17,8 +17,10 @@ import {
   forkClaudeSessionCommand,
   forkFirstTurn,
   newClaudeSessionCommand,
+  resumeClaudeSessionCommand,
 } from "@/terminal/claudeSessionLaunch";
 import { newSessionArgs } from "@/terminal/tmux/tmuxSessions";
+import { claudeLaunchPermissionArgs as permission } from "@/config/configClaudeLaunch";
 
 const directories: string[] = [];
 
@@ -33,13 +35,13 @@ test("the pane name is the session id, so a second viewer lands on the first's p
 
 test("the command names the session and its title, and carries a prompt as the first turn", () => {
   expect(newClaudeSessionCommand({ sessionId: "abc", title: "OSS agent", prompt: "read AGENTS.md" }))
-    .toEqual(["claude", "--session-id", "abc", "-n", "OSS agent", "read AGENTS.md"]);
+    .toEqual(["claude", ...permission, "--session-id", "abc", "-n", "OSS agent", "read AGENTS.md"]);
 });
 
 test("no prompt means no trailing argument, not an empty one", () => {
   // An empty positional would be a first turn of nothing, which the CLI answers.
   expect(newClaudeSessionCommand({ sessionId: "abc", title: "OSS agent" }))
-    .toEqual(["claude", "--session-id", "abc", "-n", "OSS agent"]);
+    .toEqual(["claude", ...permission, "--session-id", "abc", "-n", "OSS agent"]);
 });
 
 test("a hostile prompt arrives as exactly one argument, through the shells tmux uses", async () => {
@@ -84,7 +86,11 @@ test("a hostile prompt arrives as exactly one argument, through the shells tmux 
   await run.exited;
 
   const received = (await readFile(argvFile, "utf8")).split("\0").slice(0, -1);
-  expect(received).toEqual(["--session-id", "abc", "-n", "OSS agent (fork 1)", prompt]);
+  expect(received).toEqual([...permission, "--session-id", "abc", "-n", "OSS agent (fork 1)", prompt]);
+});
+
+test("a reopened session gets the same permission flags a fresh one does", () => {
+  expect(resumeClaudeSessionCommand("abc")).toEqual(["claude", ...permission, "--resume", "abc"]);
 });
 
 test("a fork's pane is named after the fork, so two forks of one session do not collide", () => {
@@ -96,7 +102,7 @@ test("a fork's pane is named after the fork, so two forks of one session do not 
 
 test("a fork resumes its source and lands at its own id", () => {
   expect(forkClaudeSessionCommand({ sessionId: "src", forkId: "fork", title: "Bot colours" }))
-    .toEqual(["claude", "--resume", "src", "--fork-session", "--session-id", "fork", "-n", "Bot colours"]);
+    .toEqual(["claude", ...permission, "--resume", "src", "--fork-session", "--session-id", "fork", "-n", "Bot colours"]);
 });
 
 test("a fork given a brief is told whose work it is holding before it is told what to do", () => {
@@ -112,15 +118,15 @@ test("a fork given a brief is told whose work it is holding before it is told wh
   expect(turn).toContain("You are a fork");
   expect(turn).toContain("the parent is");
   expect(turn.endsWith("Give each Bot card its own background colour.")).toBe(true);
-  // Nine arguments, not ten: the brief is one positional, not the preamble plus the brief.
-  expect(command).toHaveLength(9);
+  // One argument past the flags, not two: the brief is one positional, not the preamble plus the brief.
+  expect(command).toHaveLength(9 + permission.length);
 });
 
 test("no brief means no first turn, so a fork opened to type into does not answer itself", () => {
   // The reader's own fork is the common case, and a preamble alone would be a turn spent saying
   // "you are a fork" to a session with nothing to do.
   const command = forkClaudeSessionCommand({ sessionId: "src", forkId: "fork", title: "x" });
-  expect(command).toHaveLength(8);
+  expect(command).toHaveLength(8 + permission.length);
 });
 
 test("a hostile fork brief arrives as exactly one argument, through the shells tmux uses", async () => {
@@ -160,6 +166,7 @@ test("a hostile fork brief arrives as exactly one argument, through the shells t
 
   const received = (await readFile(argvFile, "utf8")).split("\0").slice(0, -1);
   expect(received).toEqual([
+    ...permission,
     "--resume",
     "src",
     "--fork-session",
