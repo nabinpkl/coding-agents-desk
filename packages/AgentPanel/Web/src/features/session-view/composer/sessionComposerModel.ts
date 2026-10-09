@@ -30,6 +30,8 @@ export interface ComposerModel {
   deliveryError: string | null;
   deliveryPending: boolean;
   editorValue: string;
+  /** Attaches the pane's composer stream, which reaching for the field does too. */
+  engage: () => void;
   /** The session's own error, from the agent control state. */
   error: string | null;
   /**

@@ -2,6 +2,7 @@
 // and the watch that reports a pane's box as it changes.
 
 import type {
+  ClaudePermissionMode,
   TmuxComposerEnvelope,
   TmuxComposerState,
   TmuxQuestionState,
@@ -26,6 +27,7 @@ import {
 import { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 import { questionDialog } from "@/input/question/questionDialog";
 import { questionStateFrom } from "@/input/question/questionMirrorState";
+import { permissionModeOn } from "@/input/permissionModeFooter";
 
 /** Everything the live functions need from tmux, injected so the suite needs no tmux server. */
 export interface TmuxComposerRuntime {
@@ -195,13 +197,13 @@ export function observeTmuxComposer(
     if (stopped || reading || pane === null) return;
     reading = true;
     try {
-      const composer = await readComposerAt(pane, runtime);
+      const { composer, permissionMode } = await readPaneAt(pane, runtime);
       // The dialog takes the composer box away entirely for as long as it is up, so `no-composer`
       // is exactly when to look for one -- and the only time this pays for a second capture.
       const question = composer.reason === "no-composer"
         ? await readQuestionAt(pane, runtime)
         : null;
-      report({ composer, question });
+      report(permissionMode === null ? { composer, question } : { composer, question, permissionMode });
     } catch {
       // A read that threw is not evidence about the composer, and the next output brings another.
     } finally {
@@ -285,13 +287,34 @@ export async function readComposerAt(
   pane: string,
   runtime: Pick<TmuxComposerRuntime, "screen"> & Partial<Pick<TmuxComposerRuntime, "pastes" | "paneKey">>,
 ): Promise<TmuxComposerState> {
-  let box: ComposerBox | null;
+  return (await readPaneAt(pane, runtime)).composer;
+}
+
+/**
+ * One capture of the pane, answering both things the watcher reports off it: the box, and the
+ * permission mode its footer names. One capture rather than two, for the reason the envelope gives.
+ */
+async function readPaneAt(
+  pane: string,
+  runtime: Pick<TmuxComposerRuntime, "screen"> & Partial<Pick<TmuxComposerRuntime, "pastes" | "paneKey">>,
+): Promise<{ composer: TmuxComposerState; permissionMode: ClaudePermissionMode | null }> {
+  let view: TmuxPaneView;
   try {
-    box = composerBox(await runtime.screen(pane));
+    view = await runtime.screen(pane);
   } catch (error) {
-    if (error instanceof TmuxUnavailable) return unavailable("tmux-unavailable");
+    if (error instanceof TmuxUnavailable) return { composer: unavailable("tmux-unavailable"), permissionMode: null };
     throw error;
   }
+  const permissionMode = permissionModeOn(view.screen);
+  return { composer: await composerFrom(view, pane, runtime), permissionMode };
+}
+
+async function composerFrom(
+  view: TmuxPaneView,
+  pane: string,
+  runtime: Partial<Pick<TmuxComposerRuntime, "pastes" | "paneKey">>,
+): Promise<TmuxComposerState> {
+  const box: ComposerBox | null = composerBox(view);
   if (!box) return unavailable("no-composer");
   const text = composerText(box.rows);
   // Asked only when the box holds a handle, which is the only time the answer is needed: this runs

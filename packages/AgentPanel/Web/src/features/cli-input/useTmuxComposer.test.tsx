@@ -319,6 +319,24 @@ describe("tmux composer", () => {
     expect(draft()).toBe("stop adding the three suggestions");
   });
 
+  it("shows the footer's mode and moves it with Shift+Tab, keeping the rail's latch", async () => {
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await act(async () => { feed.announceMode("auto"); });
+    expect(screen.getByTestId("mode").textContent).toBe("auto");
+
+    // An armed Ctrl is the reader's, for their next rail key, and the mode control must not spend it.
+    await act(async () => { screen.getByText("ctrl").click(); });
+    await press("cycle-mode");
+    expect(feed.keys).toEqual([{ key: "tab", modifiers: { ctrl: false, alt: false, shift: true } }]);
+    expect(screen.getByTestId("modifiers").textContent).toContain("ctrl:armed");
+
+    // The pane says where that landed; nothing here guesses at the cycle's order.
+    await act(async () => { feed.announceMode("bypassPermissions"); });
+    expect(screen.getByTestId("mode").textContent).toBe("bypassPermissions");
+  });
+
   it("sends the draft before the images, so typed text never lands after them", async () => {
     // A drop appends to whatever the box holds, and text still sitting in the debounce has not
     // reached the box yet. Sent in the wrong order it would arrive after the image.

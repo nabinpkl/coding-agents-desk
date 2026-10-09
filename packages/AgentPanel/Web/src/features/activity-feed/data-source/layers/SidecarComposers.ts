@@ -7,6 +7,7 @@
 // somebody types at the machine itself.
 
 import type {
+  ClaudePermissionMode,
   CliInputReceipt,
   CliInputStatus,
   ComposerImageDrop,
@@ -220,6 +221,8 @@ export class SidecarComposers extends SidecarTranscript {
       onComposer?: (state: TmuxComposerState) => void;
       /** The dialog standing in the pane, or null when it has gone. */
       onQuestion?: (state: TmuxQuestionState | null) => void;
+      /** The permission mode the pane's footer names, sent only when the footer could be read. */
+      onPermissionMode?: (mode: ClaudePermissionMode) => void;
     },
   ): () => void {
     return this.transport.subscribe(tmuxComposerPath(session, "/stream"), {
@@ -229,6 +232,7 @@ export class SidecarComposers extends SidecarTranscript {
         // the statement that the dialog has gone -- which is what closes the mirror's follow.
         if (envelope.composer) handlers.onComposer?.(envelope.composer);
         if (envelope.question !== undefined) handlers.onQuestion?.(envelope.question);
+        if (envelope.permissionMode) handlers.onPermissionMode?.(envelope.permissionMode);
       },
       // Silent by design: the panel already surfaces a sidecar that has stopped answering, and an
       // `EventSource` reconnects on its own. A session that had no pane when this was opened is

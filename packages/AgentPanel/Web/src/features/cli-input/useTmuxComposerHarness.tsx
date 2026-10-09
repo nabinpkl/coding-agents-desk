@@ -6,7 +6,7 @@
 
 import { act, fireEvent, screen, render } from "@testing-library/react";
 import { vi } from "vitest";
-import type { RailKey, RailModifiers, TmuxComposerState } from "@agentdesk/agent-feed-wire";
+import type { ClaudePermissionMode, RailKey, RailModifiers, TmuxComposerState } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 
@@ -24,6 +24,7 @@ export function holding(text: string, wrapped = false, hint: string | null = nul
  */
 export function pane(initial = "", opening?: TmuxComposerState) {
   let listener: ((state: TmuxComposerState) => void) | null = null;
+  let modeListener: ((mode: ClaudePermissionMode) => void) | null = null;
   const feed = {
     box: initial,
     subscribes: 0,
@@ -46,17 +47,26 @@ export function pane(initial = "", opening?: TmuxComposerState) {
     announce(wrapped = false) {
       feed.emit(holding(feed.box, wrapped));
     },
+    /** Sends the mode the pane's footer now names, as a Shift+Tab redraw would. */
+    announceMode(mode: ClaudePermissionMode) {
+      modeListener?.(mode);
+    },
     subscribeTmuxComposer(
       _session: SessionAddress,
-      handlers: { onComposer?: (state: TmuxComposerState) => void },
+      handlers: {
+        onComposer?: (state: TmuxComposerState) => void;
+        onPermissionMode?: (mode: ClaudePermissionMode) => void;
+      },
     ): () => void {
       feed.subscribes += 1;
       feed.live = true;
       listener = handlers.onComposer ?? null;
+      modeListener = handlers.onPermissionMode ?? null;
       listener?.(opening ?? holding(feed.box));
       return () => {
         feed.live = false;
         listener = null;
+        modeListener = null;
       };
     },
     syncTmuxComposer: async (_session: SessionAddress, text: string): Promise<TmuxComposerState> => {
@@ -135,6 +145,8 @@ export function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; 
       <button type="button" onClick={() => composer.pressKey("escape")}>escape</button>
       <button type="button" onClick={() => composer.pressKey("left")}>left</button>
       <button type="button" onClick={() => composer.remove(7)}>remove</button>
+      <span data-testid="mode">{composer.permissionMode ?? "-"}</span>
+      <button type="button" onClick={composer.cyclePermissionMode}>cycle-mode</button>
       <span data-testid="pastes">
         {composer.pastes.map((p) => `${p.token}:${p.held ? `${p.held.lines}L${p.held.chars}C` : "unheld"}`).join(" ")}
       </span>

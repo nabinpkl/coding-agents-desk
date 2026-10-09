@@ -5,6 +5,7 @@
 // session, because two would read the same box and both paste their whole text into it.
 
 import { expect, test } from "bun:test";
+import type { TmuxComposerEnvelope } from "@agentdesk/agent-feed-wire";
 import {
   ABOVE_PROMPT,
   BACKSPACE,
@@ -42,15 +43,40 @@ test("reports what the composer holds without waiting for the pane to write", as
     onEnd: () => {},
   }, tmux);
   await settle(60);
-  // One reading of the pane carries both halves now: the box, and whatever dialog stands in
-  // front of it. There is no dialog here, which is a statement rather than an absence.
+  // One reading of the pane carries all of it: the box, whatever dialog stands in front of it,
+  // and the mode its footer names. There is no dialog here, which is a statement rather than an
+  // absence.
   expect(seen).toEqual([{
     composer: { text: "make the hover ring stronger", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
     question: null,
+    permissionMode: "auto",
   }]);
   expect(state.watching).toBe(true);
   stop();
   expect(state.watching).toBe(false);
+});
+
+test("a mode change reaches the panel though the box did not move", async () => {
+  const { tmux, state, write } = watchable(["hello"]);
+  const seen: TmuxComposerEnvelope[] = [];
+  const stop = observeTmuxComposer("session", {
+    onState: (reading) => { seen.push(reading); },
+    onEnd: () => {},
+  }, tmux);
+  await settle(60);
+
+  // Shift+Tab rewrites only the footer.
+  state.footer = "⏵⏵ bypass permissions on (shift+tab to cycle)";
+  write();
+  await settle(300);
+  expect(seen.map((reading) => reading.permissionMode)).toEqual(["auto", "bypassPermissions"]);
+
+  // A screen with no footer on it says nothing about the mode, rather than that there is none.
+  state.footer = "";
+  write();
+  await settle(300);
+  expect(seen.at(-1)).not.toHaveProperty("permissionMode");
+  stop();
 });
 
 test("reads once for a burst of output, not once per write", async () => {
@@ -89,10 +115,15 @@ test("reports only what changed, so a redraw above the box costs nobody anything
   write();
   await settle(300);
   expect(seen).toEqual([
-    { composer: { text: "hello", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] }, question: null },
+    {
+      composer: { text: "hello", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
+      question: null,
+      permissionMode: "auto",
+    },
     {
       composer: { text: "hello there", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
       question: null,
+      permissionMode: "auto",
     },
   ]);
   stop();

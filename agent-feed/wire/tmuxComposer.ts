@@ -220,7 +220,32 @@ export interface ComposerImageDrop {
 export interface TmuxComposerEnvelope {
   composer?: TmuxComposerState;
   question?: TmuxQuestionState | null;
+  /**
+   * The permission mode the pane's footer says the session is in, read off the same screen.
+   *
+   * Absent when the footer could not be read -- a dialog over it, a redraw in flight -- which says
+   * nothing, so the panel keeps the last mode it was told rather than blanking. The transcript is
+   * not a substitute: it rewrites its `permission-mode` record now and then, not when Shift+Tab
+   * moves the mode, so the screen is the only live answer.
+   */
+  permissionMode?: ClaudePermissionMode;
 }
+
+/**
+ * The CLI's own `--permission-mode` choices, as its help lists them (2.1.295).
+ *
+ * Shared so the sidecar's launch flag and the footer it reads back name a mode the same way.
+ */
+export const CLAUDE_PERMISSION_MODES = [
+  "acceptEdits",
+  "auto",
+  "bypassPermissions",
+  "manual",
+  "dontAsk",
+  "plan",
+] as const;
+
+export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
 
 /**
  * One key rail press, on its way to a session's prompt box.

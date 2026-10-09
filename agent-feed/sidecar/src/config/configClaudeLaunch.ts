@@ -10,17 +10,14 @@
 // sits between plan and manual. Auto is a property of the model as well as the flag -- Haiku
 // reports "auto mode unavailable for this model" and opens in manual.
 
+import { CLAUDE_PERMISSION_MODES, type ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import { booleanEnvironment } from "@/config/configEnvironment";
-
-/** The CLI's own `--permission-mode` choices, as its help lists them. */
-const PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const;
-export type ClaudePermissionMode = (typeof PERMISSION_MODES)[number];
 
 function permissionModeEnvironment(name: string, fallback: ClaudePermissionMode): ClaudePermissionMode {
   const raw = process.env[name]?.trim();
   if (raw === undefined || raw === "") return fallback;
-  if (!(PERMISSION_MODES as readonly string[]).includes(raw)) {
-    throw new Error(`${name} must be one of ${PERMISSION_MODES.join(", ")}`);
+  if (!(CLAUDE_PERMISSION_MODES as readonly string[]).includes(raw)) {
+    throw new Error(`${name} must be one of ${CLAUDE_PERMISSION_MODES.join(", ")}`);
   }
   return raw as ClaudePermissionMode;
 }

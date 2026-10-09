@@ -430,6 +430,7 @@ export function SessionComposer({
     deliveryError,
     deliveryPending,
     editorValue,
+    engage,
     error,
     filePicker,
     inboxBand,

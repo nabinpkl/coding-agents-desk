@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MAXIMUM_COMPOSER_IMAGE_BYTES,
+  NO_MODIFIERS,
+  type ClaudePermissionMode,
   type ComposerCommand,
   type ComposerPaste,
   type RailKey,
@@ -84,6 +86,8 @@ export function useTmuxComposer(
   const [state, setState] = useState<TmuxComposerState | null>(null);
   /** The dialog standing in the pane, off the same reading as the box. See the handle. */
   const [paneQuestion, setPaneQuestion] = useState<TmuxQuestionState | null>(null);
+  /** Off the same reading too: the mode the pane's footer names. See the handle. */
+  const [permissionMode, setPermissionMode] = useState<ClaudePermissionMode | null>(null);
   /** Latched by the first reading that found a composer box; see `mirrored` on the handle. */
   const [mirrored, setMirrored] = useState(false);
   /** Latched by the first reading that found a PANE, box or not; see `paned` on the handle. */
@@ -217,6 +221,7 @@ export function useTmuxComposer(
   useEffect(() => {
     setState(null);
     setPaneQuestion(null);
+    setPermissionMode(null);
     setError(null);
     edited.current = false;
     pushAgain.current = false;
@@ -237,6 +242,7 @@ export function useTmuxComposer(
     return feed.subscribeTmuxComposer(sessionRef.current, {
       onComposer: receive,
       onQuestion: setPaneQuestion,
+      onPermissionMode: setPermissionMode,
     });
   }, [feed, key, receive]);
 
@@ -408,6 +414,13 @@ export function useTmuxComposer(
       .catch((failure) => setError(String((failure as Error).message ?? failure)));
   }, [feed]);
 
+  // Shift+Tab, outside the rail's latch: the mode control is one fixed key, and it must not spend a
+  // modifier the reader armed for something else. The new mode arrives on the stream.
+  const cyclePermissionMode = useCallback(() => {
+    void feed.pressTmuxComposerKey(sessionRef.current, "tab", { ...NO_MODIFIERS, shift: true })
+      .catch((failure) => setError(String((failure as Error).message ?? failure)));
+  }, [feed]);
+
   const toggleModifier = useCallback((modifier: RailModifier) => {
     setModifiers((current) => ({ ...current, [modifier]: cycleModifier(current[modifier]) }));
   }, []);
@@ -437,6 +450,8 @@ export function useTmuxComposer(
     modifiers,
     toggleModifier,
     pressKey,
+    permissionMode,
+    cyclePermissionMode,
     commands,
     chooseCommand,
     pastes: attachments.pastes,

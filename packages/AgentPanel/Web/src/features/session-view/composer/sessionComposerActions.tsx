@@ -5,7 +5,8 @@
 // The two submit paths are separate on purpose: one joins the panel's own queue and can be
 // steered, the other hands a whole turn to a transport the panel does not own.
 
-import { ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, Square } from "lucide-react";
+import { ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldAlert, Square } from "lucide-react";
+import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { parseOpencodeCommand } from "@/features/session-view/composer/useOpencodeCommands";
@@ -22,6 +23,16 @@ import { parseOpencodeCommand } from "@/features/session-view/composer/useOpenco
  */
 export const COMPOSER_FOOTER_BUTTON_CLASS =
   "flex size-7 shrink-0 touch-manipulation items-center justify-center rounded-md outline-none transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/15 disabled:cursor-not-allowed disabled:opacity-40";
+
+/** What the chip says for each mode: the words Claude's own footer uses, shortened. */
+const PERMISSION_MODE_LABELS: Record<ClaudePermissionMode, string> = {
+  auto: "Auto",
+  acceptEdits: "Accept edits",
+  plan: "Plan",
+  bypassPermissions: "Bypass",
+  manual: "Manual",
+  dontAsk: "Don't ask",
+};
 
 const SEND_IN_FIELD_CLASS =
   "mb-2 mr-2 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40";
@@ -114,6 +125,33 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       className: `${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`,
       placement: "footer",
       onClick: () => m.filePicker.current?.click(),
+    });
+  }
+  // The mode line under Claude's box, pressed the way Shift+Tab is pressed there. Unknown until the
+  // pane's stream attaches -- the transcript only rewrites its mode record now and then -- so the
+  // first press attaches it and reads the mode rather than cycling one nobody has seen. Gone once
+  // the pane has been looked for and not found, since there is then no footer to drive.
+  if (m.isClaude && m.tmuxComposer.reason !== "no-pane") {
+    const mode = m.tmuxComposer.permissionMode;
+    const label = mode === null ? "Mode" : PERMISSION_MODE_LABELS[mode];
+    actions.push({
+      key: "permission-mode",
+      ariaLabel: mode === null ? "Show this session's permission mode" : `Permission mode ${label}, switch to the next`,
+      title: mode === null
+        ? "Read this session's permission mode from its terminal"
+        : "Switch to the next permission mode, as Shift+Tab does in the terminal",
+      icon: (
+        <span className="flex min-w-0 items-center gap-1">
+          {mode === "bypassPermissions" && <ShieldAlert className="size-3.5 shrink-0" aria-hidden />}
+          <span className="block max-w-28 truncate">{label}</span>
+        </span>
+      ),
+      disabled: m.tmuxComposer.pending,
+      className: `h-9 min-w-0 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium hover:bg-muted disabled:opacity-40 ${
+        mode === "bypassPermissions" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+      }`,
+      placement: "footer",
+      onClick: mode === null ? m.engage : m.tmuxComposer.cyclePermissionMode,
     });
   }
   // The TUI's `{agent} · {model}` row, minus the agent: the sidecar names the session's model

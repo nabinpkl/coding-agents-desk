@@ -5,6 +5,7 @@
 // and the hook is one implementation of keeping it true.
 
 import type {
+  ClaudePermissionMode,
   ComposerCommand,
   ComposerPaste,
   RailKey,
@@ -187,6 +188,14 @@ export interface TmuxComposerHandle {
   modifiers: Record<RailModifier, ModifierState>;
   toggleModifier: (modifier: RailModifier) => void;
   pressKey: (key: RailKey) => void;
+  /**
+   * The permission mode the pane's footer last named, or null until a reading has found one.
+   *
+   * Kept across readings that could not see the footer, because those say nothing about the mode.
+   */
+  permissionMode: ClaudePermissionMode | null;
+  /** Presses Shift+Tab in the pane, which moves the session to its next mode. */
+  cyclePermissionMode: () => void;
   /**
    * The command menu the pane is showing, which is open only while a `/` is being typed.
    *

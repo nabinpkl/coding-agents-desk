@@ -24,12 +24,14 @@ export type {
   ComposerPaste,
   ComposerKeyPress,
   ComposerImageMediaType,
+  ClaudePermissionMode,
   TmuxComposerEnvelope,
   TmuxComposerState,
   TmuxComposerUnavailableReason,
 } from "./tmuxComposer.ts";
 
 export {
+  CLAUDE_PERMISSION_MODES,
   COMPOSER_IMAGE_MEDIA_TYPES,
   MAXIMUM_COMPOSER_IMAGE_BYTES,
 } from "./tmuxComposer.ts";

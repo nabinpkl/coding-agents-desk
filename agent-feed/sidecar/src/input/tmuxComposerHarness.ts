@@ -32,6 +32,7 @@ export const ABOVE_PROMPT = 3;
 export function screenWith(
   rows: string[],
   cursor?: { row: number; column: number },
+  footer = "⏵⏵ auto mode on (shift+tab to cycle)",
 ): TmuxPaneView {
   const last = Math.max(rows.length - 1, 0);
   const at = cursor ?? { row: last, column: (rows[last] ?? "").length };
@@ -45,7 +46,7 @@ export function screenWith(
       ...rows.slice(1).map((row) => `  ${row}`),
       RULE,
       "  adprobe  Opus 5 (1M context)                    0 tokens",
-      "  ⏵⏵ auto mode on (shift+tab to cycle)                 /rc",
+      `  ${footer}                 /rc`,
     ].join("\n"),
     cursor: { row: ABOVE_PROMPT + at.row, column: BOX_COLUMN + at.column },
   };
@@ -125,6 +126,8 @@ export function watchable(initial: string[] = ["hello"]) {
   let notify: (() => void) | null = null;
   const state = {
     rows: initial,
+    /** The mode line under the box, which Shift+Tab rewrites without touching the box. */
+    footer: "⏵⏵ auto mode on (shift+tab to cycle)",
     pane: "agentdesk-1" as string | null,
     /** How many times the screen was captured, which is the cost this change exists to remove. */
     screens: 0,
@@ -142,7 +145,7 @@ export function watchable(initial: string[] = ["hello"]) {
     },
     screen: async () => {
       state.screens += 1;
-      return screenWith(state.rows);
+      return screenWith(state.rows, undefined, state.footer);
     },
     // Counted separately, and deliberately not as a screen read: `state.screens` is what the
     // "one read per burst" test measures, and a second capture folded into it would report a
