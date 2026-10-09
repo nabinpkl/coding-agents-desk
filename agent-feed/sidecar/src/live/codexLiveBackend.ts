@@ -41,7 +41,7 @@ import { isCodexStream, observedAtMs, type FlowContext } from "@/live/codexLiveF
 import { CodexItemStore } from "@/live/codexLiveItems";
 import { applyCodexEvent, finishStreaming } from "@/live/codexLiveEvents";
 import type { ObserverEvent, ObserverSubscription } from "@/live/claudeNetworkSource";
-import { subscribeToObserver } from "@/live/claudeNetworkSource";
+import { runObserverLoop } from "@/live/claudeNetworkSource";
 
 export const CODECX_LIVE_CAPABILITIES: AgentSessionCapabilities = {
   modes: ["nice"],
@@ -93,41 +93,18 @@ export class CodexLiveBackend implements AgentBackend {
     void this.runLoop();
   }
 
-  private async runLoop(): Promise<void> {
-    let attempt = 0;
-    while (!this.disposed) {
-      try {
-        const subscription = await subscribeToObserver(
-          this.endpoint,
-          (event) => this.acceptObserverEvent(event),
-          (error) => {
-            this.lastError = error;
-            if (!this.disposed) {
-              console.error(`agent-feed-codex-live-observer-error: ${String(error)}`);
-            }
-          },
-          this.abortController?.signal,
-          CODECX_OBSERVER_FILTER,
-        );
-        this.subscription = subscription;
-        attempt = 0;
-        await subscription.closed;
-        if (!this.disposed) {
-          console.log("agent-feed-codex-live-observer-stream-ended");
-        }
-      } catch (error) {
-        if (!this.disposed) this.lastError = error;
-        if (!this.disposed) {
-          console.error(`agent-feed-codex-live-observer-connect-failed: ${String(error)}`);
-        }
-      }
-      if (this.disposed) break;
-      const delay = codexLiveReconnectDelay(attempt++);
-      if (!this.disposed) {
-        console.log(`agent-feed-codex-live: reconnecting in ${delay}ms`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
+  private runLoop(): Promise<void> {
+    return runObserverLoop({
+      vendor: "codex",
+      endpoint: this.endpoint,
+      filter: CODECX_OBSERVER_FILTER,
+      signal: this.abortController?.signal,
+      disposed: () => this.disposed,
+      onEvent: (event) => this.acceptObserverEvent(event),
+      onError: (error) => { this.lastError = error; },
+      onSubscription: (subscription) => { this.subscription = subscription; },
+      reconnectDelay: codexLiveReconnectDelay,
+    });
   }
 
   lastIngestError(): unknown {

@@ -265,6 +265,32 @@ describe("ClaudeLiveBackend ingest", () => {
     await local.dispose();
   });
 
+  test("a dropped observer connection finishes the message it was streaming", async () => {
+    // The fixture has no viewer stream, so the subscription fails and the loop counts it as a
+    // dropped connection, which is what the observer going away mid-message looks like here.
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    local.acceptObserverEvent(flowEvent("cut", "/v1/messages", "api.anthropic.com", "cut1"));
+    local.acceptObserverEvent(delta("cut", { type: "message_start", message: { id: "msg_cut" } }));
+    local.acceptObserverEvent(delta("cut", { type: "content_block_start", index: 0, content_block: { type: "thinking" } }));
+    await flush(160);
+    expect((await local.page("sess-cut1", 0, 10, "nice")).events[0]!.phase).toBe("streaming");
+    await local.start();
+    await flush(160);
+    expect((await local.page("sess-cut1", 0, 10, "nice")).events[0]!.phase).toBe("complete");
+    await local.dispose();
+  });
+
+  test("a flow that ends before it binds, with no message_stop, still finishes its message", async () => {
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    local.acceptObserverEvent(flowEvent("early", "/v1/messages", "api.anthropic.com", "early1"));
+    local.acceptObserverEvent(delta("early", { type: "message_start", message: { id: "msg_early" } }));
+    local.acceptObserverEvent(delta("early", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
+    local.acceptObserverEvent(ended("early"));
+    await flush(160);
+    expect((await local.page("sess-early1", 0, 10, "nice")).events[0]!.phase).toBe("complete");
+    await local.dispose();
+  });
+
   test("a streamed tool call carries the same summary its durable row will", async () => {
     // The row's header reads `summary`; without it a live Bash row said only "Bash".
     const local = new ClaudeLiveBackend(fixture.url, true, 8);

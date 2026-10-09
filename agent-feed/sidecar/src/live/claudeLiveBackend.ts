@@ -35,7 +35,7 @@ import {
   describeRecordsDropped,
   mapAnthropicStreamEvent,
   requestsLongContext,
-  subscribeToObserver,
+  runObserverLoop,
   type AnthropicStreamEvent,
   type ObserverEvent,
   type ObserverFlow,
@@ -107,40 +107,24 @@ export class ClaudeLiveBackend implements AgentBackend {
     void this.runLoop();
   }
 
-  private async runLoop(): Promise<void> {
-    let attempt = 0;
-    while (!this.disposed) {
-      try {
-        const subscription = await subscribeToObserver(
-          this.endpoint,
-          (event) => this.acceptObserverEvent(event),
-          (error) => {
-            this.lastError = error;
-            if (!this.disposed) {
-              console.error(`agent-feed-claude-live-observer-error: ${String(error)}`);
-            }
-          },
-          this.abortController?.signal,
-        );
-        this.subscription = subscription;
-        attempt = 0;
-        await subscription.closed;
-        if (!this.disposed) {
-          console.log("agent-feed-claude-live-observer-stream-ended");
-        }
-      } catch (error) {
-        if (!this.disposed) this.lastError = error;
-        if (!this.disposed) {
-          console.error(`agent-feed-claude-live-observer-connect-failed: ${String(error)}`);
-        }
-      }
-      if (this.disposed) break;
-      const delay = claudeLiveReconnectDelay(attempt++);
-      if (!this.disposed) {
-        console.log(`agent-feed-claude-live: reconnecting in ${delay}ms`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
+  private runLoop(): Promise<void> {
+    return runObserverLoop({
+      vendor: "claude",
+      endpoint: this.endpoint,
+      signal: this.abortController?.signal,
+      disposed: () => this.disposed,
+      onEvent: (event) => this.acceptObserverEvent(event),
+      onError: (error) => { this.lastError = error; },
+      onSubscription: (subscription) => { this.subscription = subscription; },
+      reconnectDelay: claudeLiveReconnectDelay,
+      // The observer does not resume a flow it was streaming when the connection dropped, so each
+      // open flow ends here or its message stays streaming for good. Measured 2026-10-08: the
+      // connection dropped as a message's thinking finished, its reply never arrived, and the row
+      // sat streaming under a turn the transcript had long finished.
+      onConnectionEnded: () => {
+        for (const flowId of [...this.flowContexts.keys()]) this.acceptStreamEnded(flowId);
+      },
+    });
   }
 
   lastIngestError(): unknown {
@@ -384,6 +368,8 @@ export class ClaudeLiveBackend implements AgentBackend {
     }
     for (const item of pending) this.applyPayload(sessionId, flowId, item.payload, item.ts);
     if (context.ended) {
+      // A flow ended by a dropped connection carries no `message_stop` to finish its message.
+      this.finishMessage(sessionId, flowId);
       this.dropFlow(flowId);
       this.sessions.scheduleDrop(sessionId);
     }

@@ -417,3 +417,53 @@ export function claudeLiveReconnectDelay(attempt: number): number {
   const delay = config.claudeLiveReconnectMs * 2 ** exponent;
   return Math.min(delay, config.claudeLiveReconnectMaxMs);
 }
+
+/** One vendor's side of the observer subscription that `runObserverLoop` keeps open. */
+export interface ObserverLoop {
+  /** Names the log lines, `agent-feed-<vendor>-live...`. */
+  vendor: "claude" | "codex";
+  endpoint: URL;
+  filter?: Record<string, unknown>;
+  signal?: AbortSignal;
+  disposed: () => boolean;
+  onEvent: (event: ObserverEvent) => void;
+  onError: (error: unknown) => void;
+  onSubscription: (subscription: ObserverSubscription) => void;
+  reconnectDelay: (attempt: number) => number;
+  /** After a subscription closed or failed to open, before waiting to reconnect. */
+  onConnectionEnded?: () => void;
+}
+
+/** Holds an observer subscription open until disposed, reconnecting with backoff whenever it ends. */
+export async function runObserverLoop(loop: ObserverLoop): Promise<void> {
+  const tag = `agent-feed-${loop.vendor}-live`;
+  let attempt = 0;
+  while (!loop.disposed()) {
+    try {
+      const subscription = await subscribeToObserver(
+        loop.endpoint,
+        loop.onEvent,
+        (error) => {
+          loop.onError(error);
+          if (!loop.disposed()) console.error(`${tag}-observer-error: ${String(error)}`);
+        },
+        loop.signal,
+        loop.filter,
+      );
+      loop.onSubscription(subscription);
+      attempt = 0;
+      await subscription.closed;
+      if (!loop.disposed()) console.log(`${tag}-observer-stream-ended`);
+    } catch (error) {
+      if (!loop.disposed()) {
+        loop.onError(error);
+        console.error(`${tag}-observer-connect-failed: ${String(error)}`);
+      }
+    }
+    if (loop.disposed()) break;
+    loop.onConnectionEnded?.();
+    const delay = loop.reconnectDelay(attempt++);
+    console.log(`${tag}: reconnecting in ${delay}ms`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+}
