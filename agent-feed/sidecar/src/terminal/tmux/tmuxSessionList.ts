@@ -155,24 +155,69 @@ export async function renameTmuxSessionTo(session: string, name: string): Promis
 export function newSessionArgs(
   { session, cwd, command, columns, rows }: NewTmuxSession,
 ): string[] {
-  // Not `exec`: when the command exits -- a resume that is refused prints why and stops -- the
-  // shell stays, so the pane holds the reason where the viewer can read it instead of the session
-  // vanishing and the attach failing with nothing to show.
-  //
-  // Every argument quoted, not just the script. This is an argv being flattened into a shell
-  // script, so an argument carrying a space or a metacharacter stops being one argument the moment
-  // it is joined. It went unnoticed while every argument was a bare token; the first title passed
-  // to `-n` broke it, because zsh reads the `(fork 1)` in `Session (fork 1)` as a glob qualifier
-  // and answers "invalid mode specification" instead of running anything.
-  const script = `${command.map(shellQuote).join(" ")}; exec ${LOGIN_SHELL} -l`;
   return [
     // `-A` for the race: two viewers of one session can both find it missing, and without this the
     // loser gets "duplicate session" where it wanted the winner's. With it, a second create is a
     // no-op that exits 0, and the caller's own existence check stays as the ordinary path.
     "new-session", "-A", "-d", "-s", session, "-c", cwd,
     "-x", String(columns), "-y", String(rows),
-    `${LOGIN_SHELL} -l -c ${shellQuote(script)}`,
+    paneShellCommand(command),
   ];
+}
+
+/**
+ * The one string tmux runs in a pane this sidecar starts, for `new-session` and `respawn-pane` alike.
+ *
+ * Not `exec`: when the command exits -- a resume that is refused prints why and stops -- the shell
+ * stays, so the pane holds the reason where the viewer can read it instead of the session vanishing
+ * and the attach failing with nothing to show.
+ *
+ * Every argument quoted, not just the script. This is an argv being flattened into a shell script,
+ * so an argument carrying a space or a metacharacter stops being one argument the moment it is
+ * joined. It went unnoticed while every argument was a bare token; the first title passed to `-n`
+ * broke it, because zsh reads the `(fork 1)` in `Session (fork 1)` as a glob qualifier and answers
+ * "invalid mode specification" instead of running anything.
+ */
+function paneShellCommand(command: readonly string[]): string {
+  const script = `${command.map(shellQuote).join(" ")}; exec ${LOGIN_SHELL} -l`;
+  return `${LOGIN_SHELL} -l -c ${shellQuote(script)}`;
+}
+
+/**
+ * Every pane of one session with the command tmux started it with, as `<pane id>|<command>`.
+ *
+ * The start command rather than the current one, because it is the only record of who launched the
+ * pane: a pane this sidecar started carries its own `zsh -l -c '...'` script there, and one a person
+ * opened by hand carries their shell or nothing.
+ */
+export function paneStartsArgs(session: string): string[] {
+  return ["list-panes", "-s", "-t", `=${session}`, "-F", "#{pane_id}|#{pane_start_command}"];
+}
+
+export async function tmuxPaneStarts(session: string): Promise<{ pane: string; command: string }[]> {
+  const { out, err, code } = await tmux(paneStartsArgs(session));
+  if (code !== 0) throw new TmuxUnavailable(`tmux list-panes exited ${code}: ${err.trim() || out.trim()}`);
+  return out.split("\n").filter((line) => line.includes("|")).map((line) => {
+    const separator = line.indexOf("|");
+    return { pane: line.slice(0, separator), command: line.slice(separator + 1) };
+  });
+}
+
+/**
+ * Replaces what a pane runs, killing what it ran, in the same pane.
+ *
+ * The pane keeps its id, its `pipe-pane` and its session's options (measured 2026-10-09 on a
+ * throwaway server: same `%0`, `pane_pipe` still 1, the identity stamp still set), so every viewer
+ * attached to it keeps streaming and sees the new process start where the old one stopped. Takes a
+ * pane id (`%N`) rather than a session, so it cannot land on whichever pane happens to be active.
+ */
+export function respawnPaneArgs(pane: string, cwd: string, command: readonly string[]): string[] {
+  return ["respawn-pane", "-k", "-t", pane, "-c", cwd, paneShellCommand(command)];
+}
+
+export async function respawnTmuxPane(pane: string, cwd: string, command: readonly string[]): Promise<void> {
+  const { out, err, code } = await tmux(respawnPaneArgs(pane, cwd, command));
+  if (code !== 0) throw new TmuxUnavailable(`tmux respawn-pane exited ${code}: ${err.trim() || out.trim()}`);
 }
 
 export async function createTmuxSession(options: NewTmuxSession): Promise<void> {

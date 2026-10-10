@@ -17,9 +17,10 @@ import {
   forkClaudeSessionCommand,
   forkFirstTurn,
   newClaudeSessionCommand,
+  restartClaudeSession,
   resumeClaudeSessionCommand,
 } from "@/terminal/claudeSessionLaunch";
-import { newSessionArgs } from "@/terminal/tmux/tmuxSessions";
+import { newSessionArgs, respawnPaneArgs } from "@/terminal/tmux/tmuxSessions";
 import { claudeLaunchPermissionArgs as permission } from "@/config/configClaudeLaunch";
 
 const directories: string[] = [];
@@ -177,4 +178,49 @@ test("a hostile fork brief arrives as exactly one argument, through the shells t
     expected,
   ]);
   expect(expected).toBe(forkFirstTurn(brief));
+});
+
+function restartTmux(panes: { pane: string; command: string }[], stamped: string | null = "Work title") {
+  const respawned: { pane: string; cwd: string; command: readonly string[] }[] = [];
+  return {
+    respawned,
+    tmux: {
+      stamped: async () => stamped,
+      paneStarts: async () => panes,
+      respawn: async (pane: string, cwd: string, command: readonly string[]) => {
+        respawned.push({ pane, cwd, command });
+      },
+    },
+  };
+}
+
+test("a restart runs the session's own pane again under today's launch flags", async () => {
+  const id = "11111111-2222-4333-8444-555555555555";
+  const { respawned, tmux } = restartTmux([
+    { pane: "%7", command: `/bin/zsh -l -c 'claude --resume ${id}; exec /bin/zsh -l'` },
+  ]);
+  expect(await restartClaudeSession({ sessionId: id, cwd: "/repo" }, tmux))
+    .toEqual({ kind: "restarted", pane: "%7" });
+  expect(respawned).toEqual([{ pane: "%7", cwd: "/repo", command: resumeClaudeSessionCommand(id) }]);
+});
+
+test("a pane somebody started by hand is refused, even when the stamp points at it", async () => {
+  const id = "11111111-2222-4333-8444-555555555555";
+  const { respawned, tmux } = restartTmux([{ pane: "%3", command: "" }, { pane: "%4", command: "zsh" }]);
+  expect(await restartClaudeSession({ sessionId: id, cwd: "/repo" }, tmux))
+    .toEqual({ kind: "not-ours", session: "Work title" });
+  expect(respawned).toEqual([]);
+});
+
+test("a session with no stamped pane has nothing to restart", async () => {
+  const { respawned, tmux } = restartTmux([], null);
+  expect(await restartClaudeSession({ sessionId: "11111111-2222-4333-8444-555555555555", cwd: "/repo" }, tmux))
+    .toEqual({ kind: "no-pane" });
+  expect(respawned).toEqual([]);
+});
+
+test("a respawn targets the pane by id and runs the same script a new pane would", () => {
+  const command = ["claude", "--resume", "x"];
+  const created = newSessionArgs({ session: "s", cwd: "/repo", command, columns: 80, rows: 24 });
+  expect(respawnPaneArgs("%7", "/repo", command)).toEqual(["respawn-pane", "-k", "-t", "%7", "-c", "/repo", created.at(-1)!]);
 });

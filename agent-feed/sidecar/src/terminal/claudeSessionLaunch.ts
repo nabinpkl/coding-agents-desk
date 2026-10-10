@@ -11,11 +11,17 @@
 // A fork differs from the other two in exactly one way, and it is the reason its argv lives here
 // rather than being assembled at its call site: it inherits a context it did not build. Everything
 // else about it -- the pane, the quoting, the stamp -- is the same problem solved once.
+//
+// The restart at the bottom is the same argv decision made again for a session that is already
+// running, in the pane one of those three started; it lives here because recognising that pane is
+// recognising this file's own launch script.
 
 import {
   createTmuxSession,
   findTmuxSessionByIdentity,
   killTmuxSession,
+  respawnTmuxPane,
+  tmuxPaneStarts,
   tmuxSessionExists,
 } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
@@ -257,4 +263,41 @@ export async function endClaudeSession(options: { sessionId: string }): Promise<
     return session;
   }
   return null;
+}
+
+/** Why a restart did not happen, in terms the caller maps onto its own refusals. */
+export type ClaudeRestartOutcome =
+  | { kind: "restarted"; pane: string }
+  | { kind: "no-pane" }
+  | { kind: "not-ours"; session: string };
+
+/**
+ * Runs a session again in the pane it already has, under today's launch argv.
+ *
+ * What this exists for is the permission flags: a session started before `configClaudeLaunch.ts`
+ * changed keeps the mode it was launched with until its process is replaced, and replacing it in
+ * place is what keeps every viewer on the same pane rather than opening a second one.
+ *
+ * Only a pane this sidecar launched FOR THIS SESSION is restarted, and that is decided from the
+ * pane's start command rather than from the identity stamp alone. The stamp is also written onto a
+ * person's own tmux session when a viewer joins the process running there, and `respawn-pane -k`
+ * on that pane would end their shell, not just the agent in it. A pane started by `startClaudeSession`,
+ * the fork, or the resume path carries the session id in its own script, so a pane that does not is
+ * somebody else's and is refused.
+ */
+export async function restartClaudeSession(
+  options: { sessionId: string; cwd: string },
+  tmux: {
+    stamped: (sessionId: string) => Promise<string | null>;
+    paneStarts: (session: string) => Promise<{ pane: string; command: string }[]>;
+    respawn: (pane: string, cwd: string, command: readonly string[]) => Promise<void>;
+  } = { stamped: findTmuxSessionByIdentity, paneStarts: tmuxPaneStarts, respawn: respawnTmuxPane },
+): Promise<ClaudeRestartOutcome> {
+  const session = await tmux.stamped(options.sessionId);
+  if (!session) return { kind: "no-pane" };
+  const launched = (await tmux.paneStarts(session)).find(({ command }) =>
+    command.includes(options.sessionId) && /\bclaude\b/.test(command));
+  if (!launched) return { kind: "not-ours", session };
+  await tmux.respawn(launched.pane, options.cwd, resumeClaudeSessionCommand(options.sessionId));
+  return { kind: "restarted", pane: launched.pane };
 }

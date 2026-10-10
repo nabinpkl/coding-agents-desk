@@ -50,6 +50,9 @@ function fakeService(overrides: Partial<AgentTerminalRoutesService> = {}) {
     close(terminalId, mode) {
       calls.push({ close: { terminalId, mode } });
     },
+    async restart(context) {
+      calls.push({ restart: context });
+    },
     ...overrides,
   };
   return { calls, route: createAgentTerminalRoutes(service) };
@@ -247,4 +250,36 @@ test("maps an occupied provider session to a typed conflict", async () => {
       retryable: false,
     },
   });
+});
+
+test("restarts a session's own pane, addressed by the session rather than a terminal", async () => {
+  const { calls, route } = fakeService();
+  const context = { kind: "session-tmux", source: "claude", sessionId: SESSION_ID };
+  const response = await call(route, "POST", "/api/terminals/restart", { context });
+
+  expect(response?.status).toBe(204);
+  expect(calls).toEqual([{ restart: context }]);
+});
+
+test("a restart names a session, so any other kind of target is refused before the service", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "POST", "/api/terminals/restart", {
+    context: { kind: "tmux", session: "work" },
+  });
+
+  expect(response?.status).toBe(400);
+  expect(calls).toEqual([]);
+});
+
+test("a pane somebody else started is a conflict, not a restart", async () => {
+  const { route } = fakeService({
+    async restart() {
+      throw new AgentTerminalConflictError("not ours");
+    },
+  });
+  const response = await call(route, "POST", "/api/terminals/restart", {
+    context: { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+  });
+
+  expect(response?.status).toBe(409);
 });

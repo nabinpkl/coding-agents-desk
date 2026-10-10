@@ -10,6 +10,7 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import { terminalContextLabel } from "@/features/terminal/terminalContext";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
+import { TerminalRestartButton } from "@/features/terminal/TerminalRestartButton";
 import { TERMINAL_ZOOM, useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
@@ -358,7 +359,12 @@ export function AgentTerminalPane(
         {labels.view ? <span>{labels.view}</span> : null}
         {/* Pushed to the end and last in the tab order: the labels are what a reader comes here to
             read, and the type size is what they come here to change. */}
-        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+        <span className="ml-auto flex min-w-0 items-center gap-0.5">
+          {/* A Claude session's own pane only: the restart re-runs it under the launch flags, and
+              no other target has a launch to re-run. */}
+          {context.kind === "session-tmux" && context.source === "claude" ? (
+            <TerminalRestartButton feed={feed} context={context} />
+          ) : null}
           <TerminalZoomButton
             label="Smaller type"
             onPress={() => stepZoom(-TERMINAL_ZOOM.step)}

@@ -4,6 +4,7 @@ import type {
   AgentTerminalDescriptor,
   AgentTerminalStreamEnvelope,
   AgentTerminalViewport,
+  SessionTmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import {
   AgentTerminalConflictError,
@@ -17,6 +18,8 @@ import type { RouteHandler } from "@/http/route";
 const TERMINALS_ROUTE = "/api/terminals";
 /** Every open terminal on one stream; see `AgentTerminalStreamEnvelope` for why it is not one each. */
 const TERMINALS_STREAM_ROUTE = "/api/terminals/stream";
+/** A session's own pane, run again; addressed by the session because no terminal has to be open. */
+const TERMINALS_RESTART_ROUTE = "/api/terminals/restart";
 const TERMINAL_ROUTE_PATTERN =
   /^\/api\/terminals\/([0-9a-f-]+)\/(input|viewport|close|checkpoint|history)$/;
 /** Enough to cover a generous tmux history without letting one request become a memory decision. */
@@ -34,12 +37,16 @@ export interface AgentTerminalRoutesService {
   sendInput(terminalId: string, data: string, encoding: "utf8" | "base64"): void;
   updateViewport(terminalId: string, viewport: AgentTerminalViewport): void;
   close(terminalId: string, mode: "detach" | "kill"): void;
+  restart(context: SessionTmuxTerminalContext): Promise<void>;
 }
 
 export function createAgentTerminalRoutes(service: AgentTerminalRoutesService): RouteHandler {
   return (request, url, server) => {
     if (request.method === "POST" && url.pathname === TERMINALS_ROUTE) {
       return openTerminal(request, service);
+    }
+    if (request.method === "POST" && url.pathname === TERMINALS_RESTART_ROUTE) {
+      return restartSession(request, service);
     }
     // Before the id pattern, because "stream" is not a terminal id and must not be read as one.
     if (request.method === "GET" && url.pathname === TERMINALS_STREAM_ROUTE) {
@@ -74,6 +81,24 @@ async function openTerminal(
       rows: integerValue(body.rows, "rows"),
     });
     return jsonResponse(descriptor, 201);
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function restartSession(
+  request: Request,
+  service: AgentTerminalRoutesService,
+): Promise<Response> {
+  try {
+    const body = await requestObject(request);
+    if (body instanceof Response) return body;
+    const context = terminalContext(objectValue(body.context, "context"));
+    if (context.kind !== "session-tmux") {
+      throw new AgentTerminalInvalidError("context.kind must be session-tmux to restart");
+    }
+    await service.restart(context);
+    return new Response(null, { status: 204 });
   } catch (error) {
     return routeError(error);
   }

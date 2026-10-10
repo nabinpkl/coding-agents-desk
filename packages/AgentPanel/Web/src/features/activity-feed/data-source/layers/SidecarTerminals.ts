@@ -10,6 +10,7 @@ import type {
   AgentTerminalHistory,
   AgentTerminalViewport,
   ComposerImageDrop,
+  SessionTmuxTerminalContext,
   TmuxSessionSummary,
   WorkspaceSummary,
 } from "@agentdesk/agent-feed-wire";
@@ -202,6 +203,16 @@ export class SidecarTerminals extends SidecarComposers {
       `/api/terminals/${encodeURIComponent(terminalId)}/viewport`,
       { body: viewport },
     ));
+  }
+
+  /**
+   * Runs a Claude session again in its own tmux pane, under the sidecar's launch argv as it is now.
+   *
+   * Addressed by the session rather than a terminal id: the pane is replaced in place, so the
+   * terminal a reader has open keeps streaming and has nothing to be told.
+   */
+  async restartSessionTerminal(context: SessionTmuxTerminalContext): Promise<void> {
+    expectEmpty(await this.transport.request("POST", "/api/terminals/restart", { body: { context } }));
   }
 
   /** Sent with `keepalive`, because the commonest time to close a terminal is by closing the page. */

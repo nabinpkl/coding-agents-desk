@@ -6,13 +6,16 @@
 // `terminalStreamMessages.ts`, and the refusals in `agentTerminalErrors.ts` -- each of which the
 // panel and the routes reach through this file, which stays their one import.
 
+import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
+import { resolve } from "node:path";
 import type {
   AgentTerminalContext,
   AgentTerminalDescriptor,
   AgentTerminalStreamEnvelope,
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
+  SessionTmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { PtyManagerClient, type PtySessionConnection } from "@/terminal/pty/ptyClient";
 import {
@@ -39,7 +42,9 @@ import {
   AgentTerminalUnavailableError,
   decodedBase64Length,
   requiredDimension,
+  requiredSessionUuid,
 } from "@/terminal/agentTerminalErrors";
+import { restartClaudeSession } from "@/terminal/claudeSessionLaunch";
 import {
   identifyTerminal,
   tmuxTargetSession,
@@ -163,7 +168,40 @@ export class AgentTerminalService {
      * that shape is undefined at run time in every test that hands over its own four.
      */
     private readonly relabelSession = adoptTitleName,
+    /** Replaces the process in a session's own pane; injected for the same reason the two above are. */
+    private readonly restartPane = restartClaudeSession,
   ) {
+  }
+
+  /**
+   * Runs a Claude session again in the pane it already has, under the launch argv in force now.
+   *
+   * Claude only, because the point is `configClaudeLaunch.ts`: a session keeps the permission mode
+   * it was launched with until its process is replaced. The pane is replaced in place, so this
+   * opens nothing and every viewer already attached keeps reading it.
+   */
+  async restart(context: SessionTmuxTerminalContext): Promise<void> {
+    if (context.source !== "claude") {
+      throw new AgentTerminalInvalidError("only a Claude session restarts under the launch flags");
+    }
+    const sessionId = requiredSessionUuid(context.sessionId, "terminal session id");
+    const session = this.resolveSession("claude", sessionId);
+    if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
+    let cwd: string;
+    try {
+      cwd = await realpath(resolve(session.projectPath));
+    } catch {
+      throw new AgentTerminalConflictError("agent session project directory is no longer available");
+    }
+    const outcome = await this.restartPane({ sessionId, cwd });
+    if (outcome.kind === "no-pane") {
+      throw new AgentTerminalNotFoundError("this session is not running in a tmux pane the panel started");
+    }
+    if (outcome.kind === "not-ours") {
+      throw new AgentTerminalConflictError(
+        `tmux session ${outcome.session} was not started by the panel for this session, so restarting it would end somebody else's shell`,
+      );
+    }
   }
 
   async open(
