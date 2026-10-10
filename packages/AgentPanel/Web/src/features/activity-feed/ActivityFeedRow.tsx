@@ -5,10 +5,11 @@
 // The positioning wrapper is here too, because the absolute placement and the measuring
 // ref are what make it a virtualised row rather than a row.
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import { liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
-import type { DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import { itemEvents, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 import {
   ClusterRow,
   CompactionRow,
@@ -29,10 +30,47 @@ import {
  *
  * So the collapse and highlight state arrive as booleans for THIS row rather than as the sets they
  * come from: a set changes identity whenever any row toggles, which would re-render all of them.
- * A durable line arriving still re-renders every row, because the layout is rebuilt and
- * `rowContext` carries the rebuilt `pairedToolResults`; that is once per transcript line, not once
- * per delta.
+ * A durable line arriving rebuilds the layout, so two more things keep the rows still across it:
+ * the layout hands back the previous item for every row the line did not change
+ * (`keepUnchanged.ts`), and the paired results come apart from `rowContext` so a row compares only
+ * the results for its own calls (`sameRow` below). A new result re-renders the call it answers.
  */
+type RowItem = DisplayItem | { kind: "tail"; ev: ActivityEvent } | undefined;
+
+type ActivityFeedRowProps = {
+  expandCluster: (leadIndex: number) => void;
+  /** The virtual row's position in the list, which the virtualizer reads back when it measures. */
+  index: number;
+  isCollapsed: boolean;
+  isHighlighted: boolean;
+  it: RowItem;
+  measureElement: (node: Element | null) => void;
+  /** Every paired result in the thread. A row re-renders only when one of ITS calls' changes. */
+  pairedToolResults: ReadonlyMap<string, PairedToolResult>;
+  rowContext: Omit<EventRowContext, "pairedToolResults">;
+  start: number;
+  toggleEvent: (eventIdx: number) => void;
+  toggleLiveTail: (key: string) => void;
+};
+
+/** The calls a row draws, which are the only entries of `pairedToolResults` it reads. */
+function rowCallIds(it: RowItem): string[] {
+  if (!it) return [];
+  const events = it.kind === "tail" ? [it.ev] : itemEvents(it);
+  return events.flatMap((event) =>
+    event.blocks.flatMap((block) => (block.kind === "tool_use" && block.callId ? [block.callId] : [])));
+}
+
+function sameRow(previous: ActivityFeedRowProps, next: ActivityFeedRowProps): boolean {
+  for (const key of Object.keys(next) as (keyof ActivityFeedRowProps)[]) {
+    if (key === "pairedToolResults") continue;
+    if (!Object.is(previous[key], next[key])) return false;
+  }
+  if (previous.pairedToolResults === next.pairedToolResults) return true;
+  return rowCallIds(next.it).every(
+    (callId) => previous.pairedToolResults.get(callId) === next.pairedToolResults.get(callId));
+}
+
 export const ActivityFeedRow = memo(function ActivityFeedRow({
   expandCluster,
   index,
@@ -40,23 +78,16 @@ export const ActivityFeedRow = memo(function ActivityFeedRow({
   isHighlighted,
   it,
   measureElement,
-  rowContext,
+  pairedToolResults,
+  rowContext: sharedContext,
   start,
   toggleEvent,
   toggleLiveTail,
-}: {
-  expandCluster: (leadIndex: number) => void;
-  /** The virtual row's position in the list, which the virtualizer reads back when it measures. */
-  index: number;
-  isCollapsed: boolean;
-  isHighlighted: boolean;
-  it: DisplayItem | { kind: "tail"; ev: ActivityEvent } | undefined;
-  measureElement: (node: Element | null) => void;
-  rowContext: EventRowContext;
-  start: number;
-  toggleEvent: (eventIdx: number) => void;
-  toggleLiveTail: (key: string) => void;
-}) {
+}: ActivityFeedRowProps) {
+  const rowContext: EventRowContext = useMemo(
+    () => ({ ...sharedContext, pairedToolResults }),
+    [sharedContext, pairedToolResults],
+  );
   if (!it) return null;
   return (
     <div
@@ -132,4 +163,4 @@ export const ActivityFeedRow = memo(function ActivityFeedRow({
       )}
     </div>
   );
-});
+}, sameRow);

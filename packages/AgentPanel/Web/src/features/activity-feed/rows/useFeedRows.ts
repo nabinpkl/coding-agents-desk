@@ -11,7 +11,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode, AgentSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
-import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
+import { buildFeedLayout, type PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
+import { keepUnchangedItems, keepUnchangedPairs } from "@/features/activity-feed/rows/keepUnchanged";
 
 export function useFeedRows({
   events,
@@ -94,15 +95,30 @@ export function useFeedRows({
     });
   }, [pause]);
 
+  // The previous layout's items and results, so a rebuild hands back the same object for every
+  // row a new line did not change and the memoized rows skip them (`keepUnchanged.ts`).
+  const previousLayout = useRef<{ items: DisplayItem[]; pairedToolResults: ReadonlyMap<string, PairedToolResult> }>({
+    items: [],
+    pairedToolResults: new Map(),
+  });
   const { items, allEventIds, clusterLeadIds, pairedToolResults } = useMemo(
-    // Clustering and scaffolding removal belong to Nice alone. Raw stays one
-    // row per transcript line, which is the fidelity guarantee Nice leans on.
-    () => buildFeedLayout(events, {
-      cluster: mode === "nice",
-      hideSystem: mode === "nice",
-      incrementalReasoning: mode === "nice" && (source === "codex" || source === "opencode"),
-      foldedClusters,
-    }),
+    () => {
+      // Clustering and scaffolding removal belong to Nice alone. Raw stays one
+      // row per transcript line, which is the fidelity guarantee Nice leans on.
+      const layout = buildFeedLayout(events, {
+        cluster: mode === "nice",
+        hideSystem: mode === "nice",
+        incrementalReasoning: mode === "nice" && (source === "codex" || source === "opencode"),
+        foldedClusters,
+      });
+      const kept = {
+        ...layout,
+        items: keepUnchangedItems(previousLayout.current.items, layout.items),
+        pairedToolResults: keepUnchangedPairs(previousLayout.current.pairedToolResults, layout.pairedToolResults),
+      };
+      previousLayout.current = kept;
+      return kept;
+    },
     [events, mode, source, foldedClusters],
   );
 

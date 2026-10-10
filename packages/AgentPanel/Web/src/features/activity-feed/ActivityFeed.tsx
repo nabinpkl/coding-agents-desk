@@ -200,14 +200,15 @@ export function ActivityFeed({
   } = useFeedRows({ events, liveTails, mode, pause, source });
 
 
-  const rowContext: EventRowContext = useMemo(
+  // Without the paired results, which go to each row on their own so a new pairing re-renders only
+  // the row whose call it answers (`ActivityFeedRow`).
+  const rowContext: Omit<EventRowContext, "pairedToolResults"> = useMemo(
     () => ({
       session: { source, sessionId, mode },
       // These events ARE this session's transcript, so an index names a line it can fetch back.
       rawSource: "addressable",
       expandedTools,
       onToggleTool: toggleTool,
-      pairedToolResults,
       showCacheHits,
       ...(onForkFromMessage === undefined ? {} : { onForkFromMessage }),
     }),
@@ -217,7 +218,6 @@ export function ActivityFeed({
       mode,
       expandedTools,
       toggleTool,
-      pairedToolResults,
       showCacheHits,
       onForkFromMessage,
     ],
@@ -399,6 +399,7 @@ export function ActivityFeed({
                 isHighlighted={own !== null && highlightedEvIdx === own}
                 it={it}
                 measureElement={rowVirtualizer.measureElement}
+                pairedToolResults={pairedToolResults}
                 rowContext={rowContext}
                 start={virtualRow.start}
                 toggleEvent={toggleEvent}
