@@ -432,7 +432,7 @@ export function createSessionRoutes(
     }
 
     const lastMessageMatch = LAST_MESSAGE_ROUTE.exec(url.pathname);
-    if (lastMessageMatch) return lastMessageResponse(lastMessageMatch[1]!.toLowerCase());
+    if (lastMessageMatch) return lastMessageResponse(lastMessageMatch[1]!.toLowerCase(), url);
 
     const compactionMatch = LAST_COMPACTION_ROUTE.exec(url.pathname);
     if (compactionMatch) return lastCompactionResponse(compactionMatch[1]!.toLowerCase());

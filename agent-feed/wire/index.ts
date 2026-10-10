@@ -53,6 +53,7 @@ export {
   refuseTaskText,
   taskFromText,
 } from "./botSessionTitle.ts";
+export { isSaidText } from "./saidText.ts";
 
 export type {
   AddBotCommand,

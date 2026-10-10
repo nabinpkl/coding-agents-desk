@@ -25,10 +25,12 @@ export const LAST_COMPACTION_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\
  * asked to work it out: it is a rule about which transcript lines are people talking, and a card
  * that is closed has no transcript loaded to apply it to.
  */
-export async function lastMessageResponse(sessionId: string): Promise<Response> {
+export async function lastMessageResponse(sessionId: string, url: URL): Promise<Response> {
   const session = findSession("claude", sessionId);
   if (!session || !session.transcriptPath) return errorResponse("session-not-found", "no such session", 404);
-  const message = await lastHumanMessage(sessionId, session.transcriptPath);
+  // `?said=1` passes over a message that only ran a slash command, for the user bar.
+  const said = url.searchParams.get("said") === "1";
+  const message = await lastHumanMessage(sessionId, session.transcriptPath, { said });
   // 404 rather than an empty body. "Nobody has written one" and "here is one that says nothing"
   // are different answers, and a caller that could not tell them apart would open a fork dialog
   // quoting nothing and start a fork anchored to a row that does not exist.

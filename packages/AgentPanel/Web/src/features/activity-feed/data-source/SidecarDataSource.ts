@@ -197,11 +197,11 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    * Rejects with the sidecar's own reason when there is no such message, which is a real state --
    * a session whose first turn has not landed yet -- and not an error to swallow.
    */
-  async lastMessage(sessionId: string): Promise<LastSessionMessage> {
+  async lastMessage(sessionId: string, { said = false }: { said?: boolean } = {}): Promise<LastSessionMessage> {
     return parse<LastSessionMessage>(
       await this.transport.request(
         "GET",
-        `/api/sessions/claude/${encodeURIComponent(sessionId)}/last-message`,
+        `/api/sessions/claude/${encodeURIComponent(sessionId)}/last-message${said ? "?said=1" : ""}`,
       ),
     );
   }

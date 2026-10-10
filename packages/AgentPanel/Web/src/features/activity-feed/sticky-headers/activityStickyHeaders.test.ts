@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   HEADER_OBSCURED_PX,
   hasPersonRow,
-  isSaidText,
   jumpScrollTop,
   selectStickyCurrentIndex,
   selectStickyUserIndex,
   type StickyMeasurement,
   type StickyRow,
 } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
+import { isSaidText } from "@agentdesk/agent-feed-wire";
 
 const STICKY_H = 51;
 

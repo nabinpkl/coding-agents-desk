@@ -27,6 +27,7 @@
  *   lists only the live conversation. Counting here does not make that agree -- nothing can --
  *   which is exactly why the count travels with the text that has to match it.
  */
+import { isSaidText } from "@agentdesk/agent-feed-wire";
 import {
   completeEnd,
   isLineStart,
@@ -106,10 +107,16 @@ export async function anchorAtPosition(
  * A message with no prose is skipped rather than returned. The text is not decoration: the rewind
  * picker is driven by matching what its rows say, so an anchor with nothing to match on is one the
  * fork could only reach by counting blind, which is what this repository does not do.
+ *
+ * `said` also skips a message that only runs a slash command (`isSaidText`). The panel's user bar
+ * asks that way, because it names the last thing the reader said and passes over a `/compact` to
+ * the message before it; asked without it, a session whose newest message was `/compact` answered
+ * with that, the bar refused it, and showed nothing at all.
  */
 export async function lastHumanMessage(
   sessionId: string,
   transcriptPath: string,
+  { said = false }: { said?: boolean } = {},
 ): Promise<{ eventId: string; text: string } | null> {
   let before: number | null = null;
   for (;;) {
@@ -118,7 +125,7 @@ export async function lastHumanMessage(
       const event = page.events[at]!;
       if (event.humanTurn !== true) continue;
       const text = messageText(event);
-      if (text) return { eventId: event.id, text };
+      if (text && (!said || isSaidText(text))) return { eventId: event.id, text };
     }
     if (page.windowStart === 0) return null;
     before = page.windowStart;

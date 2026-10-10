@@ -193,7 +193,8 @@ export interface AgentDataSource {
   /**
    * The newest message a person wrote in a Claude session, found across the whole transcript.
    *
-   * Rejects when there is none. The user bar reads it for a message the feed has not paged back to.
+   * Rejects when there is none. The user bar reads it for a message the feed has not paged back to,
+   * with `said`, which passes over a message that only ran a slash command.
    */
-  lastMessage(sessionId: string): Promise<LastSessionMessage>;
+  lastMessage(sessionId: string, options?: { said?: boolean }): Promise<LastSessionMessage>;
 }

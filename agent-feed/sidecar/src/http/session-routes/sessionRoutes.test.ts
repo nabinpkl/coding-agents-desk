@@ -371,8 +371,8 @@ test("refuses a row that is not something a person said, before starting anythin
   expect(rewound).toEqual([]);
 });
 
-function lastMessage(source: string, sessionId: string): Promise<Response> {
-  const request = new Request(`http://localhost/api/sessions/${source}/${sessionId}/last-message`);
+function lastMessage(source: string, sessionId: string, query = ""): Promise<Response> {
+  const request = new Request(`http://localhost/api/sessions/${source}/${sessionId}/last-message${query}`);
   return Promise.resolve(route(request, new URL(request.url), server) as Promise<Response>);
 }
 
@@ -405,6 +405,19 @@ test("skips everything that is not a person talking", async () => {
   ]);
 
   expect(await (await lastMessage("claude", SESSION_ID)).json()).toEqual({
+    eventId: `claude:${SESSION_ID}:at:0`,
+    text: "ALPHA one",
+  });
+});
+
+test("passes over a bare slash command when asked for the last thing said", async () => {
+  // The user bar asks this way. Asked without it, a session whose newest message was `/compact`
+  // answered with that, the bar refused it as a command, and showed nothing.
+  state.watcherState = "live";
+  await transcriptHolding((root) => [said(root, "ALPHA one"), said(root, "/compact")]);
+
+  expect(await (await lastMessage("claude", SESSION_ID)).json()).toMatchObject({ text: "/compact" });
+  expect(await (await lastMessage("claude", SESSION_ID, "?said=1")).json()).toEqual({
     eventId: `claude:${SESSION_ID}:at:0`,
     text: "ALPHA one",
   });

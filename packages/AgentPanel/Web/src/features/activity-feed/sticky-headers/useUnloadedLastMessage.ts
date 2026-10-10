@@ -15,7 +15,7 @@ import type { LastSessionMessage } from "@agentdesk/agent-feed-wire";
 import type { AgentSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { leadEvent, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
-import { hasPersonRow, isSaidText } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
+import { hasPersonRow } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
 
 export function useUnloadedLastMessage({
   flashHighlight,
@@ -49,10 +49,12 @@ export function useUnloadedLastMessage({
     setMessage(null);
     if (!needed) return;
     let cancelled = false;
-    ds.lastMessage(sessionId).then(
-      // A bare slash command is not something the bar names when it is loaded either.
+    // `said`: a bare slash command is not something the bar names when it is loaded either, so the
+    // sidecar passes over it to the message before. Refusing it here instead left the bar blank
+    // for any session whose newest message was `/compact`.
+    ds.lastMessage(sessionId, { said: true }).then(
       (found) => {
-        if (cancelled || typeof found?.text !== "string" || !isSaidText(found.text)) return;
+        if (cancelled || typeof found?.text !== "string") return;
         setMessage(found);
       },
       // Nothing said yet, or no answer: no bar, as before the bar could ask.

@@ -7,6 +7,8 @@
  * could only ever be exercised through the live DOM before.
  */
 
+import { isSaidText } from "@agentdesk/agent-feed-wire";
+
 /** The subset of a virtualizer measurement these rules need. */
 export interface StickyMeasurement {
   start: number;
@@ -18,12 +20,6 @@ export interface StickyRow {
   kind: string;
   ev?: { humanTurn?: true; blocks?: readonly { kind: string; text?: string }[] };
 }
-
-/**
- * A prompt that is only a slash command: `/compact`, `/rename Title`. A path such as
- * `/Users/dev/x` is prose, since the token after the slash runs into another slash.
- */
-const SLASH_COMMAND = /^\/[A-Za-z][\w:-]*(\s|$)/;
 
 /**
  * Whether the user bar may stand for this row.
@@ -40,11 +36,6 @@ function isPersonRow(row: StickyRow): boolean {
   if (row.kind !== "user" || row.ev?.humanTurn !== true) return false;
   const text = row.ev.blocks?.find((block) => block.kind === "text" && block.text?.trim())?.text;
   return isSaidText(text ?? "");
-}
-
-/** Whether a person's message says something, rather than only running a slash command. */
-export function isSaidText(text: string): boolean {
-  return !SLASH_COMMAND.test(text.trim());
 }
 
 /**
