@@ -307,10 +307,10 @@ export function SessionComposerBand({
               onClose={surfaces.onCloseAside}
             />
           ) : null}
-          {footerActions.filter((action) => action.key !== "switch-model").map(actionButton)}
-          {/* Before the model switcher, not after it: the icon and the chooser read as one
-              control, icon first. Splitting on the switch-model key leaves every band without
-              one -- Claude, Codex -- exactly as it was. */}
+          {footerActions.filter((action) => !TRAILING_FOOTER_KEYS.has(action.key)).map(actionButton)}
+          {/* Before the model switcher and the permission mode, not after them: the icon and the
+              chooser read as one control, icon first, and the mode chip sits at the cluster's end
+              beside the meter. Splitting on those keys leaves a band without them as it was. */}
           {terminalComposer ? (
             <button
               type="button"
@@ -331,7 +331,7 @@ export function SessionComposerBand({
               <TerminalIcon className="size-3.5" aria-hidden />
             </button>
           ) : null}
-          {footerActions.filter((action) => action.key === "switch-model").map(actionButton)}
+          {footerActions.filter((action) => TRAILING_FOOTER_KEYS.has(action.key)).map(actionButton)}
           {usage ? (
             <div className="ml-auto">
               <TokenMeter
@@ -377,6 +377,9 @@ function actionButton(action: ComposerAction) {
     </button>
   );
 }
+
+// Footer actions that render after the terminal toggle rather than before it.
+const TRAILING_FOOTER_KEYS: ReadonlySet<string> = new Set(["permission-mode", "switch-model"]);
 
 function withoutCallId({ callId: _callId, ...mirror }: QuestionMirrorModel) {
   return mirror;
