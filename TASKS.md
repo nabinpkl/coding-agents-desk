@@ -240,3 +240,48 @@ Chrome-for-Testing phone viewport. Commit + push per repo policy.
 | T5 | D | Replace the wall, verify (gates above + phone viewport: touch to keyboard to rail, new terminal lands in the right dir, kill confirms and lands, reload restores arrangement), land. |
 | T6 | D | Port the sidebar to terminals: vertical roster beside the strip listing every parent and child (same sets as the cards, dimmed not dropped while off, row-is-the-way-back select, hide/kill menus, machine chips), drawer over the strip on a phone, rail when closed. |
 | T7 | D | Port zoom + faces + room to the terminal strip: fit-whole-strip mode with pinch/press gestures on its own storage keys, room gutter, count status block in the roster, faces switch with parent/session marks on cards and rows (BotFace over inline bot-var styles), zoom-aware scroll memory. `TerminalSidebarRows.tsx` split keeps both files under the 500-line cap. |
+
+---
+
+# Seekable threads (opened 2026-10-05)
+
+ADR-0125 (proposed) is the decision; this is the order it lands in. A thread holds ranges of its
+transcript with gaps between them, a gap loads as it comes on screen, and the user bar, its jump and
+the restore of a reader's place each reach a position with one bounded read instead of paging to it.
+
+Gates for every task: `just check`, read for its output (legs named, counts printed), plus the
+Chrome for Testing checks the task names. Commit and push per repo policy.
+
+## Why, measured 2026-10-05
+
+- **Blank user bar.** The AD manager 2 card (`0c322ad9`) showed no bar at rest. Nothing of the
+  reader's was loaded, so `useUnloadedLastMessage` asked `/last-message`, which answered `/compact`,
+  which the panel refuses as a command. The bar it should show is the message before it.
+- **A jump pages the distance.** That message sat about 3MB above the end; reaching it took one
+  `loadOlder` per page between, and every row between laid out and measured.
+- **Restore pages from the top** the same way, with the feed hidden while it does.
+
+## Defaults taken for the open questions (the owner may overturn any)
+
+- **A gap loads when it is on screen**, a page at a time, from the side the reader is moving toward.
+  Not a button: scrolling should simply work.
+- **Every source.** Claude and Codex seek by byte position; runtime-backed sources (opencode) answer
+  `after` and `around` by the same arithmetic they use for `before`.
+- **Fork is unchanged.** "Fork from last message" keeps answering a bare `/compact`; only the bar asks
+  with `said`.
+
+## Tasks
+
+| ID | State | Task |
+|---|---|---|
+| S1 | R | ADR-0125 and this ledger. |
+| S2 | R | Sidecar reads. `transcriptPages.ts`: `readPageAfter` and `readPageAround` on `linesFrom`, each row's `previous` stamped as `readPageBefore` does; `backendPageBefore`'s arithmetic for runtime-backed sources. `wire/http.ts`: `EventsPage.next`. Events route: `after` / `around` (exactly one of the three). `messageAnchor.ts`: `lastHumanMessage` takes `before` and `said`; route accepts both. `wire/saidText.ts`: `isSaidText`, imported by the sidecar and the panel. Tests: each read in raw and nice, a page around a machinery line, `next` at end of file, `said` passing over `/compact`. Additive: no panel behaviour changes. |
+| S3 | R | Ranges and gap rows. `data-source/eventPaging.ts`: ranges derived from `previous` (replaces `newestGap`). Layout breaks clusters and segments at a gap and pairs results across the whole set. A `gap` row kind through `ActivityFeedRow`, the virtualizer's sizing and keys, the sticky rules and the restore anchor. Gap fill on screen in the stream hook (`fillGap(gap, side)`), deleting `useTimelineGapFill`. Check: with no gaps, the same rows, bars and scroll positions as before; a reconnect hole at the live end closes at once. |
+| S4 | R | The user bar and its jump. Bar rule: the last message said above the top row, from the top row's range, else `last-message?before=<range start>&said=1`, held while that start is unchanged. `loadAround(position)` in the stream hook; the jump opens a range there and lands with `scrollToIndex`. Delete `useUnloadedLastMessage`. Check on AD manager 2: the bar names the message at rest, a click makes one events request and lands the row at y=0, scrolling down closes the gap to the live end. |
+| S5 | R | Restore through `loadAround`. `useTranscriptScrollRestore` opens a range at the saved row instead of paging from the top, and the hidden-while-paging hold goes. Check: a reload reopens on the saved row with one events request. |
+
+## Checks every task re-runs (Chrome for Testing, scripts in the session scratchpad until promoted)
+
+- Scrolling up through a page load keeps the top row where it was (the paging check from b3cb20b3).
+- A wheel scroll up through one card gives the same sequence of sticky bars as before the task.
+- The six-card render and CPU probe does not regress against 7d42ae41.
