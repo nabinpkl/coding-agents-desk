@@ -73,6 +73,13 @@ export interface Header {
    */
   lastTurnClosed?: boolean;
   /**
+   * The newest record `timestamp` in the TAIL edge, as epoch ms, absent when that edge carries
+   * none. This, not the file's mtime, is when the session last did something: a running CLI
+   * re-touches an idle session's transcript without writing a record (measured 2026-10-11, six
+   * workers idle since Oct 3 all moved to "03:01 today" and jumped to the top of the list).
+   */
+  lastRecordAt?: number;
+  /**
    * The session's opening prompt, from the HEAD edge, for sessions that never got
    * a title. The fallback exists because a titleless session would otherwise
    * render as its own UUID.

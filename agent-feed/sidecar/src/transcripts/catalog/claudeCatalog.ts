@@ -135,7 +135,10 @@ async function readClaudeCandidate(filePath: string): Promise<ClaudeCandidate> {
   } catch {
     return { session: null, readable: false };
   }
-  const session = makeSession("claude", sessionId, project, filePath, metadata.mtimeMs, {
+  // The newest record, not the mtime: a live CLI touches an idle transcript without writing to
+  // it, and that is not activity. The mtime stands in only for a tail with no timestamp at all.
+  const lastEventAt = header.lastRecordAt ?? metadata.mtimeMs;
+  const session = makeSession("claude", sessionId, project, filePath, lastEventAt, {
     title: header.title,
     gitBranch: header.gitBranch,
     entrypoint: header.entrypoint,
