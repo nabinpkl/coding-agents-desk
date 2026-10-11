@@ -128,8 +128,9 @@ async function readSessionHandover(
     return {
       ok: false,
       code: "unsupported-source",
-      // Named rather than silently empty: Codex and Pi sessions are real rows in the same lists,
-      // and a reader told only "not found" would go looking for the session.
+      // Named rather than silently empty: Codex and Pi are dormant providers, but their sessions
+      // are still real rows in the same lists, and a reader told only "not found" would go
+      // looking for the session.
       message: `"${source}" sessions cannot be handed over`,
       status: 400,
     };

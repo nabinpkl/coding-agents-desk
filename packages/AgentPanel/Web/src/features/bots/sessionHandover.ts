@@ -17,8 +17,8 @@ export type HandoverDestination = keyof typeof HANDOVER_LABELS;
  *
  * A handover runs between Claude and opencode, so the destination is simply the other one. It
  * does not need a compaction: a session that never compacted hands over its whole conversation,
- * tool output cut to head and tail the way it is after a compaction. Codex is not a source
- * because the sidecar has no reader that renders its rows into a handover, not for want of one.
+ * tool output cut to head and tail the way it is after a compaction. Codex and Pi are not sources
+ * because both are dormant providers (`AGENTS.md`), not for want of a reader.
  */
 export function handoverDestination(session: SessionSummary): HandoverDestination | null {
   if (session.source === "claude") return "opencode";

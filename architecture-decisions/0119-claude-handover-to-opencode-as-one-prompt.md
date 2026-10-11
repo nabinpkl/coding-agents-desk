@@ -63,6 +63,9 @@ private file the pane reads and deletes (`firstTurnFromFile` in
 `agent-feed/sidecar/src/terminal/claudeSessionLaunch.ts`), so the CLI still gets it as its
 positional prompt and the bound is the kernel's argv limit rather than tmux's.
 
+The "Codex support is a new branch" consequence above is not a plan: Codex has been a dormant
+provider since 2026-10-11 (`AGENTS.md`), so no such branch is coming.
+
 ### Files
 
 - `agent-feed/sidecar/src/transcripts/sessionHandover.ts`

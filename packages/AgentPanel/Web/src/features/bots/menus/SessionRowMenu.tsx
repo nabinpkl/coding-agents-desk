@@ -76,7 +76,7 @@ export function SessionRowMenu({
    * Below the forks because it leaves the provider: the three above stay inside Claude, this one
    * hands the context across. One prop rather than a callback and a label, because
    * two props are two chances for the item to say it goes somewhere it does not. Absent
-   * everywhere a fork is, plus on Codex rows, which the sidecar has no handover reader for.
+   * everywhere a fork is, plus on Codex and Pi rows, which are dormant providers.
    */
   handover?: { to: HandoverDestination; onSelect: () => void };
   /**

@@ -9,7 +9,7 @@
 
 Before doing project work, read `FEATURE-MAP.md` first, then `PRD.md` and `SPEC.md` once. They are short on purpose.
 
-Five things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
+Six things `FEATURE-MAP.md` exists to stop you getting wrong, stated here because they are easy to
 infer backwards from the shape of the tree:
 
 - **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
@@ -24,13 +24,21 @@ infer backwards from the shape of the tree:
   because you found it first, and do not merge two in your head across a compaction: check the map,
   and check `git log` for the directory you are about to edit.
 - **Pi is no longer used as a session provider here** (recorded 2026-09-13, on the owner's word).
-  Sessions run in Claude and Codex. The Pi provider is still wired in and still looks current:
-  `PiAgentBackend` registers in `agent-feed/sidecar/src/server.ts`, Pi sessions still show in the
+  Sessions run in Claude and opencode (Codex is dormant too, below). The Pi provider is still
+  wired in and still looks current: `PiAgentBackend` registers in `agent-feed/sidecar/src/server.ts`, Pi sessions still show in the
   sidebar with a PI badge, and `PRD.md` and `SPEC.md` still describe Pi as the directly controlled
   provider. Do not extend it, and do not treat a gap on a Pi row as a bug to fix -- its tool rows
   carry no summary, for one. The Pi SDK itself is NOT dead: `summary/summaryRuntime.ts` runs the
   turn summarizer on `@earendil-works/pi-coding-agent` (the `summaryModel` in `/api/config`), so
   retiring Pi means removing the provider, not that dependency.
+- **Codex is dormant as a session provider** (recorded 2026-10-11, on the owner's word). Sessions
+  run in Claude and opencode, and a handover runs between those two. Codex is still wired in and
+  still looks current: `CodexLiveBackend` registers in `agent-feed/sidecar/src/server.ts`,
+  `transcripts/catalog/codexCatalog.ts` reads its rollouts and its own `archived` column,
+  `transcripts/codex/` parses them, and Codex sessions still show in the session lists with a Codex
+  badge (`SourceBadge.tsx`). Do not extend it, do not suggest extending it (making it a handover
+  source was proposed once from the code's own comments), and do not treat a gap on a Codex row as
+  a bug to fix.
 - **The sidebar's Bots tab is dormant in favour of Canvas** (recorded 2026-09-15, on the owner's
   word). Canvas is where Bots are read and acted on. The Bots tab (`AgentSidebarMode` `"bots"` in
   `features/sidebar/AgentSidebar.tsx`) is still wired in and still looks current: it sits between

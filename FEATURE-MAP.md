@@ -119,6 +119,14 @@ app. The panel picks its transport by whether a native message handler is presen
 
 When a ledger and `git log` disagree, `git log` wins.
 
+## Session providers
+
+Sessions run in **Claude** and **opencode**, and a handover runs between those two. Two more
+providers are still wired into the sidecar and still put rows in the session lists, and neither
+is current: **Pi** (dormant since 2026-09-13) and **Codex** (dormant since 2026-10-11). Both on
+the owner's word; `AGENTS.md` has what each still touches. A gap on a Pi or Codex row is not a bug
+to fix, and neither is a provider to extend.
+
 ## Approaches that solve the same problem, side by side
 
 Every row is checked in and compiles. None of them is dead in the sense of being deletable today,
