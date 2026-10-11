@@ -47,8 +47,8 @@ import {
 import { LIVE_SESSION_LAUNCHER, launchSession, type SessionLauncher } from "@/transcripts/session-ops/forkSession";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import type { AgentBackend } from "@/agents/agentBackend";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import { errorResponse, jsonBody, requestIdentifier, routeError } from "@/http/agent-routes/agentRoutes";
 
 const HANDOVER_TO_OPENCODE_ROUTE = "/api/agent-sessions/opencode/handover";

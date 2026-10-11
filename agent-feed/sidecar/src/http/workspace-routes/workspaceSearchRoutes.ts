@@ -6,8 +6,8 @@
 // as an argv; everything this file adds is reading the query string and answering refusals.
 
 import type { WorkspaceSearchOptions } from "@agentdesk/agent-feed-wire";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import {
   refusalResponse,
   workspaceErrorResponse,

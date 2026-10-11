@@ -30,8 +30,8 @@ import { readEventRaw } from "@/transcripts/transcript-reads/transcriptPages";
 import { toolFilePaths } from "@/transcripts/claude/claudeFiles";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import { adapterFor } from "@/transcripts/sourceAdapters";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const EVENT_IMAGE_ROUTE =
   /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/events\/(\d+)\/blocks\/(\d+)\/image$/i;

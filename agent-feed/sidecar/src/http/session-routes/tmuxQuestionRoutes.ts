@@ -19,8 +19,8 @@ import type {
   TmuxQuestionPoint,
   TmuxQuestionPointOutcome,
 } from "@agentdesk/agent-feed-wire";
-import { errorResponse, jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const QUESTION_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/question$/i;
 /**

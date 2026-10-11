@@ -1,0 +1,190 @@
+// The arena's own record of a run, the registry that holds the live ones, and the projections
+// that turn records into the wire's summaries and details.
+//
+// Records are the source of truth for everything the arena knows about a run; persistence is
+// `arenaStore.ts` and driving the contestants is `arenaService.ts`. This module owns the shape
+// and the change signal: every mutation a run's life makes goes through the registry, which
+// tells its listeners once per change, and the routes stream exactly that signal.
+
+import type {
+  ArenaContestantDetail,
+  ArenaContestantStatus,
+  ArenaContestantSummary,
+  ArenaRunDetail,
+  ArenaRunSummary,
+} from "@agentdesk/agent-feed-wire";
+
+/** One contestant, as the arena tracks it. Facts are filled in as they are observed. */
+export interface ArenaContestantRecord {
+  contestantId: string;
+  source: "opencode";
+  /** The serve session this contestant is, once `createSession` has answered; null until then. */
+  sessionId: string | null;
+  worktreePath: string;
+  status: ArenaContestantStatus;
+  startedAt: number | null;
+  closedAt: number | null;
+  error: string | null;
+  contextTokens: number | null;
+  costUsd: number | null;
+  filesRead: string[];
+  filesWritten: string[];
+  /** In memory while the sidecar runs; on disk in the store once the contestant has closed. */
+  gitDiff: string | null;
+}
+
+/** One run, as the arena tracks it. Contestants are ordered as the request named them. */
+export interface ArenaRunRecord {
+  runId: string;
+  prompt: string;
+  repoPath: string;
+  baseRef: string;
+  createdAt: number;
+  contestants: ArenaContestantRecord[];
+}
+
+/** A contestant's summary, with its duration derived from the stamps it carries. */
+export function contestantSummary(record: ArenaContestantRecord): ArenaContestantSummary {
+  return {
+    contestantId: record.contestantId,
+    source: record.source,
+    sessionId: record.sessionId,
+    worktreePath: record.worktreePath,
+    status: record.status,
+    startedAt: record.startedAt,
+    closedAt: record.closedAt,
+    durationMs:
+      record.startedAt !== null && record.closedAt !== null
+        ? record.closedAt - record.startedAt
+        : null,
+    error: record.error,
+  };
+}
+
+export function runSummary(run: ArenaRunRecord): ArenaRunSummary {
+  return {
+    runId: run.runId,
+    prompt: run.prompt,
+    repoPath: run.repoPath,
+    baseRef: run.baseRef,
+    createdAt: run.createdAt,
+    contestants: run.contestants.map(contestantSummary),
+  };
+}
+
+/**
+ * The run with its facts, diffs included.
+ *
+ * `gitDiff` prefers the in-memory record, which is authoritative while the sidecar that drove
+ * the run is the one answering, and falls back to the store for a run reloaded from disk --
+ * which is the one case where the store has a diff the record does not.
+ */
+export function runDetail(run: ArenaRunRecord, storedDiff: (c: ArenaContestantRecord) => string | null): ArenaRunDetail {
+  return {
+    ...runSummary(run),
+    contestants: run.contestants.map((record) => {
+      const detail: ArenaContestantDetail = {
+        ...contestantSummary(record),
+        contextTokens: record.contextTokens,
+        costUsd: record.costUsd,
+        filesRead: [...record.filesRead],
+        filesWritten: [...record.filesWritten],
+        gitDiff: record.gitDiff ?? storedDiff(record),
+      };
+      return detail;
+    }),
+  };
+}
+
+/**
+ * Marks every contestant a restart orphaned as failed, in place.
+ *
+ * A contestant's drive lives in the sidecar process that started it, so a run reloaded from
+ * disk has contestants nobody is driving any more. Leaving their status as it was saved would
+ * read as a duel still going, forever, on a run whose worktrees are quiet -- and quiet-forever
+ * is exactly the state a reader cannot tell from a slow turn.
+ */
+export function failUnfinishedContestants(runs: ArenaRunRecord[]): ArenaRunRecord[] {
+  for (const run of runs) {
+    for (const contestant of run.contestants) {
+      if (contestant.status === "preparing" || contestant.status === "running") {
+        contestant.status = "failed";
+        contestant.error = contestant.error ?? "the sidecar restarted before this contestant closed";
+      }
+    }
+  }
+  return runs;
+}
+
+/**
+ * The live runs, their change signal, and one controlled way to mutate them.
+ *
+ * Mutations go through `updateContestant` so a listener always sees a run after a whole
+ * transition has landed, never halfway through one, and so persistence (which subscribes like
+ * any other listener) cannot save a torn state.
+ */
+export class ArenaRunRegistry {
+  private readonly runs = new Map<string, ArenaRunRecord>();
+  private readonly listeners = new Set<() => void>();
+  private readonly now: () => number;
+
+  constructor(options: { initial?: ArenaRunRecord[]; now?: () => number } = {}) {
+    this.now = options.now ?? Date.now;
+    for (const run of options.initial ?? []) this.runs.set(run.runId, run);
+  }
+
+  add(run: ArenaRunRecord): void {
+    this.runs.set(run.runId, run);
+    this.changed();
+  }
+
+  get(runId: string): ArenaRunRecord | undefined {
+    return this.runs.get(runId);
+  }
+
+  /** Every run, newest first: the order a list reads in. */
+  list(): ArenaRunRecord[] {
+    return [...this.runs.values()].sort((left, right) => right.createdAt - left.createdAt);
+  }
+
+  remove(runId: string): boolean {
+    const removed = this.runs.delete(runId);
+    if (removed) this.changed();
+    return removed;
+  }
+
+  /**
+   * Applies one mutation to a contestant, then signals. The contestant's record is mutated in
+   * place, so a caller holding the run sees its own change; false when the run or the contestant
+   * is not there, which is a caller's bookkeeping bug rather than a run's state.
+   */
+  updateContestant(
+    runId: string,
+    contestantId: string,
+    apply: (contestant: ArenaContestantRecord, now: number) => void,
+  ): boolean {
+    const run = this.runs.get(runId);
+    const contestant = run?.contestants.find((c) => c.contestantId === contestantId);
+    if (!run || !contestant) return false;
+    apply(contestant, this.now());
+    this.changed();
+    return true;
+  }
+
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private changed(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error("agent feed arena registry listener failed", error);
+      }
+    }
+  }
+}

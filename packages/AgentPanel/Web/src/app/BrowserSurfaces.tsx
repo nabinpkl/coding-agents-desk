@@ -13,13 +13,14 @@ import {
   type MachineTerminalTarget,
 } from "@/features/terminal/MachineTerminalDialog";
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
+import { ArenaSurface } from "@/features/arena/ArenaSurface";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { sessionTransport } from "@/features/activity-feed/transport/SessionTransport";
 import { parseSessionIndex, type PanelSessionRef } from "@/app/panelSessions";
 
-export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals" | "ide";
+export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals" | "ide" | "arena";
 
 const SURFACES: { readonly name: BrowserSurface; readonly label: string }[] = [
   { name: "desktop", label: "Desktop" },
@@ -27,6 +28,7 @@ const SURFACES: { readonly name: BrowserSurface; readonly label: string }[] = [
   { name: "screen", label: "Screen" },
   { name: "terminals", label: "Terminals" },
   { name: "ide", label: "IDE" },
+  { name: "arena", label: "Arena" },
 ];
 
 const NAMED = new Set<string>(SURFACES.map((surface) => surface.name));
@@ -399,6 +401,11 @@ export function BrowserSurfaces({
             feed={sessionFeed}
             machines={machines}
           />
+        ) : surface === "arena" ? (
+          // Keyed by session for the same reason the others are: the runs, and the sessions each
+          // contestant is, belong to the sidecar that answered -- a run started on one machine is
+          // not a run on another, and the tab is not a view of a peer the picker left behind.
+          <ArenaSurface key={sessionId ?? "default"} transport={sessionTransport(transport, sessionId)} />
         ) : (
           <App
             key={sessionId ?? "default"}

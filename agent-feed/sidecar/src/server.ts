@@ -1,14 +1,14 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
-import { refuseForeignRequest } from "@/http/requestGuard";
-import { announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
+import { refuseForeignRequest } from "@/http/protocol/requestGuard";
+import { announceDirectory, announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
 import { createSupervisorRoutes } from "@/http/supervisorRoutes";
 import {
   BYE_BYTES,
   errorResponse,
   jsonResponse,
-} from "@/http/httpResponses";
+} from "@/http/protocol/httpResponses";
 import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
 import { createHandoverRoutes } from "@/http/agent-routes/handoverRoutes";
 import { createOpencodeRoutes } from "@/http/agent-routes/opencodeRoutes";
@@ -24,8 +24,8 @@ import { pointTmuxQuestion } from "@/input/question/questionPoint";
 import { createInventoryRoutes } from "@/http/inventoryRoutes";
 import { createParkRoutes } from "@/http/parkRoutes";
 import { createWindowRoutes } from "@/http/windowRoutes";
-import { createWebrtcTileRoutes } from "@/http/tile-peer/webrtcTileRoutes";
-import type { RouteHandler } from "@/http/route";
+import { createWebrtcTileRoutes } from "@/http/tile/tile-peer/webrtcTileRoutes";
+import type { RouteHandler } from "@/http/protocol/route";
 import { createSessionRoutes } from "@/http/session-routes/sessionRoutes";
 import { createSessionArchiveRoutes, liveSessionCheck } from "@/http/agent-routes/sessionArchiveRoutes";
 import { installSessionArchive, SessionArchiveStore } from "@/transcripts/session-ops/sessionArchive";
@@ -71,6 +71,11 @@ import { PiAgentBackend } from "@/agents/piAgentBackend";
 import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
+import { ArenaRunRegistry, failUnfinishedContestants } from "@/arena/arenaRun";
+import { ArenaService } from "@/arena/arenaService";
+import { ArenaStore } from "@/arena/arenaStore";
+import { arenaDefaultRepoPath, arenaRoot } from "@/arena/arenaConfig";
+import { createArenaRoutes } from "@/http/arenaRoutes";
 import { BotStore } from "@/bots/botStore";
 import { BotRegistry } from "@/bots/botRegistry";
 import type { BotRegistryCatalog } from "@/bots/botTypes";
@@ -229,10 +234,27 @@ new BotTitleQueue({
     ref.source === "claude" ? awaitComposer(ref.sessionId, SESSION_READY_LIMIT_MS) : Promise.resolve(true),
 }).start();
 
+// The arena: one prompt fanned out to contestants in worktrees of any repo the run names. It
+// drives the opencode backend above and records what each contestant did. The runs it made are
+// reloaded from its store so a sidecar that restarts still lists them, with the contestants a
+// restart orphaned marked failed rather than left reading as dueling forever.
+const arenaStore = new ArenaStore(arenaRoot());
+const arenaRegistry = new ArenaRunRegistry({
+  initial: failUnfinishedContestants(arenaStore.load()),
+});
+const arenaService = new ArenaService({
+  registry: arenaRegistry,
+  store: arenaStore,
+  backend: opencodeBackend,
+  arenaRoot: arenaRoot(),
+  defaultRepoPath: arenaDefaultRepoPath(),
+});
+
 const routes: RouteHandler[] = [
   // The one route about the process ABOVE this one: its state rides on `/api/config` and this is
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
   createSupervisorRoutes(),
+  createArenaRoutes(arenaService),
   createInventoryRoutes(describeAgentSession),
   createBotRoutes(botRegistry, repositoryGitWatch, {
     maxTextBytes: config.workspaceMaxTextBytes,
@@ -381,7 +403,13 @@ const server = Bun.serve<undefined>({
 console.log(`agent feed sidecar listening on http://${config.host}:${server.port}`);
 // Announce on the shared board so any panel on the machine can offer this session with no port
 // hand-fed to it. Withdrawn in shutdown; a crash leaves a descriptor that ages out on its own.
-const announcement = announceSidecar(config.port);
+// A sidecar pointed at its own announce directory joins a board of one instead, which is how a
+// probe or an arena sidecar keeps this user's real entry intact.
+const announcementDir = announceDirectory();
+const announcement = announceSidecar(
+  config.port,
+  announcementDir ? { dir: announcementDir } : undefined,
+);
 void startCatalog()
   .then(async () => {
     await claudeLive.start();

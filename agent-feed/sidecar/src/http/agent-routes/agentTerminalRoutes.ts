@@ -12,8 +12,8 @@ import {
   AgentTerminalNotFoundError,
   AgentTerminalUnavailableError,
 } from "@/terminal/agentTerminalService";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const TERMINALS_ROUTE = "/api/terminals";
 /** Every open terminal on one stream; see `AgentTerminalStreamEnvelope` for why it is not one each. */

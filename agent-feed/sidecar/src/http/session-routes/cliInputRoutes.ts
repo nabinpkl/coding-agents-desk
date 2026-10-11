@@ -15,8 +15,8 @@ import {
   deliverCliInput,
   MAXIMUM_INPUT_BYTES,
 } from "@/input/claudeSessionInbox";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const INPUT_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/input$/i;
 

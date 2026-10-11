@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RouteHandler } from "@/http/route";
+import type { RouteHandler } from "@/http/protocol/route";
 import { createWorkspaceFileRoutes } from "@/http/workspace-routes/workspaceFileRoutes";
 import { createWorkspaceRoutes } from "@/http/workspace-routes/workspaceRoutes";
 import { RepositoryGitWatch } from "@/workspace/repositoryWatch";

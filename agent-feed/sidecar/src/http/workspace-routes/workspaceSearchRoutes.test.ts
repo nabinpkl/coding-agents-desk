@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceError, WorkspaceFileList, WorkspaceSearchResult } from "@agentdesk/agent-feed-wire";
 import { ripgrepBinary } from "@/config/configBinaries";
-import type { RouteHandler } from "@/http/route";
+import type { RouteHandler } from "@/http/protocol/route";
 import { createWorkspaceSearchRoutes, parseSearchOptions } from "@/http/workspace-routes/workspaceSearchRoutes";
 import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";

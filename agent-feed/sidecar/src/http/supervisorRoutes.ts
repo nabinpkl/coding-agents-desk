@@ -12,8 +12,8 @@
 
 import type { SupervisorCommandRequest } from "@agentdesk/agent-feed-wire";
 import { requestSupervisor } from "@/sidecarRegistry";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const SUPERVISOR_ROUTE = "/api/supervisor";
 

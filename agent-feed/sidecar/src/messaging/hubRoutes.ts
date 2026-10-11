@@ -3,8 +3,8 @@
 // over this machine's sessions.
 
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
-import { errorResponse, jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import { HubClient, HubError, loadHubSettings } from "@/messaging/hubClient";
 
 const MAXIMUM_BODY_BYTES = 64 * 1024;

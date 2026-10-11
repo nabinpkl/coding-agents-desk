@@ -11,8 +11,8 @@
 
 import type { UsageStreamMessage } from "@agentdesk/agent-feed-wire";
 import { createUsageScanner, type UsageScanner } from "@/usage/usageReport";
-import { encodeServerSentEvent, startServerSentEventStream } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { encodeServerSentEvent, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const USAGE_ROUTE = "/api/usage";
 

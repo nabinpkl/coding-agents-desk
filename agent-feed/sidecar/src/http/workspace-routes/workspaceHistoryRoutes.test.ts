@@ -12,7 +12,7 @@ import type {
   WorkspaceCommitDetail,
   WorkspaceCommitDiff,
 } from "@agentdesk/agent-feed-wire";
-import type { RouteHandler } from "@/http/route";
+import type { RouteHandler } from "@/http/protocol/route";
 import { createWorkspaceHistoryRoutes } from "@/http/workspace-routes/workspaceHistoryRoutes";
 import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";

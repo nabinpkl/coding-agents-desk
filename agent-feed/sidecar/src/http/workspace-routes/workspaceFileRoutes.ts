@@ -5,8 +5,8 @@
 // means the file routes can be read in one sitting by whoever is checking that boundary.
 
 import type { WorkspaceFileRead } from "@agentdesk/agent-feed-wire";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import {
   readJsonBody,
   refusalResponse,

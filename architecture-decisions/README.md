@@ -157,3 +157,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0124 | A transcript row is named by the byte its line starts at | accepted | 2026-10-04 |
 | ADR-0125 | A thread holds ranges of its transcript, and seeks to a position instead of paging to it | accepted | 2026-10-05 |
 | ADR-0126 | Archiving a session is ours, kept per machine beside bots.json | accepted | 2026-10-11 |
+| ADR-0127 | Arena runs fan one prompt out to worktree contestants, recording facts and judging nothing | accepted | 2026-10-11 |

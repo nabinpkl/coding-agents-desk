@@ -27,8 +27,8 @@ import type {
   TmuxSessionSummary,
 } from "@agentdesk/agent-feed-wire";
 import { MAXIMUM_COMPOSER_IMAGE_BYTES } from "@agentdesk/agent-feed-wire";
-import { errorResponse, jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import { imageMediaType, writeComposerImage } from "@/input/composerImages";
 import { paste } from "@/input/composerKeystrokes";
 import { hexKeyArguments } from "@/terminal/tmux/tmuxAttachment";

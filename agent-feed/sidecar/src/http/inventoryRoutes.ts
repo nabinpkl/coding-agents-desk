@@ -13,8 +13,8 @@ import {
   encodeServerSentEvent,
   jsonResponse,
   startServerSentEventStream,
-} from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+} from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 /**
  * Which projects this surface has open, of the ones it asked for.

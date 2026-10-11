@@ -9,8 +9,8 @@
 // them writes -- so the boundary to check is
 // argument injection rather than the filesystem.
 
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import {
   refusalResponse,
   RequestFailure,

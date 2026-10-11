@@ -18,8 +18,8 @@ import { sessionOwner } from "@/tasks/sessionRegistry";
 import { broadcast } from "@/transcripts/catalog/catalogState";
 import type { Session } from "@/transcripts/transcriptTypes";
 import type { SessionArchiveStore } from "@/transcripts/session-ops/sessionArchive";
-import { errorResponse, jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const ARCHIVE_ROUTE = /^\/api\/sessions\/(claude|codex|pi|opencode)\/([0-9A-Za-z._:-]{1,128})\/(archive|unarchive)$/i;
 

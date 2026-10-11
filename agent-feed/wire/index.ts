@@ -165,6 +165,16 @@ export type {
 } from "./park.ts";
 
 export type {
+  ArenaContestantDetail,
+  ArenaContestantStatus,
+  ArenaContestantSummary,
+  ArenaCreateRunRequest,
+  ArenaRunDetail,
+  ArenaRunSummary,
+  ArenaRunsStreamMessage,
+} from "./arena.ts";
+
+export type {
   SummaryCoverage,
   SummaryFileAction,
   SummaryFileChange,

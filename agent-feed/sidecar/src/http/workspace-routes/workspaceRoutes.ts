@@ -4,8 +4,8 @@
 // these are for; the `agent-feed` above them is the port that is still open (`FEATURE-MAP.md`).
 
 import type { WorkspaceOperation } from "@agentdesk/agent-feed-wire";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import {
   readJsonBody,
   refusalResponse,

@@ -19,8 +19,8 @@ import {
   type BotRegistry,
 } from "@/bots/botRegistry";
 import type { BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
-import { errorResponse, jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const BRACKET_ROUTE = /^\/api\/sessions\/([^/]+)\/([^/]+)\/bracket$/;
 

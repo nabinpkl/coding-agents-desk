@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type {
   SupervisorCommand,
   SupervisorMode,
@@ -33,6 +33,19 @@ export interface SidecarDescriptor {
 
 export interface SidecarAnnouncement {
   stop(): void;
+}
+
+/**
+ * Where this sidecar's announcement goes: a directory of its own, or the shared board.
+ *
+ * The board keeps one descriptor file per login user, so it is right for the one sidecar a user
+ * runs -- and wrong for a second sidecar as the same user, which overwrites the first's entry
+ * and deletes it again on exit. A second sidecar -- a probe, an arena run, any isolated
+ * instance -- sets `AGENT_FEED_ANNOUNCE_DIR` and stays off the board every other panel reads.
+ */
+export function announceDirectory(): string | null {
+  const fromEnv = process.env.AGENT_FEED_ANNOUNCE_DIR?.trim();
+  return fromEnv ? resolve(fromEnv) : null;
 }
 
 /**

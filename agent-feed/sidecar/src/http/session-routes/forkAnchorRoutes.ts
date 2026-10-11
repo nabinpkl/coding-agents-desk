@@ -9,7 +9,7 @@
  * the route table.
  */
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
-import { errorResponse, jsonResponse } from "@/http/httpResponses";
+import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
 import { lastCompactionMessage, lastHumanMessage } from "@/transcripts/messageAnchor";
 import { NotALineStartError } from "@/transcripts/transcript-reads/transcriptLines";
 

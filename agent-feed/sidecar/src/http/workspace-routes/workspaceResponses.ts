@@ -4,7 +4,7 @@
 // invented its own status or its own spelling would make one refusal look like two.
 
 import type { WorkspaceError, WorkspaceErrorCode } from "@agentdesk/agent-feed-wire";
-import { jsonResponse } from "@/http/httpResponses";
+import { jsonResponse } from "@/http/protocol/httpResponses";
 import { SearchFailure } from "@/workspace/search/ripgrep";
 import { SharedStateFailure } from "@/workspace/workspaceSharedState";
 import { WorkspaceFailure } from "@/workspace/workspacePaths";

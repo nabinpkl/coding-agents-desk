@@ -28,6 +28,16 @@ describe("initialSurface", () => {
     expect(initialSurface("?entry=park")).toBe("desktop");
     expect(initialSurface("?entry=")).toBe("desktop");
   });
+
+  it("reaches the arena the way every other surface is reached", () => {
+    expect(initialSurface("?entry=arena")).toBe("arena");
+    expect(initialSurface("?entry=arena&fixture")).toBe("arena");
+  });
+
+  it("reaches the arena the way every other surface is reached", () => {
+    expect(initialSurface("?entry=arena")).toBe("arena");
+    expect(initialSurface("?entry=arena&fixture")).toBe("arena");
+  });
 });
 
 describe("rememberedSession", () => {

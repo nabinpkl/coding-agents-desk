@@ -45,8 +45,8 @@ import {
   SessionForkNotFoundError,
 } from "@/transcripts/session-ops/forkSession";
 import { WorktreeError } from "@/git/worktree";
-import { errorResponse, jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import {
   LAST_COMPACTION_ROUTE,
   LAST_MESSAGE_ROUTE,

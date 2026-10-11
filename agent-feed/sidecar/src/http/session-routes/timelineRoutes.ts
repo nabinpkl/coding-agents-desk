@@ -25,7 +25,7 @@ import type {
   TranscriptSourceId,
 } from "@/transcripts/transcriptTypes";
 import { TIMELINE_HEARTBEAT_MS, type EventsPage, type TimelineMessage } from "@agentdesk/agent-feed-wire";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
 import { subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
 import {
   readPageBefore,
@@ -33,7 +33,7 @@ import {
   type SessionMeter,
 } from "@/transcripts/transcript-reads/transcriptPages";
 import { TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
-import type { RouteHandler } from "@/http/route";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const TIMELINE_ROUTE =
   /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/timeline$/;

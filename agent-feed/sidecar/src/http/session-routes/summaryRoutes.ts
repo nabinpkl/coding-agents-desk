@@ -37,8 +37,8 @@ import {
   encodeServerSentEvent,
   jsonResponse,
   startServerSentEventStream,
-} from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+} from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import { readTranscriptPage } from "@/http/session-routes/sessionRoutes";
 
 const SUMMARY_ROUTE =

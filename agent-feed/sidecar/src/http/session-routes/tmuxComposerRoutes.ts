@@ -41,8 +41,8 @@ import {
   errorResponse,
   jsonResponse,
   startServerSentEventStream,
-} from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+} from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const RETRY = new TextEncoder().encode("retry: 20000\n\n");
 

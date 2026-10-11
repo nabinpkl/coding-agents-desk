@@ -9,8 +9,8 @@
 // `server.ts`) so a path here is never read as a generic agent-session one.
 
 import type { AgentBackend, AgentCommandReceipt } from "@/agents/agentBackend";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import { errorResponse, jsonBody, requestIdentifier, routeError, stringValue } from "@/http/agent-routes/agentRoutes";
 
 const COMMANDS_ROUTE = "/api/agent-sessions/opencode/commands";

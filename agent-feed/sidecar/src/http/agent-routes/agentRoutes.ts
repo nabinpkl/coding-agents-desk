@@ -3,8 +3,8 @@ import { eventsPageAtFromQuery } from "@agentdesk/agent-feed-wire";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
 import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import { bindableDirectory } from "@/bots/botDirectory";
 
 const CREATE_ROUTE = "/api/agent-sessions";

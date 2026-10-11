@@ -27,8 +27,8 @@ import {
 } from "@/tasks/processProbe";
 import { sessionOwner } from "@/tasks/sessionRegistry";
 import { claudeTranscriptPath, scanSessionTasks } from "@/tasks/taskIdentity";
-import { encodeServerSentEvent, startServerSentEventStream } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { encodeServerSentEvent, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const TASKS_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/tasks$/;
 const TASK_OUTPUT_ROUTE =

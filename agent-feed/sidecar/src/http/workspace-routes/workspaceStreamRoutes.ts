@@ -6,8 +6,8 @@
 // so silently (AGENTS.md, "The dev origin serves HTTP/2"). Three IDE streams would be three more
 // chances to be the one that loses.
 
-import { encodeServerSentEvent, startServerSentEventStream } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { encodeServerSentEvent, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import { workspaceErrorResponse, workspaceRoute } from "@/http/workspace-routes/workspaceResponses";
 import type { WorkspaceService } from "@/workspace/workspaceService";
 

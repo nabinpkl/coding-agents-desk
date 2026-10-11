@@ -1,5 +1,5 @@
 import { config } from "@/config/config";
-import { frames, KIND_META } from "@/http/tile-encoder/encoderFrames";
+import { frames, KIND_META } from "@/http/tile/tile-encoder/encoderFrames";
 import { helperBinary, type HelperBinary, missingHelperMessage } from "@/desktop/helperBinary";
 
 /**

@@ -37,8 +37,8 @@ import {
   windows,
   YabaiUnavailable,
 } from "@/park/yabai";
-import { jsonResponse } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { jsonResponse } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 const STATE_ROUTE = "/api/park/state";
 const PLAN_ROUTE = "/api/park/plan";

@@ -19,8 +19,8 @@ import type {
   SubagentForkOrigin,
   SubagentTranscriptMessage,
 } from "@agentdesk/agent-feed-wire";
-import { encodeServerSentEvent, startServerSentEventStream } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { encodeServerSentEvent, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 import { followTranscript } from "@/transcripts/transcript-reads/transcriptFollow";
 import { completeEnd } from "@/transcripts/transcript-reads/transcriptLines";
 import {

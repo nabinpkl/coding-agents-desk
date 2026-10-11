@@ -10,7 +10,7 @@ import {
   BotLaunchError,
   BotNotFoundError,
 } from "@/bots/botRegistry";
-import { errorResponse } from "@/http/httpResponses";
+import { errorResponse } from "@/http/protocol/httpResponses";
 
 const MAXIMUM_BODY_BYTES = 256 * 1024;
 

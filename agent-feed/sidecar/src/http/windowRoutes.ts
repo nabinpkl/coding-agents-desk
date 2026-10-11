@@ -8,8 +8,8 @@ import {
 import { unlink } from "node:fs/promises";
 
 import { ControlHelperError, controlHelper } from "@/desktop/controlHelper";
-import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/httpResponses";
-import type { RouteHandler } from "@/http/route";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import type { RouteHandler } from "@/http/protocol/route";
 
 /**
  * Claude Desktop's composer and AskUserQuestion panel, over HTTP.
