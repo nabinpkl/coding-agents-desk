@@ -367,3 +367,22 @@ test("every Bot's view carries the name its machine hands out next, whichever Bo
   const views = (await registry.snapshot()).bots;
   expect(views.find((bot) => bot.botId === second.botId)!.nextAnchor).toBe("Adam");
 });
+
+test("a session started elsewhere attaches before the catalog has seen it, and reads as missing", async () => {
+  // A handover starts a Claude session whose transcript does not exist until its first turn
+  // lands. `addSessions` refuses that reference; this door takes it, the way a launch does.
+  const { registry, project } = await fixture();
+  const bot = await addBot(registry,
+    { requestId: "r1", name: "Handover bot", directoryPath: project },
+    { kind: "user" },
+  );
+  const ref = { source: "claude" as const, sessionId: "handed-over" };
+  await expect(addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [ref] }, { kind: "user" }))
+    .rejects.toBeInstanceOf(BotNotFoundError);
+
+  const attached = await registry.attachStartedSession(bot.botId, ref, { kind: "user" });
+  expect(attached.missingSessionRefs).toEqual([ref]);
+  // A second attach of the same session is the same answer, not a second reference.
+  const again = await registry.attachStartedSession(bot.botId, ref, { kind: "user" });
+  expect(again.missingSessionRefs).toEqual([ref]);
+});

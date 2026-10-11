@@ -255,6 +255,37 @@ test("a handover to Claude starts a session where the opencode session runs, car
   }
 });
 
+test("a handover to Claude puts the started session on the asking Bot, in the same request", async () => {
+  // The panel's own attach resolved against the catalog, which has no Claude session until its
+  // first turn writes the transcript, so it failed every time with "not in the current catalog".
+  seedOpencodeSession(OPENCODE_ID, "Wire contract");
+  const started: { cwd: string; title: string; prompt?: string }[] = [];
+  const attached: { botId: string; sessionId: string }[] = [];
+  try {
+    const route = createHandoverRoutes(() => undefined, {
+      ...claudeActions(started, async () => ({ summary: null, turns: "human: hi", turnCount: 1, lossy: false })),
+      bots: {
+        exists: async (botId) => botId === "bot-1",
+        attach: async (botId, ref) => { attached.push({ botId, sessionId: ref.sessionId }); },
+      },
+    });
+    const request = handoverRequest({ requestId: "r7", sessionId: OPENCODE_ID, botId: "bot-1" });
+    const response = await route(request, new URL(request.url), server);
+    expect(response?.status).toBe(201);
+    const body = await response?.json() as { session: { sessionId: string } };
+    expect(attached).toEqual([{ botId: "bot-1", sessionId: body.session.sessionId }]);
+
+    // A Bot that is gone is refused before anything starts, rather than leaving a pane behind.
+    const stale = handoverRequest({ requestId: "r8", sessionId: OPENCODE_ID, botId: "bot-gone" });
+    const refused = await route(stale, new URL(stale.url), server);
+    expect(refused?.status).toBe(404);
+    expect(await refused?.json()).toMatchObject({ error: { code: "unknown-bot" } });
+    expect(started).toHaveLength(1);
+  } finally {
+    unseedOpencodeSession(OPENCODE_ID);
+  }
+});
+
 test("a handover to Claude answers 404 for an unknown session and for one with nothing in it", async () => {
   const started: { cwd: string; title: string; prompt?: string }[] = [];
   const refusing = createHandoverRoutes(() => undefined, claudeActions(started, async () => {

@@ -10,7 +10,7 @@ import {
   jsonResponse,
 } from "@/http/httpResponses";
 import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
-import { createHandoverRoutes } from "@/http/agent-routes/handoverRoutes";
+import { createHandoverRoutes, LIVE_HANDOVER_ACTIONS } from "@/http/agent-routes/handoverRoutes";
 import { createOpencodeRoutes } from "@/http/agent-routes/opencodeRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
 import { createCliInputRoutes } from "@/http/session-routes/cliInputRoutes";
@@ -243,7 +243,15 @@ const routes: RouteHandler[] = [
   // Ahead of the generic agent-session routes: opencode's own paths live under the same
   // prefix, and the slash-command half of them answers first.
   createOpencodeRoutes(resolveBackend),
-  createHandoverRoutes(resolveBackend),
+  createHandoverRoutes(resolveBackend, {
+    ...LIVE_HANDOVER_ACTIONS,
+    bots: {
+      exists: async (botId) => (await botRegistry.snapshot()).bots.some((bot) => bot.botId === botId),
+      attach: async (botId, ref) => {
+        await botRegistry.attachStartedSession(botId, ref, { kind: "user" });
+      },
+    },
+  }),
   createAgentRoutes(resolveBackend),
   // Ahead of the session routes so `/timeline` is matched before their
   // catch-all rejection of unknown `/api/sessions/` paths.

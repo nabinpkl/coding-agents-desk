@@ -97,6 +97,24 @@ export interface HandoverRouteActions {
   launch: SessionLauncher;
   renderClaude: typeof renderHandover;
   renderOpencode: typeof renderOpencodeHandover;
+  /** The Bots a Claude successor can land on; absent where no registry is wired. */
+  bots?: HandoverBots;
+}
+
+/**
+ * Putting a Claude successor on the Bot the handover was asked from, inside the one request.
+ *
+ * Here rather than as the panel's second call, because that call races the session it attaches:
+ * it resolves the session against the catalog, and a Claude session started a moment ago is not
+ * in it until its first turn writes the transcript. The first real handover lost that race and
+ * answered "session claude:<id> is not in the current catalog" (2026-10-11). The opencode
+ * direction has no such gap, because the serve's create puts the session in the catalog before
+ * the route answers.
+ */
+export interface HandoverBots {
+  /** Asked BEFORE anything starts, so a stale Bot id costs an error rather than a stray pane. */
+  exists(botId: string): Promise<boolean>;
+  attach(botId: string, ref: { source: "claude"; sessionId: string }): Promise<void>;
 }
 
 export const LIVE_HANDOVER_ACTIONS: HandoverRouteActions = {
@@ -275,6 +293,10 @@ export async function handoverToClaude(
     const title = handoverTitle(body.title, source.title);
     const refusal = sessionTitleRefusal(title);
     if (refusal) return errorResponse("invalid-request", `title: ${refusal}`, 400, requestId);
+    const botId = typeof body.botId === "string" && body.botId ? body.botId : null;
+    if (botId !== null && !await actions.bots?.exists(botId)) {
+      return errorResponse("unknown-bot", `Bot "${botId}" was not found`, 404, requestId);
+    }
 
     const prompt = buildHandoverPrompt({ source: "opencode", sessionId, handover, message });
     const bytes = Buffer.byteLength(prompt);
@@ -287,6 +309,7 @@ export async function handoverToClaude(
       );
     }
     const started = await launchSession({ checkout: source.project, title, prompt }, actions.launch);
+    if (botId !== null) await actions.bots!.attach(botId, { source: "claude", sessionId: started.sessionId });
     return jsonResponse({
       session: started,
       handover: { turnCount: handover.turnCount, chars: prompt.length, lossy: handover.lossy },

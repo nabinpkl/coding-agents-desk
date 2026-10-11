@@ -118,7 +118,7 @@ describe("what the data source asks for", () => {
     const feed = new SidecarDataSource(transport);
 
     expect((await feed.handoverToOpencode("sid-1", "go on")).session.sessionId).toBe("op-1");
-    expect((await feed.handoverToClaude("oc-1", "go on")).session.sessionId).toBe("cl-1");
+    expect((await feed.handoverToClaude("oc-1", "go on", "bot-1")).session.sessionId).toBe("cl-1");
     expect(transport.requests).toEqual([
       {
         method: "POST",
@@ -128,7 +128,7 @@ describe("what the data source asks for", () => {
       {
         method: "POST",
         path: "/api/agent-sessions/claude/handover",
-        body: { requestId: expect.any(String), sessionId: "oc-1", message: "go on" },
+        body: { requestId: expect.any(String), sessionId: "oc-1", message: "go on", botId: "bot-1" },
       },
     ]);
   });
@@ -148,12 +148,11 @@ describe("what the command does with it", () => {
     expect(result.current.handoverRequest).toEqual({ botId: "bot-1", session: OPENCODE, projectPath: "/repo" });
   });
 
-  it("attaches the started session under the harness it actually started on", async () => {
+  it("attaches an opencode successor by reference, under the harness it started on", async () => {
     // The direction has to survive past the call: attaching an opencode id under `claude` (or the
     // other way) leaves a reference the catalog cannot resolve, and the card opens empty.
     for (const [session, path, startedId, destination] of [
       [CLAUDE, "/api/agent-sessions/opencode/handover", "op-1", "opencode"],
-      [OPENCODE, "/api/agent-sessions/claude/handover", "cl-1", "claude"],
     ] as const) {
       const transport = new FakeHttpTransport();
       transport.responses.set(`POST ${path}`, {
@@ -178,6 +177,32 @@ describe("what the command does with it", () => {
       expect(openKeys.has(`${destination}:${startedId}`)).toBe(true);
       expect(result.current.botCommandError).toBeNull();
     }
+  });
+
+  it("lets the sidecar attach a Claude successor, and opens it as a stand-in card", async () => {
+    // A second attach from the panel resolves against the catalog, which has no Claude session
+    // until its first turn is written, and failed with "not in the current catalog".
+    const transport = new FakeHttpTransport();
+    transport.responses.set("POST /api/agent-sessions/claude/handover", {
+      status: 201,
+      body: JSON.stringify({
+        session: { sessionId: "cl-1", title: "op-1 (handover)", projectPath: "/repo", tmuxSession: "agentdesk-cl-1" },
+        handover: { turnCount: 4, chars: 100, lossy: false },
+      }),
+    });
+    const { result, openKeys } = commands(new SidecarDataSource(transport));
+
+    await act(async () => {
+      await result.current.startHandover({ botId: "bot-1", session: OPENCODE, projectPath: "/repo" }, "go on");
+    });
+
+    expect(transport.requests.map((request) => request.path)).toEqual(["/api/agent-sessions/claude/handover"]);
+    expect(transport.requests[0]!.body).toMatchObject({ botId: "bot-1" });
+    expect(result.current.newSessions).toEqual([
+      { botId: "bot-1", sessionId: "cl-1", title: "op-1 (handover)", projectPath: "/repo", tmuxSession: "agentdesk-cl-1" },
+    ]);
+    expect(openKeys.has("claude:cl-1")).toBe(true);
+    expect(result.current.botCommandError).toBeNull();
   });
 
   it("names the source session when the handover fails", async () => {
