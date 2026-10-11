@@ -206,3 +206,14 @@ describe("coming back", () => {
     expect(line.sessionId).toBe("sid-1");
   });
 });
+
+describe("an archived session", () => {
+  test("is left out of the Bot view entirely, neither shown nor missing", async () => {
+    const split = await resolveBotSessions(recordWith(REF, OTHER_REF), (ref) =>
+      ref.sessionId === REF.sessionId
+        ? { projectPath: "/repo", summary: summary({ archivedAt: 1_000 }) }
+        : { projectPath: "/repo", summary: summary({ sessionId: OTHER_REF.sessionId, source: "codex" }) });
+    expect(split.sessions.map((session) => session.sessionId)).toEqual([OTHER_REF.sessionId]);
+    expect(split.missingSessionRefs).toEqual([]);
+  });
+});

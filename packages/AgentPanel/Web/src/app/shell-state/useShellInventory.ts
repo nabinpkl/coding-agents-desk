@@ -11,13 +11,14 @@
 // sat on "Loading sessions from this directory" for good, because the Mac's inventory stream
 // accepted the path, found no project, and never sent a sessions message for it.
 
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { loadSelection } from "@/features/sidebar/selectionStore";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";
 import { useProjectInventory } from "@/app/shell-state/useProjectInventory";
+import type { SessionArchiving } from "@/features/sidebar/ArchivedSessions";
 
 export function useShellInventory({
   feed,
@@ -89,5 +90,20 @@ export function useShellInventory({
     return merged;
   }, [inventory.sessionsByProject, pickerPeer, peerInventory.sessionsByProject]);
 
-  return { inventory, dialogSessionsByProject, rememberedSelection };
+  /**
+   * Archiving from the project list, on the machine the list is reading.
+   *
+   * The list is this machine's inventory, so this machine's feed answers for it; a Bot card or a
+   * roster row archives through its own machine's feed instead.
+   */
+  const setSessionArchived = useCallback(
+    (session: SessionSummary, archived: boolean) => feed.setSessionArchived(session, archived),
+    [feed],
+  );
+  const archiving = useMemo<SessionArchiving>(
+    () => ({ archivedByProject: inventory.archivedByProject, setArchived: setSessionArchived }),
+    [inventory.archivedByProject, setSessionArchived],
+  );
+
+  return { inventory: { ...inventory, archiving }, dialogSessionsByProject, rememberedSelection };
 }

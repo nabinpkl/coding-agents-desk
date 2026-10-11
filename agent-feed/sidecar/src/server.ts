@@ -27,6 +27,9 @@ import { createWindowRoutes } from "@/http/windowRoutes";
 import { createWebrtcTileRoutes } from "@/http/tile-peer/webrtcTileRoutes";
 import type { RouteHandler } from "@/http/route";
 import { createSessionRoutes } from "@/http/session-routes/sessionRoutes";
+import { createSessionArchiveRoutes, liveSessionCheck } from "@/http/agent-routes/sessionArchiveRoutes";
+import { installSessionArchive, SessionArchiveStore } from "@/transcripts/session-ops/sessionArchive";
+import { broadcast as broadcastCatalog } from "@/transcripts/catalog/catalogState";
 import { createBracketRoutes } from "@/http/session-routes/bracketRoutes";
 import { createEventImageRoutes } from "@/http/session-routes/eventImageRoutes";
 import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
@@ -101,6 +104,13 @@ const resolveBackend = (id: string) => backends.get(id);
 const describeAgentSession = (source: string, sessionId: string) =>
   backends.get(source)?.describeSession(sessionId);
 const botStore = new BotStore(config.botsPath);
+const sessionArchive = new SessionArchiveStore(config.sessionArchivePath);
+installSessionArchive(sessionArchive);
+// Rows summarized before the file was read went out unarchived; republish once it has been.
+void sessionArchive.ready().then(
+  () => broadcastCatalog(),
+  (error: unknown) => console.error("agent feed session archive failed to load", error),
+);
 const botCatalog: BotRegistryCatalog = {
   resolveProject(path) {
     // The catalog first, then any directory this machine has under home: a project nobody has
@@ -295,6 +305,8 @@ const routes: RouteHandler[] = [
   // Bot's, for the same reason forking moved off the Bot endpoint, and ahead of the catch-all
   // below for the same mechanical reason as the rest.
   createBracketRoutes(botRegistry, { renameSession }),
+  // `/archive` and `/unarchive`, under `/api/sessions/` like the rest above.
+  createSessionArchiveRoutes({ archive: sessionArchive, isRunning: liveSessionCheck(describeAgentSession) }),
   createSessionRoutes(describeAgentSession),
   // The agent messaging hub, spoken to as `human` on the panel's behalf (docs/agent-messaging.md).
   createHubRoutes(),

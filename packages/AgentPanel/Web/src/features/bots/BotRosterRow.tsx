@@ -1,6 +1,7 @@
 import { ChevronRight, EyeOff, Plus } from "lucide-react";
 import { useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/ArchivedSessions";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
@@ -67,6 +68,10 @@ export function BotRosterRow({
   // the half that cannot be recovered from the sidecar's log after the fact. A Bot can be here and
   // on a canvas card at once, so this is a separate observation from that card's.
   useMissingSessionLog(bot, "roster-row");
+  // Through the Bot's own machine: the session and its archive are both there.
+  const archive = useSessionArchiveCommand(
+    feed ? (session: SessionSummary, archived: boolean) => feed.setSessionArchived(session, archived) : undefined,
+  );
   // Transient by the rule in AGENTS.md: a fold a reader opened to find one session is not an
   // arrangement they would have to rebuild, and one that survived a reload would quietly undo the
   // compaction on every Bot they had ever looked inside.
@@ -136,7 +141,7 @@ export function BotRosterRow({
         // Whether the card is UNFOLDED is the face's to say through its eyes,
         // and whether there is one at all is the dimming's and the crossed
         // eye's. `aria-current` carries the first for a reader who sees neither.
-        className={`flex items-center border-l-2 pr-1.5 ${
+        className={`flex flex-wrap items-center border-l-2 pr-1.5 ${
           shaded && !noCard ? "bot-rail" : "border-transparent"
         } ${noCard ? "opacity-55" : ""}`}
         style={shaded}
@@ -197,7 +202,9 @@ export function BotRosterRow({
           isFather={isFatherSession(bot, session)}
           onSetFather={() => onSetFatherSession(bot, session)}
           onClearFather={() => onSetFatherSession(bot, null)}
+          onArchive={feed ? () => archive.run(session, true) : undefined}
         />
+        <ArchiveFailure message={archive.failureFor(session)} className="w-full px-3 pb-2" />
       </li>
     );
   };

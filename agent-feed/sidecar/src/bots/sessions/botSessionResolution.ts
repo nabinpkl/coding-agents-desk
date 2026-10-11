@@ -104,6 +104,9 @@ export async function resolveBotSessions(
       botPath: record.environment.path,
       ref,
     };
+    // Archived is hidden everywhere, a Bot included. Neither shown nor missing: the reference stays
+    // on the Bot, so unarchiving puts the session back where it was.
+    if (resolved?.summary.archivedAt !== undefined) continue;
     if (resolved) {
       sessions.push(
         await withWorktree(resolved.summary, resolved.projectPath, record.environment.path),

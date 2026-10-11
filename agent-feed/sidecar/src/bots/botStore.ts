@@ -1,13 +1,11 @@
 import chokidar, { type FSWatcher } from "chokidar";
-import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { BotRecord } from "@agentdesk/agent-feed-wire";
 import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
+import { acquireFileLock, writeJsonAtomically } from "@/config/lockedJsonFile";
 
 export const BOT_STORE_VERSION = 3;
-const LOCK_WAIT_MS = 25;
-const LOCK_TIMEOUT_MS = 5_000;
-const STALE_LOCK_MS = 30_000;
 
 export interface BotIdempotencyRecord {
   signature: string;
@@ -246,11 +244,11 @@ export class BotStore {
   mutate<T>(mutation: (snapshot: StoredBotSnapshot) => { snapshot: StoredBotSnapshot; value: T }): Promise<T> {
     const run = this.mutationTail.then(async () => {
       await this.loaded;
-      const release = await this.acquireLock();
+      const release = await acquireFileLock(this.path);
       try {
         const latest = await this.readSnapshot();
         const result = mutation(structuredClone(latest));
-        await this.write(result.snapshot);
+        await writeJsonAtomically(this.path, result.snapshot);
         this.snapshotValue = result.snapshot;
         for (const listener of this.listeners) listener(structuredClone(result.snapshot));
         return result.value;
@@ -282,78 +280,5 @@ export class BotStore {
       throw new Error(`bots.json at ${this.path} is not valid JSON`, { cause: error });
     }
     return validateSnapshot(parsed);
-  }
-
-  private async acquireLock(): Promise<() => Promise<void>> {
-    const directory = dirname(this.path);
-    const lockPath = `${this.path}.lock`;
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const deadline = Date.now() + LOCK_TIMEOUT_MS;
-
-    for (;;) {
-      try {
-        const handle = await open(lockPath, "wx", 0o600);
-        try {
-          await handle.writeFile(`${process.pid}\n`, "utf8");
-        } catch (error) {
-          await handle.close();
-          await rm(lockPath, { force: true });
-          throw error;
-        }
-        let released = false;
-        return async () => {
-          if (released) return;
-          released = true;
-          try {
-            await handle.close();
-          } finally {
-            await rm(lockPath, { force: true });
-          }
-        };
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-          throw new Error(`failed to lock bots.json at ${this.path}`, { cause: error });
-        }
-
-        try {
-          const lock = await stat(lockPath);
-          if (Date.now() - lock.mtimeMs > STALE_LOCK_MS) {
-            await rm(lockPath, { force: true });
-            continue;
-          }
-        } catch (lockError) {
-          if ((lockError as NodeJS.ErrnoException).code === "ENOENT") continue;
-          throw new Error(`failed to inspect bots.json lock at ${lockPath}`, { cause: lockError });
-        }
-
-        if (Date.now() >= deadline) {
-          throw new Error(`timed out waiting for bots.json lock at ${lockPath}`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_MS));
-      }
-    }
-  }
-
-  private async write(snapshot: StoredBotSnapshot): Promise<void> {
-    const directory = dirname(this.path);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const temporary = join(directory, `.bots.${process.pid}.${crypto.randomUUID()}.tmp`);
-    const handle = await open(temporary, "wx", 0o600);
-    try {
-      try {
-        await handle.writeFile(`${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      await rename(temporary, this.path);
-    } catch (error) {
-      try {
-        await rm(temporary, { force: true });
-      } catch (cleanupError) {
-        throw new AggregateError([error, cleanupError], `failed to write and clean up bots.json at ${this.path}`);
-      }
-      throw error;
-    }
   }
 }

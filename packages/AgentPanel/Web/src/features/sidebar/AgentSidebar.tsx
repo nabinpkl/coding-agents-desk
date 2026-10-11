@@ -16,7 +16,7 @@ import { MessagesPanel } from "@/features/messages/MessagesPanel";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import type { UsageHandle } from "@/features/usage/useUsage";
-import { ProjectSessionList, type SessionCanvasMove } from "@/features/sidebar/ProjectSidebarItem";
+import { ProjectSessionList, type SessionArchiving, type SessionCanvasMove } from "@/features/sidebar/ProjectSidebarItem";
 import { CanvasSidebarViews, type CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 
 export type AgentSidebarMode = "sessions" | "bots" | "canvas" | "messages";
@@ -51,6 +51,7 @@ interface AgentSidebarProps {
    * unfolded.
    */
   sessionsByProject: ReadonlyMap<string, SessionSummary[]>;
+  archiving?: SessionArchiving;
   loading: boolean;
   error: string | null;
   retrying: boolean;
@@ -193,6 +194,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const listProps = {
     projects: props.projects,
     sessionsByProject: props.sessionsByProject,
+    archiving: props.archiving,
     loading: props.loading,
     error: props.error,
     retrying: props.retrying,

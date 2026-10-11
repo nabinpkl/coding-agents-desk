@@ -17,6 +17,7 @@ import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
+import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/ArchivedSessions";
 
 /** How far a press has to travel before it stops being a click and becomes a carry. */
 const MOVE_THRESHOLD = 4;
@@ -133,6 +134,14 @@ export function BotSessionCard({
   onClearFather: () => void;
 }) {
   const title = session.title || session.sessionId;
+  // Through this card's own machine, which is the one that holds the session and its archive.
+  const archive = useSessionArchiveCommand(
+    useCallback(
+      (target: SessionSummary, archived: boolean) => sessionContext.feed.setSessionArchived(target, archived),
+      [sessionContext.feed],
+    ),
+  );
+  const archiveFailure = archive.failureFor(session);
   // Where this session portals its control strip. One per session rather than one per Bot card,
   // which is what lets two of them be open at once without their controls landing in the same
   // place. State rather than a ref, because the session has to render again once the node exists.
@@ -391,6 +400,7 @@ export function BotSessionCard({
                 onMoveLater={canMoveLater ? () => onMoveBySteps(1) : undefined}
                 onDetach={onDetach}
                 onRemoveFromCanvas={onRemoveFromCanvas}
+                onArchive={() => archive.run(session, true)}
                 isFather={isFather}
                 onSetFather={onSetFather}
                 onClearFather={onClearFather}
@@ -412,6 +422,12 @@ export function BotSessionCard({
               {botError.message}
             </p>
           ) : null}
+          {/* Beside the Bot's own failures and styled the same: refused archives are almost always
+              "still running", which the reader has to act on before trying again. */}
+          <ArchiveFailure
+            message={archiveFailure}
+            className="border-t border-destructive/40 bg-destructive/10 px-3 py-2"
+          />
           {open ? (
             // A named landmark rather than a bare box: a canvas of open sessions is a page with
             // several of them on it, and each one should be reachable by name.

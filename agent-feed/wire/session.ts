@@ -53,6 +53,14 @@ export interface SessionSummary {
    * worktree checked out at a commit belongs to its repository and has no branch to name.
    */
   worktree?: { path: string; branch: string | null };
+  /**
+   * When the reader archived this session, epoch ms. Absent for a session that is not archived.
+   *
+   * Archived is ours, not the provider's (`session-archive.json` beside `bots.json`): every surface
+   * hides the row, and the project list offers it back under its own toggle. A Bot view never
+   * carries one, because the sidecar leaves archived sessions out of Bot views altogether.
+   */
+  archivedAt?: number;
 }
 
 /**

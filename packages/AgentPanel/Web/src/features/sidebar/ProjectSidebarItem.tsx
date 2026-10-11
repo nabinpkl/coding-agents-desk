@@ -1,13 +1,21 @@
 "use client";
 
-import { ChevronDown, LayoutDashboard, LoaderCircle, Plus } from "lucide-react";
+import { Archive, ChevronDown, LayoutDashboard, LoaderCircle, Plus } from "lucide-react";
 import { useId, useState, type KeyboardEvent } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { RowMenu } from "@/features/bots/menus/RowMenu";
+import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
+import {
+  ArchivedSessions,
+  ArchiveFailure,
+  useSessionArchiveCommand,
+  type SessionArchiving,
+} from "@/features/sidebar/ArchivedSessions";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { InlineStatus, SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
+
+export type { SessionArchiving };
 
 const INITIAL_SESSION_COUNT = 3;
 
@@ -34,6 +42,7 @@ export function ProjectSidebarItem({
   onSelectSession,
   onCreatePiSession,
   canvasMove,
+  archiving,
 }: {
   project: ProjectSummary;
   sessions: SessionSummary[] | undefined;
@@ -47,6 +56,8 @@ export function ProjectSidebarItem({
   /** Absent where a new Pi session is not offered, which is everywhere but the Sessions tab. */
   onCreatePiSession?: () => void;
   canvasMove?: SessionCanvasMove;
+  /** Archive and Unarchive. Absent where the list offers neither. */
+  archiving?: SessionArchiving;
 }) {
   const regionId = useId();
   const displayName = project.displayName || project.projectPath.split("/").pop() || project.projectPath;
@@ -104,7 +115,14 @@ export function ProjectSidebarItem({
             selectedSessionKey={selectedSessionKey}
             onSelect={onSelectSession}
             canvasMove={canvasMove}
+            archiving={archiving}
           />
+          {archiving ? (
+            <ArchivedSessions
+              archived={archiving.archivedByProject.get(project.projectPath)}
+              setArchived={archiving.setArchived}
+            />
+          ) : null}
         </div>
       ) : null}
     </li>
@@ -116,12 +134,15 @@ export function ProjectSessionPreview({
   selectedSessionKey,
   onSelect,
   canvasMove,
+  archiving,
 }: {
   sessions: SessionSummary[] | undefined;
   selectedSessionKey: string | null;
   onSelect: (session: SessionSummary) => void;
   canvasMove?: SessionCanvasMove | undefined;
+  archiving?: SessionArchiving | undefined;
 }) {
+  const archive = useSessionArchiveCommand(archiving?.setArchived);
   // How much of a long list is unfolded is this row's own business, and it lives and
   // dies with the row: collapsing a project unmounts this, so reopening it starts folded.
   const [visibleCount, setVisibleCount] = useState(INITIAL_SESSION_COUNT);
@@ -142,8 +163,14 @@ export function ProjectSessionPreview({
         {visibleSessions.map((session) => {
           const key = `${session.source}:${session.sessionId}`;
           const active = key === selectedSessionKey;
+          const menu: RowMenuItem[] = [];
+          if (canvasMove && !canvasMove.held.has(key)) {
+            menu.push({ label: "Move to canvas", icon: LayoutDashboard, onSelect: () => canvasMove.onMove(session) });
+          }
+          if (archiving) menu.push({ label: "Archive session", icon: Archive, onSelect: () => archive.run(session, true) });
+          const failure = archive.failureFor(session);
           return (
-            <li key={key} className={`flex items-center ${active ? "bg-muted" : ""}`}>
+            <li key={key} className={`flex flex-wrap items-center ${active ? "bg-muted" : ""}`}>
               <button
                 type="button"
                 onClick={() => onSelect(session)}
@@ -164,14 +191,15 @@ export function ProjectSessionPreview({
                   />
                 </span>
               </button>
-              {canvasMove && !canvasMove.held.has(key) ? (
+              {archive.isPending(session) ? (
+                <LoaderCircle className="mr-2 size-3.5 shrink-0 text-muted-foreground motion-safe:animate-spin" role="img" aria-label="Archiving" />
+              ) : null}
+              {menu.length > 0 ? (
                 <span className="pr-1">
-                  <RowMenu
-                    label={session.title || session.sessionId}
-                    items={[{ label: "Move to canvas", icon: LayoutDashboard, onSelect: () => canvasMove.onMove(session) }]}
-                  />
+                  <RowMenu label={session.title || session.sessionId} items={menu} />
                 </span>
               ) : null}
+              {failure ? <ArchiveFailure message={failure} className="w-full px-8 pb-2" /> : null}
             </li>
           );
         })}
@@ -214,6 +242,7 @@ export function ProjectSessionList(props: {
   };
   /** The Canvas tab's row action; absent on the Sessions tab, whose sessions open in place. */
   canvasMove?: SessionCanvasMove;
+  archiving?: SessionArchiving;
 }) {
   if (props.loading) return <SidebarStatus>Loading projects…</SidebarStatus>;
   if (props.error) {
@@ -238,6 +267,7 @@ export function ProjectSessionList(props: {
           onSelectSession={(session) => props.onSelectSession(project, session)}
           {...(props.pi ? { onCreatePiSession: () => props.pi!.onCreate(project) } : {})}
           {...(props.canvasMove ? { canvasMove: props.canvasMove } : {})}
+          {...(props.archiving ? { archiving: props.archiving } : {})}
         />
       ))}
     </ul>

@@ -1,4 +1,5 @@
 import {
+  Archive,
   ArrowLeft,
   ArrowRight,
   ArrowRightLeft,
@@ -33,6 +34,7 @@ export function SessionRowMenu({
   onSetFather,
   onClearFather,
   onRemoveFromCanvas,
+  onArchive,
 }: {
   label: string;
   /**
@@ -114,6 +116,11 @@ export function SessionRowMenu({
    * the card and the sidebar's way back is clicking the row.
    */
   onRemoveFromCanvas?: () => void;
+  /**
+   * Files the session away on its machine, which hides it from every surface until it is
+   * unarchived from the Sessions list. Absent on a row with no session behind it.
+   */
+  onArchive?: () => void;
 }) {
   const items: RowMenuItem[] = [];
   if (onRename) items.push({ label: "Rename session", icon: Pencil, onSelect: onRename });
@@ -166,5 +173,8 @@ export function SessionRowMenu({
   if (onRemoveFromCanvas) {
     items.push({ label: "Remove from canvas", icon: EyeOff, onSelect: onRemoveFromCanvas });
   }
+  // Last, because it is the widest of the takings-away: not off this Bot or this canvas but off
+  // every surface, until the Sessions list's Archived toggle gives it back.
+  if (onArchive) items.push({ label: "Archive session", icon: Archive, onSelect: onArchive });
   return <RowMenu label={label} items={items} />;
 }

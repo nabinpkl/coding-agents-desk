@@ -7,6 +7,7 @@ import {
   subscribeCatalog,
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
+import { sessionArchivedAt } from "@/transcripts/session-ops/sessionArchive";
 import type { Session } from "@/transcripts/transcriptTypes";
 import {
   encodeServerSentEvent,
@@ -71,6 +72,7 @@ function sessionsFingerprint(
         session.firstPrompt,
         session.lastTurnClosed,
         resolveAgentSession?.(session.source, session.sessionId)?.activity,
+        sessionArchivedAt(session.source, session.sessionId),
       ]),
   );
 }

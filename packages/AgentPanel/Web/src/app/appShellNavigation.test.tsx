@@ -282,7 +282,7 @@ describe("App shell", () => {
     expect(feed).toHaveAttribute("data-source", "claude");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Session Claude 01");
     expect(screen.getByText("Session Codex 01")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Session Claude 01/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("live")).toBeInTheDocument();
     expect(fake.posted).not.toContainEqual(expect.objectContaining({ t: "agent-projects-unwatch" }));
 

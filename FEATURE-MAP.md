@@ -132,6 +132,7 @@ and none of them should be extended without deciding which one you are in.
 | Drive the desktop | sidecar HTTP plus the standalone helper (ADR-0109, ADR-0113) | the host's native lane | moved on purpose; the reasoning is at the top of `agent-feed/sidecar/src/http/windowRoutes.ts` |
 | See a web page from the Mac | stream the screen | `chrome-extension` + `dom-bridge` DOM projection | the projection arc is dormant since July |
 | Serve the panel's code | live Vite origin (`panel=live`) | bundled webview (`panel=bundled`) | both supported on purpose; bundled is how it ships |
+| Archive a session | ours, `session-archive.json` beside `bots.json` (ADR-0126) | Codex's own `archived` column, read by `codexCatalog.ts` to leave those threads out | never write Codex's; a session Codex archived is simply absent, not "archived" here |
 
 ## The virtual display tangent, and where it led
 

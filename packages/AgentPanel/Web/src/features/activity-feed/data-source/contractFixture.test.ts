@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { SummaryResult, SummaryStreamMessage, UsageReport } from "@agentdesk/agent-feed-wire";
+import type { SessionSummary, SummaryResult, SummaryStreamMessage, UsageReport } from "@agentdesk/agent-feed-wire";
 import { formatTokens } from "@/features/usage/formatTokens";
 import { buildUsageGrid, cachedShare, uncachedInput } from "@/features/usage/usageGrid";
 import fixture from "@repo/agent-feed/wire/contract-fixture.json";
@@ -149,6 +149,32 @@ describe("the shared wire contract", () => {
     });
     const created = await source.createSession(fixture.sessionDescriptor.projectPath, "pi");
     expect(created).toEqual(fixture.sessionDescriptor);
+  });
+
+  it("splits archived sessions off before any reader sees the list, and archives by route", async () => {
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+    const [first, second] = fixture.sessions.sessions as SessionSummary[];
+    const lists: Array<{ sessions: string[]; archived: string[] }> = [];
+    source.subscribeInventory([fixture.sessions.projectPath], {
+      onProjects: () => {},
+      onSessions: (_path, sessions, archived) =>
+        lists.push({ sessions: sessions.map((s) => s.sessionId), archived: archived.map((s) => s.sessionId) }),
+    });
+    transport.deliver("/api/inventory/stream", JSON.stringify({
+      projectPath: fixture.sessions.projectPath,
+      sessions: [first, { ...(second ?? first), sessionId: "filed", archivedAt: 5 }],
+    }));
+    expect(lists).toEqual([{ sessions: [first!.sessionId], archived: ["filed"] }]);
+
+    transport.responses.set("POST /api/sessions/claude/abc/archive", { status: 200, body: "{}" });
+    await source.setSessionArchived({ source: "claude", sessionId: "abc" }, true);
+    transport.responses.set("POST /api/sessions/claude/abc/unarchive", {
+      status: 409,
+      body: JSON.stringify({ error: { code: "session-running", message: "still running" } }),
+    });
+    await expect(source.setSessionArchived({ source: "claude", sessionId: "abc" }, false))
+      .rejects.toMatchObject({ code: "session-running", message: "still running" });
   });
 
   it("preserves the sidecar's error code, because the panel acts on it", async () => {

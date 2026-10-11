@@ -30,3 +30,26 @@ describe("a session row's Move to canvas", () => {
     expect(screen.queryByRole("button", { name: /^Actions for/ })).toBeNull();
   });
 });
+
+describe("archiving from the project list", () => {
+  it("offers Archive on every row and names the reason a refusal gave", async () => {
+    const setArchived = vi.fn(async () => {
+      throw new Error("this session is still running; stop it before archiving it");
+    });
+    render(
+      <ProjectSessionPreview
+        sessions={[loose]}
+        selectedSessionKey={null}
+        onSelect={() => {}}
+        archiving={{ archivedByProject: new Map(), setArchived }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Loose" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive session" }));
+
+    expect(setArchived).toHaveBeenCalledWith(loose, true);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not archive Loose: this session is still running; stop it before archiving it",
+    );
+  });
+});

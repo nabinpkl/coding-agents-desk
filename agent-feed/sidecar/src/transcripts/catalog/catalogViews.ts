@@ -5,6 +5,7 @@
 // project list is memoized on the catalog generation because it is the one projection
 // that N subscribers would otherwise each recompute on every change.
 
+import { sessionArchivedAt } from "@/transcripts/session-ops/sessionArchive";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import { basename, relative } from "node:path";
@@ -161,6 +162,7 @@ export function summarizeSession(
   // it from the file itself during reconciliation, so a second reading taken at
   // emission time could only disagree with the one every other consumer is using.
   const lastEventAt = session.lastEventAt;
+  const archivedAt = sessionArchivedAt(session.source, session.sessionId);
   return {
     sessionId: session.sessionId,
     source: session.source,
@@ -176,6 +178,7 @@ export function summarizeSession(
       session.sessionId,
       resolveAgentSession,
     ),
+    ...(archivedAt === undefined ? {} : { archivedAt }),
   };
 }
 

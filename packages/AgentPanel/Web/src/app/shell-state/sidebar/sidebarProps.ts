@@ -11,7 +11,7 @@ import type { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
 import type { useMessages } from "@/features/messages/useMessages";
 import type { useUsage } from "@/features/usage/useUsage";
 import type { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
-import type { useProjectInventory } from "@/app/shell-state/useProjectInventory";
+import type { useShellInventory } from "@/app/shell-state/useShellInventory";
 import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import type { useBotCommands } from "@/app/shell-state/useBotCommands";
 import type { ShellMachines } from "@/app/shell-state/useBotMachines";
@@ -40,7 +40,7 @@ export function sidebarProps({
   creatingProjectPath: ReturnType<typeof usePiSessionCreation>["creatingProjectPath"];
   creationErrors: ReturnType<typeof usePiSessionCreation>["creationErrors"];
   createPiSession: ReturnType<typeof usePiSessionCreation>["createPiSession"];
-  inventory: ReturnType<typeof useProjectInventory>;
+  inventory: ReturnType<typeof useShellInventory>["inventory"];
   machines: ShellMachines;
   messages: ReturnType<typeof useMessages>;
   park: ReturnType<typeof useDesktopPark>;
@@ -56,6 +56,7 @@ export function sidebarProps({
     messages,
     projects: inventory.projects,
     sessionsByProject: inventory.sessionsByProject,
+    archiving: inventory.archiving,
     loading: inventory.loadingLayer,
     error: inventory.layerError,
     retrying: inventory.retrying,

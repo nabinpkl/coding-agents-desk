@@ -90,12 +90,16 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    * Changing which projects are open means resubscribing, which is why the caller
    * passes the whole set rather than adding to it: the sidecar reads the set when the
    * stream opens, and one stream reopening costs one slot, never two.
+   *
+   * Archived sessions are split off HERE, the one place every inventory reader goes through, so
+   * no list, picker or restore can show one by forgetting to filter: `sessions` never holds an
+   * archived row, and only a caller that offers them back reads `archived`.
    */
   subscribeInventory(
     projectPaths: readonly string[],
     handlers: {
       onProjects: (projects: ProjectSummary[]) => void;
-      onSessions: (projectPath: string, sessions: SessionSummary[]) => void;
+      onSessions: (projectPath: string, sessions: SessionSummary[], archived: SessionSummary[]) => void;
     },
     onError?: (reason: string) => void,
   ): () => void {
@@ -113,7 +117,11 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
           };
           if (message.projects) handlers.onProjects(message.projects);
           else if (message.projectPath && message.sessions) {
-            handlers.onSessions(message.projectPath, message.sessions);
+            handlers.onSessions(
+              message.projectPath,
+              message.sessions.filter((session) => session.archivedAt === undefined),
+              message.sessions.filter((session) => session.archivedAt !== undefined),
+            );
           }
         },
         onError: (reason) => onError?.(reason),
@@ -154,6 +162,22 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
     );
     if (typeof answer.title !== "string") throw new Error("Rename returned no title");
     return answer.title;
+  }
+
+  /**
+   * Files a session away, or brings it back, on the machine this data source talks to.
+   *
+   * Archiving is refused while the session is running, and the refusal comes back as a conflict
+   * carrying the reason. Nothing else has to happen when it lands: the inventory and Bot streams
+   * republish without the session.
+   */
+  async setSessionArchived(session: SessionAddress, archived: boolean): Promise<void> {
+    parse<unknown>(
+      await this.transport.request(
+        "POST",
+        `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/${archived ? "archive" : "unarchive"}`,
+      ),
+    );
   }
 
   /**

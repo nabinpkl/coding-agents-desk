@@ -15,6 +15,7 @@ import {
   integerEnvironment,
   urlEnvironment,
 } from "@/config/configEnvironment";
+import { botsPath, sessionArchivePath } from "@/config/configStores";
 import { composerHandlesPath, composerImageDirectory } from "@/config/configComposer";
 import { contextWindowEnvironment, contextWindowIn } from "@/config/contextWindows";
 import { ripgrepBinary, tmuxBinary, yabaiBinary } from "@/config/configBinaries";
@@ -249,19 +250,8 @@ export const config = {
       || join(userHomeDirectory, "Library", "Caches", "agentdesk-agent-feed", "usage.json"),
   ),
 
-  // The curated Bot roster. Shared by stable and dev sidecars because it names machine-level
-  // projects and provider sessions, not one host process's ephemeral runtime. The file itself is
-  // the authority; project directories deliberately receive no mirrored bot metadata.
-  botsPath: resolve(
-    process.env.AGENT_FEED_BOTS_PATH?.trim()
-      || join(
-        userHomeDirectory,
-        "Library",
-        "Application Support",
-        "agentdesk-agent-feed",
-        "bots.json",
-      ),
-  ),
+  botsPath,
+  sessionArchivePath,
 
   // The sidecar speaks the pty-manager protocol directly for Agent Feed terminals. The host
   // launch recipes override this for the dev tier; the stable path is the from-source default

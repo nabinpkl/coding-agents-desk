@@ -297,6 +297,7 @@ describe("App shell", () => {
         "Move right",
         "Remove from bot",
         "Remove from canvas",
+        "Archive session",
       ]);
       await act(async () => {
         fireEvent.click(screen.getByRole("menuitem", { name: "Remove from canvas" }));

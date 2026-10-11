@@ -39,6 +39,11 @@ export function useProjectInventory(
   const [sessionsByProject, setSessionsByProject] = useState<Map<string, SessionSummary[]>>(
     new Map(),
   );
+  // Each expanded project's archived sessions, kept apart so nothing that lists sessions can show
+  // one by accident. Only the project list's Archived toggle reads it.
+  const [archivedByProject, setArchivedByProject] = useState<Map<string, SessionSummary[]>>(
+    new Map(),
+  );
   const [loadingLayer, setLoadingLayer] = useState(true);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [expandedProjectPaths, setExpandedProjectPaths] = useState<Set<string>>(new Set());
@@ -104,8 +109,9 @@ export function useProjectInventory(
         setProjects(snapshot);
         onLoaded();
       },
-      onSessions: (projectPath, sessions) => {
+      onSessions: (projectPath, sessions, archived) => {
         setSessionsByProject((current) => new Map(current).set(projectPath, sessions));
+        setArchivedByProject((current) => new Map(current).set(projectPath, archived));
       },
     }, onError);
     return () => {
@@ -139,12 +145,14 @@ export function useProjectInventory(
   // on the stream, so keeping it would be keeping a copy that nothing refreshes.
   useEffect(() => {
     const subscribed = new Set(subscribedProjectPaths);
-    setSessionsByProject((current) => {
+    const keepSubscribed = (current: Map<string, SessionSummary[]>) => {
       const next = new Map(
         [...current].filter(([projectPath]) => subscribed.has(projectPath)),
       );
       return next.size === current.size ? current : next;
-    });
+    };
+    setSessionsByProject(keepSubscribed);
+    setArchivedByProject(keepSubscribed);
   }, [subscribedProjectPaths]);
 
   const toggleProject = useCallback((projectPath: string) => {
@@ -159,6 +167,7 @@ export function useProjectInventory(
   return {
     projects,
     sessionsByProject,
+    archivedByProject,
     loadingLayer,
     layerError,
     retrying,
