@@ -263,7 +263,14 @@ describe("the opencode pool, streaming a turn", () => {
     // stream never heard. The announce is the envelope the stamp rides on.
     const h = harness();
     const seen: TimelineEnvelope[] = [];
-    const stop = await h.pool.subscribe("s1", 0, (envelope) => seen.push(envelope));
+    // What the HTTP layer would stamp, read at the moment each envelope is published. Measured
+    // 2026-10-11: the announce went out before the pool stored the new model, so it carried
+    // the old one and the footer stayed on it, while `sessionModel` read right a tick later.
+    const stamped: Array<string | null> = [];
+    const stop = await h.pool.subscribe("s1", 0, (envelope) => {
+      seen.push(envelope);
+      stamped.push(h.pool.sessionModel("s1"));
+    });
     await waitFor(() => h.pool.sessionModel("s1") === "opencode-go/m");
     const before = seen.length;
 
@@ -278,6 +285,7 @@ describe("the opencode pool, streaming a turn", () => {
     // The switch wrote no message, so the announcement carries no rows -- only the newer
     // sequence the HTTP layer stamps the model onto.
     expect(seen.at(-1)?.events).toEqual([]);
+    expect(stamped.at(-1)).toBe("opencode-go/m2");
     await stop();
     await h.dispose();
   });

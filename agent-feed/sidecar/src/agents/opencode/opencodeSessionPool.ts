@@ -422,9 +422,9 @@ export class OpencodeSessionPool {
         now: this.now,
       });
       if (meter) {
-        if (meter.model !== current.model) current.projection.announce();
-        current.model = meter.model;
-        current.usage = meter.usage;
+        const switched = meter.model !== current.model;
+        ({ model: current.model, usage: current.usage } = meter);
+        if (switched) current.projection.announce(); // after storing: the publish is synchronous and the stamp reads `model`
       }
       // A turn with words still arriving is running even when the read's own last message reads
       // finished, which is the normal shape while a tool call is in flight.
