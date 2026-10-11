@@ -24,8 +24,8 @@ import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
 import { readOpencodeHistory } from "@/agents/opencode/opencodeHistory";
 import {
   findCompactionBoundary,
+  refuseEmptyHandover,
   renderHandoverTurns,
-  SessionHandoverError,
   type RenderedHandover,
 } from "@/transcripts/sessionHandover";
 
@@ -36,7 +36,8 @@ function messageTime(message: SessionMessage): number {
 }
 
 /**
- * The summary and the turns since the newest landed compaction of an OPENCODE session.
+ * The summary and the turns since the newest landed compaction of an OPENCODE session, or all of
+ * its turns when none has landed.
  *
  * "Landed" is not a detail. The serve inserts a compaction checkpoint when compaction STARTS and
  * flips it to `completed` when it lands, and a retry compacts the same session under a new
@@ -48,8 +49,8 @@ function messageTime(message: SessionMessage): number {
  * they diverge exactly when it matters: the mapper drops rows, so an index into the messages is
  * not an index into the events, and a retry puts two candidates in the list.
  *
- * Throws `SessionHandoverError` when there is no landed compaction, the same refusal the Claude
- * direction makes for the same reason.
+ * Throws `SessionHandoverError` for the refusals the Claude direction makes too: a landed
+ * compaction whose summary cannot be read, and a session with nothing said in it.
  */
 export async function renderOpencodeHandover(
   sessionId: string,
@@ -62,16 +63,16 @@ export async function renderOpencodeHandover(
 
   const boundary = findCompactionBoundary(events);
   if (!boundary) {
-    throw new SessionHandoverError(`session "${sessionId}" was never compacted: nothing to hand over`);
+    return refuseEmptyHandover(sessionId, { summary: null, ...renderHandoverTurns(events, -1) });
   }
   const messageId = events[boundary.index]!.id.replace(/^opencode:/, "");
   const compaction = messages.find((message) => message.id === messageId);
   const summary = (compaction as { summary?: unknown } | undefined)?.summary;
-  if (typeof summary !== "string" || !summary.trim()) {
-    // The row exists, so the projection had text for it; what is missing is the UNCAPPED text,
-    // and handing over the capped copy silently would be the one failure this file exists to
-    // prevent. Refused out loud instead.
-    throw new SessionHandoverError(`session "${sessionId}" has a compaction row with no readable summary`);
-  }
-  return { summary, ...renderHandoverTurns(events, boundary.index) };
+  // A row with no UNCAPPED text behind it hands over an empty summary, which the refusal below
+  // turns down out loud: substituting the feed's capped copy silently would be the one failure
+  // this file exists to prevent.
+  return refuseEmptyHandover(sessionId, {
+    summary: typeof summary === "string" ? summary : "",
+    ...renderHandoverTurns(events, boundary.index),
+  });
 }

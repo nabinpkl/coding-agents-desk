@@ -1,5 +1,5 @@
 /**
- * Handing a session's context since its newest compaction to a session of the other harness.
+ * Handing a session's context, from its newest compaction if it has one, to a session of the other harness.
  *
  * Four seams, and the direction has to survive all four: which destination a row has, whether
  * the menu offers it and what it says, which call the data source makes, and what the command
@@ -182,7 +182,7 @@ describe("what the command does with it", () => {
 
   it("names the source session when the handover fails", async () => {
     const transport = new FakeHttpTransport();
-    transport.defaultResponse = { status: 404, body: JSON.stringify({ error: { code: "no-compaction-point", message: "never compacted" } }) };
+    transport.defaultResponse = { status: 404, body: JSON.stringify({ error: { code: "nothing-to-hand-over", message: "has no conversation to hand over" } }) };
     const { result } = commands(new SidecarDataSource(transport));
 
     await act(async () => {

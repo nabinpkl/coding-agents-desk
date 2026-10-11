@@ -8,12 +8,14 @@
 // arrives.
 
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   claudeForkPaneName,
   claudeSessionPaneName,
+  firstTurnFromFile,
   forkClaudeSessionCommand,
   forkFirstTurn,
   newClaudeSessionCommand,
@@ -88,6 +90,50 @@ test("a hostile prompt arrives as exactly one argument, through the shells tmux 
 
   const received = (await readFile(argvFile, "utf8")).split("\0").slice(0, -1);
   expect(received).toEqual([...permission, "--session-id", "abc", "-n", "OSS agent (fork 1)", prompt]);
+});
+
+test("a first turn far past tmux's command limit reaches the CLI whole, through a file", async () => {
+  // tmux refuses a command over about 16KB, and a handover is hundreds of kilobytes. The turn
+  // rides in a file the pane reads, so what has to hold is that the CLI still receives it as one
+  // byte-exact argument -- trailing newlines included, which command substitution would strip --
+  // and that the file and its directory are gone once it has.
+  const directory = await mkdtemp(join(tmpdir(), "agentdesk-launch-"));
+  directories.push(directory);
+  const argvFile = join(directory, "argv");
+  const stub = join(directory, "claude");
+  await writeFile(stub, `#!/bin/sh\n: > "${argvFile}"\nfor a in "$@"; do printf '%s\\0' "$a" >> "${argvFile}"; done\n`);
+  await chmod(stub, 0o755);
+
+  const line = "it's `$HOME` and \"$(rm -rf x)\"; (fork 1) \\ end\n";
+  const prompt = `${line.repeat(Math.ceil(300_000 / line.length))}\n\n`;
+  const turnDirectory = join(directory, "turn");
+  await mkdir(turnDirectory);
+  const turnFile = join(turnDirectory, "turn.txt");
+  await writeFile(turnFile, prompt);
+
+  const command = newClaudeSessionCommand({ sessionId: "abc", title: "OSS agent" });
+  command[0] = stub;
+  const paneCommand = newSessionArgs({
+    session: "agentdesk-test",
+    cwd: directory,
+    command: firstTurnFromFile(command, turnFile),
+    columns: 120,
+    rows: 40,
+  }).at(-1)!;
+  expect(paneCommand.length).toBeLessThan(16_000);
+
+  const run = Bun.spawn(["/bin/sh", "-c", paneCommand], {
+    cwd: directory,
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  await run.exited;
+
+  const received = (await readFile(argvFile, "utf8")).split("\0").slice(0, -1);
+  expect(received.slice(0, -1)).toEqual([...permission, "--session-id", "abc", "-n", "OSS agent"]);
+  expect(received.at(-1)).toBe(prompt);
+  expect(existsSync(turnDirectory)).toBe(false);
 });
 
 test("a reopened session gets the same permission flags a fresh one does", () => {

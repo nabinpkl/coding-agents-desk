@@ -70,13 +70,13 @@ export function SessionRowMenu({
    */
   onForkFromLastCompaction?: () => void;
   /**
-   * Starts a session of the OTHER harness carrying this one's context since its newest
-   * compaction, and what that harness is called.
+   * Starts a session of the OTHER harness carrying this one's context -- from its newest
+   * compaction, or all of it when it never compacted -- and what that harness is called.
    *
    * Below the forks because it leaves the provider: the three above stay inside Claude, this one
-   * hands the summarised context across. One prop rather than a callback and a label, because
+   * hands the context across. One prop rather than a callback and a label, because
    * two props are two chances for the item to say it goes somewhere it does not. Absent
-   * everywhere a fork is, plus on Codex rows, which have no compaction boundary to cut at.
+   * everywhere a fork is, plus on Codex rows, which the sidecar has no handover reader for.
    */
   handover?: { to: HandoverDestination; onSelect: () => void };
   /**

@@ -43,8 +43,25 @@ head-plus-tail capped with line-collapse inside each call, and the reader's mess
   resumes no tool calls, and images are not carried.
 - Claude only: any other source is rejected, so Codex support is a new branch rather than a
   silent fallback.
-- A handover without a compaction is refused: there is no summary to state what the reader is
-  looking at.
+- ~~A handover without a compaction is refused: there is no summary to state what the reader is
+  looking at.~~ Reversed 2026-10-11, see the amendment below.
+
+### Amendment, 2026-10-11: a compaction is not required
+
+A session that never compacted hands over its whole conversation, rendered by the same rule:
+prose whole, every tool input and output cut to head plus tail, repeated lines collapsed. The
+compaction was standing in for that stripping, and the render already does it, so refusing sent a
+reader off to compact a session only to move it. The prompt says the session was never compacted
+in place of the summary section. Still refused: a session with no turn in it, and a landed
+compaction with no readable summary, since handing over the turns before it would carry exactly
+what the session compacted to be rid of. Both directions follow it.
+
+The same day showed the Claude direction had never carried a real handover: the prompt rode on
+tmux's `new-session` command line, and tmux refuses a command past about 16KB ("command too
+long"), where a compacted handover runs 21KB to 68KB. The first turn now reaches the pane in a
+private file the pane reads and deletes (`firstTurnFromFile` in
+`agent-feed/sidecar/src/terminal/claudeSessionLaunch.ts`), so the CLI still gets it as its
+positional prompt and the bound is the kernel's argv limit rather than tmux's.
 
 ### Files
 

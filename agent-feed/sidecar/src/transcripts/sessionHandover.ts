@@ -1,11 +1,15 @@
-// Turning a compacted session into the one prompt its successor starts from, either way round.
+// Turning a session into the one prompt its successor starts from, either way round.
 //
 // A handover is what the source's own next API call would have carried, delivered all at once:
-// the compaction summary plus every turn since the boundary, as prose. It cannot be native
-// history in either direction -- opencode's serve exposes no endpoint that inserts assistant
-// turns or tool results, and a Claude session is a CLI process whose only inlet is its first
-// turn -- so everything arrives as a single user turn and tool outputs ride as quoted text
-// rather than structured results. The model gets the facts but resumes nothing; it re-reads
+// the compaction summary plus every turn since the boundary, as prose -- or, for a session that
+// never compacted, every turn it has. A compaction is not what makes a session small enough to
+// hand over; the rendering below is, because it carries prose whole and cuts every tool input and
+// output to its head and tail. The summary is only the shorter route to the same place.
+//
+// It cannot be native history in either direction -- opencode's serve exposes no endpoint that
+// inserts assistant turns or tool results, and a Claude session is a CLI process whose only inlet
+// is its first turn -- so everything arrives as a single user turn and tool outputs ride as quoted
+// text rather than structured results. The model gets the facts but resumes nothing; it re-reads
 // files itself.
 //
 // What is source-specific is only how the events are FETCHED. Claude's come off the transcript
@@ -39,7 +43,8 @@ const TOOL_TAIL_CHARS = 100;
 export const HANDOVER_REPEAT_THRESHOLD = 3;
 
 export interface RenderedHandover {
-  summary: string;
+  /** The newest compaction's summary, null for a session that never compacted. */
+  summary: string | null;
   turns: string;
   /** Turns carried, for the prompt's own accounting. */
   turnCount: number;
@@ -146,9 +151,11 @@ function renderEvent(event: ActivityEvent): { text: string; lossy: boolean } | n
  * Where the newest compaction sits in a session's events, and the summary it carried.
  *
  * The NEWEST rather than the first: a long session compacts more than once, and the context the
- * reader is looking at is the one the last compaction produced. Null when there was none, which
- * is a refusal rather than a degraded handover -- without a summary this is a long paste with no
- * statement of what the reader is looking at.
+ * reader is looking at is the one the last compaction produced. Null when there was none, and the
+ * whole conversation is then what is handed over. A row that is there with no summary text is NOT
+ * null: the turns before it are the ones the session already summarised away, so handing them
+ * over instead would carry exactly what it compacted to be rid of. Its `summary` is empty, and the
+ * caller refuses.
  */
 export function findCompactionBoundary(
   events: readonly ActivityEvent[],
@@ -158,16 +165,31 @@ export function findCompactionBoundary(
   for (let i = 0; i < events.length; i += 1) {
     for (const block of events[i]!.blocks) {
       if (block.kind !== "compaction") continue;
+      if (i !== index) summary = "";
       index = i;
       if (block.text?.trim()) summary = block.text;
     }
   }
-  if (index < 0 || !summary.trim()) return null;
-  return { index, summary };
+  return index < 0 ? null : { index, summary };
 }
 
 /**
- * Every person and model turn after `fromIndex`, as the prose the next session reads.
+ * The refusals both directions share, so they are worded once: a compaction whose summary cannot
+ * be read, and a session with nothing said in it at all.
+ */
+export function refuseEmptyHandover(sessionId: string, handover: RenderedHandover): RenderedHandover {
+  if (handover.summary !== null && !handover.summary.trim()) {
+    throw new SessionHandoverError(`session "${sessionId}" has a compaction row with no readable summary`);
+  }
+  if (handover.summary === null && handover.turnCount === 0) {
+    throw new SessionHandoverError(`session "${sessionId}" has no conversation to hand over`);
+  }
+  return handover;
+}
+
+/**
+ * Every person and model turn after `fromIndex`, as the prose the next session reads. -1 means
+ * every turn there is, for a session that never compacted.
  *
  * Takes events rather than a session, and that is what lets the two directions share it. Claude's
  * come off the transcript reads and opencode's off a projection the serve's messages were mapped into,
@@ -190,7 +212,8 @@ export function renderHandoverTurns(
 }
 
 /**
- * The summary and the turns since the newest compaction of a CLAUDE session.
+ * The summary and the turns since the newest compaction of a CLAUDE session, or all of its turns
+ * when it never compacted.
  *
  * Read through the same page reads the panel is served from, so the rows rendered here are parsed
  * by the one rule that made them. That is also why this is Claude's alone -- the reads take a
@@ -203,10 +226,10 @@ export async function renderHandover(sessionId: string, transcriptPath: string):
   const end = await completeEnd(transcriptPath);
   const events = await readEventsBetween("claude", sessionId, transcriptPath, 0, end, "raw", null);
   const boundary = findCompactionBoundary(events);
-  if (!boundary) {
-    throw new SessionHandoverError(`session "${sessionId}" was never compacted: nothing to hand over`);
-  }
-  return { summary: boundary.summary, ...renderHandoverTurns(events, boundary.index) };
+  return refuseEmptyHandover(sessionId, {
+    summary: boundary?.summary ?? null,
+    ...renderHandoverTurns(events, boundary?.index ?? -1),
+  });
 }
 
 /**
@@ -228,8 +251,10 @@ export function buildHandoverPrompt(options: {
   return (
     `This was obtained from an earlier session from another agent (${source}, session ${sessionId}). ` +
     `Continue that work.${lossyNote}\n\n` +
-    `=== COMPACTION SUMMARY ===\n${handover.summary}\n\n` +
-    `=== TURNS SINCE COMPACTION (${handover.turnCount}) ===\n${handover.turns}\n\n` +
+    (handover.summary === null
+      ? `=== CONVERSATION (${handover.turnCount} turns; never compacted) ===\n${handover.turns}\n\n`
+      : `=== COMPACTION SUMMARY ===\n${handover.summary}\n\n` +
+        `=== TURNS SINCE COMPACTION (${handover.turnCount}) ===\n${handover.turns}\n\n`) +
     `=== END OF HANDOVER ===${tail}`
   );
 }

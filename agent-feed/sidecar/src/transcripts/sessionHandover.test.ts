@@ -122,10 +122,33 @@ test("distinct runs of one tool stay distinct", async () => {
   expect(handover.turnCount).toBe(4);
 });
 
-test("a session that was never compacted has no handover", async () => {
+test("a session that was never compacted hands over every turn, with no summary", async () => {
   const id = sessionId();
-  const path = await transcript(id, [said("hello"), replied("hi")]);
+  const path = await transcript(id, [
+    said("hello"),
+    ...ranTool("Bash", { command: "cat big.log" }, `HEAD-${"x".repeat(400)}-TAIL`),
+    replied("hi"),
+  ]);
+  const handover = await renderHandover(id, path);
+  expect(handover.summary).toBeNull();
+  expect(handover.turns).toContain("human: hello");
+  expect(handover.turns).toContain("assistant: hi");
+  // The stripping a compaction used to stand in for: the tool output is cut to head and tail.
+  expect(handover.turns).toContain("middle cut");
+  expect(handover.lossy).toBe(true);
+});
+
+test("a session with nothing said in it has no handover", async () => {
+  const id = sessionId();
+  const path = await transcript(id, []);
   await expect(renderHandover(id, path)).rejects.toBeInstanceOf(SessionHandoverError);
+});
+
+test("an uncompacted handover says so instead of carrying an empty summary section", () => {
+  const handover: RenderedHandover = { summary: null, turns: "human: hi", turnCount: 1, lossy: false };
+  const prompt = buildHandoverPrompt({ source: "opencode", sessionId: "abc", handover });
+  expect(prompt).toContain("=== CONVERSATION (1 turns; never compacted) ===\nhuman: hi");
+  expect(prompt).not.toContain("COMPACTION");
 });
 
 test("the prompt names its provenance and carries the reader's message last", () => {
