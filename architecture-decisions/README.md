@@ -159,3 +159,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0126 | Archiving a session is ours, kept per machine beside bots.json | accepted | 2026-10-11 |
 | ADR-0127 | Arena runs fan one prompt out to worktree contestants, recording facts and judging nothing | accepted | 2026-10-11 |
 | ADR-0128 | Arena contestants run behind one driver seam; Claude is spawned, opencode closes on the serve's own marker | accepted | 2026-10-11 |
+| ADR-0129 | The arena tab reads contestants side by side in lanes, each lane the existing SessionView | accepted | 2026-10-11 |

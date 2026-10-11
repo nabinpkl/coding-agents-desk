@@ -405,7 +405,12 @@ export function BrowserSurfaces({
           // Keyed by session for the same reason the others are: the runs, and the sessions each
           // contestant is, belong to the sidecar that answered -- a run started on one machine is
           // not a run on another, and the tab is not a view of a peer the picker left behind.
-          <ArenaSurface key={sessionId ?? "default"} transport={sessionTransport(transport, sessionId)} />
+          <ArenaSurface
+            key={sessionId ?? "default"}
+            transport={sessionTransport(transport, sessionId)}
+            feed={sessionFeed}
+            host={host}
+          />
         ) : (
           <App
             key={sessionId ?? "default"}

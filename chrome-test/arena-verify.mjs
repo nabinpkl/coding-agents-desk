@@ -59,6 +59,10 @@ let failed = true;
 const context = await chromium.launchPersistentContext(join(work, 'profile'), {
   headless: true,
   args: ['--no-first-run'],
+  // The panel's TLS certificate names the tailnet host; a run against https://127.0.0.1 still
+  // negotiates the HTTP/2 a page of side-by-side sessions needs.
+  ignoreHTTPSErrors: true,
+  viewport: { width: 1440, height: 1000 },
 });
 try {
   const page = await context.newPage();
@@ -76,69 +80,73 @@ try {
   await page.getByLabel('Prompt every contestant gets').fill(PROMPT);
   await page.getByLabel('Repository the contestants work in').fill(REPO);
 
-  // The lineup, through the form's own controls: shrink to one slot, then add and set each.
+  // The lineup, through the form's own controls: shrink to one lane, then add and set each.
   while (await page.getByLabel('Remove contestant 1').count() > 0) {
     await page.getByLabel('Remove contestant 1').click();
   }
   for (const [index, source] of LINEUP.entries()) {
     if (index > 0) await page.getByLabel('Add a contestant').click();
-    await page.getByLabel(`Contestant ${index + 1} harness`).selectOption(source);
+    await page
+      .getByRole('radiogroup', { name: `Contestant ${index + 1} harness` })
+      .getByRole('radio', { name: LABEL[source] })
+      .click();
   }
-  await page.getByText('Start run', { exact: true }).click();
+  await page.getByRole('button', { name: /Start run/ }).click();
 
-  // The run appears in the list, selected, and the stream moves its statuses without a reload.
-  // A contestant that closes under this reader is the whole point of the tab. The row is the
-  // newest: earlier runs may share a prompt's head, and the list is newest-first.
-  const row = page.getByRole('button', { name: new RegExp(PROMPT.slice(0, 24)) }).first();
-  await row.waitFor({ timeout: 20_000 });
-  await row.click();
+  // Starting a run opens it: the lanes appear and the stream moves their statuses without a
+  // reload. Each lane's facts region is the contestant from top to bottom.
+  await page.getByRole('tablist', { name: 'Compare by' }).waitFor({ timeout: 20_000 });
+  if (process.env.ARENA_RUNNING_SCREENSHOT) {
+    await page.getByText(/^\W*running$/).first().waitFor({ timeout: 20_000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+    await page.screenshot({ path: process.env.ARENA_RUNNING_SCREENSHOT });
+  }
   const summaries = [];
   const cards = [];
   for (const [index, source] of LINEUP.entries()) {
-    const id = `c${index + 1}`;
-    const card = page.locator('article').filter({ has: page.getByRole('heading', { name: new RegExp(`^${id}\\b`) }) });
-    cards.push(card);
-    const heading = await card.getByRole('heading').innerText({ timeout: 20_000 });
-    if (!heading.includes(LABEL[source])) problems.push(`${id}'s card names "${heading}", not ${LABEL[source]}`);
-
+    const name = `c${index + 1} ${LABEL[source]}`;
+    const facts = page.getByRole('region', { name: `${name} facts` });
+    cards.push(facts);
+    await facts.waitFor({ timeout: 20_000 });
     const end = EXPECT[index];
     // The status reads as its word, with a mark in front of the states that carry one.
-    await card.getByText(new RegExp(`^\\W*${end}$`)).waitFor({ timeout: 180_000 }).catch(async () => {
-      problems.push(`${id} did not end ${end}: "${await card.innerText().catch(() => '(gone)')}"`);
+    await facts.getByText(new RegExp(`^\\W*${end}$`)).waitFor({ timeout: 180_000 }).catch(async () => {
+      problems.push(`${name} did not end ${end}: "${await facts.innerText().catch(() => '(gone)')}"`);
     });
-    const facts = await card.locator('p').first().innerText();
-    if (!/\d+(\.\d+)?s/.test(facts)) problems.push(`${id}: no duration in the facts line: "${facts}"`);
+    const time = await facts.locator('dl > div').first().innerText();
+    if (!/\d+(\.\d+)?s/.test(time)) problems.push(`${name}: no duration in the Time row: "${time}"`);
 
     if (end === 'failed') {
-      // A failure is a fact about the contestant, and the card is where its reason belongs.
-      const said = await card.locator('p.text-destructive').innerText().catch(() => '');
-      if (!said.trim()) problems.push(`${id} failed with no reason on its card`);
-      summaries.push(`${id} ${source} failed: ${said.trim()}`);
+      const failure = await facts.locator('dl > div', { hasText: 'Failure' }).innerText().catch(() => '');
+      if (!failure.replace('Failure', '').trim() || failure.includes('—')) {
+        problems.push(`${name} failed with no reason in its facts`);
+      }
+      summaries.push(`${name} failed: ${failure.replace('Failure', '').trim()}`);
       continue;
     }
 
-    // The files ride a closed <details>, and closed-details content is display:none -- excluded
-    // from the role tree in Chromium. Open it, then read the list it was hiding.
-    const readSummary = card.getByText(/^Read \d+$/);
-    if (await readSummary.count() === 0) {
-      problems.push(`${id}: no read-files affordance, the run recorded no files read`);
-    } else {
-      await readSummary.click();
-      const files = (await card.getByRole('listitem').allInnerTexts()).join('\n');
-      if (!files.includes('README.md')) problems.push(`${id}: README.md is not among the files read`);
-    }
-    const diff = card.getByText('Diff', { exact: true });
-    if (await diff.count() > 0) {
-      await diff.click();
-      await card.locator('pre').waitFor({ timeout: 5_000 });
-    }
-    summaries.push(`${id} ${source} closed (${facts.trim()})`);
+    // Side by side means the session itself, not a summary of it: the lane under these facts
+    // renders the contestant's transcript, which opens with the prompt it was given.
+    const lane = page.getByRole('region', { name: `${name} session` });
+    await lane.getByText(PROMPT.slice(0, 32)).first().waitFor({ timeout: 30_000 }).catch(async () => {
+      problems.push(`${name}'s lane shows no transcript: "${(await lane.innerText().catch(() => '')).slice(0, 200)}"`);
+    });
+    summaries.push(`${name} closed (${time.replace(/\n/g, ' ')})`);
   }
+
+  // The files view lines up what each lane touched by repository path: README.md is one row.
+  await page.getByRole('tab', { name: /Files/ }).click();
+  const readme = page.getByRole('rowheader', { name: 'README.md' });
+  if (EXPECT.includes('closed')) {
+    await readme.waitFor({ timeout: 10_000 }).catch(() => problems.push('no README.md row in the files view'));
+  }
+  await page.getByRole('tab', { name: /Diffs/ }).click();
+  await page.getByRole('tab', { name: /Sessions/ }).click();
 
   const listed = await context.request.get(`${ORIGIN}/api/arena/runs`);
   if (!listed.ok()) problems.push(`GET /api/arena/runs answered ${listed.status()}`);
   if (process.env.ARENA_SCREENSHOT) {
-    await page.screenshot({ path: process.env.ARENA_SCREENSHOT, fullPage: true });
+    await page.screenshot({ path: process.env.ARENA_SCREENSHOT });
   }
 
   if (problems.length > 0) {

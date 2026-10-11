@@ -111,3 +111,6 @@ graphify-out/
 #   git clone --depth 1 --branch v2.0.16 --single-branch \
 #     https://github.com/anomalyco/opencode.git .reference/opencode
 .reference/
+
+# taste:frontend-layout-sweep keeps a local record of the last full run here
+.last-layout-sweep.json

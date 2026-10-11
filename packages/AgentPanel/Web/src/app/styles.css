@@ -181,6 +181,9 @@
 }
 
 @theme inline {
+  --color-arena-running: var(--arena-running);
+  --color-arena-added: var(--arena-added);
+  --color-arena-removed: var(--arena-removed);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
@@ -270,6 +273,12 @@
      visible spends it; the ink moves instead, the way `--bot-session-ink-l` does for a session
      card's caption. Dark has room and keeps its own. */
   --session-step-ink: oklch(0.5 0 0);
+  /* The arena's three semantic inks: a running lane, and the two directions a diff counts in.
+     Hue carries the meaning and lightness holds 4.5:1 on `--background` in each scheme; every
+     arena state also has a word or a sign beside it, so none of them rests on colour alone. */
+  --arena-running: oklch(0.52 0.15 250);
+  --arena-added: oklch(0.5 0.13 150);
+  --arena-removed: oklch(0.55 0.2 27);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -293,6 +302,9 @@
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
     --session-step-ink: oklch(0.708 0 0);
+    --arena-running: oklch(0.74 0.13 250);
+    --arena-added: oklch(0.76 0.15 150);
+    --arena-removed: oklch(0.72 0.17 27);
   }
 }
 

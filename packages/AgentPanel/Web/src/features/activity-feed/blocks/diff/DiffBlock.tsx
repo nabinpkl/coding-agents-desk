@@ -82,7 +82,7 @@ const EXT_LANG: Record<string, string> = {
   dockerfile: "dockerfile",
 };
 
-function languageFromPath(p: string): string {
+export function languageFromPath(p: string): string {
   const base = (p.split("/").pop() ?? p).toLowerCase();
   if (base === "dockerfile") return "dockerfile";
   const ext = base.includes(".") ? base.slice(base.lastIndexOf(".") + 1) : "";
@@ -93,7 +93,7 @@ function languageFromPath(p: string): string {
 // (`app/styles.css`), with no JS theme provider mounted. next-themes' `useTheme`
 // therefore always answered light here, painting light pink/green diffs on a dark
 // feed. Read the same media query directly instead.
-function usePrefersDark(): boolean {
+export function usePrefersDark(): boolean {
   const [dark, setDark] = useState(
     () =>
       typeof window !== "undefined" && typeof window.matchMedia === "function"
