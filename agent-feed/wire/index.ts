@@ -166,6 +166,7 @@ export type {
 
 export type {
   ArenaContestantDetail,
+  ArenaContestantSource,
   ArenaContestantStatus,
   ArenaContestantSummary,
   ArenaCreateRunRequest,

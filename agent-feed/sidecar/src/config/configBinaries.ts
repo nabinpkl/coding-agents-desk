@@ -36,6 +36,23 @@ export function tmuxBinary(): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
+/**
+ * Absolute path to the `claude` CLI, or null when this machine has none. Same shape as
+ * `tmuxBinary`: the arena spawns it directly rather than through a login shell, so a bare
+ * name resolves against the stripped PATH and finds nothing. (A tmux pane's `claude` resolves
+ * because the pane runs a login shell.)
+ */
+export function claudeBinary(): string | null {
+  const override = process.env.AGENT_FEED_CLAUDE_PATH?.trim();
+  if (override) return existsSync(override) ? resolve(override) : null;
+  const candidates = [
+    join(userHomeDirectory, ".local", "bin", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
 export function yabaiBinary(): string | null {
   const override = process.env.AGENT_FEED_YABAI_PATH?.trim();
   if (override) return existsSync(override) ? resolve(override) : null;

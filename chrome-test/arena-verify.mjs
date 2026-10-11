@@ -1,10 +1,16 @@
 // Verifies the Arena tab end to end against a live panel and sidecar: a run created from the
-// tab's own form fans a prompt out to opencode contestants, the stream moves their statuses to
-// the page without a reload, and the facts each contestant left -- duration, files read, the
-// diff -- arrive on the run's detail once they close.
+// tab's own form fans a prompt out to the lineup the form was given, the stream moves each
+// contestant's status to the page without a reload, and the facts each one left -- duration,
+// files read, the diff -- arrive on the run's detail once it closes; a contestant expected to
+// fail shows the reason it failed.
 //
 // Run it against an arena sidecar and its panel origin:
-//   PANEL_ORIGIN=http://127.0.0.1:5174 ARENA_REPO=/path/to/a/git/repo node chrome-test/arena-opencode-verify.mjs
+//   PANEL_ORIGIN=http://127.0.0.1:5174 ARENA_REPO=/path/to/a/git/repo \
+//   ARENA_LINEUP=opencode,claude ARENA_EXPECT=closed,closed node chrome-test/arena-verify.mjs
+//
+// ARENA_LINEUP is the harness of each slot, in order (default `opencode`). ARENA_EXPECT is how
+// each slot should end, `closed` or `failed` (default all `closed`): a provider that is out of
+// quota fails its contestant, and the card saying why is then the thing to verify.
 //
 // The repo the run duels in is a throwaway by requirement: contestants write worktrees under
 // the sidecar's arena root, and a run against a real checkout would duel it. Uses Playwright's
@@ -22,6 +28,11 @@ const REPO = process.env.ARENA_REPO;
 if (!REPO) throw new Error('set ARENA_REPO to the throwaway git repo the run duels in');
 const PROMPT = process.env.ARENA_PROMPT
   ?? 'Read README.md in this repository and reply with its exact first line';
+const LINEUP = (process.env.ARENA_LINEUP ?? 'opencode').split(',').map((one) => one.trim());
+const EXPECT = (process.env.ARENA_EXPECT ?? LINEUP.map(() => 'closed').join(','))
+  .split(',').map((one) => one.trim());
+if (EXPECT.length !== LINEUP.length) throw new Error('ARENA_EXPECT names one end state per lineup slot');
+const LABEL = { opencode: 'OpenCode', claude: 'Claude' };
 
 /** Where this machine's global playwright lives, checked rather than assumed. */
 async function playwrightRoot() {
@@ -64,6 +75,15 @@ try {
 
   await page.getByLabel('Prompt every contestant gets').fill(PROMPT);
   await page.getByLabel('Repository the contestants work in').fill(REPO);
+
+  // The lineup, through the form's own controls: shrink to one slot, then add and set each.
+  while (await page.getByLabel('Remove contestant 1').count() > 0) {
+    await page.getByLabel('Remove contestant 1').click();
+  }
+  for (const [index, source] of LINEUP.entries()) {
+    if (index > 0) await page.getByLabel('Add a contestant').click();
+    await page.getByLabel(`Contestant ${index + 1} harness`).selectOption(source);
+  }
   await page.getByText('Start run', { exact: true }).click();
 
   // The run appears in the list, selected, and the stream moves its statuses without a reload.
@@ -72,57 +92,67 @@ try {
   const row = page.getByRole('button', { name: new RegExp(PROMPT.slice(0, 24)) }).first();
   await row.waitFor({ timeout: 20_000 });
   await row.click();
-  const contestant = page.locator('article', { hasText: 'c1' });
-  await contestant.getByText('closed', { exact: true }).waitFor({ timeout: 120_000 });
+  const summaries = [];
+  const cards = [];
+  for (const [index, source] of LINEUP.entries()) {
+    const id = `c${index + 1}`;
+    const card = page.locator('article').filter({ has: page.getByRole('heading', { name: new RegExp(`^${id}\\b`) }) });
+    cards.push(card);
+    const heading = await card.getByRole('heading').innerText({ timeout: 20_000 });
+    if (!heading.includes(LABEL[source])) problems.push(`${id}'s card names "${heading}", not ${LABEL[source]}`);
 
-  // The facts: a duration, the file the prompt asked for, and a diff affordance that opens.
-  const facts = await contestant.locator('p').first().innerText();
-  if (!/\d+(\.\d+)?s/.test(facts)) problems.push(`no duration in the facts line: "${facts}"`);
-  if (!facts.includes('read')) problems.push(`no read count in the facts line: "${facts}"`);
+    const end = EXPECT[index];
+    // The status reads as its word, with a mark in front of the states that carry one.
+    await card.getByText(new RegExp(`^\\W*${end}$`)).waitFor({ timeout: 180_000 }).catch(async () => {
+      problems.push(`${id} did not end ${end}: "${await card.innerText().catch(() => '(gone)')}"`);
+    });
+    const facts = await card.locator('p').first().innerText();
+    if (!/\d+(\.\d+)?s/.test(facts)) problems.push(`${id}: no duration in the facts line: "${facts}"`);
 
-  // The files ride a closed <details>, and closed-details content is display:none -- excluded
-  // from the role tree in Chromium. Open it, then read the list it was hiding.
-  const readSummary = contestant.getByText(/^Read \d+$/);
-  if (await readSummary.count() === 0) {
-    problems.push('no read-files affordance: the run recorded no files read');
-  } else {
-    await readSummary.click();
-    const files = contestant.getByRole('listitem');
-    const fileCount = await files.count();
-    if (fileCount === 0) {
-      problems.push('the read files list opened empty: the run recorded no files read');
-    } else {
-      const first = await files.first().innerText();
-      if (!first.includes('README.md')) {
-        problems.push(`README.md is not among the files read (first: "${first}")`);
-      }
+    if (end === 'failed') {
+      // A failure is a fact about the contestant, and the card is where its reason belongs.
+      const said = await card.locator('p.text-destructive').innerText().catch(() => '');
+      if (!said.trim()) problems.push(`${id} failed with no reason on its card`);
+      summaries.push(`${id} ${source} failed: ${said.trim()}`);
+      continue;
     }
+
+    // The files ride a closed <details>, and closed-details content is display:none -- excluded
+    // from the role tree in Chromium. Open it, then read the list it was hiding.
+    const readSummary = card.getByText(/^Read \d+$/);
+    if (await readSummary.count() === 0) {
+      problems.push(`${id}: no read-files affordance, the run recorded no files read`);
+    } else {
+      await readSummary.click();
+      const files = (await card.getByRole('listitem').allInnerTexts()).join('\n');
+      if (!files.includes('README.md')) problems.push(`${id}: README.md is not among the files read`);
+    }
+    const diff = card.getByText('Diff', { exact: true });
+    if (await diff.count() > 0) {
+      await diff.click();
+      await card.locator('pre').waitFor({ timeout: 5_000 });
+    }
+    summaries.push(`${id} ${source} closed (${facts.trim()})`);
   }
 
-  const diff = contestant.getByText('Diff', { exact: true });
-  if (await diff.count() > 0) {
-    await diff.click();
-    await contestant.locator('pre').waitFor({ timeout: 5_000 });
-  }
-
-  // The contestant's session is an ordinary session: it exists on this sidecar's catalog, so
-  // the panel's session surfaces can list it. Read through the sidecar the panel talks to.
-  const sid = await contestant.locator('p').nth(1).innerText();
   const listed = await context.request.get(`${ORIGIN}/api/arena/runs`);
   if (!listed.ok()) problems.push(`GET /api/arena/runs answered ${listed.status()}`);
+  if (process.env.ARENA_SCREENSHOT) {
+    await page.screenshot({ path: process.env.ARENA_SCREENSHOT, fullPage: true });
+  }
 
   if (problems.length > 0) {
     // The card as the browser read it, beside the run as the sidecar holds it: the two halves
     // of a facts disagreement are worth more than either alone.
-    console.error('--- the card as rendered ---');
-    console.error(await contestant.innerText().catch(() => '(the card was gone)'));
+    console.error('--- the cards as rendered ---');
+    for (const card of cards) console.error(await card.innerText().catch(() => '(the card was gone)'));
     console.error('--- the run as the sidecar holds it ---');
     const shown = await page.evaluate(() => window.location.href);
     console.error(`page: ${shown}`);
     console.error(problems.join('\n'));
     throw new Error(`arena verify found ${problems.length} problem(s)`);
   }
-  console.log(`arena verify OK: run closed on the tab, facts read (${facts.trim()}), session ${sid.trim()}`);
+  console.log(`arena verify OK:\n  ${summaries.join('\n  ')}`);
   failed = false;
 } finally {
   await context.close().catch(() => {});

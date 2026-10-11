@@ -61,6 +61,17 @@ test("round-trips a run, and the diff rides its own file rather than the index",
   expect(await readFile(join(root, run().runId, "c1.diff"), "utf8")).toBe("the diff");
 });
 
+test("a run that duelled both harnesses reloads with each contestant's source intact", async () => {
+  // Measured: a store that read back only opencode refused to boot a sidecar that had ever
+  // run a Claude contestant, which is every sidecar after the first bake-off.
+  const root = await arenaRoot();
+  const store = new ArenaStore(root);
+  const opencode = run().contestants[0]!;
+  const mixed = run({ contestants: [opencode, { ...opencode, contestantId: "c2", source: "claude" }] });
+  store.save([mixed]);
+  expect(store.load()[0]!.contestants.map((one) => one.source)).toEqual(["opencode", "claude"]);
+});
+
 test("a missing store is no runs, not an error: the arena starts empty", async () => {
   const store = new ArenaStore(await arenaRoot());
   expect(store.load()).toEqual([]);

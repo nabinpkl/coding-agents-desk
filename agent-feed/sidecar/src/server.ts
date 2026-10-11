@@ -74,7 +74,14 @@ import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import { ArenaRunRegistry, failUnfinishedContestants } from "@/arena/arenaRun";
 import { ArenaService } from "@/arena/arenaService";
 import { ArenaStore } from "@/arena/arenaStore";
-import { arenaDefaultRepoPath, arenaRoot } from "@/arena/arenaConfig";
+import {
+  arenaClaudeEffort,
+  arenaClaudeModel,
+  arenaDefaultRepoPath,
+  arenaRoot,
+} from "@/arena/arenaConfig";
+import { runClaudeContestant } from "@/arena/claudeContestant";
+import { runOpencodeContestant } from "@/arena/opencodeContestant";
 import { createArenaRoutes } from "@/http/arenaRoutes";
 import { BotStore } from "@/bots/botStore";
 import { BotRegistry } from "@/bots/botRegistry";
@@ -234,8 +241,9 @@ new BotTitleQueue({
     ref.source === "claude" ? awaitComposer(ref.sessionId, SESSION_READY_LIMIT_MS) : Promise.resolve(true),
 }).start();
 
-// The arena: one prompt fanned out to contestants in worktrees of any repo the run names. It
-// drives the opencode backend above and records what each contestant did. The runs it made are
+// The arena: one prompt fanned out to contestants in worktrees of any repo the run names. Each
+// contestant is driven by its source's driver -- the opencode backend above, or a spawned
+// `claude --print` (ADR-0128) -- and the run records what each did. The runs it made are
 // reloaded from its store so a sidecar that restarts still lists them, with the contestants a
 // restart orphaned marked failed rather than left reading as dueling forever.
 const arenaStore = new ArenaStore(arenaRoot());
@@ -245,7 +253,11 @@ const arenaRegistry = new ArenaRunRegistry({
 const arenaService = new ArenaService({
   registry: arenaRegistry,
   store: arenaStore,
-  backend: opencodeBackend,
+  drivers: {
+    opencode: (plan) => runOpencodeContestant(opencodeBackend, plan),
+    claude: (plan) =>
+      runClaudeContestant(plan, { model: arenaClaudeModel(), effort: arenaClaudeEffort() }),
+  },
   arenaRoot: arenaRoot(),
   defaultRepoPath: arenaDefaultRepoPath(),
 });

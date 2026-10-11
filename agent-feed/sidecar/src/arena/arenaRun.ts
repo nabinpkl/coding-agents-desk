@@ -8,6 +8,7 @@
 
 import type {
   ArenaContestantDetail,
+  ArenaContestantSource,
   ArenaContestantStatus,
   ArenaContestantSummary,
   ArenaRunDetail,
@@ -17,7 +18,7 @@ import type {
 /** One contestant, as the arena tracks it. Facts are filled in as they are observed. */
 export interface ArenaContestantRecord {
   contestantId: string;
-  source: "opencode";
+  source: ArenaContestantSource;
   /** The serve session this contestant is, once `createSession` has answered; null until then. */
   sessionId: string | null;
   worktreePath: string;

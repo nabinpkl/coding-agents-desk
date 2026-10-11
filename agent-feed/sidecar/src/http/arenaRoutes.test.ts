@@ -11,7 +11,7 @@ import { createArenaRoutes } from "@/http/arenaRoutes";
 import { ArenaRunRegistry, type ArenaRunRecord } from "@/arena/arenaRun";
 import { ArenaService } from "@/arena/arenaService";
 import { ArenaStore } from "@/arena/arenaStore";
-import type { OpencodeContestantBackend } from "@/arena/opencodeContestant";
+import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/opencodeContestant";
 import type { TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 
 const roots: string[] = [];
@@ -84,7 +84,13 @@ async function start(): Promise<{ at: (path: string, init?: RequestInit) => Prom
   const arena = new ArenaService({
     registry,
     store: new ArenaStore(root),
-    backend: closingBackend,
+    drivers: {
+      opencode: (plan) =>
+        runOpencodeContestant(closingBackend, plan, {
+          turnOutcome: async () => ({ closed: true, failure: null }),
+        }),
+      claude: () => Promise.reject(new Error("no claude in the route tests")),
+    },
     worktrees: fakeWorktrees,
     arenaRoot: root,
     defaultRepoPath: "/repos/default",

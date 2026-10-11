@@ -22,11 +22,25 @@ import {
 } from "@/features/arena/arenaRunsSource";
 import type {
   ArenaContestantDetail,
+  ArenaContestantSource,
   ArenaContestantStatus,
   ArenaRunDetail,
   ArenaRunSummary,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
+
+const SOURCE_LABEL: Record<ArenaContestantSource, string> = {
+  opencode: "OpenCode",
+  claude: "Claude",
+};
+
+/** The sidecar refuses more than this; the form stops offering slots at the same number. */
+const MAXIMUM_CONTESTANTS = 4;
+
+const CONTROL_CLASS =
+  "rounded-md border border-border bg-background px-1 py-1 text-(length:--agent-panel-fs-sidebar-body,15px) outline-none focus-visible:ring-2 focus-visible:ring-primary";
+const BUTTON_CLASS =
+  "min-h-11 rounded-md border border-border px-3 text-(length:--agent-panel-fs-sidebar-body,15px) font-medium outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary active:bg-muted disabled:cursor-not-allowed disabled:opacity-50";
 
 const STATUS_LABEL: Record<ArenaContestantStatus, string> = {
   preparing: "preparing",
@@ -67,7 +81,9 @@ export function ArenaSurface({ transport }: { transport: AgentHttpTransport }) {
   const [detail, setDetail] = useState<ArenaRunDetail | null>(null);
   const [prompt, setPrompt] = useState("");
   const [repoPath, setRepoPath] = useState("");
-  const [contestantCount, setContestantCount] = useState(2);
+  // The lineup, in contestant order: c1 is the first slot. Two of one harness is a variance
+  // run, one of each a bake-off; the form says which by what the slots hold.
+  const [lineup, setLineup] = useState<ArenaContestantSource[]>(["opencode", "claude"]);
   const [starting, setStarting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -116,7 +132,7 @@ export function ArenaSurface({ transport }: { transport: AgentHttpTransport }) {
     const answer = await createArenaRun(transport, {
       prompt,
       repoPath: repoPath.trim(),
-      contestants: contestantCount,
+      contestants: lineup,
     });
     setStarting(false);
     if ("run" in answer) {
@@ -125,7 +141,7 @@ export function ArenaSurface({ transport }: { transport: AgentHttpTransport }) {
       return;
     }
     setProblem(answer.message);
-  }, [transport, prompt, repoPath, contestantCount]);
+  }, [transport, prompt, repoPath, lineup]);
 
   const tearDown = useCallback(async () => {
     if (!selectedRunId) return;
@@ -147,7 +163,7 @@ export function ArenaSurface({ transport }: { transport: AgentHttpTransport }) {
     <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
       <header className="shrink-0 border-b border-border px-4 py-3">
         <h1 className="text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold">Arena</h1>
-        <div className="mt-2 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] items-start gap-2">
+        <div className="mt-2 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] items-start gap-2">
           <textarea
             aria-label="Prompt every contestant gets"
             value={prompt}
@@ -163,29 +179,57 @@ export function ArenaSurface({ transport }: { transport: AgentHttpTransport }) {
             placeholder="Repository path"
             className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-(length:--agent-panel-fs-sidebar-body,15px) outline-none focus-visible:ring-2 focus-visible:ring-primary"
           />
-          <div className="flex items-center gap-2">
-            <label className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground" htmlFor="arena-contestants">
-              Contestants
-            </label>
-            <select
-              id="arena-contestants"
-              value={contestantCount}
-              onChange={(event) => setContestantCount(Number(event.target.value))}
-              className="rounded-md border border-border bg-background px-1 py-1 text-(length:--agent-panel-fs-sidebar-body,15px) outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              {[1, 2, 3, 4].map((count) => (
-                <option key={count} value={count}>{count}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => void start()}
-              disabled={starting || !prompt.trim()}
-              className="min-h-11 rounded-md border border-border px-3 text-(length:--agent-panel-fs-sidebar-body,15px) font-medium outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary active:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {starting ? "Starting" : "Start run"}
-            </button>
-          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2" role="group" aria-label="Contestants">
+          <span className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+            Contestants
+          </span>
+          {lineup.map((source, index) => (
+            <span key={index} className="flex items-center gap-1">
+              <select
+                aria-label={`Contestant ${index + 1} harness`}
+                value={source}
+                onChange={(event) => {
+                  const next = event.target.value as ArenaContestantSource;
+                  setLineup((current) => current.map((one, at) => (at === index ? next : one)));
+                }}
+                className={CONTROL_CLASS}
+              >
+                {(Object.keys(SOURCE_LABEL) as ArenaContestantSource[]).map((option) => (
+                  <option key={option} value={option}>{SOURCE_LABEL[option]}</option>
+                ))}
+              </select>
+              {lineup.length > 1 ? (
+                <button
+                  type="button"
+                  aria-label={`Remove contestant ${index + 1}`}
+                  title={`Remove contestant ${index + 1}`}
+                  onClick={() => setLineup((current) => current.filter((_, at) => at !== index))}
+                  className="min-h-11 min-w-11 rounded-md px-2 text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted"
+                >
+                  ×
+                </button>
+              ) : null}
+            </span>
+          ))}
+          <button
+            type="button"
+            aria-label="Add a contestant"
+            title="Add a contestant"
+            onClick={() => setLineup((current) => [...current, current[current.length - 1] ?? "opencode"])}
+            disabled={lineup.length >= MAXIMUM_CONTESTANTS}
+            className={`${BUTTON_CLASS} min-w-11 px-2`}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            onClick={() => void start()}
+            disabled={starting || !prompt.trim()}
+            className={`${BUTTON_CLASS} ml-auto`}
+          >
+            {starting ? "Starting" : "Start run"}
+          </button>
         </div>
         {problem ? (
           <p role="alert" className="mt-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
@@ -251,7 +295,10 @@ export function ArenaSurface({ transport }: { transport: AgentHttpTransport }) {
                 >
                   <header className="flex items-baseline justify-between gap-2">
                     <h3 className="text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold">
-                      {contestant.contestantId}
+                      {contestant.contestantId}{" "}
+                      <span className="ml-1 font-normal text-muted-foreground">
+                        {SOURCE_LABEL[contestant.source]}
+                      </span>
                     </h3>
                     <span className={`text-(length:--agent-panel-fs-sidebar-meta,13px) ${STATUS_CLASS[contestant.status]}`}>
                       {contestant.status === "running" ? "◍ " : contestant.status === "failed" ? "✕ " : ""}

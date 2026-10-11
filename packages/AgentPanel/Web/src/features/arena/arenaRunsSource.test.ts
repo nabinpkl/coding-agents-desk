@@ -61,6 +61,18 @@ describe("parseRunsStreamFrame", () => {
     expect(parseRunsStreamFrame(JSON.stringify({ type: "runs", runs: [run(), { runId: 1 }] }))).toBeNull();
   });
 
+  test("reads a Claude contestant, and refuses a harness it does not know", () => {
+    const claude = parseRunsStreamFrame(JSON.stringify({
+      type: "runs",
+      runs: [run({ contestants: [contestant({ source: "claude" })] })],
+    }));
+    expect(claude?.[0]?.contestants[0]?.source).toBe("claude");
+    expect(parseRunsStreamFrame(JSON.stringify({
+      type: "runs",
+      runs: [run({ contestants: [contestant({ source: "pi" })] })],
+    }))).toBeNull();
+  });
+
   test("refuses a run whose contestants carry a status it does not know", () => {
     expect(parseRunsStreamFrame(JSON.stringify({
       type: "runs",
@@ -97,15 +109,19 @@ describe("parseRunDetail", () => {
 });
 
 describe("requests", () => {
-  test("creates a run with one contestant entry per contestant asked for", async () => {
+  test("creates a run with one contestant entry per lineup slot, in order", async () => {
     const { transport, calls } = transportOf((method) =>
       method === "POST"
         ? { status: 201, body: JSON.stringify(run()) }
         : { status: 500, body: "" }
     );
-    const answer = await createArenaRun(transport, { prompt: "say one word", repoPath: "/repos/one", contestants: 3 });
+    const answer = await createArenaRun(transport, { prompt: "say one word", repoPath: "/repos/one", contestants: ["opencode", "claude", "opencode"] });
     expect("run" in answer && answer.run.runId).toBe(run().runId);
-    expect((calls[0]?.body as { contestants: unknown[] }).contestants.length).toBe(3);
+    expect((calls[0]?.body as { contestants: unknown[] }).contestants).toEqual([
+      { source: "opencode" },
+      { source: "claude" },
+      { source: "opencode" },
+    ]);
   });
 
   test("a refused run carries the sidecar's own message", async () => {
@@ -113,7 +129,7 @@ describe("requests", () => {
       status: 400,
       body: JSON.stringify({ error: { code: "arena-bad-request", message: "a run needs a prompt" } }),
     }));
-    const answer = await createArenaRun(transport, { prompt: "", repoPath: "/x", contestants: 1 });
+    const answer = await createArenaRun(transport, { prompt: "", repoPath: "/x", contestants: ["opencode"] });
     expect("message" in answer && answer.message).toBe("a run needs a prompt");
   });
 

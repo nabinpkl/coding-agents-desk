@@ -12,6 +12,7 @@
 // path to it.
 
 import type {
+  ArenaContestantSource,
   ArenaContestantDetail,
   ArenaRunDetail,
   ArenaRunSummary,
@@ -28,9 +29,10 @@ function contestantSummaryOf(value: unknown): ArenaRunSummary["contestants"][num
   if (c.status !== "preparing" && c.status !== "running" && c.status !== "closed" && c.status !== "failed") {
     return null;
   }
+  if (c.source !== "opencode" && c.source !== "claude") return null;
   return {
     contestantId: c.contestantId,
-    source: c.source === "opencode" ? "opencode" : "opencode",
+    source: c.source,
     sessionId: typeof c.sessionId === "string" ? c.sessionId : null,
     worktreePath: c.worktreePath,
     status: c.status,
@@ -137,13 +139,13 @@ export async function fetchArenaRunDetail(
 /** Creates a run. The failure carries the sidecar's own message, which names what was wrong. */
 export async function createArenaRun(
   transport: AgentHttpTransport,
-  request: { prompt: string; repoPath: string; contestants: number },
+  request: { prompt: string; repoPath: string; contestants: readonly ArenaContestantSource[] },
 ): Promise<{ run: ArenaRunSummary } | { message: string }> {
   const response = await transport.request("POST", RUNS_PATH, {
     body: {
       prompt: request.prompt,
       repoPath: request.repoPath,
-      contestants: Array.from({ length: request.contestants }, () => ({ source: "opencode" })),
+      contestants: request.contestants.map((source) => ({ source })),
     },
   });
   if (response.status !== 201) return { message: failureMessage(response.body, response.status) };

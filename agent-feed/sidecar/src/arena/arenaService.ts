@@ -2,19 +2,20 @@
 // contestant at once, and record what each did.
 //
 // The service is the only writer of runs: routes talk to it, and it talks to the worktrees, the
-// opencode backend, the registry and the store, so a run's state has one owner while it lives.
+// drivers, the registry and the store, so a run's state has one owner while it lives.
 // Contestants are driven in the background and never block the request that started them --
 // a run that waited for its slowest contestant would answer the panel a minute late with
 // nothing to show but the wait. Their failures land on the contestant's record, not the run's:
 // one contestant failing is a fact about that contestant, and the run is the grouping.
 //
-// v0 drives opencode contestants only, and says so by refusing anything else with a 400 that
-// names the source it could not drive. The Claude driver lands behind the same `driveOne`
-// call when its verification arc opens; until then there is one way to duel.
+// Each contestant names the harness that drives it, and the drivers arrive wired: a source
+// with no driver is refused with a 400 naming it, so one run can duel two of the same harness
+// or one of each, and a harness this build cannot drive never starts a worktree.
 
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import type {
+  ArenaContestantSource,
   ArenaCreateRunRequest,
   ArenaRunDetail,
   ArenaRunSummary,
@@ -34,7 +35,7 @@ import {
   pruneWorktrees,
   removeContestantWorktree,
 } from "@/arena/arenaWorktrees";
-import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/opencodeContestant";
+import type { ContestantDriver, ContestantDrivers, ContestantPlan } from "@/arena/contestantDriver";
 import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
 
 /** The request could not become a run; the route answers it with a 400 naming this reason. */
@@ -45,11 +46,13 @@ export class ArenaRunNotFoundError extends Error {}
 export class ArenaRunBusyError extends Error {}
 
 /**
- * The tools a contestant's tools name files by, as the arena counts them. Write-like tools are
- * listed and everything else that names files reads: the arena records what a contestant
- * touched, and which direction the touch went is the one classification it needs.
+ * Tool names, lowercased, by the direction they work in. Lowercased because the two harnesses
+ * spell one tool two ways (`read` on the serve, `Read` in Claude). Only these two sets may
+ * name a file from their input: a search tool's `path` is the directory it searched, not a
+ * file it read, so anything else counts only the files its adapter resolved.
  */
-const WRITE_TOOLS = new Set(["write", "edit", "patch"]);
+const WRITE_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit", "patch"]);
+const READ_TOOLS = new Set(["read", "notebookread"]);
 
 /** A diff longer than this is truncated with a marker, in memory and in its file alike. */
 const MAXIMUM_DIFF_BYTES = 256 * 1024;
@@ -69,17 +72,10 @@ export interface ArenaWorktreeSteps {
   captureDiff(options: { worktreePath: string; ref: string }): Promise<string>;
 }
 
-/** The pieces `driveOne` needs from the mapper's blocks, as one narrow shape for tests. */
-export interface ContestantEvents {
-  events: ActivityEvent[];
-  usage: { current: number; cost?: number } | null;
-  sessionId: string;
-}
-
 export class ArenaService {
   private readonly registry: ArenaRunRegistry;
   private readonly store: ArenaStore;
-  private readonly backend: OpencodeContestantBackend;
+  private readonly drivers: ContestantDrivers;
   private readonly worktrees: ArenaWorktreeSteps;
   private readonly arenaRoot: string;
   private readonly defaultRepoPath: string | null;
@@ -89,7 +85,8 @@ export class ArenaService {
   constructor(options: {
     registry: ArenaRunRegistry;
     store: ArenaStore;
-    backend: OpencodeContestantBackend;
+    /** One driver per source this sidecar can duel; the wiring lives in `server.ts`. */
+    drivers: ContestantDrivers;
     /** Overridden in tests; the real steps are this module's own `arenaWorktrees.ts`. */
     worktrees?: ArenaWorktreeSteps;
     arenaRoot: string;
@@ -99,7 +96,7 @@ export class ArenaService {
   }) {
     this.registry = options.registry;
     this.store = options.store;
-    this.backend = options.backend;
+    this.drivers = options.drivers;
     this.worktrees = options.worktrees ?? {
       assertRepository: assertGitRepository,
       add: addContestantWorktree,
@@ -158,7 +155,7 @@ export class ArenaService {
       throw new ArenaBadRequestError(`a run fans out to at most ${MAXIMUM_CONTESTANTS} contestants`);
     }
     for (const [index, contestant] of request.contestants.entries()) {
-      if (!contestant || contestant.source !== "opencode") {
+      if (!contestant || !this.drivers[contestant.source as ArenaContestantSource]) {
         throw new ArenaBadRequestError(
           `contestant ${index} names source "${contestant?.source ?? "none"}", which this arena cannot drive`,
         );
@@ -171,9 +168,9 @@ export class ArenaService {
     }
     const worktreeRoot = join(this.arenaRoot, runId);
 
-    const records: ArenaContestantRecord[] = request.contestants.map((_, index) => ({
+    const records: ArenaContestantRecord[] = request.contestants.map((contestant, index) => ({
       contestantId: `c${index + 1}`,
-      source: "opencode" as const,
+      source: contestant.source,
       sessionId: null,
       worktreePath: join(worktreeRoot, `c${index + 1}`),
       status: "preparing" as const,
@@ -277,7 +274,10 @@ export class ArenaService {
       this.registry.updateContestant(run.runId, record.contestantId, apply);
     };
     try {
-      const result = await runOpencodeContestant(this.backend, {
+      const drive: ContestantDriver | undefined = this.drivers[record.source];
+      // createRun refused every source without a driver, so this is a broken invariant.
+      if (!drive) throw new Error(`no driver wired for source "${record.source}"`);
+      const plan: ContestantPlan = {
         prompt: run.prompt,
         worktreePath: record.worktreePath,
         requestId: `${run.runId}:${record.contestantId}`,
@@ -291,7 +291,8 @@ export class ArenaService {
             contestant.status = "running";
           });
         },
-      });
+      };
+      const result = await drive(plan);
 
       const { filesRead, filesWritten } = filesFromEvents(result.events);
       const diff = await this.worktrees.captureDiff({
@@ -346,8 +347,8 @@ function fileFromToolInput(input: unknown): string | null {
  * `files` on a tool_use block is the adapter's own resolution of what the call named, so that
  * is read first and never re-derived. But the opencode mapper resolves `files` only from the
  * attachments a tool carried -- measured on this machine's serve, a `read` call names its
- * file in its input alone -- so the tool's own input is the fallback, by the keys above. A
- * tool that names no file either way is left alone: a shell command or a glob pattern is a
+ * file in its input alone -- so a read or write tool's own input is the fallback, by the keys
+ * above. A tool that names no file either way is left alone: a shell command or a search is a
  * fact the transcript holds, not a file the arena counts.
  */
 export function filesFromEvents(events: readonly ActivityEvent[]): {
@@ -359,11 +360,14 @@ export function filesFromEvents(events: readonly ActivityEvent[]): {
   for (const event of events) {
     for (const block of event.blocks as ActivityBlock[]) {
       if (block.kind !== "tool_use" || !block.tool) continue;
+      const tool = block.tool.toLowerCase();
+      const writes = WRITE_TOOLS.has(tool);
+      const fromInput = writes || READ_TOOLS.has(tool) ? fileFromToolInput(block.input) : null;
       const named = block.files && block.files.length > 0
         ? block.files
-        : [fileFromToolInput(block.input)].filter((file): file is string => file !== null);
+        : fromInput === null ? [] : [fromInput];
       if (named.length === 0) continue;
-      const into = WRITE_TOOLS.has(block.tool) ? written : read;
+      const into = writes ? written : read;
       for (const file of named) into.add(file);
     }
   }

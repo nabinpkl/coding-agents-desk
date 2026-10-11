@@ -28,3 +28,18 @@ export function arenaRoot(): string {
 export function arenaDefaultRepoPath(): string | null {
   return process.env.AGENT_FEED_ARENA_DEFAULT_REPO?.trim() || null;
 }
+
+/**
+ * The model and effort a Claude contestant runs with, or null for the CLI's own defaults.
+ * Deliberately not named per run yet: a duel's fairness lives in both contestants answering
+ * the same question the same way, and the model is the first thing that changes when they do
+ * not. The day a run wants to name models per contestant is the day this moves onto the
+ * request.
+ */
+export function arenaClaudeModel(): string | null {
+  return process.env.AGENT_FEED_ARENA_CLAUDE_MODEL?.trim() || null;
+}
+
+export function arenaClaudeEffort(): string | null {
+  return process.env.AGENT_FEED_ARENA_CLAUDE_EFFORT?.trim() || null;
+}

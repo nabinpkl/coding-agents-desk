@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-10-11
+superseded-by: ADR-0128
 ---
 
 # Arena runs fan one prompt out to worktree contestants, recording facts and judging nothing

@@ -10,14 +10,18 @@
 // for, so they ride the detail route on demand rather than every status push, the same split the
 // transcript itself keeps between its list and its body.
 
-import type { SourceId } from "./activity.ts";
+/**
+ * The harnesses an arena run can drive a contestant with. A source the arena cannot drive is
+ * refused with 400 naming it, rather than queued for a driver that does not exist.
+ */
+export type ArenaContestantSource = "opencode" | "claude";
 
 export type ArenaContestantStatus = "preparing" | "running" | "closed" | "failed";
 
 /** One contestant of a run, as a status surface needs it: identity and where it stands. */
 export interface ArenaContestantSummary {
   contestantId: string;
-  source: SourceId;
+  source: ArenaContestantSource;
   /** The session this contestant is, once its backend has made one; null until then. */
   sessionId: string | null;
   worktreePath: string;
@@ -66,8 +70,8 @@ export interface ArenaRunDetail extends ArenaRunSummary {
 }
 
 /**
- * `POST /api/arena/runs`. v0 drives opencode contestants only; a request naming another source
- * is refused with 400 rather than queued for a backend that does not exist yet.
+ * `POST /api/arena/runs`. Each contestant names the harness that drives it, so one run can
+ * duel two of the same harness or one of each.
  */
 export interface ArenaCreateRunRequest {
   prompt: string;
@@ -75,7 +79,7 @@ export interface ArenaCreateRunRequest {
   repoPath: string;
   /** The ref every contestant's worktree starts at; "HEAD" when absent. */
   baseRef?: string;
-  contestants: { source: "opencode" }[];
+  contestants: { source: ArenaContestantSource }[];
 }
 
 /** One message of the arena status stream: the whole run list, pushed on every change. */

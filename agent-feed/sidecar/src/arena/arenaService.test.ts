@@ -15,7 +15,8 @@ import {
 } from "@/arena/arenaService";
 import { ArenaRunRegistry, type ArenaRunRecord } from "@/arena/arenaRun";
 import { ArenaStore } from "@/arena/arenaStore";
-import type { OpencodeContestantBackend } from "@/arena/opencodeContestant";
+import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/opencodeContestant";
+import type { ContestantDriver, ContestantDrivers } from "@/arena/contestantDriver";
 import type { ArenaCreateRunRequest, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 
@@ -135,7 +136,35 @@ function toolEvent(id: string, tool: string, files: string[]): ActivityEvent {
   };
 }
 
-async function service(options: { backend?: OpencodeContestantBackend; defaultRepoPath?: string | null } = {}) {
+/**
+ * The drivers a run is wired with: opencode over the given fake backend, and a Claude driver
+ * that closes at once having named one written file, unless the test hands its own.
+ */
+function driversOver(
+  backend: OpencodeContestantBackend,
+  claude?: ContestantDriver,
+): ContestantDrivers {
+  return {
+    // The serve's end-of-turn marker is the driver's own concern, pinned in its tests; here
+    // every turn the fake backend plays is one the serve has marked done.
+    opencode: (plan) =>
+      runOpencodeContestant(backend, plan, { turnOutcome: async () => ({ closed: true, failure: null }) }),
+    claude: claude ?? (async (plan) => {
+      plan.onSessionId("claude-session");
+      return {
+        sessionId: "claude-session",
+        events: [toolEvent("claude:0", "Write", ["/repo/claude.ts"])],
+        usage: null,
+      };
+    }),
+  };
+}
+
+async function service(options: {
+  backend?: OpencodeContestantBackend;
+  claude?: ContestantDriver;
+  defaultRepoPath?: string | null;
+} = {}) {
   const root = await arenaRoot();
   const { backend } = options.backend ? { backend: options.backend } : fakeBackend();
   const worktrees = fakeWorktrees();
@@ -144,7 +173,7 @@ async function service(options: { backend?: OpencodeContestantBackend; defaultRe
   const arena = new ArenaService({
     registry,
     store,
-    backend,
+    drivers: driversOver(backend, options.claude),
     worktrees: worktrees.steps,
     arenaRoot: root,
     defaultRepoPath: options.defaultRepoPath === undefined ? "/repos/default" : options.defaultRepoPath,
@@ -202,6 +231,21 @@ test("a run makes every worktree first, registers, then fans the prompt out", as
   expect(settled?.contestants[0]?.gitDiff).toBe("diff --git a/README");
 });
 
+test("one run duels both harnesses, each contestant driven by the driver its source names", async () => {
+  const { arena, registry } = await service();
+  const summary = await arena.createRun(
+    request({ contestants: [{ source: "opencode" }, { source: "claude" }] }),
+  );
+  await whenContestantsSettle(registry);
+  const detail = arena.runDetailFor(summary.runId);
+  expect(detail?.contestants.map((one) => [one.source, one.status])).toEqual([
+    ["opencode", "closed"],
+    ["claude", "closed"],
+  ]);
+  expect(detail?.contestants[1]?.sessionId).toBe("claude-session");
+  expect(detail?.contestants[1]?.filesWritten).toEqual(["/repo/claude.ts"]);
+});
+
 test("a failed contestant records its failure as its own fact, not the run's", async () => {
   const { arena, registry } = await service({ backend: fakeBackend({ fail: true }).backend });
   const summary = await arena.createRun(request());
@@ -223,7 +267,7 @@ test("a run's facts survive a reload, with the diff read back from its own file"
   const reArena = new ArenaService({
     registry: reloaded,
     store,
-    backend: fakeBackend().backend,
+    drivers: driversOver(fakeBackend().backend),
     worktrees: fakeWorktrees().steps,
     arenaRoot: root,
     defaultRepoPath: null,
@@ -251,7 +295,7 @@ test("refuses a request no run could be made of, naming what was wrong", async (
   await expect(arena.createRun(request({ repoPath: "relative/path" }))).rejects.toThrow("absolute");
   await expect(arena.createRun(request({ contestants: [] }))).rejects.toThrow("at least one contestant");
   await expect(
-    arena.createRun(request({ contestants: [{ source: "claude" }] })),
+    arena.createRun(request({ contestants: [{ source: "pi" }] })),
   ).rejects.toThrow("cannot drive");
 });
 
@@ -269,7 +313,7 @@ test("a worktree failure leaves no run behind and undoes the worktrees it made",
   const arena = new ArenaService({
     registry,
     store: new ArenaStore(root),
-    backend: fakeBackend().backend,
+    drivers: driversOver(fakeBackend().backend),
     worktrees: failing,
     arenaRoot: root,
     defaultRepoPath: null,
@@ -311,6 +355,25 @@ test("deleteRun refuses a run with a contestant still dueling", async () => {
 });
 
 describe("filesFromEvents", () => {
+  test("reads Claude's capitalised tool names the way it reads the serve's", () => {
+    const events: ActivityEvent[] = [
+      { ...toolEvent("a", "Read", []), blocks: [{ kind: "tool_use", tool: "Read", input: { file_path: "/repo/a.ts" } }] },
+      { ...toolEvent("b", "Edit", []), blocks: [{ kind: "tool_use", tool: "Edit", input: { file_path: "/repo/b.ts" } }] },
+      { ...toolEvent("c", "MultiEdit", []), blocks: [{ kind: "tool_use", tool: "MultiEdit", input: { file_path: "/repo/c.ts" } }] },
+    ];
+    const { filesRead, filesWritten } = filesFromEvents(events);
+    expect(filesRead).toEqual(["/repo/a.ts"]);
+    expect(filesWritten).toEqual(["/repo/b.ts", "/repo/c.ts"]);
+  });
+
+  test("a search tool's path is the directory it searched, not a file it read", () => {
+    const event: ActivityEvent = {
+      ...toolEvent("a", "Grep", []),
+      blocks: [{ kind: "tool_use", tool: "Grep", input: { pattern: "widget", path: "/repo/src" } }],
+    };
+    expect(filesFromEvents([event])).toEqual({ filesRead: [], filesWritten: [] });
+  });
+
   test("splits the files by the direction the tool worked in", () => {
     const events = [
       toolEvent("a", "read", ["/repo/README", "/repo/notes"]),

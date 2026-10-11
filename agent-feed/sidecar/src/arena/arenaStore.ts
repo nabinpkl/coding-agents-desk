@@ -53,7 +53,7 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
     const c = raw as Record<string, unknown>;
     const contestantId = typeof c.contestantId === "string" ? c.contestantId : null;
     const worktreePath = typeof c.worktreePath === "string" ? c.worktreePath : null;
-    const source = c.source === "opencode" ? "opencode" : null;
+    const source = c.source === "opencode" || c.source === "claude" ? c.source : null;
     if (!contestantId || !worktreePath || !source) {
       throw new ArenaStoreError(`runs.json entry ${at} contestant ${index} is missing its identity`);
     }

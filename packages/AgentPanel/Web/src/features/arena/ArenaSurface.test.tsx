@@ -107,6 +107,22 @@ describe("ArenaSurface", () => {
     await waitFor(() => expect(posted.length).toBe(1));
     const body = posted[0] as { prompt: string; contestants: unknown[] };
     expect(body.prompt).toBe("count to three");
-    expect(body.contestants.length).toBe(2);
+    // The default lineup is one of each harness: a bake-off, the arena's first question.
+    expect(body.contestants).toEqual([{ source: "opencode" }, { source: "claude" }]);
+  });
+
+  test("the lineup grows, changes harness and shrinks one slot at a time", async () => {
+    render(<ArenaSurface transport={harness().transport} />);
+    screen.getByLabelText("Add a contestant").click();
+    await waitFor(() => expect(screen.getByLabelText("Contestant 3 harness")).toBeTruthy());
+    expect((screen.getByLabelText("Contestant 3 harness") as HTMLSelectElement).value).toBe("claude");
+
+    screen.getByLabelText("Add a contestant").click();
+    await waitFor(() => expect(screen.getByLabelText("Contestant 4 harness")).toBeTruthy());
+    expect((screen.getByLabelText("Add a contestant") as HTMLButtonElement).disabled).toBe(true);
+
+    screen.getByLabelText("Remove contestant 1").click();
+    await waitFor(() => expect(screen.queryByLabelText("Contestant 4 harness")).toBeNull());
+    expect((screen.getByLabelText("Contestant 1 harness") as HTMLSelectElement).value).toBe("claude");
   });
 });
