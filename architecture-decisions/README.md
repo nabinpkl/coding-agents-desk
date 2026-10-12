@@ -161,3 +161,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0128 | Arena contestants run behind one driver seam; Claude is spawned, opencode closes on the serve's own marker | accepted | 2026-10-11 |
 | ADR-0129 | The arena tab reads contestants side by side in lanes, each lane the existing SessionView | accepted | 2026-10-11 |
 | ADR-0130 | Arena contestants are confined to their worktree and the same six tools, on both harnesses | accepted | 2026-10-12 |
+| ADR-0131 | An arena opencode session holds its confining rules from the create request itself | accepted | 2026-10-12 |

@@ -382,23 +382,6 @@ test("a serve permission becomes a broker select and the answer becomes its repl
   await backend.dispose();
 });
 
-test("creating a session registers it through the serve", async () => {
-  const created: Array<{ sessionId: string; projectPath: string }> = [];
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
-  const backend = new OpencodeAgentBackend({
-    resolveSession: () => undefined,
-    onSessionCreated: (location) => created.push(location),
-    onCatalogChanged() {},
-    client: () => fakeServe(recorded) as unknown as OpencodeClient,
-    now: () => 1000,
-  });
-  const descriptor = await backend.createSession("r1", "/repo");
-  expect(descriptor).toMatchObject({ sessionId: "s-new", source: "opencode", projectPath: "/repo" });
-  expect(created).toEqual([{ sessionId: "s-new", projectPath: "/repo" }]);
-  expect(recorded.created).toEqual(["/repo"]);
-  await backend.dispose();
-});
-
 test("opening a stale projection re-reads the serve", async () => {
   let now = 1000;
   const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };

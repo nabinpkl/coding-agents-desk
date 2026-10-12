@@ -47,9 +47,11 @@ function fakeBackend(options: {
   usage?: { current: number; limit: number | null; updatedAt: number; cost?: number } | null;
 }) {
   const sent: { sessionId: string; text: string; delivery: string }[] = [];
+  const created: { permissions: readonly unknown[] }[] = [];
   const subscriptions: ((envelope: TimelineEnvelope) => void)[] = [];
   const backend: OpencodeContestantBackend = {
-    async createSession() {
+    async createSession(_requestId, _projectPath, createOptions) {
+      created.push(createOptions);
       return {
         sessionId: options.sessionId ?? "ses-arena",
         source: "opencode",
@@ -87,7 +89,7 @@ function fakeBackend(options: {
   const deliver = (one: TimelineEnvelope): void => {
     for (const listener of subscriptions) listener(one);
   };
-  return { backend, sent, deliver };
+  return { backend, sent, created, deliver };
 }
 
 const plan = {
@@ -99,17 +101,17 @@ const plan = {
 };
 
 /** The serve's answer about the turn, as each test sets it; `reads` counts the asks. */
+const CONFINED = [{ action: "*", resource: "*", effect: "deny" as const }];
+
 function fakeServe(initial: OpencodeTurnOutcome = { closed: false }) {
-  const serve = { outcome: initial, reads: 0, confined: [] as string[] };
+  const serve = { outcome: initial, reads: 0 };
   const options = {
     turnOutcome: async () => {
       serve.reads += 1;
       return serve.outcome;
     },
     recheckMs: 10,
-    confine: async (sessionId: string) => {
-      serve.confined.push(sessionId);
-    },
+    permissions: async () => CONFINED,
   };
   return { serve, options };
 }
@@ -229,33 +231,23 @@ describe("runOpencodeContestant", () => {
     await finished;
   });
 
-  test("confines the session before the prompt goes in", async () => {
-    const { backend, sent } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
-    const { serve, options } = fakeServe(SUCCEEDED);
-    let sentWhenConfined = -1;
-    await runOpencodeContestant(backend, plan, {
-      ...options,
-      confine: async (sessionId) => {
-        sentWhenConfined = sent.length;
-        await options.confine(sessionId);
-      },
-    });
-    expect(serve.confined).toEqual(["ses-arena"]);
-    expect(sentWhenConfined).toBe(0);
-    expect(sent.length).toBe(1);
+  test("creates the session holding the confining rules", async () => {
+    const { backend, created } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
+    await runOpencodeContestant(backend, plan, fakeServe(SUCCEEDED).options);
+    expect(created).toEqual([{ permissions: CONFINED }]);
   });
 
-  test("a session that cannot be confined fails without being prompted", async () => {
-    const { backend, sent } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
-    const { options } = fakeServe(SUCCEEDED);
+  test("rules that cannot be read start no session at all", async () => {
+    const { backend, created, sent } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
     const failing = runOpencodeContestant(backend, plan, {
-      ...options,
-      confine: async () => {
-        throw new Error("session rules: serve answered 500");
+      ...fakeServe(SUCCEEDED).options,
+      permissions: async () => {
+        throw new Error("agents: serve answered 500");
       },
     });
     await expect(failing).rejects.toThrow(OpencodeContestantError);
-    await expect(failing).rejects.toThrow("not prompted");
+    await expect(failing).rejects.toThrow("none was started");
+    expect(created).toEqual([]);
     expect(sent).toEqual([]);
   });
 

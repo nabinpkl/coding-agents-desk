@@ -2,6 +2,7 @@
 status: accepted
 date: 2026-10-12
 supersedes: ADR-0128
+superseded-by: ADR-0131
 ---
 
 # Arena contestants are confined to their worktree and the same six tools, on both harnesses

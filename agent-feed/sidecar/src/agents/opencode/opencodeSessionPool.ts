@@ -4,8 +4,9 @@
 // touch: the owned map, the in-flight starts, the serve-event subscription and the idle
 // reaper. One state owner rather than two sharers, because every method on both sides reads
 // the same maps -- splitting them any other way would be two classes editing each other's
-// fields. The backend reaches sessions only through `open`, `create` and `subscribe`, and
-// mutates nothing here except through the `OwnedSession` those hand back.
+// fields. The backend reaches sessions only through `open` and `subscribe`, and mutates
+// nothing here except through the `OwnedSession` those hand back. Creating a session is not
+// here: it is one remote call that touches none of these maps, and ownership starts at `open`.
 
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { config } from "@/config/config";
@@ -145,28 +146,6 @@ export class OpencodeSessionPool {
       .finally(() => this.starts.delete(sessionId));
     this.starts.set(sessionId, start);
     return start;
-  }
-
-  /** Creates the serve session without adopting it: creation is remote, ownership starts at open. */
-  async create(projectPath: string): Promise<AgentSessionDescriptor> {
-    this.assertActive();
-    const client = this.serve();
-    if (!client) throw new Error("opencode serve password is not configured");
-    const response = await client.v2.session.create({ location: { directory: projectPath } });
-    if (response.error) throw new Error(`create: ${describeServeError(response.error)}`);
-    const created = response.data?.data;
-    if (!created || typeof created.id !== "string") throw new Error("opencode created a session without an id");
-    const location = { sessionId: created.id, projectPath };
-    this.options.onSessionCreated(location);
-    return {
-      sessionId: created.id,
-      source: "opencode",
-      projectPath,
-      title: created.title || created.id,
-      lastEventAt: this.now(),
-      activity: "ready",
-      capabilities: this.options.capabilities,
-    };
   }
 
   describeSession(sessionId: string): AgentSessionDescriptor | undefined {

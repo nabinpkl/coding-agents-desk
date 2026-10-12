@@ -6,7 +6,9 @@
 // Session lifetimes live one layer down, in `opencodeSessionPool.ts`: opening,
 // adopting, refreshing and reaping all edit the same maps, so they share one
 // owner rather than two sharers. This class issues commands and answers queries
-// against the sessions the pool hands back.
+// against the sessions the pool hands back. Creating one is here rather than there: it is a
+// single remote call that owns none of the pool's state, and the session is the pool's only
+// from its first `open`.
 //
 // What it deliberately does NOT do: spawn a server (`createOpencode()` is
 // never constructed -- the user already runs one serve per machine), read the
@@ -50,6 +52,13 @@ export type { OpencodeSessionLocation } from "@/agents/opencode/opencodeSessionP
 
 export interface OpencodeBackendOptions extends Omit<OpencodePoolOptions, "capabilities"> {}
 
+/** One serve permission rule. Of those matching an action and resource, the last decides. */
+export interface OpencodePermissionRule {
+  action: string;
+  resource: string;
+  effect: "allow" | "deny" | "ask";
+}
+
 interface CommandEntry {
   signature: string;
   promise: Promise<AgentCommandReceipt>;
@@ -82,7 +91,15 @@ export class OpencodeAgentBackend implements AgentBackend {
     this.pool = new OpencodeSessionPool({ ...options, capabilities: this.capabilities });
   }
 
-  async createSession(requestId: string, projectPath: string): Promise<AgentSessionDescriptor> {
+  /**
+   * `permissions` are session-scoped rules, read after the agent's with the last match winning,
+   * and held from the session's first moment because they ride the create itself.
+   */
+  async createSession(
+    requestId: string,
+    projectPath: string,
+    options: { permissions?: readonly OpencodePermissionRule[] } = {},
+  ): Promise<AgentSessionDescriptor> {
     this.assertActive();
     const prior = this.creations.get(requestId);
     if (prior) {
@@ -91,7 +108,7 @@ export class OpencodeAgentBackend implements AgentBackend {
       }
       return prior.promise;
     }
-    const promise = this.pool.create(projectPath);
+    const promise = this.createOnServe(projectPath, options.permissions);
     this.creations.set(requestId, { projectPath, promise });
     while (this.creations.size > 128) {
       const oldest = this.creations.keys().next().value;
@@ -99,6 +116,39 @@ export class OpencodeAgentBackend implements AgentBackend {
       this.creations.delete(oldest);
     }
     return promise;
+  }
+
+  private async createOnServe(
+    projectPath: string,
+    permissions: readonly OpencodePermissionRule[] | undefined,
+  ): Promise<AgentSessionDescriptor> {
+    const client = this.serve();
+    if (!client) throw new Error("opencode serve password is not configured");
+    // The serve takes `permissions` on create (its own openapi, 2.0.16) and this SDK predates the
+    // field. Its builder copies only the body keys it knows and drops the rest without a word --
+    // measured: a plain `permissions` key compiled under a cast and the serve stored no rules --
+    // so the field goes through the builder's own escape for extra body keys, `$body_<name>`.
+    const parameters = {
+      location: { directory: projectPath },
+      ...(permissions ? { $body_permissions: permissions } : {}),
+    };
+    const response = await client.v2.session.create(
+      parameters as Parameters<OpencodeClient["v2"]["session"]["create"]>[0],
+    );
+    if (response.error) throw new Error(`create: ${describeServeError(response.error)}`);
+    const created = response.data?.data;
+    if (!created || typeof created.id !== "string") throw new Error("opencode created a session without an id");
+    const location = { sessionId: created.id, projectPath };
+    this.options.onSessionCreated(location);
+    return {
+      sessionId: created.id,
+      source: "opencode",
+      projectPath,
+      title: created.title || created.id,
+      lastEventAt: this.now(),
+      activity: "ready",
+      capabilities: this.capabilities,
+    };
   }
 
   describeSession(sessionId: string): AgentSessionDescriptor | undefined {
