@@ -69,12 +69,19 @@ const basePlan = {
 };
 
 describe("claudeContestantArgv", () => {
-  test("print mode, safe mode, the chosen session, and the tool boundary, with no prompt in argv", () => {
+  test("print mode, safe mode, the chosen session, and the confinement, with no prompt in argv", () => {
     expect(claudeContestantArgv({ binary: "/bin/claude", sessionId: SESSION, model: "haiku", effort: "low" })).toEqual([
       "/bin/claude", "--print", "--safe-mode", "--session-id", SESSION,
       "--model", "haiku", "--effort", "low",
-      "--allowed-tools", "Read,Grep,Glob,Bash,Edit,Write",
+      "--permission-mode", "dontAsk", "--tools", "Read,Grep,Glob,Bash,Edit,Write",
+      "--allowed-tools", "Read(./**)", "Edit(./**)", "Write(./**)", "Bash",
     ]);
+  });
+
+  test("never allows a file tool by bare name, which would allow it on every path", () => {
+    const argv = claudeContestantArgv({ binary: "/bin/claude", sessionId: SESSION });
+    const allowed = argv.slice(argv.indexOf("--allowed-tools") + 1);
+    for (const tool of ["Read", "Edit", "Write", "Glob", "Grep"]) expect(allowed).not.toContain(tool);
   });
 
   test("leaves model and effort to the CLI when none is configured", () => {

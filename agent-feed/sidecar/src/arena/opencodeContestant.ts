@@ -21,6 +21,17 @@
 // The backend arrives as a narrow interface rather than the whole `AgentBackend`: this module
 // needs exactly four operations, and naming them keeps a fake in tests from growing a fake of
 // the rest of the interface.
+//
+// The session is CONFINED before the prompt goes in, to what a Claude contestant may do (see
+// `claudeContestant.ts`): read, edit, search and run a shell in its worktree, and nothing
+// else. A serve session otherwise runs as the `build` agent, whose rules allow every tool and,
+// on this machine's config, every directory -- web fetch, MCP servers, subagents and plugin
+// tools included. Session rules are read after the agent's and the last match wins, so one
+// leading deny-all and the allows after it decide every action. Measured on the live serve
+// (2.0.16, 2026-10-12) by asking it to judge actions against a probe session holding these
+// rules: read, edit and bash in the worktree allowed; webfetch, websearch, an MCP tool, task,
+// question and a directory outside the worktree denied. A contestant whose session cannot be
+// confined is failed, never prompted.
 
 import type {
   AgentCommandReceipt,
@@ -28,6 +39,7 @@ import type {
   TimelineEnvelope,
 } from "@agentdesk/agent-feed-wire";
 import type { ContestantPlan, ContestantResult } from "@/arena/contestantDriver";
+import { serveGet, serveWrite } from "@/agents/opencode/opencodeClient";
 import { readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 import type { ActivityEvent, TokenUsage } from "@/transcripts/transcriptTypes";
 
@@ -49,6 +61,61 @@ export interface OpencodeContestantBackend {
 }
 
 export class OpencodeContestantError extends Error {}
+
+/** One serve permission rule. Of those matching an action and resource, the last decides. */
+export interface OpencodePermissionRule {
+  action: string;
+  resource: string;
+  effect: "allow" | "deny" | "ask";
+}
+
+/** The actions a contestant may take: Claude's six tools, under the serve's names. */
+const CONTESTANT_ACTIONS = ["read", "edit", "glob", "grep", "list", "bash"] as const;
+
+/** The agent a session created with none runs as. */
+const SESSION_AGENT = "build";
+
+/**
+ * The rules that confine one contestant's session.
+ *
+ * Deny-all denies `external_directory` too, which is what keeps the file tools -- and the
+ * paths the serve can read out of a shell command -- inside the worktree. It would also deny
+ * the serve its own scratch directories (a long tool output is spilled to one and read back),
+ * so those are re-allowed from the agent's own rules rather than spelled here: they are the
+ * serve's paths, and its agent list is where it says what they are. The agent's blanket
+ * `external_directory *` allow is exactly what is not carried over.
+ */
+export function contestantPermissions(
+  agentRules: readonly OpencodePermissionRule[],
+): OpencodePermissionRule[] {
+  return [
+    { action: "*", resource: "*", effect: "deny" },
+    ...CONTESTANT_ACTIONS.map((action) => ({ action, resource: "*", effect: "allow" as const })),
+    ...agentRules.filter(
+      (rule) => rule.action === "external_directory" && rule.effect === "allow" && rule.resource !== "*",
+    ),
+  ];
+}
+
+/** Puts the confining rules on a session, from the agent it runs as. Throws when it cannot. */
+async function confineSession(sessionId: string): Promise<void> {
+  const listed = await serveGet("/api/agent");
+  if (listed.status < 200 || listed.status >= 300) {
+    throw new Error(`agents: serve answered ${listed.status} ${listed.text.slice(0, 200)}`);
+  }
+  const agents = (JSON.parse(listed.text) as { data?: unknown }).data;
+  const agent = Array.isArray(agents)
+    ? (agents as { id?: unknown; permissions?: unknown }[]).find((one) => one.id === SESSION_AGENT)
+    : undefined;
+  const rules = agent?.permissions;
+  const agentRules = Array.isArray(rules) ? (rules as OpencodePermissionRule[]) : [];
+  const answered = await serveWrite("PATCH", `/api/session/${sessionId}`, {
+    permissions: contestantPermissions(agentRules),
+  });
+  if (answered.status < 200 || answered.status >= 300) {
+    throw new Error(`session rules: serve answered ${answered.status} ${answered.text.slice(0, 200)}`);
+  }
+}
 
 /** Where the serve says the latest turn stands: still open, or closed with what it came to. */
 export type OpencodeTurnOutcome =
@@ -114,6 +181,7 @@ export async function runOpencodeContestant(
   options: {
     turnOutcome?: (sessionId: string) => Promise<OpencodeTurnOutcome>;
     recheckMs?: number;
+    confine?: (sessionId: string) => Promise<void>;
   } = {},
 ): Promise<ContestantResult> {
   const turnOutcome = options.turnOutcome ?? readTurnOutcome;
@@ -121,6 +189,11 @@ export async function runOpencodeContestant(
   const descriptor = await backend.createSession(plan.requestId, plan.worktreePath);
   const sessionId = descriptor.sessionId;
   plan.onSessionId(sessionId);
+  try {
+    await (options.confine ?? confineSession)(sessionId);
+  } catch (error) {
+    throw new OpencodeContestantError(`could not confine the session, so it was not prompted: ${String(error)}`);
+  }
 
   // Ids are the projection's own: a snapshot re-states rows an upsert already delivered, so the
   // collected turn is deduped by id in insertion order rather than appended raw.

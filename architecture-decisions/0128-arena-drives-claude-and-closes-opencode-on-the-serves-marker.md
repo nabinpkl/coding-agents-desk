@@ -2,6 +2,7 @@
 status: accepted
 date: 2026-10-11
 supersedes: ADR-0127
+superseded-by: ADR-0130
 ---
 
 # Arena contestants run behind one driver seam; Claude is spawned, opencode closes on the serve's own marker

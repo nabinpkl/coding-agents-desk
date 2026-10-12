@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   OpencodeContestantError,
+  contestantPermissions,
   runOpencodeContestant,
   turnOutcomeOf,
   type OpencodeContestantBackend,
@@ -99,13 +100,16 @@ const plan = {
 
 /** The serve's answer about the turn, as each test sets it; `reads` counts the asks. */
 function fakeServe(initial: OpencodeTurnOutcome = { closed: false }) {
-  const serve = { outcome: initial, reads: 0 };
+  const serve = { outcome: initial, reads: 0, confined: [] as string[] };
   const options = {
     turnOutcome: async () => {
       serve.reads += 1;
       return serve.outcome;
     },
     recheckMs: 10,
+    confine: async (sessionId: string) => {
+      serve.confined.push(sessionId);
+    },
   };
   return { serve, options };
 }
@@ -225,6 +229,36 @@ describe("runOpencodeContestant", () => {
     await finished;
   });
 
+  test("confines the session before the prompt goes in", async () => {
+    const { backend, sent } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
+    const { serve, options } = fakeServe(SUCCEEDED);
+    let sentWhenConfined = -1;
+    await runOpencodeContestant(backend, plan, {
+      ...options,
+      confine: async (sessionId) => {
+        sentWhenConfined = sent.length;
+        await options.confine(sessionId);
+      },
+    });
+    expect(serve.confined).toEqual(["ses-arena"]);
+    expect(sentWhenConfined).toBe(0);
+    expect(sent.length).toBe(1);
+  });
+
+  test("a session that cannot be confined fails without being prompted", async () => {
+    const { backend, sent } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
+    const { options } = fakeServe(SUCCEEDED);
+    const failing = runOpencodeContestant(backend, plan, {
+      ...options,
+      confine: async () => {
+        throw new Error("session rules: serve answered 500");
+      },
+    });
+    await expect(failing).rejects.toThrow(OpencodeContestantError);
+    await expect(failing).rejects.toThrow("not prompted");
+    expect(sent).toEqual([]);
+  });
+
   test("a send that fails surfaces as itself, with the subscription released", async () => {
     const { backend, deliver } = fakeBackend({ sendError: new Error("serve refused") });
     const { serve, options } = fakeServe(SUCCEEDED);
@@ -232,6 +266,43 @@ describe("runOpencodeContestant", () => {
     // A late envelope from a released subscription asks nothing of a drive that already failed.
     deliver(envelope({ runState: "idle" }));
     expect(serve.reads).toBe(0);
+  });
+});
+
+describe("contestantPermissions", () => {
+  // The build agent's rules as this machine's serve lists them, trimmed.
+  const build = [
+    { action: "*", resource: "*", effect: "allow" },
+    { action: "external_directory", resource: "*", effect: "ask" },
+    { action: "external_directory", resource: "/home/u/.local/share/opencode/tool-output/*", effect: "allow" },
+    { action: "external_directory", resource: "/tmp/opencode/*", effect: "allow" },
+    { action: "question", resource: "*", effect: "allow" },
+    { action: "external_directory", resource: "*", effect: "allow" },
+  ] as const;
+
+  // The serve's own evaluation: of the rules matching both action and resource, the last wins.
+  const decide = (rules: ReturnType<typeof contestantPermissions>, action: string, resource: string) => {
+    const glob = (pattern: string, value: string) =>
+      new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(value);
+    return rules.filter((rule) => glob(rule.action, action) && glob(rule.resource, resource)).at(-1)?.effect;
+  };
+
+  test("denies everything first, then allows Claude's six tools", () => {
+    const rules = contestantPermissions(build);
+    expect(rules[0]).toEqual({ action: "*", resource: "*", effect: "deny" });
+    for (const action of ["read", "edit", "glob", "grep", "list", "bash"]) {
+      expect(decide(rules, action, "/arena/run/c1/src/widget.ts")).toBe("allow");
+    }
+    for (const action of ["webfetch", "websearch", "task", "question", "skill", "agent-hub_hub_send"]) {
+      expect(decide(rules, action, "*")).toBe("deny");
+    }
+  });
+
+  test("keeps the serve's own scratch directories and drops the blanket outside allow", () => {
+    const rules = contestantPermissions(build);
+    expect(decide(rules, "external_directory", "/home/u/.local/share/opencode/tool-output/*")).toBe("allow");
+    expect(decide(rules, "external_directory", "/tmp/opencode/*")).toBe("allow");
+    expect(decide(rules, "external_directory", "/home/u/Documents/*")).toBe("deny");
   });
 });
 

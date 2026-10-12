@@ -12,9 +12,17 @@
 //     like the same idea and is not: it drops keychain auth entirely and answers "Not logged
 //     in".) Without either, the machine's own hooks load and the request can arrive over the
 //     context limit before the model reads a word.
-//   - Permission prompts do not hang print mode: built-in tools execute, whitelisted or not.
-//     The whitelist below is still passed, as the boundary of what a contestant may do, not
-//     as the thing that stops a hang.
+//   - Nothing about print mode confines a contestant; the flags below do, and each one was
+//     measured by asking a contestant to read, write, edit and shell into a folder outside its
+//     worktree (2.1.296, 2026-10-12). `--safe-mode` keeps the machine's permission MODE, so a
+//     contestant started on a machine set to `auto` ran in `auto`, and a bare tool name in
+//     `--allowed-tools` allows that tool on every path: with both, all four reached outside.
+//     `--permission-mode dontAsk` refuses whatever no rule allows, with nobody asked;
+//     `--tools` takes every other built-in out of the contestant's hands (it otherwise holds
+//     subagents, web fetch, cross-session messaging and scheduled triggers); and rules scoped
+//     to `./**`, which resolves against the worktree the process starts in, keep Read, Edit
+//     and Write -- and Glob and Grep, which follow the Read rule -- inside it. Bash stays
+//     unscoped: a shell reaches wherever this user can, and only a sandbox would change that.
 //   - `--session-id` is accepted and names the transcript that lands at
 //     `~/.claude/projects/<slug>/<id>.jsonl`, so the id is chosen here rather than
 //     discovered, and the session is in the catalog from the moment the file exists. The
@@ -40,8 +48,14 @@ export class ClaudeContestantError extends Error {}
 /** What stderr may contribute to a failure line: enough to name the cause, not the whole log. */
 const STDERR_TAIL_CHARACTERS = 400;
 
-/** The tools a contestant may use. A boundary, not a hang-guard: print mode auto-allows built-ins. */
+/** The built-ins a contestant holds at all; every other tool is absent, not merely refused. */
 const CONTESTANT_TOOLS = "Read,Grep,Glob,Bash,Edit,Write";
+
+/**
+ * What a contestant may do without being asked, under a mode that asks nobody. The file tools
+ * are scoped to the worktree; Glob and Grep need no rule of their own, since they follow Read's.
+ */
+const CONTESTANT_ALLOWED = ["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"];
 
 /**
  * The argv that drives one contestant, split out because it is pure and the spelling is the
@@ -53,12 +67,12 @@ export function claudeContestantArgv(options: {
   sessionId: string;
   model?: string | null;
   effort?: string | null;
-  tools?: string;
 }): string[] {
   const argv = [options.binary, "--print", "--safe-mode", "--session-id", options.sessionId];
   if (options.model) argv.push("--model", options.model);
   if (options.effort) argv.push("--effort", options.effort);
-  argv.push("--allowed-tools", options.tools ?? CONTESTANT_TOOLS);
+  argv.push("--permission-mode", "dontAsk", "--tools", CONTESTANT_TOOLS);
+  argv.push("--allowed-tools", ...CONTESTANT_ALLOWED);
   return argv;
 }
 
@@ -129,7 +143,6 @@ export async function runClaudeContestant(
   options: {
     model?: string | null;
     effort?: string | null;
-    tools?: string;
     /** Overrides the binary lookup; null is "not installed", as the lookup answers it. */
     binary?: string | null;
     newSessionId?: () => string;
@@ -154,7 +167,6 @@ export async function runClaudeContestant(
     sessionId,
     model: options.model,
     effort: options.effort,
-    tools: options.tools,
   });
   const spawn = options.spawn ?? spawnClaude;
   const child = await spawn(argv, plan.worktreePath, plan.prompt);

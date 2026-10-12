@@ -148,7 +148,10 @@ function driversOver(
     // The serve's end-of-turn marker is the driver's own concern, pinned in its tests; here
     // every turn the fake backend plays is one the serve has marked done.
     opencode: (plan) =>
-      runOpencodeContestant(backend, plan, { turnOutcome: async () => ({ closed: true, failure: null }) }),
+      runOpencodeContestant(backend, plan, {
+        turnOutcome: async () => ({ closed: true, failure: null }),
+        confine: async () => {},
+      }),
     claude: claude ?? (async (plan) => {
       plan.onSessionId("claude-session");
       return {
