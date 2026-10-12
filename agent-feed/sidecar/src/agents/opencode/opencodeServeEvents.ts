@@ -6,8 +6,8 @@
 // because the stream lifecycle plus permission answering is one idea and
 // projections plus commands are another.
 
-import type { OpencodeClient, V2Event } from "@opencode-ai/sdk/v2/client";
-import { describeServeError, isServeUnauthorized, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { V2Event } from "@opencode/client";
+import { isServeUnauthorized, resetOpencodeClient, type OpencodeClient } from "@/agents/opencode/opencodeClient";
 import type { OpencodeStreamedPart } from "@/agents/opencode/opencodeStreamTail";
 import type { AgentUiBroker } from "@/agents/agentUiBroker";
 
@@ -21,16 +21,12 @@ export interface ServeEventRouter {
   uiFor(sessionId: string): AgentUiBroker | null;
   /** A compaction started streaming its summary; the durable row lands on `ended`. */
   compactionStarted(sessionId: string, messageId: string): void;
-  /** One streamed delta of a running compaction's summary. */
-  compactionDelta(sessionId: string, messageId: string, text: string): void;
   /**
-   * One streamed delta that names the session but not the compaction: v2's
-   * `session.compaction.delta` carries only `sessionID` plus text, so it appends to whatever is
-   * newest there rather than to a named flow.
+   * One streamed delta of a running compaction's summary. `session.compaction.delta` carries
+   * only `sessionID` plus text, so it appends to whatever is newest there rather than to a
+   * named flow.
    */
   compactionDeltaForSession(sessionId: string, text: string): void;
-  /** A compaction finished (or its checkpoint landed); the notice comes down. */
-  compactionEnded(sessionId: string, messageId: string): void;
   /**
    * A running turn's prose or thinking advanced. Delivered to the projection rather than
    * re-read: the serve is publishing the words as they are written, so reading the messages
@@ -38,17 +34,16 @@ export interface ServeEventRouter {
    */
   streamPart(sessionId: string, part: OpencodeStreamedPart): void;
   /**
-   * A checkpoint landed without naming its compaction (`session.compacted` carries only the
-   * session). Ends whatever is running there: the notice must not outlive the row it waited on.
+   * A compaction ended or failed. Neither event names the compaction, only the session, so this
+   * ends whatever is running there: the notice must not outlive the row it waited on.
    */
   compactionSettled(sessionId: string): void;
 }
 
-type PermissionAsked = Extract<V2Event, { type: "permission.v2.asked" }>;
-type QuestionAsked = Extract<V2Event, { type: "question.v2.asked" }>;
-type CompactionStarted = Extract<V2Event, { type: "session.next.compaction.started" }>;
-type CompactionDelta = Extract<V2Event, { type: "session.next.compaction.delta" }>;
-type CompactionEnded = Extract<V2Event, { type: "session.next.compaction.ended" }>;
+type PermissionAsked = Extract<V2Event, { type: "permission.asked" }>;
+type FormCreated = Extract<V2Event, { type: "form.created" }>;
+type FormField = FormCreated["data"]["form"]["fields"][number];
+type FormAnswer = string | number | boolean | readonly string[];
 
 /** How long a dropped serve stream waits before redialing it. */
 const STREAM_RETRY_MS = 5000;
@@ -94,8 +89,7 @@ export class OpencodeServeEvents {
       const abort = new AbortController();
       this.abort = abort;
       try {
-        const result = await client.v2.event.subscribe({ signal: abort.signal });
-        for await (const event of result.stream) {
+        for await (const event of client.event.subscribe({ signal: abort.signal })) {
           if (!this.wanted || this.disposed) break;
           this.route(event);
         }
@@ -112,37 +106,21 @@ export class OpencodeServeEvents {
 
   private route(event: V2Event): void {
     const sessionId = serveEventSession(event);
-    // v2's compaction family, which the pinned v1 SDK union does not name: the raw JSON still
-    // arrives over the same SSE stream, so dispatch on the string rather than the union. v1's
-    // `session.next.compaction.*` keeps its cases below for older serves; the live one (v2.0.16)
-    // emits only these.
-    if (typeof (event as { type?: unknown }).type === "string") {
-      const type = (event as { type: string }).type;
-      if (type.startsWith("session.compaction.")) {
-        this.routeCompactionV2(type, event, sessionId);
-        return;
+    // A running turn's own words: these arrive per chunk, and every one of them used to buy a
+    // re-read of the newest page. The durable read now waits for the step to end instead.
+    // Recognised by the family and not by whether the event parses, so an event this shape
+    // cannot draw -- no session, no message id, an unknown phase -- is dropped rather than
+    // falling through to a read that would buy the same thing more slowly.
+    if (event.type.startsWith("session.reasoning.") || event.type.startsWith("session.text.")) {
+      const streamed = this.streamedPart(event.type, event);
+      if (streamed && sessionId && this.router.hasSession(sessionId)) {
+        this.router.streamPart(sessionId, streamed);
       }
-      // The one event the meter depends on, dispatched on the string for the reason the
-      // compaction family is: the pinned SDK union predates the serve's v2 name, so no case
-      // below can spell it. A model switch lands on no message, so this refresh is what picks
-      // the new name up, and the pool's announce is what carries it to an open stream.
-      if (type === "session.model.selected" || type === "session.next.model.switched") {
-        if (sessionId && this.router.hasSession(sessionId)) this.router.refresh(sessionId);
-        return;
-      }
-      // A running turn's own words, dispatched before the catch-all below for the reason the
-      // compaction family is: these arrive per chunk, and every one of them used to buy a
-      // re-read of the newest page. The durable read now waits for the step to end instead.
-      // Recognised by the family and not by whether the event parses, so an event this shape
-      // cannot draw -- no session, no message id, an unknown phase -- is dropped rather than
-      // falling through to a read that would buy the same thing more slowly.
-      if (type.startsWith("session.reasoning.") || type.startsWith("session.text.")) {
-        const streamed = this.streamedPart(type, event);
-        if (streamed && sessionId && this.router.hasSession(sessionId)) {
-          this.router.streamPart(sessionId, streamed);
-        }
-        return;
-      }
+      return;
+    }
+    if (event.type.startsWith("session.compaction.")) {
+      this.routeCompaction(event, sessionId);
+      return;
     }
     switch (event.type) {
       case "session.status": {
@@ -156,59 +134,30 @@ export class OpencodeServeEvents {
         if (sessionId) this.router.refresh(sessionId);
         return;
       }
-      case "session.error": {
+      case "session.execution.failed": {
         if (sessionId) this.router.setRunState(sessionId, "error");
         if (sessionId) this.router.refresh(sessionId);
         return;
       }
+      // A model switch lands on no message, so this refresh is what picks the new name up, and
+      // the pool's announce is what carries it to an open stream.
+      case "session.model.selected": {
+        if (sessionId && this.router.hasSession(sessionId)) this.router.refresh(sessionId);
+        return;
+      }
       case "session.created":
       case "session.deleted":
-      case "session.updated": {
+      case "session.renamed":
+      case "session.moved": {
         this.router.catalogChanged();
         return;
       }
-      case "permission.v2.asked": {
+      case "permission.asked": {
         if (sessionId) void this.answerPermission(sessionId, event);
         return;
       }
-      case "question.v2.asked": {
-        if (sessionId) void this.answerQuestion(sessionId, event);
-        return;
-      }
-      // A compaction writes no durable message until it lands -- the checkpoint is inserted on
-      // `ended` -- so the summary streams through the watch beside the thread (the same notice
-      // Claude compactions draw), and only the end re-reads the messages. Deltas never refresh:
-      // they arrive per token and there is nothing new to read until the checkpoint exists.
-      // v1 names; v2's `session.compaction.*` is dispatched above.
-      case "session.next.compaction.started": {
-        const started = event as CompactionStarted;
-        if (sessionId && this.router.hasSession(sessionId)) {
-          this.router.setRunState(sessionId, "running");
-          this.router.compactionStarted(sessionId, started.data.messageID);
-        }
-        return;
-      }
-      case "session.next.compaction.delta": {
-        const delta = event as CompactionDelta;
-        if (sessionId && this.router.hasSession(sessionId)) {
-          this.router.compactionDelta(sessionId, delta.data.messageID, delta.data.text);
-        }
-        return;
-      }
-      case "session.next.compaction.ended": {
-        const ended = event as CompactionEnded;
-        if (sessionId && this.router.hasSession(sessionId)) {
-          this.router.compactionEnded(sessionId, ended.data.messageID);
-          this.router.refresh(sessionId, true);
-        }
-        return;
-      }
-      case "session.compacted": {
-        // The checkpoint landed; a notice orphaned by a dropped stream comes down with it.
-        if (sessionId && this.router.hasSession(sessionId)) {
-          this.router.compactionSettled(sessionId);
-          this.router.refresh(sessionId, true);
-        }
+      case "form.created": {
+        void this.answerForm(event);
         return;
       }
       default: {
@@ -247,7 +196,7 @@ export class OpencodeServeEvents {
   }
 
   /**
-   * v2's compaction streaming, mirroring the TUI's own handling (`stream-v2.transport.ts`):
+   * Compaction streaming, mirroring the TUI's own handling (`stream-v2.transport.ts`):
    * `started` raises the notice and marks the session running, each `delta` extends the summary
    * beside the thread (never a re-read -- deltas arrive per token and there is nothing durable
    * to read until the checkpoint exists), and `ended` takes the notice down and re-reads the
@@ -255,31 +204,23 @@ export class OpencodeServeEvents {
    * sits at `status: running` while the summary is written -- but the feed draws no banner for
    * that: the notice IS the running state, and the banner is what landing earns.
    */
-  private routeCompactionV2(type: string, event: V2Event, sessionId: string | null): void {
+  private routeCompaction(event: V2Event, sessionId: string | null): void {
     if (!sessionId || !this.router.hasSession(sessionId)) return;
-    const data = (event as { data?: Record<string, unknown> }).data ?? {};
-    switch (type) {
+    switch (event.type) {
       case "session.compaction.started": {
-        const inputID = data["inputID"];
-        const eventID = (event as { id?: unknown }).id;
-        const key = typeof inputID === "string" && inputID
-          ? inputID
-          : typeof eventID === "string" && eventID
-            ? eventID
-            : `v2:${sessionId}:${Date.now()}`;
+        const key = event.data.inputID || event.id || `compaction:${sessionId}:${Date.now()}`;
         this.router.setRunState(sessionId, "running");
         this.router.compactionStarted(sessionId, key);
         return;
       }
       case "session.compaction.delta": {
-        const text = data["text"];
-        if (typeof text === "string" && text) this.router.compactionDeltaForSession(sessionId, text);
+        if (event.data.text) this.router.compactionDeltaForSession(sessionId, event.data.text);
         return;
       }
       case "session.compaction.ended":
       case "session.compaction.failed": {
         this.router.compactionSettled(sessionId);
-        this.router.refresh(sessionId, type === "session.compaction.ended");
+        this.router.refresh(sessionId, event.type === "session.compaction.ended");
         return;
       }
       default:
@@ -308,9 +249,8 @@ export class OpencodeServeEvents {
         options: ["once", "always", "reject"],
         key,
       });
-      const reply = answer === "always" ? "always" : answer === "once" ? "once" : "reject";
-      const replied = await client.v2.session.permission.reply({ sessionID: sessionId, requestID: event.data.id, reply });
-      if (replied.error) throw new Error(`permission reply: ${describeServeError(replied.error)}`);
+      const decision = answer === "always" ? "always" : answer === "once" ? "once" : "reject";
+      await client.permission.reply({ sessionID: sessionId, requestID: event.data.id, decision });
     } catch (error) {
       console.error("opencode permission reply failed", { sessionId, error: String(error) });
     } finally {
@@ -318,42 +258,77 @@ export class OpencodeServeEvents {
     }
   }
 
-  private async answerQuestion(sessionId: string, event: QuestionAsked): Promise<void> {
-    const ui = this.router.uiFor(sessionId);
+  /**
+   * A serve form becomes one broker request per field, and the answers become its reply. The
+   * broker asks one question at a time, so each field is the closest single request: a choice
+   * is a select, a yes or no a confirm, anything typed an input. A field the panel cannot
+   * answer -- a link to finish elsewhere -- leaves the form for the serve to time out, the way
+   * a reader who never answers does.
+   */
+  private async answerForm(event: FormCreated): Promise<void> {
+    const form = event.data.form;
+    const ui = this.router.uiFor(form.sessionID);
     const client = this.serve();
     if (!ui || !client) return;
-    const key = `question:${event.data.id}`;
+    const key = `form:${form.id}`;
     if (this.inflightUi.has(key)) return;
     this.inflightUi.add(key);
     try {
-      const answers: string[][] = [];
-      for (const question of event.data.questions) {
-        const answer = await ui.request({
-          kind: "select",
-          title: question.header,
-          message: question.question,
-          options: question.options.map((option) => option.label),
-          key: `${key}:${question.header}`,
-        });
-        if (typeof answer === "string") answers.push([answer]);
+      const answer: Record<string, FormAnswer> = {};
+      for (const field of form.fields) {
+        if (field.type === "external" || ("hidden" in field && field.hidden)) continue;
+        const value = await this.askField(ui, `${key}:${field.key}`, form.title, field);
+        if (value !== undefined) answer[field.key] = value;
       }
-      const replied = await client.v2.session.question.reply({
-        sessionID: sessionId,
-        requestID: event.data.id,
-        questionV2Reply: { answers },
-      });
-      if (replied.error) throw new Error(`question reply: ${describeServeError(replied.error)}`);
+      await client.session.form.reply({ sessionID: form.sessionID, formID: form.id, answer });
     } catch (error) {
-      console.error("opencode question reply failed", { sessionId, error: String(error) });
+      console.error("opencode form reply failed", { sessionId: form.sessionID, error: String(error) });
     } finally {
       this.inflightUi.delete(key);
     }
   }
+
+  private async askField(
+    ui: AgentUiBroker,
+    key: string,
+    formTitle: string,
+    field: Exclude<FormField, { type: "external" }>,
+  ): Promise<FormAnswer | undefined> {
+    const title = field.title ?? formTitle;
+    const message = field.description;
+    switch (field.type) {
+      case "boolean": {
+        const answer = await ui.request({ kind: "confirm", title, message: message ?? "", key });
+        return typeof answer === "boolean" ? answer : undefined;
+      }
+      case "multiselect":
+      case "string": {
+        const options = field.options?.map((option) => option.label ?? option.value) ?? [];
+        if (options.length > 0) {
+          const answer = await ui.request({ kind: "select", title, message, options, key });
+          if (typeof answer !== "string") return undefined;
+          const chosen = field.options?.find((option) => (option.label ?? option.value) === answer)?.value ?? answer;
+          return field.type === "multiselect" ? [chosen] : chosen;
+        }
+        const answer = await ui.request({ kind: "input", title, placeholder: "placeholder" in field ? field.placeholder : undefined, key });
+        return typeof answer === "string" ? answer : undefined;
+      }
+      case "number":
+      case "integer": {
+        const answer = await ui.request({ kind: "input", title, key });
+        const parsed = typeof answer === "string" ? Number(answer) : Number.NaN;
+        if (!Number.isFinite(parsed)) return undefined;
+        return field.type === "integer" ? Math.trunc(parsed) : parsed;
+      }
+    }
+  }
 }
 
+/** The session an event is about: most carry it on `data`, a form on the form itself. */
 function serveEventSession(event: V2Event): string | null {
-  const data = (event as { data?: { sessionID?: unknown } }).data;
-  return typeof data?.sessionID === "string" ? data.sessionID : null;
+  const data = (event as { data?: { sessionID?: unknown; form?: { sessionID?: unknown } } }).data;
+  const sessionId = data?.sessionID ?? data?.form?.sessionID;
+  return typeof sessionId === "string" ? sessionId : null;
 }
 
 function sleep(ms: number): Promise<void> {

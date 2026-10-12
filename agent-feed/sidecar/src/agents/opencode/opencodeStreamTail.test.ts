@@ -11,7 +11,7 @@ import {
 } from "@/agents/opencode/opencodeStreamTail";
 import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 
 const SESSION = "ses-1";
 

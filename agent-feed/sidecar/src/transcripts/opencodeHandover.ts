@@ -18,7 +18,7 @@
 // that states what the reader is looking at. Measured on this project's own transcripts, a real
 // summary runs 16KB to 28KB, so the feed's cap would silently cut a third to two thirds of it.
 
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
 import { readOpencodeHistory } from "@/agents/opencode/opencodeHistory";

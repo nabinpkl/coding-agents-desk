@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
 import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 import {
   AgentModeUnsupportedError,
@@ -14,7 +14,6 @@ interface Recorded {
   localOps: string[];
   interrupts: string[];
   permissionReplies: Array<{ requestID: string; reply: string }>;
-  created: string[];
 }
 
 function userItem(id: string, text: string) {
@@ -36,36 +35,25 @@ function sessionInfo() {
 
 function fakeServe(recorded: Recorded, session = sessionInfo()) {
   return {
-    v2: {
-      session: {
-        get: async () => ({ data: { data: session } }),
-        interrupt: async (params: { sessionID: string }) => {
-          recorded.interrupts.push(params.sessionID);
-          return { data: true };
-        },
-        create: async (params: { location?: { directory?: string } }) => {
-          recorded.created.push(params.location?.directory ?? "");
-          return { data: { data: { id: "s-new", title: "New" } } };
-        },
-        permission: {
-          reply: async (params: { requestID: string; reply: string }) => {
-            recorded.permissionReplies.push({ requestID: params.requestID, reply: params.reply });
-            return { data: true };
-          },
-        },
-        question: { reply: async () => ({ data: true }) },
+    session: {
+      get: async () => session,
+      interrupt: async (params: { sessionID: string }) => {
+        recorded.interrupts.push(params.sessionID);
       },
-      event: {
-        subscribe: async (options?: { signal?: AbortSignal }) => ({
-          stream: (async function* () {
-            const next = await new Promise<unknown>((resolve, reject) => {
-              options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-              pushToStream = resolve;
-            });
-            yield next;
-          })(),
-        }),
+    },
+    permission: {
+      reply: async (params: { requestID: string; decision: string }) => {
+        recorded.permissionReplies.push({ requestID: params.requestID, reply: params.decision });
       },
+    },
+    event: {
+      subscribe: (options?: { signal?: AbortSignal }) => (async function* () {
+        const next = await new Promise<unknown>((resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          pushToStream = resolve;
+        });
+        yield next;
+      })(),
     },
   };
 }
@@ -164,7 +152,7 @@ let pushToStream: ((value: unknown) => void) | null = null;
 
 function fixture() {
   pushToStream = null;
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
   installFetch(recorded, [userItem("msg-u", "hello")]);
   const registered: string[] = [];
   const backend = new OpencodeAgentBackend({
@@ -195,7 +183,7 @@ test("the session model survives the post-compaction gap that blanks usage", asy
   // A landed compaction with no turn reporting tokens after it: the meter blanks rather than
   // holding a pre-compaction number, but the switcher must keep naming the model -- a
   // compaction rewrites context, never the model.
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
   installFetch(recorded, [
     { id: "msg-c", time: { created: 200 }, type: "compaction", status: "completed" },
     userItem("msg-u", "hello"),
@@ -217,7 +205,7 @@ test("the session model survives the post-compaction gap that blanks usage", asy
 test("the session model is named even when the serve reports no token totals", async () => {
   // A fresh session the serve names a model for but reports no tokens on yet: there is no
   // occupancy to derive anything from, but the switcher must still name the model.
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
   const { model, ...withoutTokens } = sessionInfo();
   installFetch(recorded, [userItem("msg-u", "hello")]);
   const backend = new OpencodeAgentBackend({
@@ -364,7 +352,7 @@ test("a serve permission becomes a broker select and the answer becomes its repl
   }
   pushToStream?.({
     id: "ev-1",
-    type: "permission.v2.asked",
+    type: "permission.asked",
     data: { id: "perm-1", sessionID: "s1", action: "shell", resources: ["rm *"] },
   });
   for (let i = 0; i < 100 && seen.length === 0; i += 1) {
@@ -384,7 +372,7 @@ test("a serve permission becomes a broker select and the answer becomes its repl
 
 test("opening a stale projection re-reads the serve", async () => {
   let now = 1000;
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
   // Newest-first, the way the serve lists; the tail read picks up the push.
   const messages = [userItem("msg-u", "hello")];
   installFetch(recorded, messages);
@@ -410,7 +398,7 @@ test("opening a stale projection re-reads the serve", async () => {
 });
 
 test("a long history walks every page and lands chronological", async () => {
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
   // Newest-first, the way the serve lists: msg-249 first, msg-0 last.
   const all = Array.from({ length: 250 }, (_, i) => ({
     id: `msg-${249 - i}`,
@@ -438,7 +426,7 @@ test("a picture a call returned is served back by its event and block address", 
   // The pool stores what the mapper collected at sync time; the image route reads it back by
   // the same address the panel was given. Event 0 is the prompt, event 1 the turn whose third
   // block is the picture.
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [], created: [] };
+  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
   const data = Buffer.from("fake-png-bytes").toString("base64");
   installFetch(recorded, [
     {

@@ -119,7 +119,7 @@ export type OpencodeTurnOutcome =
  *
  * Only messages after the last user message count: the session is the contestant's own and
  * holds one prompt, but a marker from before it would describe a turn that is not this one.
- * The SDK's message union predates the `idle` message, so the shape is read loosely here.
+ * Read loosely, because these messages arrive off a raw history read, not the client.
  */
 export function turnOutcomeOf(messages: readonly unknown[]): OpencodeTurnOutcome {
   let start = 0;

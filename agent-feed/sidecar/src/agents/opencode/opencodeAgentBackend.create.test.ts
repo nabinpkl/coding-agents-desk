@@ -3,36 +3,43 @@
 // sessions already open; this needs no projection, only a serve that answers a create.
 
 import { expect, test } from "bun:test";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
 import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 
-/** The create parameters as the SDK's builder receives them, which is what reaches the serve. */
-type CreateParameters = { location?: { directory?: string }; $body_permissions?: unknown[] };
+type CreateInput = { location?: { directory?: string }; permissions?: readonly unknown[] };
 
-function backendOver(calls: CreateParameters[], created: { sessionId: string; projectPath: string }[] = []) {
+/** A serve that answers a create, storing the rules it was sent unless told to drop them. */
+function backendOver(
+  calls: CreateInput[],
+  options: { created?: { sessionId: string; projectPath: string }[]; dropsRules?: boolean; removed?: string[] } = {},
+) {
   const client = {
-    v2: {
-      session: {
-        create: async (params: CreateParameters) => {
-          calls.push(params);
-          return { data: { data: { id: "s-new", title: "New" } } };
-        },
+    session: {
+      create: async (input: CreateInput) => {
+        calls.push(input);
+        return { id: "s-new", title: "New", ...(options.dropsRules ? {} : { permissions: input.permissions }) };
       },
+      remove: async (input: { sessionID: string }) => void options.removed?.push(input.sessionID),
     },
   };
   return new OpencodeAgentBackend({
     resolveSession: () => undefined,
-    onSessionCreated: (location) => created.push(location),
+    onSessionCreated: (location) => options.created?.push(location),
     onCatalogChanged() {},
     client: () => client as unknown as OpencodeClient,
     now: () => 1000,
   });
 }
 
+const RULES = [
+  { action: "*", resource: "*", effect: "deny" as const },
+  { action: "read", resource: "*", effect: "allow" as const },
+];
+
 test("creating a session registers it through the serve", async () => {
-  const calls: CreateParameters[] = [];
+  const calls: CreateInput[] = [];
   const created: { sessionId: string; projectPath: string }[] = [];
-  const backend = backendOver(calls, created);
+  const backend = backendOver(calls, { created });
   const descriptor = await backend.createSession("r1", "/repo");
   expect(descriptor).toMatchObject({ sessionId: "s-new", source: "opencode", projectPath: "/repo" });
   expect(created).toEqual([{ sessionId: "s-new", projectPath: "/repo" }]);
@@ -41,11 +48,19 @@ test("creating a session registers it through the serve", async () => {
 });
 
 test("a session created with rules holds them from the create request itself", async () => {
-  const calls: CreateParameters[] = [];
+  const calls: CreateInput[] = [];
   const backend = backendOver(calls);
-  const permissions = [{ action: "*", resource: "*", effect: "deny" as const }];
-  await backend.createSession("r1", "/repo", { permissions });
-  // The SDK's builder sends only the body keys it knows, plus any spelled `$body_<name>`.
-  expect(calls).toEqual([{ location: { directory: "/repo" }, $body_permissions: permissions }]);
+  await backend.createSession("r1", "/repo", { permissions: RULES });
+  expect(calls).toEqual([{ location: { directory: "/repo" }, permissions: RULES }]);
+  await backend.dispose();
+});
+
+test("a session the serve made without its rules is removed, and the create fails", async () => {
+  const removed: string[] = [];
+  const created: { sessionId: string; projectPath: string }[] = [];
+  const backend = backendOver([], { dropsRules: true, removed, created });
+  await expect(backend.createSession("r1", "/repo", { permissions: RULES })).rejects.toThrow("without the rules");
+  expect(removed).toEqual(["s-new"]);
+  expect(created).toEqual([]);
   await backend.dispose();
 });

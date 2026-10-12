@@ -8,8 +8,14 @@
 // caller ever handles auth. The panel never sees either value -- it talks to
 // the sidecar's relay, which is the same boundary the Pi backends keep.
 
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { OpenCode, type OpenCodeClient } from "@opencode/client";
 import { config } from "@/config/config";
+
+/**
+ * The serve's own client release, pinned to the serve's version (2.0.16): every call resolves
+ * to its body and throws a `ClientError` on a failed status, rather than resolving `{ error }`.
+ */
+export type OpencodeClient = OpenCodeClient;
 
 let cached: OpencodeClient | null = null;
 
@@ -17,7 +23,7 @@ let cached: OpencodeClient | null = null;
 export function opencodeClient(): OpencodeClient | null {
   if (cached) return cached;
   if (!config.opencodePassword) return null;
-  cached = createOpencodeClient({
+  cached = OpenCode.make({
     baseUrl: config.opencodeServeUrl.toString().replace(/\/$/, ""),
     headers: {
       Authorization: `Basic ${Buffer.from(`opencode:${config.opencodePassword}`).toString("base64")}`,
@@ -32,17 +38,13 @@ export function resetOpencodeClient(): void {
 }
 
 /**
- * Raw calls to the serve, for the endpoints where the pinned SDK and the
- * running serve disagree.
+ * Raw calls to the serve, for the endpoints the sidecar has always reached by path.
  *
- * Today that is exactly three: `POST /api/session/{id}/prompt` takes a flat
- * `{ text, delivery }` on serve v2.0.10 while the SDK sends a nested
- * `{ prompt: { text } }`, `GET .../message` pages through `order` plus
- * an opaque `cursor` the SDK's snapshot predates, and `POST .../command`
- * takes a flat `{ name, text }` while the SDK sends `{ command, arguments }`.
- * Measured, not assumed.
- * Everything else travels the SDK, and these stay until a bumped SDK
- * matches the serve again.
+ * They began as the endpoints where the old `@opencode-ai/sdk` and the running serve
+ * disagreed -- the prompt's flat `{ text, delivery }`, message paging by `order` and `cursor`,
+ * and the command's flat `{ name, text }` -- and the client now matches the serve. They stay
+ * raw because each call site parses exactly the fields it reads, and moving them is a change
+ * of its own rather than part of swapping the client.
  */
 export async function serveRequest(path: string, body: unknown): Promise<{ status: number; text: string }> {
   const { response } = await serveCall("POST", path, body);
@@ -90,23 +92,12 @@ async function serveCall(
   return { response };
 }
 
-/** True for the serve refusing the password rather than failing the call. */
-export function isServeUnauthorized(error: unknown): boolean {
-  return error instanceof Error && /401|unauthorized/i.test(error.message);
-}
-
 /**
- * One line out of a serve error body for logs and thrown errors.
- *
- * The SDK resolves HTTP failures as `{ error }` rather than throwing, so an
- * unchecked response reads as an empty success somewhere downstream. Every
- * call site checks `.error` and throws through here instead.
+ * True for the serve refusing the password rather than failing the call. The client carries
+ * a failed status on its error's `cause`; the message test covers errors raised elsewhere.
  */
-export function describeServeError(error: unknown): string {
-  if (typeof error === "string") return error;
-  try {
-    return JSON.stringify(error)?.slice(0, 300) ?? String(error);
-  } catch {
-    return String(error);
-  }
+export function isServeUnauthorized(error: unknown): boolean {
+  const status = (error as { cause?: { status?: unknown } } | null)?.cause?.status;
+  if (status === 401) return true;
+  return error instanceof Error && /401|unauthorized/i.test(error.message);
 }

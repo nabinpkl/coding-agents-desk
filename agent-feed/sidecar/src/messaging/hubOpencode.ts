@@ -232,15 +232,13 @@ export class HubOpencodeAdapter {
   }
 }
 
-/** The real serve: the SDK for listing, the raw POST for the prompt, and the serve event stream. */
+/** The real serve: the client for listing, the raw POST for the prompt, and the serve event stream. */
 export function liveOpencodeServePort(listChanged: () => void): OpencodeServePort {
   return {
     async sessions() {
       const client = opencodeClient();
       if (!client) return [];
-      const response = await client.v2.session.list();
-      if (response.error) throw new Error(`list: ${JSON.stringify(response.error).slice(0, 200)}`);
-      return (response.data?.data ?? []).map((session) => ({
+      return (await client.session.list()).data.map((session) => ({
         sessionId: session.id,
         cwd: session.location.directory,
         title: session.title || "",

@@ -7,11 +7,9 @@
 // into the same beside-the-thread summary the timeline already draws for Claude (`compacting`
 // plus `compaction-summary`), so one notice covers both harnesses.
 //
-// Two event families name the same streaming, from the two serve generations this sidecar has
-// talked to: v1's `session.next.compaction.*` carries the compaction's own message id on every
-// event, while v2's `session.compaction.*` names only the session on deltas (the started event's
-// `inputID` is the only key, and it is optional). Deltas that name no key append to the
-// session's newest flow, which is the retry's -- the one that lands.
+// The serve's `session.compaction.*` names only the session on deltas (the started event's
+// `inputID` is the only key, and it is optional), so a delta appends to the session's newest
+// flow, which is the retry's -- the one that lands.
 //
 // Keyed by the compaction's own message id rather than a flow id: a retry compacts the same
 // session under a new message, and the retry's summary is the one that lands.
@@ -80,22 +78,10 @@ export class OpencodeCompactionWatch {
     if (!already) this.announce(sessionId, true);
   }
 
-  /** Adds one streamed delta to a running compaction's summary. False when it is not one. */
-  append(messageId: string, text: string): boolean {
-    const running = this.flows.get(messageId);
-    if (!running) return false;
-    if (!text) return true;
-    running.summary += text;
-    if (this.latest(running.sessionId) === running) {
-      this.announceSummary(running.sessionId, text, false);
-    }
-    return true;
-  }
-
   /**
-   * Adds one streamed delta to the session's newest compaction, for events that name the
-   * session but not the compaction (v2 deltas carry only `sessionID` plus text). False when
-   * nothing is running there, which drops the delta rather than raising a notice for it.
+   * Adds one streamed delta to the session's newest compaction: deltas carry only `sessionID`
+   * plus text, not the compaction. False when nothing is running there, which drops the delta
+   * rather than raising a notice for it.
    */
   appendToSession(sessionId: string, text: string): boolean {
     const running = this.latest(sessionId);

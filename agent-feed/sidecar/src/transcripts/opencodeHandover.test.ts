@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 import { renderOpencodeHandover } from "@/transcripts/opencodeHandover";
 import { SessionHandoverError } from "@/transcripts/sessionHandover";
 

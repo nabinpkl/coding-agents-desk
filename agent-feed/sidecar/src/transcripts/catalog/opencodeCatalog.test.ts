@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OpencodeClient, SessionV2Info } from "@opencode-ai/sdk/v2/client";
+import type { SessionInfo } from "@opencode/client";
+import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
 import { state } from "@/transcripts/transcriptState";
 import { sessionKey } from "@/transcripts/catalog/catalogState";
 import {
@@ -17,7 +18,7 @@ afterEach(async () => {
   }
 });
 
-function serveSession(id: string, directory: string, updated: number): SessionV2Info {
+function serveSession(id: string, directory: string, updated: number): SessionInfo {
   return {
     id,
     projectID: "p",
@@ -29,12 +30,10 @@ function serveSession(id: string, directory: string, updated: number): SessionV2
   };
 }
 
-function fakeClient(sessions: SessionV2Info[]) {
+function fakeClient(sessions: SessionInfo[]) {
   return {
-    v2: {
-      session: {
-        list: async () => ({ data: { data: sessions } }),
-      },
+    session: {
+      list: async () => ({ data: sessions, cursor: {} }),
     },
   } as unknown as OpencodeClient;
 }

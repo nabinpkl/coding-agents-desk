@@ -1,6 +1,6 @@
 // Translating one opencode session's serve envelopes into the feed's own rows.
 //
-// `session.messages` answers v1 envelopes: a user envelope carries text and
+// The serve's message list answers envelopes: a user envelope carries text and
 // files, an assistant envelope carries a `content` array of text, reasoning,
 // and tool parts with their state inline. Both fold into the same blocks the
 // transcript adapters emit, so a reader cannot tell a row came from an API
@@ -14,10 +14,7 @@
 // one call id and the panel pairs them the way it pairs a call with its
 // response.
 
-import type {
-  LlmToolContent,
-  SessionMessage,
-} from "@opencode-ai/sdk/v2/client";
+import type { ToolContent, SessionMessageInfo as SessionMessage } from "@opencode/client";
 import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
 import {
   TOOL_RESULT_PREVIEW_CAP,
@@ -149,12 +146,14 @@ export class OpencodeEventMapper {
             {
               kind: "tool_use",
               tool: "shell",
-              callId: message.callID,
+              callId: message.shellID,
               input: { command: message.command } as Record<string, unknown>,
               summary: command.trim() ? heuristicShellLabel(command) : message.command,
             },
+            // The output is an object on the serve (`{ output, cursor, size, truncated }`); the
+            // row shows its text.
             ...(finished
-              ? [{ kind: "tool_result", callId: message.callID, ...capText(message.output) } as ActivityBlock]
+              ? [{ kind: "tool_result", callId: message.shellID, ...capText(message.output?.output ?? "") } as ActivityBlock]
               : []),
           ],
         };
@@ -209,8 +208,7 @@ export class OpencodeEventMapper {
         // while the summary streams beside the thread through the compaction watch instead.
         // A cancelled compaction (`aborted`) draws nothing either, the way the TUI's mini
         // surface ends it silently; a genuine failure draws a text row naming the error rather
-        // than a banner claiming the context compacted. Only `completed` (and the status-less
-        // v1 shape, which is a landed row by construction) earns the banner.
+        // than a banner claiming the context compacted. Only `completed` earns the banner.
         const status = (message as { status?: unknown }).status;
         if (status === "running") return null;
         if (status === "failed") {
@@ -255,8 +253,8 @@ export class OpencodeEventMapper {
           }],
         };
       default:
-        // The serve also emits markers the SDK union does not name (`idle`):
-        // content-free, nothing to draw, skipped rather than rendered.
+        // Content-free markers (`idle`, a location or agent switch): nothing to draw,
+        // skipped rather than rendered.
         return null;
     }
   }
@@ -378,20 +376,20 @@ function summarizeToolInput(name: string, input: Record<string, unknown> | undef
 
 function toolOutput(state: { status: string }): string {
   if (state.status !== "completed" || !("content" in state)) return "";
-  return toolContentText((state as { content?: LlmToolContent[] }).content);
+  return toolContentText((state as { content?: ToolContent[] }).content);
 }
 
 function toolError(state: { status: string }): string {
   if (state.status !== "error") return "tool failed";
   if ("content" in state) {
-    const text = toolContentText((state as { content?: LlmToolContent[] }).content);
+    const text = toolContentText((state as { content?: ToolContent[] }).content);
     if (text) return text;
   }
   if ("error" in state) return errorText((state as { error?: unknown }).error);
   return "tool failed";
 }
 
-function toolContentText(content: LlmToolContent[] | undefined): string {
+function toolContentText(content: ToolContent[] | undefined): string {
   if (!Array.isArray(content)) return "";
   return content
     .map((item) => {
@@ -416,7 +414,7 @@ function toolContentText(content: LlmToolContent[] | undefined): string {
  */
 function toolImages(state: { status: string }): Array<{ mediaType: string; data: string }> {
   if ((state.status !== "completed" && state.status !== "error") || !("content" in state)) return [];
-  const content = (state as { content?: LlmToolContent[] }).content;
+  const content = (state as { content?: ToolContent[] }).content;
   if (!Array.isArray(content)) return [];
   const pictures: Array<{ mediaType: string; data: string }> = [];
   for (const item of content) {
@@ -426,7 +424,7 @@ function toolImages(state: { status: string }): Array<{ mediaType: string; data:
   return pictures;
 }
 
-function toolFileImage(item: LlmToolContent): { mediaType: string; data: string } | null {
+function toolFileImage(item: ToolContent): { mediaType: string; data: string } | null {
   if (item.type !== "file" || !SERVABLE_IMAGE_TYPES.has(item.mime)) return null;
   const prefix = `data:${item.mime};base64,`;
   if (typeof item.uri !== "string" || !item.uri.startsWith(prefix)) return null;

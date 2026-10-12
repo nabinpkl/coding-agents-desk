@@ -38,7 +38,7 @@
 // tokens and cost the deltas never name. A row that says "still being written" is the truth
 // of what this holds.
 
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 
 /** Which kind of part a delta belongs to, named as the serve names its events. */
 export type OpencodeStreamedKind = "reasoning" | "text";

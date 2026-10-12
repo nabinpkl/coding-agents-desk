@@ -8,7 +8,7 @@
 // nothing here except through the `OwnedSession` those hand back. Creating a session is not
 // here: it is one remote call that touches none of these maps, and ownership starts at `open`.
 
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
 import { config } from "@/config/config";
 import type {
   AgentCommandReceipt,
@@ -32,7 +32,7 @@ import {
 import { OpencodeCompactionWatch } from "@/agents/opencode/opencodeCompactionWatch";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/opencodeServeEvents";
 import { latestCompletedCompactionId, readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
-import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
+import { isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
 import { notifyOpencodeSessionChanged } from "@/transcripts/catalog/opencodeCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 
@@ -112,14 +112,8 @@ export class OpencodeSessionPool {
         hasSession: (sessionId) => this.owned.has(sessionId),
         uiFor: (sessionId) => this.owned.get(sessionId)?.ui ?? null,
         compactionStarted: (sessionId, messageId) => this.compactions.begin(messageId, sessionId),
-        compactionDelta: (_sessionId, messageId, text) => {
-          this.compactions.append(messageId, text);
-        },
         compactionDeltaForSession: (sessionId, text) => {
           this.compactions.appendToSession(sessionId, text);
-        },
-        compactionEnded: (_sessionId, messageId) => {
-          this.compactions.end(messageId);
         },
         compactionSettled: (sessionId) => this.compactions.endSession(sessionId),
         streamPart: (sessionId, part) => this.streamPart(sessionId, part),
@@ -357,13 +351,8 @@ export class OpencodeSessionPool {
     try {
       const [messages, info] = await Promise.all([
         full ? readOpencodeHistory(sessionId) : readOpencodeTail(sessionId),
-        client.v2.session.get({ sessionID: sessionId }),
+        client.session.get({ sessionID: sessionId }),
       ]);
-      // The SDK resolves HTTP failures as `{ error }` rather than throwing
-      // (throwOnError defaults to false), so an unchecked response reads as
-      // an empty session: a thread that renders nothing with nothing in the
-      // log. Fail loud here instead.
-      if (info.error) throw new Error(`get: ${describeServeError(info.error)}`);
       const current = this.owned.get(sessionId);
       if (!current || current.disposed) return;
       // A new completed compaction changes the message set, not just its tail. Read the whole
@@ -394,7 +383,7 @@ export class OpencodeSessionPool {
       this.imageStore.store(sessionId, result.images);
       // The meter's own rules, and the gap a compaction leaves in them, live in one place.
       const meter = await readOpencodeMeter({
-        session: info.data?.data,
+        session: info,
         history,
         previous: current.usage,
         limits: this.modelLimits,

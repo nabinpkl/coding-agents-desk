@@ -21,7 +21,7 @@
 
 import type { OpencodeModelLimits } from "@/agents/opencode/opencodeModelLimits";
 import { currentWindowTokens, lastCompletedCompactionIndex } from "@/agents/opencode/opencodeServeCalls";
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 import type { TokenUsage } from "@/transcripts/transcriptTypes";
 
 /** The serve's own `session.get` answer, as far as the meter reads it. */

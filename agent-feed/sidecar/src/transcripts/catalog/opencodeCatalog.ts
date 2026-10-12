@@ -6,9 +6,9 @@
 // ten thousand sessions costs one HTTP round trip per reconcile, which is why
 // the interval is the backstop and the serve's own event stream is the trigger.
 
-import type { OpencodeClient, SessionV2Info } from "@opencode-ai/sdk/v2/client";
+import type { SessionInfo } from "@opencode/client";
 import { config } from "@/config/config";
-import { describeServeError, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
+import { isServeUnauthorized, opencodeClient, resetOpencodeClient, type OpencodeClient } from "@/agents/opencode/opencodeClient";
 import type { OpencodeSessionLocation } from "@/agents/opencode/opencodeAgentBackend";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
@@ -47,13 +47,11 @@ export async function reconcileOpencode(client: OpencodeClient | null = opencode
     }));
     return;
   }
-  let sessions: SessionV2Info[];
+  let sessions: SessionInfo[];
   try {
-    const response = await client.v2.session.list();
-    if (response.error) throw new Error(`list: ${describeServeError(response.error)}`);
-    sessions = response.data?.data ?? [];
+    sessions = (await client.session.list()).data;
   } catch (error) {
-    if (error instanceof Error && /401|unauthorized/i.test(error.message)) resetOpencodeClient();
+    if (isServeUnauthorized(error)) resetOpencodeClient();
     throw error;
   }
   const next = new Map<string, Session>();
@@ -73,7 +71,7 @@ export async function reconcileOpencode(client: OpencodeClient | null = opencode
   }));
 }
 
-async function toRecord(session: SessionV2Info): Promise<Session | null> {
+async function toRecord(session: SessionInfo): Promise<Session | null> {
   // Canonicalised, because the catalog compares by identity: the serve reports
   // the directory as opened, which may spell a symlink differently than the
   // paths Claude records carry for the same checkout.

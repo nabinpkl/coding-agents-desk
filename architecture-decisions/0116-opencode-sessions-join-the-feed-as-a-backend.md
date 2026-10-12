@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-09-22
+superseded-by: ADR-0132
 ---
 
 # Opencode sessions join the feed as a backend, not a transcript

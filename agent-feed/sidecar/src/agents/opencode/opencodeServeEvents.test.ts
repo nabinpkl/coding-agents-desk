@@ -1,11 +1,14 @@
 // Two families, and the same rule for both: a serve event that already carries the words is
 // delivered, and a re-read is bought only by the one event that means the serve has finished
-// writing. A compaction has no durable message to read while it streams, so only `ended` (and
-// the checkpoint landing) schedules one. A turn's prose and thinking are published as they are
-// written, so those go to the projection and must never each cost a round trip -- that read is
-// what made the text arrive in steps, re-mapping 200 messages to move one line of it.
+// writing. A compaction has no durable message to read while it streams, so only its end
+// schedules one. A turn's prose and thinking are published as they are written, so those go to
+// the projection and must never each cost a round trip -- that read is what made the text arrive
+// in steps, re-mapping 200 messages to move one line of it. And a serve that asks -- a
+// permission, a form -- is answered through the session's broker, and the answer is its reply.
 import { expect, test } from "bun:test";
-import type { OpencodeClient, V2Event } from "@opencode-ai/sdk/v2/client";
+import type { V2Event } from "@opencode/client";
+import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { AgentUiBroker } from "@/agents/agentUiBroker";
 import { OpencodeServeEvents, type ServeEventRouter } from "@/agents/opencode/opencodeServeEvents";
 
 function compaction(type: string, data: Record<string, unknown>): V2Event {
@@ -16,83 +19,52 @@ function part(type: string, data: Record<string, unknown>): V2Event {
   return { id: "evt-1", type, data } as unknown as V2Event;
 }
 
-function harness(events: V2Event[]) {
+/** A broker that answers every request from a script, in order, recording what it was asked. */
+function scriptedBroker(answers: unknown[], asked: unknown[]): AgentUiBroker {
+  return {
+    request: async (request: unknown) => {
+      asked.push(request);
+      return answers.shift();
+    },
+  } as unknown as AgentUiBroker;
+}
+
+function harness(events: V2Event[], ui: AgentUiBroker | null = null) {
   const calls: string[] = [];
+  const replies: unknown[] = [];
   const router: ServeEventRouter = {
     refresh: (sessionId, full = false) => void calls.push(`refresh:${sessionId}${full ? ":full" : ""}`),
     setRunState: (sessionId, state) => void calls.push(`run:${sessionId}:${state}`),
     catalogChanged: () => void calls.push("catalog"),
     hasSession: () => true,
-    uiFor: () => null,
+    uiFor: () => ui,
     compactionStarted: (sessionId, messageId) => void calls.push(`started:${sessionId}:${messageId}`),
-    compactionDelta: (sessionId, messageId, text) => void calls.push(`delta:${sessionId}:${messageId}:${text}`),
     compactionDeltaForSession: (sessionId, text) => void calls.push(`sessdelta:${sessionId}:${text}`),
-    compactionEnded: (sessionId, messageId) => void calls.push(`ended:${sessionId}:${messageId}`),
     compactionSettled: (sessionId) => void calls.push(`settled:${sessionId}`),
     streamPart: (sessionId, streamed) =>
       void calls.push(`part:${sessionId}:${streamed.kind}:${streamed.phase}:${streamed.messageId}:${streamed.chunk ?? ""}`),
   };
   const client = {
-    v2: {
-      event: {
-        subscribe: async ({ signal }: { signal?: AbortSignal }) => ({
-          stream: (async function* () {
-            for (const event of events) yield event;
-            // Hold the stream open the way the real one does; abort ends it.
-            await new Promise<void>((_, reject) => {
-              if (signal?.aborted) reject(new Error("aborted"));
-              else signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-            });
-          })(),
-        }),
-      },
+    event: {
+      subscribe: ({ signal }: { signal?: AbortSignal } = {}) => (async function* () {
+        for (const event of events) yield event;
+        // Hold the stream open the way the real one does; abort ends it.
+        await new Promise<void>((_, reject) => {
+          if (signal?.aborted) reject(new Error("aborted"));
+          else signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      })(),
     },
+    permission: { reply: async (input: unknown) => void replies.push({ permission: input }) },
+    session: { form: { reply: async (input: unknown) => void replies.push({ form: input }) } },
   } as unknown as OpencodeClient;
   const stream = new OpencodeServeEvents(router, () => client);
-  return { calls, stream };
+  return { calls, replies, stream };
 }
 
-test("compaction streams into the watch and refreshes only when it lands", async () => {
-  const { calls, stream } = harness([
-    compaction("session.next.compaction.started", { sessionID: "ses-1", messageID: "msg-1", reason: "auto" }),
-    compaction("session.next.compaction.delta", { sessionID: "ses-1", messageID: "msg-1", text: "## Sum" }),
-    compaction("session.next.compaction.delta", { sessionID: "ses-1", messageID: "msg-1", text: "mary" }),
-    compaction("session.next.compaction.ended", {
-      sessionID: "ses-1",
-      messageID: "msg-1",
-      reason: "auto",
-      text: "## Summary",
-      recent: "recent",
-    }),
-  ]);
-  stream.setWanted(true);
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  await stream.dispose();
-  expect(calls).toEqual([
-    "run:ses-1:running",
-    "started:ses-1:msg-1",
-    "delta:ses-1:msg-1:## Sum",
-    "delta:ses-1:msg-1:mary",
-    "ended:ses-1:msg-1",
-    "refresh:ses-1:full",
-  ]);
-});
-
-test("a landed checkpoint settles the notice and refreshes", async () => {
-  const { calls, stream } = harness([
-    compaction("session.compacted", { sessionID: "ses-9" }),
-  ]);
-  stream.setWanted(true);
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  await stream.dispose();
-  expect(calls).toEqual(["settled:ses-9", "refresh:ses-9:full"]);
-});
-
-test("v2 compaction streams by session and refreshes only when it lands", async () => {
-  // The live serve (v2.0.16) emits `session.compaction.*`, which the pinned v1 SDK union does
-  // not name: the raw JSON still arrives over the same stream. Deltas name only the session,
-  // so they must never each cost a re-read -- there is nothing durable to read until the
-  // checkpoint lands.
+test("compaction streams by session and refreshes only when it lands", async () => {
+  // Deltas name only the session, so they must never each cost a re-read -- there is nothing
+  // durable to read until the checkpoint lands.
   const { calls, stream } = harness([
     compaction("session.compaction.started", { sessionID: "ses-1", reason: "auto", recent: "r", inputID: "msg-1" }),
     compaction("session.compaction.delta", { sessionID: "ses-1", text: "## Sum" }),
@@ -117,7 +89,7 @@ test("v2 compaction streams by session and refreshes only when it lands", async 
   ]);
 });
 
-test("v2 compaction failure settles the notice and refreshes", async () => {
+test("a compaction failure settles the notice and refreshes", async () => {
   const { calls, stream } = harness([
     compaction("session.compaction.failed", {
       sessionID: "ses-2",
@@ -188,4 +160,65 @@ test("a word event this shape cannot draw is dropped rather than read", async ()
   // Falling through to a read here would buy the same words one coalesced page re-read later,
   // which is the cost this family was moved off.
   expect(calls).toEqual([]);
+});
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+test("a permission the serve asks is asked of the reader, and the answer is its decision", async () => {
+  const asked: unknown[] = [];
+  const { replies, stream } = harness([
+    part("permission.asked", { id: "per-1", sessionID: "ses-1", action: "bash", resources: ["rm -rf build"] }),
+  ], scriptedBroker(["always"], asked));
+  stream.setWanted(true);
+  await settle();
+  await stream.dispose();
+  expect(asked).toEqual([
+    { kind: "select", title: "Allow bash?", message: "rm -rf build", options: ["once", "always", "reject"], key: "permission:per-1" },
+  ]);
+  expect(replies).toEqual([{ permission: { sessionID: "ses-1", requestID: "per-1", decision: "always" } }]);
+});
+
+test("a reader who never answers a permission rejects it rather than leaving the turn hanging", async () => {
+  const { replies, stream } = harness([
+    part("permission.asked", { id: "per-2", sessionID: "ses-1", action: "edit", resources: ["/a"] }),
+  ], scriptedBroker([undefined], []));
+  stream.setWanted(true);
+  await settle();
+  await stream.dispose();
+  expect(replies).toEqual([{ permission: { sessionID: "ses-1", requestID: "per-2", decision: "reject" } }]);
+});
+
+test("a form asks each field the closest way the broker can, and replies with the answers by key", async () => {
+  const asked: unknown[] = [];
+  const form = {
+    id: "form-1",
+    sessionID: "ses-1",
+    title: "Before I start",
+    fields: [
+      { key: "target", type: "string", title: "Which target?", options: [{ value: "web", label: "Web" }, { value: "ios", label: "iOS" }] },
+      { key: "tests", type: "boolean", title: "Run the tests?" },
+      { key: "note", type: "string", title: "Anything else?" },
+      { key: "retries", type: "integer", title: "Retries" },
+      { key: "docs", type: "external", url: "https://example.com", title: "Read this" },
+    ],
+  };
+  const { replies, stream } = harness([part("form.created", { form })], scriptedBroker(["iOS", true, "be quick", "3.7"], asked));
+  stream.setWanted(true);
+  await settle();
+  await stream.dispose();
+  expect(asked.map((one) => (one as { kind: string }).kind)).toEqual(["select", "confirm", "input", "input"]);
+  expect(replies).toEqual([
+    { form: { sessionID: "ses-1", formID: "form-1", answer: { target: "ios", tests: true, note: "be quick", retries: 3 } } },
+  ]);
+});
+
+test("a failed turn marks the session errored, and a rename refreshes the catalog", async () => {
+  const { calls, stream } = harness([
+    part("session.execution.failed", { sessionID: "ses-1", error: { type: "provider.quota", message: "limit" } }),
+    part("session.renamed", { sessionID: "ses-1", title: "New name" }),
+  ]);
+  stream.setWanted(true);
+  await settle();
+  await stream.dispose();
+  expect(calls).toEqual(["run:ses-1:error", "refresh:ses-1", "catalog"]);
 });

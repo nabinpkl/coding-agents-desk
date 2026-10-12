@@ -6,10 +6,10 @@
 // message history. The fake serve counts those fetches, because before this each delta bought
 // one (coalesced into a re-read that arrived later than the words it was re-reading for).
 import { afterEach, describe, expect, it } from "bun:test";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { OpencodeSessionPool } from "@/agents/opencode/opencodeSessionPool";
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 
 const CAPABILITIES = {
   canSend: true,
@@ -76,27 +76,21 @@ function harness(initial: SessionMessage[] = []): Harness {
   }) as typeof globalThis.fetch;
 
   const client = {
-    v2: {
-      session: {
-        get: async () => ({
-          data: { data: { id: "s1", model: { id: serveModelId, providerID: "opencode-go" }, tokens: null } },
-        }),
-      },
-      event: {
-        subscribe: async (options?: { signal?: AbortSignal }) => ({
-          stream: (async function* () {
-            for (;;) {
-              const event = queued.length > 0
-                ? queued.shift()
-                : await new Promise<unknown>((resolve, reject) => {
-                  options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-                  waiting.push(resolve);
-                });
-              yield event;
-            }
-          })(),
-        }),
-      },
+    session: {
+      get: async () => ({ id: "s1", model: { id: serveModelId, providerID: "opencode-go" }, tokens: null }),
+    },
+    event: {
+      subscribe: (options?: { signal?: AbortSignal }) => (async function* () {
+        for (;;) {
+          const event = queued.length > 0
+            ? queued.shift()
+            : await new Promise<unknown>((resolve, reject) => {
+              options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+              waiting.push(resolve);
+            });
+          yield event;
+        }
+      })(),
     },
   } as unknown as OpencodeClient;
 

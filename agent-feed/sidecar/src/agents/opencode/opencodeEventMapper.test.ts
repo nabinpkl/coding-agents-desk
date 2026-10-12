@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { JsonValue, SessionMessageInfo as SessionMessage } from "@opencode/client";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import { OpencodeEventMapper } from "@/agents/opencode/opencodeEventMapper";
 import { TOOL_RESULT_PREVIEW_CAP } from "@/transcripts/transcriptTypes";
@@ -41,7 +41,7 @@ test("a user message arrives as a human turn", () => {
 
 test("newest-first serve order lands chronological, prompt before its reply", () => {
   const projection = new LiveAgentProjection();
-  const reply = assistant("msg-a2", [{ type: "text", id: "t2", text: "done" }], 400);
+  const reply = assistant("msg-a2", [{ type: "text", text: "done" }], 400);
   reply.time.created = 300;
   const prompt = user("msg-u2", "do it");
   prompt.time.created = 250;
@@ -60,13 +60,13 @@ test("a finished turn carries text, thinking, and a paired tool call", () => {
   new OpencodeEventMapper(projection).sync([
     user("msg-u", "run it"),
     assistant("msg-a", [
-      { type: "text", id: "t1", text: "on it" },
-      { type: "reasoning", id: "r1", text: "" },
+      { type: "text", text: "on it" },
+      { type: "reasoning", text: "" },
       {
         type: "tool",
         id: "c1",
         name: "shell",
-        state: { status: "completed", input: { command: "ls" }, content: [{ type: "text", text: "ok" }], structured: {} },
+        state: { status: "completed", input: { command: "ls" }, content: [{ type: "text", text: "ok" }] },
         time: { created: 1, ran: 2, completed: 3 },
       },
     ], 300),
@@ -122,12 +122,12 @@ type AssistantToolPart = Extract<
   { type: "tool" }
 >;
 
-function toolPart(id: string, name: string, input: Record<string, unknown>): AssistantToolPart {
+function toolPart(id: string, name: string, input: Record<string, JsonValue>): AssistantToolPart {
   return {
     type: "tool",
     id,
     name,
-    state: { status: "completed", input, content: [{ type: "text", text: "ok" }], structured: {} },
+    state: { status: "completed", input, content: [{ type: "text", text: "ok" }] },
     time: { created: 1, ran: 2, completed: 3 },
   };
 }
@@ -140,7 +140,7 @@ test("a shell call without a command falls back to the tool name", () => {
         type: "tool",
         id: "c1",
         name: "shell",
-        state: { status: "completed", input: {}, content: [{ type: "text", text: "ok" }], structured: {} },
+        state: { status: "completed", input: {}, content: [{ type: "text", text: "ok" }] },
         time: { created: 1, ran: 2, completed: 3 },
       },
     ], 300),
@@ -158,7 +158,7 @@ test("an edit call without input leaves its summary off", () => {
         type: "tool",
         id: "c1",
         name: "edit",
-        state: { status: "running", input: {}, content: [], structured: {} },
+        state: { status: "running", input: {}, metadata: {} },
         time: { created: 1, ran: 2 },
       },
     ], 300),
@@ -172,7 +172,7 @@ test("an edit call without input leaves its summary off", () => {
 test("an unfinished assistant message streams", () => {
   const projection = new LiveAgentProjection();
   const result = new OpencodeEventMapper(projection).sync([
-    assistant("msg-a", [{ type: "text", id: "t1", text: "working" }], undefined),
+    assistant("msg-a", [{ type: "text", text: "working" }], undefined),
   ]);
   expect(result.open).toBe(true);
   expect(result.lastTurnClosed).toBe(false);
@@ -201,7 +201,6 @@ test("short tool results carry a preview, which is what the panel renders", () =
           status: "completed",
           input: { command: "echo hi" },
           content: [{ type: "text", text: "hi\n" }],
-          structured: {},
         },
         time: { created: 1, ran: 2, completed: 3 },
       },
@@ -227,7 +226,6 @@ test("long tool output is capped with a footer", () => {
           status: "completed",
           input: {},
           content: [{ type: "text", text: `${"x".repeat(TOOL_RESULT_PREVIEW_CAP)}\nline2\nline3` }],
-          structured: {},
         },
         time: { created: 1, ran: 2, completed: 3 },
       },
@@ -246,6 +244,7 @@ test("a landed compaction arrives as a banner carrying its summary", () => {
   const compaction: SessionMessage = {
     id: "msg-c",
     type: "compaction",
+    status: "completed",
     reason: "auto",
     summary: "## Summary\n1. Primary Request",
     recent: "recent context",
@@ -337,7 +336,6 @@ function imageToolPart(id: string, uri: string, mime = "image/png"): AssistantTo
       status: "completed",
       input: { path: "/tmp/shot.png" },
       content: [{ type: "text", text: "Image read successfully" }, { type: "file", uri, mime }],
-      structured: {},
     },
     time: { created: 1, ran: 2, completed: 3 },
   };

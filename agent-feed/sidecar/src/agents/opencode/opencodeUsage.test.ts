@@ -5,7 +5,7 @@
 import { describe, expect, it } from "bun:test";
 import { readOpencodeMeter, type OpencodeServeSession } from "@/agents/opencode/opencodeUsage";
 import { OpencodeModelLimits } from "@/agents/opencode/opencodeModelLimits";
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 import type { TokenUsage } from "@/transcripts/transcriptTypes";
 
 const limits = new OpencodeModelLimits();

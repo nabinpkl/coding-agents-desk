@@ -17,15 +17,13 @@
 // session's messages, so there is no delta to lose and no orphan to drop; the
 // projection dedupes unchanged rows by content.
 //
-// Everything travels the serve's `/api` family through `client.v2`. The root
-// paths the SDK also generates serve the web UI's HTML in `--service` mode,
-// so they are never called: a 200 text/html where JSON was expected is what a
-// wrong family looks like, and it was measured before this comment existed.
+// Everything travels the serve's `/api` family, through the serve's own client
+// (`@opencode/client`, pinned to the serve's release) or a raw call beside it.
+// The root paths serve the web UI's HTML in `--service` mode, so they are never
+// called: a 200 text/html where JSON was expected is what a wrong family looks
+// like, and it was measured before this comment existed.
 
-import type {
-  OpencodeClient,
-} from "@opencode-ai/sdk/v2/client";
-import { describeServeError, isServeUnauthorized, opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencode/opencodeClient";
+import { isServeUnauthorized, opencodeClient, resetOpencodeClient, serveRequest, type OpencodeClient } from "@/agents/opencode/opencodeClient";
 import { stageOpencodeAttachments, listOpencodeServeCommands, listOpencodeModels, switchOpencodeModel, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, redoOpencodeSession, renameOpencodeSession, forkOpencodeSession, askOpencodeAside, exportOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand, type OpencodeModel } from "@/agents/opencode/opencodeServeCalls";
 import type {
   AgentBackend,
@@ -124,20 +122,19 @@ export class OpencodeAgentBackend implements AgentBackend {
   ): Promise<AgentSessionDescriptor> {
     const client = this.serve();
     if (!client) throw new Error("opencode serve password is not configured");
-    // The serve takes `permissions` on create (its own openapi, 2.0.16) and this SDK predates the
-    // field. Its builder copies only the body keys it knows and drops the rest without a word --
-    // measured: a plain `permissions` key compiled under a cast and the serve stored no rules --
-    // so the field goes through the builder's own escape for extra body keys, `$body_<name>`.
-    const parameters = {
+    const created = await client.session.create({
       location: { directory: projectPath },
-      ...(permissions ? { $body_permissions: permissions } : {}),
-    };
-    const response = await client.v2.session.create(
-      parameters as Parameters<OpencodeClient["v2"]["session"]["create"]>[0],
-    );
-    if (response.error) throw new Error(`create: ${describeServeError(response.error)}`);
-    const created = response.data?.data;
-    if (!created || typeof created.id !== "string") throw new Error("opencode created a session without an id");
+      ...(permissions ? { permissions } : {}),
+    });
+    if (typeof created.id !== "string" || !created.id) throw new Error("opencode created a session without an id");
+    // Rules that did not arrive leave a session running as its agent, which is everything the
+    // rules were there to refuse. The old client dropped this very field without an error, so
+    // the stored rules are checked against the asked-for ones, and a mismatch removes the
+    // session before anything can use it rather than handing it on unconfined.
+    if (permissions && !sameRules(created.permissions, permissions)) {
+      await client.session.remove({ sessionID: created.id }).catch(() => {});
+      throw new Error("opencode created the session without the rules it was asked to hold");
+    }
     const location = { sessionId: created.id, projectPath };
     this.options.onSessionCreated(location);
     return {
@@ -250,8 +247,7 @@ export class OpencodeAgentBackend implements AgentBackend {
     return this.command(owned, requestId, "abort", async () => {
       // Idle interruption is a no-op on the serve side, so aborting a quiet
       // session is safe rather than an error to avoid.
-      const interrupted = await this.requireClient().v2.session.interrupt({ sessionID: sessionId });
-      if (interrupted.error) throw new Error(`interrupt: ${describeServeError(interrupted.error)}`);
+      await this.requireClient().session.interrupt({ sessionID: sessionId });
       return { requestId, delivery: "abort" };
     });
   }
@@ -373,8 +369,7 @@ export class OpencodeAgentBackend implements AgentBackend {
       } else if (name === "undo") {
         // The TUI's own order: stop the turn first, then revert what it was answering.
         if (owned.projection.runState !== "idle") {
-          const interrupted = await this.requireClient().v2.session.interrupt({ sessionID: sessionId });
-          if (interrupted.error) throw new Error(`interrupt: ${describeServeError(interrupted.error)}`);
+          await this.requireClient().session.interrupt({ sessionID: sessionId });
         }
         const messageId = await lastOpencodeUserMessage(sessionId);
         if (!messageId) throw new Error("nothing to undo");
@@ -489,4 +484,16 @@ export class OpencodeAgentBackend implements AgentBackend {
     owned.refreshTimer = null;
     owned.ui.dispose();
   }
+}
+
+/** The same rules in the same order: order is meaning here, since the last match decides. */
+function sameRules(
+  stored: readonly OpencodePermissionRule[] | undefined,
+  asked: readonly OpencodePermissionRule[],
+): boolean {
+  if (!stored || stored.length !== asked.length) return false;
+  return stored.every((rule, index) => {
+    const other = asked[index];
+    return rule.action === other?.action && rule.resource === other.resource && rule.effect === other.effect;
+  });
 }

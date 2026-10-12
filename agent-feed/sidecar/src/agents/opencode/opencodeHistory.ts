@@ -2,10 +2,9 @@
 //
 // Two facts shape this file. The serve pages newest-first by default with a
 // 50-message page, which silently drops a long session's older half; and the
-// pinned SDK cannot express the cursor walk (`order`/`cursor` postdate its
-// OpenAPI snapshot), so history travels one raw GET while everything else
-// stays on the SDK. Revisit when the SDK is bumped: if its `messages` grows
-// `order` and `cursor`, this file collapses back to the client.
+// client has no paged message list (`order`/`cursor`) -- only a single message
+// by id -- so history travels one raw GET. If the client grows a paged list,
+// this file collapses back to it.
 //
 // The walk mirrors opencode's own timeline: seed chronological from the
 // oldest page forward (`order=asc`, then `cursor.next`), and thereafter read
@@ -13,7 +12,7 @@
 // only the open tail can still move. The mapper sorts by creation time
 // anyway, so page order is belt and braces rather than load-bearing.
 
-import type { SessionMessage } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 import { serveGet } from "@/agents/opencode/opencodeClient";
 
 /** History pages hold this many messages; the live tail reads one page. */
