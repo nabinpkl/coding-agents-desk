@@ -15,12 +15,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createArenaRun,
   deleteArenaRun,
+  fetchArenaModes,
   fetchArenaRunDetail,
   fetchArenaRuns,
   parseRunsStreamFrame,
   STREAM_PATH,
 } from "@/features/arena/arenaRunsSource";
-import type { ArenaRunDetail, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
+import type { ArenaRunDetail, ArenaRunMode, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
@@ -30,7 +31,7 @@ import { sidecarWindowComposerClient } from "@/features/window-composer/WindowCo
 import { ArenaNewRun, EMPTY_DRAFT, type ArenaDraft } from "@/features/arena/ArenaNewRun";
 import { ArenaRunRail } from "@/features/arena/ArenaRunRail";
 import { ArenaRunView, type ArenaView } from "@/features/arena/ArenaRunView";
-import { useNow } from "@/features/arena/arenaVocabulary";
+import { isLive, useNow } from "@/features/arena/arenaVocabulary";
 
 export function ArenaSurface({
   transport,
@@ -53,6 +54,22 @@ export function ArenaSurface({
   const [starting, setStarting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // Headless until the sidecar says otherwise: it is the one mode every arena can run.
+  const [modes, setModes] = useState<ArenaRunMode[]>(["headless"]);
+
+  // The machine's modes, once. A draft still on a mode this machine cannot run moves to its
+  // default, so the composer never offers a start the sidecar would refuse.
+  useEffect(() => {
+    let live = true;
+    void fetchArenaModes(transport).then((offered) => {
+      if (!live) return;
+      setModes(offered);
+      setDraft((current) => (offered.includes(current.mode) ? current : { ...current, mode: offered[0]! }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [transport]);
 
   // The stream, from the first paint: a run that closes while the tab sits open says so without
   // the reader asking, which is the difference between a duel and a list somebody has to check.
@@ -100,7 +117,7 @@ export function ArenaSurface({
   const shownDetail = detail && detail.runId === selectedRunId ? detail : null;
 
   const anyLive = runs.some((run) =>
-    run.contestants.some((c) => c.status === "running" || c.status === "preparing"),
+    run.contestants.some(isLive),
   );
   const now = useNow(anyLive);
 
@@ -110,6 +127,7 @@ export function ArenaSurface({
     const answer = await createArenaRun(transport, {
       prompt: draft.prompt,
       repoPath: draft.repoPath.trim(),
+      mode: draft.mode,
       contestants: draft.lineup,
     });
     setStarting(false);
@@ -197,6 +215,7 @@ export function ArenaSurface({
             <ArenaNewRun
               draft={draft}
               onDraft={setDraft}
+              modes={modes}
               starting={starting}
               problem={problem}
               onStart={() => void start()}

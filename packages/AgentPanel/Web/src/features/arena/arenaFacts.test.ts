@@ -14,6 +14,7 @@ const contestant = (over: Partial<ArenaContestantDetail> = {}): ArenaContestantD
   source: "opencode",
   sessionId: "s1",
   worktreePath: "/arena/run/c1",
+  tmuxSession: null,
   status: "closed",
   startedAt: 1_000,
   closedAt: 6_000,

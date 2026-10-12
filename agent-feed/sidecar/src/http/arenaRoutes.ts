@@ -1,11 +1,12 @@
 // `/api/arena/*` -- one prompt fanned out to contestants, and the facts each left behind.
 //
-// Five answers: POST makes a run, GET lists them, GET on a run id answers its facts, DELETE
-// tears a finished one down, and `stream` pushes the whole status list whenever any run moves.
+// Six answers: POST makes a run, GET lists them, GET on a run id answers its facts, DELETE
+// tears a finished one down, `stream` pushes the whole status list whenever any run moves, and
+// `modes` says which ways of driving a run this machine has.
 // The service owns every state change; this module only matches paths, checks shapes and maps
 // the service's errors onto the statuses the panel's own client reads.
 
-import type { ArenaRunsStreamMessage } from "@agentdesk/agent-feed-wire";
+import type { ArenaModesResponse, ArenaRunsStreamMessage } from "@agentdesk/agent-feed-wire";
 import {
   ArenaBadRequestError,
   ArenaRunBusyError,
@@ -17,10 +18,16 @@ import type { RouteHandler } from "@/http/protocol/route";
 
 const RUNS_ROUTE = "/api/arena/runs";
 const RUNS_STREAM_ROUTE = "/api/arena/runs/stream";
+const MODES_ROUTE = "/api/arena/modes";
 const RUN_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})$/;
 
 export function createArenaRoutes(service: ArenaService): RouteHandler {
   return (request, url, server) => {
+    if (url.pathname === MODES_ROUTE) {
+      if (request.method !== "GET") return methodNotAllowed(request.method);
+      const modes: ArenaModesResponse = { modes: service.modes() };
+      return jsonResponse(modes);
+    }
     if (!url.pathname.startsWith(`${RUNS_ROUTE}/`) && url.pathname !== RUNS_ROUTE) return undefined;
 
     if (url.pathname === RUNS_ROUTE) {

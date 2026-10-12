@@ -6,22 +6,26 @@
 // and the change signal: every mutation a run's life makes goes through the registry, which
 // tells its listeners once per change, and the routes stream exactly that signal.
 
-import type {
-  ArenaContestantDetail,
-  ArenaContestantSource,
-  ArenaContestantStatus,
-  ArenaContestantSummary,
-  ArenaRunDetail,
-  ArenaRunSummary,
+import {
+  ARENA_LIVE_STATUSES,
+  type ArenaContestantDetail,
+  type ArenaContestantSource,
+  type ArenaContestantStatus,
+  type ArenaContestantSummary,
+  type ArenaRunDetail,
+  type ArenaRunMode,
+  type ArenaRunSummary,
 } from "@agentdesk/agent-feed-wire";
 
 /** One contestant, as the arena tracks it. Facts are filled in as they are observed. */
 export interface ArenaContestantRecord {
   contestantId: string;
   source: ArenaContestantSource;
-  /** The serve session this contestant is, once `createSession` has answered; null until then. */
+  /** The session this contestant is, once its driver has one; null until then. */
   sessionId: string | null;
   worktreePath: string;
+  /** The tmux session it runs in, terminals mode only; kept until the run is deleted. */
+  tmuxSession: string | null;
   status: ArenaContestantStatus;
   startedAt: number | null;
   closedAt: number | null;
@@ -40,8 +44,14 @@ export interface ArenaRunRecord {
   prompt: string;
   repoPath: string;
   baseRef: string;
+  mode: ArenaRunMode;
   createdAt: number;
   contestants: ArenaContestantRecord[];
+}
+
+/** Whether a contestant is still live work rather than a settled fact. */
+export function isLiveContestant(contestant: Pick<ArenaContestantRecord, "status">): boolean {
+  return ARENA_LIVE_STATUSES.includes(contestant.status);
 }
 
 /** A contestant's summary, with its duration derived from the stamps it carries. */
@@ -51,6 +61,7 @@ export function contestantSummary(record: ArenaContestantRecord): ArenaContestan
     source: record.source,
     sessionId: record.sessionId,
     worktreePath: record.worktreePath,
+    tmuxSession: record.tmuxSession,
     status: record.status,
     startedAt: record.startedAt,
     closedAt: record.closedAt,
@@ -68,6 +79,7 @@ export function runSummary(run: ArenaRunRecord): ArenaRunSummary {
     prompt: run.prompt,
     repoPath: run.repoPath,
     baseRef: run.baseRef,
+    mode: run.mode,
     createdAt: run.createdAt,
     contestants: run.contestants.map(contestantSummary),
   };
@@ -108,7 +120,7 @@ export function runDetail(run: ArenaRunRecord, storedDiff: (c: ArenaContestantRe
 export function failUnfinishedContestants(runs: ArenaRunRecord[]): ArenaRunRecord[] {
   for (const run of runs) {
     for (const contestant of run.contestants) {
-      if (contestant.status === "preparing" || contestant.status === "running") {
+      if (isLiveContestant(contestant)) {
         contestant.status = "failed";
         contestant.error = contestant.error ?? "the sidecar restarted before this contestant closed";
       }

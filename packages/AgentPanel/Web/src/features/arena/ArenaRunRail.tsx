@@ -12,6 +12,7 @@ import { basename, formatAgo } from "@/features/arena/arenaFacts";
 import {
   BUTTON,
   FOCUS,
+  isLive,
   SOURCE_INITIAL,
   SOURCE_LABEL,
   TEXT,
@@ -19,6 +20,8 @@ import {
 
 const CHIP_INK: Record<ArenaContestantSummary["status"], string> = {
   preparing: "border-border text-muted-foreground",
+  starting: "border-border text-muted-foreground",
+  ready: "border-border text-foreground",
   running: "border-arena-running text-arena-running",
   closed: "border-border text-foreground",
   failed: "border-destructive text-destructive",
@@ -60,7 +63,7 @@ export function ArenaRunRail({
         <ul className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
           {runs.map((run) => {
             const selected = run.runId === selectedRunId && !composing;
-            const live = run.contestants.some((c) => c.status === "running" || c.status === "preparing");
+            const live = run.contestants.some(isLive);
             return (
               <li key={run.runId}>
                 <button

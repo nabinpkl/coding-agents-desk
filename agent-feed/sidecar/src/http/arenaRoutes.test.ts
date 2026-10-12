@@ -205,3 +205,12 @@ test("the index reloads through the same route after a restart", async () => {
   const list = (await (await at("/api/arena/runs")).json()) as { runs: ArenaRunRecord[] };
   expect(list.runs.length).toBe(1);
 });
+
+test("modes answers what this machine can drive a run with, and only to a GET", async () => {
+  const { at } = await start();
+  const response = await at("/api/arena/modes");
+  expect(response.status).toBe(200);
+  // The route test's service is wired with no terminal drivers: a machine without tmux.
+  expect(await response.json()).toEqual({ modes: ["headless"] });
+  expect((await at("/api/arena/modes", { method: "POST" })).status).toBe(405);
+});

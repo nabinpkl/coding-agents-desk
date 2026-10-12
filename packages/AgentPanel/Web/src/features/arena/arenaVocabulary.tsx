@@ -3,7 +3,12 @@
 // the lanes say "running" the same way.
 
 import { useEffect, useState } from "react";
-import type { ArenaContestantSource, ArenaContestantStatus } from "@agentdesk/agent-feed-wire";
+import {
+  ARENA_LIVE_STATUSES,
+  type ArenaContestantSource,
+  type ArenaContestantStatus,
+  type ArenaRunMode,
+} from "@agentdesk/agent-feed-wire";
 
 export const SOURCE_LABEL: Record<ArenaContestantSource, string> = {
   opencode: "OpenCode",
@@ -17,6 +22,16 @@ export const SOURCE_INITIAL: Record<ArenaContestantSource, string> = {
 };
 
 export const SOURCES = Object.keys(SOURCE_LABEL) as ArenaContestantSource[];
+
+export const MODE_LABEL: Record<ArenaRunMode, string> = {
+  terminals: "Terminals",
+  headless: "Headless",
+};
+
+/** Whether a contestant is still somebody's live work, which is what keeps a clock ticking. */
+export function isLive(contestant: { status: ArenaContestantStatus }): boolean {
+  return ARENA_LIVE_STATUSES.includes(contestant.status);
+}
 
 /** The sidecar refuses more than this; the composer stops offering slots at the same number. */
 export const MAXIMUM_CONTESTANTS = 4;
@@ -49,6 +64,8 @@ export { FOCUS };
 
 const STATUS_WORD: Record<ArenaContestantStatus, string> = {
   preparing: "preparing",
+  starting: "starting",
+  ready: "ready",
   running: "running",
   closed: "closed",
   failed: "failed",
@@ -56,15 +73,18 @@ const STATUS_WORD: Record<ArenaContestantStatus, string> = {
 
 const STATUS_INK: Record<ArenaContestantStatus, string> = {
   preparing: "text-muted-foreground",
+  starting: "text-muted-foreground",
+  ready: "text-foreground",
   running: "text-arena-running",
   closed: "text-foreground",
   failed: "text-destructive",
 };
 
 /**
- * A status as a word with a mark in front: hollow while preparing, a pulsing dot while running
- * (still under reduced motion), a check once closed, a cross once failed. The word is always
- * there, so a reader who cannot tell the inks apart reads the same thing.
+ * A status as a word with a mark in front: hollow while preparing or starting, filled once ready
+ * and waiting at the start line, a pulsing dot while running (still under reduced motion), a
+ * check once closed, a cross once failed. The word is always there, so a reader who cannot tell
+ * the inks apart reads the same thing.
  */
 export function StatusMark({ status, className = "" }: { status: ArenaContestantStatus; className?: string }) {
   return (
@@ -86,6 +106,7 @@ export function StatusGlyph({ status }: { status: ArenaContestantStatus }) {
   }
   if (status === "closed") return <span aria-hidden>✓</span>;
   if (status === "failed") return <span aria-hidden>✕</span>;
+  if (status === "ready") return <span aria-hidden className="inline-flex size-2 rounded-full bg-current" />;
   return <span aria-hidden className="inline-flex size-2 rounded-full border border-current" />;
 }
 

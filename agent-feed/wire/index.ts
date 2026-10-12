@@ -170,10 +170,13 @@ export type {
   ArenaContestantStatus,
   ArenaContestantSummary,
   ArenaCreateRunRequest,
+  ArenaModesResponse,
   ArenaRunDetail,
+  ArenaRunMode,
   ArenaRunSummary,
   ArenaRunsStreamMessage,
 } from "./arena.ts";
+export { ARENA_LIVE_STATUSES } from "./arena.ts";
 
 export type {
   SummaryCoverage,

@@ -16,7 +16,26 @@
  */
 export type ArenaContestantSource = "opencode" | "claude";
 
-export type ArenaContestantStatus = "preparing" | "running" | "closed" | "failed";
+/**
+ * How a run drives its contestants.
+ *
+ * `terminals` starts each contestant as an ordinary interactive session in its own tmux pane --
+ * the same sessions a canvas card shows -- waits until every one of them can take a prompt, and
+ * types the one prompt into each. `headless` drives each harness with no pane at all (`claude
+ * --print`, and the opencode serve's API alone), which is what a machine without tmux can run.
+ * The facts the arena records are the same in both; only how the turn is driven differs.
+ */
+export type ArenaRunMode = "terminals" | "headless";
+
+/**
+ * Where a contestant stands. `starting` and `ready` are the terminals mode's own: the pane is up
+ * and its harness is still loading (or waiting on the reader, say at a folder-trust question), and
+ * then it can take the prompt and is waiting for the rest of the run to be able to as well.
+ */
+export type ArenaContestantStatus = "preparing" | "starting" | "ready" | "running" | "closed" | "failed";
+
+/** Every status in which a contestant is still somebody's live work, not a settled fact. */
+export const ARENA_LIVE_STATUSES: readonly ArenaContestantStatus[] = ["preparing", "starting", "ready", "running"];
 
 /** One contestant of a run, as a status surface needs it: identity and where it stands. */
 export interface ArenaContestantSummary {
@@ -25,13 +44,16 @@ export interface ArenaContestantSummary {
   /** The session this contestant is, once its backend has made one; null until then. */
   sessionId: string | null;
   worktreePath: string;
+  /** The tmux session the contestant runs in, in the terminals mode; null in headless. */
+  tmuxSession: string | null;
   status: ArenaContestantStatus;
   startedAt: number | null;
   closedAt: number | null;
   /**
-   * Wall time from the contestant's session existing to its turn closing. A rough fact, not a
-   * benchmark: the send that opens the turn lands milliseconds after the session does, and
-   * machine load rides the number wherever it runs.
+   * Wall time from the contestant's turn opening to its turn closing. A rough fact, not a
+   * benchmark: headless, the turn opens when the session exists, the send landing milliseconds
+   * after; in the terminals mode it opens when the prompt is typed, so a harness's load time and
+   * a reader answering a startup question are not on the clock. Machine load rides it either way.
    */
   durationMs: number | null;
   /** Why a contestant failed, one line; null otherwise. */
@@ -44,6 +66,7 @@ export interface ArenaRunSummary {
   prompt: string;
   repoPath: string;
   baseRef: string;
+  mode: ArenaRunMode;
   createdAt: number;
   contestants: ArenaContestantSummary[];
 }
@@ -79,7 +102,14 @@ export interface ArenaCreateRunRequest {
   repoPath: string;
   /** The ref every contestant's worktree starts at; "HEAD" when absent. */
   baseRef?: string;
+  /** How the contestants are driven; the sidecar picks `terminals` when it has tmux, otherwise `headless`. */
+  mode?: ArenaRunMode;
   contestants: { source: ArenaContestantSource }[];
+}
+
+/** `GET /api/arena/modes`: the modes this machine can run, the default first. */
+export interface ArenaModesResponse {
+  modes: ArenaRunMode[];
 }
 
 /** One message of the arena status stream: the whole run list, pushed on every change. */

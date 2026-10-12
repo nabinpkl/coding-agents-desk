@@ -11,6 +11,11 @@
 // Each contestant names the harness that drives it, and the drivers arrive wired: a source
 // with no driver is refused with a 400 naming it, so one run can duel two of the same harness
 // or one of each, and a harness this build cannot drive never starts a worktree.
+//
+// A run is driven in one of two modes, each with its own set of drivers. Headless drives each
+// harness with no pane; terminals starts each contestant as an ordinary session in a tmux pane
+// and holds them all at one start line until every one can take the prompt. The terminals
+// drivers are wired only where tmux is, so a machine without it offers headless alone.
 
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
@@ -18,10 +23,12 @@ import type {
   ArenaContestantSource,
   ArenaCreateRunRequest,
   ArenaRunDetail,
+  ArenaRunMode,
   ArenaRunSummary,
 } from "@agentdesk/agent-feed-wire";
 import {
   ArenaRunRegistry,
+  isLiveContestant,
   runDetail,
   runSummary,
   type ArenaContestantRecord,
@@ -35,7 +42,14 @@ import {
   pruneWorktrees,
   removeContestantWorktree,
 } from "@/arena/arenaWorktrees";
-import type { ContestantDriver, ContestantDrivers, ContestantPlan } from "@/arena/contestantDriver";
+import {
+  StartLine,
+  type ContestantDriver,
+  type ContestantDrivers,
+  type ContestantPlan,
+  type ContestantTerminal,
+} from "@/arena/contestantDriver";
+import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
 
 /** The request could not become a run; the route answers it with a 400 naming this reason. */
@@ -76,6 +90,8 @@ export class ArenaService {
   private readonly registry: ArenaRunRegistry;
   private readonly store: ArenaStore;
   private readonly drivers: ContestantDrivers;
+  private readonly terminalDrivers: ContestantDrivers | null;
+  private readonly killPane: (pane: string) => Promise<void>;
   private readonly worktrees: ArenaWorktreeSteps;
   private readonly arenaRoot: string;
   private readonly defaultRepoPath: string | null;
@@ -85,8 +101,12 @@ export class ArenaService {
   constructor(options: {
     registry: ArenaRunRegistry;
     store: ArenaStore;
-    /** One driver per source this sidecar can duel; the wiring lives in `server.ts`. */
+    /** One headless driver per source this sidecar can duel; the wiring is `arenaWiring.ts`. */
     drivers: ContestantDrivers;
+    /** The terminals mode's drivers, or null where this machine has no tmux to run them in. */
+    terminalDrivers?: ContestantDrivers | null;
+    /** Ends a contestant's pane when its run is deleted; tmux's own kill unless a test says. */
+    killPane?: (pane: string) => Promise<void>;
     /** Overridden in tests; the real steps are this module's own `arenaWorktrees.ts`. */
     worktrees?: ArenaWorktreeSteps;
     arenaRoot: string;
@@ -97,6 +117,8 @@ export class ArenaService {
     this.registry = options.registry;
     this.store = options.store;
     this.drivers = options.drivers;
+    this.terminalDrivers = options.terminalDrivers ?? null;
+    this.killPane = options.killPane ?? killTmuxSession;
     this.worktrees = options.worktrees ?? {
       assertRepository: assertGitRepository,
       add: addContestantWorktree,
@@ -115,6 +137,11 @@ export class ArenaService {
 
   onRunsChanged(listener: () => void): () => void {
     return this.registry.onChange(listener);
+  }
+
+  /** The modes this machine can run, the default first. */
+  modes(): ArenaRunMode[] {
+    return this.terminalDrivers ? ["terminals", "headless"] : ["headless"];
   }
 
   listRuns(): ArenaRunSummary[] {
@@ -148,6 +175,15 @@ export class ArenaService {
       ? request.baseRef.trim()
       : "HEAD";
 
+    const mode: ArenaRunMode = request.mode ?? this.modes()[0]!;
+    if (mode !== "terminals" && mode !== "headless") {
+      throw new ArenaBadRequestError(`mode must be "terminals" or "headless", not "${String(mode)}"`);
+    }
+    const drivers = mode === "terminals" ? this.terminalDrivers : this.drivers;
+    if (!drivers) {
+      throw new ArenaBadRequestError("this machine has no tmux, so a run here can only be headless");
+    }
+
     if (!Array.isArray(request.contestants) || request.contestants.length === 0) {
       throw new ArenaBadRequestError("a run needs at least one contestant");
     }
@@ -155,7 +191,7 @@ export class ArenaService {
       throw new ArenaBadRequestError(`a run fans out to at most ${MAXIMUM_CONTESTANTS} contestants`);
     }
     for (const [index, contestant] of request.contestants.entries()) {
-      if (!contestant || !this.drivers[contestant.source as ArenaContestantSource]) {
+      if (!contestant || !drivers[contestant.source as ArenaContestantSource]) {
         throw new ArenaBadRequestError(
           `contestant ${index} names source "${contestant?.source ?? "none"}", which this arena cannot drive`,
         );
@@ -173,6 +209,7 @@ export class ArenaService {
       source: contestant.source,
       sessionId: null,
       worktreePath: join(worktreeRoot, `c${index + 1}`),
+      tmuxSession: null,
       status: "preparing" as const,
       startedAt: null,
       closedAt: null,
@@ -201,6 +238,7 @@ export class ArenaService {
       prompt,
       repoPath,
       baseRef,
+      mode,
       createdAt: Date.now(),
       contestants: records,
     };
@@ -209,23 +247,34 @@ export class ArenaService {
     // Fanned out, not awaited: the run is live the moment it is registered, and each contestant
     // closes on its own. `void` with the failure handled inside, so a contestant that fails
     // records its failure rather than surfacing as an unhandled rejection.
+    const startLine = mode === "terminals" ? new StartLine(records.length) : null;
     for (const record of records) {
-      void this.driveOne(run, record);
+      void this.driveOne(run, record, drivers, startLine);
     }
     return runSummary(run);
   }
 
   /**
-   * Tears a finished run down: worktrees back to the repository, registrations pruned, the run's
-   * directory under the arena root deleted, the record dropped. A run with a contestant still
-   * preparing or running is refused -- its worktree holds a live contestant whose work this
-   * would delete underneath it.
+   * Tears a finished run down: panes ended, worktrees back to the repository, registrations
+   * pruned, the run's directory under the arena root deleted, the record dropped. A run with a
+   * contestant still live is refused -- its worktree holds a contestant whose work this would
+   * delete underneath it.
+   *
+   * The panes go first and go here, not when a turn closes: a closed contestant's pane is still a
+   * session the reader may be reading or typing into, and its process runs inside the worktree
+   * that is removed next.
    */
   async deleteRun(runId: string): Promise<void> {
     const run = this.registry.get(runId);
     if (!run) throw new ArenaRunNotFoundError(`no arena run "${runId}"`);
-    if (run.contestants.some((c) => c.status === "preparing" || c.status === "running")) {
+    if (run.contestants.some(isLiveContestant)) {
       throw new ArenaRunBusyError(`run "${runId}" still has a contestant dueling`);
+    }
+    for (const contestant of run.contestants) {
+      if (!contestant.tmuxSession) continue;
+      await this.killPane(contestant.tmuxSession).catch((error: unknown) => {
+        console.error(`agent feed arena could not end pane ${contestant.tmuxSession}`, error);
+      });
     }
     await this.undoWorktrees(run.repoPath, run.contestants);
     this.store.deleteRunDirectory(runId);
@@ -269,12 +318,43 @@ export class ArenaService {
    * from its first moment and a contestant that dies mid-turn leaves its failure where the
    * reader is already looking.
    */
-  private async driveOne(run: ArenaRunRecord, record: ArenaContestantRecord): Promise<void> {
+  private async driveOne(
+    run: ArenaRunRecord,
+    record: ArenaContestantRecord,
+    drivers: ContestantDrivers,
+    startLine: StartLine | null,
+  ): Promise<void> {
     const mark = (apply: (contestant: ArenaContestantRecord, now: number) => void): void => {
       this.registry.updateContestant(run.runId, record.contestantId, apply);
     };
+    let arrived = false;
+    const terminal: ContestantTerminal | undefined = startLine
+      ? {
+        label: `arena ${record.contestantId} ${run.runId.slice(0, 8)}`,
+        onPane: (pane, sessionId) => {
+          mark((contestant) => {
+            contestant.tmuxSession = pane;
+            contestant.sessionId = sessionId;
+            contestant.status = "starting";
+          });
+        },
+        ready: async () => {
+          mark((contestant) => {
+            contestant.status = "ready";
+          });
+          arrived = true;
+          await startLine.arrive();
+          // The clock starts at the prompt, not at the pane: a harness's load time, and a reader
+          // answering its startup question, are not part of the turn being compared.
+          mark((contestant, now) => {
+            contestant.status = "running";
+            contestant.startedAt = now;
+          });
+        },
+      }
+      : undefined;
     try {
-      const drive: ContestantDriver | undefined = this.drivers[record.source];
+      const drive: ContestantDriver | undefined = drivers[record.source];
       // createRun refused every source without a driver, so this is a broken invariant.
       if (!drive) throw new Error(`no driver wired for source "${record.source}"`);
       const plan: ContestantPlan = {
@@ -282,6 +362,7 @@ export class ArenaService {
         worktreePath: record.worktreePath,
         requestId: `${run.runId}:${record.contestantId}`,
         turnTimeoutMs: this.turnTimeoutMs,
+        ...(terminal ? { terminal } : {}),
         onSessionId: (sessionId) => {
           mark((contestant, now) => {
             // The session exists from here, so a reader can open it while it duels; the turn
@@ -318,6 +399,9 @@ export class ArenaService {
         contestant.closedAt = now;
         contestant.error = error instanceof Error ? error.message : String(error);
       });
+    } finally {
+      // A contestant that never reached the start line is out of the race, so nobody waits on it.
+      if (startLine && !arrived) startLine.leave();
     }
   }
 }

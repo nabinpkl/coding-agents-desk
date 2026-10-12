@@ -67,8 +67,16 @@ export function claudeContestantArgv(options: {
   sessionId: string;
   model?: string | null;
   effort?: string | null;
+  /**
+   * The terminals mode's spelling: the interactive CLI in a pane rather than `--print`, under its
+   * name (`-n`) so the session reads as a contestant wherever it is listed. Every confining flag is
+   * the same either way.
+   */
+  interactive?: { name: string };
 }): string[] {
-  const argv = [options.binary, "--print", "--safe-mode", "--session-id", options.sessionId];
+  const argv = options.interactive
+    ? [options.binary, "--safe-mode", "--session-id", options.sessionId, "-n", options.interactive.name]
+    : [options.binary, "--print", "--safe-mode", "--session-id", options.sessionId];
   if (options.model) argv.push("--model", options.model);
   if (options.effort) argv.push("--effort", options.effort);
   argv.push("--permission-mode", "dontAsk", "--tools", CONTESTANT_TOOLS);
@@ -199,11 +207,11 @@ export async function runClaudeContestant(
   return { sessionId, events, usage };
 }
 
-/** A clean exit with no transcript is a broken harness, not an empty turn: it fails loud. */
-async function readClaudeTranscript(sessionId: string): Promise<string> {
+/** A closed turn with no transcript is a broken harness, not an empty turn: it fails loud. */
+export async function readClaudeTranscript(sessionId: string): Promise<string> {
   const path = await claudeTranscriptPath(sessionId);
   if (!path) {
-    throw new ClaudeContestantError(`no transcript for session ${sessionId} after a clean exit`);
+    throw new ClaudeContestantError(`no transcript for session ${sessionId} after its turn closed`);
   }
   return readFileSync(path, "utf8");
 }

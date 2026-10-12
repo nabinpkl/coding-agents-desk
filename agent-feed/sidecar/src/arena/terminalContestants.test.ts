@@ -1,0 +1,210 @@
+// The two terminals-mode drivers against fake tmux steps: what is pinned here is the ORDER -- pane,
+// ready, start line, then the prompt, and a turn closed by what the harness itself wrote -- and that
+// the confinement is the headless one. Real tmux and real panes are the canvas's daily path.
+
+import { describe, expect, test } from "bun:test";
+import type { AgentSessionDescriptor, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
+import type { ContestantPlan } from "@/arena/contestantDriver";
+import { ClaudeContestantError } from "@/arena/claudeContestant";
+import type { OpencodeContestantBackend } from "@/arena/opencodeContestant";
+import {
+  claudeTurnClosed,
+  runClaudeTerminalContestant,
+  runOpencodeTerminalContestant,
+  type TerminalContestantSteps,
+} from "@/arena/terminalContestants";
+
+const SESSION = "6a0f3e2c-1b44-4f8e-8c2d-5d9b0a7e3f21";
+
+const userLine = JSON.stringify({
+  type: "user",
+  uuid: "u0",
+  parentUuid: null,
+  timestamp: "2026-10-12T10:00:00.000Z",
+  sessionId: SESSION,
+  cwd: "/arena/run/c1",
+  message: { role: "user", content: "say one word" },
+});
+
+const endTurnLine = JSON.stringify({
+  type: "assistant",
+  uuid: "a1",
+  parentUuid: "u0",
+  timestamp: "2026-10-12T10:00:02.000Z",
+  sessionId: SESSION,
+  cwd: "/arena/run/c1",
+  message: {
+    id: "msg_a1",
+    role: "assistant",
+    model: "claude-haiku-4-5-20251001",
+    type: "message",
+    content: [{ type: "text", text: "alder" }],
+    stop_reason: "end_turn",
+    usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 },
+  },
+});
+
+describe("claudeTurnClosed", () => {
+  test("closes only once a turn was opened and its last boundary says it ended", () => {
+    expect(claudeTurnClosed("")).toBe(false);
+    expect(claudeTurnClosed(userLine)).toBe(false);
+    expect(claudeTurnClosed([userLine, endTurnLine].join("\n"))).toBe(true);
+    expect(claudeTurnClosed([userLine, endTurnLine, userLine].join("\n"))).toBe(false);
+  });
+});
+
+/** A plan whose terminal hooks write down what happened, in order. */
+function planWith(log: string[], over: Partial<ContestantPlan> = {}): ContestantPlan {
+  return {
+    prompt: "say one word",
+    worktreePath: "/arena/run/c1",
+    requestId: "run-1:c1",
+    turnTimeoutMs: 1000,
+    onSessionId: () => log.push("onSessionId"),
+    terminal: {
+      label: "arena c1 run-1",
+      onPane: (pane, sessionId) => log.push(`pane:${pane}:${sessionId}`),
+      ready: async () => {
+        log.push("ready");
+      },
+    },
+    ...over,
+  };
+}
+
+/** Steps that log each act, and a transcript the test writes to when the prompt is typed. */
+function fakeSteps(log: string[], options: { composer?: boolean } = {}) {
+  let transcript: string | null = null;
+  const writers = new Set<() => void>();
+  let command: string[] = [];
+  const steps: TerminalContestantSteps = {
+    async startClaude(o) {
+      command = o.command;
+      log.push(`startClaude:${o.cwd}:${o.title}`);
+      return "arena-c1-pane";
+    },
+    async startOpencode(o) {
+      log.push(`startOpencode:${o.cwd}:${o.sessionId}`);
+      return "arena-c2-pane";
+    },
+    async awaitComposer() {
+      log.push("awaitComposer");
+      return options.composer ?? true;
+    },
+    async settlePane(pane) {
+      log.push(`settle:${pane}`);
+    },
+    async typePrompt(_sessionId, prompt) {
+      log.push(`type:${prompt}`);
+      // The CLI writes the prompt, then the reply, and the catalog's watch says so each time.
+      transcript = userLine;
+      for (const write of writers) write();
+      transcript = [userLine, endTurnLine].join("\n");
+      for (const write of writers) write();
+    },
+    watchTranscript(_sessionId, onWrite) {
+      log.push("watch");
+      writers.add(onWrite);
+      return () => writers.delete(onWrite);
+    },
+    async readTranscript() {
+      if (transcript === null) throw new Error("no transcript yet");
+      return transcript;
+    },
+  };
+  return { steps, command: () => command };
+}
+
+describe("runClaudeTerminalContestant", () => {
+  test("starts the pane, waits for the composer and the start line, then types the prompt", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log);
+    const result = await runClaudeTerminalContestant(planWith(log), {
+      binary: "/bin/claude",
+      newSessionId: () => SESSION,
+      steps,
+    });
+    expect(log).toEqual([
+      "startClaude:/arena/run/c1:arena c1 run-1",
+      `pane:arena-c1-pane:${SESSION}`,
+      "awaitComposer",
+      "ready",
+      "watch",
+      "type:say one word",
+    ]);
+    expect(result.sessionId).toBe(SESSION);
+    expect(result.events.length).toBeGreaterThan(0);
+    expect(result.usage).not.toBeNull();
+  });
+
+  test("runs the headless confinement, interactively and under the contestant's name", async () => {
+    const log: string[] = [];
+    const { steps, command } = fakeSteps(log);
+    await runClaudeTerminalContestant(planWith(log), { binary: "/bin/claude", newSessionId: () => SESSION, steps });
+    const argv = command();
+    expect(argv).not.toContain("--print");
+    expect(argv.slice(0, 6)).toEqual(["/bin/claude", "--safe-mode", "--session-id", SESSION, "-n", "arena c1 run-1"]);
+    expect(argv).toContain("dontAsk");
+    expect(argv.slice(argv.indexOf("--allowed-tools") + 1)).toEqual(["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"]);
+  });
+
+  test("a composer that never appears fails the contestant before the start line, pane left open", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log, { composer: false });
+    await expect(
+      runClaudeTerminalContestant(planWith(log), { binary: "/bin/claude", newSessionId: () => SESSION, steps }),
+    ).rejects.toThrow(ClaudeContestantError);
+    expect(log).not.toContain("ready");
+    expect(log.some((line) => line.startsWith("type:"))).toBe(false);
+  });
+
+  test("a plan without terminal hooks is a run's bug, refused before any pane", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log);
+    await expect(
+      runClaudeTerminalContestant(planWith(log, { terminal: undefined }), { binary: "/bin/claude", steps }),
+    ).rejects.toThrow(/no terminal/);
+    expect(log).toEqual([]);
+  });
+});
+
+describe("runOpencodeTerminalContestant", () => {
+  test("confines the session first, then the pane, the start line, and the prompt through the serve", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log);
+    const backend: OpencodeContestantBackend = {
+      async createSession(_requestId, projectPath, { permissions }) {
+        log.push(`create:${projectPath}:${permissions.length}`);
+        return { sessionId: "ses_1", projectPath } as AgentSessionDescriptor;
+      },
+      async subscribe(_sessionId, _after, listener) {
+        log.push("subscribe");
+        const idle: TimelineEnvelope = {
+          kind: "state", sequence: 1, mode: "nice", events: [], windowStart: 0, runState: "idle",
+          queue: { steer: 0, followUp: 0 },
+        };
+        queueMicrotask(() => listener(idle));
+        return () => {};
+      },
+      async send(_sessionId, _requestId, text) {
+        log.push(`send:${text}`);
+        return { requestId: "r", delivery: "immediate" };
+      },
+    };
+    const result = await runOpencodeTerminalContestant(backend, planWith(log), {
+      steps,
+      permissions: async () => [{ action: "*", resource: "*", effect: "deny" }],
+      turnOutcome: async () => ({ closed: true, failure: null }),
+    });
+    expect(log).toEqual([
+      "create:/arena/run/c1:1",
+      "startOpencode:/arena/run/c1:ses_1",
+      "pane:arena-c2-pane:ses_1",
+      "settle:arena-c2-pane",
+      "ready",
+      "subscribe",
+      "send:say one word",
+    ]);
+    expect(result.sessionId).toBe("ses_1");
+  });
+});

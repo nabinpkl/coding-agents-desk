@@ -5,15 +5,19 @@
 // the shape they will read afterwards. The line under it names what kind of comparison that shape
 // is (one of each harness is a bake-off, several of one is a variance run), because the same
 // facts mean different things in each and the reader should know which one they started.
+//
+// The mode says how the contestants are driven: as interactive sessions in terminals the reader
+// can watch and type into, or headless. Terminals is offered only where the machine has tmux.
 
 import { useId, type KeyboardEvent } from "react";
 import { Plus, X } from "lucide-react";
-import type { ArenaContestantSource } from "@agentdesk/agent-feed-wire";
+import type { ArenaContestantSource, ArenaRunMode } from "@agentdesk/agent-feed-wire";
 import {
   FIELD,
   FOCUS,
   ICON_BUTTON,
   MAXIMUM_CONTESTANTS,
+  MODE_LABEL,
   PRIMARY_BUTTON,
   SOURCE_LABEL,
   SOURCES,
@@ -24,9 +28,17 @@ export interface ArenaDraft {
   prompt: string;
   repoPath: string;
   lineup: ArenaContestantSource[];
+  mode: ArenaRunMode;
 }
 
-export const EMPTY_DRAFT: ArenaDraft = { prompt: "", repoPath: "", lineup: ["opencode", "claude"] };
+export const EMPTY_DRAFT: ArenaDraft = {
+  prompt: "",
+  repoPath: "",
+  lineup: ["opencode", "claude"],
+  mode: "terminals",
+};
+
+const RUN_MODES: readonly ArenaRunMode[] = ["terminals", "headless"];
 
 /** What kind of comparison a lineup is, in the words a reader would use for it. */
 export function lineupKind(lineup: readonly ArenaContestantSource[]): string {
@@ -42,12 +54,15 @@ const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 export function ArenaNewRun({
   draft,
   onDraft,
+  modes,
   starting,
   problem,
   onStart,
 }: {
   draft: ArenaDraft;
   onDraft: (next: ArenaDraft) => void;
+  /** The modes this machine can run; a mode outside it is shown but cannot be chosen. */
+  modes: readonly ArenaRunMode[];
   starting: boolean;
   problem: string | null;
   onStart: () => void;
@@ -155,6 +170,33 @@ export function ArenaNewRun({
               Lane
             </button>
           ) : null}
+        </div>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Run in</legend>
+        <div
+          role="radiogroup"
+          aria-label="How the contestants are driven"
+          className="grid w-full max-w-xs grid-cols-2 gap-0.5 rounded-md bg-muted/50 p-0.5"
+        >
+          {RUN_MODES.map((mode) => {
+            const offered = modes.includes(mode);
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={draft.mode === mode}
+                disabled={!offered}
+                title={offered ? undefined : "This machine has no tmux to run terminals in"}
+                onClick={() => onDraft({ ...draft, mode })}
+                className={`min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground ${FOCUS}`}
+              >
+                {MODE_LABEL[mode]}
+              </button>
+            );
+          })}
         </div>
       </fieldset>
 

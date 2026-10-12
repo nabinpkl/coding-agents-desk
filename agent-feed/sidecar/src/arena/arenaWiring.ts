@@ -9,6 +9,8 @@ import {
 } from "@/arena/arenaConfig";
 import { runClaudeContestant } from "@/arena/claudeContestant";
 import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/opencodeContestant";
+import { runClaudeTerminalContestant, runOpencodeTerminalContestant } from "@/arena/terminalContestants";
+import { config } from "@/config/config";
 
 /**
  * The arena: one prompt fanned out to contestants in worktrees of any repo the run names. Each
@@ -16,6 +18,9 @@ import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/o
  * `claude --print` (ADR-0128) -- and the run records what each did. The runs it made are
  * reloaded from its store so a sidecar that restarts still lists them, with the contestants a
  * restart orphaned marked failed rather than left reading as dueling forever.
+ *
+ * The terminals mode's drivers are wired only where there is a tmux to run them in; without one
+ * the arena offers headless alone, and says so when a run asks for terminals.
  */
 export function startArenaService(opencodeBackend: OpencodeContestantBackend): ArenaService {
   const store = new ArenaStore(arenaRoot());
@@ -30,6 +35,13 @@ export function startArenaService(opencodeBackend: OpencodeContestantBackend): A
       claude: (plan) =>
         runClaudeContestant(plan, { model: arenaClaudeModel(), effort: arenaClaudeEffort() }),
     },
+    terminalDrivers: config.tmuxPath
+      ? {
+        opencode: (plan) => runOpencodeTerminalContestant(opencodeBackend, plan),
+        claude: (plan) =>
+          runClaudeTerminalContestant(plan, { model: arenaClaudeModel(), effort: arenaClaudeEffort() }),
+      }
+      : null,
     arenaRoot: arenaRoot(),
     defaultRepoPath: arenaDefaultRepoPath(),
   });

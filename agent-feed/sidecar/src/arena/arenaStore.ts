@@ -9,6 +9,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
+import { ARENA_LIVE_STATUSES, type ArenaContestantStatus } from "@agentdesk/agent-feed-wire";
 import type { ArenaContestantRecord, ArenaRunRecord } from "@/arena/arenaRun";
 
 /** One arena record too many on disk is a broken store, not a quiet truncation. */
@@ -62,6 +63,7 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
       source,
       sessionId: typeof c.sessionId === "string" ? c.sessionId : null,
       worktreePath,
+      tmuxSession: typeof c.tmuxSession === "string" ? c.tmuxSession : null,
       status: isContestantStatus(c.status) ? c.status : "failed",
       startedAt: typeof c.startedAt === "number" ? c.startedAt : null,
       closedAt: typeof c.closedAt === "number" ? c.closedAt : null,
@@ -73,11 +75,13 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
       gitDiff: null,
     };
   });
-  return { runId, prompt, repoPath, baseRef, createdAt, contestants };
+  // A run saved before modes existed was driven headless, the only way there was.
+  const mode = record.mode === "terminals" ? "terminals" : "headless";
+  return { runId, prompt, repoPath, baseRef, mode, createdAt, contestants };
 }
 
 function isContestantStatus(value: unknown): value is ArenaContestantRecord["status"] {
-  return value === "preparing" || value === "running" || value === "closed" || value === "failed";
+  return value === "closed" || value === "failed" || ARENA_LIVE_STATUSES.includes(value as ArenaContestantStatus);
 }
 
 function stringArray(value: unknown): string[] {

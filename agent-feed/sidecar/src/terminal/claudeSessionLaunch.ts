@@ -95,8 +95,8 @@ export function resumeClaudeSessionCommand(sessionId: string): string[] {
  * already drawn. Wide enough that the opening turn reads, not so wide that it wraps oddly when a
  * narrow viewer does attach.
  */
-const UNATTENDED_COLUMNS = 120;
-const UNATTENDED_ROWS = 40;
+export const UNATTENDED_COLUMNS = 120;
+export const UNATTENDED_ROWS = 40;
 
 /**
  * The pane script that hands the CLI its first turn out of a file: read it, delete it and its
@@ -172,9 +172,16 @@ export async function startClaudeSession(options: {
   sessionId: string;
   title: string;
   prompt?: string;
+  /**
+   * The argv to run instead of `newClaudeSessionCommand`'s, for a caller whose session is started
+   * under rules of its own -- an arena contestant, confined to its worktree. It must start the
+   * session at `sessionId`, and it carries no first turn: the caller types that once it is ready.
+   */
+  command?: string[];
 }): Promise<StartedClaudeSession> {
   const pane = claudeSessionPaneName(options.sessionId);
-  await createLaunchPane(pane, options.cwd, newClaudeSessionCommand(options), Boolean(options.prompt));
+  if (options.command) await createLaunchPane(pane, options.cwd, options.command, false);
+  else await createLaunchPane(pane, options.cwd, newClaudeSessionCommand(options), Boolean(options.prompt));
   const tmuxSession = await adoptTitleName(pane, options.sessionId, options.title);
   return { sessionId: options.sessionId, title: options.title, tmuxSession };
 }

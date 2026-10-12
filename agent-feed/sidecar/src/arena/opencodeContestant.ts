@@ -159,25 +159,36 @@ async function readTurnOutcome(sessionId: string): Promise<OpencodeTurnOutcome> 
  */
 const RECHECK_MS = 1000;
 
+/** How an opencode contestant reads its rules and its turn's outcome; overridden in tests. */
+export interface OpencodeContestantOptions {
+  turnOutcome?: (sessionId: string) => Promise<OpencodeTurnOutcome>;
+  recheckMs?: number;
+  permissions?: () => Promise<OpencodePermissionRule[]>;
+}
+
 /**
  * Drives one contestant and resolves when its turn has closed; rejects with the serve's own
  * reason when the turn failed.
- *
- * The subscription is opened BEFORE the send, so no event can land between the send and the
- * listen: a fast turn's whole life can fit inside that gap, and a listener attached late would
- * report a turn that happened without it.
  */
 export async function runOpencodeContestant(
   backend: OpencodeContestantBackend,
   plan: ContestantPlan,
-  options: {
-    turnOutcome?: (sessionId: string) => Promise<OpencodeTurnOutcome>;
-    recheckMs?: number;
-    permissions?: () => Promise<OpencodePermissionRule[]>;
-  } = {},
+  options: OpencodeContestantOptions = {},
 ): Promise<ContestantResult> {
-  const turnOutcome = options.turnOutcome ?? readTurnOutcome;
-  const recheckMs = options.recheckMs ?? RECHECK_MS;
+  const sessionId = await openOpencodeContestant(backend, plan, options);
+  plan.onSessionId(sessionId);
+  return driveOpencodeTurn(backend, sessionId, plan, options);
+}
+
+/**
+ * Makes the contestant's session on the serve, confined from its first moment, and answers its id.
+ * When the rules cannot be read, no session is created at all.
+ */
+export async function openOpencodeContestant(
+  backend: OpencodeContestantBackend,
+  plan: ContestantPlan,
+  options: OpencodeContestantOptions = {},
+): Promise<string> {
   let permissions: OpencodePermissionRule[];
   try {
     permissions = await (options.permissions ?? readContestantPermissions)();
@@ -185,8 +196,24 @@ export async function runOpencodeContestant(
     throw new OpencodeContestantError(`could not read the rules that confine a contestant, so none was started: ${String(error)}`);
   }
   const descriptor = await backend.createSession(plan.requestId, plan.worktreePath, { permissions });
-  const sessionId = descriptor.sessionId;
-  plan.onSessionId(sessionId);
+  return descriptor.sessionId;
+}
+
+/**
+ * Sends the prompt to a session that exists and resolves when the turn has closed.
+ *
+ * The subscription is opened BEFORE the send, so no event can land between the send and the
+ * listen: a fast turn's whole life can fit inside that gap, and a listener attached late would
+ * report a turn that happened without it.
+ */
+export async function driveOpencodeTurn(
+  backend: OpencodeContestantBackend,
+  sessionId: string,
+  plan: ContestantPlan,
+  options: OpencodeContestantOptions = {},
+): Promise<ContestantResult> {
+  const turnOutcome = options.turnOutcome ?? readTurnOutcome;
+  const recheckMs = options.recheckMs ?? RECHECK_MS;
 
   // Ids are the projection's own: a snapshot re-states rows an upsert already delivered, so the
   // collected turn is deduped by id in insertion order rather than appended raw.

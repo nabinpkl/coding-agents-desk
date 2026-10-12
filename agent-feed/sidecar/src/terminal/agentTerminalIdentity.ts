@@ -368,7 +368,7 @@ async function projectDirectory(deps: TerminalIdentityDeps, path: string): Promi
  * `tmux list-sessions` readable. Derived from the session id for the same reason Claude's is:
  * a second open joins rather than starting beside the first.
  */
-function opencodeSessionPaneName(sessionId: string): string {
+export function opencodeSessionPaneName(sessionId: string): string {
   return `agentdesk-opencode-${sessionId}`;
 }
 

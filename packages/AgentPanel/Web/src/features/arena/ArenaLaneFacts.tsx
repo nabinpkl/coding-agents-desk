@@ -27,6 +27,8 @@ export function factRowsFor(contestants: readonly ArenaContestantDetail[]): Fact
 
 const BAR_INK: Record<ArenaContestantDetail["status"], string> = {
   preparing: "bg-muted-foreground",
+  starting: "bg-muted-foreground",
+  ready: "bg-foreground/40",
   running: "bg-arena-running",
   closed: "bg-foreground/70",
   failed: "bg-destructive",

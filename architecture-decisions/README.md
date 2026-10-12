@@ -163,3 +163,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0130 | Arena contestants are confined to their worktree and the same six tools, on both harnesses | accepted | 2026-10-12 |
 | ADR-0131 | An arena opencode session holds its confining rules from the create request itself | accepted | 2026-10-12 |
 | ADR-0132 | The sidecar talks to opencode through the serve's own client, pinned to the serve's release | accepted | 2026-10-12 |
+| ADR-0133 | Arena runs drive their contestants as terminal sessions, beside the headless mode | accepted | 2026-10-12 |

@@ -11,31 +11,40 @@
 // existing business (the canvas roster's modal), and a link invented here would be a second
 // path to it.
 
-import type {
-  ArenaContestantSource,
-  ArenaContestantDetail,
-  ArenaRunDetail,
-  ArenaRunSummary,
+import {
+  ARENA_LIVE_STATUSES,
+  type ArenaContestantSource,
+  type ArenaContestantDetail,
+  type ArenaContestantStatus,
+  type ArenaRunDetail,
+  type ArenaRunMode,
+  type ArenaRunSummary,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 
 const RUNS_PATH = "/api/arena/runs";
 const STREAM_PATH = "/api/arena/runs/stream";
+const MODES_PATH = "/api/arena/modes";
+
+const STATUSES: readonly ArenaContestantStatus[] = [...ARENA_LIVE_STATUSES, "closed", "failed"];
+
+function isRunMode(value: unknown): value is ArenaRunMode {
+  return value === "terminals" || value === "headless";
+}
 
 function contestantSummaryOf(value: unknown): ArenaRunSummary["contestants"][number] | null {
   if (!value || typeof value !== "object") return null;
   const c = value as Record<string, unknown>;
   if (typeof c.contestantId !== "string" || typeof c.worktreePath !== "string") return null;
-  if (c.status !== "preparing" && c.status !== "running" && c.status !== "closed" && c.status !== "failed") {
-    return null;
-  }
+  if (!STATUSES.includes(c.status as ArenaContestantStatus)) return null;
   if (c.source !== "opencode" && c.source !== "claude") return null;
   return {
     contestantId: c.contestantId,
     source: c.source,
     sessionId: typeof c.sessionId === "string" ? c.sessionId : null,
     worktreePath: c.worktreePath,
-    status: c.status,
+    tmuxSession: typeof c.tmuxSession === "string" ? c.tmuxSession : null,
+    status: c.status as ArenaContestantStatus,
     startedAt: typeof c.startedAt === "number" ? c.startedAt : null,
     closedAt: typeof c.closedAt === "number" ? c.closedAt : null,
     durationMs: typeof c.durationMs === "number" ? c.durationMs : null,
@@ -56,6 +65,8 @@ export function parseRunSummary(value: unknown): ArenaRunSummary | null {
     prompt: run.prompt,
     repoPath: run.repoPath,
     baseRef: run.baseRef,
+    // A run from a sidecar that predates modes was driven headless, the only way it had.
+    mode: isRunMode(run.mode) ? run.mode : "headless",
     createdAt: run.createdAt,
     contestants: contestants as ArenaRunSummary["contestants"],
   };
@@ -139,12 +150,18 @@ export async function fetchArenaRunDetail(
 /** Creates a run. The failure carries the sidecar's own message, which names what was wrong. */
 export async function createArenaRun(
   transport: AgentHttpTransport,
-  request: { prompt: string; repoPath: string; contestants: readonly ArenaContestantSource[] },
+  request: {
+    prompt: string;
+    repoPath: string;
+    mode: ArenaRunMode;
+    contestants: readonly ArenaContestantSource[];
+  },
 ): Promise<{ run: ArenaRunSummary } | { message: string }> {
   const response = await transport.request("POST", RUNS_PATH, {
     body: {
       prompt: request.prompt,
       repoPath: request.repoPath,
+      mode: request.mode,
       contestants: request.contestants.map((source) => ({ source })),
     },
   });
@@ -154,6 +171,22 @@ export async function createArenaRun(
     return run ? { run } : { message: "the sidecar answered with a run this panel could not read" };
   } catch {
     return { message: "the sidecar answered with a run this panel could not read" };
+  }
+}
+
+/**
+ * The modes this machine can drive a run in, the default first. A sidecar that does not answer
+ * is taken as offering headless alone: that is the one mode every sidecar with an arena has.
+ */
+export async function fetchArenaModes(transport: AgentHttpTransport): Promise<ArenaRunMode[]> {
+  const response = await transport.request("GET", MODES_PATH);
+  if (response.status !== 200) return ["headless"];
+  try {
+    const parsed = JSON.parse(response.body) as { modes?: unknown };
+    const modes = Array.isArray(parsed.modes) ? parsed.modes.filter(isRunMode) : [];
+    return modes.length > 0 ? modes : ["headless"];
+  } catch {
+    return ["headless"];
   }
 }
 

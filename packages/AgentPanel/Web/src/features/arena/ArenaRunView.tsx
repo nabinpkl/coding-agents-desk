@@ -21,7 +21,7 @@ import { ArenaLaneFacts, factRowsFor } from "@/features/arena/ArenaLaneFacts";
 import { SessionLane, useRunSessions } from "@/features/arena/ArenaSessionLanes";
 import { lineupKind } from "@/features/arena/ArenaNewRun";
 import { basename, diffStat, elapsedMs, fileMatrix, formatAgo } from "@/features/arena/arenaFacts";
-import { FOCUS, ICON_BUTTON, TEXT } from "@/features/arena/arenaVocabulary";
+import { FOCUS, ICON_BUTTON, isLive, TEXT } from "@/features/arena/arenaVocabulary";
 
 export type ArenaView = "sessions" | "files" | "diffs";
 
@@ -50,7 +50,7 @@ export function ArenaRunView({
   onDelete: () => void;
 }) {
   const [promptOpen, setPromptOpen] = useState(false);
-  const live = run.contestants.some((c) => c.status === "running" || c.status === "preparing");
+  const live = run.contestants.some(isLive);
   const settled = run.contestants.filter((c) => c.status === "closed" || c.status === "failed").length;
   const contestants = detail?.contestants ?? [];
   const fileCount = fileMatrix(contestants).filter((row) => row.inRepository).length;

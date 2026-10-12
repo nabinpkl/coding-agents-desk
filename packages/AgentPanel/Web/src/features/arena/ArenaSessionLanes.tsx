@@ -10,12 +10,18 @@
 // harness may file a worktree's session under its checkout), and lanes match by session id, the
 // one identity both the arena and the catalog hold. A contestant whose session the catalog has
 // not listed yet says so in its lane rather than leaving it empty.
+//
+// A contestant driven in a terminal also has its pane in the lane, joined with the same terminal
+// a canvas card uses: typeable, so a reader can answer what the harness asks on its way up (a
+// folder-trust question) or step into the session afterwards. Before a Claude contestant's first
+// turn the catalog has nothing to list, so its pane is the whole lane until the transcript lands.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ArenaContestantDetail, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 
 /** A catalog session and the directory it is listed under, which its terminal is named by. */
@@ -77,6 +83,8 @@ export function SessionLane({
   context: SessionViewContext;
 }) {
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
+  // What the terminal band's height is a share of: the lane, not the viewport (see `heightBasis`).
+  const [lane, setLane] = useState<HTMLElement | null>(null);
   const [tasksHost, setTasksHost] = useState<HTMLElement | null>(null);
   const [acceptFiles, setAcceptFiles] = useState<((files: readonly File[]) => void) | null>(null);
   // Stable by construction, as `SessionView` requires: a fresh function here would republish on
@@ -90,6 +98,7 @@ export function SessionLane({
 
   return (
     <section
+      ref={setLane}
       aria-label={`${label} session`}
       className="relative flex min-h-0 min-w-0 flex-col bg-background"
       {...drop.dropProps}
@@ -113,18 +122,23 @@ export function SessionLane({
         </div>
       ) : (
         <div className={`flex flex-1 flex-col gap-2 px-4 py-6 ${TEXT.body}`}>
-          <p className="text-muted-foreground">
-            {contestant.sessionId === null
-              ? contestant.status === "failed"
-                ? "No session was made."
-                : "Making this contestant's session."
-              : "This session is not in the catalog yet; it appears here once it is listed."}
-          </p>
+          <p className="text-muted-foreground">{unlistedLine(contestant)}</p>
           {contestant.sessionId ? (
             <p className={`font-mono ${TEXT.meta} text-muted-foreground`}>{contestant.sessionId}</p>
           ) : null}
         </div>
       )}
+      {contestant.tmuxSession ? (
+        <AgentTerminalPane
+          // Keyed by the pane, so a lane that moves to another contestant joins that one afresh.
+          key={contestant.tmuxSession}
+          feed={context.feed}
+          // Joining, not starting: the arena started the pane, and opening it twice is once.
+          context={{ kind: "tmux", session: contestant.tmuxSession }}
+          layout="band"
+          heightBasis={lane}
+        />
+      ) : null}
       <div ref={setTasksHost} className="contents" />
       <FileDropOverlay
         dragging={drop.dragging}
@@ -132,4 +146,16 @@ export function SessionLane({
       />
     </section>
   );
+}
+
+/** What a lane says while its contestant has no listed session to show. */
+function unlistedLine(contestant: ArenaContestantDetail): string {
+  if (contestant.sessionId === null) {
+    return contestant.status === "failed" ? "No session was made." : "Making this contestant's session.";
+  }
+  if (contestant.status === "starting") {
+    return "Starting in its terminal below. Answer anything it asks there; the prompt goes in once every lane is ready.";
+  }
+  if (contestant.status === "ready") return "Ready, and waiting for the other lanes before the prompt goes in.";
+  return "This session is not in the catalog yet; it appears here once it is listed.";
 }

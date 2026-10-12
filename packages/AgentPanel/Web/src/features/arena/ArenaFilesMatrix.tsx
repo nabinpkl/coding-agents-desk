@@ -8,7 +8,7 @@
 
 import type { ArenaContestantDetail } from "@agentdesk/agent-feed-wire";
 import { fileMatrix, type FileRow, type FileTouch } from "@/features/arena/arenaFacts";
-import { SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
+import { isLive, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 
 const TOUCH: Record<FileTouch, { word: string; ink: string }> = {
   read: { word: "read", ink: "border-border text-foreground" },
@@ -21,7 +21,7 @@ export function ArenaFilesMatrix({ contestants }: { contestants: readonly ArenaC
   if (rows.length === 0) {
     return (
       <p className={`px-5 py-8 ${TEXT.body} text-muted-foreground`}>
-        {contestants.some((c) => c.status === "running" || c.status === "preparing")
+        {contestants.some(isLive)
           ? "No files yet. They are recorded as each contestant closes."
           : "No contestant named a file."}
       </p>
