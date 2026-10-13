@@ -11,7 +11,7 @@ import { Terminal as TerminalIcon } from "lucide-react";
 import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
-import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
+import type { ComposerPaneContext } from "@/features/session-view/composer/terminalArrangement";
 import { COMPOSER_FOOTER_BUTTON_CLASS, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
@@ -80,12 +80,12 @@ export function SessionComposerBand({
   setComposerFocused: (focused: boolean) => void;
   softwareKeyboard: boolean;
   terminalComposer: {
-    context: SessionTmuxTerminalContext;
+    context: ComposerPaneContext;
     shown: boolean;
     toggle: () => void;
   } | null;
   terminalPane: {
-    context: SessionTmuxTerminalContext;
+    context: ComposerPaneContext;
     layout: "band" | "echo";
     height: number | null;
     onResized: (height: number) => void;

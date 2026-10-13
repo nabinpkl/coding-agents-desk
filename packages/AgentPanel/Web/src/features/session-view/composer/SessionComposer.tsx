@@ -28,7 +28,6 @@ import type {
   AgentTerminalDescriptor,
   AgentUiRequest,
   SessionSummary,
-  SessionTmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
@@ -68,7 +67,7 @@ import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
-import { composerTerminalPane } from "@/features/session-view/composer/terminalArrangement";
+import { type ComposerPaneContext, composerTerminalPane } from "@/features/session-view/composer/terminalArrangement";
 import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
 import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
@@ -165,7 +164,7 @@ export function SessionComposer({
    * source with no CLI to resume, which is when there is nothing to show and no switch to offer.
    */
   terminalComposer: {
-    context: SessionTmuxTerminalContext;
+    context: ComposerPaneContext;
     shown: boolean;
     toggle: () => void;
     /** The height this session's pane was left at, and where a new one goes. */

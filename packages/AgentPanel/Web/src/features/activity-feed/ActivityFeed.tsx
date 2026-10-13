@@ -60,6 +60,15 @@ import { useTranscriptScrollRestore } from "@/features/activity-feed/scroll-posi
 import { useOlderPageAnchor } from "@/features/activity-feed/scroll-position/useOlderPageAnchor";
 import { gapIdentity, useGapFill } from "@/features/activity-feed/scroll-position/useGapFill";
 
+/** A thread with nothing to show: one with no events yet, or none this mode shows. */
+export function EmptyFeed({ text = "no events" }: { text?: string }) {
+  return (
+    <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
+      {text}
+    </div>
+  );
+}
+
 export function ActivityFeed({
   source,
   sessionId,
@@ -359,9 +368,7 @@ export function ActivityFeed({
     return (
       <>
         {hasHiddenSystemEvents ? threadControls : null}
-        <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
-          {hasHiddenSystemEvents ? "no content events" : "no events"}
-        </div>
+        <EmptyFeed text={hasHiddenSystemEvents ? "no content events" : "no events"} />
       </>
     );
   }

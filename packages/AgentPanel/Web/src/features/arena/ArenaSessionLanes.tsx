@@ -13,18 +13,18 @@
 //
 // A contestant driven in a terminal has its pane in the lane, typeable, so a reader can answer what
 // the harness asks on its way up (a folder-trust question) or step into the session afterwards.
-// Once the session is listed, that is the pane its composer shows above the field, shown until the
-// reader hides it: the same control, pane and size as anywhere a session is shown, so a lane never
-// holds two. Before a
-// Claude contestant's first turn the catalog has nothing to list, so its lane shows the empty feed
-// every lane starts with, over that same pane joined directly, until the transcript lands.
+// That pane is the one its composer shows above the field, named by the arena rather than found
+// through the catalog, and shown until the reader hides it: the same control, pane and size as
+// anywhere a session is shown, so a lane never holds two. A Claude contestant writes no transcript
+// before its first turn, so the catalog has nothing to list until then; its lane is the same
+// session view all along, with the empty feed every session starts from, and the transcript opens
+// in it once it is listed.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ArenaContestantDetail, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 
 /** A catalog session and the directory it is listed under, which its terminal is named by. */
@@ -96,6 +96,16 @@ export function SessionLane({
   );
   const drop = useFileDropTarget<HTMLElement>(acceptFiles);
   const label = `${contestant.contestantId} ${SOURCE_LABEL[contestant.source]}`;
+  // A terminal contestant's session from the moment it has an id: its pane is already running it.
+  const awaited = useMemo(
+    () => (contestant.sessionId !== null && contestant.tmuxSession !== null
+      ? { session: awaitedSession(contestant, contestant.sessionId), projectPath: contestant.worktreePath }
+      : null),
+    // The fields it reads, not the record, which is a new object on every run update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contestant.sessionId, contestant.tmuxSession, contestant.worktreePath, contestant.source, contestant.contestantId, contestant.startedAt],
+  );
+  const shown = listed ?? awaited;
 
   return (
     <section
@@ -108,25 +118,21 @@ export function SessionLane({
         ref={setControlsHost}
         className="flex min-h-9 shrink-0 flex-wrap items-center gap-1 border-y border-border bg-muted/40 px-2"
       />
-      {listed ? (
+      {shown ? (
         <div className="min-h-0 flex-1">
           <SessionView
-            key={listed.session.sessionId}
+            // Keyed by the contestant's session, which it has before the catalog lists it, so the
+            // listing swaps the feed in without remounting the composer or its pane.
+            key={shown.session.sessionId}
             {...context}
-            projectPath={listed.projectPath}
-            session={listed.session}
+            projectPath={shown.projectPath}
+            session={shown.session}
             controlsHost={controlsHost}
             tasksHost={tasksHost}
             onAcceptFiles={takeAcceptFiles}
-            terminalPaneShownByDefault={contestant.tmuxSession !== null}
+            pane={contestant.tmuxSession}
+            listed={listed !== null}
           />
-        </div>
-      ) : contestant.tmuxSession ? (
-        // The feed this session will have, empty, as a listed session's own feed reads before its
-        // first turn: the terminal under it is where the session is coming up.
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 px-4 text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
-          <p>no events</p>
-          <p>{unlistedLine(contestant)}</p>
         </div>
       ) : (
         <div className={`flex flex-1 flex-col gap-2 px-4 py-6 ${TEXT.body}`}>
@@ -136,15 +142,6 @@ export function SessionLane({
           ) : null}
         </div>
       )}
-      {!listed && contestant.tmuxSession ? (
-        <AgentTerminalPane
-          // Keyed by the pane, so a lane that moves to another contestant joins that one afresh.
-          key={contestant.tmuxSession}
-          feed={context.feed}
-          // Joining, not starting: the arena started the pane, and opening it twice is once.
-          context={{ kind: "tmux", session: contestant.tmuxSession }}
-        />
-      ) : null}
       <div ref={setTasksHost} className="contents" />
       <FileDropOverlay
         dragging={drop.dragging}
@@ -154,12 +151,35 @@ export function SessionLane({
   );
 }
 
-/** What a lane says while its contestant has no listed session to show. */
+/**
+ * The session a contestant's pane is running, before the catalog lists it. It claims nothing the
+ * sidecar has not said -- no sends, no terminal beyond the pane, one mode -- and the listed summary
+ * replaces it the moment there is one.
+ */
+function awaitedSession(contestant: ArenaContestantDetail, sessionId: string): SessionSummary {
+  return {
+    sessionId,
+    source: contestant.source,
+    title: `${contestant.contestantId} ${SOURCE_LABEL[contestant.source]}`,
+    lastEventAt: contestant.startedAt ?? 0,
+    activity: "ready",
+    capabilities: {
+      modes: ["nice"],
+      canSend: false,
+      canSteer: false,
+      canAbort: false,
+      canFetchRaw: false,
+      canOpenTerminal: false,
+      supportsExtensionUi: false,
+      canStreamLive: false,
+    },
+  };
+}
+
+/** What a lane says while its contestant has no session view to show. */
 function unlistedLine(contestant: ArenaContestantDetail): string {
   if (contestant.sessionId === null) {
     return contestant.status === "failed" ? "No session was made." : "Making this contestant's session.";
   }
-  if (contestant.status === "starting") return "Starting in its terminal";
-  if (contestant.status === "ready") return "Ready for the prompt";
   return "This session is not in the catalog yet; it appears here once it is listed.";
 }

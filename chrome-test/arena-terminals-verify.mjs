@@ -1,7 +1,8 @@
 // Verifies the Arena's terminals mode end to end against a live panel and sidecar, the way a
 // reader uses it: Open lanes from a blank form -- no name, no repository, no prompt -- so the run
 // takes the next "arena run N" and a new repository of its own in the arena home; each contestant
-// gets a pane that its lane joins with the panel's own terminal under an empty feed, every lane
+// gets a pane that its lane's session view shows above its composer, the feed empty until the
+// session's first turn, every lane
 // comes up to `ready`, and only then is the one prompt typed on the run -- which closes in each
 // lane. Deleting the run at the end must take its folder, repository and all.
 //
@@ -66,12 +67,22 @@ const tmuxSessions = () => {
     return [];
   }
 };
-// Each lane holds exactly one terminal: the session's own once it is listed, the pane joined
-// directly before that. Two would be a lane showing the same pane twice.
+// Each lane holds exactly one terminal: its pane, above the composer. Two would be a lane showing
+// the same pane twice.
 const oneTerminalPerLane = async (page, problems, when) => {
   for (const [index, source] of LINEUP.entries()) {
     const count = await page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` }).locator('.xterm').count();
     if (count !== 1) problems.push(`c${index + 1}'s lane holds ${count} terminals ${when}`);
+  }
+};
+// Every lane is the whole session view from the moment its pane is up, a Claude lane before its
+// first turn included: the composer with its attach control, and its terminal control showing the
+// pane, the same as any session the panel shows.
+const sessionViewPerLane = async (page, problems, when) => {
+  for (const [index, source] of LINEUP.entries()) {
+    const lane = page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` });
+    if (await lane.getByRole('button', { name: /Add an image/ }).count() !== 1) problems.push(`c${index + 1}'s lane has no attach control ${when}`);
+    if (await lane.getByRole('button', { name: 'Hide the terminal' }).count() !== 1) problems.push(`c${index + 1}'s lane has no terminal control showing its pane ${when}`);
   }
 };
 const paneText = (pane) => {
@@ -165,7 +176,12 @@ try {
   if (atLine.some((c) => c.startedAt !== null)) problems.push('a lane started its clock before there was a prompt');
   await page.waitForTimeout(2000);
   await oneTerminalPerLane(page, problems, 'while waiting for the prompt');
+  await sessionViewPerLane(page, problems, 'while waiting for the prompt');
   await page.screenshot({ path: join(shots, 'arena-terminals-ready.png') });
+  for (const [index, source] of LINEUP.entries()) {
+    await page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` })
+      .screenshot({ path: join(shots, `arena-terminals-ready-c${index + 1}.png`) });
+  }
 
   // Now the prompt, typed once on the run, for every lane.
   await page.getByLabel('Prompt every lane gets').fill(PROMPT);
@@ -179,6 +195,7 @@ try {
   const final = await contestants();
   await page.waitForTimeout(2000);
   await oneTerminalPerLane(page, problems, 'once the turns closed');
+  await sessionViewPerLane(page, problems, 'once the turns closed');
   // And that terminal is the contestant's own pane, not a shell of its own in the worktree, which
   // looks alike in a screenshot: the harness's own footer is on its screen, and a shell's is not.
   const HARNESS_FOOTER = { opencode: /ctrl\+p commands/, claude: /don't ask on/ };

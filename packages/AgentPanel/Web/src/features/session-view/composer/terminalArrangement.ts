@@ -1,4 +1,11 @@
-import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
+import type { SessionTmuxTerminalContext, TmuxTerminalContext } from "@agentdesk/agent-feed-wire";
+
+/**
+ * Which pane the composer shows: the session's own, which the sidecar resolves from the session,
+ * or a pane the surface already names because it started it -- an arena lane, whose contestant is
+ * typeable in its pane before the catalog has any session to resolve.
+ */
+export type ComposerPaneContext = SessionTmuxTerminalContext | TmuxTerminalContext;
 
 /**
  * Whether the composer band puts a pane above its field, given what this session remembers.
@@ -23,7 +30,7 @@ export function terminalArrangement(shown: boolean, hasBasis: boolean): "echo" |
 }
 
 export interface ComposerTerminalPane {
-  context: SessionTmuxTerminalContext;
+  context: ComposerPaneContext;
   layout: "band" | "echo";
   height: number | null;
   onResized: (height: number) => void;
@@ -38,7 +45,7 @@ export interface ComposerTerminalPane {
  */
 export function composerTerminalPane(
   terminalComposer: {
-    context: SessionTmuxTerminalContext;
+    context: ComposerPaneContext;
     shown: boolean;
     height: number | null;
     onResized: (height: number) => void;

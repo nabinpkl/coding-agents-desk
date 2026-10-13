@@ -39,7 +39,7 @@ import type {
   AgentSessionControlState,
   EventMode,
 } from "@/features/activity-feed/data-source/AgentDataSource";
-import { ActivityFeed } from "@/features/activity-feed/ActivityFeed";
+import { ActivityFeed, EmptyFeed } from "@/features/activity-feed/ActivityFeed";
 import { SESSION_MEASURE_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
@@ -126,7 +126,8 @@ export function SessionView({
   onForkFromMessage,
   onAttachSession,
   externalError = null,
-  terminalPaneShownByDefault = false,
+  pane = null,
+  listed = true,
 }: SessionViewContext & {
   /** The directory this session runs in, which is how its terminal names the process to open. */
   projectPath: string;
@@ -168,11 +169,17 @@ export function SessionView({
    */
   externalError?: string | null;
   /**
-   * Shows the session's own pane above the composer until the reader hides it, rather than only
-   * once they show it. For a surface whose sessions live in panes the reader is there to type in,
-   * such as an arena lane; the composer's terminal control still hides and shows it.
+   * The tmux session this session runs in, for a surface that started it and so knows: the
+   * composer shows that pane above its field until the reader hides it, as an arena lane does,
+   * because the reader is there to type in it. Null leaves the sidecar to find the session's pane.
    */
-  terminalPaneShownByDefault?: boolean;
+  pane?: string | null;
+  /**
+   * False while the catalog has not listed this session yet -- a Claude session before its first
+   * turn writes no transcript -- so the feed shows the empty state every session starts from rather
+   * than asking for a transcript that is not there. It opens the moment this turns true.
+   */
+  listed?: boolean;
 }) {
   const { source, sessionId, capabilities } = session;
   /**
@@ -259,7 +266,7 @@ export function SessionView({
   // window composer and a plain send. Asked only for claude rows; every other source leaves the
   // hook inert and never issues a request.
   const cliInput = useCliInput(feed, { source, sessionId }, source === "claude");
-  const composerPane = useSessionComposerPane(source, sessionId, terminalPaneShownByDefault);
+  const composerPane = useSessionComposerPane(source, sessionId, pane);
 
   const terminalComposer = useMemo<AgentTerminalComposer | null>(() => {
     if (terminal.kind !== "ready") return null;
@@ -394,8 +401,8 @@ export function SessionView({
       {/* ActivityFeed remains the thread's only scroll owner: the bands below it are outside its
           box, so sticky transcript headers and virtualization read the same scrollTop whether this
           view is the whole page or a card. */}
-      <div key={`${sessionId}:${eventMode}`} className="min-h-0 flex-1 overflow-hidden session-view-ground">
-        <ActivityFeed
+      <div key={`${sessionId}:${eventMode}:${listed}`} className="min-h-0 flex-1 overflow-hidden session-view-ground">
+        {listed ? <ActivityFeed
           source={source}
           sessionId={sessionId}
           mode={eventMode}
@@ -409,7 +416,7 @@ export function SessionView({
           onSessionModel={setSessionModel}
           onOpenQuestion={setOpenQuestion}
           {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
-        />
+        /> : <EmptyFeed />}
       </div>
       {capabilities.supportsExtensionUi ? (
         <ExtensionUISurface
