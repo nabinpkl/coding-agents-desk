@@ -69,37 +69,55 @@ export async function submitOwnedTransport(m: ComposerModel, text = m.editorValu
 }
 
 /**
- * The context meter's Compact button: `/compact`, through the same door this composer's own Send
- * uses, so it is exactly what typing it and pressing Return would do. Null where no door here
- * takes a command -- a native window's field, and the sources that are not Claude or opencode.
+ * The context meter's Compact button: `/compact`, typed where Claude reads commands, so it is
+ * exactly what typing it into the session's terminal and pressing Return would do. Null where no
+ * door here takes a command -- a native window's field, and the sources that are not Claude or
+ * opencode.
  *
- * Refused over a draft rather than sent in its place. The box holds one value: on a terminal
- * session `/compact` would replace what the reader was writing in the pane itself, and the words
- * would be gone with nowhere to get them back.
+ * Never through the CLI inbox, though the composer's Send uses it until the pane is attached. The
+ * inbox hands text to the session as a message from a peer, and Claude does not run a slash
+ * command that arrives that way: measured, the session received the words `/compact` and
+ * compacted nothing. So the button attaches the pane when it is shown, the same way reaching for
+ * the field does, and waits for it.
+ *
+ * Refused over a draft rather than sent in its place. The box holds one value: `/compact` would
+ * replace what the reader was writing in the pane itself, and the words would be gone with nowhere
+ * to get them back.
  */
 export function compactControl(m: ComposerModel): CompactControl | null {
   const opencode = m.session.source === "opencode";
-  const door = m.tmuxBand || m.inboxBand || m.agentTerminalBand
-    ? m.isClaude
-    : m.transport.kind === "agent-session" && opencode;
-  if (!door) return null;
+  if (!m.isClaude && !(opencode && m.transport.kind === "agent-session")) return null;
   const busy = m.pending || m.deliveryPending || m.tmuxComposer.pending;
-  const blocked = m.editorValue.trim()
+  const draft = m.editorValue.trim()
     ? "Send or clear the draft in the composer first."
-    : m.unavailable || (m.tmuxBand && m.tmuxComposer.reason !== null)
-      ? "This session's composer can't take input right now."
-      : busy
-        ? "The composer is still sending."
-        : null;
-  return {
-    blocked,
-    run: async () => {
-      if (m.tmuxBand) return await m.tmuxComposer.submit(COMPACT_COMMAND);
-      if (m.inboxBand || m.agentTerminalBand) return await submitOwnedTransport(m, COMPACT_COMMAND);
+    : null;
+  if (opencode) {
+    return {
+      blocked: draft ?? (busy ? "The composer is still sending." : null),
       // The serve reads "/compact" as literal text, so opencode's goes through the command route.
-      await m.onRunSlash("compact", "");
-      return true;
-    },
+      run: async () => {
+        await m.onRunSlash("compact", "");
+        return true;
+      },
+    };
+  }
+  if (m.tmuxBand || m.agentTerminalBand) {
+    return {
+      blocked: draft
+        ?? (m.tmuxBand && m.tmuxComposer.reason !== null
+          ? "This session's terminal can't take input right now."
+          : busy ? "The composer is still sending." : null),
+      run: async () => m.tmuxBand
+        ? await m.tmuxComposer.submit(COMPACT_COMMAND)
+        : await submitOwnedTransport(m, COMPACT_COMMAND),
+    };
+  }
+  return {
+    blocked: m.tmuxComposer.reason === "no-pane"
+      ? "This session has no terminal the panel can type /compact into."
+      : "Reaching this session's terminal\u2026",
+    prepare: m.engage,
+    run: async () => false,
   };
 }
 

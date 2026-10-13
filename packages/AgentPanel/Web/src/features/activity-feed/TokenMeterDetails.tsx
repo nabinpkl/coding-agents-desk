@@ -181,6 +181,8 @@ function CompactButton({ control, onSent }: { control: CompactControl; onSent: (
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const note = control.blocked ?? failure;
+  const { prepare } = control;
+  useEffect(() => prepare?.(), [prepare]);
   return (
     <div className="mt-2.5 flex flex-col items-end gap-1">
       <button

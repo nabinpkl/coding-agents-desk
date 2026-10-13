@@ -18,6 +18,8 @@ export interface CompactControl {
   run: () => Promise<boolean>;
   /** Why it cannot be sent right now, or null when it can. */
   blocked: string | null;
+  /** Called when the button is shown, to reach whatever the send needs before it can go. */
+  prepare?: () => void;
 }
 
 /** Hover handlers the trigger and the panel share, so either one keeps the panel open. */

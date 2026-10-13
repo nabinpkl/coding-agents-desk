@@ -340,6 +340,14 @@ describe("the panel's Compact button", () => {
     expect(compactButton()).not.toBeDisabled();
   });
 
+  it("reaches for what the send needs as soon as it is shown", () => {
+    const prepare = vi.fn();
+    render(<TokenMeter usage={USAGE} compact={{ run: async () => false, blocked: "Reaching this session's terminal\u2026", prepare }} />);
+    expect(prepare).not.toHaveBeenCalled();
+    fireEvent.click(meter());
+    expect(prepare).toHaveBeenCalledTimes(1);
+  });
+
   it("is absent where the composer has no way to send one", () => {
     render(<TokenMeter usage={USAGE} />);
     fireEvent.click(meter());

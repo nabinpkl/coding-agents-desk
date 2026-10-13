@@ -253,6 +253,34 @@ describe("the context meter's Compact button", () => {
     expect(onRunSlash).toHaveBeenCalledWith("compact", "");
   });
 
+  it("never goes through the CLI inbox, where Claude reads /compact as a peer's words", async () => {
+    const engage = vi.fn();
+    const send = vi.fn(async () => true);
+    const m = tmux({
+      tmuxBand: false,
+      inboxBand: true,
+      transport: { kind: "cli-inbox" },
+      engage,
+      cliInput: { send } as never,
+    });
+    const control = compactControl(m)!;
+    // It attaches the pane, the way reaching for the field does, and waits for it.
+    expect(control.prepare).toBe(engage);
+    expect(control.blocked).toBe("Reaching this session's terminal\u2026");
+    await expect(control.run()).resolves.toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("says so when the session has no pane to type it into", () => {
+    const control = compactControl(tmux({
+      tmuxBand: false,
+      inboxBand: true,
+      transport: { kind: "cli-inbox" },
+      tmuxComposer: { pending: false, reason: "no-pane" } as never,
+    }))!;
+    expect(control.blocked).toBe("This session has no terminal the panel can type /compact into.");
+  });
+
   it("is not offered where no door here takes a command", () => {
     expect(compactControl(model({
       tmuxBand: false,
