@@ -34,15 +34,17 @@ export interface ContestantPlan {
  *
  * The pane is announced the moment it exists, so a reader can watch the harness load and answer
  * whatever it asks on the way up. `ready` is the start line: a contestant calls it once its harness
- * can take a prompt, and it resolves when every contestant of the run has called it or dropped
- * out, so the one prompt is typed into all of them together and no contestant's clock starts while
- * another is still loading.
+ * can take a prompt, and it resolves -- with the prompt -- when every contestant of the run has
+ * called it or dropped out AND the run has its prompt, so the one prompt is typed into all of them
+ * together and no contestant's clock starts while another is still loading. A run may open its
+ * lanes before it has a prompt at all; the prompt is what the reader types once they are up. The
+ * plan's own `prompt` is therefore not the one to send: `ready` answers that.
  */
 export interface ContestantTerminal {
   /** What the session and its pane are called, so a reader can tell contestants apart anywhere. */
   label: string;
   onPane: (pane: string, sessionId: string) => void;
-  ready: () => Promise<void>;
+  ready: () => Promise<string>;
 }
 
 /**
@@ -66,33 +68,59 @@ export type ContestantDrivers = Readonly<Record<ArenaContestantSource, Contestan
 
 /**
  * The terminals mode's start line: every contestant either arrives (its harness can take the
- * prompt) or leaves (it failed before it could), and the arrivals are let go together once the
- * last one has done either. Each contestant does exactly one of the two.
+ * prompt) or leaves (it failed before it could), and the arrivals are let go together, with the
+ * prompt, once the last one has done either and the run has been given its prompt. Each contestant
+ * does exactly one of arrive or leave; the prompt is given once.
+ *
+ * `abort` is a run removed while it waits for its prompt: every arrival, present and future,
+ * rejects with its reason, so a contestant at the line fails rather than waiting forever.
  */
 export class StartLine {
   private waiting: number;
-  private readonly open: Promise<void>;
-  private release: () => void = () => {};
+  private prompt: string | null;
+  private readonly open: Promise<string>;
+  private release: (prompt: string) => void = () => {};
+  private refuse: (reason: Error) => void = () => {};
 
-  constructor(contestants: number) {
+  constructor(contestants: number, prompt: string | null) {
     this.waiting = contestants;
-    this.open = new Promise<void>((resolve) => {
+    this.prompt = prompt;
+    this.open = new Promise<string>((resolve, reject) => {
       this.release = resolve;
+      this.refuse = reject;
     });
-    if (contestants <= 0) this.release();
+    // Nobody may be waiting when it is refused; that rejection is still nobody's to report.
+    this.open.catch(() => undefined);
+    this.check();
   }
 
-  arrive(): Promise<void> {
-    this.settleOne();
+  /** Whether the run has its prompt. */
+  get prompted(): boolean {
+    return this.prompt !== null;
+  }
+
+  arrive(): Promise<string> {
+    this.waiting -= 1;
+    this.check();
     return this.open;
   }
 
   leave(): void {
-    this.settleOne();
+    this.waiting -= 1;
+    this.check();
   }
 
-  private settleOne(): void {
-    this.waiting -= 1;
-    if (this.waiting <= 0) this.release();
+  give(prompt: string): void {
+    if (this.prompt !== null) throw new Error("this run already has its prompt");
+    this.prompt = prompt;
+    this.check();
+  }
+
+  abort(reason: Error): void {
+    this.refuse(reason);
+  }
+
+  private check(): void {
+    if (this.waiting <= 0 && this.prompt !== null) this.release(this.prompt);
   }
 }

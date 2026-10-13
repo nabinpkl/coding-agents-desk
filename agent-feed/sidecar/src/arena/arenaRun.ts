@@ -41,6 +41,7 @@ export interface ArenaContestantRecord {
 /** One run, as the arena tracks it. Contestants are ordered as the request named them. */
 export interface ArenaRunRecord {
   runId: string;
+  /** Empty while a terminals run has its lanes open and waits for the reader's prompt. */
   prompt: string;
   repoPath: string;
   baseRef: string;
@@ -180,6 +181,15 @@ export class ArenaRunRegistry {
     const contestant = run?.contestants.find((c) => c.contestantId === contestantId);
     if (!run || !contestant) return false;
     apply(contestant, this.now());
+    this.changed();
+    return true;
+  }
+
+  /** Applies one mutation to a run itself, then signals; false when there is no such run. */
+  updateRun(runId: string, apply: (run: ArenaRunRecord) => void): boolean {
+    const run = this.runs.get(runId);
+    if (!run) return false;
+    apply(run);
     this.changed();
     return true;
   }

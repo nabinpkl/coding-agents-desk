@@ -214,3 +214,21 @@ test("modes answers what this machine can drive a run with, and only to a GET", 
   expect(await response.json()).toEqual({ modes: ["headless"] });
   expect((await at("/api/arena/modes", { method: "POST" })).status).toBe(405);
 });
+
+test("a prompt for a run with no open lanes is refused with the reason, and an unknown run is a 404", async () => {
+  const { at } = await start();
+  const created = (await (await at("/api/arena/runs", body())).json()) as { runId: string };
+  // A headless run took its prompt when it was made; it has no lanes waiting for one.
+  const refused = await at(`/api/arena/runs/${created.runId}/prompt`, {
+    method: "POST",
+    body: JSON.stringify({ prompt: "again" }),
+  });
+  expect(refused.status).toBe(400);
+  expect(((await refused.json()) as { error: { message: string } }).error.message).toContain("already has its prompt");
+  const unknown = await at("/api/arena/runs/22222222-2222-4222-8222-222222222222/prompt", {
+    method: "POST",
+    body: JSON.stringify({ prompt: "x" }),
+  });
+  expect(unknown.status).toBe(404);
+  expect((await at(`/api/arena/runs/${created.runId}/prompt`)).status).toBe(405);
+});

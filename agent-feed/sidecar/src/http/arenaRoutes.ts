@@ -1,8 +1,9 @@
 // `/api/arena/*` -- one prompt fanned out to contestants, and the facts each left behind.
 //
-// Six answers: POST makes a run, GET lists them, GET on a run id answers its facts, DELETE
-// tears a finished one down, `stream` pushes the whole status list whenever any run moves, and
-// `modes` says which ways of driving a run this machine has.
+// Seven answers: POST makes a run, GET lists them, GET on a run id answers its facts, DELETE
+// tears a finished one down, `stream` pushes the whole status list whenever any run moves,
+// `modes` says which ways of driving a run this machine has, and POST on a run's `prompt` gives a
+// terminals run whose lanes are already open the prompt they wait for.
 // The service owns every state change; this module only matches paths, checks shapes and maps
 // the service's errors onto the statuses the panel's own client reads.
 
@@ -20,6 +21,7 @@ const RUNS_ROUTE = "/api/arena/runs";
 const RUNS_STREAM_ROUTE = "/api/arena/runs/stream";
 const MODES_ROUTE = "/api/arena/modes";
 const RUN_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})$/;
+const RUN_PROMPT_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})\/prompt$/;
 
 export function createArenaRoutes(service: ArenaService): RouteHandler {
   return (request, url, server) => {
@@ -43,6 +45,12 @@ export function createArenaRoutes(service: ArenaService): RouteHandler {
         write(encodeServerSentEvent(message()));
         return service.onRunsChanged(() => write(encodeServerSentEvent(message())));
       });
+    }
+
+    const promptRunId = RUN_PROMPT_ROUTE.exec(url.pathname)?.[1];
+    if (promptRunId) {
+      if (request.method !== "POST") return methodNotAllowed(request.method);
+      return sendPrompt(service, promptRunId, request, url.pathname);
     }
 
     const runId = RUN_ROUTE.exec(url.pathname)?.[1];
@@ -72,6 +80,22 @@ async function createRun(service: ArenaService, request: Request): Promise<Respo
     if (error instanceof ArenaBadRequestError) {
       return errorResponse("arena-bad-request", error.message, 400);
     }
+    return internal(error);
+  }
+}
+
+async function sendPrompt(service: ArenaService, runId: string, request: Request, path: string): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse("arena-bad-request", "a prompt request must be JSON", 400);
+  }
+  try {
+    return jsonResponse(service.sendPrompt(runId, (body as { prompt?: unknown } | null)?.prompt));
+  } catch (error) {
+    if (error instanceof ArenaRunNotFoundError) return notFound(path);
+    if (error instanceof ArenaBadRequestError) return errorResponse("arena-bad-request", error.message, 400);
     return internal(error);
   }
 }

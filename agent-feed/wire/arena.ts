@@ -63,6 +63,7 @@ export interface ArenaContestantSummary {
 /** A run, as a list or a stream needs it: what was asked and where each contestant stands. */
 export interface ArenaRunSummary {
   runId: string;
+  /** Empty while a terminals run has its lanes open and waits for its prompt. */
   prompt: string;
   repoPath: string;
   baseRef: string;
@@ -97,6 +98,11 @@ export interface ArenaRunDetail extends ArenaRunSummary {
  * duel two of the same harness or one of each.
  */
 export interface ArenaCreateRunRequest {
+  /**
+   * The one prompt. A terminals run may leave it empty: that opens its lanes, each harness comes
+   * up in its pane, and the prompt follows with `POST /api/arena/runs/:id/prompt` once the reader
+   * has it. A headless run has no lanes to open first, so it is refused without one.
+   */
   prompt: string;
   /** Absolute path of the git repository the contestants get worktrees of. */
   repoPath: string;
@@ -105,6 +111,11 @@ export interface ArenaCreateRunRequest {
   /** How the contestants are driven; the sidecar picks `terminals` when it has tmux, otherwise `headless`. */
   mode?: ArenaRunMode;
   contestants: { source: ArenaContestantSource }[];
+}
+
+/** `POST /api/arena/runs/:id/prompt`: the prompt a terminals run's open lanes wait for. Given once. */
+export interface ArenaPromptRequest {
+  prompt: string;
 }
 
 /** `GET /api/arena/modes`: the modes this machine can run, the default first. */

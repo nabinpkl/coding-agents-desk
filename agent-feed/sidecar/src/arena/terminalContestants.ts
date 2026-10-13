@@ -69,7 +69,7 @@ export interface TerminalContestantSteps {
   awaitComposer(sessionId: string, limitMs: number): Promise<boolean>;
   /** Waits for a pane to draw and go quiet, or for the limit, whichever is first. */
   settlePane(pane: string, limitMs: number): Promise<void>;
-  /** True when the pane's shell has no child left: the harness it ran has exited. */
+  /** True when the pane's shell has no child left, or the pane is gone: the harness has exited. */
   harnessExited(pane: string): Promise<boolean>;
   /** The last lines a pane shows, for a failure that should say what the reader would see. */
   paneTail(pane: string): Promise<string>;
@@ -109,8 +109,11 @@ export const LIVE_TERMINAL_STEPS: TerminalContestantSteps = {
     // names it whether the harness is running under it or has exited. Measured both ways on a
     // live pane: `zsh` while a child ran, `zsh` after; `pgrep -P` found the child only while it ran.
     const { out, code } = await tmux(["display-message", "-p", "-t", pane, "#{pane_pid}"]);
+    // A pane tmux no longer has is a harness that is gone with it: ended by a reader, or by the
+    // run being removed while this contestant was still on its way up.
+    if (code !== 0) return true;
     const pid = out.trim();
-    if (code !== 0 || !/^\d+$/.test(pid)) return false;
+    if (!/^\d+$/.test(pid)) return false;
     const children = Bun.spawn(["/usr/bin/pgrep", "-P", pid], { stdout: "ignore", stderr: "ignore" });
     return (await children.exited) === 1;
   },
@@ -206,7 +209,7 @@ export async function runClaudeTerminalContestant(
       );
     }
   }
-  await terminal.ready();
+  const prompt = await terminal.ready();
 
   // Listening before typing, so a turn that closes fast cannot close unheard. Every write re-reads
   // the whole transcript: one contestant's one turn is small, and a read that tried to follow
@@ -222,7 +225,7 @@ export async function runClaudeTerminalContestant(
   const stop = steps.watchTranscript(sessionId, () => void check());
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    await steps.typePrompt(sessionId, plan.prompt);
+    await steps.typePrompt(sessionId, prompt);
     const timedOut = new Promise<"timeout">((resolve) => {
       timer = setTimeout(() => resolve("timeout"), plan.turnTimeoutMs);
       timer.unref?.();
@@ -268,6 +271,6 @@ export async function runOpencodeTerminalContestant(
   if (await steps.harnessExited(pane)) {
     throw new OpencodeContestantError(`its TUI exited before the prompt: ${await steps.paneTail(pane)}`);
   }
-  await terminal.ready();
-  return driveOpencodeTurn(backend, sessionId, plan, options);
+  const prompt = await terminal.ready();
+  return driveOpencodeTurn(backend, sessionId, { ...plan, prompt }, options);
 }

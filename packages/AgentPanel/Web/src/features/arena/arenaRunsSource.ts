@@ -174,6 +174,22 @@ export async function createArenaRun(
   }
 }
 
+/** Gives a run whose lanes are open the prompt they wait for. The failure carries the sidecar's reason. */
+export async function sendArenaPrompt(
+  transport: AgentHttpTransport,
+  runId: string,
+  prompt: string,
+): Promise<{ run: ArenaRunSummary } | { message: string }> {
+  const response = await transport.request("POST", `${RUNS_PATH}/${runId}/prompt`, { body: { prompt } });
+  if (response.status !== 200) return { message: failureMessage(response.body, response.status) };
+  try {
+    const run = parseRunSummary(JSON.parse(response.body));
+    return run ? { run } : { message: "the sidecar answered with a run this panel could not read" };
+  } catch {
+    return { message: "the sidecar answered with a run this panel could not read" };
+  }
+}
+
 /**
  * The modes this machine can drive a run in, the default first. A sidecar that does not answer
  * is taken as offering headless alone: that is the one mode every sidecar with an arena has.

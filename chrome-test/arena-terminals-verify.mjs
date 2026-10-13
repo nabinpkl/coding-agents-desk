@@ -1,7 +1,7 @@
-// Verifies the Arena's terminals mode end to end against a live panel and sidecar: a run started
-// from the tab's form in the Terminals mode gives each contestant a pane, each lane joins that
-// pane with the panel's own terminal, the contestants wait at `starting` / `ready` until every
-// one can take the prompt, and then the one prompt closes in each.
+// Verifies the Arena's terminals mode end to end against a live panel and sidecar, the way a
+// reader uses it: Open lanes from the tab's form with no prompt yet, each contestant gets a pane
+// that its lane joins with the panel's own terminal under an empty feed, every lane comes up to
+// `ready`, and only then is the one prompt typed on the run -- which closes in each lane.
 //
 // Claude asks whether to trust a new folder before its composer appears, and each contestant's
 // worktree is a new folder. The run waits for a reader to answer that, so this answers it the way
@@ -86,19 +86,19 @@ try {
   await terminals.click();
   if (await terminals.getAttribute('aria-checked') !== 'true') problems.push('the Terminals mode did not take');
 
-  await page.getByLabel('Prompt every contestant gets').fill(PROMPT);
   await page.getByLabel('Repository the contestants work in').fill(repo);
   while (await page.getByLabel('Remove contestant 1').count() > 0) await page.getByLabel('Remove contestant 1').click();
   for (const [index, source] of LINEUP.entries()) {
     if (index > 0) await page.getByLabel('Add a contestant').click();
     await page.getByRole('radiogroup', { name: `Contestant ${index + 1} harness` }).getByRole('radio', { name: LABEL[source] }).click();
   }
-  await page.getByRole('button', { name: /Start run/ }).click();
+  await page.getByRole('button', { name: /Open lanes/ }).click();
   await page.getByRole('tablist', { name: 'Compare by' }).waitFor({ timeout: 20_000 });
   runId = (await api('/api/arena/runs')).body?.runs?.[0]?.runId ?? null;
   if (!runId) throw new Error('no run was listed after starting one');
   const run = (await api(`/api/arena/runs/${runId}`)).body;
   if (run?.mode !== 'terminals') problems.push(`the run was made in mode ${run?.mode}`);
+  if (run?.prompt !== '') problems.push(`lanes opened without a prompt carry one: "${run?.prompt}"`);
 
   // Every contestant gets a pane, and its lane joins it.
   const deadline = Date.now() + 60_000;
@@ -113,13 +113,11 @@ try {
   await page.screenshot({ path: join(shots, 'arena-terminals-starting.png') });
   console.log('statuses after the panes:', (await contestants()).map((c) => `${c.contestantId}=${c.status}`).join(' '));
 
-  // Answer each Claude contestant's folder-trust question in its own lane, as a reader would.
+  // Answer each Claude contestant's folder-trust question in its own lane, as a reader would, and
+  // wait for every lane to be ready before there is any prompt at all.
   const answered = new Set();
-  const closeBy = Date.now() + 240_000;
-  while (Date.now() < closeBy) {
-    const now = await contestants();
-    if (now.every((c) => c.status === 'closed' || c.status === 'failed')) break;
-    for (const [index, c] of now.entries()) {
+  const answerTrust = async () => {
+    for (const [index, c] of (await contestants()).entries()) {
       if (c.source !== 'claude' || c.status !== 'starting' || !c.tmuxSession || answered.has(c.contestantId)) continue;
       if (!/trust/i.test(paneText(c.tmuxSession))) continue;
       const lane = page.getByRole('region', { name: `c${index + 1} ${LABEL[c.source]} session` });
@@ -130,8 +128,28 @@ try {
       answered.add(c.contestantId);
       console.log(`answered ${c.contestantId}'s folder-trust question in its lane`);
     }
+  };
+  const readyBy = Date.now() + 120_000;
+  while (Date.now() < readyBy && !(await contestants()).every((c) => c.status === 'ready' || c.status === 'failed')) {
+    await answerTrust();
     await page.waitForTimeout(1000);
   }
+  const atLine = await contestants();
+  if (!atLine.every((c) => c.status === 'ready')) {
+    problems.push(`not every lane came up ready: ${atLine.map((c) => `${c.contestantId}=${c.status} ${c.error ?? ''}`).join(', ')}`);
+  }
+  if (atLine.some((c) => c.startedAt !== null)) problems.push('a lane started its clock before there was a prompt');
+  await page.waitForTimeout(2000);
+  await page.screenshot({ path: join(shots, 'arena-terminals-ready.png') });
+
+  // Now the prompt, typed once on the run, for every lane.
+  await page.getByLabel('Prompt every lane gets').fill(PROMPT);
+  await page.getByRole('button', { name: /Send to every lane/ }).click();
+  const closeBy = Date.now() + 240_000;
+  while (Date.now() < closeBy && !(await contestants()).every((c) => c.status === 'closed' || c.status === 'failed')) {
+    await page.waitForTimeout(1000);
+  }
+  if ((await api(`/api/arena/runs/${runId}`)).body?.prompt !== PROMPT) problems.push('the run does not carry the prompt it was sent');
 
   const final = await contestants();
   await page.waitForTimeout(2000);

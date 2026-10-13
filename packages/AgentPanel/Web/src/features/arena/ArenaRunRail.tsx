@@ -75,7 +75,9 @@ export function ArenaRunRail({
                   {selected ? (
                     <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-foreground" />
                   ) : null}
-                  <span className={`line-clamp-2 ${TEXT.body} leading-snug text-foreground`}>{run.prompt}</span>
+                  <span className={`line-clamp-2 ${TEXT.body} leading-snug ${run.prompt ? "text-foreground" : "text-muted-foreground"}`}>
+                    {run.prompt || "Waiting for a prompt"}
+                  </span>
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="flex shrink-0 gap-1">
                       {run.contestants.map((contestant) => (
@@ -89,7 +91,7 @@ export function ArenaRunRail({
                       ))}
                     </span>
                     <span className={`min-w-0 truncate ${TEXT.meta} text-muted-foreground`}>
-                      {live ? "dueling" : formatAgo(run.createdAt, now)} · {basename(run.repoPath)}
+                      {live ? (run.prompt ? "dueling" : "lanes open") : formatAgo(run.createdAt, now)} · {basename(run.repoPath)}
                     </span>
                   </span>
                 </button>

@@ -14,7 +14,8 @@
 // A contestant driven in a terminal also has its pane in the lane, joined with the same terminal
 // a canvas card uses: typeable, so a reader can answer what the harness asks on its way up (a
 // folder-trust question) or step into the session afterwards. Before a Claude contestant's first
-// turn the catalog has nothing to list, so its pane is the whole lane until the transcript lands.
+// turn the catalog has nothing to list, so its lane shows the empty feed every lane starts with,
+// over its terminal, until the transcript lands.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ArenaContestantDetail, SessionSummary } from "@agentdesk/agent-feed-wire";
@@ -120,6 +121,13 @@ export function SessionLane({
             onAcceptFiles={takeAcceptFiles}
           />
         </div>
+      ) : contestant.tmuxSession ? (
+        // The feed this session will have, empty, as a listed session's own feed reads before its
+        // first turn: the terminal under it is where the session is coming up.
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 px-4 text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
+          <p>no events</p>
+          <p>{unlistedLine(contestant)}</p>
+        </div>
       ) : (
         <div className={`flex flex-1 flex-col gap-2 px-4 py-6 ${TEXT.body}`}>
           <p className="text-muted-foreground">{unlistedLine(contestant)}</p>
@@ -153,9 +161,7 @@ function unlistedLine(contestant: ArenaContestantDetail): string {
   if (contestant.sessionId === null) {
     return contestant.status === "failed" ? "No session was made." : "Making this contestant's session.";
   }
-  if (contestant.status === "starting") {
-    return "Starting in its terminal below. Answer anything it asks there; the prompt goes in once every lane is ready.";
-  }
-  if (contestant.status === "ready") return "Ready, and waiting for the other lanes before the prompt goes in.";
+  if (contestant.status === "starting") return "Starting in its terminal";
+  if (contestant.status === "ready") return "Ready for the prompt";
   return "This session is not in the catalog yet; it appears here once it is listed.";
 }

@@ -56,7 +56,8 @@ describe("claudeTurnClosed", () => {
 /** A plan whose terminal hooks write down what happened, in order. */
 function planWith(log: string[], over: Partial<ContestantPlan> = {}): ContestantPlan {
   return {
-    prompt: "say one word",
+    // Empty, as a run that opened its lanes before its prompt has it: the line carries the prompt.
+    prompt: "",
     worktreePath: "/arena/run/c1",
     requestId: "run-1:c1",
     turnTimeoutMs: 1000,
@@ -66,6 +67,8 @@ function planWith(log: string[], over: Partial<ContestantPlan> = {}): Contestant
       onPane: (pane, sessionId) => log.push(`pane:${pane}:${sessionId}`),
       ready: async () => {
         log.push("ready");
+        // The start line hands over the prompt the reader typed, not the plan's own.
+        return "say one word";
       },
     },
     ...over,

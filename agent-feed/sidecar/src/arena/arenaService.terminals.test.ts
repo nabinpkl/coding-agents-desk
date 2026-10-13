@@ -45,18 +45,19 @@ function controllableDriver(name: string) {
     load = resolve;
   });
   let promptedAt: number | null = null;
+  let prompted: string | null = null;
   const drive: ContestantDriver = async (plan) => {
     if (!plan.terminal) throw new Error("no terminal on a terminals plan");
     plan.terminal.onPane(`pane-${name}`, `session-${name}`);
     if ((await loaded) === "fail") throw new Error(`${name} never showed its composer`);
-    await plan.terminal.ready();
+    prompted = await plan.terminal.ready();
     promptedAt = Date.now();
     return { sessionId: `session-${name}`, events: [], usage: null };
   };
-  return { drive, load, promptedAt: () => promptedAt, label: () => name };
+  return { drive, load, promptedAt: () => promptedAt, prompted: () => prompted, label: () => name };
 }
 
-async function arena(options: { terminalDrivers?: ContestantDrivers | null; killed?: string[] } = {}) {
+async function arena(options: { terminalDrivers?: ContestantDrivers | null; killed?: string[]; onKill?: () => void } = {}) {
   const created = await mkdtemp(join(tmpdir(), "arena-terminals-"));
   roots.push(created);
   const root = await realpath(created);
@@ -68,6 +69,7 @@ async function arena(options: { terminalDrivers?: ContestantDrivers | null; kill
     terminalDrivers: options.terminalDrivers,
     killPane: async (pane) => {
       options.killed?.push(pane);
+      options.onKill?.();
     },
     worktrees,
     arenaRoot: root,
@@ -195,5 +197,65 @@ describe("panes", () => {
     await expect(service.deleteRun(run.runId)).rejects.toThrow(/still has a contestant/);
     claude.load("fail");
     opencode.load("fail");
+  });
+});
+
+describe("lanes opened before the prompt", () => {
+  test("wait at the line, ready, until the reader gives the prompt, which every lane then gets", async () => {
+    const claude = controllableDriver("c1");
+    const opencode = controllableDriver("c2");
+    const { service } = await arena({ terminalDrivers: { claude: claude.drive, opencode: opencode.drive } });
+    const run = await service.createRun(request({ prompt: "" }));
+    expect(run.prompt).toBe("");
+    claude.load("ready");
+    opencode.load("ready");
+    await until(() => contestants(service).every((c) => c.status === "ready"), "both lanes ready");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(claude.promptedAt()).toBeNull();
+
+    const given = service.sendPrompt(run.runId, "  say one word  ");
+    expect(given.prompt).toBe("say one word");
+    await until(() => contestants(service).every((c) => c.status === "closed"), "both to close");
+    expect([claude.prompted(), opencode.prompted()]).toEqual(["say one word", "say one word"]);
+    expect(service.listRuns()[0]?.prompt).toBe("say one word");
+  });
+
+  test("a prompt is given once, never empty, and only to a run that is waiting for one", async () => {
+    const claude = controllableDriver("c1");
+    const opencode = controllableDriver("c2");
+    const { service } = await arena({ terminalDrivers: { claude: claude.drive, opencode: opencode.drive } });
+    const run = await service.createRun(request({ prompt: "" }));
+    expect(() => service.sendPrompt(run.runId, "   ")).toThrow(/cannot be empty/);
+    service.sendPrompt(run.runId, "first");
+    expect(() => service.sendPrompt(run.runId, "second")).toThrow(/already has its prompt/);
+    expect(() => service.sendPrompt("33333333-3333-4333-8333-333333333333", "x")).toThrow(/no arena run/);
+    claude.load("ready");
+    opencode.load("ready");
+    await until(() => contestants(service).every((c) => c.status === "closed"), "both to close");
+  });
+
+  test("a headless run still needs its prompt up front: it has no lanes to open first", async () => {
+    const { service } = await arena({ terminalDrivers: null });
+    await expect(service.createRun(request({ prompt: "" }))).rejects.toThrow(/needs a prompt/);
+  });
+
+  test("removing a run still waiting for its prompt closes its lanes rather than being refused", async () => {
+    const killed: string[] = [];
+    const claude = controllableDriver("c1");
+    const opencode = controllableDriver("c2");
+    // c2 is still on its way up: it leaves only once its pane is ended, as a real harness would.
+    const { service } = await arena({
+      terminalDrivers: { claude: claude.drive, opencode: opencode.drive },
+      killed,
+      onKill: () => opencode.load("fail"),
+    });
+    const run = await service.createRun(request({ prompt: "" }));
+    claude.load("ready");
+    await until(() => contestants(service)[0]?.status === "ready", "c1 at the line");
+
+    await service.deleteRun(run.runId);
+    expect(killed).toEqual(["pane-c1", "pane-c2"]);
+    expect(service.listRuns()).toEqual([]);
+    expect(claude.promptedAt()).toBeNull();
   });
 });

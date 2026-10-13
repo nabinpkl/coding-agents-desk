@@ -49,25 +49,36 @@ const run = (over: Record<string, unknown> = {}) => ({
 });
 
 /** A transport that answers the arena's own routes and records what was asked of it. */
-function harness(options: { detail?: unknown; runs?: unknown[] } = {}) {
+function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[] } = {}) {
   const posted: unknown[] = [];
+  const postedTo: string[] = [];
   const transport: AgentHttpTransport = {
     async request(method, path, requestOptions): Promise<TransportResponse> {
+      if (method === "GET" && path === "/api/arena/modes" && options.modes) {
+        return { status: 200, body: JSON.stringify({ modes: options.modes }) };
+      }
       if (method === "GET" && path === "/api/arena/runs") {
         return { status: 200, body: JSON.stringify({ runs: options.runs ?? [] }) };
       }
       if (method === "GET" && path.startsWith("/api/arena/runs/")) {
         return { status: 200, body: JSON.stringify(options.detail ?? run()) };
       }
+      if (method === "POST" && path.endsWith("/prompt")) {
+        posted.push(requestOptions?.body);
+        postedTo.push(path);
+        const prompt = (requestOptions?.body as { prompt: string }).prompt;
+        return { status: 200, body: JSON.stringify({ ...((options.runs?.[0] as object) ?? run()), prompt }) };
+      }
       if (method === "POST") {
         posted.push(requestOptions?.body);
+        postedTo.push(path);
         return { status: 201, body: JSON.stringify(run()) };
       }
       return { status: 404, body: "" };
     },
     subscribe: () => () => {},
   };
-  return { transport, posted };
+  return { transport, posted, postedTo };
 }
 
 /**
@@ -225,5 +236,35 @@ describe("ArenaSurface", () => {
 
     screen.getByLabelText("Remove contestant 1").click();
     await waitFor(() => expect(screen.queryByRole("radiogroup", { name: "Contestant 4 harness" })).toBeNull());
+  });
+
+  test("in the Terminals mode an empty prompt opens the lanes rather than refusing to start", async () => {
+    const { transport, posted } = harness({ modes: ["terminals", "headless"] });
+    mount(transport);
+    const open = await screen.findByRole("button", { name: /Open lanes/ });
+    await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
+    open.click();
+    await waitFor(() => expect(posted.length).toBe(1));
+    expect(posted[0]).toMatchObject({ prompt: "", mode: "terminals" });
+  });
+
+  test("a run whose lanes wait for their prompt takes it in its header and sends it to every lane", async () => {
+    const waiting = run({
+      mode: "terminals",
+      prompt: "",
+      contestants: [contestant({ status: "ready" }), contestant({ contestantId: "c2", source: "claude", status: "starting" })],
+    });
+    const { transport, posted, postedTo } = harness({ modes: ["terminals", "headless"], runs: [waiting], detail: waiting });
+    mount(transport);
+    await openRun("Waiting for a prompt");
+    expect(screen.getByText("1 of 2 ready")).toBeTruthy();
+    const box = screen.getByLabelText("Prompt every lane gets");
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, "count to three");
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe("count to three"));
+    screen.getByRole("button", { name: /Send to every lane/ }).click();
+
+    await waitFor(() => expect(postedTo).toEqual(["/api/arena/runs/11111111-1111-4111-8111-111111111111/prompt"]));
+    expect(posted[0]).toEqual({ prompt: "count to three" });
   });
 });

@@ -50,7 +50,7 @@ import {
   type ContestantTerminal,
 } from "@/arena/contestantDriver";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
-import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
+import { filesFromEvents } from "@/arena/arenaFacts";
 
 /** The request could not become a run; the route answers it with a 400 naming this reason. */
 export class ArenaBadRequestError extends Error {}
@@ -58,15 +58,6 @@ export class ArenaBadRequestError extends Error {}
 export class ArenaRunNotFoundError extends Error {}
 /** The run is still dueling and cannot be torn down; the route answers with a 409. */
 export class ArenaRunBusyError extends Error {}
-
-/**
- * Tool names, lowercased, by the direction they work in. Lowercased because the two harnesses
- * spell one tool two ways (`read` on the serve, `Read` in Claude). Only these two sets may
- * name a file from their input: a search tool's `path` is the directory it searched, not a
- * file it read, so anything else counts only the files its adapter resolved.
- */
-const WRITE_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit", "patch"]);
-const READ_TOOLS = new Set(["read", "notebookread"]);
 
 /** A diff longer than this is truncated with a marker, in memory and in its file alike. */
 const MAXIMUM_DIFF_BYTES = 256 * 1024;
@@ -97,6 +88,9 @@ export class ArenaService {
   private readonly defaultRepoPath: string | null;
   private readonly turnTimeoutMs: number;
   private readonly newRunId: () => string;
+  /** Each live terminals run's start line, and the drives that wait at it, by run id. */
+  private readonly lines = new Map<string, StartLine>();
+  private readonly drives = new Map<string, Promise<void>[]>();
 
   constructor(options: {
     registry: ArenaRunRegistry;
@@ -161,8 +155,7 @@ export class ArenaService {
    */
   async createRun(request: ArenaCreateRunRequest): Promise<ArenaRunSummary> {
     const prompt = typeof request.prompt === "string" ? request.prompt.trim() : "";
-    if (!prompt) throw new ArenaBadRequestError("a run needs a prompt");
-    if (prompt.length > 16_000) throw new ArenaBadRequestError("a run's prompt is capped at 16000 characters");
+    checkPromptLength(prompt);
 
     const repoPath = typeof request.repoPath === "string" && request.repoPath.trim()
       ? request.repoPath.trim()
@@ -183,6 +176,9 @@ export class ArenaService {
     if (!drivers) {
       throw new ArenaBadRequestError("this machine has no tmux, so a run here can only be headless");
     }
+    // A terminals run may open its lanes first and take its prompt once they are up; a headless
+    // run has nothing to open, so its prompt is the run.
+    if (!prompt && mode === "headless") throw new ArenaBadRequestError("a run needs a prompt");
 
     if (!Array.isArray(request.contestants) || request.contestants.length === 0) {
       throw new ArenaBadRequestError("a run needs at least one contestant");
@@ -247,10 +243,29 @@ export class ArenaService {
     // Fanned out, not awaited: the run is live the moment it is registered, and each contestant
     // closes on its own. `void` with the failure handled inside, so a contestant that fails
     // records its failure rather than surfacing as an unhandled rejection.
-    const startLine = mode === "terminals" ? new StartLine(records.length) : null;
-    for (const record of records) {
-      void this.driveOne(run, record, drivers, startLine);
-    }
+    const startLine = mode === "terminals" ? new StartLine(records.length, prompt || null) : null;
+    if (startLine) this.lines.set(runId, startLine);
+    this.drives.set(runId, records.map((record) => this.driveOne(run, record, drivers, startLine)));
+    return runSummary(run);
+  }
+
+  /**
+   * Gives a terminals run whose lanes are open the prompt they are waiting for. It goes into every
+   * lane together once all of them are ready, which may already be the case.
+   */
+  sendPrompt(runId: string, raw: unknown): ArenaRunSummary {
+    const run = this.registry.get(runId);
+    if (!run) throw new ArenaRunNotFoundError(`no arena run "${runId}"`);
+    const prompt = typeof raw === "string" ? raw.trim() : "";
+    if (!prompt) throw new ArenaBadRequestError("a prompt cannot be empty");
+    checkPromptLength(prompt);
+    const line = this.lines.get(runId);
+    if (run.prompt || line?.prompted) throw new ArenaBadRequestError("this run already has its prompt");
+    if (!line) throw new ArenaBadRequestError("this run's lanes are no longer open to take a prompt");
+    this.registry.updateRun(runId, (one) => {
+      one.prompt = prompt;
+    });
+    line.give(prompt);
     return runSummary(run);
   }
 
@@ -267,15 +282,24 @@ export class ArenaService {
   async deleteRun(runId: string): Promise<void> {
     const run = this.registry.get(runId);
     if (!run) throw new ArenaRunNotFoundError(`no arena run "${runId}"`);
-    if (run.contestants.some(isLiveContestant)) {
+    const line = this.lines.get(runId);
+    // Lanes open and still waiting for their prompt hold nothing the reader asked for yet, so
+    // removing the run is closing them: the line refuses whoever waits at it, the panes are ended
+    // under whoever is still on the way up, and the removal waits for every drive to have failed.
+    const unprompted = line !== undefined && !line.prompted;
+    if (run.contestants.some(isLiveContestant) && !unprompted) {
       throw new ArenaRunBusyError(`run "${runId}" still has a contestant dueling`);
     }
+    if (unprompted) line.abort(new Error("the run was removed before it was given a prompt"));
     for (const contestant of run.contestants) {
       if (!contestant.tmuxSession) continue;
       await this.killPane(contestant.tmuxSession).catch((error: unknown) => {
         console.error(`agent feed arena could not end pane ${contestant.tmuxSession}`, error);
       });
     }
+    await Promise.allSettled(this.drives.get(runId) ?? []);
+    this.lines.delete(runId);
+    this.drives.delete(runId);
     await this.undoWorktrees(run.repoPath, run.contestants);
     this.store.deleteRunDirectory(runId);
     this.registry.remove(runId);
@@ -343,13 +367,14 @@ export class ArenaService {
             contestant.status = "ready";
           });
           arrived = true;
-          await startLine.arrive();
+          const prompt = await startLine.arrive();
           // The clock starts at the prompt, not at the pane: a harness's load time, and a reader
           // answering its startup question, are not part of the turn being compared.
           mark((contestant, now) => {
             contestant.status = "running";
             contestant.startedAt = now;
           });
+          return prompt;
         },
       }
       : undefined;
@@ -406,54 +431,7 @@ export class ArenaService {
   }
 }
 
-/**
- * The input keys a file tool names its file by, across the sources this arena drives.
- *
- * The opencode serve's `read` says `path`; Claude's `Read` says `file_path`; a notebook tool
- * says `notebook_path`. The list is what each source's own transcript shape demands, and a
- * source whose tools name a file a fifth way lands here in the same change.
- */
-const FILE_INPUT_KEYS = ["path", "file_path", "filePath", "notebook_path"] as const;
-
-function fileFromToolInput(input: unknown): string | null {
-  if (!input || typeof input !== "object") return null;
-  const record = input as Record<string, unknown>;
-  for (const key of FILE_INPUT_KEYS) {
-    const value = record[key];
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-  return null;
-}
-
-/**
- * The files a contestant's tools named, from the events its turn produced.
- *
- * `files` on a tool_use block is the adapter's own resolution of what the call named, so that
- * is read first and never re-derived. But the opencode mapper resolves `files` only from the
- * attachments a tool carried -- measured on this machine's serve, a `read` call names its
- * file in its input alone -- so a read or write tool's own input is the fallback, by the keys
- * above. A tool that names no file either way is left alone: a shell command or a search is a
- * fact the transcript holds, not a file the arena counts.
- */
-export function filesFromEvents(events: readonly ActivityEvent[]): {
-  filesRead: string[];
-  filesWritten: string[];
-} {
-  const read = new Set<string>();
-  const written = new Set<string>();
-  for (const event of events) {
-    for (const block of event.blocks as ActivityBlock[]) {
-      if (block.kind !== "tool_use" || !block.tool) continue;
-      const tool = block.tool.toLowerCase();
-      const writes = WRITE_TOOLS.has(tool);
-      const fromInput = writes || READ_TOOLS.has(tool) ? fileFromToolInput(block.input) : null;
-      const named = block.files && block.files.length > 0
-        ? block.files
-        : fromInput === null ? [] : [fromInput];
-      if (named.length === 0) continue;
-      const into = writes ? written : read;
-      for (const file of named) into.add(file);
-    }
-  }
-  return { filesRead: [...read], filesWritten: [...written] };
+/** A prompt past this is refused rather than typed into a dozen panes. */
+function checkPromptLength(prompt: string): void {
+  if (prompt.length > 16_000) throw new ArenaBadRequestError("a run's prompt is capped at 16000 characters");
 }

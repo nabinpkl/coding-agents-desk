@@ -9,8 +9,12 @@
 // The switch between sessions, files and diffs stays put above the lanes, on the line under the
 // prompt: a reader flicks between views of one run, and a switch that moved with its view would
 // move out from under the finger.
+//
+// A terminals run whose lanes were opened before its prompt has no prompt to show yet, so the
+// header holds the box the prompt is typed into instead. It goes to every lane at once, as soon as
+// all of them are ready -- sending it early is fine, it waits at the same line.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import type { ArenaRunDetail, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -21,7 +25,7 @@ import { ArenaLaneFacts, factRowsFor } from "@/features/arena/ArenaLaneFacts";
 import { SessionLane, useRunSessions } from "@/features/arena/ArenaSessionLanes";
 import { lineupKind } from "@/features/arena/ArenaNewRun";
 import { basename, diffStat, elapsedMs, fileMatrix, formatAgo } from "@/features/arena/arenaFacts";
-import { FOCUS, ICON_BUTTON, isLive, TEXT } from "@/features/arena/arenaVocabulary";
+import { FIELD, FOCUS, ICON_BUTTON, isLive, PRIMARY_BUTTON, TEXT } from "@/features/arena/arenaVocabulary";
 
 export type ArenaView = "sessions" | "files" | "diffs";
 
@@ -36,6 +40,7 @@ export function ArenaRunView({
   deleting,
   problem,
   onDelete,
+  onSendPrompt,
 }: {
   run: ArenaRunSummary;
   /** The facts, which arrive on their own request; null until they have. */
@@ -48,9 +53,13 @@ export function ArenaRunView({
   deleting: boolean;
   problem: string | null;
   onDelete: () => void;
+  /** Gives a run whose lanes are open its prompt; answers the sidecar's refusal, or null. */
+  onSendPrompt: (prompt: string) => Promise<string | null>;
 }) {
   const [promptOpen, setPromptOpen] = useState(false);
   const live = run.contestants.some(isLive);
+  const awaitingPrompt = run.mode === "terminals" && run.prompt === "";
+  const ready = run.contestants.filter((c) => c.status === "ready").length;
   const settled = run.contestants.filter((c) => c.status === "closed" || c.status === "failed").length;
   const contestants = detail?.contestants ?? [];
   const fileCount = fileMatrix(contestants).filter((row) => row.inRepository).length;
@@ -72,11 +81,15 @@ export function ArenaRunView({
       <header className="flex flex-col gap-3 border-b border-border px-5 pt-5 pb-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <p
-              className={`whitespace-pre-wrap break-words text-lg leading-snug font-medium text-foreground ${long && !promptOpen ? "line-clamp-4" : ""}`}
-            >
-              {run.prompt}
-            </p>
+            {awaitingPrompt ? (
+              <LanesPrompt onSend={onSendPrompt} />
+            ) : (
+              <p
+                className={`whitespace-pre-wrap break-words text-lg leading-snug font-medium text-foreground ${long && !promptOpen ? "line-clamp-4" : ""}`}
+              >
+                {run.prompt}
+              </p>
+            )}
             {long ? (
               <button
                 type="button"
@@ -91,9 +104,13 @@ export function ArenaRunView({
           <button
             type="button"
             aria-label="Remove run"
-            title={live ? "A run cannot be removed while it is dueling" : "Remove run and its worktrees"}
+            title={
+              awaitingPrompt
+                ? "Close the lanes and remove the run"
+                : live ? "A run cannot be removed while it is dueling" : "Remove run and its worktrees"
+            }
             onClick={onDelete}
-            disabled={deleting || live}
+            disabled={deleting || (live && !awaitingPrompt)}
             className={`${ICON_BUTTON} hover:text-destructive`}
           >
             <Trash2 aria-hidden className="size-4" />
@@ -109,7 +126,9 @@ export function ArenaRunView({
           <span>{formatAgo(run.createdAt, now)}</span>
           <span aria-hidden>·</span>
           <span className={live ? "text-arena-running" : ""}>
-            {live ? `${settled} of ${run.contestants.length} settled` : "settled"}
+            {awaitingPrompt
+              ? `${ready} of ${run.contestants.length} ready`
+              : live ? `${settled} of ${run.contestants.length} settled` : "settled"}
           </span>
         </p>
         {problem ? (
@@ -179,6 +198,58 @@ export function ArenaRunView({
         )}
       </div>
     </article>
+  );
+}
+
+const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+/** The one prompt, typed once the lanes are open, and sent to every one of them. */
+function LanesPrompt({ onSend }: { onSend: (prompt: string) => Promise<string | null> }) {
+  const id = useId();
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const canSend = !sending && text.trim().length > 0;
+  const send = async () => {
+    if (!canSend) return;
+    setSending(true);
+    setRefusal(null);
+    const problem = await onSend(text);
+    setSending(false);
+    if (problem) setRefusal(problem);
+  };
+  const sendOnChord = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      void send();
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor={id} className={`${TEXT.meta} font-medium text-muted-foreground`}>
+        Prompt
+      </label>
+      <textarea
+        id={id}
+        aria-label="Prompt every lane gets"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={sendOnChord}
+        placeholder="The one prompt every lane gets"
+        rows={3}
+        autoFocus
+        className={`${FIELD} min-h-20 resize-y leading-relaxed`}
+      />
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {refusal ? <p role="alert" className={`mr-auto ${TEXT.meta} text-destructive`}>{refusal}</p> : null}
+        <button type="button" onClick={() => void send()} disabled={!canSend} className={PRIMARY_BUTTON}>
+          {sending ? "Sending" : "Send to every lane"}
+          <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
+            {MAC ? "⌘↵" : "Ctrl↵"}
+          </kbd>
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -7,7 +7,9 @@
 // facts mean different things in each and the reader should know which one they started.
 //
 // The mode says how the contestants are driven: as interactive sessions in terminals the reader
-// can watch and type into, or headless. Terminals is offered only where the machine has tmux.
+// can watch and type into, or headless. Terminals is offered only where the machine has tmux. A
+// terminals run may be started with no prompt at all: that opens the lanes, each harness comes up
+// in its terminal, and the prompt is typed on the run once they are ready.
 
 import { useId, type KeyboardEvent } from "react";
 import { Plus, X } from "lucide-react";
@@ -69,7 +71,8 @@ export function ArenaNewRun({
 }) {
   const promptId = useId();
   const repoId = useId();
-  const canStart = !starting && draft.prompt.trim().length > 0;
+  const opensLanes = draft.mode === "terminals" && draft.prompt.trim().length === 0;
+  const canStart = !starting && (opensLanes || draft.prompt.trim().length > 0);
   const setLineup = (lineup: ArenaContestantSource[]) => onDraft({ ...draft, lineup });
 
   const submitOnChord = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -203,7 +206,7 @@ export function ArenaNewRun({
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <span className={`${TEXT.body} text-foreground`}>{lineupKind(draft.lineup)}</span>
         <button type="button" onClick={onStart} disabled={!canStart} className={PRIMARY_BUTTON}>
-          {starting ? "Starting" : "Start run"}
+          {starting ? "Starting" : opensLanes ? "Open lanes" : "Start run"}
           <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
             {MAC ? "⌘↵" : "Ctrl↵"}
           </kbd>

@@ -19,6 +19,7 @@ import {
   fetchArenaRunDetail,
   fetchArenaRuns,
   parseRunsStreamFrame,
+  sendArenaPrompt,
   STREAM_PATH,
 } from "@/features/arena/arenaRunsSource";
 import type { ArenaRunDetail, ArenaRunMode, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
@@ -147,6 +148,14 @@ export function ArenaSurface({
     setProblem(answer.message);
   }, [transport, draft]);
 
+  const sendPrompt = useCallback(async (prompt: string): Promise<string | null> => {
+    if (!selectedRunId) return "no run is selected";
+    const answer = await sendArenaPrompt(transport, selectedRunId, prompt);
+    if ("message" in answer) return answer.message;
+    setRuns((current) => current.map((run) => (run.runId === answer.run.runId ? answer.run : run)));
+    return null;
+  }, [transport, selectedRunId]);
+
   const tearDown = useCallback(async () => {
     if (!selectedRunId) return;
     setDeleting(true);
@@ -234,6 +243,7 @@ export function ArenaSurface({
               deleting={deleting}
               problem={problem}
               onDelete={() => void tearDown()}
+              onSendPrompt={sendPrompt}
             />
           ) : (
             <p className="px-5 py-8 text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">
