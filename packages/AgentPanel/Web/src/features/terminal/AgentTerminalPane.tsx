@@ -381,7 +381,7 @@ export function AgentTerminalPane(
             disabled={zoom === null}
             aria-label={zoom === null ? "Type is sized to the pane" : "Size the type to the pane"}
             title={zoom === null ? "Sized to the pane" : "Size to the pane"}
-            className="min-w-8 cursor-pointer rounded px-1 text-center tabular-nums outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+            className="min-w-8 cursor-pointer rounded px-1 text-center tabular-nums outline-none transition-colors hover:bg-muted enabled:hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
           >
             {fontSize === null ? "--" : `${Math.round(fontSize)}pt`}
           </button>
@@ -428,7 +428,8 @@ export function paneShapeForLayout(
  *
  * A real button rather than an icon: at this size a glyph is a smudge, and `−`/`+` read at ten
  * pixels where an outline does not. The touch target is larger than the text it holds, because the
- * footer is the shortest strip on the pane and a thumb still has to land on it.
+ * footer is the shortest strip on the pane and a thumb still has to land on it. Its text goes to
+ * full ink on hover: the footer's muted ink measured 4.3:1 on the hover fill, under the 4.5:1 line.
  */
 function TerminalZoomButton(
   { label, onPress, disabled, children }: {
@@ -445,7 +446,7 @@ function TerminalZoomButton(
       disabled={disabled}
       aria-label={label}
       title={label}
-      className="flex size-5 cursor-pointer items-center justify-center rounded text-xs leading-none outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+      className="flex size-5 cursor-pointer items-center justify-center rounded text-xs leading-none outline-none transition-colors hover:bg-muted enabled:hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
     >
       {children}
     </button>
