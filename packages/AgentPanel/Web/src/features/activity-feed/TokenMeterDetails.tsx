@@ -10,10 +10,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { FoldVertical, LoaderCircle } from "lucide-react";
 import type { UsageQuota } from "@agentdesk/agent-feed-wire";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
+import type { CompactControl, HoverHandlers } from "@/features/activity-feed/TokenMeter";
 import type { LimitsState } from "@/features/usage/useLimits";
-import { formatAge, formatResetIn, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
+import { formatAge, formatResetIn, formatUsd, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
 
 /** The gap this panel keeps between itself and the edge of the window. */
 const MARGIN = 8;
@@ -52,13 +54,23 @@ function place(trigger: DOMRect, panel: DOMRect): Placement {
 export function TokenMeterDetails({
   usage,
   limits,
+  costlyNote,
+  compact,
   trigger,
+  focusOnOpen,
+  hover,
   onDismiss,
   now = Date.now,
 }: {
   usage: TokenUsage;
   limits: LimitsState;
+  /** Why the count is amber below the warning fractions, or null when it is not. */
+  costlyNote: string | null;
+  compact: CompactControl | null;
   trigger: React.RefObject<HTMLElement | null>;
+  /** True when a key opened it: focus moves in, since the panel sits at the end of the page. */
+  focusOnOpen: boolean;
+  hover: HoverHandlers;
   onDismiss: () => void;
   now?: () => number;
 }) {
@@ -87,6 +99,13 @@ export function TokenMeterDetails({
     };
   }, [reposition]);
 
+  // Portalled to the end of the body, so Tab from the trigger would never reach it.
+  useEffect(() => {
+    if (!focusOnOpen) return;
+    const popup = panel.current;
+    (popup?.querySelector<HTMLElement>("button:not(:disabled)") ?? popup)?.focus();
+  }, [focusOnOpen]);
+
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -106,19 +125,24 @@ export function TokenMeterDetails({
       // React tree still has this panel inside the composer, so React's own enter/leave pairing
       // is unaffected by the portal, but a raw `node.contains` is not.
       data-portal-menu=""
+      tabIndex={-1}
+      {...hover}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.preventDefault();
         onDismiss();
+        trigger.current?.focus();
       }}
       style={{
         top: placement?.top ?? 0,
         left: placement?.left ?? 0,
         visibility: placement ? undefined : "hidden",
       }}
-      className="fixed z-50 w-72 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+      className="fixed z-50 w-72 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-xl outline-none"
     >
       <ContextFigures usage={usage} now={now} />
+      {costlyNote ? <p className="mt-1.5 text-xs text-amber-500">{costlyNote}</p> : null}
+      {compact ? <CompactButton control={compact} onSent={onDismiss} /> : null}
       <div className="mt-3 border-t border-border pt-2">
         <Limits state={limits} now={now} />
       </div>
@@ -140,7 +164,58 @@ function ContextFigures({ usage, now }: { usage: TokenUsage; now: () => number }
       </Figure>
       {usage.model ? <Figure label="Model">{usage.model}</Figure> : null}
       <Figure label="Prompt cache">{cacheText(usage, now())}</Figure>
+      {usage.cost !== undefined && usage.cost > 0
+        ? <Figure label="Session cost">{formatUsd(usage.cost)}</Figure>
+        : null}
     </dl>
+  );
+}
+
+/**
+ * `/compact`, sent from the composer, beside the figures that say whether it is worth doing.
+ *
+ * Closes the panel once it went: the transcript is where the compaction shows. A refusal keeps the
+ * panel open and says so, because a button that does nothing visible reads as one that worked.
+ */
+function CompactButton({ control, onSent }: { control: CompactControl; onSent: () => void }) {
+  const [sending, setSending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const note = control.blocked ?? failure;
+  return (
+    <div className="mt-2.5 flex flex-col items-end gap-1">
+      <button
+        type="button"
+        aria-label="Compact this session's context"
+        disabled={control.blocked !== null || sending}
+        onClick={async () => {
+          setSending(true);
+          setFailure(null);
+          let sent = false;
+          try {
+            sent = await control.run();
+            if (!sent) setFailure("/compact did not go through. The composer says why.");
+          } catch (error) {
+            setFailure(`/compact did not go through: ${String((error as Error).message ?? error)}`);
+          }
+          if (sent) {
+            onSent();
+            return;
+          }
+          setSending(false);
+        }}
+        className="inline-flex h-7 cursor-pointer touch-manipulation items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {sending
+          ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+          : <FoldVertical className="size-3.5" aria-hidden />}
+        Compact
+      </button>
+      {note ? (
+        <p className={"text-right text-xs " + (failure && !control.blocked ? "text-destructive" : "text-muted-foreground")}>
+          {note}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

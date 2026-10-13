@@ -10,6 +10,7 @@ import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { parseOpencodeCommand } from "@/features/session-view/composer/useOpencodeCommands";
+import type { CompactControl } from "@/features/activity-feed/TokenMeter";
 
 /**
  * Every band's send, drawn small inside the field's own box at its trailing edge. Margins centre it
@@ -44,24 +45,65 @@ const SEND_IN_FIELD_CLASS =
  * is a delivery to a CLI inbox or an already-open pty, with no queue to join and nothing to
  * steer. The draft survives a refusal so nothing is lost.
  */
-export async function submitOwnedTransport(m: ComposerModel): Promise<void> {
-  if (m.deliveryPending || !m.editorValue.trim()) return;
-  const text = m.editorValue.trim();
+export async function submitOwnedTransport(m: ComposerModel, text = m.editorValue.trim()): Promise<boolean> {
+  if (m.deliveryPending || !text) return false;
   m.setDeliveryPending(true);
   m.setDeliveryError(null);
   try {
     if (m.transport.kind === "agent-terminal") {
       await m.transport.terminal.send(text);
       m.setLocalDraft("");
-    } else if (m.transport.kind === "cli-inbox" && await m.cliInput.send(text)) {
-      m.setLocalDraft("");
+      return true;
     }
+    if (m.transport.kind === "cli-inbox" && await m.cliInput.send(text)) {
+      m.setLocalDraft("");
+      return true;
+    }
+    return false;
   } catch (failure) {
     m.setDeliveryError(String((failure as Error).message ?? failure));
+    return false;
   } finally {
     m.setDeliveryPending(false);
   }
 }
+
+/**
+ * The context meter's Compact button: `/compact`, through the same door this composer's own Send
+ * uses, so it is exactly what typing it and pressing Return would do. Null where no door here
+ * takes a command -- a native window's field, and the sources that are not Claude or opencode.
+ *
+ * Refused over a draft rather than sent in its place. The box holds one value: on a terminal
+ * session `/compact` would replace what the reader was writing in the pane itself, and the words
+ * would be gone with nowhere to get them back.
+ */
+export function compactControl(m: ComposerModel): CompactControl | null {
+  const opencode = m.session.source === "opencode";
+  const door = m.tmuxBand || m.inboxBand || m.agentTerminalBand
+    ? m.isClaude
+    : m.transport.kind === "agent-session" && opencode;
+  if (!door) return null;
+  const busy = m.pending || m.deliveryPending || m.tmuxComposer.pending;
+  const blocked = m.editorValue.trim()
+    ? "Send or clear the draft in the composer first."
+    : m.unavailable || (m.tmuxBand && m.tmuxComposer.reason !== null)
+      ? "This session's composer can't take input right now."
+      : busy
+        ? "The composer is still sending."
+        : null;
+  return {
+    blocked,
+    run: async () => {
+      if (m.tmuxBand) return await m.tmuxComposer.submit(COMPACT_COMMAND);
+      if (m.inboxBand || m.agentTerminalBand) return await submitOwnedTransport(m, COMPACT_COMMAND);
+      // The serve reads "/compact" as literal text, so opencode's goes through the command route.
+      await m.onRunSlash("compact", "");
+      return true;
+    },
+  };
+}
+
+const COMPACT_COMMAND = "/compact";
 
 export async function submitComposer(m: ComposerModel, delivery: "next" | "steer"): Promise<void> {
   // Return in the pane, not a delivery: the composer already holds the text, because every
@@ -69,9 +111,13 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
   // first, so Enter never presses half a sentence.
   if (m.tmuxBand) {
     if (!m.editorValue.trim()) return;
-    return await m.tmuxComposer.submit();
+    await m.tmuxComposer.submit();
+    return;
   }
-  if (m.inboxBand || m.agentTerminalBand) return await submitOwnedTransport(m);
+  if (m.inboxBand || m.agentTerminalBand) {
+    await submitOwnedTransport(m);
+    return;
+  }
   if (m.pending || !m.editorValue.trim()) return;
   const text = m.editorValue.trim();
   // A listed slash command runs natively rather than sending: the serve reads "/name args"

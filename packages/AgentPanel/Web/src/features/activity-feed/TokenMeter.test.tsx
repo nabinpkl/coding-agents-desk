@@ -16,7 +16,7 @@ describe("TokenMeter", () => {
     });
     expect(bar.getAttribute("aria-valuenow")).toBe("75");
     expect((bar.firstElementChild as HTMLElement).style.width).toBe("75%");
-    expect(screen.getByTitle(/150,000 \/ 200,000 tokens/).textContent).toContain("150k (75%)");
+    expect(screen.getByRole("button", { name: "Context and limits" }).textContent).toContain("150k (75%)");
   });
 
   it("renders a bare count with no bar when no window is known", () => {
@@ -162,7 +162,7 @@ describe("cost threshold", () => {
     );
 
     const bar = screen.getByRole("progressbar");
-    expect(bar.getAttribute("aria-label")).toContain("compacting now pays for itself");
+    expect(bar.getAttribute("aria-label")).toContain("Compacting now pays for itself");
     // The count carries it and the track does not: a 30% bar painted amber would be claiming the
     // window is nearly gone, which is a different and false thing.
     expect(screen.getByText(/300k/).className).toContain("text-amber-500");
@@ -173,7 +173,7 @@ describe("cost threshold", () => {
     render(<TokenMeter usage={{ current: 150_000, limit: 1_000_000, updatedAt: 1 }} />);
 
     const bar = screen.getByRole("progressbar");
-    expect(bar.getAttribute("aria-label")).not.toContain("compacting");
+    expect(bar.getAttribute("aria-label")).not.toContain("Compacting");
     expect((bar.firstElementChild as HTMLElement).className).toContain("bg-muted-foreground/60");
   });
 
@@ -184,7 +184,7 @@ describe("cost threshold", () => {
 
     const bar = screen.getByRole("progressbar");
     expect((bar.firstElementChild as HTMLElement).className).toContain("bg-destructive");
-    expect(screen.getByTitle(/compacting now pays for itself/)).toBeTruthy();
+    expect(bar.getAttribute("aria-label")).toContain("Compacting now pays for itself");
   });
 
   it("warns with no window at all, because the saving does not depend on one", () => {
@@ -192,9 +192,9 @@ describe("cost threshold", () => {
     // of the context's size, so a bare count still has an answer.
     render(<TokenMeter usage={{ current: 300_000, limit: null, updatedAt: 1 }} />);
 
-    const count = screen.getByLabelText("Context: 300,000 tokens");
+    const count = screen.getByLabelText(/^Context: 300,000 tokens/);
     expect(count.className).toContain("text-amber-500");
-    expect(screen.getByTitle(/compacting now pays for itself/)).toBeTruthy();
+    expect(screen.getByLabelText(/Compacting now pays for itself/)).toBe(count);
   });
 });
 

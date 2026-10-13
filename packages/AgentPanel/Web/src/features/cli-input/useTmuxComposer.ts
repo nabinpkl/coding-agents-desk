@@ -285,7 +285,7 @@ export function useTmuxComposer(
     };
   }, [draft, key, push, reachable]);
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (text?: string): Promise<boolean> => {
     if (pushTimer.current) {
       clearTimeout(pushTimer.current);
       pushTimer.current = null;
@@ -295,16 +295,18 @@ export function useTmuxComposer(
     try {
       // Brought up to date first, and awaited: Return presses whatever the box holds, so sending
       // it while a debounced push was still in flight would submit half a sentence.
-      const synced = await feed.syncTmuxComposer(sessionRef.current, draftRef.current);
+      const synced = await feed.syncTmuxComposer(sessionRef.current, text ?? draftRef.current);
       setState(synced);
-      if (synced.reason !== null) return;
+      if (synced.reason !== null) return false;
       const after = await feed.submitTmuxComposer(sessionRef.current);
       setState(after);
-      if (after.reason !== null) return;
+      if (after.reason !== null) return false;
       edited.current = false;
       setBoth("");
+      return true;
     } catch (failure) {
       setError(String((failure as Error).message ?? failure));
+      return false;
     } finally {
       setPending(false);
     }

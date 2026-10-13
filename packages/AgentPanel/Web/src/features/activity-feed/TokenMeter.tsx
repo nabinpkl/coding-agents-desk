@@ -1,10 +1,73 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UsageQuota, UsageVendorId } from "@agentdesk/agent-feed-wire";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TokenMeterDetails } from "@/features/activity-feed/TokenMeterDetails";
 import { useLimits, type LimitsState } from "@/features/usage/useLimits";
-import { formatAge, formatResetIn, formatWindow, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
+import { formatUsd, formatWindow, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
+
+/**
+ * The panel's Compact button, as the composer hands it over.
+ *
+ * Built by the composer rather than here, because which door `/compact` goes through -- the pane,
+ * the CLI inbox, a pty, opencode's command route -- is the composer's question, and this meter
+ * only knows the context it is about.
+ */
+export interface CompactControl {
+  /** Sends `/compact`. Resolves true once it went, false when the composer refused it. */
+  run: () => Promise<boolean>;
+  /** Why it cannot be sent right now, or null when it can. */
+  blocked: string | null;
+}
+
+/** Hover handlers the trigger and the panel share, so either one keeps the panel open. */
+export interface HoverHandlers {
+  onPointerEnter: (event: React.PointerEvent) => void;
+  onPointerLeave: (event: React.PointerEvent) => void;
+}
+
+/**
+ * How long the panel stays after the pointer leaves the trigger or the panel. Long enough to cross
+ * the gap between them, short enough that pointing past the meter does not leave it standing.
+ */
+const HOVER_CLOSE_MS = 150;
+
+/**
+ * Open while a mouse is over the trigger or the panel, with a short grace on leaving.
+ *
+ * Touch is ignored: a tap fires enter and leave around itself, and on a phone the tap's own click
+ * is what opens the panel. Taking the enter as well would open it and let the click shut it again.
+ */
+function useHoverOpen() {
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancel = useCallback(() => {
+    if (timer.current === null) return;
+    clearTimeout(timer.current);
+    timer.current = null;
+  }, []);
+  useEffect(() => cancel, [cancel]);
+  const close = useCallback(() => {
+    cancel();
+    setOpen(false);
+  }, [cancel]);
+  const handlers = useMemo<HoverHandlers>(() => ({
+    onPointerEnter: (event) => {
+      if (event.pointerType === "touch") return;
+      cancel();
+      setOpen(true);
+    },
+    onPointerLeave: (event) => {
+      if (event.pointerType === "touch") return;
+      cancel();
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        setOpen(false);
+      }, HOVER_CLOSE_MS);
+    },
+  }), [cancel]);
+  return useMemo(() => ({ open, close, handlers }), [open, close, handlers]);
+}
 
 /** Fill fraction above which the meter reads as a warning rather than a fact. */
 const WARN_FRACTION = 0.75;
@@ -33,13 +96,13 @@ const CRITICAL_FRACTION = 0.9;
  */
 const COMPACTION_PAYS_ABOVE = 200_000;
 /**
- * What the amber means once the count has passed that line, on the tooltip and on the bar's
- * accessible name.
+ * What the amber means once the count has passed that line, in the panel beside the Compact button
+ * and on the count's accessible name.
  *
- * Both, rather than the tooltip alone: colour is the only other thing carrying this, and a reader
+ * Both, rather than the panel alone: colour is the only other thing carrying this, and a reader
  * who cannot see the colour would otherwise have no way to the state at all.
  */
-const COSTLY_NOTE = " · compacting now pays for itself within a turn";
+const COSTLY_NOTE = "Compacting now pays for itself within a turn";
 /** Minutes of cache left below which the countdown stops being a fact and starts
  *  being a warning. Ten because the thing it is warning about takes a minute or
  *  two to act on: compacting while warm is what makes the next message cheap. */
@@ -85,11 +148,6 @@ function CacheCountdown({ usage }: { usage: TokenUsage }) {
         : "text-muted-foreground/70";
   return (
     <span
-      title={
-        minutes === 0
-          ? "Prompt cache expired: the next message rewrites the whole context"
-          : `Prompt cache expires in ${minutes} min`
-      }
       aria-label={`Prompt cache: ${minutes} minutes left`}
       className={
         "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
@@ -131,7 +189,6 @@ function ModelChip({ model }: { model: string | undefined }) {
   if (family === null) return null;
   return (
     <span
-      title={model}
       aria-label={`Model: ${model}`}
       className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none text-muted-foreground/70"
     >
@@ -141,12 +198,6 @@ function ModelChip({ model }: { model: string | undefined }) {
 }
 
 /**
- * Dollars the way the opencode TUI says them: `Intl` USD, shown only past zero, so a free
- * model reads as no figure rather than `$0.00`.
- */
-const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-
-/**
  * The session's lifetime spend, beside the count the way the TUI sets it: `tokens (percent)
  * · $cost`. Carried on the usage rather than looked up, because it arrives on the same
  * reading from the sidecar. Rendered only where a backend reported one, which today is
@@ -154,10 +205,9 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" 
  */
 function CostChip({ cost }: { cost: number | undefined }) {
   if (cost === undefined || !(cost > 0)) return null;
-  const text = usd.format(cost);
+  const text = formatUsd(cost);
   return (
     <span
-      title={`Session cost: ${text}`}
       aria-label={`Session cost ${text}`}
       className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums text-muted-foreground"
     >
@@ -182,6 +232,7 @@ export function TokenMeter({
   usage,
   feed = null,
   vendor = null,
+  compact = null,
 }: {
   usage: TokenUsage | null;
   /**
@@ -196,21 +247,28 @@ export function TokenMeter({
    * to stop you.
    */
   vendor?: UsageVendorId | null;
+  /** The panel's Compact button, or null where this session's composer cannot run one. */
+  compact?: CompactControl | null;
 }) {
   // Hooks before the early return, because a session whose occupancy has not arrived yet renders
   // nothing and then renders something, and a conditional hook would break on exactly that.
   const trigger = useRef<HTMLButtonElement>(null);
-  // Two ways in, one state. Hover is the cheap look -- it opens and closes with the pointer --
-  // and a click pins the panel so it survives the pointer leaving, which is what a reader
-  // needs to read a number rather than glance at it.
-  const [hovered, setHovered] = useState(false);
+  // Two ways in, one state. Hover is the cheap look on a mouse, and a click or a tap pins the
+  // panel so it stays until dismissed. A tap is the only way in on a phone, which has no hover.
   const [pinned, setPinned] = useState(false);
+  const hover = useHoverOpen();
+  /** Set when a key opened the panel, so focus goes into it rather than staying behind. */
+  const [keyboardOpened, setKeyboardOpened] = useState(false);
   const limits = useLimits(feed, vendor);
-  const open = hovered || pinned;
+  const open = hover.open || pinned;
+  const dismiss = useCallback(() => {
+    setPinned(false);
+    hover.close();
+  }, [hover]);
 
   if (!usage) return null;
 
-  const compact = formatTokens(usage.current);
+  const count = formatTokens(usage.current);
   // Nothing here divides by the window, which is why the cost warning survives a session with no
   // window at all: what compacting saves is a property of the context's SIZE, not of how much room
   // is left beside it.
@@ -242,77 +300,87 @@ export function TokenMeter({
     // gap out to the clock is four times that, which is what keeps the bar from reading as the
     // clock's. The model leads and is not a reading at all: it is what every number after it is
     // about, and it changes hourly on a session whose reader switches model mid-thread.
-    <span className="flex shrink-0 items-center gap-2 px-1">
-      <ModelChip model={usage.model} />
-      <CacheCountdown usage={usage} />
-      <LimitChips quotas={accountWide(limits)} />
+    <>
+      {/* One button for the whole row: every chip on it is a short form of something the panel says
+          in full, so pointing at any of them is asking for the panel. None carries a native tooltip,
+          which would draw over the panel it opens. */}
       <button
         ref={trigger}
         type="button"
         aria-label="Context and limits"
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setPinned((current) => !current)}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-        onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
+        onClick={(event) => {
+          // A second click closes it outright, even with the mouse still over it: unpinning alone
+          // would leave hover holding it open, and the click would look like it did nothing.
+          if (pinned) {
+            dismiss();
+            return;
+          }
+          setKeyboardOpened(event.detail === 0);
+          setPinned(true);
+        }}
+        {...hover.handlers}
         onKeyDown={(event) => {
           if (event.key !== "Escape" || !open) return;
           event.preventDefault();
-          setPinned(false);
-          setHovered(false);
+          dismiss();
         }}
-        className="flex cursor-pointer flex-col items-end gap-[2px] rounded-sm outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/10"
+        className="flex min-h-7 shrink-0 cursor-pointer touch-manipulation items-center gap-2 rounded-sm px-1 outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/10"
       >
-        <span
-          title={`${usage.current.toLocaleString()}${
-            usage.limit === null ? "" : ` / ${usage.limit.toLocaleString()}`
-          } tokens${usage.model ? ` (${usage.model})` : ""}${costly ? COSTLY_NOTE : ""}`}
-          className={
-            "min-w-8 text-right font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
-            tone
-          }
-          {...(usage.limit === null
-            ? { "aria-label": `Context: ${usage.current.toLocaleString()} tokens` }
-            : {})}
-        >
-          {compact}{percent === null ? "" : ` (${percent}%)`}
-        </span>
-        {/* The track carries the role and the accessible name, not the wrapper: the bar IS the
-            fraction, and naming it here is what makes the readout addressable rather than a
-            decorative div. Its width is the count's, fixed, so the two share an edge on both
-            sides and the header does not reflow every time the count crosses a digit boundary --
-            which on a live thread is every few seconds. */}
-        {percent === null ? null : (
+        <ModelChip model={usage.model} />
+        <CacheCountdown usage={usage} />
+        <LimitChips quotas={accountWide(limits)} />
+        <span className="flex flex-col items-end gap-[2px]">
           <span
-            role="progressbar"
-            aria-label={`Context: ${percent}% of ${usage.limit!.toLocaleString()} tokens${costly ? COSTLY_NOTE : ""}`}
-            aria-valuenow={percent}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            className="h-[3px] w-full overflow-hidden rounded-full bg-muted"
+            className={
+              "min-w-8 text-right font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
+              tone
+            }
+            {...(usage.limit === null
+              ? { "aria-label": `Context: ${usage.current.toLocaleString()} tokens${costly ? ` · ${COSTLY_NOTE}` : ""}` }
+              : {})}
           >
-            <span
-              className={"block h-full rounded-full " + fill}
-              style={{ width: `${percent}%` }}
-            />
+            {count}{percent === null ? "" : ` (${percent}%)`}
           </span>
-        )}
+          {/* The track carries the role and the accessible name, not the wrapper: the bar IS the
+              fraction, and naming it here is what makes the readout addressable rather than a
+              decorative div. Its width is the count's, fixed, so the two share an edge on both
+              sides and the header does not reflow every time the count crosses a digit boundary --
+              which on a live thread is every few seconds. */}
+          {percent === null ? null : (
+            <span
+              role="progressbar"
+              aria-label={`Context: ${percent}% of ${usage.limit!.toLocaleString()} tokens${costly ? ` · ${COSTLY_NOTE}` : ""}`}
+              aria-valuenow={percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="h-[3px] w-full overflow-hidden rounded-full bg-muted"
+            >
+              <span
+                className={"block h-full rounded-full " + fill}
+                style={{ width: `${percent}%` }}
+              />
+            </span>
+          )}
+        </span>
+        <CostChip cost={usage.cost} />
       </button>
-      <CostChip cost={usage.cost} />
+      {/* Beside the button rather than in it: the panel is portalled out of the DOM, but React
+          still bubbles its clicks through the tree, and a press on Compact would toggle the pin. */}
       {open ? (
         <TokenMeterDetails
           usage={usage}
           limits={limits}
+          costlyNote={costly ? COSTLY_NOTE : null}
+          compact={compact}
           trigger={trigger}
-          onDismiss={() => {
-            setPinned(false);
-            setHovered(false);
-          }}
+          focusOnOpen={keyboardOpened}
+          hover={hover.handlers}
+          onDismiss={dismiss}
         />
       ) : null}
-    </span>
+    </>
   );
 }
 
@@ -351,14 +419,11 @@ function LimitChips({ quotas }: { quotas: UsageQuota[] }) {
     <span className="flex shrink-0 items-center gap-1.5">
       {quotas.map((quota) => {
         // A reading whose own age has outrun its window cannot say when it resets -- that moment
-        // has usually passed -- so the title says how old it is and the chip goes quiet.
+        // has usually passed -- so the chip goes quiet and the panel says how old it is.
         const stale = at - quota.sampledAt > STALE_QUOTA_MS;
         return (
           <span
             key={`${quota.windowMinutes}:${quota.label}`}
-            title={`${quota.label}: ${quota.usedPercent}% used, ${
-              stale ? `read ${formatAge(quota.sampledAt, at)}` : `resets in ${formatResetIn(quota.resetsAt, at)}`
-            }`}
             className={
               // The space is tightened because a monospace one is not a typographic space, it is
               // a character cell: 0.6em, which is 7.2px at the chip's 12px, against the 6px

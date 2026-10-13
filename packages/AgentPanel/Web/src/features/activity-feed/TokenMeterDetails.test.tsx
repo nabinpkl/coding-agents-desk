@@ -93,19 +93,76 @@ describe("the context readout's detail panel", () => {
     render(<TokenMeter usage={USAGE} feed={sidecar.feed} />);
     sidecar.push([quota("5-hour limit", 41)]);
 
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerEnter(meter());
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      fireEvent.pointerLeave(meter());
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      // A click pins it, so it stays until dismissed whatever the pointer does.
+      fireEvent.click(meter());
+      fireEvent.pointerLeave(meter());
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      fireEvent.click(meter());
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays open while the pointer crosses from the readout into the panel", () => {
+    vi.useFakeTimers();
+    try {
+      render(<TokenMeter usage={USAGE} />);
+      fireEvent.pointerEnter(meter());
+      fireEvent.pointerLeave(meter());
+      // The gap between the two is a moment outside both.
+      act(() => vi.advanceTimersByTime(60));
+      const panel = screen.getByRole("dialog");
+      fireEvent.pointerEnter(panel);
+      act(() => vi.advanceTimersByTime(1000));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      fireEvent.pointerLeave(panel);
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens on a tap rather than on the enter a touch fires around it", () => {
+    render(<TokenMeter usage={USAGE} />);
+    fireEvent.pointerEnter(meter(), { pointerType: "touch" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(meter());
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    // A second tap shuts it, as does a tap anywhere else.
+    fireEvent.click(meter());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(meter());
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("closes on a second click even with the mouse still over it", () => {
+    render(<TokenMeter usage={USAGE} />);
     fireEvent.pointerEnter(meter());
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.pointerLeave(meter());
-    expect(screen.queryByRole("dialog")).toBeNull();
-
-    // A click pins it, which is what makes a number readable rather than glanceable: the pointer
-    // has to travel to the panel to scroll or select, and hover alone would close it on the way.
     fireEvent.click(meter());
-    fireEvent.pointerLeave(meter());
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-
     fireEvent.click(meter());
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("puts every chip on the row behind one trigger, with no tooltip to cover the panel", () => {
+    const sidecar = limits();
+    render(<TokenMeter usage={USAGE} feed={sidecar.feed} />);
+    sidecar.push([quota("Weekly limit", 13)]);
+    expect(meter().textContent).toContain("7d: 13%");
+    expect(meter().querySelector("[title]")).toBeNull();
   });
 
   it("says why there is no meter rather than showing an empty one", () => {
@@ -252,5 +309,40 @@ describe("the limit chips in the composer footer", () => {
 
     expect(screen.getByText("5h: 25%")).toBeInTheDocument();
     expect(screen.queryByText("5h: 88%")).toBeNull();
+  });
+});
+
+describe("the panel's Compact button", () => {
+  const compactButton = () => screen.getByRole("button", { name: "Compact this session's context" });
+
+  it("sends /compact and closes once it went", async () => {
+    const run = vi.fn(async () => true);
+    render(<TokenMeter usage={USAGE} compact={{ run, blocked: null }} />);
+    fireEvent.click(meter());
+    await act(async () => fireEvent.click(compactButton()));
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("says why it cannot, rather than offering a press that does nothing", () => {
+    const run = vi.fn(async () => true);
+    render(<TokenMeter usage={USAGE} compact={{ run, blocked: "Send or clear the draft in the composer first." }} />);
+    fireEvent.click(meter());
+    expect(compactButton()).toBeDisabled();
+    expect(screen.getByRole("dialog").textContent).toContain("Send or clear the draft in the composer first.");
+  });
+
+  it("stays open and says so when the composer refused it", async () => {
+    render(<TokenMeter usage={USAGE} compact={{ run: async () => { throw new Error("pane gone"); }, blocked: null }} />);
+    fireEvent.click(meter());
+    await act(async () => fireEvent.click(compactButton()));
+    expect(screen.getByRole("dialog").textContent).toContain("/compact did not go through: pane gone");
+    expect(compactButton()).not.toBeDisabled();
+  });
+
+  it("is absent where the composer has no way to send one", () => {
+    render(<TokenMeter usage={USAGE} />);
+    fireEvent.click(meter());
+    expect(screen.queryByRole("button", { name: "Compact this session's context" })).toBeNull();
   });
 });

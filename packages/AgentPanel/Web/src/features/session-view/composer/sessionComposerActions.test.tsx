@@ -8,7 +8,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { composerActions, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
+import { compactControl, composerActions, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import { useSendAttachments } from "@/features/session-view/composer/useComposerHold";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 
@@ -206,5 +206,59 @@ describe("sending a slash command", () => {
     // One name reaches the panel either way: the alias is a spelling, not a second command.
     expect(onRunSlash).toHaveBeenCalledTimes(2);
     expect(onRunSlash).toHaveBeenLastCalledWith("model", "spark");
+  });
+});
+
+describe("the context meter's Compact button", () => {
+  const tmux = (overrides: Partial<ComposerModel> = {}) => model({
+    session: { source: "claude", sessionId: "c1" } as ComposerModel["session"],
+    isClaude: true,
+    tmuxBand: true,
+    inboxBand: false,
+    agentTerminalBand: false,
+    transport: { kind: "tmux-composer" },
+    editorValue: "",
+    unavailable: false,
+    tmuxComposer: { pending: false, reason: null, submit: vi.fn(async () => true) } as never,
+    ...overrides,
+  });
+
+  it("presses /compact in the pane, as typing it and pressing Return would", async () => {
+    const m = tmux();
+    const control = compactControl(m)!;
+    expect(control.blocked).toBeNull();
+    await expect(control.run()).resolves.toBe(true);
+    expect(m.tmuxComposer.submit).toHaveBeenCalledWith("/compact");
+  });
+
+  it("refuses over a draft, which /compact would replace in the pane", () => {
+    expect(compactControl(tmux({ editorValue: "half a thought" }))!.blocked)
+      .toBe("Send or clear the draft in the composer first.");
+  });
+
+  it("goes through opencode's command route, since the serve reads the text literally", async () => {
+    const onRunSlash = vi.fn(async () => {});
+    const control = compactControl(model({
+      session: { source: "opencode", sessionId: "o1" } as ComposerModel["session"],
+      isClaude: false,
+      tmuxBand: false,
+      inboxBand: false,
+      agentTerminalBand: false,
+      transport: { kind: "agent-session" },
+      editorValue: "",
+      tmuxComposer: { pending: false, reason: null } as never,
+      onRunSlash,
+    }))!;
+    await control.run();
+    expect(onRunSlash).toHaveBeenCalledWith("compact", "");
+  });
+
+  it("is not offered where no door here takes a command", () => {
+    expect(compactControl(model({
+      tmuxBand: false,
+      inboxBand: false,
+      agentTerminalBand: false,
+      transport: { kind: "agent-session" },
+    }))).toBeNull();
   });
 });

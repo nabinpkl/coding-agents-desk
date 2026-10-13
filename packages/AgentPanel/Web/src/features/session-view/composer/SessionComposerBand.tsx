@@ -12,7 +12,7 @@ import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { ComposerPaneContext } from "@/features/session-view/composer/terminalArrangement";
-import { COMPOSER_FOOTER_BUTTON_CLASS, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
+import { COMPOSER_FOOTER_BUTTON_CLASS, compactControl, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import { List, Paperclip } from "lucide-react";
@@ -341,6 +341,7 @@ export function SessionComposerBand({
                 // its console rather than any feed this meter could read.
                 feed={isClaude || isCodex ? feed : null}
                 vendor={isCodex ? "codex" : isClaude ? "claude" : null}
+                compact={compactControl(model)}
               />
             </div>
           ) : null}

@@ -122,8 +122,13 @@ export interface TmuxComposerHandle {
    * never pushed. `accept` is what turns it into text.
    */
   hint: string | null;
-  /** Brings the pane up to date, then presses Return in it. */
-  submit: () => Promise<void>;
+  /**
+   * Brings the pane up to date, then presses Return in it. True once Return was pressed.
+   *
+   * `text` sends that instead of the draft, for a command the panel offers as a button; the caller
+   * only does that over an empty draft, because the box holds one value and this replaces it.
+   */
+  submit: (text?: string) => Promise<boolean>;
   /** Takes Claude up on `hint`, by pressing Tab in the pane the way a reader there would. */
   accept: () => Promise<void>;
   /**

@@ -84,3 +84,9 @@ export function formatWindow(windowMinutes: number): string {
   if (windowMinutes % 60 === 0) return `${windowMinutes / 60}h`;
   return `${Math.round(windowMinutes)}m`;
 }
+
+/**
+ * Dollars the way the opencode TUI says them: `Intl` USD. Callers show it only past zero, so a
+ * free model reads as no figure rather than `$0.00`.
+ */
+export const formatUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format;
