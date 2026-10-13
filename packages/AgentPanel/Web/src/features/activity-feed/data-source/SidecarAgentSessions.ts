@@ -48,7 +48,7 @@ export class SidecarAgentSessions extends SidecarTerminals {
   async createSession(projectPath: string, source = "pi"): Promise<AgentSessionDescriptor> {
     return parse<AgentSessionDescriptor>(
       await this.transport.request("POST", "/api/agent-sessions", {
-        body: { source, projectPath },
+        body: { requestId: crypto.randomUUID(), source, projectPath },
       }),
     );
   }

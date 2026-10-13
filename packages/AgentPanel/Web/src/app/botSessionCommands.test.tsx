@@ -374,7 +374,7 @@ describe("App shell", () => {
     expect(asked).toEqual([
       {
         path: "/api/agent-sessions",
-        body: { source: "opencode", projectPath: FIXTURE_PROJECT_A.projectPath },
+        body: { requestId: expect.any(String), source: "opencode", projectPath: FIXTURE_PROJECT_A.projectPath },
       },
       {
         path: "/api/bots/bot-1/sessions",
