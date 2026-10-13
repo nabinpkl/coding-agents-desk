@@ -4,6 +4,7 @@ import { config } from "@/config/config";
 import { refuseForeignRequest } from "@/http/protocol/requestGuard";
 import { announceDirectory, announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
 import { createSupervisorRoutes } from "@/http/supervisorRoutes";
+import { createPanelScrollRoutes } from "@/http/panelScrollRoutes";
 import {
   BYE_BYTES,
   errorResponse,
@@ -237,6 +238,7 @@ const routes: RouteHandler[] = [
   // The one route about the process ABOVE this one: its state rides on `/api/config` and this is
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
   createSupervisorRoutes(),
+  createPanelScrollRoutes(),
   createArenaRoutes(arenaService),
   createInventoryRoutes(describeAgentSession),
   createBotRoutes(botRegistry, repositoryGitWatch, {

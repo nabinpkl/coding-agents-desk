@@ -18,6 +18,7 @@
  */
 
 import type { HostBridge } from "@/features/activity-feed/data-source/HostBridge";
+import { noteStream } from "@/features/scroll-diagnostics/scrollDiagnostics";
 
 /** One relayed response, as it arrives. */
 export interface TransportResponse {
@@ -341,9 +342,16 @@ export class FetchHttpTransport implements AgentHttpTransport {
 
   subscribe(path: string, handlers: SubscribeHandlers): () => void {
     const source = new EventSource(`${this.origin}${path}`);
-    source.onopen = () => handlers.onOpen?.(200);
+    const noted = noteStream(path);
+    source.onopen = () => {
+      noted.open();
+      handlers.onOpen?.(200);
+    };
     source.onmessage = (event) => handlers.onMessage(event.data);
-    source.onerror = () => handlers.onError("stream failed");
+    source.onerror = () => {
+      noted.error();
+      handlers.onError("stream failed");
+    };
     return () => source.close();
   }
 

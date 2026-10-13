@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import {
+  loadCanvasScroll,
   loadSessionCardSizes,
   storeSessionCardSizes,
   type BotCardSize,
@@ -13,6 +14,7 @@ import { BotCanvasCard } from "@/features/bots/cards/BotCanvasCard";
 import { CanvasNotices } from "@/features/bots/cards/canvasNotices";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedCanvasScroll";
+import { useStripDiagnostics } from "@/features/scroll-diagnostics/scrollDiagnostics";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 
@@ -171,6 +173,7 @@ export function BotCanvasList({
     ready: !zoom.on || zoom.measured,
     pad: zoom.pad,
   });
+  useStripDiagnostics("bot-canvas", canvas, loadCanvasScroll);
   // One strip, and nothing wraps out of it. A card widened here takes the room and pushes the cards
   // after it along; none of them can drop to a line below, because there is no line below. That is
   // the whole difference from the grid this replaced, and it is why the canvas scrolls sideways
