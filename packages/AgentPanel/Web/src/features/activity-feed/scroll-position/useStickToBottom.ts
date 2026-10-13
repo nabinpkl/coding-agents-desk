@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // Treat the container as "at the end" within this many pixels. This is a
 // sub-pixel rounding tolerance (fractional device pixels, flex rounding), NOT
 // a "close enough to the bottom" heuristic — re-attachment still requires the
-// user to actually reach the last row.
+// user to actually reach the last row, and to have been the one who moved there.
 const END_EPSILON_PX = 4;
 
 /**
@@ -22,8 +22,19 @@ const UPWARD_INTENT_WINDOW_MS = 250;
  */
 const SCROLLBAR_GRAB_PX = 16;
 
+/**
+ * How long a downward input keeps authorizing a re-attach. Longer than the upward window because
+ * nothing is at stake in waiting: a smooth wheel or key scroll is still arriving at the end a few
+ * hundred milliseconds after its input, and the only thing it can authorize is a viewport that IS
+ * at the end becoming one that follows it.
+ */
+const DOWNWARD_INTENT_WINDOW_MS = 1000;
+
 /** Keys that ask the container to move towards earlier content. */
 const UPWARD_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
+
+/** Keys that ask the container to move towards later content. */
+const DOWNWARD_KEYS = new Set(["ArrowDown", "PageDown", "End"]);
 
 /**
  * Keep a scroll container pinned to its bottom edge as content grows, and
@@ -33,7 +44,8 @@ const UPWARD_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
  * Two-state machine, driven only by attributable events:
  *   - FOLLOWING: resized content, or a scroll no input asked for that leaves
  *                the viewport short of the end, re-pins it to the bottom.
- *   - BROWSING:  the user scrolled up; content changes leave scrollTop alone.
+ *   - BROWSING:  the user scrolled up; content changes leave scrollTop alone,
+ *                and only the user taking it back to the end re-follows.
  *
  * Landing at the bottom is driven by a ResizeObserver on the *measured* content
  * element, so estimated row heights never decide where we land, and our own
@@ -53,6 +65,19 @@ const UPWARD_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
  * touch drag or key within the last {@link UPWARD_INTENT_WINDOW_MS}, or a press
  * held on the scrollbar. Anything else that leaves a following viewport short
  * of the end is layout, and is pinned back to the bottom.
+ *
+ * Re-attaching is held to the same rule from the other side: reaching the end
+ * re-follows only when a downward input, or the scrollbar, took the reader
+ * there. A scroll event at the end proves nothing about who put it there, and
+ * the one that mattered was this list's own first paint. A transcript opens at
+ * the bottom, the restore of a remembered place pauses the follower and jumps
+ * up, and the scroll event of that opening position is delivered AFTER the
+ * pause. Read as "back at the end", it re-attached a reader who had never been
+ * there, and the follower and the restore's hold then took turns: the line held
+ * for as long as the hold lasted, and the reader's first nudge downward snapped
+ * the transcript to its end (measured 2026-10-13 on a canvas card restored 1099px
+ * from the end). A downward wheel at the end moves nothing and so fires no
+ * scroll event, which is why the wheel re-attaches on its own there.
  *
  * There used to be a second way to detach: a decrease whose content height had
  * not moved between two samples, meant to cover a drag of the native scrollbar.
@@ -81,6 +106,7 @@ export function useStickToBottom(
   const lastTopRef = useRef(0);
   const enforcingRef = useRef(false);
   const upwardIntentAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const downwardIntentAtRef = useRef(Number.NEGATIVE_INFINITY);
   const lastTouchYRef = useRef<number | null>(null);
   // A press on the scrollbar, held until it is let go: the drag that follows fires no input the
   // page sees, so the press is the only evidence the reader is moving it.
@@ -141,8 +167,17 @@ export function useStickToBottom(
     const markUpward = () => {
       upwardIntentAtRef.current = performance.now();
     };
+    // Already at the end, a downward input moves nothing, so no scroll event follows it to
+    // re-attach; the input does it itself.
+    const markDownward = () => {
+      downwardIntentAtRef.current = performance.now();
+      if (!followingRef.current && el.scrollHeight - el.scrollTop - el.clientHeight <= END_EPSILON_PX) {
+        setFollowing(true);
+      }
+    };
     const onWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) markUpward();
+      if (event.deltaY > 0) markDownward();
     };
     const onTouchStart = (event: TouchEvent) => {
       lastTouchYRef.current = event.touches[0]?.clientY ?? null;
@@ -154,9 +189,15 @@ export function useStickToBottom(
       lastTouchYRef.current = y;
       // A finger travelling DOWN the screen drags earlier content into view.
       if (previous != null && y > previous) markUpward();
+      if (previous != null && y < previous) markDownward();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (UPWARD_KEYS.has(event.key) || (event.key === " " && event.shiftKey)) markUpward();
+      // Typed into a field, a space or an arrow moves the caret, not the feed, so it cannot be
+      // the reader taking the feed to its end.
+      const typing = event.target instanceof HTMLElement
+        && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
+      if (!typing && (DOWNWARD_KEYS.has(event.key) || (event.key === " " && !event.shiftKey))) markDownward();
     };
     // A press on the scrollbar is dispatched to the scroller itself, never to a row inside it.
     const onPointerDown = (event: PointerEvent) => {
@@ -185,7 +226,7 @@ export function useStickToBottom(
       window.removeEventListener("pointercancel", onPointerUp, true);
       window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [active, scrollRef]);
+  }, [active, scrollRef, setFollowing]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -204,8 +245,12 @@ export function useStickToBottom(
       // which a viewport that is following does not get to keep.
       if (wentUp && pulledUp) setFollowing(false);
       else if (!pulledUp) snapToBottom();
-    } else {
-      if (fromEnd <= END_EPSILON_PX) setFollowing(true); // user returned to the end
+    } else if (fromEnd <= END_EPSILON_PX) {
+      // At the end is not enough: the reader has to be the one who brought it there.
+      const pushedDown =
+        scrollbarHeldRef.current
+        || performance.now() - downwardIntentAtRef.current <= DOWNWARD_INTENT_WINDOW_MS;
+      if (pushedDown) setFollowing(true);
     }
   }, [scrollRef, setFollowing]);
 

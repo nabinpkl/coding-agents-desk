@@ -286,11 +286,71 @@ describe("useStickToBottom", () => {
       view.result.current.onScroll();
     });
     expect(view.result.current.following).toBe(false);
+    act(() => wheel(scrollEl, 120));
     act(() => {
       scrollEl.scrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
       view.result.current.onScroll();
     });
     expect(view.result.current.following).toBe(true);
+  });
+
+  // Measured on a restored transcript: it opens at the bottom, the restore pauses the follower and
+  // jumps up, and the scroll event of the opening position arrives after the pause. Read as "back at
+  // the end" it re-attached, and the reader's first nudge down then snapped to the tail.
+  it("a scroll event at the end that no input caused does not re-attach", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => view.result.current.pause());
+    act(() => view.result.current.onScroll()); // still at the bottom it opened on
+    expect(view.result.current.following).toBe(false);
+    act(() => {
+      scrollEl.scrollTop = 600; // the restore's jump up, then the reader's nudge down
+      view.result.current.onScroll();
+    });
+    act(() => wheel(scrollEl, 120));
+    act(() => {
+      scrollEl.scrollTop = 640;
+      view.result.current.onScroll();
+    });
+    expect(view.result.current.following).toBe(false);
+    expect(scrollEl.scrollTop).toBe(640);
+  });
+
+  it("a downward wheel at the end re-attaches, though it moves nothing and fires no scroll", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => view.result.current.pause());
+    scrollEl.scrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+    act(() => wheel(scrollEl, 120));
+    expect(view.result.current.following).toBe(true);
+  });
+
+  it("a stale downward input does not re-attach a later arrival at the end", () => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+    try {
+      const { view, scrollEl } = setup();
+      act(() => {
+        roCallback!();
+        flushRaf();
+      });
+      act(() => view.result.current.pause());
+      scrollEl.scrollTop = 300;
+      act(() => wheel(scrollEl, 120));
+      vi.advanceTimersByTime(1500);
+      act(() => {
+        scrollEl.scrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+        view.result.current.onScroll();
+      });
+      expect(view.result.current.following).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a bottom-snap never flips to browsing", () => {
