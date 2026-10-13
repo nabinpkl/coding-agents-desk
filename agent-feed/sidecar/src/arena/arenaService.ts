@@ -28,6 +28,7 @@ import type {
   ArenaRunSummary,
 } from "@agentdesk/agent-feed-wire";
 import {
+  afterRestart,
   ArenaRunRegistry,
   isLiveContestant,
   runDetail,
@@ -44,13 +45,16 @@ import {
   initRunRepository,
   pruneWorktrees,
   removeContestantWorktree,
+  undoWorktrees,
+  type ArenaWorktreeSteps,
 } from "@/arena/arenaWorktrees";
 import {
   StartLine,
+  startLineTerminal,
   type ContestantDriver,
   type ContestantDrivers,
   type ContestantPlan,
-  type ContestantTerminal,
+  type ContestantResume,
 } from "@/arena/contestantDriver";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { filesFromEvents } from "@/arena/arenaFacts";
@@ -70,16 +74,6 @@ const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** The most contestants one run may fan out to; past this a run stops being watchable. */
 const MAXIMUM_CONTESTANTS = 8;
-
-/** The worktree steps, as the service needs them; injected so its tests can fake git. */
-export interface ArenaWorktreeSteps {
-  assertRepository(repoPath: string): Promise<void>;
-  initRepository(options: { path: string; message: string; worktreeFolders: readonly string[] }): Promise<void>;
-  add(options: { repoPath: string; path: string; ref: string }): Promise<void>;
-  remove(options: { repoPath: string; path: string }): Promise<void>;
-  prune(repoPath: string): Promise<void>;
-  captureDiff(options: { worktreePath: string; ref: string }): Promise<string>;
-}
 
 export class ArenaService {
   private readonly registry: ArenaRunRegistry;
@@ -156,6 +150,38 @@ export class ArenaService {
     const run = this.registry.get(runId);
     if (!run) return null;
     return runDetail(run, (contestant) => this.store.readContestantDiff(runId, contestant.contestantId));
+  }
+
+  /**
+   * Picks back up what a restart interrupted, once, right after the service is made: every
+   * unfinished contestant is driven again or failed with why (`afterRestart`). A terminals run's
+   * picked-up contestants get a start line of their own, which still holds the ones not yet let
+   * go and still takes the prompt of a run that had none.
+   */
+  resumeInterruptedRuns(): void {
+    for (const run of this.registry.list()) {
+      const picked: { record: ArenaContestantRecord; resume: ContestantResume | null }[] = [];
+      for (const record of run.contestants.filter(isLiveContestant)) {
+        const outcome = afterRestart(run, record, this.terminalDrivers !== null);
+        if ("drive" in outcome) {
+          picked.push({ record, resume: outcome.drive });
+          continue;
+        }
+        this.registry.updateContestant(run.runId, record.contestantId, (contestant, now) => {
+          contestant.status = "failed";
+          contestant.closedAt = now;
+          contestant.error = outcome.failed;
+        });
+      }
+      const drivers = this.terminalDrivers;
+      if (picked.length === 0 || !drivers) continue;
+      const line = new StartLine(picked.filter((one) => !one.resume?.prompted).length, run.prompt || null);
+      this.lines.set(run.runId, line);
+      this.drives.set(
+        run.runId,
+        picked.map(({ record, resume }) => this.driveOne(run, record, drivers, line, resume ?? undefined)),
+      );
+    }
   }
 
   /**
@@ -256,7 +282,7 @@ export class ArenaService {
         await this.worktrees.add({ repoPath, path: record.worktreePath, ref: baseRef });
       }
     } catch (error) {
-      await this.undoWorktrees(repoPath, records).catch(() => undefined);
+      await undoWorktrees(this.worktrees, repoPath, records).catch(() => undefined);
       this.releaseFolder(folder, repoCreated);
       throw error;
     }
@@ -336,7 +362,7 @@ export class ArenaService {
     await Promise.allSettled(this.drives.get(runId) ?? []);
     this.lines.delete(runId);
     this.drives.delete(runId);
-    await this.undoWorktrees(run.repoPath, run.contestants);
+    await undoWorktrees(this.worktrees, run.repoPath, run.contestants);
     this.releaseFolder(run.folder, run.repoCreated);
     this.store.deleteRunDirectory(runId);
     this.registry.remove(runId);
@@ -352,36 +378,6 @@ export class ArenaService {
   }
 
   /**
-   * Removes every contestant's worktree and prunes the registrations, best-effort and whole.
-   *
-   * Every removal is attempted even after one fails, then every failure is named in the log: a
-   * teardown that stopped at the first refusal would leave the rest of a run's worktrees
-   * registered against the repository, which is the half-torn-down state
-   * `worktreeRemovalRefusal` refuses to let a caller reach. A worktree that was never made --
-   * the failure this is called from -- is refused by the same check as a stranger's, and the
-   * rest still go.
-   */
-  private async undoWorktrees(
-    repoPath: string,
-    records: readonly Pick<ArenaContestantRecord, "worktreePath">[],
-  ): Promise<void> {
-    const refused: string[] = [];
-    for (const record of records) {
-      try {
-        await this.worktrees.remove({ repoPath, path: record.worktreePath });
-      } catch (error) {
-        refused.push(`${record.worktreePath}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-    await this.worktrees.prune(repoPath);
-    if (refused.length > 0) {
-      console.error(
-        `agent feed arena left worktrees in ${repoPath} (${refused.length}): ${refused.join("; ")}`,
-      );
-    }
-  }
-
-  /**
    * One contestant's whole turn: send the prompt, wait for the close, record the facts.
    *
    * Every state it passes through is written to the record as it happens, so a run is watchable
@@ -393,37 +389,33 @@ export class ArenaService {
     record: ArenaContestantRecord,
     drivers: ContestantDrivers,
     startLine: StartLine | null,
+    resume?: ContestantResume,
   ): Promise<void> {
     const mark = (apply: (contestant: ArenaContestantRecord, now: number) => void): void => {
       this.registry.updateContestant(run.runId, record.contestantId, apply);
     };
-    let arrived = false;
-    const terminal: ContestantTerminal | undefined = startLine
-      ? {
+    const atLine = startLine
+      ? startLineTerminal({
         label: `arena ${record.contestantId} ${run.runId.slice(0, 8)}`,
-        onPane: (pane, sessionId) => {
-          mark((contestant) => {
+        line: startLine,
+        ...(resume ? { resume } : {}),
+        marks: {
+          pane: (pane, sessionId) => mark((contestant) => {
             contestant.tmuxSession = pane;
             contestant.sessionId = sessionId;
             contestant.status = "starting";
-          });
-        },
-        ready: async () => {
-          mark((contestant) => {
+          }),
+          ready: () => mark((contestant) => {
             contestant.status = "ready";
-          });
-          arrived = true;
-          const prompt = await startLine.arrive();
-          // The clock starts at the prompt, not at the pane: a harness's load time, and a reader
-          // answering its startup question, are not part of the turn being compared.
-          mark((contestant, now) => {
+          }),
+          running: () => mark((contestant, now) => {
             contestant.status = "running";
             contestant.startedAt = now;
-          });
-          return prompt;
+          }),
         },
-      }
-      : undefined;
+      })
+      : null;
+    const terminal = atLine?.terminal;
     try {
       const drive: ContestantDriver | undefined = drivers[record.source];
       // createRun refused every source without a driver, so this is a broken invariant.
@@ -472,7 +464,7 @@ export class ArenaService {
       });
     } finally {
       // A contestant that never reached the start line is out of the race, so nobody waits on it.
-      if (startLine && !arrived) startLine.leave();
+      atLine?.done();
     }
   }
 }

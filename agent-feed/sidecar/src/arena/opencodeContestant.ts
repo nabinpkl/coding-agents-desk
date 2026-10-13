@@ -146,6 +146,16 @@ function typeOf(message: unknown): unknown {
   return message && typeof message === "object" ? (message as { type?: unknown }).type : undefined;
 }
 
+/** Whether the serve holds a prompt in the session: any user message at all. */
+export function promptSentOf(messages: readonly unknown[]): boolean {
+  return messages.some((message) => typeOf(message) === "user");
+}
+
+/** `promptSentOf` the session as the serve holds it now. */
+export async function opencodePromptSent(sessionId: string): Promise<boolean> {
+  return promptSentOf(await readOpencodeTail(sessionId));
+}
+
 async function readTurnOutcome(sessionId: string): Promise<OpencodeTurnOutcome> {
   return turnOutcomeOf(await readOpencodeTail(sessionId));
 }
@@ -162,6 +172,8 @@ const RECHECK_MS = 1000;
 /** How an opencode contestant reads its rules and its turn's outcome; overridden in tests. */
 export interface OpencodeContestantOptions {
   turnOutcome?: (sessionId: string) => Promise<OpencodeTurnOutcome>;
+  /** Whether a session already holds its prompt, for a contestant picked back up after a restart. */
+  promptSent?: (sessionId: string) => Promise<boolean>;
   recheckMs?: number;
   permissions?: () => Promise<OpencodePermissionRule[]>;
 }
@@ -204,13 +216,14 @@ export async function openOpencodeContestant(
  *
  * The subscription is opened BEFORE the send, so no event can land between the send and the
  * listen: a fast turn's whole life can fit inside that gap, and a listener attached late would
- * report a turn that happened without it.
+ * report a turn that happened without it. `alreadySent` is a turn a restarted sidecar is picking
+ * back up: nothing is sent, and the turn is only watched, from the session's first event.
  */
 export async function driveOpencodeTurn(
   backend: OpencodeContestantBackend,
   sessionId: string,
   plan: ContestantPlan,
-  options: OpencodeContestantOptions = {},
+  options: OpencodeContestantOptions & { alreadySent?: boolean } = {},
 ): Promise<ContestantResult> {
   const turnOutcome = options.turnOutcome ?? readTurnOutcome;
   const recheckMs = options.recheckMs ?? RECHECK_MS;
@@ -272,7 +285,7 @@ export async function driveOpencodeTurn(
   const timer = setTimeout(() => settle({ timedOut: true }), plan.turnTimeoutMs);
   timer.unref?.();
   try {
-    await backend.send(sessionId, plan.requestId, plan.prompt, "next");
+    if (!options.alreadySent) await backend.send(sessionId, plan.requestId, plan.prompt, "next");
     sent = true;
     // Envelopes that arrived during the send were not allowed to ask; ask once for them.
     void check();

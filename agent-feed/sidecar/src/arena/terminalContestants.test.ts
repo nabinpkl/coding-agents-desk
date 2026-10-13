@@ -76,8 +76,8 @@ function planWith(log: string[], over: Partial<ContestantPlan> = {}): Contestant
 }
 
 /** Steps that log each act, and a transcript the test writes to when the prompt is typed. */
-function fakeSteps(log: string[], options: { composer?: boolean; exited?: boolean } = {}) {
-  let transcript: string | null = null;
+function fakeSteps(log: string[], options: { composer?: boolean; exited?: boolean; transcript?: string } = {}) {
+  let transcript: string | null = options.transcript ?? null;
   const writers = new Set<() => void>();
   let command: string[] = [];
   const steps: TerminalContestantSteps = {
@@ -250,5 +250,91 @@ describe("runOpencodeTerminalContestant", () => {
     ).rejects.toThrow(/TUI exited before the prompt: zsh:1: command not found/);
     expect(log).not.toContain("ready");
     expect(log).not.toContain("send");
+  });
+});
+
+/** The plan of a contestant a restarted sidecar is picking back up, its prompt the run's own. */
+function resumedPlan(log: string[], pane: string, sessionId: string, prompted: boolean): ContestantPlan {
+  const plan = planWith(log, { prompt: "say one word" });
+  return { ...plan, terminal: { ...plan.terminal!, resume: { pane, sessionId, prompted } } };
+}
+
+/** A serve whose turn closes at once, logging what it was asked to do. */
+function idleBackend(log: string[]): OpencodeContestantBackend {
+  return {
+    async createSession(_requestId, projectPath) {
+      log.push("create");
+      return { sessionId: "ses_new", projectPath } as AgentSessionDescriptor;
+    },
+    async subscribe(_sessionId, _after, listener) {
+      log.push("subscribe");
+      const idle: TimelineEnvelope = {
+        kind: "state", sequence: 1, mode: "nice", events: [], windowStart: 0, runState: "idle",
+        queue: { steer: 0, followUp: 0 },
+      };
+      queueMicrotask(() => listener(idle));
+      return () => {};
+    },
+    async send(_sessionId, _requestId, text) {
+      log.push(`send:${text}`);
+      return { requestId: "r", delivery: "immediate" };
+    },
+  };
+}
+
+describe("a contestant picked back up after a restart", () => {
+  test("Claude, not yet let go: no new pane, back to its composer and the start line", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log);
+    await runClaudeTerminalContestant(resumedPlan(log, "arena-c1-old", SESSION, false), { binary: "/bin/claude", steps });
+    expect(log).toEqual(["awaitComposer", "ready", "watch", "type:say one word"]);
+  });
+
+  test("Claude, let go and its turn already closed: watched to the close, never typed again", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log, { transcript: [userLine, endTurnLine].join("\n") });
+    const result = await runClaudeTerminalContestant(resumedPlan(log, "arena-c1-old", SESSION, true), { steps });
+    expect(log).toEqual(["watch"]);
+    expect(result.sessionId).toBe(SESSION);
+    expect(result.events.length).toBeGreaterThan(0);
+  });
+
+  test("Claude, let go but its transcript shows no turn opened: typed the run's prompt once", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log);
+    await runClaudeTerminalContestant(resumedPlan(log, "arena-c1-old", SESSION, true), { steps });
+    expect(log).toEqual(["watch", "type:say one word"]);
+  });
+
+  test("Claude, not yet let go, whose CLI went with the old sidecar: fails saying what the pane shows", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log, { composer: false, exited: true });
+    await expect(
+      runClaudeTerminalContestant(resumedPlan(log, "arena-c1-old", SESSION, false), { steps }),
+    ).rejects.toThrow(/exited before taking the prompt/);
+    expect(log).not.toContain("ready");
+  });
+
+  test("opencode, not yet let go: no new session or pane, back to the start line, then sent", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log);
+    await runOpencodeTerminalContestant(idleBackend(log), resumedPlan(log, "arena-c2-old", "ses_old", false), {
+      steps,
+      turnOutcome: async () => ({ closed: true, failure: null }),
+    });
+    expect(log).toEqual(["ready", "subscribe", "send:say one word"]);
+  });
+
+  test("opencode, let go: watched without a send when the serve holds the prompt, sent when not", async () => {
+    for (const [held, expected] of [[true, ["subscribe"]], [false, ["subscribe", "send:say one word"]]] as const) {
+      const log: string[] = [];
+      const { steps } = fakeSteps(log);
+      await runOpencodeTerminalContestant(idleBackend(log), resumedPlan(log, "arena-c2-old", "ses_old", true), {
+        steps,
+        promptSent: async () => held,
+        turnOutcome: async () => ({ closed: true, failure: null }),
+      });
+      expect(log).toEqual([...expected]);
+    }
   });
 });

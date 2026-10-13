@@ -166,3 +166,44 @@ export async function captureWorktreeDiff(options: {
   }
   return diffed.out;
 }
+
+/** These steps, as the arena service takes them; injected so its tests can fake git. */
+export interface ArenaWorktreeSteps {
+  assertRepository(repoPath: string): Promise<void>;
+  initRepository(options: { path: string; message: string; worktreeFolders: readonly string[] }): Promise<void>;
+  add(options: { repoPath: string; path: string; ref: string }): Promise<void>;
+  remove(options: { repoPath: string; path: string }): Promise<void>;
+  prune(repoPath: string): Promise<void>;
+  captureDiff(options: { worktreePath: string; ref: string }): Promise<string>;
+}
+
+/**
+ * Removes every contestant's worktree and prunes the registrations, best-effort and whole.
+ *
+ * Every removal is attempted even after one fails, then every failure is named in the log: a
+ * teardown that stopped at the first refusal would leave the rest of a run's worktrees
+ * registered against the repository, which is the half-torn-down state
+ * `worktreeRemovalRefusal` refuses to let a caller reach. A worktree that was never made --
+ * a run whose making failed halfway -- is refused by the same check as a stranger's, and the
+ * rest still go.
+ */
+export async function undoWorktrees(
+  steps: Pick<ArenaWorktreeSteps, "remove" | "prune">,
+  repoPath: string,
+  records: readonly { worktreePath: string }[],
+): Promise<void> {
+  const refused: string[] = [];
+  for (const record of records) {
+    try {
+      await steps.remove({ repoPath, path: record.worktreePath });
+    } catch (error) {
+      refused.push(`${record.worktreePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  await steps.prune(repoPath);
+  if (refused.length > 0) {
+    console.error(
+      `agent feed arena left worktrees in ${repoPath} (${refused.length}): ${refused.join("; ")}`,
+    );
+  }
+}

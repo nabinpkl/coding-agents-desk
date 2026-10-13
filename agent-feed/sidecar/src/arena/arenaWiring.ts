@@ -1,4 +1,4 @@
-import { ArenaRunRegistry, failUnfinishedContestants } from "@/arena/arenaRun";
+import { ArenaRunRegistry } from "@/arena/arenaRun";
 import { ArenaService } from "@/arena/arenaService";
 import { ArenaStore } from "@/arena/arenaStore";
 import {
@@ -17,8 +17,8 @@ import { config } from "@/config/config";
  * arena home, of the repository the run names or of a new one the run gets of its own. Each
  * contestant is driven by its source's driver -- the sidecar's opencode backend, or a spawned
  * `claude --print` (ADR-0128) -- and the run records what each did. The runs it made are
- * reloaded from its store so a sidecar that restarts still lists them, with the contestants a
- * restart orphaned marked failed rather than left reading as dueling forever.
+ * reloaded from its store so a sidecar that restarts still lists them, and the contestants it
+ * interrupted are picked back up from their panes, or failed saying why they cannot be.
  *
  * The terminals mode's drivers are wired only where there is a tmux to run them in; without one
  * the arena offers headless alone, and says so when a run asks for terminals.
@@ -26,9 +26,9 @@ import { config } from "@/config/config";
 export function startArenaService(opencodeBackend: OpencodeContestantBackend): ArenaService {
   const store = new ArenaStore(arenaRoot());
   const registry = new ArenaRunRegistry({
-    initial: failUnfinishedContestants(store.load()),
+    initial: store.load(),
   });
-  return new ArenaService({
+  const service = new ArenaService({
     registry,
     store,
     drivers: {
@@ -45,4 +45,6 @@ export function startArenaService(opencodeBackend: OpencodeContestantBackend): A
       : null,
     arenaHome: arenaHome(),
   });
+  service.resumeInterruptedRuns();
+  return service;
 }

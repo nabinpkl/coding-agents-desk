@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ArenaRunRegistry,
   contestantSummary,
-  failUnfinishedContestants,
+  afterRestart,
   runDetail,
   runSummary,
   type ArenaContestantRecord,
@@ -79,23 +79,28 @@ describe("ArenaRunRegistry", () => {
   });
 });
 
-describe("failUnfinishedContestants", () => {
-  test("fails contestants a restart orphaned, and leaves finished ones alone", () => {
-    const loaded = [
-      run({
-        contestants: [
-          contestant({ contestantId: "c1", status: "running" }),
-          contestant({ contestantId: "c2", status: "closed", closedAt: 5 }),
-          contestant({ contestantId: "c3", status: "failed", closedAt: 6 }),
-        ],
-      }),
-    ];
-    failUnfinishedContestants(loaded);
-    const [c1, c2, c3] = loaded[0]!.contestants;
-    expect(c1?.status).toBe("failed");
-    expect(c1?.error).toContain("restarted");
-    expect(c2?.status).toBe("closed");
-    expect(c3?.status).toBe("failed");
+describe("afterRestart", () => {
+  test("a terminals contestant with its pane on record is picked back up, let go or not", () => {
+    const pane = { tmuxSession: "arena-c1-1111", sessionId: "s1" };
+    expect(afterRestart({ mode: "terminals" }, { status: "ready", ...pane }, true)).toEqual({
+      drive: { pane: "arena-c1-1111", sessionId: "s1", prompted: false },
+    });
+    expect(afterRestart({ mode: "terminals" }, { status: "starting", ...pane }, true)).toEqual({
+      drive: { pane: "arena-c1-1111", sessionId: "s1", prompted: false },
+    });
+    expect(afterRestart({ mode: "terminals" }, { status: "running", ...pane }, true)).toEqual({
+      drive: { pane: "arena-c1-1111", sessionId: "s1", prompted: true },
+    });
+  });
+
+  test("one with no pane yet starts over; one that cannot be picked up fails saying why", () => {
+    const none = { tmuxSession: null, sessionId: null };
+    expect(afterRestart({ mode: "terminals" }, { status: "preparing", ...none }, true)).toEqual({ drive: null });
+    expect(afterRestart({ mode: "terminals" }, { status: "ready", ...none }, true)).toHaveProperty("failed");
+    expect(afterRestart({ mode: "terminals" }, { status: "ready", tmuxSession: "p", sessionId: "s" }, false))
+      .toEqual({ failed: "the sidecar came back with no tmux, so its pane cannot be picked back up" });
+    expect(afterRestart({ mode: "headless" }, { status: "running", ...none }, true))
+      .toEqual({ failed: "the sidecar restarted mid-turn, and a headless contestant cannot be picked back up" });
   });
 });
 

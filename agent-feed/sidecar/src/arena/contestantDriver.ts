@@ -45,6 +45,64 @@ export interface ContestantTerminal {
   label: string;
   onPane: (pane: string, sessionId: string) => void;
   ready: () => Promise<string>;
+  /**
+   * A contestant a restarted sidecar is picking back up: its pane and session already exist and
+   * are not started again. `prompted` is that its run had already let it go with the prompt, so it
+   * never calls `ready` and its turn is watched to its close; the plan's `prompt` is that prompt.
+   */
+  resume?: ContestantResume;
+}
+
+export interface ContestantResume {
+  pane: string;
+  sessionId: string;
+  prompted: boolean;
+}
+
+/** What a contestant's status moves through at the start line, as the run records it. */
+export interface StartLineMarks {
+  pane(pane: string, sessionId: string): void;
+  ready(): void;
+  /** The prompt has been handed over: the contestant's clock starts here. */
+  running(): void;
+}
+
+/**
+ * A contestant's terminal hooks at its run's start line, and `done` for when its drive ends: a
+ * contestant that never arrived leaves then, so nobody waits on it. One resumed after its prompt
+ * is not at the line at all, and neither arrives nor leaves.
+ */
+export function startLineTerminal(options: {
+  label: string;
+  line: StartLine;
+  marks: StartLineMarks;
+  resume?: ContestantResume;
+}): { terminal: ContestantTerminal; done: () => void } {
+  const { label, line, marks, resume } = options;
+  let atLine = !resume?.prompted;
+  const terminal: ContestantTerminal = {
+    label,
+    onPane: (pane, sessionId) => marks.pane(pane, sessionId),
+    ready: async () => {
+      marks.ready();
+      atLine = false;
+      const prompt = await line.arrive();
+      // The clock starts at the prompt, not at the pane: a harness's load time, and a reader
+      // answering its startup question, are not part of the turn being compared.
+      marks.running();
+      return prompt;
+    },
+    ...(resume ? { resume } : {}),
+  };
+  return {
+    terminal,
+    done: () => {
+      if (atLine) {
+        atLine = false;
+        line.leave();
+      }
+    },
+  };
 }
 
 /**

@@ -6,6 +6,7 @@
 // and the change signal: every mutation a run's life makes goes through the registry, which
 // tells its listeners once per change, and the routes stream exactly that signal.
 
+import type { ContestantResume } from "@/arena/contestantDriver";
 import {
   ARENA_LIVE_STATUSES,
   type ArenaContestantDetail,
@@ -117,24 +118,39 @@ export function runDetail(run: ArenaRunRecord, storedDiff: (c: ArenaContestantRe
   };
 }
 
+/** What a restart leaves of one unfinished contestant: driven again, or failed with why. */
+export type RestartOutcome = { failed: string } | { drive: ContestantResume | null };
+
 /**
- * Marks every contestant a restart orphaned as failed, in place.
+ * What a restarted sidecar does with a contestant its predecessor was still driving.
  *
- * A contestant's drive lives in the sidecar process that started it, so a run reloaded from
- * disk has contestants nobody is driving any more. Leaving their status as it was saved would
- * read as a duel still going, forever, on a run whose worktrees are quiet -- and quiet-forever
- * is exactly the state a reader cannot tell from a slow turn.
+ * The drive lived in the old process; a terminals contestant's harness did not. Its pane is
+ * tmux's and its session is named on the record, so it is picked back up from both: watched to
+ * its turn's close if its run had already let it go with the prompt, or brought back to the start
+ * line if not. One that had no pane yet is started over. A headless contestant was driven from
+ * inside the old process itself, so nothing of it is left to pick up, and it fails saying so.
+ * The failures are what keep a reloaded run from reading as a duel still going, forever.
  */
-export function failUnfinishedContestants(runs: ArenaRunRecord[]): ArenaRunRecord[] {
-  for (const run of runs) {
-    for (const contestant of run.contestants) {
-      if (isLiveContestant(contestant)) {
-        contestant.status = "failed";
-        contestant.error = contestant.error ?? "the sidecar restarted before this contestant closed";
-      }
-    }
+export function afterRestart(
+  run: Pick<ArenaRunRecord, "mode">,
+  contestant: Pick<ArenaContestantRecord, "status" | "tmuxSession" | "sessionId">,
+  terminalsHere: boolean,
+): RestartOutcome {
+  if (run.mode === "headless") {
+    return { failed: "the sidecar restarted mid-turn, and a headless contestant cannot be picked back up" };
   }
-  return runs;
+  if (!terminalsHere) return { failed: "the sidecar came back with no tmux, so its pane cannot be picked back up" };
+  if (contestant.status === "preparing") return { drive: null };
+  if (!contestant.tmuxSession || !contestant.sessionId) {
+    return { failed: "the sidecar restarted before this contestant's pane was on its record" };
+  }
+  return {
+    drive: {
+      pane: contestant.tmuxSession,
+      sessionId: contestant.sessionId,
+      prompted: contestant.status === "running",
+    },
+  };
 }
 
 /**

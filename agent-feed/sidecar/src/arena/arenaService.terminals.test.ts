@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { ArenaBadRequestError, ArenaService } from "@/arena/arenaService";
 import { ArenaRunRegistry } from "@/arena/arenaRun";
 import { ArenaStore } from "@/arena/arenaStore";
-import type { ContestantDriver, ContestantDrivers } from "@/arena/contestantDriver";
+import type { ContestantDriver, ContestantDrivers, ContestantResume } from "@/arena/contestantDriver";
 import type { ArenaContestantSummary, ArenaCreateRunRequest } from "@agentdesk/agent-feed-wire";
 
 const roots: string[] = [];
@@ -257,5 +257,106 @@ describe("lanes opened before the prompt", () => {
     expect(killed).toEqual(["pane-c1", "pane-c2"]);
     expect(service.listRuns()).toEqual([]);
     expect(claude.promptedAt()).toBeNull();
+  });
+});
+
+describe("a restart", () => {
+  /** Two services over one store and home: the second is the sidecar that came back. */
+  async function restartable() {
+    const created = await mkdtemp(join(tmpdir(), "arena-restart-"));
+    roots.push(created);
+    const root = await realpath(created);
+    const make = (terminalDrivers: ContestantDrivers | null, drivers?: ContestantDrivers) => {
+      const store = new ArenaStore(root);
+      const service = new ArenaService({
+        registry: new ArenaRunRegistry({ initial: store.load() }),
+        store,
+        drivers: drivers ?? { opencode: closesAtOnce, claude: closesAtOnce },
+        terminalDrivers,
+        killPane: async () => {},
+        worktrees,
+        arenaHome: join(root, "home"),
+        turnTimeoutMs: 500,
+      });
+      return service;
+    };
+    return { make };
+  }
+
+  /** A driver that reaches the start line and then holds its turn open, as a slow harness would. */
+  const holdsItsTurn = (name: string): ContestantDriver => async (plan) => {
+    plan.terminal!.onPane(`pane-${name}`, `session-${name}`);
+    await plan.terminal!.ready();
+    return new Promise(() => {});
+  };
+
+  /** The driver the restarted sidecar has: it writes down what it was handed to pick up. */
+  function pickingUp() {
+    const handed: (ContestantResume | undefined)[] = [];
+    const prompts: string[] = [];
+    const drive: ContestantDriver = async (plan) => {
+      const terminal = plan.terminal!;
+      handed.push(terminal.resume);
+      prompts.push(terminal.resume?.prompted ? plan.prompt : await terminal.ready());
+      return { sessionId: terminal.resume?.sessionId ?? "fresh", events: [], usage: null };
+    };
+    return { drive, handed, prompts };
+  }
+
+  test("lanes open and waiting are picked back up from their panes, and still take the prompt", async () => {
+    const { make } = await restartable();
+    const claude = controllableDriver("c1");
+    const opencode = controllableDriver("c2");
+    const before = make({ claude: claude.drive, opencode: opencode.drive });
+    const run = await before.createRun(request({ prompt: "" }));
+    claude.load("ready");
+    opencode.load("ready");
+    await until(() => contestants(before).every((c) => c.status === "ready"), "both lanes ready");
+
+    const after = pickingUp();
+    const service = make({ claude: after.drive, opencode: after.drive });
+    service.resumeInterruptedRuns();
+    expect(after.handed).toEqual([
+      { pane: "pane-c1", sessionId: "session-c1", prompted: false },
+      { pane: "pane-c2", sessionId: "session-c2", prompted: false },
+    ]);
+    service.sendPrompt(run.runId, "say one word");
+    await until(() => contestants(service).every((c) => c.status === "closed"), "both to close");
+    expect(after.prompts).toEqual(["say one word", "say one word"]);
+    expect(contestants(service).map((c) => c.error)).toEqual([null, null]);
+  });
+
+  test("a contestant already let go is watched, not held at the line, and its clock is kept", async () => {
+    const { make } = await restartable();
+    const before = make({ claude: holdsItsTurn("c1"), opencode: holdsItsTurn("c2") });
+    await before.createRun(request({ prompt: "say one word" }));
+    await until(() => contestants(before).every((c) => c.status === "running"), "both running");
+    const startedAt = contestants(before).map((c) => c.startedAt);
+
+    const after = pickingUp();
+    const service = make({ claude: after.drive, opencode: after.drive });
+    service.resumeInterruptedRuns();
+    await until(() => contestants(service).every((c) => c.status === "closed"), "both to close");
+    expect(after.handed.every((one) => one?.prompted === true)).toBe(true);
+    expect(after.prompts).toEqual(["say one word", "say one word"]);
+    expect(contestants(service).map((c) => c.startedAt)).toEqual(startedAt);
+  });
+
+  test("a headless contestant cut off mid-turn fails saying why; a settled run is left alone", async () => {
+    const { make } = await restartable();
+    const hangs: ContestantDriver = async (plan) => {
+      plan.onSessionId("headless");
+      return new Promise(() => {});
+    };
+    const before = make(null, { claude: hangs, opencode: hangs });
+    await before.createRun(request({ mode: "headless" }));
+    await until(() => contestants(before).every((c) => c.status === "running"), "both running");
+
+    const service = make(null);
+    service.resumeInterruptedRuns();
+    expect(contestants(service).map((c) => [c.status, c.error])).toEqual([
+      ["failed", "the sidecar restarted mid-turn, and a headless contestant cannot be picked back up"],
+      ["failed", "the sidecar restarted mid-turn, and a headless contestant cannot be picked back up"],
+    ]);
   });
 });

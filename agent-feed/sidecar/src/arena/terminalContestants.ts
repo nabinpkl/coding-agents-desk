@@ -26,6 +26,7 @@ import {
 } from "@/arena/claudeContestant";
 import {
   driveOpencodeTurn,
+  opencodePromptSent,
   openOpencodeContestant,
   OpencodeContestantError,
   type OpencodeContestantBackend,
@@ -137,6 +138,12 @@ function terminalOf(plan: ContestantPlan): ContestantTerminal {
  * reads a session's liveness by, through the same adapter.
  */
 export function claudeTurnClosed(text: string): boolean {
+  const turn = claudeTurnState(text);
+  return turn.opened && turn.closed;
+}
+
+/** Whether the transcript has had a turn opened at all, and whether its latest one has closed. */
+function claudeTurnState(text: string): { opened: boolean; closed: boolean } {
   let opened = false;
   let closed = false;
   for (const line of text.split("\n")) {
@@ -146,7 +153,7 @@ export function claudeTurnClosed(text: string): boolean {
     if (!turnClosed) opened = true;
     closed = turnClosed;
   }
-  return opened && closed;
+  return { opened, closed };
 }
 
 /**
@@ -155,6 +162,10 @@ export function claudeTurnClosed(text: string): boolean {
  * Ready is the composer being drawn, which also covers a reader answering a startup question in
  * the pane (the folder-trust one): until they do, there is no composer, and the contestant waits
  * at `starting` for as long as a turn may run -- unless the CLI exits, which fails it at once.
+ *
+ * A contestant picked back up after a restart starts nothing: it waits for its existing pane's
+ * composer as above, or, already let go, has its turn watched to the close -- and is typed the
+ * prompt only if its transcript shows the turn was never opened, so no turn is prompted twice.
  */
 export async function runClaudeTerminalContestant(
   plan: ContestantPlan,
@@ -169,36 +180,17 @@ export async function runClaudeTerminalContestant(
 ): Promise<ContestantResult> {
   const terminal = terminalOf(plan);
   const steps = options.steps ?? LIVE_TERMINAL_STEPS;
-  const binary = options.binary !== undefined ? options.binary : claudeBinary();
-  if (!binary) {
-    throw new ClaudeContestantError(
-      "no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH",
-    );
-  }
-  const sessionId = options.newSessionId?.() ?? randomUUID();
-  const command = claudeContestantArgv({
-    binary,
-    sessionId,
-    model: options.model,
-    effort: options.effort,
-    interactive: { name: terminal.label },
-  });
-  const pane = await steps.startClaude({ cwd: plan.worktreePath, sessionId, title: terminal.label, command });
-  terminal.onPane(pane, sessionId);
+  const { pane, sessionId } = terminal.resume ?? await startClaudeContestant(plan, terminal, options, steps);
 
-  const startedAt = Date.now();
-  for (;;) {
-    if (await steps.awaitComposer(sessionId, STILL_THERE_EVERY_MS)) break;
-    if (await steps.harnessExited(pane)) {
-      throw new ClaudeContestantError(`claude exited before taking the prompt: ${await steps.paneTail(pane)}`);
-    }
-    if (Date.now() - startedAt >= plan.turnTimeoutMs) {
-      throw new ClaudeContestantError(
-        `its composer never appeared within ${plan.turnTimeoutMs}ms; the pane is still open to read why`,
-      );
-    }
+  // The prompt to type, or null when the turn it opens is already under way.
+  let prompt: string | null;
+  if (terminal.resume?.prompted) {
+    const text = await steps.readTranscript(sessionId).catch(() => "");
+    prompt = claudeTurnState(text).opened ? null : plan.prompt;
+  } else {
+    await untilClaudeComposer(pane, sessionId, plan.turnTimeoutMs, steps);
+    prompt = await terminal.ready();
   }
-  const prompt = await terminal.ready();
 
   // Listening before typing, so a turn that closes fast cannot close unheard. Every write re-reads
   // the whole transcript: one contestant's one turn is small, and a read that tried to follow
@@ -214,7 +206,7 @@ export async function runClaudeTerminalContestant(
   const stop = steps.watchTranscript(sessionId, () => void check());
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    await steps.typePrompt(sessionId, prompt);
+    if (prompt !== null) await steps.typePrompt(sessionId, prompt);
     const timedOut = new Promise<"timeout">((resolve) => {
       timer = setTimeout(() => resolve("timeout"), plan.turnTimeoutMs);
       timer.unref?.();
@@ -232,12 +224,62 @@ export async function runClaudeTerminalContestant(
   return { sessionId, events, usage };
 }
 
+/** Starts a confined Claude session in a new pane and announces it; answers the pane and session. */
+async function startClaudeContestant(
+  plan: ContestantPlan,
+  terminal: ContestantTerminal,
+  options: { model?: string | null; effort?: string | null; binary?: string | null; newSessionId?: () => string },
+  steps: TerminalContestantSteps,
+): Promise<{ pane: string; sessionId: string }> {
+  const binary = options.binary !== undefined ? options.binary : claudeBinary();
+  if (!binary) {
+    throw new ClaudeContestantError(
+      "no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH",
+    );
+  }
+  const sessionId = options.newSessionId?.() ?? randomUUID();
+  const command = claudeContestantArgv({
+    binary,
+    sessionId,
+    model: options.model,
+    effort: options.effort,
+    interactive: { name: terminal.label },
+  });
+  const pane = await steps.startClaude({ cwd: plan.worktreePath, sessionId, title: terminal.label, command });
+  terminal.onPane(pane, sessionId);
+  return { pane, sessionId };
+}
+
+/** Waits for the session's composer; fails when the CLI exits first, or at the turn limit. */
+async function untilClaudeComposer(
+  pane: string,
+  sessionId: string,
+  limitMs: number,
+  steps: TerminalContestantSteps,
+): Promise<void> {
+  const startedAt = Date.now();
+  for (;;) {
+    if (await steps.awaitComposer(sessionId, STILL_THERE_EVERY_MS)) break;
+    if (await steps.harnessExited(pane)) {
+      throw new ClaudeContestantError(`claude exited before taking the prompt: ${await steps.paneTail(pane)}`);
+    }
+    if (Date.now() - startedAt >= limitMs) {
+      throw new ClaudeContestantError(
+        `its composer never appeared within ${limitMs}ms; the pane is still open to read why`,
+      );
+    }
+  }
+}
+
 /**
  * Drives one opencode contestant with its TUI in a pane, and resolves when its turn has closed.
  *
  * The session is made and confined first, exactly as headless, so no pane ever shows a session
  * without its rules. The prompt then goes through the serve, which is what closes the turn and
  * reports its outcome; the TUI shows it arriving like any message.
+ *
+ * Picked back up after a restart, the session and pane are the ones on the record. One already
+ * let go is sent its prompt only if the serve holds no prompt in the session yet, then watched.
  */
 export async function runOpencodeTerminalContestant(
   backend: OpencodeContestantBackend,
@@ -246,6 +288,29 @@ export async function runOpencodeTerminalContestant(
 ): Promise<ContestantResult> {
   const terminal = terminalOf(plan);
   const steps = options.steps ?? LIVE_TERMINAL_STEPS;
+  const resume = terminal.resume;
+  if (resume?.prompted) {
+    const alreadySent = await (options.promptSent ?? opencodePromptSent)(resume.sessionId);
+    return driveOpencodeTurn(backend, resume.sessionId, plan, { ...options, alreadySent });
+  }
+  const { pane, sessionId } = resume ?? await startOpencodeContestant(backend, plan, terminal, options, steps);
+  // Settled is not running: a TUI that failed to start leaves a quiet pane at its shell, and the
+  // serve would still take the prompt, so the contestant would run with nothing to watch.
+  if (await steps.harnessExited(pane)) {
+    throw new OpencodeContestantError(`its TUI exited before the prompt: ${await steps.paneTail(pane)}`);
+  }
+  const prompt = await terminal.ready();
+  return driveOpencodeTurn(backend, sessionId, { ...plan, prompt }, options);
+}
+
+/** Makes the confined session, starts its TUI in a pane and lets it settle; answers both. */
+async function startOpencodeContestant(
+  backend: OpencodeContestantBackend,
+  plan: ContestantPlan,
+  terminal: ContestantTerminal,
+  options: OpencodeContestantOptions,
+  steps: TerminalContestantSteps,
+): Promise<{ pane: string; sessionId: string }> {
   const sessionId = await openOpencodeContestant(backend, plan, options);
   let pane: string;
   try {
@@ -255,11 +320,5 @@ export async function runOpencodeTerminalContestant(
   }
   terminal.onPane(pane, sessionId);
   await steps.settlePane(pane, OPENCODE_SETTLE_LIMIT_MS);
-  // Settled is not running: a TUI that failed to start leaves a quiet pane at its shell, and the
-  // serve would still take the prompt, so the contestant would run with nothing to watch.
-  if (await steps.harnessExited(pane)) {
-    throw new OpencodeContestantError(`its TUI exited before the prompt: ${await steps.paneTail(pane)}`);
-  }
-  const prompt = await terminal.ready();
-  return driveOpencodeTurn(backend, sessionId, { ...plan, prompt }, options);
+  return { pane, sessionId };
 }
