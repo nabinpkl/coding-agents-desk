@@ -192,3 +192,23 @@ test("a mode pair is a shown pane with no remembered height", async () => {
   expect(reloaded.terminalComposerHeight(one)).toBeNull();
   expect(reloaded.terminalComposerHeight(two)).toBe(240);
 });
+
+// A surface whose sessions live in panes the reader is there to type in shows them until hidden.
+// The hide is the choice there, so it is what gets remembered, and a session elsewhere is untouched.
+test("a session shown by default is shown untouched, and its hide is what is remembered", async () => {
+  const lane: TerminalComposerSession = { source: "opencode", sessionId: "ses_lane", shownByDefault: true };
+  expect(remembered()).toEqual([]);
+  toggleTerminalComposer(lane);
+  expect(remembered()).toEqual([["opencode:ses_lane", null, "hidden"]]);
+  vi.resetModules();
+  const reloaded = await import("@/features/terminal/terminalComposerPreference");
+  reloaded.toggleTerminalComposer(lane);
+  expect(remembered()).toEqual([]);
+});
+
+test("a pane shown by default can be dragged before anyone pressed it", () => {
+  const lane: TerminalComposerSession = { source: "claude", sessionId: "lane", shownByDefault: true };
+  setTerminalComposerHeight(lane, 200);
+  expect(terminalComposerHeight(lane)).toBe(200);
+  expect(remembered()).toEqual([["claude:lane", 200]]);
+});

@@ -59,6 +59,21 @@ const api = async (path, init) => {
   return { status: response.status(), body: await response.json().catch(() => null) };
 };
 const contestants = async () => (await api(`/api/arena/runs/${runId}`)).body?.contestants ?? [];
+const tmuxSessions = () => {
+  try {
+    return execFileSync(TMUX, ['list-sessions', '-F', '#{session_name}'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+// Each lane holds exactly one terminal: the session's own once it is listed, the pane joined
+// directly before that. Two would be a lane showing the same pane twice.
+const oneTerminalPerLane = async (page, problems, when) => {
+  for (const [index, source] of LINEUP.entries()) {
+    const count = await page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` }).locator('.xterm').count();
+    if (count !== 1) problems.push(`c${index + 1}'s lane holds ${count} terminals ${when}`);
+  }
+};
 const paneText = (pane) => {
   try {
     return execFileSync(TMUX, ['capture-pane', '-p', '-t', pane], { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
@@ -93,6 +108,7 @@ try {
     if (index > 0) await page.getByLabel('Add a contestant').click();
     await page.getByRole('radiogroup', { name: `Contestant ${index + 1} harness` }).getByRole('radio', { name: LABEL[source] }).click();
   }
+  const sessionsBefore = new Set(tmuxSessions());
   await page.getByRole('button', { name: /Open lanes/ }).click();
   await page.getByRole('tablist', { name: 'Compare by' }).waitFor({ timeout: 20_000 });
   runId = (await api('/api/arena/runs')).body?.runs?.[0]?.runId ?? null;
@@ -148,6 +164,7 @@ try {
   }
   if (atLine.some((c) => c.startedAt !== null)) problems.push('a lane started its clock before there was a prompt');
   await page.waitForTimeout(2000);
+  await oneTerminalPerLane(page, problems, 'while waiting for the prompt');
   await page.screenshot({ path: join(shots, 'arena-terminals-ready.png') });
 
   // Now the prompt, typed once on the run, for every lane.
@@ -161,6 +178,18 @@ try {
 
   const final = await contestants();
   await page.waitForTimeout(2000);
+  await oneTerminalPerLane(page, problems, 'once the turns closed');
+  // And that terminal is the contestant's own pane, not a shell of its own in the worktree, which
+  // looks alike in a screenshot: the harness's own footer is on its screen, and a shell's is not.
+  const HARNESS_FOOTER = { opencode: /ctrl\+p commands/, claude: /don't ask on/ };
+  for (const [index, source] of LINEUP.entries()) {
+    const shown = await page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` }).locator('.xterm').first()
+      .evaluate((node) => (node.querySelector('.xterm-rows') ?? node.querySelector('.xterm-accessibility-tree'))?.textContent ?? '');
+    if (!HARNESS_FOOTER[source].test(shown)) problems.push(`c${index + 1}'s lane terminal is not showing ${LABEL[source]}: ${shown.replace(/\s+/g, ' ').slice(-120)}`);
+  }
+  // Only the contestants' own panes are new: a lane's terminal joins its pane, never starts one.
+  const madeByRun = tmuxSessions().filter((name) => !sessionsBefore.has(name));
+  if (madeByRun.length !== LINEUP.length) problems.push(`the run left ${madeByRun.length} new tmux sessions, not ${LINEUP.length}: ${madeByRun.join(', ')}`);
   await page.screenshot({ path: join(shots, 'arena-terminals-closed.png') });
   for (const c of final) {
     if (c.status !== 'closed') problems.push(`${c.contestantId} (${c.source}) ended ${c.status}: ${c.error ?? ''}`);

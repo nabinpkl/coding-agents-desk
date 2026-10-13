@@ -23,9 +23,11 @@
  * the transcript back for a moment and shows it again expecting the size they chose, so a toggle
  * that reset it undid a drag every time it was pressed.
  *
- * OFF by default with no height, so a session never touched has nothing to remember. Capped so a
- * store of every session ever opened cannot accumulate; the pane toggled longest ago is the one
- * dropped.
+ * OFF by default with no height, so a session never touched has nothing to remember. A surface
+ * whose sessions live in panes the reader is there to type in (an arena lane) asks for ON by
+ * default instead, and for those a hide is what gets remembered, so closing the pane keeps it
+ * closed. Capped so a store of every session ever opened cannot accumulate; the pane toggled
+ * longest ago is the one dropped.
  */
 import { useSyncExternalStore } from "react";
 
@@ -40,6 +42,8 @@ const HIDDEN = "hidden";
 export interface TerminalComposerSession {
   source: string;
   sessionId: string;
+  /** What this session's pane is when nobody has toggled it: hidden unless the surface says. */
+  shownByDefault?: boolean;
 }
 
 const listeners = new Set<() => void>();
@@ -89,9 +93,9 @@ function load(): Remembered {
       const height = typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0
         ? entry[1]
         : null;
-      const shown = entry[2] !== HIDDEN;
-      if (!shown && height === null) continue;
-      read.set(entry[0], { shown, height });
+      // A hidden pane with no height is stored only for a session shown by default, where the hide
+      // is the choice; for any other it would be the default, and is never written.
+      read.set(entry[0], { shown: entry[2] !== HIDDEN, height });
     }
     return read;
   } catch {
@@ -111,10 +115,13 @@ function store(state: Remembered): void {
   }
 }
 
-/** Puts a session's arrangement at the tail, as the most recent, and evicts past the cap. */
-function arrange(state: Remembered, key: string, arrangement: Arrangement): void {
+/**
+ * Puts a session's arrangement at the tail, as the most recent, and evicts past the cap. An
+ * arrangement that is the session's default with nothing dragged is dropped instead.
+ */
+function arrange(state: Remembered, key: string, arrangement: Arrangement, shownByDefault: boolean): void {
   state.delete(key);
-  if (!arrangement.shown && arrangement.height === null) return;
+  if (arrangement.shown === shownByDefault && arrangement.height === null) return;
   state.set(key, arrangement);
   // Deleting from the front of an insertion-ordered Map is how it stays bounded, and it drops the
   // arrangement made longest ago rather than the one just made.
@@ -133,9 +140,10 @@ function arrange(state: Remembered, key: string, arrangement: Arrangement): void
  */
 export function toggleTerminalComposer(session: TerminalComposerSession): void {
   const key = sessionKey(session);
+  const shownByDefault = session.shownByDefault ?? false;
   const next = load();
   const current = next.get(key);
-  arrange(next, key, { shown: !current?.shown, height: current?.height ?? null });
+  arrange(next, key, { shown: !(current?.shown ?? shownByDefault), height: current?.height ?? null }, shownByDefault);
   remembered = next;
   store(next);
   for (const listener of listeners) listener();
@@ -167,10 +175,12 @@ export function setTerminalComposerHeight(
   const next = load();
   // Only a pane that is up can be dragged, so a height for one that is not is a write from
   // somewhere that has lost track of it.
-  if (!next.get(key)?.shown) return;
+  if (!(next.get(key)?.shown ?? session.shownByDefault ?? false)) return;
   // In place rather than through `arrange`: a Map keeps a key's position when its value is
-  // replaced, and the press that showed the pane is what recency counts, not every pointer move.
-  next.set(key, { shown: true, height: Math.round(height) });
+  // replaced, and the press that showed the pane is what recency counts, not every pointer move. A
+  // pane shown by default and never pressed goes in at the tail, as `arrange` would put it.
+  if (next.has(key)) next.set(key, { shown: true, height: Math.round(height) });
+  else arrange(next, key, { shown: true, height: Math.round(height) }, session.shownByDefault ?? false);
   remembered = next;
   store(next);
 }
@@ -179,12 +189,13 @@ export function useTerminalComposerShown(session: TerminalComposerSession): bool
   // Read through the key so the snapshot is a boolean: `useSyncExternalStore` compares snapshots by
   // identity, and handing it the Map would re-render every session's band on any session's press.
   const key = sessionKey(session);
+  const shownByDefault = session.shownByDefault ?? false;
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    () => remembered.get(key)?.shown === true,
-    () => false,
+    () => remembered.get(key)?.shown ?? shownByDefault,
+    () => shownByDefault,
   );
 }

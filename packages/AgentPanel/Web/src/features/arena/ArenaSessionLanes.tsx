@@ -11,11 +11,13 @@
 // one identity both the arena and the catalog hold. A contestant whose session the catalog has
 // not listed yet says so in its lane rather than leaving it empty.
 //
-// A contestant driven in a terminal also has its pane in the lane, joined with the same terminal
-// a canvas card uses: typeable, so a reader can answer what the harness asks on its way up (a
-// folder-trust question) or step into the session afterwards. Before a Claude contestant's first
-// turn the catalog has nothing to list, so its lane shows the empty feed every lane starts with,
-// over its terminal, until the transcript lands.
+// A contestant driven in a terminal has its pane in the lane, typeable, so a reader can answer what
+// the harness asks on its way up (a folder-trust question) or step into the session afterwards.
+// Once the session is listed, that is the pane its composer shows above the field, shown until the
+// reader hides it: the same control, pane and size as anywhere a session is shown, so a lane never
+// holds two. Before a
+// Claude contestant's first turn the catalog has nothing to list, so its lane shows the empty feed
+// every lane starts with, over that same pane joined directly, until the transcript lands.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ArenaContestantDetail, SessionSummary } from "@agentdesk/agent-feed-wire";
@@ -84,8 +86,6 @@ export function SessionLane({
   context: SessionViewContext;
 }) {
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
-  // What the terminal band's height is a share of: the lane, not the viewport (see `heightBasis`).
-  const [lane, setLane] = useState<HTMLElement | null>(null);
   const [tasksHost, setTasksHost] = useState<HTMLElement | null>(null);
   const [acceptFiles, setAcceptFiles] = useState<((files: readonly File[]) => void) | null>(null);
   // Stable by construction, as `SessionView` requires: a fresh function here would republish on
@@ -99,7 +99,6 @@ export function SessionLane({
 
   return (
     <section
-      ref={setLane}
       aria-label={`${label} session`}
       className="relative flex min-h-0 min-w-0 flex-col bg-background"
       {...drop.dropProps}
@@ -119,6 +118,7 @@ export function SessionLane({
             controlsHost={controlsHost}
             tasksHost={tasksHost}
             onAcceptFiles={takeAcceptFiles}
+            terminalPaneShownByDefault={contestant.tmuxSession !== null}
           />
         </div>
       ) : contestant.tmuxSession ? (
@@ -136,15 +136,13 @@ export function SessionLane({
           ) : null}
         </div>
       )}
-      {contestant.tmuxSession ? (
+      {!listed && contestant.tmuxSession ? (
         <AgentTerminalPane
           // Keyed by the pane, so a lane that moves to another contestant joins that one afresh.
           key={contestant.tmuxSession}
           feed={context.feed}
           // Joining, not starting: the arena started the pane, and opening it twice is once.
           context={{ kind: "tmux", session: contestant.tmuxSession }}
-          layout="band"
-          heightBasis={lane}
         />
       ) : null}
       <div ref={setTasksHost} className="contents" />

@@ -25,7 +25,6 @@ import type {
   AgentTerminalDescriptor,
   AgentUiRequest,
   SessionSummary,
-  SessionTmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
@@ -68,12 +67,7 @@ import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
-import {
-  setTerminalComposerHeight,
-  terminalComposerHeight,
-  toggleTerminalComposer,
-  useTerminalComposerShown,
-} from "@/features/terminal/terminalComposerPreference";
+import { useSessionComposerPane } from "@/features/session-view/useSessionComposerPane";
 import { SessionComposer } from "@/features/session-view/composer/SessionComposer";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
 import { TerminalControl, TerminalNotice } from "@/features/session-view/SessionTerminalControls";
@@ -132,6 +126,7 @@ export function SessionView({
   onForkFromMessage,
   onAttachSession,
   externalError = null,
+  terminalPaneShownByDefault = false,
 }: SessionViewContext & {
   /** The directory this session runs in, which is how its terminal names the process to open. */
   projectPath: string;
@@ -172,6 +167,12 @@ export function SessionView({
    * from a success.
    */
   externalError?: string | null;
+  /**
+   * Shows the session's own pane above the composer until the reader hides it, rather than only
+   * once they show it. For a surface whose sessions live in panes the reader is there to type in,
+   * such as an arena lane; the composer's terminal control still hides and shows it.
+   */
+  terminalPaneShownByDefault?: boolean;
 }) {
   const { source, sessionId, capabilities } = session;
   /**
@@ -258,7 +259,7 @@ export function SessionView({
   // window composer and a plain send. Asked only for claude rows; every other source leaves the
   // hook inert and never issues a request.
   const cliInput = useCliInput(feed, { source, sessionId }, source === "claude");
-  const terminalComposerShown = useTerminalComposerShown({ source, sessionId });
+  const composerPane = useSessionComposerPane(source, sessionId, terminalPaneShownByDefault);
 
   const terminalComposer = useMemo<AgentTerminalComposer | null>(() => {
     if (terminal.kind !== "ready") return null;
@@ -266,24 +267,6 @@ export function SessionView({
       send: (text) => feed.sendTerminalPrompt(terminal.descriptor.terminalId, text),
     };
   }, [feed, terminal]);
-
-  // The composer's terminal names the SESSION, and the sidecar resolves which tmux pane that is:
-  // the one a live process is running in, or one it starts to resume the session id.
-  //
-  // It used to name the pane instead, read from `cliInput.tmuxSession`, and that could only ever
-  // be half the sessions: the value comes from a live process's registry row, so a session running
-  // outside tmux and a session not running at all both read as null and got no terminal. It also
-  // had to be latched, because `cliInput` resets to idle on every status read and a terminal
-  // mounted on the live value was torn down and re-attached every couple of seconds -- measured as
-  // a close/open cycle in the network log. Naming the session removes both: the id is stable for
-  // as long as this view is mounted, and nothing about it blinks.
-  const composerTerminal = useMemo<SessionTmuxTerminalContext | null>(
-    () =>
-      source === "claude" || source === "codex" || source === "opencode"
-        ? { kind: "session-tmux", source, sessionId }
-        : null,
-    [source, sessionId],
-  );
 
   // Addresses this session for the task stream. `mode` is required by the reference type but means
   // nothing here -- background tasks are not read in a transcript view -- so it is pinned rather
@@ -463,17 +446,7 @@ export function SessionView({
         cliInput={cliInput}
         windowComposerClient={source === "codex" ? windowComposers.codex : windowComposers.claude}
         agentTerminal={terminalComposer}
-        terminalComposer={composerTerminal
-          ? {
-            context: composerTerminal,
-            shown: terminalComposerShown,
-            toggle: () => toggleTerminalComposer({ source, sessionId }),
-            // Read on every render and used by the pane only on the one it mounts in. A store that
-            // kept pushing would fight the drag it exists to remember.
-            height: terminalComposerHeight({ source, sessionId }),
-            onResized: (height) => setTerminalComposerHeight({ source, sessionId }, height),
-          }
-          : null}
+        terminalComposer={composerPane}
         terminalHeightBasis={column}
         onFileDrop={setFileDrop}
         onSendMessage={commands.sendPrompt}
