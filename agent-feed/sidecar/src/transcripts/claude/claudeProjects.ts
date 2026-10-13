@@ -219,6 +219,8 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         if (isTail) {
           const closed = turnClosedFor(ev);
           if (closed !== undefined) out.lastTurnClosed = closed;
+          const at = typeof ev.timestamp === 'string' ? Date.parse(ev.timestamp) : NaN;
+          if (Number.isFinite(at) && at > (out.lastRecordAt ?? -Infinity)) out.lastRecordAt = at;
         }
         if (isHead) out.firstPrompt ??= promptText(ev);
       }

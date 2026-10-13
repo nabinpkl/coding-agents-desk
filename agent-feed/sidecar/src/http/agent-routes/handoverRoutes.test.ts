@@ -51,17 +51,20 @@ function handoverLine(record: Record<string, unknown>): string {
   return JSON.stringify({ cwd: "/tmp/project", timestamp: "2026-09-09T05:00:00.000Z", uuid: crypto.randomUUID(), ...record });
 }
 
-async function handoverTranscript(id: string, compacted: boolean): Promise<string> {
+/** `empty` has records but no turn in any of them: the one session left with nothing to hand over. */
+async function handoverTranscript(id: string, shape: "compacted" | "plain" | "empty"): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agent-handover-"));
   const path = join(root, `${id}.jsonl`);
-  const lines = compacted
-    ? [
+  const lines = {
+    compacted: [
       handoverLine({ type: "user", message: { role: "user", content: "before" } }),
       handoverLine({ type: "system", subtype: "compact_boundary", content: "Conversation compacted" }),
       handoverLine({ type: "user", isCompactSummary: true, message: { role: "user", content: "Primary request: fix it." } }),
       handoverLine({ type: "user", message: { role: "user", content: "did it land?" } }),
-    ]
-    : [handoverLine({ type: "user", message: { role: "user", content: "never summarized" } })];
+    ],
+    plain: [handoverLine({ type: "user", message: { role: "user", content: "never summarized" } })],
+    empty: [handoverLine({ type: "permission-mode", permissionMode: "default" })],
+  }[shape];
   await writeFile(path, `${lines.join("\n")}\n`);
   return root;
 }
@@ -99,7 +102,7 @@ function handoverBackend(calls: { created: { requestId: string; project: string 
 }
 
 test("a handover creates the opencode session in the source project and sends provenance plus context", async () => {
-  const root = await handoverTranscript(HANDOVER_ID, true);
+  const root = await handoverTranscript(HANDOVER_ID, "compacted");
   seedHandoverSession(HANDOVER_ID, join(root, `${HANDOVER_ID}.jsonl`));
   try {
     const calls = { created: [] as { requestId: string; project: string }[], sent: [] as { sessionId: string; text: string }[] };
@@ -125,31 +128,41 @@ test("a handover creates the opencode session in the source project and sends pr
   }
 });
 
-test("a handover answers 404 when the session is unknown or was never compacted", async () => {
+test("a handover answers 404 for an unknown session", async () => {
   const route = createHandoverRoutes(() => fakeBackend());
   const missing = new Request("http://localhost/api/agent-sessions/opencode/handover", {
     method: "POST",
     body: JSON.stringify({ requestId: "h2", sessionId: "no-such-session" }),
   });
   expect((await route(missing, new URL(missing.url), server))?.status).toBe(404);
+});
 
-  const root = await handoverTranscript(HANDOVER_PLAIN_ID, false);
+test("a session that never compacted hands over its whole conversation", async () => {
+  // A compaction was never what made a handover small enough: the render cuts every tool input
+  // and output to head and tail either way. Refusing here sent a reader off to compact a session
+  // just to move it.
+  const root = await handoverTranscript(HANDOVER_PLAIN_ID, "plain");
   seedHandoverSession(HANDOVER_PLAIN_ID, join(root, `${HANDOVER_PLAIN_ID}.jsonl`));
   try {
+    const calls = { created: [] as { requestId: string; project: string }[], sent: [] as { sessionId: string; text: string }[] };
+    const route = createHandoverRoutes((id) => id === "opencode" ? handoverBackend(calls) : undefined);
     const plain = new Request("http://localhost/api/agent-sessions/opencode/handover", {
       method: "POST",
       body: JSON.stringify({ requestId: "h3", sessionId: HANDOVER_PLAIN_ID }),
     });
     const response = await route(plain, new URL(plain.url), server);
-    expect(response?.status).toBe(404);
-    expect(await response?.json()).toMatchObject({ error: { code: "no-compaction-point" } });
+    expect(response?.status).toBe(201);
+    const prompt = calls.sent[0]!.text;
+    expect(prompt).toContain("never compacted");
+    expect(prompt).toContain("never summarized");
+    expect(prompt).not.toContain("COMPACTION SUMMARY");
   } finally {
     await unseedHandoverSession(HANDOVER_PLAIN_ID, root);
   }
 });
 
 test("a handover answers 404 when opencode is not registered", async () => {
-  const root = await handoverTranscript(HANDOVER_ID, true);
+  const root = await handoverTranscript(HANDOVER_ID, "compacted");
   seedHandoverSession(HANDOVER_ID, join(root, `${HANDOVER_ID}.jsonl`));
   try {
     const route = createHandoverRoutes(() => undefined);
@@ -242,10 +255,41 @@ test("a handover to Claude starts a session where the opencode session runs, car
   }
 });
 
-test("a handover to Claude answers 404 for an unknown session and for one never compacted", async () => {
+test("a handover to Claude puts the started session on the asking Bot, in the same request", async () => {
+  // The panel's own attach resolved against the catalog, which has no Claude session until its
+  // first turn writes the transcript, so it failed every time with "not in the current catalog".
+  seedOpencodeSession(OPENCODE_ID, "Wire contract");
+  const started: { cwd: string; title: string; prompt?: string }[] = [];
+  const attached: { botId: string; sessionId: string }[] = [];
+  try {
+    const route = createHandoverRoutes(() => undefined, {
+      ...claudeActions(started, async () => ({ summary: null, turns: "human: hi", turnCount: 1, lossy: false })),
+      bots: {
+        exists: async (botId) => botId === "bot-1",
+        attach: async (botId, ref) => { attached.push({ botId, sessionId: ref.sessionId }); },
+      },
+    });
+    const request = handoverRequest({ requestId: "r7", sessionId: OPENCODE_ID, botId: "bot-1" });
+    const response = await route(request, new URL(request.url), server);
+    expect(response?.status).toBe(201);
+    const body = await response?.json() as { session: { sessionId: string } };
+    expect(attached).toEqual([{ botId: "bot-1", sessionId: body.session.sessionId }]);
+
+    // A Bot that is gone is refused before anything starts, rather than leaving a pane behind.
+    const stale = handoverRequest({ requestId: "r8", sessionId: OPENCODE_ID, botId: "bot-gone" });
+    const refused = await route(stale, new URL(stale.url), server);
+    expect(refused?.status).toBe(404);
+    expect(await refused?.json()).toMatchObject({ error: { code: "unknown-bot" } });
+    expect(started).toHaveLength(1);
+  } finally {
+    unseedOpencodeSession(OPENCODE_ID);
+  }
+});
+
+test("a handover to Claude answers 404 for an unknown session and for one with nothing in it", async () => {
   const started: { cwd: string; title: string; prompt?: string }[] = [];
   const refusing = createHandoverRoutes(() => undefined, claudeActions(started, async () => {
-    throw new SessionHandoverError("was never compacted: nothing to hand over");
+    throw new SessionHandoverError("has no conversation to hand over");
   }));
 
   const missing = handoverRequest({ requestId: "r2", sessionId: "oc_nothing" });
@@ -256,7 +300,7 @@ test("a handover to Claude answers 404 for an unknown session and for one never 
     const plain = handoverRequest({ requestId: "r3", sessionId: OPENCODE_ID });
     const response = await refusing(plain, new URL(plain.url), server);
     expect(response?.status).toBe(404);
-    expect(await response?.json()).toMatchObject({ error: { code: "no-compaction-point" } });
+    expect(await response?.json()).toMatchObject({ error: { code: "nothing-to-hand-over" } });
     // The refusal is the whole point: a session that was started and then told nothing is worse
     // than no session, because it looks like the handover worked.
     expect(started).toEqual([]);
@@ -314,7 +358,7 @@ function readRequest(source: string, sessionId: string): Request {
 }
 
 test("reads a Claude session's summary and the turns since it, and starts nothing", async () => {
-  const root = await handoverTranscript(HANDOVER_ID, true);
+  const root = await handoverTranscript(HANDOVER_ID, "compacted");
   seedHandoverSession(HANDOVER_ID, join(root, `${HANDOVER_ID}.jsonl`));
   const started: { cwd: string; title: string; prompt?: string }[] = [];
   try {
@@ -384,7 +428,7 @@ test("refuses a source with no compaction boundary by name, not as a missing ses
 test("the read and the start refuse the same session for the same reason", async () => {
   // The one thing three routes sharing a reader is FOR. A read that offers a summary the start
   // then refuses, or the other way round, is worse than either refusing alone.
-  const root = await handoverTranscript(HANDOVER_PLAIN_ID, false);
+  const root = await handoverTranscript(HANDOVER_PLAIN_ID, "empty");
   seedHandoverSession(HANDOVER_PLAIN_ID, join(root, `${HANDOVER_PLAIN_ID}.jsonl`));
   try {
     const route = createHandoverRoutes((id) => id === "opencode"
@@ -404,8 +448,8 @@ test("the read and the start refuse the same session for the same reason", async
       readAnswer?.json() as Promise<{ error: { code: string } }>,
       startAnswer?.json() as Promise<{ error: { code: string } }>,
     ]);
-    expect(readBody.error.code).toBe("no-compaction-point");
-    expect(startBody.error.code).toBe("no-compaction-point");
+    expect(readBody.error.code).toBe("nothing-to-hand-over");
+    expect(startBody.error.code).toBe("nothing-to-hand-over");
   } finally {
     await unseedHandoverSession(HANDOVER_PLAIN_ID, root);
   }

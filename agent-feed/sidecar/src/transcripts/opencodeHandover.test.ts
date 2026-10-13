@@ -56,7 +56,7 @@ test("reads the summary off the serve rather than the row, so the feed's cap doe
     user("m2", "carry on", 200),
   ]));
   expect(rendered.summary).toBe(summary);
-  expect(rendered.summary.length).toBe(20_000);
+  expect(rendered.summary?.length).toBe(20_000);
 });
 
 test("cuts at the newest landed compaction, not the first and not a retry that did not land", async () => {
@@ -85,18 +85,36 @@ test("orders by the serve's own clock, since history pages do not arrive in orde
   expect(rendered.turns.indexOf("first")).toBeLessThan(rendered.turns.indexOf("second"));
 });
 
-test("refuses a session that was never compacted rather than pasting the whole thing", async () => {
-  await expect(renderOpencodeHandover("oc_5", history([
+test("hands over every turn of a session that was never compacted", async () => {
+  const rendered = await renderOpencodeHandover("oc_5", history([
     user("m1", "hello", 100),
     user("m2", "goodbye", 200),
+  ]));
+  expect(rendered.summary).toBeNull();
+  expect(rendered.turnCount).toBe(2);
+  expect(rendered.turns.indexOf("hello")).toBeLessThan(rendered.turns.indexOf("goodbye"));
+});
+
+test("a compaction still running is not a boundary: the whole conversation goes", async () => {
+  // The serve writes the checkpoint when compaction STARTS. Cutting there would carry a summary
+  // the summariser has not finished, which reads as a complete handover of half a story.
+  const rendered = await renderOpencodeHandover("oc_6", history([
+    user("m1", "hello", 100),
+    compaction("m2", "half a summary", 200, "running"),
+  ]));
+  expect(rendered.summary).toBeNull();
+  expect(rendered.turns).toContain("hello");
+  expect(rendered.turns).not.toContain("half a summary");
+});
+
+test("refuses a landed compaction with no summary rather than handing over what it replaced", async () => {
+  await expect(renderOpencodeHandover("oc_7", history([
+    user("m1", "summarised away", 100),
+    compaction("m2", "", 200),
+    user("m3", "after", 300),
   ]))).rejects.toBeInstanceOf(SessionHandoverError);
 });
 
-test("refuses when the only compaction is still running", async () => {
-  // The serve writes the checkpoint when compaction STARTS. Handing over from one would carry a
-  // summary the summariser has not finished, which reads as a complete handover of half a story.
-  await expect(renderOpencodeHandover("oc_6", history([
-    user("m1", "hello", 100),
-    compaction("m2", "half a summary", 200, "running"),
-  ]))).rejects.toBeInstanceOf(SessionHandoverError);
+test("refuses a session with nothing said in it", async () => {
+  await expect(renderOpencodeHandover("oc_8", history([]))).rejects.toBeInstanceOf(SessionHandoverError);
 });

@@ -82,9 +82,8 @@ export function useBotCommands(
   /**
    * Opens the handover dialog for a Bot's Claude or opencode session.
    *
-   * The two harnesses that compact, in either direction. Codex is absent rather than inert: it
-   * has no compaction boundary to cut at, so there is nothing to state what the successor would
-   * be looking at.
+   * Claude and opencode, in either direction. Codex is absent rather than inert: it is a dormant
+   * provider (`AGENTS.md`).
    */
   const handoverSession = useCallback((bot: BotView, session: SessionSummary) => {
     if (!handoverDestination(session)) return;
@@ -113,12 +112,33 @@ export function useBotCommands(
     }
     try {
       const feed = feeds.forBot(request.botId);
-      // Two calls rather than one with an argument, because the sidecar answers them differently:
-      // opencode hands back the descriptor its backend made, Claude hands back the pane it
-      // started. Both carry a session id, which is all that happens next needs.
-      const { session: started } = destination === "claude"
-        ? await feed.handoverToClaude(request.session.sessionId, message)
-        : await feed.handoverToOpencode(request.session.sessionId, message);
+      if (destination === "claude") {
+        // Attached by the sidecar inside the handover, because an attach from here resolves the
+        // session against the catalog, which has not seen a Claude session whose first turn is
+        // still being written. Opened the way a fresh Bot launch is, as a stand-in card until
+        // its transcript lands.
+        const { session: started } = await feed.handoverToClaude(
+          request.session.sessionId,
+          message,
+          request.botId,
+        );
+        setNewSessions((current) => [
+          ...current,
+          {
+            botId: request.botId,
+            sessionId: started.sessionId,
+            title: started.title,
+            projectPath: started.projectPath,
+            tmuxSession: started.tmuxSession,
+          },
+        ]);
+        putBotOnCanvas(request.botId);
+        setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
+        return;
+      }
+      // An opencode session is in the catalog the moment the serve creates it, so it attaches as
+      // an ordinary reference.
+      const { session: started } = await feed.handoverToOpencode(request.session.sessionId, message);
       await feed.addBotSessions(request.botId, {
         sessionRefs: [{ source: destination, sessionId: started.sessionId }],
       });
@@ -131,7 +151,7 @@ export function useBotCommands(
         }`,
       });
     }
-  }, [feeds, setCanvasOpenKeys]);
+  }, [feeds, putBotOnCanvas, setCanvasOpenKeys]);
 
   const forks = useForkCommands(feeds, roster, setBotCommandError, setNewSessions);
 

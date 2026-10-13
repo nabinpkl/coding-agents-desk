@@ -15,9 +15,10 @@ export type HandoverDestination = keyof typeof HANDOVER_LABELS;
  * what to say -- and those three disagreeing is a menu entry that opens a dialog that starts
  * nothing.
  *
- * A handover runs between the two harnesses that compact, so the destination is simply the other
- * one. Codex is not a source: it has no compaction boundary to cut at, and a handover without a
- * summary is a long paste with no statement of what the successor is looking at.
+ * A handover runs between Claude and opencode, so the destination is simply the other one. It
+ * does not need a compaction: a session that never compacted hands over its whole conversation,
+ * tool output cut to head and tail the way it is after a compaction. Codex and Pi are not sources
+ * because both are dormant providers (`AGENTS.md`), not for want of a reader.
  */
 export function handoverDestination(session: SessionSummary): HandoverDestination | null {
   if (session.source === "claude") return "opencode";

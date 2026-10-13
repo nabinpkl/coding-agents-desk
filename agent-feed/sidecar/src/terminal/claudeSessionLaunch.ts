@@ -16,6 +16,9 @@
 // running, in the pane one of those three started; it lives here because recognising that pane is
 // recognising this file's own launch script.
 
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createTmuxSession,
   findTmuxSessionByIdentity,
@@ -63,9 +66,10 @@ export function claudeSessionPaneName(sessionId: string): string {
  * which is what other agents can send to. A session started without one is indistinguishable
  * from every other in a listing.
  *
- * The prompt is a positional argument, which is how the CLI takes a first turn. It goes through
- * the same per-argument shell quoting as everything else on this path (`newSessionArgs`), so a
- * brief carrying quotes, parentheses or newlines arrives whole.
+ * The prompt is a positional argument, which is how the CLI takes a first turn. `startClaudeSession`
+ * delivers it through a file (`firstTurnFromFile`) rather than on tmux's command line, which caps
+ * near 16KB, so a brief carrying quotes, parentheses or newlines -- or a whole handover -- arrives
+ * as that one argument, whole.
  *
  * Every argv this file builds -- this one, the fork's and the resume's -- carries the permission
  * flags from `configClaudeLaunch.ts`, so a session opens in one mode however it was started.
@@ -94,6 +98,61 @@ export function resumeClaudeSessionCommand(sessionId: string): string[] {
 const UNATTENDED_COLUMNS = 120;
 const UNATTENDED_ROWS = 40;
 
+/**
+ * The pane script that hands the CLI its first turn out of a file: read it, delete it and its
+ * directory, then run the command with the contents as one more argument.
+ *
+ * `printf x` and `${p%x}` keep the turn byte-exact, because command substitution strips trailing
+ * newlines. The turn is never expanded or re-split: `"$@"` and `"${p%x}"` are quoted, so a turn full
+ * of quotes, `$` and backticks arrives as the one argument it was.
+ */
+const FIRST_TURN_SCRIPT =
+  'f=$1; shift; p=$(cat "$f" && printf x); s=$?; rm -f "$f"; rmdir "${f%/*}"; [ "$s" -eq 0 ] && exec "$@" "${p%x}"';
+
+/**
+ * `command` run with its first turn read from `file` rather than carried on tmux's command line.
+ *
+ * tmux sends `new-session`'s command to its server as one message and refuses any over about 16KB
+ * with "command too long" (measured 2026-10-11 on tmux 3.6b: a 16,000-character command started, a
+ * 20,000-character one did not). A handover runs from tens to hundreds of kilobytes, so its turn
+ * cannot travel there. The CLI still gets it as its positional prompt, exactly as before; only the
+ * hop through tmux changed. What bounds it now is the kernel's argv limit, which the handover
+ * route checks before it gets here.
+ */
+export function firstTurnFromFile(command: readonly string[], file: string): string[] {
+  return ["/bin/sh", "-c", FIRST_TURN_SCRIPT, "agentdesk-first-turn", file, ...command];
+}
+
+/**
+ * Creates a launch pane, moving the first turn -- the command's LAST argument, when it has one --
+ * into a private file the pane reads and deletes.
+ *
+ * Every turn goes this way, not only long ones, so there is one path to trust rather than a short
+ * one that is exercised daily and a long one that is not. The file is the pane's to delete; this
+ * deletes it only when tmux never started the pane that would have.
+ */
+async function createLaunchPane(
+  session: string,
+  cwd: string,
+  command: string[],
+  hasFirstTurn: boolean,
+): Promise<void> {
+  const pane = { session, cwd, columns: UNATTENDED_COLUMNS, rows: UNATTENDED_ROWS };
+  if (!hasFirstTurn) {
+    await createTmuxSession({ ...pane, command });
+    return;
+  }
+  const directory = await mkdtemp(join(tmpdir(), "agentdesk-first-turn-"));
+  const file = join(directory, "turn.txt");
+  try {
+    await writeFile(file, command.at(-1)!, { mode: 0o600 });
+    await createTmuxSession({ ...pane, command: firstTurnFromFile(command.slice(0, -1), file) });
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 export interface StartedClaudeSession {
   sessionId: string;
   title: string;
@@ -115,13 +174,7 @@ export async function startClaudeSession(options: {
   prompt?: string;
 }): Promise<StartedClaudeSession> {
   const pane = claudeSessionPaneName(options.sessionId);
-  await createTmuxSession({
-    session: pane,
-    cwd: options.cwd,
-    command: newClaudeSessionCommand(options),
-    columns: UNATTENDED_COLUMNS,
-    rows: UNATTENDED_ROWS,
-  });
+  await createLaunchPane(pane, options.cwd, newClaudeSessionCommand(options), Boolean(options.prompt));
   const tmuxSession = await adoptTitleName(pane, options.sessionId, options.title);
   return { sessionId: options.sessionId, title: options.title, tmuxSession };
 }
@@ -219,13 +272,7 @@ export async function startForkedClaudeSession(options: {
   brief?: string;
 }): Promise<StartedClaudeSession> {
   const pane = claudeForkPaneName(options.forkId);
-  await createTmuxSession({
-    session: pane,
-    cwd: options.cwd,
-    command: forkClaudeSessionCommand(options),
-    columns: UNATTENDED_COLUMNS,
-    rows: UNATTENDED_ROWS,
-  });
+  await createLaunchPane(pane, options.cwd, forkClaudeSessionCommand(options), Boolean(options.brief));
   const tmuxSession = await adoptTitleName(pane, options.forkId, options.title);
   return { sessionId: options.forkId, title: options.title, tmuxSession };
 }

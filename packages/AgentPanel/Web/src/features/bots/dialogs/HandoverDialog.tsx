@@ -93,7 +93,8 @@ export function HandoverDialog({
           Starts {destination === "claude" ? "a" : "an"} {HANDOVER_LABELS[destination]} session on
           this Bot carrying{" "}
           <span className="font-mono">{request.session.title || request.session.sessionId}</span>
-          &rsquo;s context since its newest compaction. The new session opens on this Bot.
+          &rsquo;s conversation, from its newest compaction if it has one. The new session opens on
+          this Bot.
         </p>
         <label className="block text-sm font-medium">
           Message to send with it (optional)

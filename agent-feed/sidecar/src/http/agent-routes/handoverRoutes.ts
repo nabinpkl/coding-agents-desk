@@ -1,4 +1,4 @@
-// Handing a compacted session's context to a session of the other harness, in either direction,
+// Handing a session's context to a session of the other harness, in either direction,
 // and reading what that context currently amounts to without handing it anywhere.
 //
 // Three routes over one reader. The read is a GET on the session itself and starts nothing, which
@@ -24,10 +24,12 @@
 //                means this direction cannot strand a session even in principle.
 //
 // The argv is also where this direction's one real bound comes from. Measured on this project's
-// own compacted transcripts, a rendered handover runs 21KB to 68KB, and after the double shell
-// quoting on the way into tmux the largest was 68,891 bytes against a `kern.argmax` of 1,048,576
-// -- 6.6% of the budget. So argv is not the constraint at any realistic size, and the cap below
-// is a guard against pathology that says so out loud rather than letting the kernel answer E2BIG.
+// own compacted transcripts, a rendered handover runs 21KB to 68KB; a session that never compacted
+// is handed over whole and runs longer -- 273KB for one five-hour opencode session, nearly all of it
+// the model's own prose, since tool output is cut to head and tail either way. None of that fits
+// tmux's own command message, which refuses past about 16KB, so the turn travels to the pane in a
+// file (`firstTurnFromFile`) and reaches the CLI's argv from there. What bounds it is then the
+// kernel's argv limit, and the cap below says so out loud rather than letting exec answer E2BIG.
 //
 // It is deliberately NOT the 32,768 of `MAX_LAUNCH_PROMPT`. That number bounds a brief somebody
 // TYPED, and its own comment says why: past a few thousand characters a hand-written first turn
@@ -95,6 +97,24 @@ export interface HandoverRouteActions {
   launch: SessionLauncher;
   renderClaude: typeof renderHandover;
   renderOpencode: typeof renderOpencodeHandover;
+  /** The Bots a Claude successor can land on; absent where no registry is wired. */
+  bots?: HandoverBots;
+}
+
+/**
+ * Putting a Claude successor on the Bot the handover was asked from, inside the one request.
+ *
+ * Here rather than as the panel's second call, because that call races the session it attaches:
+ * it resolves the session against the catalog, and a Claude session started a moment ago is not
+ * in it until its first turn writes the transcript. The first real handover lost that race and
+ * answered "session claude:<id> is not in the current catalog" (2026-10-11). The opencode
+ * direction has no such gap, because the serve's create puts the session in the catalog before
+ * the route answers.
+ */
+export interface HandoverBots {
+  /** Asked BEFORE anything starts, so a stale Bot id costs an error rather than a stray pane. */
+  exists(botId: string): Promise<boolean>;
+  attach(botId: string, ref: { source: "claude"; sessionId: string }): Promise<void>;
 }
 
 export const LIVE_HANDOVER_ACTIONS: HandoverRouteActions = {
@@ -126,9 +146,10 @@ async function readSessionHandover(
     return {
       ok: false,
       code: "unsupported-source",
-      // Named rather than silently empty: Codex and Pi sessions are real rows in the same lists,
-      // and a reader told only "not found" would go looking for the session.
-      message: `"${source}" sessions have no compaction boundary to hand over from`,
+      // Named rather than silently empty: Codex and Pi are dormant providers, but their sessions
+      // are still real rows in the same lists, and a reader told only "not found" would go
+      // looking for the session.
+      message: `"${source}" sessions cannot be handed over`,
       status: 400,
     };
   }
@@ -159,14 +180,15 @@ async function rendered(
     return { ok: true, session, handover: await render() };
   } catch (error) {
     if (error instanceof SessionHandoverError) {
-      return { ok: false, code: "no-compaction-point", message: error.message, status: 404 };
+      return { ok: false, code: "nothing-to-hand-over", message: error.message, status: 404 };
     }
     throw error;
   }
 }
 
 /**
- * The summary a session is currently running on, and the turns since it.
+ * The summary a session is currently running on and the turns since it, or, for one that never
+ * compacted, a null summary and every turn.
  *
  * Read-only and starts nothing, which is the whole point of it being separate from the two POSTs:
  * asking what a session's context amounts to should not commit anyone to continuing it somewhere.
@@ -195,17 +217,18 @@ async function readHandover(
 }
 
 /**
- * The largest rendered prompt this will put on a command line.
+ * The largest rendered prompt, in bytes, this will hand the CLI as one argument.
  *
- * A quarter of `kern.argmax`, which leaves the environment and the rest of the argv room they do
- * not remotely need. A session that renders past this is pathological rather than large, and it
- * gets told so: the alternative is `posix_spawn` failing with E2BIG somewhere inside tmux, which
- * surfaces as a pane that never appeared.
+ * Half of macOS's `kern.argmax` (1,048,576), which leaves the environment and the rest of the argv
+ * more room than they need. Linux is tighter in a different way: one argument may not exceed
+ * `MAX_ARG_STRLEN`, 128KB including its terminator, however much total room there is. Past this
+ * the reader is told, because the alternative is `exec` failing with E2BIG inside the pane, which
+ * surfaces as a pane sitting at a shell prompt with no session in it.
  */
-export const MAX_HANDOVER_PROMPT = 256 * 1024;
+export const MAX_HANDOVER_PROMPT = process.platform === "linux" ? 128 * 1024 - 1 : 512 * 1024;
 
 /**
- * Start an opencode session carrying a compacted Claude session's context.
+ * Start an opencode session carrying a Claude session's context.
  *
  * Claude only as the source: any other is rejected rather than rendered by a rule written for
  * Claude records.
@@ -241,10 +264,10 @@ export async function handoverToOpencode(
 }
 
 /**
- * Start a Claude session carrying a compacted opencode session's context.
+ * Start a Claude session carrying an opencode session's context.
  *
  * The mirror of the route above, and the same refusals: opencode only as the source, and a
- * session with no landed compaction is refused rather than handed over as a long paste.
+ * session with nothing in it, or whose newest compaction has no readable summary, is refused.
  *
  * The new session runs where the source runs. Not a worktree: a handover continues a piece of
  * work rather than branching it, so putting the successor somewhere else would leave it looking
@@ -270,17 +293,23 @@ export async function handoverToClaude(
     const title = handoverTitle(body.title, source.title);
     const refusal = sessionTitleRefusal(title);
     if (refusal) return errorResponse("invalid-request", `title: ${refusal}`, 400, requestId);
+    const botId = typeof body.botId === "string" && body.botId ? body.botId : null;
+    if (botId !== null && !await actions.bots?.exists(botId)) {
+      return errorResponse("unknown-bot", `Bot "${botId}" was not found`, 404, requestId);
+    }
 
     const prompt = buildHandoverPrompt({ source: "opencode", sessionId, handover, message });
-    if (prompt.length > MAX_HANDOVER_PROMPT) {
+    const bytes = Buffer.byteLength(prompt);
+    if (bytes > MAX_HANDOVER_PROMPT) {
       return errorResponse(
         "handover-too-large",
-        `the rendered handover is ${prompt.length} characters, past the ${MAX_HANDOVER_PROMPT} a first turn can carry`,
+        `the rendered handover is ${bytes} bytes, past the ${MAX_HANDOVER_PROMPT} a first turn can carry`,
         413,
         requestId,
       );
     }
     const started = await launchSession({ checkout: source.project, title, prompt }, actions.launch);
+    if (botId !== null) await actions.bots!.attach(botId, { source: "claude", sessionId: started.sessionId });
     return jsonResponse({
       session: started,
       handover: { turnCount: handover.turnCount, chars: prompt.length, lossy: handover.lossy },

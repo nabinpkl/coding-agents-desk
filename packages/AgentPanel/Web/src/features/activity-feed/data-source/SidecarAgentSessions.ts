@@ -83,7 +83,12 @@ export class SidecarAgentSessions extends SidecarTerminals {
    * made, Claude with the pane that was started. One call for the same reason -- a Claude session
    * is created and given its first turn by one argv, so there is no half-done state to strand.
    */
-  async handoverToClaude(sessionId: string, message?: string): Promise<{
+  /**
+   * `botId` puts the started session on that Bot inside the same request. It has to be there
+   * rather than in a second attach: a Claude session is not in the catalog until its first turn
+   * writes a transcript, and the attach resolves against the catalog.
+   */
+  async handoverToClaude(sessionId: string, message?: string, botId?: string): Promise<{
     session: StartedSession;
     handover: { turnCount: number; chars: number; lossy: boolean };
   }> {
@@ -92,7 +97,12 @@ export class SidecarAgentSessions extends SidecarTerminals {
       handover: { turnCount: number; chars: number; lossy: boolean };
     }>(
       await this.transport.request("POST", "/api/agent-sessions/claude/handover", {
-        body: { requestId: crypto.randomUUID(), sessionId, ...(message ? { message } : {}) },
+        body: {
+          requestId: crypto.randomUUID(),
+          sessionId,
+          ...(message ? { message } : {}),
+          ...(botId ? { botId } : {}),
+        },
       }),
     );
   }

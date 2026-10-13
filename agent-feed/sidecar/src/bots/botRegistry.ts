@@ -452,6 +452,20 @@ export class BotRegistry {
     return { bot: await this.viewer.viewRecord(record), retired };
   }
 
+  /**
+   * Puts a Claude session this sidecar just STARTED elsewhere -- a handover -- on a Bot.
+   *
+   * Not `addSessions`, which resolves every reference against the catalog: a session started a
+   * moment ago is not in it, because the CLI writes its transcript only as its first turn lands.
+   * A launch through this registry attaches through the same door (`recordStartedSession`), and
+   * the reference reads as missing until the transcript appears, which is the honest reading.
+   */
+  async attachStartedSession(botId: string, ref: BotSessionRef, actor: BotActor): Promise<BotView> {
+    if (actor.kind !== "user") throw new BotForbiddenError("only the authenticated user may add sessions to a Bot");
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
+    return this.viewer.viewRecord(await this.starter.recordStartedSession(botId, ref));
+  }
+
   async botAllowedToAdd(session: BotSessionRef): Promise<boolean> {
     const snapshot = await this.store.snapshot();
     return snapshot.bots.some((bot) =>

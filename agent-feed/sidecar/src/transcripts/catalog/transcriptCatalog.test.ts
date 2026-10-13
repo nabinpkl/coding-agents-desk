@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -275,6 +275,35 @@ describe("transcript catalog identity", () => {
       await rm(transcript);
       await refreshClaudeSession(transcript);
       expect(state.sessions.has(key)).toBe(false);
+    } finally {
+      mutableConfig.claudeProjectsDirectory = previousProjects;
+    }
+  });
+
+  test("a Claude session is as recent as its newest record, not its file's mtime", async () => {
+    // Measured 2026-10-11: idle CLIs touched transcripts last written on Oct 3, and the mtime
+    // stamp moved six sessions to "03:01 today" and their projects to the top of the list.
+    const projects = await mkdtemp(join(tmpdir(), "agent-feed-projects-"));
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "agent-feed-repo-")));
+    temporaryDirectories.push(projects, repo);
+    await mkdir(join(projects, "-repo"), { recursive: true });
+    const sessionId = "44444444-4444-4444-4444-444444444444";
+    const transcript = join(projects, "-repo", `${sessionId}.jsonl`);
+    const mutableConfig = config as unknown as { claudeProjectsDirectory: string };
+    const previousProjects = config.claudeProjectsDirectory;
+    mutableConfig.claudeProjectsDirectory = projects;
+    try {
+      await writeFile(
+        transcript,
+        `${JSON.stringify({ type: "user", cwd: repo, timestamp: "2026-10-03T21:58:00.000Z" })}\n` +
+          `${JSON.stringify({ type: "system", cwd: repo, timestamp: "2026-10-03T21:58:56.111Z" })}\n` +
+          // The re-emitted metadata the CLI writes carries no timestamp, so it moves nothing.
+          `${JSON.stringify({ type: "permission-mode", permissionMode: "auto" })}\n`,
+      );
+      await utimes(transcript, new Date(), new Date());
+      await refreshClaudeSession(transcript);
+      expect(state.sessions.get(sessionKey("claude", sessionId))?.lastEventAt)
+        .toBe(Date.parse("2026-10-03T21:58:56.111Z"));
     } finally {
       mutableConfig.claudeProjectsDirectory = previousProjects;
     }
