@@ -11,6 +11,7 @@ import {
   assertGitRepository,
   ArenaWorktreeError,
   captureWorktreeDiff,
+  initRunRepository,
   removeContestantWorktree,
 } from "@/arena/arenaWorktrees";
 
@@ -109,6 +110,24 @@ test("captures the diff against the ref, untracked files named separately", asyn
   // Deliberate boundary, pinned: a new file is not in `git diff`, and `filesWritten` is where the
   // arena still names it. The diff is bounded by what git tracks.
   expect(diff).not.toContain("new-file.txt");
+});
+
+test("a run's own repository: one empty commit, worktrees inside it, and its own status clean", async () => {
+  const created = await mkdtemp(join(tmpdir(), "arena-"));
+  roots.push(created);
+  const folder = join(await realpath(created), "arena-run-1");
+  await mkdir(folder);
+  // Authored as the arena whatever this machine's git identity, signing or hooks say.
+  await initRunRepository({ path: folder, message: "arena run 1", worktreeFolders: ["c1", "c2"] });
+
+  expect(await capture(["log", "--format=%s|%an", "HEAD"], folder)).toBe("arena run 1|Agent Desk Arena");
+  await addContestantWorktree({ repoPath: folder, path: join(folder, "c1"), ref: "HEAD" });
+  await addContestantWorktree({ repoPath: folder, path: join(folder, "c2"), ref: "HEAD" });
+  // The worktrees sit inside the checkout they belong to, without showing up in its status.
+  expect(await capture(["status", "--porcelain"], folder)).toBe("");
+  await writeFile(join(folder, "c1", "made.txt"), "work\n");
+  expect(await capture(["status", "--porcelain"], join(folder, "c1"))).toBe("?? made.txt");
+  await removeContestantWorktree({ repoPath: folder, path: join(folder, "c1") });
 });
 
 async function capture(args: string[], cwd: string): Promise<string> {

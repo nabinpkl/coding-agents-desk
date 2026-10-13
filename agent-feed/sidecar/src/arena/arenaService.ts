@@ -22,6 +22,7 @@ import { isAbsolute, join } from "node:path";
 import type {
   ArenaContestantSource,
   ArenaCreateRunRequest,
+  ArenaNewRunDefaults,
   ArenaRunDetail,
   ArenaRunMode,
   ArenaRunSummary,
@@ -34,11 +35,13 @@ import {
   type ArenaContestantRecord,
   type ArenaRunRecord,
 } from "@/arena/arenaRun";
+import { claimRunFolder, nextRunName, releaseRunFolder, runNameFor } from "@/arena/arenaRunFolders";
 import { ArenaStore } from "@/arena/arenaStore";
 import {
   addContestantWorktree,
   assertGitRepository,
   captureWorktreeDiff,
+  initRunRepository,
   pruneWorktrees,
   removeContestantWorktree,
 } from "@/arena/arenaWorktrees";
@@ -71,6 +74,7 @@ const MAXIMUM_CONTESTANTS = 8;
 /** The worktree steps, as the service needs them; injected so its tests can fake git. */
 export interface ArenaWorktreeSteps {
   assertRepository(repoPath: string): Promise<void>;
+  initRepository(options: { path: string; message: string; worktreeFolders: readonly string[] }): Promise<void>;
   add(options: { repoPath: string; path: string; ref: string }): Promise<void>;
   remove(options: { repoPath: string; path: string }): Promise<void>;
   prune(repoPath: string): Promise<void>;
@@ -84,8 +88,7 @@ export class ArenaService {
   private readonly terminalDrivers: ContestantDrivers | null;
   private readonly killPane: (pane: string) => Promise<void>;
   private readonly worktrees: ArenaWorktreeSteps;
-  private readonly arenaRoot: string;
-  private readonly defaultRepoPath: string | null;
+  private readonly arenaHome: string;
   private readonly turnTimeoutMs: number;
   private readonly newRunId: () => string;
   /** Each live terminals run's start line, and the drives that wait at it, by run id. */
@@ -103,8 +106,8 @@ export class ArenaService {
     killPane?: (pane: string) => Promise<void>;
     /** Overridden in tests; the real steps are this module's own `arenaWorktrees.ts`. */
     worktrees?: ArenaWorktreeSteps;
-    arenaRoot: string;
-    defaultRepoPath: string | null;
+    /** Where each run's folder is made; absolute. */
+    arenaHome: string;
     turnTimeoutMs?: number;
     newRunId?: () => string;
   }) {
@@ -115,13 +118,14 @@ export class ArenaService {
     this.killPane = options.killPane ?? killTmuxSession;
     this.worktrees = options.worktrees ?? {
       assertRepository: assertGitRepository,
+      initRepository: initRunRepository,
       add: addContestantWorktree,
       remove: removeContestantWorktree,
       prune: pruneWorktrees,
       captureDiff: captureWorktreeDiff,
     };
-    this.arenaRoot = options.arenaRoot;
-    this.defaultRepoPath = options.defaultRepoPath;
+    if (!isAbsolute(options.arenaHome)) throw new Error(`the arena home must be absolute: "${options.arenaHome}"`);
+    this.arenaHome = options.arenaHome;
     this.turnTimeoutMs = options.turnTimeoutMs ?? TURN_TIMEOUT_MS;
     this.newRunId = options.newRunId ?? randomUUID;
     // One persistence owner: every registry change saves the whole index, so a sidecar that
@@ -138,6 +142,12 @@ export class ArenaService {
     return this.terminalDrivers ? ["terminals", "headless"] : ["headless"];
   }
 
+  /** What a run asked for with nothing filled in would get here, right now. */
+  newRunDefaults(): ArenaNewRunDefaults {
+    const nextName = nextRunName(this.arenaHome, this.registry.list().map((run) => run.name));
+    return { modes: this.modes(), arenaHome: this.arenaHome, nextName };
+  }
+
   listRuns(): ArenaRunSummary[] {
     return this.registry.list().map(runSummary);
   }
@@ -149,20 +159,25 @@ export class ArenaService {
   }
 
   /**
-   * Validates the request, makes every contestant's worktree, registers the run, and fans the
-   * prompt out in the background. The answer is the run as it stands at the moment of asking:
+   * Validates the request, makes the run's folder (and, when it names no repository, the run's
+   * own repository there), makes every contestant's worktree in it, registers the run, and fans
+   * the prompt out in the background. The answer is the run as it stands at the moment of asking:
    * every contestant preparing, none yet running.
    */
   async createRun(request: ArenaCreateRunRequest): Promise<ArenaRunSummary> {
     const prompt = typeof request.prompt === "string" ? request.prompt.trim() : "";
     checkPromptLength(prompt);
 
-    const repoPath = typeof request.repoPath === "string" && request.repoPath.trim()
-      ? request.repoPath.trim()
-      : this.defaultRepoPath;
-    if (!repoPath) throw new ArenaBadRequestError("a run needs a repository; pass repoPath");
-    if (!isAbsolute(repoPath)) throw new ArenaBadRequestError(`repoPath must be absolute: "${repoPath}"`);
-    await this.worktrees.assertRepository(repoPath);
+    const naming = runNameFor(request.name, this.arenaHome, this.registry.list().map((run) => run.name));
+    if ("problem" in naming) throw new ArenaBadRequestError(naming.problem);
+    const { name, folderName } = naming;
+
+    // No repository named means the run gets one of its own, made in its folder below.
+    const namedRepo = typeof request.repoPath === "string" ? request.repoPath.trim() : "";
+    if (namedRepo) {
+      if (!isAbsolute(namedRepo)) throw new ArenaBadRequestError(`repoPath must be absolute: "${namedRepo}"`);
+      await this.worktrees.assertRepository(namedRepo);
+    }
 
     const baseRef = typeof request.baseRef === "string" && request.baseRef.trim()
       ? request.baseRef.trim()
@@ -198,13 +213,22 @@ export class ArenaService {
     if (!/^[0-9a-f-]{36}$/.test(runId)) {
       throw new ArenaBadRequestError("a run id must be a uuid");
     }
-    const worktreeRoot = join(this.arenaRoot, runId);
+
+    // The folder last of all the checks, so a refused request leaves nothing in the home.
+    const folder = claimRunFolder(this.arenaHome, folderName);
+    if (!folder) {
+      throw new ArenaBadRequestError(
+        `${join(this.arenaHome, folderName)} already exists; name this run something else`,
+      );
+    }
+    const repoCreated = !namedRepo;
+    const repoPath = namedRepo || folder;
 
     const records: ArenaContestantRecord[] = request.contestants.map((contestant, index) => ({
       contestantId: `c${index + 1}`,
       source: contestant.source,
       sessionId: null,
-      worktreePath: join(worktreeRoot, `c${index + 1}`),
+      worktreePath: join(folder, `c${index + 1}`),
       tmuxSession: null,
       status: "preparing" as const,
       startedAt: null,
@@ -219,20 +243,31 @@ export class ArenaService {
 
     // Every worktree before the run is registered, so a run that reaches the registry is whole:
     // a contestant cannot be handed a prompt for a directory that was never made. A failure
-    // halfway undoes the worktrees already made and leaves no run behind.
+    // halfway undoes the worktrees already made and the folder, and leaves no run behind.
     try {
+      if (repoCreated) {
+        await this.worktrees.initRepository({
+          path: folder,
+          message: name,
+          worktreeFolders: records.map((record) => record.contestantId),
+        });
+      }
       for (const record of records) {
         await this.worktrees.add({ repoPath, path: record.worktreePath, ref: baseRef });
       }
     } catch (error) {
       await this.undoWorktrees(repoPath, records).catch(() => undefined);
+      this.releaseFolder(folder, repoCreated);
       throw error;
     }
 
     const run: ArenaRunRecord = {
       runId,
+      name,
+      folder,
       prompt,
       repoPath,
+      repoCreated,
       baseRef,
       mode,
       createdAt: Date.now(),
@@ -271,7 +306,8 @@ export class ArenaService {
 
   /**
    * Tears a finished run down: panes ended, worktrees back to the repository, registrations
-   * pruned, the run's directory under the arena root deleted, the record dropped. A run with a
+   * pruned, the run's folder removed (its own repository with it, when the arena made one), its
+   * diffs under the arena root deleted, the record dropped. A run with a
    * contestant still live is refused -- its worktree holds a contestant whose work this would
    * delete underneath it.
    *
@@ -301,8 +337,18 @@ export class ArenaService {
     this.lines.delete(runId);
     this.drives.delete(runId);
     await this.undoWorktrees(run.repoPath, run.contestants);
+    this.releaseFolder(run.folder, run.repoCreated);
     this.store.deleteRunDirectory(runId);
     this.registry.remove(runId);
+  }
+
+  /** Removes a run's folder, best-effort like its worktrees: a refusal is named in the log. */
+  private releaseFolder(folder: string, repoCreated: boolean): void {
+    try {
+      releaseRunFolder(this.arenaHome, folder, repoCreated);
+    } catch (error) {
+      console.error(`agent feed arena left the run folder ${folder}`, error);
+    }
   }
 
   /**

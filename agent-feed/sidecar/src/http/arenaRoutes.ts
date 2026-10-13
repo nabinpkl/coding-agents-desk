@@ -2,12 +2,13 @@
 //
 // Seven answers: POST makes a run, GET lists them, GET on a run id answers its facts, DELETE
 // tears a finished one down, `stream` pushes the whole status list whenever any run moves,
-// `modes` says which ways of driving a run this machine has, and POST on a run's `prompt` gives a
+// `new-run` says what a run asked for with nothing filled in would get here (the modes this
+// machine has, the arena home, the next free name), and POST on a run's `prompt` gives a
 // terminals run whose lanes are already open the prompt they wait for.
 // The service owns every state change; this module only matches paths, checks shapes and maps
 // the service's errors onto the statuses the panel's own client reads.
 
-import type { ArenaModesResponse, ArenaRunsStreamMessage } from "@agentdesk/agent-feed-wire";
+import type { ArenaRunsStreamMessage } from "@agentdesk/agent-feed-wire";
 import {
   ArenaBadRequestError,
   ArenaRunBusyError,
@@ -19,16 +20,15 @@ import type { RouteHandler } from "@/http/protocol/route";
 
 const RUNS_ROUTE = "/api/arena/runs";
 const RUNS_STREAM_ROUTE = "/api/arena/runs/stream";
-const MODES_ROUTE = "/api/arena/modes";
+const NEW_RUN_ROUTE = "/api/arena/new-run";
 const RUN_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})$/;
 const RUN_PROMPT_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})\/prompt$/;
 
 export function createArenaRoutes(service: ArenaService): RouteHandler {
   return (request, url, server) => {
-    if (url.pathname === MODES_ROUTE) {
+    if (url.pathname === NEW_RUN_ROUTE) {
       if (request.method !== "GET") return methodNotAllowed(request.method);
-      const modes: ArenaModesResponse = { modes: service.modes() };
-      return jsonResponse(modes);
+      return jsonResponse(service.newRunDefaults());
     }
     if (!url.pathname.startsWith(`${RUNS_ROUTE}/`) && url.pathname !== RUNS_ROUTE) return undefined;
 

@@ -21,6 +21,7 @@ afterEach(async () => {
 
 const worktrees = {
   async assertRepository() {},
+  async initRepository() {},
   async add() {},
   async remove() {},
   async prune() {},
@@ -72,8 +73,7 @@ async function arena(options: { terminalDrivers?: ContestantDrivers | null; kill
       options.onKill?.();
     },
     worktrees,
-    arenaRoot: root,
-    defaultRepoPath: "/repos/default",
+    arenaHome: join(root, "home"),
     turnTimeoutMs: 500,
     newRunId: () => "22222222-2222-4222-8222-222222222222",
   });

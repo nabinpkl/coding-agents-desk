@@ -165,3 +165,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0132 | The sidecar talks to opencode through the serve's own client, pinned to the serve's release | accepted | 2026-10-12 |
 | ADR-0133 | Arena runs drive their contestants as terminal sessions, beside the headless mode | accepted | 2026-10-12 |
 | ADR-0134 | A terminals arena run opens its lanes before it has a prompt | accepted | 2026-10-13 |
+| ADR-0135 | Arena runs are named, live in a folder in the arena home, and get a repository of their own | accepted | 2026-10-13 |

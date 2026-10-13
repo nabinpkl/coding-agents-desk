@@ -1,7 +1,9 @@
 // Verifies the Arena's terminals mode end to end against a live panel and sidecar, the way a
-// reader uses it: Open lanes from the tab's form with no prompt yet, each contestant gets a pane
-// that its lane joins with the panel's own terminal under an empty feed, every lane comes up to
-// `ready`, and only then is the one prompt typed on the run -- which closes in each lane.
+// reader uses it: Open lanes from a blank form -- no name, no repository, no prompt -- so the run
+// takes the next "arena run N" and a new repository of its own in the arena home; each contestant
+// gets a pane that its lane joins with the panel's own terminal under an empty feed, every lane
+// comes up to `ready`, and only then is the one prompt typed on the run -- which closes in each
+// lane. Deleting the run at the end must take its folder, repository and all.
 //
 // Claude asks whether to trust a new folder before its composer appears, and each contestant's
 // worktree is a new folder. The run waits for a reader to answer that, so this answers it the way
@@ -10,11 +12,11 @@
 //
 //   PANEL_ORIGIN=https://<this-mac>.<tailnet>.ts.net:5173 node chrome-test/arena-terminals-verify.mjs
 //
-// The repository is a throwaway this script makes and deletes, and the run is deleted at the end,
-// which ends its panes; ARENA_KEEP_RUN=1 keeps the run (and the repository) to sweep it. Uses Playwright's Chrome for Testing with a throwaway profile.
+// The run is deleted at the end, which ends its panes and removes its folder; ARENA_KEEP_RUN=1
+// keeps it to sweep it. Uses Playwright's Chrome for Testing with a throwaway profile.
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,7 +24,7 @@ const ORIGIN = process.env.PANEL_ORIGIN;
 if (!ORIGIN) throw new Error('set PANEL_ORIGIN to the panel origin');
 const LINEUP = (process.env.ARENA_LINEUP ?? 'opencode,claude').split(',').map((one) => one.trim());
 const LABEL = { opencode: 'OpenCode', claude: 'Claude' };
-const PROMPT = 'Reply with exactly the first line of README.md and nothing else';
+const PROMPT = 'Reply with exactly the word alder and nothing else';
 const TMUX = process.env.AGENT_FEED_TMUX_PATH ?? '/opt/homebrew/bin/tmux';
 
 async function playwrightRoot() {
@@ -42,11 +44,6 @@ async function playwrightRoot() {
 const { chromium } = await import(`${await playwrightRoot()}/index.mjs`);
 
 const work = mkdtempSync(join(tmpdir(), 'arena-terminals-'));
-const repo = join(work, 'repo');
-execFileSync('git', ['init', '-q', repo]);
-writeFileSync(join(repo, 'README.md'), 'alder grove\n\nA throwaway repository for an arena check.\n');
-execFileSync('git', ['-C', repo, 'add', 'README.md']);
-execFileSync('git', ['-C', repo, '-c', 'user.name=arena', '-c', 'user.email=arena@localhost', 'commit', '-qm', 'readme']);
 
 const shots = process.env.ARENA_SHOTS ?? work;
 let failed = true;
@@ -75,8 +72,8 @@ try {
   const problems = [];
   page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
 
-  const modes = await api('/api/arena/modes');
-  if (modes.body?.modes?.[0] !== 'terminals') throw new Error(`this machine does not offer terminals first: ${JSON.stringify(modes.body)}`);
+  const defaults = (await api('/api/arena/new-run')).body;
+  if (defaults?.modes?.[0] !== 'terminals') throw new Error(`this machine does not offer terminals first: ${JSON.stringify(defaults)}`);
 
   await page.goto(`${ORIGIN}/?entry=arena`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('tab', { name: 'Arena' }).waitFor({ timeout: 15_000 });
@@ -86,7 +83,11 @@ try {
   await terminals.click();
   if (await terminals.getAttribute('aria-checked') !== 'true') problems.push('the Terminals mode did not take');
 
-  await page.getByLabel('Repository the contestants work in').fill(repo);
+  // A blank form: the name and the repository are left to their defaults, which the form shows.
+  await page.getByLabel('Run name').fill('');
+  await page.getByLabel('Repository the contestants work in').fill('');
+  const shownName = await page.getByLabel('Run name').getAttribute('placeholder');
+  if (shownName !== defaults.nextName) problems.push(`the form offers the name "${shownName}", the sidecar "${defaults.nextName}"`);
   while (await page.getByLabel('Remove contestant 1').count() > 0) await page.getByLabel('Remove contestant 1').click();
   for (const [index, source] of LINEUP.entries()) {
     if (index > 0) await page.getByLabel('Add a contestant').click();
@@ -99,6 +100,13 @@ try {
   const run = (await api(`/api/arena/runs/${runId}`)).body;
   if (run?.mode !== 'terminals') problems.push(`the run was made in mode ${run?.mode}`);
   if (run?.prompt !== '') problems.push(`lanes opened without a prompt carry one: "${run?.prompt}"`);
+  if (run?.name !== defaults.nextName) problems.push(`the run is named "${run?.name}", not the offered "${defaults.nextName}"`);
+  const folder = run?.repoPath;
+  if (!run?.repoCreated || !folder?.startsWith(`${defaults.arenaHome}/`)) {
+    problems.push(`the run did not get a repository of its own in ${defaults.arenaHome}: ${folder} (repoCreated ${run?.repoCreated})`);
+  } else if (!existsSync(join(folder, '.git')) || !run.contestants.every((c) => c.worktreePath.startsWith(`${folder}/`))) {
+    problems.push(`${folder} is not a repository holding the contestants' worktrees`);
+  }
 
   // Every contestant gets a pane, and its lane joins it.
   const deadline = Date.now() + 60_000;
@@ -178,8 +186,13 @@ try {
   } else if (runId) {
     // Deleting the run ends its panes and removes its worktrees; a live one is refused, so give a
     // failed check's contestants nothing more to wait for first.
+    const folder = (await api(`/api/arena/runs/${runId}`)).body?.repoPath;
     const deleted = await api(`/api/arena/runs/${runId}`, { method: 'DELETE' }).catch(() => null);
     if (deleted?.status !== 200) console.error(`the run could not be deleted (${deleted?.status}); delete ${runId} by hand`);
+    else if (folder && existsSync(folder)) {
+      console.error(`deleting the run left its folder ${folder}`);
+      failed = true;
+    }
   }
   await context.close().catch(() => {});
   if (!process.env.ARENA_SHOTS && !process.env.ARENA_KEEP_RUN) rmSync(work, { recursive: true, force: true });

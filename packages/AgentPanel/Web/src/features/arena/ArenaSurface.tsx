@@ -15,14 +15,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createArenaRun,
   deleteArenaRun,
-  fetchArenaModes,
+  fetchArenaNewRunDefaults,
   fetchArenaRunDetail,
   fetchArenaRuns,
   parseRunsStreamFrame,
   sendArenaPrompt,
   STREAM_PATH,
 } from "@/features/arena/arenaRunsSource";
-import type { ArenaRunDetail, ArenaRunMode, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
+import type { ArenaNewRunDefaults, ArenaRunDetail, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
@@ -55,23 +55,9 @@ export function ArenaSurface({
   const [starting, setStarting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  // Null until the sidecar has said: the switch offers both meanwhile rather than greying out a
-  // mode the machine may well have, and the sidecar refuses one it does not.
-  const [modes, setModes] = useState<ArenaRunMode[] | null>(null);
-
-  // The machine's modes, once. A draft still on a mode this machine cannot run moves to its
-  // default, so the composer never offers a start the sidecar would refuse.
-  useEffect(() => {
-    let live = true;
-    void fetchArenaModes(transport).then((offered) => {
-      if (!live) return;
-      setModes(offered);
-      setDraft((current) => (offered.includes(current.mode) ? current : { ...current, mode: offered[0]! }));
-    });
-    return () => {
-      live = false;
-    };
-  }, [transport]);
+  // Null until the sidecar has said: the switch offers both modes meanwhile rather than greying
+  // out one the machine may well have, and the sidecar refuses one it does not.
+  const [defaults, setDefaults] = useState<ArenaNewRunDefaults | null>(null);
 
   // The stream, from the first paint: a run that closes while the tab sits open says so without
   // the reader asking, which is the difference between a duel and a list somebody has to check.
@@ -87,6 +73,22 @@ export function ArenaSurface({
     });
     return off;
   }, [transport]);
+
+  // What a run with nothing filled in gets, re-read whenever a run is made or removed (here or
+  // anywhere), since the next free name moves with them. A draft still on a mode this machine
+  // cannot run moves to its default, so the composer never offers a start the sidecar would refuse.
+  const runIds = runs.map((run) => run.runId).join(" ");
+  useEffect(() => {
+    let live = true;
+    void fetchArenaNewRunDefaults(transport).then((next) => {
+      if (!live || !next) return;
+      setDefaults(next);
+      setDraft((current) => (next.modes.includes(current.mode) ? current : { ...current, mode: next.modes[0]! }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [transport, runIds]);
 
   // The one-shot fetch covers a sidecar that restarted mid-stream or a reader who reloaded.
   useEffect(() => {
@@ -127,6 +129,7 @@ export function ArenaSurface({
     setStarting(true);
     setProblem(null);
     const answer = await createArenaRun(transport, {
+      name: draft.name.trim(),
       prompt: draft.prompt,
       repoPath: draft.repoPath.trim(),
       mode: draft.mode,
@@ -135,8 +138,8 @@ export function ArenaSurface({
     setStarting(false);
     if ("run" in answer) {
       // The repository and the lineup are kept: the next run is most often the same duel asked
-      // a different question.
-      setDraft((current) => ({ ...current, prompt: "" }));
+      // a different question. A name is one run's, so it goes.
+      setDraft((current) => ({ ...current, name: "", prompt: "" }));
       setRuns((current) =>
         current.some((run) => run.runId === answer.run.runId) ? current : [answer.run, ...current],
       );
@@ -225,7 +228,7 @@ export function ArenaSurface({
             <ArenaNewRun
               draft={draft}
               onDraft={setDraft}
-              modes={modes}
+              defaults={defaults}
               starting={starting}
               problem={problem}
               onStart={() => void start()}

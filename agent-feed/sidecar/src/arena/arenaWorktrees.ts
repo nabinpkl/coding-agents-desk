@@ -5,17 +5,18 @@
 // this one: a fork is a reader's named BRANCH inside the checkout, visible in `git branch` and
 // never colliding with a peer's. An arena contestant is a throwaway checkout at a chosen base
 // ref, diffed against that ref at close and removed afterwards, so it is DETACHED -- no branch
-// to collide, no branch list to pollute -- and it lives under the arena's own root, a path the
-// sidecar chose, never a path a request named. The refusal discipline is shared: everything
-// here either succeeds having done what it said, or throws naming what it refused to do.
+// to collide, no branch list to pollute -- and it lives in its run's folder in the arena home, a
+// path the sidecar chose, never a path a request named. The refusal discipline is shared:
+// everything here either succeeds having done what it said, or throws naming what it refused to do.
 //
 // `runGit` is the same ten lines as `git/worktree.ts`'s private runner, kept local rather than
 // exported from there: that module's surface is its worktree answers, and widening it for a
 // second consumer is a change to a careful file this one does not need. A third consumer earns
 // the shared export.
 
-import { stat } from "node:fs/promises";
+import { appendFile, mkdir, stat } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
+import { join } from "node:path";
 import { readWorktree } from "@/git/worktree";
 
 /** A worktree step could not be done, with a reason worth putting in front of the reader. */
@@ -45,6 +46,37 @@ export async function assertGitRepository(repoPath: string): Promise<void> {
   }
 }
 
+/**
+ * Makes `path`, an empty folder, the new repository of a run that named none: `git init`, the
+ * contestants' worktree folders kept out of its own status, and one empty commit for every
+ * contestant to start at.
+ *
+ * The commit is the arena's, and is made the same way on every machine: its own author, no
+ * signing, no hooks, so a machine's git identity or a global commit hook cannot stop a run.
+ */
+export async function initRunRepository(options: {
+  path: string;
+  message: string;
+  worktreeFolders: readonly string[];
+}): Promise<void> {
+  const { path, message, worktreeFolders } = options;
+  const init = await runGit(["init", "-q", "-b", "main"], path);
+  if (init.code !== 0) throw new ArenaWorktreeError(`git init ${path} failed: ${init.err || init.out || init.code}`);
+  // A git whose init template has no `info/` still reads the exclude file once it is there.
+  await mkdir(join(path, ".git", "info"), { recursive: true });
+  await appendFile(join(path, ".git", "info", "exclude"), worktreeFolders.map((folder) => `/${folder}/\n`).join(""));
+  const commit = await runGit([
+    "-c", "user.name=Agent Desk Arena",
+    "-c", "user.email=arena@agentdesk.invalid",
+    "-c", "commit.gpgsign=false",
+    "-c", "core.hooksPath=/dev/null",
+    "commit", "-q", "--allow-empty", "-m", message,
+  ], path);
+  if (commit.code !== 0) {
+    throw new ArenaWorktreeError(`the first commit in ${path} failed: ${commit.err || commit.out || commit.code}`);
+  }
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -57,9 +89,9 @@ async function pathExists(path: string): Promise<boolean> {
 /**
  * Makes one contestant's worktree: a detached checkout of `ref` at `path`.
  *
- * The path is the arena's own (`<arenaRoot>/<runId>/<contestantId>`, built by the service, never
- * read off a request), and it must not exist yet: a worktree appearing under a fresh run's
- * directory can only be a bug in that construction, and reusing whatever is there would hide it.
+ * The path is the arena's own (`<arenaHome>/<run folder>/<contestantId>`, built by the service,
+ * never read off a request), and it must not exist yet: a worktree appearing in a fresh run's
+ * folder can only be a bug in that construction, and reusing whatever is there would hide it.
  */
 export async function addContestantWorktree(options: {
   repoPath: string;

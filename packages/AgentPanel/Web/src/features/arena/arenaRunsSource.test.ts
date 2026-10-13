@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   createArenaRun,
   deleteArenaRun,
-  fetchArenaModes,
+  fetchArenaNewRunDefaults,
   fetchArenaRunDetail,
   fetchArenaRuns,
   parseRunDetail,
@@ -26,9 +26,12 @@ const contestant = (over: Record<string, unknown> = {}) => ({
 
 const run = (over: Record<string, unknown> = {}) => ({
   runId: "11111111-1111-4111-8111-111111111111",
+  name: "arena run 1",
   prompt: "say one word",
   repoPath: "/repos/one",
+  repoCreated: false,
   baseRef: "HEAD",
+  mode: "headless",
   createdAt: 1,
   contestants: [contestant()],
   ...over,
@@ -116,7 +119,7 @@ describe("requests", () => {
         ? { status: 201, body: JSON.stringify(run()) }
         : { status: 500, body: "" }
     );
-    const answer = await createArenaRun(transport, { prompt: "say one word", repoPath: "/repos/one", mode: "terminals", contestants: ["opencode", "claude", "opencode"] });
+    const answer = await createArenaRun(transport, { name: "", prompt: "say one word", repoPath: "/repos/one", mode: "terminals", contestants: ["opencode", "claude", "opencode"] });
     expect("run" in answer && answer.run.runId).toBe(run().runId);
     expect((calls[0]?.body as { contestants: unknown[] }).contestants).toEqual([
       { source: "opencode" },
@@ -130,7 +133,7 @@ describe("requests", () => {
       status: 400,
       body: JSON.stringify({ error: { code: "arena-bad-request", message: "a run needs a prompt" } }),
     }));
-    const answer = await createArenaRun(transport, { prompt: "", repoPath: "/x", mode: "headless", contestants: ["opencode"] });
+    const answer = await createArenaRun(transport, { name: "", prompt: "", repoPath: "/x", mode: "headless", contestants: ["opencode"] });
     expect("message" in answer && answer.message).toBe("a run needs a prompt");
   });
 
@@ -172,25 +175,30 @@ describe("the terminals mode", () => {
     ]);
   });
 
-  test("a run from a sidecar that predates modes reads as headless, with no pane", () => {
-    const summary = parseRunSummary(run());
-    expect(summary?.mode).toBe("headless");
-    expect(summary?.contestants[0]?.tmuxSession).toBeNull();
+  test("a run with no mode, name or repository flag is not a run this panel reads", () => {
+    expect(parseRunSummary(run())?.contestants[0]?.tmuxSession).toBeNull();
+    for (const missing of ["mode", "name", "repoCreated"]) {
+      const { [missing]: _dropped, ...rest } = run() as Record<string, unknown>;
+      expect(parseRunSummary(rest)).toBeNull();
+    }
   });
 
-  test("the mode the reader chose rides the create request", async () => {
+  test("the mode the reader chose and the name they gave ride the create request", async () => {
     const { transport, calls } = transportOf(() => ({ status: 201, body: JSON.stringify(run()) }));
-    await createArenaRun(transport, { prompt: "p", repoPath: "/r", mode: "terminals", contestants: ["claude"] });
-    expect((calls[0]?.body as { mode: unknown }).mode).toBe("terminals");
+    await createArenaRun(transport, { name: "duel", prompt: "p", repoPath: "", mode: "terminals", contestants: ["claude"] });
+    expect(calls[0]?.body).toMatchObject({ name: "duel", repoPath: "", mode: "terminals" });
   });
 
-  test("the machine's modes are read in order, and a sidecar that cannot say offers headless", async () => {
-    const offered = transportOf(() => ({ status: 200, body: JSON.stringify({ modes: ["terminals", "headless"] }) }));
-    expect(await fetchArenaModes(offered.transport)).toEqual(["terminals", "headless"]);
-    expect(offered.calls[0]?.path).toBe("/api/arena/modes");
+  test("a blank run's defaults are read whole, and an answer missing any part is none", async () => {
+    const whole = { modes: ["terminals", "headless"], arenaHome: "/Users/me/.arena", nextName: "arena run 3" };
+    const offered = transportOf(() => ({ status: 200, body: JSON.stringify(whole) }));
+    expect(await fetchArenaNewRunDefaults(offered.transport)).toEqual(whole);
+    expect(offered.calls[0]?.path).toBe("/api/arena/new-run");
     const silent = transportOf(() => ({ status: 404, body: "" }));
-    expect(await fetchArenaModes(silent.transport)).toEqual(["headless"]);
-    const garbled = transportOf(() => ({ status: 200, body: JSON.stringify({ modes: ["telepathy"] }) }));
-    expect(await fetchArenaModes(garbled.transport)).toEqual(["headless"]);
+    expect(await fetchArenaNewRunDefaults(silent.transport)).toBeNull();
+    const garbled = transportOf(() => ({ status: 200, body: JSON.stringify({ ...whole, modes: ["telepathy"] }) }));
+    expect(await fetchArenaNewRunDefaults(garbled.transport)).toBeNull();
+    const nameless = transportOf(() => ({ status: 200, body: JSON.stringify({ ...whole, nextName: 3 }) }));
+    expect(await fetchArenaNewRunDefaults(nameless.transport)).toBeNull();
   });
 });

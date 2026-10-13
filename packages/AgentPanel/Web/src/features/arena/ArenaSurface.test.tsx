@@ -40,9 +40,12 @@ const contestant = (over: Record<string, unknown> = {}) => ({
 
 const run = (over: Record<string, unknown> = {}) => ({
   runId: "11111111-1111-4111-8111-111111111111",
+  name: "arena run 1",
   prompt: "say one word",
   repoPath: "/repos/one",
+  repoCreated: false,
   baseRef: "HEAD",
+  mode: "headless",
   createdAt: 1,
   contestants: [contestant()],
   ...over,
@@ -54,8 +57,11 @@ function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]
   const postedTo: string[] = [];
   const transport: AgentHttpTransport = {
     async request(method, path, requestOptions): Promise<TransportResponse> {
-      if (method === "GET" && path === "/api/arena/modes" && options.modes) {
-        return { status: 200, body: JSON.stringify({ modes: options.modes }) };
+      if (method === "GET" && path === "/api/arena/new-run" && options.modes) {
+        return {
+          status: 200,
+          body: JSON.stringify({ modes: options.modes, arenaHome: "/Users/me/.arena", nextName: "arena run 3" }),
+        };
       }
       if (method === "GET" && path === "/api/arena/runs") {
         return { status: 200, body: JSON.stringify({ runs: options.runs ?? [] }) };
@@ -238,14 +244,17 @@ describe("ArenaSurface", () => {
     await waitFor(() => expect(screen.queryByRole("radiogroup", { name: "Contestant 4 harness" })).toBeNull());
   });
 
-  test("in the Terminals mode an empty prompt opens the lanes rather than refusing to start", async () => {
+  test("a blank form opens lanes: the next name, a repository of the run's own, no prompt yet", async () => {
     const { transport, posted } = harness({ modes: ["terminals", "headless"] });
     mount(transport);
+    await waitFor(() => expect(screen.getByLabelText("Run name").getAttribute("placeholder")).toBe("arena run 3"));
+    expect(screen.getByLabelText("Repository the contestants work in").getAttribute("placeholder"))
+      .toBe("New repository in /Users/me/.arena");
     const open = await screen.findByRole("button", { name: /Open lanes/ });
     await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
     open.click();
     await waitFor(() => expect(posted.length).toBe(1));
-    expect(posted[0]).toMatchObject({ prompt: "", mode: "terminals" });
+    expect(posted[0]).toMatchObject({ name: "", repoPath: "", prompt: "", mode: "terminals" });
   });
 
   test("a run whose lanes wait for their prompt takes it in its header and sends it to every lane", async () => {

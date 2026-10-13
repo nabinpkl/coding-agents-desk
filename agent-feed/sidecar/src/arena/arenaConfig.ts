@@ -1,4 +1,4 @@
-// Where the arena keeps its runs, and the repository one falls back to.
+// Where the arena keeps its record of runs, where it makes their folders, and how it runs Claude.
 //
 // Read here rather than in `config.ts` for the reason `tools/runtime-paths.mjs` is a module of
 // its own: a run's files are the arena's own state, and the module that owns that state reading
@@ -10,10 +10,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 /**
- * Where the arena puts its runs: one directory per run holding the contestants' worktrees and
- * facts. Outside any repository by default, because a run's target repo is per-run state chosen
- * by whoever asked for the run, not a constant of this sidecar; a machine that wants its arena
- * beside a repo points this at a gitignored path.
+ * Where the arena keeps its record of runs: the run index and each closed contestant's diff. The
+ * sidecar's own state, kept with the rest of it rather than among the folders a reader browses.
  */
 export function arenaRoot(): string {
   const fromEnv = process.env.AGENT_FEED_ARENA_ROOT?.trim();
@@ -21,12 +19,13 @@ export function arenaRoot(): string {
 }
 
 /**
- * The repository a run fans out into when the caller does not name one, or null to require
- * one. Deliberately no default: the panel's own repo is a machine fact this sidecar cannot
- * know, and guessing one would silently duel a checkout nobody chose.
+ * The arena home: one folder per run, named after the run, holding its contestants' worktrees --
+ * and, for a run that named no repository, the run's own new repository too. In the reader's home
+ * and visible by path, because these are folders a reader opens, `cd`s into and trusts once.
  */
-export function arenaDefaultRepoPath(): string | null {
-  return process.env.AGENT_FEED_ARENA_DEFAULT_REPO?.trim() || null;
+export function arenaHome(): string {
+  const fromEnv = process.env.AGENT_FEED_ARENA_HOME?.trim();
+  return resolve(fromEnv || join(homedir(), ".arena"));
 }
 
 /**

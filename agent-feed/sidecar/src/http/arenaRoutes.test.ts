@@ -68,6 +68,7 @@ const closingBackend: OpencodeContestantBackend = {
 
 const fakeWorktrees = {
   async assertRepository() {},
+  async initRepository() {},
   async add() {},
   async remove() {},
   async prune() {},
@@ -76,7 +77,7 @@ const fakeWorktrees = {
   },
 };
 
-async function start(): Promise<{ at: (path: string, init?: RequestInit) => Promise<Response> }> {
+async function start(): Promise<{ at: (path: string, init?: RequestInit) => Promise<Response>; root: string }> {
   const created = await mkdtemp(join(tmpdir(), "arena-routes-"));
   roots.push(created);
   const root = await realpath(created);
@@ -93,8 +94,7 @@ async function start(): Promise<{ at: (path: string, init?: RequestInit) => Prom
       claude: () => Promise.reject(new Error("no claude in the route tests")),
     },
     worktrees: fakeWorktrees,
-    arenaRoot: root,
-    defaultRepoPath: "/repos/default",
+    arenaHome: join(root, "home"),
     turnTimeoutMs: 500,
     newRunId: () => "11111111-1111-4111-8111-111111111111",
   });
@@ -110,7 +110,7 @@ async function start(): Promise<{ at: (path: string, init?: RequestInit) => Prom
   servers.push(server);
   const at = (path: string, init?: RequestInit): Promise<Response> =>
     fetch(`http://127.0.0.1:${server.port}${path}`, init);
-  return { at };
+  return { at, root };
 }
 
 const body = (over: Record<string, unknown> = {}): RequestInit => ({
@@ -206,13 +206,13 @@ test("the index reloads through the same route after a restart", async () => {
   expect(list.runs.length).toBe(1);
 });
 
-test("modes answers what this machine can drive a run with, and only to a GET", async () => {
-  const { at } = await start();
-  const response = await at("/api/arena/modes");
+test("new-run answers what a run with nothing filled in would get here, and only to a GET", async () => {
+  const { at, root } = await start();
+  const response = await at("/api/arena/new-run");
   expect(response.status).toBe(200);
   // The route test's service is wired with no terminal drivers: a machine without tmux.
-  expect(await response.json()).toEqual({ modes: ["headless"] });
-  expect((await at("/api/arena/modes", { method: "POST" })).status).toBe(405);
+  expect(await response.json()).toEqual({ modes: ["headless"], arenaHome: join(root, "home"), nextName: "arena run 1" });
+  expect((await at("/api/arena/new-run", { method: "POST" })).status).toBe(405);
 });
 
 test("a prompt for a run with no open lanes is refused with the reason, and an unknown run is a 404", async () => {

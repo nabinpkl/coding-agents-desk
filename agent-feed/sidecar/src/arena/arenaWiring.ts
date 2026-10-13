@@ -4,7 +4,7 @@ import { ArenaStore } from "@/arena/arenaStore";
 import {
   arenaClaudeEffort,
   arenaClaudeModel,
-  arenaDefaultRepoPath,
+  arenaHome,
   arenaRoot,
 } from "@/arena/arenaConfig";
 import { runClaudeContestant } from "@/arena/claudeContestant";
@@ -13,7 +13,8 @@ import { runClaudeTerminalContestant, runOpencodeTerminalContestant } from "@/ar
 import { config } from "@/config/config";
 
 /**
- * The arena: one prompt fanned out to contestants in worktrees of any repo the run names. Each
+ * The arena: one prompt fanned out to contestants in worktrees, made in the run's folder in the
+ * arena home, of the repository the run names or of a new one the run gets of its own. Each
  * contestant is driven by its source's driver -- the sidecar's opencode backend, or a spawned
  * `claude --print` (ADR-0128) -- and the run records what each did. The runs it made are
  * reloaded from its store so a sidecar that restarts still lists them, with the contestants a
@@ -42,7 +43,6 @@ export function startArenaService(opencodeBackend: OpencodeContestantBackend): A
           runClaudeTerminalContestant(plan, { model: arenaClaudeModel(), effort: arenaClaudeEffort() }),
       }
       : null,
-    arenaRoot: arenaRoot(),
-    defaultRepoPath: arenaDefaultRepoPath(),
+    arenaHome: arenaHome(),
   });
 }

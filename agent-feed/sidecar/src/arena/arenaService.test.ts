@@ -3,7 +3,8 @@
 // or the serve's behavior, which their own modules pin against the real things.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -33,12 +34,16 @@ async function arenaRoot(): Promise<string> {
 
 /** Worktree steps that remember instead of running git; the arena module's own tests pin git. */
 function fakeWorktrees() {
+  const initialized: { path: string; message: string; worktreeFolders: readonly string[] }[] = [];
   const added: { repoPath: string; path: string; ref: string }[] = [];
   const removed: { repoPath: string; path: string }[] = [];
   const pruned: string[] = [];
   return {
     steps: {
       async assertRepository() {},
+      async initRepository(options: { path: string; message: string; worktreeFolders: readonly string[] }) {
+        initialized.push(options);
+      },
       async add(options: { repoPath: string; path: string; ref: string }) {
         added.push(options);
       },
@@ -52,6 +57,7 @@ function fakeWorktrees() {
         return "diff --git a/README";
       },
     },
+    initialized,
     added,
     removed,
     pruned,
@@ -165,9 +171,10 @@ function driversOver(
 async function service(options: {
   backend?: OpencodeContestantBackend;
   claude?: ContestantDriver;
-  defaultRepoPath?: string | null;
 } = {}) {
   const root = await arenaRoot();
+  const home = join(root, "home");
+  let runs = 0;
   const { backend } = options.backend ? { backend: options.backend } : fakeBackend();
   const worktrees = fakeWorktrees();
   const registry = new ArenaRunRegistry();
@@ -177,12 +184,11 @@ async function service(options: {
     store,
     drivers: driversOver(backend, options.claude),
     worktrees: worktrees.steps,
-    arenaRoot: root,
-    defaultRepoPath: options.defaultRepoPath === undefined ? "/repos/default" : options.defaultRepoPath,
+    arenaHome: home,
     turnTimeoutMs: 500,
-    newRunId: () => "11111111-1111-4111-8111-111111111111",
+    newRunId: () => `11111111-1111-4111-8111-${String(++runs).padStart(12, "0")}`,
   });
-  return { arena, root, registry, store, worktrees, backend };
+  return { arena, root, home, registry, store, worktrees, backend };
 }
 
 /**
@@ -214,13 +220,13 @@ async function whenContestantsSettle(registry: ArenaRunRegistry): Promise<void> 
 }
 
 test("a run makes every worktree first, registers, then fans the prompt out", async () => {
-  const { arena, registry, worktrees, root } = await service();
+  const { arena, registry, worktrees, home } = await service();
   const summary = await arena.createRun(request());
 
-  // Two contestants, made as worktrees under the run's own directory before the run was listed.
+  // Two contestants, made as worktrees in the run's own folder before the run was listed.
   expect(worktrees.added.map((one) => one.path)).toEqual([
-    join(root, summary.runId, "c1"),
-    join(root, summary.runId, "c2"),
+    join(home, "arena-run-1", "c1"),
+    join(home, "arena-run-1", "c2"),
   ]);
   expect(worktrees.added.every((one) => one.ref === "HEAD")).toBe(true);
   expect(summary.contestants.map((c) => c.status)).toEqual(["preparing", "preparing"]);
@@ -261,7 +267,7 @@ test("a failed contestant records its failure as its own fact, not the run's", a
 });
 
 test("a run's facts survive a reload, with the diff read back from its own file", async () => {
-  const { arena, registry, store, root } = await service();
+  const { arena, registry, store, home } = await service();
   const summary = await arena.createRun(request());
   await whenContestantsSettle(registry);
 
@@ -271,8 +277,7 @@ test("a run's facts survive a reload, with the diff read back from its own file"
     store,
     drivers: driversOver(fakeBackend().backend),
     worktrees: fakeWorktrees().steps,
-    arenaRoot: root,
-    defaultRepoPath: null,
+    arenaHome: home,
     turnTimeoutMs: 500,
   });
   const detail = reArena.runDetailFor(summary.runId);
@@ -280,15 +285,50 @@ test("a run's facts survive a reload, with the diff read back from its own file"
   expect(detail?.contestants[0]?.filesRead).toEqual(["/repo/README"]);
 });
 
-test("a run with no repository falls back to the configured default, and is refused without one", async () => {
-  const configured = await service();
-  const summary = await configured.arena.createRun(request({ repoPath: "" }));
-  expect(summary.repoPath).toBe("/repos/default");
+test("a run that names no repository gets a new one of its own: its folder, worktrees inside", async () => {
+  const { arena, worktrees, home } = await service();
+  const summary = await arena.createRun(request({ repoPath: "" }));
+  const folder = join(home, "arena-run-1");
+  expect([summary.name, summary.repoPath, summary.repoCreated]).toEqual(["arena run 1", folder, true]);
+  // The repository is made before any worktree of it, with the worktree folders kept out of it.
+  expect(worktrees.initialized).toEqual([{ path: folder, message: "arena run 1", worktreeFolders: ["c1", "c2"] }]);
+  expect(worktrees.added.map((one) => [one.repoPath, one.path])).toEqual([
+    [folder, join(folder, "c1")],
+    [folder, join(folder, "c2")],
+  ]);
+});
 
-  const bare = await service({ defaultRepoPath: null });
-  await expect(bare.arena.createRun(request({ repoPath: "" }))).rejects.toThrow(
-    "a run needs a repository",
-  );
+test("a run naming its repository makes none, and its worktrees still go in the run's folder", async () => {
+  const { arena, worktrees, home } = await service();
+  const summary = await arena.createRun(request({ name: "Bake off: one vs two" }));
+  expect([summary.name, summary.repoPath, summary.repoCreated]).toEqual(["Bake off: one vs two", "/repos/one", false]);
+  expect(worktrees.initialized).toEqual([]);
+  expect(worktrees.added[0]?.path).toBe(join(home, "bake-off-one-vs-two", "c1"));
+});
+
+test("runs are named arena run 1, 2, ... past every default name and folder already taken", async () => {
+  const { arena, registry, home } = await service();
+  expect(arena.newRunDefaults().nextName).toBe("arena run 1");
+  await arena.createRun(request());
+  expect(arena.newRunDefaults().nextName).toBe("arena run 2");
+  // A folder whose run record is gone still holds its number.
+  await mkdir(join(home, "arena-run-7"), { recursive: true });
+  expect(arena.newRunDefaults().nextName).toBe("arena run 8");
+  expect((await arena.createRun(request())).name).toBe("arena run 8");
+  await whenContestantsSettle(registry);
+});
+
+test("a name another run has, or whose folder is there, is refused, and the refusal leaves nothing", async () => {
+  const { arena, registry, home } = await service();
+  await arena.createRun(request({ name: "duel" }));
+  await expect(arena.createRun(request({ name: "  DUEL " }))).rejects.toThrow(/already a run named like/);
+  await mkdir(join(home, "by-hand"));
+  await expect(arena.createRun(request({ name: "by hand" }))).rejects.toThrow(/already exists/);
+  await expect(arena.createRun(request({ name: "!!!" }))).rejects.toThrow(/letter or digit/);
+  await expect(arena.createRun(request({ name: "x".repeat(81) }))).rejects.toThrow(/capped/);
+  await expect(arena.createRun(request({ name: "fresh", contestants: [] }))).rejects.toThrow(/contestant/);
+  expect(existsSync(join(home, "fresh"))).toBe(false);
+  await whenContestantsSettle(registry);
 });
 
 test("refuses a request no run could be made of, naming what was wrong", async () => {
@@ -303,6 +343,7 @@ test("refuses a request no run could be made of, naming what was wrong", async (
 
 test("a worktree failure leaves no run behind and undoes the worktrees it made", async () => {
   const root = await arenaRoot();
+  const home = join(root, "home");
   const worktrees = fakeWorktrees();
   const failing = {
     ...worktrees.steps,
@@ -317,8 +358,7 @@ test("a worktree failure leaves no run behind and undoes the worktrees it made",
     store: new ArenaStore(root),
     drivers: driversOver(fakeBackend().backend),
     worktrees: failing,
-    arenaRoot: root,
-    defaultRepoPath: null,
+    arenaHome: home,
     turnTimeoutMs: 500,
     newRunId: () => "11111111-1111-4111-8111-111111111111",
   });
@@ -329,21 +369,40 @@ test("a worktree failure leaves no run behind and undoes the worktrees it made",
   // failed and was never made, which the real step refuses by the same check as a stranger's.
   // A teardown that stopped there would leave the first one registered.
   expect(worktrees.removed.map((one) => one.path)).toEqual([
-    join(root, "11111111-1111-4111-8111-111111111111", "c1"),
-    join(root, "11111111-1111-4111-8111-111111111111", "c2"),
+    join(home, "arena-run-1", "c1"),
+    join(home, "arena-run-1", "c2"),
   ]);
   expect(worktrees.pruned).toEqual(["/repos/one"]);
+  // And the folder goes, so the name it claimed is free again.
+  expect(existsSync(join(home, "arena-run-1"))).toBe(false);
 });
 
 test("deleteRun tears a settled run down and leaves nothing behind", async () => {
-  const { arena, registry, worktrees } = await service();
+  const { arena, registry, worktrees, home } = await service();
   const summary = await arena.createRun(request());
   await whenContestantsSettle(registry);
 
   await arena.deleteRun(summary.runId);
   expect(worktrees.removed.length).toBe(2);
+  expect(existsSync(join(home, "arena-run-1"))).toBe(false);
   expect(registry.get(summary.runId)).toBeUndefined();
   await expect(arena.deleteRun(summary.runId)).rejects.toThrow(ArenaRunNotFoundError);
+});
+
+test("deleteRun takes a run's own repository with it, whole, and leaves a named one's folder alone if it is not empty", async () => {
+  const { arena, registry, home } = await service();
+  const own = await arena.createRun(request({ repoPath: "" }));
+  const named = await arena.createRun(request());
+  await whenContestantsSettle(registry);
+  await writeFile(join(home, "arena-run-1", "README"), "the run's own repository's file\n");
+  await writeFile(join(home, "arena-run-2", "stray"), "not the arena's\n");
+
+  await arena.deleteRun(own.runId);
+  await arena.deleteRun(named.runId);
+  expect(existsSync(join(home, "arena-run-1"))).toBe(false);
+  // A folder that only held worktrees of the reader's repository is removed only when empty.
+  expect(existsSync(join(home, "arena-run-2", "stray"))).toBe(true);
+  expect(registry.list()).toEqual([]);
 });
 
 test("deleteRun refuses a run with a contestant still dueling", async () => {

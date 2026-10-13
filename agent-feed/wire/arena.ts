@@ -63,9 +63,16 @@ export interface ArenaContestantSummary {
 /** A run, as a list or a stream needs it: what was asked and where each contestant stands. */
 export interface ArenaRunSummary {
   runId: string;
+  /**
+   * What the reader calls the run, unique on the machine: "arena run 3" unless they named it. Its
+   * folder in the arena home is named after it, and holds the contestants' worktrees.
+   */
+  name: string;
   /** Empty while a terminals run has its lanes open and waits for its prompt. */
   prompt: string;
   repoPath: string;
+  /** Whether the arena made `repoPath` for this run, as the run's own folder, rather than the run naming one. */
+  repoCreated: boolean;
   baseRef: string;
   mode: ArenaRunMode;
   createdAt: number;
@@ -104,8 +111,13 @@ export interface ArenaCreateRunRequest {
    * has it. A headless run has no lanes to open first, so it is refused without one.
    */
   prompt: string;
-  /** Absolute path of the git repository the contestants get worktrees of. */
-  repoPath: string;
+  /** The run's name; the next free "arena run N" when absent or empty. */
+  name?: string;
+  /**
+   * Absolute path of the git repository the contestants get worktrees of. Absent or empty, the
+   * run gets a new repository of its own: its folder in the arena home, with one empty commit.
+   */
+  repoPath?: string;
   /** The ref every contestant's worktree starts at; "HEAD" when absent. */
   baseRef?: string;
   /** How the contestants are driven; the sidecar picks `terminals` when it has tmux, otherwise `headless`. */
@@ -118,9 +130,14 @@ export interface ArenaPromptRequest {
   prompt: string;
 }
 
-/** `GET /api/arena/modes`: the modes this machine can run, the default first. */
-export interface ArenaModesResponse {
+/** `GET /api/arena/new-run`: what a run asked for with nothing filled in would get on this machine. */
+export interface ArenaNewRunDefaults {
+  /** The modes this machine can run, the default first. */
   modes: ArenaRunMode[];
+  /** The absolute folder every run's own folder is made in. */
+  arenaHome: string;
+  /** The name a run given none would get now. */
+  nextName: string;
 }
 
 /** One message of the arena status stream: the whole run list, pushed on every change. */

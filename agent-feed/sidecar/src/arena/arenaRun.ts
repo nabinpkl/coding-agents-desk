@@ -41,9 +41,14 @@ export interface ArenaContestantRecord {
 /** One run, as the arena tracks it. Contestants are ordered as the request named them. */
 export interface ArenaRunRecord {
   runId: string;
+  name: string;
+  /** The run's folder in the arena home, holding its worktrees; removed with the run. */
+  folder: string;
   /** Empty while a terminals run has its lanes open and waits for the reader's prompt. */
   prompt: string;
   repoPath: string;
+  /** The arena made `repoPath` as the run's folder, so it goes when the run does. */
+  repoCreated: boolean;
   baseRef: string;
   mode: ArenaRunMode;
   createdAt: number;
@@ -77,8 +82,10 @@ export function contestantSummary(record: ArenaContestantRecord): ArenaContestan
 export function runSummary(run: ArenaRunRecord): ArenaRunSummary {
   return {
     runId: run.runId,
+    name: run.name,
     prompt: run.prompt,
     repoPath: run.repoPath,
+    repoCreated: run.repoCreated,
     baseRef: run.baseRef,
     mode: run.mode,
     createdAt: run.createdAt,

@@ -37,12 +37,19 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
   if (!value || typeof value !== "object") throw new ArenaStoreError(`runs.json entry ${at} is not an object`);
   const record = value as Record<string, unknown>;
   const runId = typeof record.runId === "string" ? record.runId : null;
+  const name = typeof record.name === "string" ? record.name : null;
+  const folder = typeof record.folder === "string" ? record.folder : null;
   const prompt = typeof record.prompt === "string" ? record.prompt : null;
   const repoPath = typeof record.repoPath === "string" ? record.repoPath : null;
+  const repoCreated = typeof record.repoCreated === "boolean" ? record.repoCreated : null;
   const baseRef = typeof record.baseRef === "string" ? record.baseRef : null;
+  const mode = record.mode === "terminals" || record.mode === "headless" ? record.mode : null;
   const createdAt = typeof record.createdAt === "number" ? record.createdAt : null;
   // An empty prompt is a terminals run whose lanes were opened and never given one.
-  if (!runId || prompt === null || !repoPath || !baseRef || createdAt === null) {
+  if (
+    !runId || !name || !folder || prompt === null || !repoPath || repoCreated === null || !baseRef || !mode ||
+    createdAt === null
+  ) {
     throw new ArenaStoreError(`runs.json entry ${at} is missing a field the arena cannot invent`);
   }
   if (!Array.isArray(record.contestants)) {
@@ -76,9 +83,7 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
       gitDiff: null,
     };
   });
-  // A run saved before modes existed was driven headless, the only way there was.
-  const mode = record.mode === "terminals" ? "terminals" : "headless";
-  return { runId, prompt, repoPath, baseRef, mode, createdAt, contestants };
+  return { runId, name, folder, prompt, repoPath, repoCreated, baseRef, mode, createdAt, contestants };
 }
 
 function isContestantStatus(value: unknown): value is ArenaContestantRecord["status"] {

@@ -170,7 +170,7 @@ export type {
   ArenaContestantStatus,
   ArenaContestantSummary,
   ArenaCreateRunRequest,
-  ArenaModesResponse,
+  ArenaNewRunDefaults,
   ArenaPromptRequest,
   ArenaRunDetail,
   ArenaRunMode,

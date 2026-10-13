@@ -1,4 +1,8 @@
-// Composing a run: the one prompt, the repository it duels in, and the lineup of lanes.
+// Composing a run: its name, the repository it duels in, the one prompt, and the lineup of lanes.
+//
+// Nothing has to be filled in. A run left unnamed takes the sidecar's next "arena run N", and one
+// left without a repository gets a new one of its own in the arena home, so Open lanes is a run
+// from a blank form.
 //
 // The lineup is drawn as the lanes it will become -- one slot per contestant, numbered the way the
 // run will number them, each with its harness chosen in place -- so what a reader builds here is
@@ -13,7 +17,7 @@
 
 import { useId, type KeyboardEvent } from "react";
 import { Plus, X } from "lucide-react";
-import type { ArenaContestantSource, ArenaRunMode } from "@agentdesk/agent-feed-wire";
+import type { ArenaContestantSource, ArenaNewRunDefaults, ArenaRunMode } from "@agentdesk/agent-feed-wire";
 import {
   FIELD,
   FOCUS,
@@ -27,6 +31,8 @@ import {
 } from "@/features/arena/arenaVocabulary";
 
 export interface ArenaDraft {
+  /** Empty for the sidecar's next default name. */
+  name: string;
   prompt: string;
   repoPath: string;
   lineup: ArenaContestantSource[];
@@ -34,6 +40,7 @@ export interface ArenaDraft {
 }
 
 export const EMPTY_DRAFT: ArenaDraft = {
+  name: "",
   prompt: "",
   repoPath: "",
   lineup: ["opencode", "claude"],
@@ -56,21 +63,26 @@ const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 export function ArenaNewRun({
   draft,
   onDraft,
-  modes,
+  defaults,
   starting,
   problem,
   onStart,
 }: {
   draft: ArenaDraft;
   onDraft: (next: ArenaDraft) => void;
-  /** The modes this machine can run, or null before it has said; one outside it cannot be chosen. */
-  modes: readonly ArenaRunMode[] | null;
+  /**
+   * What a blank run gets on this machine, or null before the sidecar has said: its modes (one
+   * outside them cannot be chosen), and the name and the home its folder takes.
+   */
+  defaults: ArenaNewRunDefaults | null;
   starting: boolean;
   problem: string | null;
   onStart: () => void;
 }) {
+  const nameId = useId();
   const promptId = useId();
   const repoId = useId();
+  const modes = defaults?.modes ?? null;
   const opensLanes = draft.mode === "terminals" && draft.prompt.trim().length === 0;
   const canStart = !starting && (opensLanes || draft.prompt.trim().length > 0);
   const setLineup = (lineup: ArenaContestantSource[]) => onDraft({ ...draft, lineup });
@@ -88,6 +100,38 @@ export function ArenaNewRun({
         <h2 className="text-lg font-semibold">New run</h2>
       </header>
 
+      <div className="flex flex-wrap gap-x-4 gap-y-6">
+        <div className="flex min-w-48 flex-1 flex-col gap-2">
+          <label htmlFor={nameId} className={`${TEXT.meta} font-medium text-muted-foreground`}>
+            Name
+          </label>
+          <input
+            id={nameId}
+            aria-label="Run name"
+            value={draft.name}
+            onChange={(event) => onDraft({ ...draft, name: event.target.value })}
+            placeholder={defaults?.nextName ?? "arena run"}
+            maxLength={80}
+            spellCheck={false}
+            className={FIELD}
+          />
+        </div>
+        <div className="flex min-w-64 flex-[2] flex-col gap-2">
+          <label htmlFor={repoId} className={`${TEXT.meta} font-medium text-muted-foreground`}>
+            Repository
+          </label>
+          <input
+            id={repoId}
+            aria-label="Repository the contestants work in"
+            value={draft.repoPath}
+            onChange={(event) => onDraft({ ...draft, repoPath: event.target.value })}
+            placeholder={defaults ? `New repository in ${defaults.arenaHome}` : "New repository of the run's own"}
+            spellCheck={false}
+            className={`${FIELD} font-mono`}
+          />
+        </div>
+      </div>
+
       <div className="flex flex-col gap-2">
         <label htmlFor={promptId} className={`${TEXT.meta} font-medium text-muted-foreground`}>
           Prompt
@@ -101,21 +145,6 @@ export function ArenaNewRun({
           placeholder="The one prompt every contestant gets"
           rows={5}
           className={`${FIELD} min-h-32 resize-y leading-relaxed`}
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label htmlFor={repoId} className={`${TEXT.meta} font-medium text-muted-foreground`}>
-          Repository
-        </label>
-        <input
-          id={repoId}
-          aria-label="Repository the contestants work in"
-          value={draft.repoPath}
-          onChange={(event) => onDraft({ ...draft, repoPath: event.target.value })}
-          placeholder="Absolute path; empty uses this machine's default"
-          spellCheck={false}
-          className={`${FIELD} font-mono`}
         />
       </div>
 

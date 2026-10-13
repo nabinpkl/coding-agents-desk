@@ -16,6 +16,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantDetail,
   type ArenaContestantStatus,
+  type ArenaNewRunDefaults,
   type ArenaRunDetail,
   type ArenaRunMode,
   type ArenaRunSummary,
@@ -24,7 +25,7 @@ import type { AgentHttpTransport } from "@/features/activity-feed/transport/Agen
 
 const RUNS_PATH = "/api/arena/runs";
 const STREAM_PATH = "/api/arena/runs/stream";
-const MODES_PATH = "/api/arena/modes";
+const NEW_RUN_PATH = "/api/arena/new-run";
 
 const STATUSES: readonly ArenaContestantStatus[] = [...ARENA_LIVE_STATUSES, "closed", "failed"];
 
@@ -55,18 +56,22 @@ function contestantSummaryOf(value: unknown): ArenaRunSummary["contestants"][num
 export function parseRunSummary(value: unknown): ArenaRunSummary | null {
   if (!value || typeof value !== "object") return null;
   const run = value as Record<string, unknown>;
-  if (typeof run.runId !== "string" || typeof run.prompt !== "string") return null;
-  if (typeof run.repoPath !== "string" || typeof run.baseRef !== "string") return null;
+  if (typeof run.runId !== "string" || typeof run.name !== "string" || typeof run.prompt !== "string") return null;
+  if (typeof run.repoPath !== "string" || typeof run.repoCreated !== "boolean" || typeof run.baseRef !== "string") {
+    return null;
+  }
+  if (!isRunMode(run.mode)) return null;
   if (typeof run.createdAt !== "number" || !Array.isArray(run.contestants)) return null;
   const contestants = run.contestants.map(contestantSummaryOf);
   if (contestants.some((one) => one === null)) return null;
   return {
     runId: run.runId,
+    name: run.name,
     prompt: run.prompt,
     repoPath: run.repoPath,
+    repoCreated: run.repoCreated,
     baseRef: run.baseRef,
-    // A run from a sidecar that predates modes was driven headless, the only way it had.
-    mode: isRunMode(run.mode) ? run.mode : "headless",
+    mode: run.mode,
     createdAt: run.createdAt,
     contestants: contestants as ArenaRunSummary["contestants"],
   };
@@ -151,7 +156,10 @@ export async function fetchArenaRunDetail(
 export async function createArenaRun(
   transport: AgentHttpTransport,
   request: {
+    /** Empty for the sidecar's next default name. */
+    name: string;
     prompt: string;
+    /** Empty for a new repository of the run's own. */
     repoPath: string;
     mode: ArenaRunMode;
     contestants: readonly ArenaContestantSource[];
@@ -159,6 +167,7 @@ export async function createArenaRun(
 ): Promise<{ run: ArenaRunSummary } | { message: string }> {
   const response = await transport.request("POST", RUNS_PATH, {
     body: {
+      name: request.name,
       prompt: request.prompt,
       repoPath: request.repoPath,
       mode: request.mode,
@@ -191,18 +200,20 @@ export async function sendArenaPrompt(
 }
 
 /**
- * The modes this machine can drive a run in, the default first. A sidecar that does not answer
- * is taken as offering headless alone: that is the one mode every sidecar with an arena has.
+ * What a run with nothing filled in would get on this machine: its modes (default first), the
+ * arena home its folder goes in, and the name it would be given. Null when the sidecar does not
+ * answer with that, so the composer says nothing it cannot back.
  */
-export async function fetchArenaModes(transport: AgentHttpTransport): Promise<ArenaRunMode[]> {
-  const response = await transport.request("GET", MODES_PATH);
-  if (response.status !== 200) return ["headless"];
+export async function fetchArenaNewRunDefaults(transport: AgentHttpTransport): Promise<ArenaNewRunDefaults | null> {
+  const response = await transport.request("GET", NEW_RUN_PATH);
+  if (response.status !== 200) return null;
   try {
-    const parsed = JSON.parse(response.body) as { modes?: unknown };
+    const parsed = JSON.parse(response.body) as Record<string, unknown>;
     const modes = Array.isArray(parsed.modes) ? parsed.modes.filter(isRunMode) : [];
-    return modes.length > 0 ? modes : ["headless"];
+    if (modes.length === 0 || typeof parsed.arenaHome !== "string" || typeof parsed.nextName !== "string") return null;
+    return { modes, arenaHome: parsed.arenaHome, nextName: parsed.nextName };
   } catch {
-    return ["headless"];
+    return null;
   }
 }
 

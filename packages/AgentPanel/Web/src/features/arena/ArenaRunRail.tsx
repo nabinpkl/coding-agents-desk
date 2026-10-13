@@ -75,6 +75,7 @@ export function ArenaRunRail({
                   {selected ? (
                     <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-foreground" />
                   ) : null}
+                  <span className={`truncate ${TEXT.body} font-medium leading-snug text-foreground`}>{run.name}</span>
                   <span className={`line-clamp-2 ${TEXT.body} leading-snug ${run.prompt ? "text-foreground" : "text-muted-foreground"}`}>
                     {run.prompt || "Waiting for a prompt"}
                   </span>
@@ -91,7 +92,8 @@ export function ArenaRunRail({
                       ))}
                     </span>
                     <span className={`min-w-0 truncate ${TEXT.meta} text-muted-foreground`}>
-                      {live ? (run.prompt ? "dueling" : "lanes open") : formatAgo(run.createdAt, now)} · {basename(run.repoPath)}
+                      {live ? (run.prompt ? "dueling" : "lanes open") : formatAgo(run.createdAt, now)}
+                      {run.repoCreated ? null : ` · ${basename(run.repoPath)}`}
                     </span>
                   </span>
                 </button>

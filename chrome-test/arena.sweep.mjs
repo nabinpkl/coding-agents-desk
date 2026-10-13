@@ -15,11 +15,11 @@ const ORIGIN = process.env.ARENA_PANEL_ORIGIN ?? 'https://127.0.0.1:5174';
 const LONG_PROMPT = `${'Refactor the widget module so every exported constant is documented. '.repeat(6)}` +
   'antidisestablishmentarianism-and-a-very-long-unbroken-identifier-to-test-wrapping-behaviour';
 
-/** Clicks the newest run whose prompt starts with `head`, then waits for its lanes. */
+/** Clicks the newest run whose row (its name, then its prompt) holds `head`, then waits for its lanes. */
 function openRun(head) {
   return `(async () => {
     const row = [...document.querySelectorAll('nav[aria-label="Arena runs"] li button')]
-      .find((one) => one.textContent.startsWith(${JSON.stringify(head)}));
+      .find((one) => one.textContent.includes(${JSON.stringify(head)}));
     if (!row) throw new Error('no run starting ' + ${JSON.stringify(head)});
     row.click();
     for (let i = 0; i < 100 && !document.querySelector('[aria-label$=" facts"]'); i++) {

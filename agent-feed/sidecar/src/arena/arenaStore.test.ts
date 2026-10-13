@@ -22,8 +22,11 @@ async function arenaRoot(): Promise<string> {
 
 const run = (over: Partial<ArenaRunRecord> = {}): ArenaRunRecord => ({
   runId: "11111111-1111-4111-8111-111111111111",
+  name: "arena run 1",
+  folder: "/arena/arena-run-1",
   prompt: "say one word",
   repoPath: "/repos/one",
+  repoCreated: false,
   baseRef: "HEAD",
   mode: "headless",
   createdAt: 1,
@@ -85,6 +88,24 @@ test("a malformed store throws rather than quietly truncating the run list", asy
   const { writeFileSync } = await import("node:fs");
   writeFileSync(join(root, "runs.json"), "{not json");
   expect(() => store.load()).toThrow(ArenaStoreError);
+});
+
+test("a run reloads with its name, its folder and whether the arena made its repository", async () => {
+  const store = new ArenaStore(await arenaRoot());
+  store.save([run({ name: "bake off", folder: "/arena/bake-off", repoPath: "/arena/bake-off", repoCreated: true })]);
+  const [loaded] = store.load();
+  expect([loaded?.name, loaded?.folder, loaded?.repoCreated]).toEqual(["bake off", "/arena/bake-off", true]);
+});
+
+test("a run on disk with no name, folder or mode is a broken store, not a run to guess at", async () => {
+  const root = await arenaRoot();
+  const store = new ArenaStore(root);
+  const { writeFileSync } = await import("node:fs");
+  for (const missing of ["name", "folder", "repoCreated", "mode"]) {
+    const { [missing as keyof ArenaRunRecord]: _dropped, ...rest } = run();
+    writeFileSync(join(root, "runs.json"), JSON.stringify([rest]));
+    expect(() => store.load()).toThrow(ArenaStoreError);
+  }
 });
 
 test("deleteRunDirectory removes exactly the run's directory under the root", async () => {

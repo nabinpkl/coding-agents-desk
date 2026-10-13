@@ -117,9 +117,13 @@ export function ArenaRunView({
           </button>
         </div>
         <p className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${TEXT.meta} text-muted-foreground`}>
+          <span className="font-medium text-foreground">{run.name}</span>
+          <span aria-hidden>·</span>
           <span>{lineupKind(run.contestants.map((c) => c.source))}</span>
           <span aria-hidden>·</span>
-          <span className="font-mono" title={run.repoPath}>{basename(run.repoPath)}</span>
+          <span className="font-mono" title={run.repoPath}>
+            {run.repoCreated ? "own repository" : basename(run.repoPath)}
+          </span>
           <span aria-hidden>@</span>
           <span className="font-mono">{run.baseRef}</span>
           <span aria-hidden>·</span>
