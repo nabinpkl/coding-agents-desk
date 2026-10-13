@@ -21,8 +21,11 @@
 //     `--tools` takes every other built-in out of the contestant's hands (it otherwise holds
 //     subagents, web fetch, cross-session messaging and scheduled triggers); and rules scoped
 //     to `./**`, which resolves against the worktree the process starts in, keep Read, Edit
-//     and Write -- and Glob and Grep, which follow the Read rule -- inside it. Bash stays
-//     unscoped: a shell reaches wherever this user can, and only a sandbox would change that.
+//     and Write -- and Glob and Grep, which follow the Read rule -- inside it. Write has no rule
+//     of its own: the CLI matches no `Write(path)` rule and warns about one on every start, and
+//     `Edit(path)` covers every file-editing tool (measured: Write inside allowed, outside
+//     refused, 2026-10-13). Bash stays unscoped: a shell reaches wherever this user can, and
+//     only a sandbox would change that.
 //   - `--session-id` is accepted and names the transcript that lands at
 //     `~/.claude/projects/<slug>/<id>.jsonl`, so the id is chosen here rather than
 //     discovered, and the session is in the catalog from the moment the file exists. The
@@ -53,9 +56,9 @@ const CONTESTANT_TOOLS = "Read,Grep,Glob,Bash,Edit,Write";
 
 /**
  * What a contestant may do without being asked, under a mode that asks nobody. The file tools
- * are scoped to the worktree; Glob and Grep need no rule of their own, since they follow Read's.
+ * are scoped to the worktree; Glob and Grep follow Read's rule, and Write follows Edit's.
  */
-const CONTESTANT_ALLOWED = ["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"];
+const CONTESTANT_ALLOWED = ["Read(./**)", "Edit(./**)", "Bash"];
 
 /**
  * The argv that drives one contestant, split out because it is pure and the spelling is the

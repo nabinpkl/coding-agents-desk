@@ -154,7 +154,7 @@ describe("runClaudeTerminalContestant", () => {
     expect(argv).not.toContain("--print");
     expect(argv.slice(0, 6)).toEqual(["/bin/claude", "--safe-mode", "--session-id", SESSION, "-n", "arena c1 run-1"]);
     expect(argv).toContain("dontAsk");
-    expect(argv.slice(argv.indexOf("--allowed-tools") + 1)).toEqual(["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"]);
+    expect(argv.slice(argv.indexOf("--allowed-tools") + 1)).toEqual(["Read(./**)", "Edit(./**)", "Bash"]);
   });
 
   test("a CLI that exits on its way up fails at once, saying what its pane said", async () => {

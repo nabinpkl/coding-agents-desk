@@ -74,7 +74,7 @@ describe("claudeContestantArgv", () => {
       "/bin/claude", "--print", "--safe-mode", "--session-id", SESSION,
       "--model", "haiku", "--effort", "low",
       "--permission-mode", "dontAsk", "--tools", "Read,Grep,Glob,Bash,Edit,Write",
-      "--allowed-tools", "Read(./**)", "Edit(./**)", "Write(./**)", "Bash",
+      "--allowed-tools", "Read(./**)", "Edit(./**)", "Bash",
     ]);
   });
 
