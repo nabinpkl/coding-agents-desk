@@ -52,7 +52,7 @@ import {
   type ResolvedAgentTerminalSession,
   type TerminalIdentity,
 } from "@/terminal/agentTerminalIdentity";
-import { liveTmuxSession } from "@/terminal/tmuxSessionOwner";
+import { claudeSessionRunning, liveTmuxSession } from "@/terminal/tmuxSessionOwner";
 import { streamMessage } from "@/terminal/pty/terminalStreamMessages";
 import {
   connectPtyTerminal,
@@ -173,6 +173,8 @@ export class AgentTerminalService {
     private readonly restartPane = restartClaudeSession,
     /** Runs a joined pane's exited command again; injected for the same reason. */
     private readonly revivePane = reviveExitedPane,
+    /** Whether a live Claude process holds a session, which forbids resuming it again in its pane. */
+    private readonly claudeRunning = claudeSessionRunning,
   ) {
   }
 
@@ -410,7 +412,7 @@ export class AgentTerminalService {
   }
 
   /**
-   * Hands the resolution its three collaborators, which is all this class owes it.
+   * Hands the resolution its four collaborators, which is all this class owes it.
    *
    * `sessionTmux.owner` is wrapped rather than passed, because that object is injected whole and a
    * test's copy is a plain record: a bare reference would lose whatever `this` it was written to
@@ -421,6 +423,7 @@ export class AgentTerminalService {
       userHomeDirectory: this.userHomeDirectory,
       resolveSession: this.resolveSession,
       tmuxOwner: (source, sessionId) => this.sessionTmux.owner(source, sessionId),
+      claudeRunning: (sessionId) => this.claudeRunning(sessionId),
     }, context);
   }
 

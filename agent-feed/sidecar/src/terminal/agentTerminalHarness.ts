@@ -34,6 +34,10 @@ export interface SessionTmuxFakes {
   settled?: string[];
   /** Joined panes this open asked to run their exited command again, and with what. */
   revived?: { session: string; revival: PaneRevival }[];
+  /** Whether a joined pane's command has exited, so the revival offered to it runs; absent reads as no. */
+  paneExited?: boolean;
+  /** Whether a live Claude process holds the session somewhere; absent reads as none. */
+  claudeRunning?: boolean;
 }
 
 export function agentTerminalHarness() {
@@ -78,10 +82,12 @@ export function agentTerminalHarness() {
     service: AgentTerminalService,
     fakes: SessionTmuxFakes,
   ): AgentTerminalService {
-    // Never the real one: it would run `respawn-pane` against the default tmux server.
+    // Never the real ones: they would read this machine's Claude registry, and run `respawn-pane`
+    // against the default tmux server.
+    (service as unknown as { claudeRunning: unknown }).claudeRunning = async () => fakes.claudeRunning ?? false;
     (service as unknown as { revivePane: unknown }).revivePane = async (session: string, revival: PaneRevival) => {
       fakes.revived?.push({ session, revival });
-      return true;
+      return fakes.paneExited ?? false;
     };
     (service as unknown as { sessionTmux: unknown }).sessionTmux = {
       owner: async () => fakes.owner,

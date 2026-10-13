@@ -11,6 +11,7 @@ import {
   liveTmuxSession,
   type AgentTerminalPtyClient,
 } from "@/terminal/agentTerminalService";
+import { claudeSessionRunning } from "@/terminal/tmuxSessionOwner";
 import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import {
@@ -159,6 +160,13 @@ test("prefers a human's pane over the one the sidecar resumed for the same sessi
   expect(await liveTmuxSession("codex", SESSION_ID, async () => rows)).toBe(null);
 });
 
+test("a Claude session is running when any live process holds it, in tmux or not", async () => {
+  // A process outside tmux -- a Claude Desktop window -- registers with no pane, and still counts.
+  const outsideTmux = async () => [{ sessionId: SESSION_ID, tmuxSession: null }];
+  expect(await claudeSessionRunning(SESSION_ID, outsideTmux)).toBe(true);
+  expect(await claudeSessionRunning(SESSION_ID, async () => [{ sessionId: "another" }])).toBe(false);
+});
+
 // Which pane a session is running in, when its tmux has been renamed underneath the answer.
 
 test("the stamp wins over the registry, which cached a name that no longer exists", async () => {
@@ -248,7 +256,13 @@ test("an opencode session starts a pane running the TUI in its own directory", a
 });
 
 test("an opencode session joins the pane its stamp names instead of starting a second", async () => {
-  const fakes: SessionTmuxFakes = { owner: "opencode-title-pane", running: new Set(), created: [], revived: [] };
+  const fakes: SessionTmuxFakes = {
+    owner: "opencode-title-pane",
+    running: new Set(),
+    created: [],
+    revived: [],
+    paneExited: true,
+  };
   const attached: { session: string; columns: number; rows: number }[] = [];
   const service = await sessionTmuxService(fakes, attached);
   const binary = await installedOpencode();
@@ -276,12 +290,32 @@ test("an opencode session joins the pane its stamp names instead of starting a s
       command: [binary, "--session", OPENCODE_SESSION_ID],
     },
   }]);
-  // The harness's revival answers that it ran, which is a stopped session running again.
+  // The pane's TUI had exited, so the revival ran: a stopped session running again.
   expect(heard).toEqual([OPENCODE_SESSION_ID]);
 });
 
-test("a joined Claude pane is never offered a revival", async () => {
+test("a joined Claude pane is offered its resume when no Claude process holds the session", async () => {
   const fakes: SessionTmuxFakes = { owner: "composerprobe", running: new Set(), created: [], revived: [] };
+  const service = await sessionTmuxService(fakes, []);
+
+  await service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
+
+  // The same argv the resume path and Restart run, so a revived pane launches as a fresh one does.
+  expect(fakes.revived).toEqual([{
+    session: "composerprobe",
+    revival: { startedFor: SESSION_ID, cwd: expect.any(String), command: resumeClaudeSessionCommand(SESSION_ID) },
+  }]);
+});
+
+test("a joined Claude pane is not offered a resume while the session runs somewhere else", async () => {
+  // A Claude Desktop window, say: resuming in the pane would put a second client on one transcript.
+  const fakes: SessionTmuxFakes = {
+    owner: "composerprobe",
+    running: new Set(),
+    created: [],
+    revived: [],
+    claudeRunning: true,
+  };
   const service = await sessionTmuxService(fakes, []);
 
   await service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });

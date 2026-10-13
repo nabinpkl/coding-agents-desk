@@ -26,6 +26,20 @@ import { liveSessionProcesses } from "@/tasks/sessionRegistry";
  * Somebody else's terminal wins, and the one this sidecar started is the fallback -- picking by
  * registry order would move a thread's terminal between two panes for no visible reason.
  */
+/**
+ * Whether a live Claude process holds that session, in tmux or anywhere else.
+ *
+ * Asked before a session's own pane is given `claude --resume` again: the registry is the only
+ * record of a process outside tmux -- a Claude Desktop window, a terminal the stamp does not name --
+ * and resuming under one of those would open a second client on one transcript.
+ */
+export async function claudeSessionRunning(
+  sessionId: string,
+  processes: () => Promise<{ sessionId: string }[]> = async () => liveSessionProcesses(await currentProcessTable()),
+): Promise<boolean> {
+  return (await processes()).some((entry) => entry.sessionId === sessionId);
+}
+
 export async function liveTmuxSession(
   source: "claude" | "codex" | "opencode",
   sessionId: string,

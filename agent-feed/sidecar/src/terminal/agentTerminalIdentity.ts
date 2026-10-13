@@ -23,8 +23,8 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
-import { opencodeBinary } from "@/config/configBinaries";
 import { claudeSessionPaneName, resumeClaudeSessionCommand } from "@/terminal/claudeSessionLaunch";
+import { opencodeTuiCommand, sessionPaneRevival } from "@/terminal/sessionPaneRevival";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,
@@ -63,8 +63,9 @@ export interface TerminalIdentity {
   createTmux: { cwd: string; command: string[] } | null;
   /**
    * When set, a pane that is JOINED rather than created runs this again if what it was started to
-   * run has exited -- so reopening a session whose TUI was quit lands on the TUI, not on the shell
-   * the pane keeps. See `reviveExitedPane` for which panes qualify.
+   * run has exited -- so reopening a session whose harness was quit lands on the harness, not on
+   * the shell the pane keeps. `sessionPaneRevival` decides when it is set, and `reviveExitedPane`
+   * which panes take it.
    */
   reviveTmux?: PaneRevival | null;
   /**
@@ -94,7 +95,7 @@ export interface TerminalIdentity {
   stampSession: string | null;
 }
 
-/** The three things resolving a target reads, and all it reads. */
+/** The four things resolving a target reads, and all it reads. */
 export interface TerminalIdentityDeps {
   /** Every project directory must be inside this, and a tmux target's nominal cwd is it. */
   userHomeDirectory: string;
@@ -104,6 +105,8 @@ export interface TerminalIdentityDeps {
   ) => ResolvedAgentTerminalSession | undefined;
   /** Which tmux session a live process for that session id is running inside; see `liveTmuxSession`. */
   tmuxOwner: (source: "claude" | "codex" | "opencode", sessionId: string) => Promise<string | null>;
+  /** Whether a live Claude process holds that session anywhere; see `claudeSessionRunning`. */
+  claudeRunning: (sessionId: string) => Promise<boolean>;
 }
 
 /**
@@ -382,20 +385,6 @@ export function opencodeSessionPaneName(sessionId: string): string {
 }
 
 /**
- * The argv that opens the opencode TUI on one session, or null when this machine has no opencode.
- *
- * By absolute path, not the bare name `claude` gets away with: opencode's installer adds its
- * directory to PATH in the interactive shell's rc file only, and a pane runs its command through a
- * login shell, so `opencode` there is `zsh:1: command not found: opencode`. Measured on two Bot
- * sessions (2026-10-13), each pane left at a shell where a bare `opencode` typed by hand then
- * opened a NEW session instead of this one -- the card showing nothing while the pane worked.
- */
-function opencodeTuiCommand(sessionId: string): string[] | null {
-  const binary = opencodeBinary();
-  return binary ? [binary, "--session", sessionId] : null;
-}
-
-/**
  * The session's own tmux pane: the one it is running in, or one started to resume it.
  *
  * Which of the two it is cannot be decided by the caller. A panel asking "is this session in
@@ -433,9 +422,6 @@ async function identifySessionTmux(
   // actually happening, and it belongs to whoever started it.
   const owned = await deps.tmuxOwner(context.source, sessionId);
   if (owned) {
-    // An opencode pane is found by its stamp alone, which outlives the TUI in it, so a pane whose
-    // TUI was quit -- or never started -- would otherwise be joined as a bare shell for good.
-    const tui = context.source === "opencode" ? opencodeTuiCommand(sessionId) : null;
     return {
       ptySessionName: `agent-tmux-${owned}`,
       tmuxSession: owned,
@@ -443,8 +429,8 @@ async function identifySessionTmux(
       command: [],
       refuseNew: null,
       createTmux: null,
-      reviveTmux: tui ? { startedFor: sessionId, cwd: projectPath, command: tui } : null,
-        stampSession: sessionId,
+      reviveTmux: await sessionPaneRevival(context.source, sessionId, projectPath, deps.claudeRunning),
+      stampSession: sessionId,
     };
   }
 
