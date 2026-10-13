@@ -15,6 +15,7 @@ import { announceSessionPaneStarted } from "@/terminal/sessionPaneStarts";
 import type { PtySessionSummary } from "@/terminal/pty/ptyProtocol";
 import { AgentTerminalConflictError, AgentTerminalUnavailableError } from "@/terminal/agentTerminalErrors";
 import type { TerminalIdentity } from "@/terminal/agentTerminalIdentity";
+import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
 
 export interface AgentTerminalPtyClient {
   listSessions(): Promise<PtySessionSummary[]>;
@@ -51,6 +52,8 @@ export interface TmuxTerminalBackend {
    * would drive real tmux from a test that handed over its own.
    */
   relabelSession: (pane: string, sessionId: string, title: string) => Promise<string>;
+  /** Runs a joined pane's command again when it has exited, answering whether it did; see `reviveExitedPane`. */
+  revivePane: (session: string, revival: PaneRevival) => Promise<boolean>;
 }
 
 /**
@@ -75,6 +78,11 @@ export async function connectTmuxTerminal(
     // would otherwise pipe every byte of that startup live and make the viewer emulate it.
     await backend.sessionTmux.settle(session);
   }
+  // A joined pane whose command had exited is a stopped session running again just as a created one
+  // is, so it is announced the same way below.
+  const revived = !created && identity.reviveTmux
+    ? await revive(backend, session, identity.reviveTmux)
+    : false;
   // Stamped on every open, not only on the one that created the pane. That is what adopts a
   // pane started before this existed, and what re-stamps one whose option was lost -- and it
   // is idempotent, so the ordinary case costs one tmux call that changes nothing.
@@ -97,7 +105,7 @@ export async function connectTmuxTerminal(
     }
   }
   // Said once the pane is named, so whoever acts on a session that is running again finds it.
-  if (created && identity.stampSession) announceSessionPaneStarted(identity.stampSession);
+  if ((created || revived) && identity.stampSession) announceSessionPaneStarted(identity.stampSession);
   return attachTmux(backend, target, dimensions);
 }
 
@@ -108,6 +116,14 @@ async function tmuxExists(backend: TmuxTerminalBackend, session: string): Promis
     throw new AgentTerminalUnavailableError("tmux could not be asked about its sessions", {
       cause: error,
     });
+  }
+}
+
+async function revive(backend: TmuxTerminalBackend, session: string, revival: PaneRevival): Promise<boolean> {
+  try {
+    return await backend.revivePane(session, revival);
+  } catch (error) {
+    throw new AgentTerminalUnavailableError(`tmux could not run the session again in ${session}`, { cause: error });
   }
 }
 

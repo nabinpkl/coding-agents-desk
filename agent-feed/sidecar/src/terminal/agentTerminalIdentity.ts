@@ -22,11 +22,14 @@ import type {
   WorkspaceTerminalContext,
 } from "@agentdesk/agent-feed-wire";
 import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
+import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
+import { opencodeBinary } from "@/config/configBinaries";
 import { claudeSessionPaneName, resumeClaudeSessionCommand } from "@/terminal/claudeSessionLaunch";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,
   AgentTerminalNotFoundError,
+  AgentTerminalUnavailableError,
   requiredOpencodeSessionId,
   requiredSessionUuid,
 } from "@/terminal/agentTerminalErrors";
@@ -58,6 +61,12 @@ export interface TerminalIdentity {
    * colliding, so a typo lands on a refused name or a fresh one rather than on a neighbour.
    */
   createTmux: { cwd: string; command: string[] } | null;
+  /**
+   * When set, a pane that is JOINED rather than created runs this again if what it was started to
+   * run has exited -- so reopening a session whose TUI was quit lands on the TUI, not on the shell
+   * the pane keeps. See `reviveExitedPane` for which panes qualify.
+   */
+  reviveTmux?: PaneRevival | null;
   /**
    * The title a pane created by this open should take, once its stamp reads back.
    *
@@ -373,6 +382,20 @@ export function opencodeSessionPaneName(sessionId: string): string {
 }
 
 /**
+ * The argv that opens the opencode TUI on one session, or null when this machine has no opencode.
+ *
+ * By absolute path, not the bare name `claude` gets away with: opencode's installer adds its
+ * directory to PATH in the interactive shell's rc file only, and a pane runs its command through a
+ * login shell, so `opencode` there is `zsh:1: command not found: opencode`. Measured on two Bot
+ * sessions (2026-10-13), each pane left at a shell where a bare `opencode` typed by hand then
+ * opened a NEW session instead of this one -- the card showing nothing while the pane worked.
+ */
+function opencodeTuiCommand(sessionId: string): string[] | null {
+  const binary = opencodeBinary();
+  return binary ? [binary, "--session", sessionId] : null;
+}
+
+/**
  * The session's own tmux pane: the one it is running in, or one started to resume it.
  *
  * Which of the two it is cannot be decided by the caller. A panel asking "is this session in
@@ -410,6 +433,9 @@ async function identifySessionTmux(
   // actually happening, and it belongs to whoever started it.
   const owned = await deps.tmuxOwner(context.source, sessionId);
   if (owned) {
+    // An opencode pane is found by its stamp alone, which outlives the TUI in it, so a pane whose
+    // TUI was quit -- or never started -- would otherwise be joined as a bare shell for good.
+    const tui = context.source === "opencode" ? opencodeTuiCommand(sessionId) : null;
     return {
       ptySessionName: `agent-tmux-${owned}`,
       tmuxSession: owned,
@@ -417,15 +443,19 @@ async function identifySessionTmux(
       command: [],
       refuseNew: null,
       createTmux: null,
+      reviveTmux: tui ? { startedFor: sessionId, cwd: projectPath, command: tui } : null,
         stampSession: sessionId,
     };
   }
 
   // An opencode session has no harness CLI to resume under: its serve owns the session, so the
   // pane runs the TUI itself in the session's own directory, resumed directly onto the session
-  // (the follow-up ADR-0120 deferred). Plain `opencode`, resolved through the login shell like
-  // `claude` is -- no absolute path -- with `--session` mirroring `claude --resume`.
+  // (the follow-up ADR-0120 deferred), with `--session` mirroring `claude --resume`.
   if (context.source === "opencode") {
+    const tui = opencodeTuiCommand(sessionId);
+    if (!tui) {
+      throw new AgentTerminalUnavailableError("opencode is not installed on this machine, so the session has no TUI to open");
+    }
     const pane = opencodeSessionPaneName(sessionId);
     return {
       ptySessionName: `agent-tmux-${pane}`,
@@ -433,7 +463,7 @@ async function identifySessionTmux(
       cwd: projectPath,
       command: [],
       refuseNew: null,
-      createTmux: { cwd: projectPath, command: ["opencode", "--session", sessionId] },
+      createTmux: { cwd: projectPath, command: tui },
       stampSession: sessionId,
       nameFromTitle: session.title,
     };

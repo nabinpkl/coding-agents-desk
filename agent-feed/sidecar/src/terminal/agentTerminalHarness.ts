@@ -15,6 +15,7 @@ import {
 } from "@/terminal/agentTerminalService";
 import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
+import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
 
 export const SESSION_ID = "019c3708-fadb-7e2f-a744-322df224faf4";
 
@@ -31,6 +32,8 @@ export interface SessionTmuxFakes {
   }[];
   /** Panes this open waited on before attaching, in order. */
   settled?: string[];
+  /** Joined panes this open asked to run their exited command again, and with what. */
+  revived?: { session: string; revival: PaneRevival }[];
 }
 
 export function agentTerminalHarness() {
@@ -75,6 +78,11 @@ export function agentTerminalHarness() {
     service: AgentTerminalService,
     fakes: SessionTmuxFakes,
   ): AgentTerminalService {
+    // Never the real one: it would run `respawn-pane` against the default tmux server.
+    (service as unknown as { revivePane: unknown }).revivePane = async (session: string, revival: PaneRevival) => {
+      fakes.revived?.push({ session, revival });
+      return true;
+    };
     (service as unknown as { sessionTmux: unknown }).sessionTmux = {
       owner: async () => fakes.owner,
       exists: async (session: string) => fakes.running.has(session),

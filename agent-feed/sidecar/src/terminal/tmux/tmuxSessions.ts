@@ -47,11 +47,14 @@ export {
   renameTmuxSessionTo,
   respawnPaneArgs,
   respawnTmuxPane,
+  reviveExitedPane,
   setSessionIdentityArgs,
   stampTmuxSessionIdentity,
+  tmuxPaneCommandExited,
   tmuxPaneStarts,
   tmuxSessionExists,
   type NewTmuxSession,
+  type PaneRevival,
 } from "@/terminal/tmux/tmuxSessionList";
 
 /**

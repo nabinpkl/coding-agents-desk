@@ -30,6 +30,7 @@ import {
   releaseTmuxWindowSize,
   resizeTmuxWindow,
   restoreTmuxMouse,
+  reviveExitedPane,
   tmuxSessionExists,
 } from "@/terminal/tmux/tmuxSessions";
 import { TmuxAttachments, type TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
@@ -170,6 +171,8 @@ export class AgentTerminalService {
     private readonly relabelSession = adoptTitleName,
     /** Replaces the process in a session's own pane; injected for the same reason the two above are. */
     private readonly restartPane = restartClaudeSession,
+    /** Runs a joined pane's exited command again; injected for the same reason. */
+    private readonly revivePane = reviveExitedPane,
   ) {
   }
 
@@ -223,6 +226,7 @@ export class AgentTerminalService {
           sessionTmux: this.sessionTmux,
           stampSessionIdentity: this.stampSessionIdentity,
           relabelSession: this.relabelSession,
+          revivePane: this.revivePane,
         },
         identity,
         identity.tmuxSession,

@@ -220,6 +220,58 @@ export async function respawnTmuxPane(pane: string, cwd: string, command: readon
   if (code !== 0) throw new TmuxUnavailable(`tmux respawn-pane exited ${code}: ${err.trim() || out.trim()}`);
 }
 
+/**
+ * True when the pane's shell has no child left, or tmux no longer has the pane: whatever the pane
+ * was started to run has exited.
+ *
+ * Asked of the process table, not of `#{pane_current_command}`: a pane runs its command through
+ * `zsh -c` with no job control, so the shell stays the foreground process and tmux names it
+ * whether the command is running under it or has exited. Measured both ways on a live pane:
+ * `zsh` while a child ran, `zsh` after; `pgrep -P` found the child only while it ran. An idle
+ * interactive prompt measured the same (2026-10-13): no child, where a running TUI was one.
+ */
+export async function tmuxPaneCommandExited(pane: string): Promise<boolean> {
+  const { out, code } = await tmux(["display-message", "-p", "-t", pane, "#{pane_pid}"]);
+  if (code !== 0) return true;
+  const pid = out.trim();
+  if (!/^\d+$/.test(pid)) return false;
+  const children = Bun.spawn(["/usr/bin/pgrep", "-P", pid], { stdout: "ignore", stderr: "ignore" });
+  return (await children.exited) === 1;
+}
+
+/** What a session's own pane runs again once what it was started to run has exited. */
+export interface PaneRevival {
+  /** The session id the pane's start command must name, which is what makes the pane ours. */
+  startedFor: string;
+  cwd: string;
+  command: readonly string[];
+}
+
+/**
+ * Runs a session's command again in its own pane when the one it started with has exited,
+ * answering whether it did.
+ *
+ * Only a pane whose start command names the session, the rule `restartClaudeSession` uses and for
+ * its reason: the identity stamp is also written onto a person's own tmux session when a viewer
+ * joins it, and `respawn-pane -k` there would end their shell. And only when nothing is running
+ * under the pane's shell, so a live process -- the session's, or whatever somebody started at that
+ * prompt -- is never the one replaced.
+ */
+export async function reviveExitedPane(
+  session: string,
+  revival: PaneRevival,
+  steps: {
+    paneStarts: (session: string) => Promise<{ pane: string; command: string }[]>;
+    exited: (pane: string) => Promise<boolean>;
+    respawn: (pane: string, cwd: string, command: readonly string[]) => Promise<void>;
+  } = { paneStarts: tmuxPaneStarts, exited: tmuxPaneCommandExited, respawn: respawnTmuxPane },
+): Promise<boolean> {
+  const launched = (await steps.paneStarts(session)).find(({ command }) => command.includes(revival.startedFor));
+  if (!launched || !(await steps.exited(launched.pane))) return false;
+  await steps.respawn(launched.pane, revival.cwd, revival.command);
+  return true;
+}
+
 export async function createTmuxSession(options: NewTmuxSession): Promise<void> {
   const { err, code } = await tmux(newSessionArgs(options));
   if (code !== 0) {

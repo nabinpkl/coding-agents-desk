@@ -1,7 +1,7 @@
 // Which pane an agent session is running in: the stamp, the registry, and what happens
 // when tmux cannot be asked at all.
 
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -201,10 +201,32 @@ test("a tmux that cannot be asked falls back rather than failing the lookup", as
 
 const OPENCODE_SESSION_ID = "ses_abc123XYZ";
 
+/**
+ * Points the opencode lookup at a stand-in binary of this test's own, answering its path.
+ *
+ * So the argv asserted is the same on a machine with opencode installed somewhere else, or not at
+ * all, and the override is put back after each test.
+ */
+async function installedOpencode(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "agentdesk-opencode-bin-"));
+  roots.push(directory);
+  const binary = join(directory, "opencode");
+  await writeFile(binary, "");
+  process.env.AGENT_FEED_OPENCODE_PATH = binary;
+  return binary;
+}
+
+const opencodeOverride = process.env.AGENT_FEED_OPENCODE_PATH;
+afterEach(() => {
+  if (opencodeOverride === undefined) delete process.env.AGENT_FEED_OPENCODE_PATH;
+  else process.env.AGENT_FEED_OPENCODE_PATH = opencodeOverride;
+});
+
 test("an opencode session starts a pane running the TUI in its own directory", async () => {
   const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
   const attached: { session: string; columns: number; rows: number }[] = [];
   const service = await sessionTmuxService(fakes, attached);
+  const binary = await installedOpencode();
 
   const descriptor = await service.open(
     { kind: "session-tmux", source: "opencode", sessionId: OPENCODE_SESSION_ID },
@@ -212,11 +234,12 @@ test("an opencode session starts a pane running the TUI in its own directory", a
   );
 
   // No harness CLI to resume under -- the serve owns the session -- so the pane runs the TUI
-  // resumed directly onto the session. A second open joins this pane by name.
+  // resumed directly onto the session, by absolute path: the login shell a pane runs its command
+  // through does not have opencode's directory on PATH. A second open joins this pane by name.
   expect(fakes.created).toEqual([{
     session: `agentdesk-opencode-${OPENCODE_SESSION_ID}`,
     cwd: expect.stringContaining("projects/agent-desk"),
-    command: ["opencode", "--session", OPENCODE_SESSION_ID],
+    command: [binary, "--session", OPENCODE_SESSION_ID],
     columns: 100,
     rows: 30,
   }]);
@@ -225,17 +248,57 @@ test("an opencode session starts a pane running the TUI in its own directory", a
 });
 
 test("an opencode session joins the pane its stamp names instead of starting a second", async () => {
-  const fakes: SessionTmuxFakes = { owner: "opencode-title-pane", running: new Set(), created: [] };
+  const fakes: SessionTmuxFakes = { owner: "opencode-title-pane", running: new Set(), created: [], revived: [] };
   const attached: { session: string; columns: number; rows: number }[] = [];
   const service = await sessionTmuxService(fakes, attached);
+  const binary = await installedOpencode();
+  const heard: string[] = [];
+  const stop = subscribeSessionPaneStarts((sessionId) => heard.push(sessionId));
 
-  await service.open(
-    { kind: "session-tmux", source: "opencode", sessionId: OPENCODE_SESSION_ID },
-    { columns: 100, rows: 30 },
-  );
+  try {
+    await service.open(
+      { kind: "session-tmux", source: "opencode", sessionId: OPENCODE_SESSION_ID },
+      { columns: 100, rows: 30 },
+    );
+  } finally {
+    stop();
+  }
 
   expect(fakes.created).toEqual([]);
   expect(attached).toEqual([{ session: "opencode-title-pane", columns: 100, rows: 30 }]);
+  // The stamp outlives the TUI, so the joined pane is offered the TUI again; whether it takes it
+  // is `reviveExitedPane`'s rule, tested beside it.
+  expect(fakes.revived).toEqual([{
+    session: "opencode-title-pane",
+    revival: {
+      startedFor: OPENCODE_SESSION_ID,
+      cwd: expect.stringContaining("projects/agent-desk"),
+      command: [binary, "--session", OPENCODE_SESSION_ID],
+    },
+  }]);
+  // The harness's revival answers that it ran, which is a stopped session running again.
+  expect(heard).toEqual([OPENCODE_SESSION_ID]);
+});
+
+test("a joined Claude pane is never offered a revival", async () => {
+  const fakes: SessionTmuxFakes = { owner: "composerprobe", running: new Set(), created: [], revived: [] };
+  const service = await sessionTmuxService(fakes, []);
+
+  await service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
+
+  expect(fakes.revived).toEqual([]);
+});
+
+test("an opencode session is refused a pane when this machine has no opencode", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
+  const service = await sessionTmuxService(fakes, []);
+  process.env.AGENT_FEED_OPENCODE_PATH = join(tmpdir(), "agentdesk-no-such-opencode");
+
+  await expect(service.open(
+    { kind: "session-tmux", source: "opencode", sessionId: OPENCODE_SESSION_ID },
+    { columns: 100, rows: 30 },
+  )).rejects.toThrow("opencode is not installed");
+  expect(fakes.created).toEqual([]);
 });
 
 test("an opencode session id that is not a serve id is refused before touching tmux", async () => {

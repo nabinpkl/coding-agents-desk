@@ -37,7 +37,7 @@ import { opencodeSessionPaneName } from "@/terminal/agentTerminalIdentity";
 import { startClaudeSession, UNATTENDED_COLUMNS, UNATTENDED_ROWS } from "@/terminal/claudeSessionLaunch";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 import { tmux } from "@/terminal/tmux/tmuxCommand";
-import { createTmuxSession, waitForPaneToSettle } from "@/terminal/tmux/tmuxSessions";
+import { createTmuxSession, tmuxPaneCommandExited, waitForPaneToSettle } from "@/terminal/tmux/tmuxSessions";
 import { onTranscriptWrite } from "@/transcripts/catalog/transcriptWrites";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 
@@ -103,20 +103,9 @@ export const LIVE_TERMINAL_STEPS: TerminalContestantSteps = {
   settlePane: async (pane, limitMs) => {
     await waitForPaneToSettle(pane, { timeoutMs: limitMs });
   },
-  harnessExited: async (pane) => {
-    // Asked of the process table, not of `#{pane_current_command}`: the pane runs its command
-    // through `zsh -c` with no job control, so the shell stays the foreground process and tmux
-    // names it whether the harness is running under it or has exited. Measured both ways on a
-    // live pane: `zsh` while a child ran, `zsh` after; `pgrep -P` found the child only while it ran.
-    const { out, code } = await tmux(["display-message", "-p", "-t", pane, "#{pane_pid}"]);
-    // A pane tmux no longer has is a harness that is gone with it: ended by a reader, or by the
-    // run being removed while this contestant was still on its way up.
-    if (code !== 0) return true;
-    const pid = out.trim();
-    if (!/^\d+$/.test(pid)) return false;
-    const children = Bun.spawn(["/usr/bin/pgrep", "-P", pid], { stdout: "ignore", stderr: "ignore" });
-    return (await children.exited) === 1;
-  },
+  // A pane tmux no longer has is a harness that is gone with it: ended by a reader, or by the run
+  // being removed while this contestant was still on its way up.
+  harnessExited: (pane) => tmuxPaneCommandExited(pane),
   paneTail: async (pane) => {
     const { out } = await tmux(["capture-pane", "-p", "-t", pane]);
     return out.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-3).join(" / ");
