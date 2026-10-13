@@ -5,7 +5,9 @@
 //
 // It reads the runs the arena sidecar behind that origin already holds rather than making any,
 // so seed it first: one run with three lanes whose prompt starts "Read README.md" (the
-// comparison states), plus several more for list volume. Runs whose contestants fail on a spent
+// comparison states), one Terminals-mode run whose prompt starts "Reply with exactly" (what
+// `chrome-test/arena-terminals-verify.mjs` starts, with ARENA_KEEP_RUN=1 so it is not deleted),
+// plus several more for list volume. Runs whose contestants fail on a spent
 // provider quota are as good as any for layout, and free. The debug browser must be started with
 // `--ignore-certificate-errors` when the origin's certificate names a host other than 127.0.0.1.
 
@@ -77,6 +79,19 @@ export default async function ({ page, sweep }) {
       await page.waitFor(openRun('Read README.md'), { timeout: 10000 });
       await page.evaluate(chooseView('Diffs'));
       await page.sleep(1200);
+    },
+  });
+
+  // Seed: one run in the Terminals mode whose prompt starts "Reply with exactly", closed, with
+  // its panes still open (they last until the run is deleted).
+  await sweep('terminals run, sessions', {
+    // xterm draws each lane's pane at the pane's own width and scales its type to fit; what is
+    // inside it is the harness's screen, not this page's layout.
+    ignore: '.absolute.inset-x-0.top-0.z-20, .xterm',
+    setup: async () => {
+      await page.waitFor(openRun('Reply with exactly'), { timeout: 10000 });
+      await page.evaluate(chooseView('Sessions'));
+      await page.sleep(3000);
     },
   });
 

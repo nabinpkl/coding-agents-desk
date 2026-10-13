@@ -61,8 +61,8 @@ export function ArenaNewRun({
 }: {
   draft: ArenaDraft;
   onDraft: (next: ArenaDraft) => void;
-  /** The modes this machine can run; a mode outside it is shown but cannot be chosen. */
-  modes: readonly ArenaRunMode[];
+  /** The modes this machine can run, or null before it has said; one outside it cannot be chosen. */
+  modes: readonly ArenaRunMode[] | null;
   starting: boolean;
   problem: string | null;
   onStart: () => void;
@@ -181,7 +181,7 @@ export function ArenaNewRun({
           className="grid w-full max-w-xs grid-cols-2 gap-0.5 rounded-md bg-muted/50 p-0.5"
         >
           {RUN_MODES.map((mode) => {
-            const offered = modes.includes(mode);
+            const offered = modes === null || modes.includes(mode);
             return (
               <button
                 key={mode}

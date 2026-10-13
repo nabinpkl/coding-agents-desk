@@ -73,7 +73,7 @@ function planWith(log: string[], over: Partial<ContestantPlan> = {}): Contestant
 }
 
 /** Steps that log each act, and a transcript the test writes to when the prompt is typed. */
-function fakeSteps(log: string[], options: { composer?: boolean } = {}) {
+function fakeSteps(log: string[], options: { composer?: boolean; exited?: boolean } = {}) {
   let transcript: string | null = null;
   const writers = new Set<() => void>();
   let command: string[] = [];
@@ -93,6 +93,12 @@ function fakeSteps(log: string[], options: { composer?: boolean } = {}) {
     },
     async settlePane(pane) {
       log.push(`settle:${pane}`);
+    },
+    async harnessExited() {
+      return options.exited ?? false;
+    },
+    async paneTail() {
+      return "zsh:1: command not found: opencode";
     },
     async typePrompt(_sessionId, prompt) {
       log.push(`type:${prompt}`);
@@ -148,11 +154,23 @@ describe("runClaudeTerminalContestant", () => {
     expect(argv.slice(argv.indexOf("--allowed-tools") + 1)).toEqual(["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"]);
   });
 
+  test("a CLI that exits on its way up fails at once, saying what its pane said", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log, { composer: false, exited: true });
+    await expect(
+      runClaudeTerminalContestant(planWith(log), { binary: "/bin/claude", newSessionId: () => SESSION, steps }),
+    ).rejects.toThrow(/exited before taking the prompt: zsh:1/);
+    expect(log).not.toContain("ready");
+  });
+
   test("a composer that never appears fails the contestant before the start line, pane left open", async () => {
     const log: string[] = [];
     const { steps } = fakeSteps(log, { composer: false });
     await expect(
-      runClaudeTerminalContestant(planWith(log), { binary: "/bin/claude", newSessionId: () => SESSION, steps }),
+      runClaudeTerminalContestant(
+        planWith(log, { turnTimeoutMs: 0 }),
+        { binary: "/bin/claude", newSessionId: () => SESSION, steps },
+      ),
     ).rejects.toThrow(ClaudeContestantError);
     expect(log).not.toContain("ready");
     expect(log.some((line) => line.startsWith("type:"))).toBe(false);
@@ -206,5 +224,28 @@ describe("runOpencodeTerminalContestant", () => {
       "send:say one word",
     ]);
     expect(result.sessionId).toBe("ses_1");
+  });
+
+  test("a TUI that exited before the prompt fails the contestant rather than running it unseen", async () => {
+    const log: string[] = [];
+    const { steps } = fakeSteps(log, { exited: true });
+    const backend = {
+      async createSession(_requestId: string, projectPath: string) {
+        return { sessionId: "ses_2", projectPath } as AgentSessionDescriptor;
+      },
+      async subscribe() {
+        log.push("subscribe");
+        return () => {};
+      },
+      async send() {
+        log.push("send");
+        return { requestId: "r", delivery: "immediate" as const };
+      },
+    };
+    await expect(
+      runOpencodeTerminalContestant(backend, planWith(log), { steps, permissions: async () => [] }),
+    ).rejects.toThrow(/TUI exited before the prompt: zsh:1: command not found/);
+    expect(log).not.toContain("ready");
+    expect(log).not.toContain("send");
   });
 });

@@ -54,8 +54,9 @@ export function ArenaSurface({
   const [starting, setStarting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  // Headless until the sidecar says otherwise: it is the one mode every arena can run.
-  const [modes, setModes] = useState<ArenaRunMode[]>(["headless"]);
+  // Null until the sidecar has said: the switch offers both meanwhile rather than greying out a
+  // mode the machine may well have, and the sidecar refuses one it does not.
+  const [modes, setModes] = useState<ArenaRunMode[] | null>(null);
 
   // The machine's modes, once. A draft still on a mode this machine cannot run moves to its
   // default, so the composer never offers a start the sidecar would refuse.

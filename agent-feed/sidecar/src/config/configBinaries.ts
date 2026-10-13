@@ -53,6 +53,26 @@ export function claudeBinary(): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
+/**
+ * Absolute path to the `opencode` CLI, or null when this machine has none.
+ *
+ * Absolute even for a tmux pane, unlike `claude`: opencode's installer puts it in
+ * `~/.opencode/bin` and adds that to PATH in the interactive shell's rc file only, so the login
+ * shell a pane runs its command through does not find it. Measured: `zsh:1: command not found:
+ * opencode` in an arena pane on a machine where an interactive shell found it.
+ */
+export function opencodeBinary(): string | null {
+  const override = process.env.AGENT_FEED_OPENCODE_PATH?.trim();
+  if (override) return existsSync(override) ? resolve(override) : null;
+  const candidates = [
+    join(userHomeDirectory, ".opencode", "bin", "opencode"),
+    join(userHomeDirectory, ".local", "bin", "opencode"),
+    "/opt/homebrew/bin/opencode",
+    "/usr/local/bin/opencode",
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
 export function yabaiBinary(): string | null {
   const override = process.env.AGENT_FEED_YABAI_PATH?.trim();
   if (override) return existsSync(override) ? resolve(override) : null;

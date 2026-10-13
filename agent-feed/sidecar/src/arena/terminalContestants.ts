@@ -31,11 +31,12 @@ import {
   type OpencodeContestantBackend,
   type OpencodeContestantOptions,
 } from "@/arena/opencodeContestant";
-import { claudeBinary } from "@/config/configBinaries";
+import { claudeBinary, opencodeBinary } from "@/config/configBinaries";
 import { awaitComposer, submitTmuxComposer, syncTmuxComposer } from "@/input/tmuxComposer";
 import { opencodeSessionPaneName } from "@/terminal/agentTerminalIdentity";
 import { startClaudeSession, UNATTENDED_COLUMNS, UNATTENDED_ROWS } from "@/terminal/claudeSessionLaunch";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
+import { tmux } from "@/terminal/tmux/tmuxCommand";
 import { createTmuxSession, waitForPaneToSettle } from "@/terminal/tmux/tmuxSessions";
 import { onTranscriptWrite } from "@/transcripts/catalog/transcriptWrites";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
@@ -49,6 +50,15 @@ import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
  */
 const OPENCODE_SETTLE_LIMIT_MS = 15_000;
 
+/**
+ * How often a Claude contestant on its way up is asked whether its harness is still there.
+ *
+ * The composer check alone cannot tell "still loading" (or waiting on the reader) from "gone": a
+ * pane keeps its shell after the command exits, so a CLI the reader told "No, exit" at the trust
+ * question would otherwise hold its contestant at `starting` until the turn limit.
+ */
+const STILL_THERE_EVERY_MS = 2_000;
+
 /** The tmux acts the two drivers take, injectable so the order can be tested without tmux. */
 export interface TerminalContestantSteps {
   /** Starts a confined Claude session in its pane and answers the pane's name. */
@@ -59,6 +69,10 @@ export interface TerminalContestantSteps {
   awaitComposer(sessionId: string, limitMs: number): Promise<boolean>;
   /** Waits for a pane to draw and go quiet, or for the limit, whichever is first. */
   settlePane(pane: string, limitMs: number): Promise<void>;
+  /** True when the pane's shell has no child left: the harness it ran has exited. */
+  harnessExited(pane: string): Promise<boolean>;
+  /** The last lines a pane shows, for a failure that should say what the reader would see. */
+  paneTail(pane: string): Promise<string>;
   /** Types the prompt into the session's composer and presses Enter; throws when it could not. */
   typePrompt(sessionId: string, prompt: string): Promise<void>;
   /** Calls `onWrite` whenever the session's transcript is written; answers the unsubscribe. */
@@ -70,13 +84,16 @@ export interface TerminalContestantSteps {
 export const LIVE_TERMINAL_STEPS: TerminalContestantSteps = {
   startClaude: async (options) => (await startClaudeSession(options)).tmuxSession,
   startOpencode: async ({ cwd, sessionId, title }) => {
+    const binary = opencodeBinary();
+    if (!binary) {
+      throw new OpencodeContestantError("no opencode CLI on this machine: install it, or set AGENT_FEED_OPENCODE_PATH");
+    }
     const pane = opencodeSessionPaneName(sessionId);
-    // Plain `opencode`, resolved through the login shell the pane runs in, as the session's own
-    // terminal starts it. It attaches to this machine's serve rather than starting one of its own.
+    // The TUI attaches to this machine's serve rather than starting one of its own.
     await createTmuxSession({
       session: pane,
       cwd,
-      command: ["opencode", "--session", sessionId],
+      command: [binary, "--session", sessionId],
       columns: UNATTENDED_COLUMNS,
       rows: UNATTENDED_ROWS,
     });
@@ -85,6 +102,21 @@ export const LIVE_TERMINAL_STEPS: TerminalContestantSteps = {
   awaitComposer: (sessionId, limitMs) => awaitComposer(sessionId, limitMs),
   settlePane: async (pane, limitMs) => {
     await waitForPaneToSettle(pane, { timeoutMs: limitMs });
+  },
+  harnessExited: async (pane) => {
+    // Asked of the process table, not of `#{pane_current_command}`: the pane runs its command
+    // through `zsh -c` with no job control, so the shell stays the foreground process and tmux
+    // names it whether the harness is running under it or has exited. Measured both ways on a
+    // live pane: `zsh` while a child ran, `zsh` after; `pgrep -P` found the child only while it ran.
+    const { out, code } = await tmux(["display-message", "-p", "-t", pane, "#{pane_pid}"]);
+    const pid = out.trim();
+    if (code !== 0 || !/^\d+$/.test(pid)) return false;
+    const children = Bun.spawn(["/usr/bin/pgrep", "-P", pid], { stdout: "ignore", stderr: "ignore" });
+    return (await children.exited) === 1;
+  },
+  paneTail: async (pane) => {
+    const { out } = await tmux(["capture-pane", "-p", "-t", pane]);
+    return out.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-3).join(" / ");
   },
   typePrompt: async (sessionId, prompt) => {
     const typed = await syncTmuxComposer(sessionId, prompt);
@@ -130,7 +162,7 @@ export function claudeTurnClosed(text: string): boolean {
  *
  * Ready is the composer being drawn, which also covers a reader answering a startup question in
  * the pane (the folder-trust one): until they do, there is no composer, and the contestant waits
- * at `starting` for as long as a turn may run.
+ * at `starting` for as long as a turn may run -- unless the CLI exits, which fails it at once.
  */
 export async function runClaudeTerminalContestant(
   plan: ContestantPlan,
@@ -162,10 +194,17 @@ export async function runClaudeTerminalContestant(
   const pane = await steps.startClaude({ cwd: plan.worktreePath, sessionId, title: terminal.label, command });
   terminal.onPane(pane, sessionId);
 
-  if (!await steps.awaitComposer(sessionId, plan.turnTimeoutMs)) {
-    throw new ClaudeContestantError(
-      `its composer never appeared within ${plan.turnTimeoutMs}ms; the pane is still open to read why`,
-    );
+  const startedAt = Date.now();
+  for (;;) {
+    if (await steps.awaitComposer(sessionId, STILL_THERE_EVERY_MS)) break;
+    if (await steps.harnessExited(pane)) {
+      throw new ClaudeContestantError(`claude exited before taking the prompt: ${await steps.paneTail(pane)}`);
+    }
+    if (Date.now() - startedAt >= plan.turnTimeoutMs) {
+      throw new ClaudeContestantError(
+        `its composer never appeared within ${plan.turnTimeoutMs}ms; the pane is still open to read why`,
+      );
+    }
   }
   await terminal.ready();
 
@@ -224,6 +263,11 @@ export async function runOpencodeTerminalContestant(
   }
   terminal.onPane(pane, sessionId);
   await steps.settlePane(pane, OPENCODE_SETTLE_LIMIT_MS);
+  // Settled is not running: a TUI that failed to start leaves a quiet pane at its shell, and the
+  // serve would still take the prompt, so the contestant would run with nothing to watch.
+  if (await steps.harnessExited(pane)) {
+    throw new OpencodeContestantError(`its TUI exited before the prompt: ${await steps.paneTail(pane)}`);
+  }
   await terminal.ready();
   return driveOpencodeTurn(backend, sessionId, plan, options);
 }
