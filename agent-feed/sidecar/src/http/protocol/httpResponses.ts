@@ -49,6 +49,11 @@ export function errorResponse(code: string, message: string, status: number): Re
  * `EventSource` an ended stream is also the signal not to reconnect. Call it once the stream has
  * said everything it has to say, never synchronously inside `onStart` -- at that point the
  * teardown it closes over does not exist yet.
+ *
+ * `onStart` must return the stream's cleanup: whatever it subscribed to, watched or scheduled is
+ * released there when the reader leaves. Required in the type, not defaulted, so a handler that
+ * forgets to unsubscribe is a compile error rather than a listener that outlives its reader. A
+ * stream that holds nothing returns a no-op and says so.
  */
 export function startServerSentEventStream(
   request: Request,
@@ -56,7 +61,7 @@ export function startServerSentEventStream(
   onStart: (
     write: (bytes: Uint8Array) => void,
     close: () => void,
-  ) => (() => void) | void,
+  ) => () => void,
   options: {
     lagLimit?: number;
     /**
@@ -100,7 +105,7 @@ export function startServerSentEventStream(
           record?.teardown();
         }
       };
-      const stopConsumer = onStart(write, () => teardown()) ?? (() => {});
+      const stopConsumer = onStart(write, () => teardown());
       const beat = options.heartbeat ?? { bytes: PING_BYTES, intervalMs: SSE_HEARTBEAT_MS };
       const heartbeat = setInterval(() => write(beat.bytes), beat.intervalMs);
       let closed = false;
