@@ -12,7 +12,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   MIN_CANVAS_ZOOM,
-  cardUnder,
   clampZoom,
   effectiveScale,
   fitScale,
@@ -106,23 +105,6 @@ describe("holding the point under the fingers still", () => {
     expect(focalScroll(
       { scrollLeft: 120, scrollTop: 40, pointerX: 0, pointerY: 0, padLeft: 0, padTop: 0 }, 0, 1,
     )).toEqual({ left: 120, top: 40 });
-  });
-});
-
-describe("which card a press landed on", () => {
-  const cards = [{ left: 0, right: 100 }, { left: 112, right: 212 }, { left: 224, right: 324 }];
-
-  it("finds the card by x alone, because the strip is one row that never wraps", () => {
-    expect(cardUnder(cards, 50)).toBe(0);
-    expect(cardUnder(cards, 150)).toBe(1);
-    expect(cardUnder(cards, 300)).toBe(2);
-  });
-
-  it("says nothing for the gaps between cards and the canvas past them", () => {
-    // A press in the gap is a press on the canvas, which means the other gesture entirely, so
-    // guessing the nearest card here would zoom a reader somewhere they did not point.
-    expect(cardUnder(cards, 106)).toBe(-1);
-    expect(cardUnder(cards, 9000)).toBe(-1);
   });
 });
 

@@ -29,6 +29,7 @@
 // iOS momentum, and what lets the existing scroll memory go on meaning something.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { cardUnder, pressedOnStrip } from "@/features/bots/canvas/canvasPress";
 
 /**
  * What the reader chose, remembered across reloads: whether the mode is on, and how far out.
@@ -178,15 +179,6 @@ export function focalScroll(
     left: Math.max(0, contentX * to + at.padLeft - at.pointerX),
     top: Math.max(0, contentY * to + at.padTop - at.pointerY),
   };
-}
-
-/**
- * Which card a press landed on, by x alone: the strip is one row that never wraps, so x is the
- * whole address. Screen coordinates, because that is the one space where the boxes and the press
- * are already in the same units and no conversion can be got wrong. -1 for a press beside them.
- */
-export function cardUnder(cards: readonly { left: number; right: number }[], x: number): number {
-  return cards.findIndex((card) => x >= card.left && x < card.right);
 }
 
 /**
@@ -426,7 +418,7 @@ export function useCanvasZoom({
     // card and never to the canvas. That is deliberate -- the cards are the reader's at any size
     // -- and it leaves this the whole of the way in and out on a surface carrying no chrome.
     const onClick = (event: MouseEvent) => {
-      if (strand.contains(event.target as Node)) return;
+      if (pressedOnStrip(event, strand)) return;
       const rect = box.getBoundingClientRect();
       // Already at its own size, so there is nothing left to zoom into and the press means the
       // other direction. This is the way back out on a surface that carries no chrome of its own.
