@@ -5,7 +5,7 @@
  * 500-line cap. It rides with `SidecarTerminals.ts`, which is the class these exercise.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 
@@ -184,6 +184,56 @@ describe("SidecarTerminals", () => {
     expect(transport.subscriptions).toHaveLength(1);
     stopSecond();
     expect(transport.subscriptions).toHaveLength(0);
+  });
+
+  it("does not tell a later viewer its stream failed to open when an earlier one gave up waiting", () => {
+    // The open timeout belonged to the closure that started it, not to the stream, so closing the
+    // stream before it carried left the timer running. A viewer that reopened in time got the
+    // abandoned stream's "did not open" error eight seconds later, on a stream that was carrying.
+    vi.useFakeTimers();
+    try {
+      const transport = new FakeHttpTransport();
+      const source = new SidecarDataSource(transport);
+      const errors: string[] = [];
+
+      const stopFirst = source.subscribeTerminal("terminal-1", { onMessage: () => {} }, { replay: false });
+      vi.advanceTimersByTime(4_000);
+      stopFirst();
+      expect(transport.subscriptions).toHaveLength(0);
+
+      source.subscribeTerminal(
+        "terminal-2",
+        { onMessage: () => {}, onError: (reason) => errors.push(reason) },
+        { replay: false },
+      );
+      transport.open("/api/terminals/stream");
+      vi.advanceTimersByTime(60_000);
+
+      expect(errors).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still tells a viewer when its own stream never opens", () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new FakeHttpTransport();
+      const source = new SidecarDataSource(transport);
+      const errors: string[] = [];
+
+      source.subscribeTerminal(
+        "terminal-1",
+        { onMessage: () => {}, onError: (reason) => errors.push(reason) },
+        { replay: false },
+      );
+      vi.advanceTimersByTime(8_000);
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain("Terminal stream did not open");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("delivers a composer turn as one safe bracketed paste through the owned terminal", async () => {

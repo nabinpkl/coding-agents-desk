@@ -47,6 +47,12 @@ export class TerminalViewers {
    * that is already attached and has not changed, so the lost screen never came back on its own.
    */
   private terminalStreamOpen: Promise<void> | null = null;
+  /**
+   * The open timeout, held with the stream it times rather than in the closure that started it, so
+   * closing the stream stops it. Left running, it outlived a stream closed before it carried and
+   * reported "did not open" to the next viewer, whose own stream was carrying fine.
+   */
+  private terminalStreamStall: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * `replay` asks the PTY to resend the screen. A viewer that already has one says no.
@@ -98,7 +104,7 @@ export class TerminalViewers {
     // the last one the panel asks for, sat waiting for one of six connections that the other
     // streams already held. Whatever the cause, the viewer is told rather than left reading a
     // label that is technically true.
-    const stalled = setTimeout(
+    this.terminalStreamStall = setTimeout(
       () => this.fail(
         "Terminal stream did not open. The panel holds an event stream per surface, so this is"
         + " usually the origin refusing another connection -- check that it negotiates HTTP/2.",
@@ -106,7 +112,7 @@ export class TerminalViewers {
       TERMINAL_STREAM_OPEN_TIMEOUT_MS,
     );
     this.terminalStream = this.transport.subscribe("/api/terminals/stream", {
-      onOpen: () => { clearTimeout(stalled); carrying(); },
+      onOpen: () => { this.clearStall(); carrying(); },
       onMessage: (payload) => {
         let envelope: AgentTerminalStreamEnvelope;
         try {
@@ -122,7 +128,7 @@ export class TerminalViewers {
         }
       },
       onError: (reason) => {
-        clearTimeout(stalled);
+        this.clearStall();
         this.fail(reason);
       },
     });
@@ -130,9 +136,15 @@ export class TerminalViewers {
   }
 
   private close(): void {
+    this.clearStall();
     this.terminalStream?.();
     this.terminalStream = null;
     this.terminalStreamOpen = null;
+  }
+
+  private clearStall(): void {
+    if (this.terminalStreamStall !== null) clearTimeout(this.terminalStreamStall);
+    this.terminalStreamStall = null;
   }
 
   private fail(reason: string): void {
