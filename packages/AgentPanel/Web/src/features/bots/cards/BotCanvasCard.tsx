@@ -26,6 +26,7 @@ import { SESSION_GAP, sessionKey, type BotCommandError } from "@/features/bots/c
 import { reorderSessionRefs } from "@/features/bots/cards/botSessionOrder";
 import { isFatherSession } from "@/features/bots/botRosterOrder";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
+import { reachMilestone } from "@/features/telemetry/pageMilestones";
 
 export function BotCanvasCard({
   bot,
@@ -228,6 +229,7 @@ export function BotCanvasCard({
     if (!opened) return;
     card.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   }, [openKeys, shown]);
+  useEffect(() => reachMilestone("first-card"), []);
   // `bot-surface` sets the background and the border together, because a tinted card inside a
   // neutral border reads as a mistake rather than as a colour. A Bot the roster has not ranked
   // falls back to the plain card it was, which is defensive rather than expected: the canvas shows

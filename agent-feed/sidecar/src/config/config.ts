@@ -153,6 +153,9 @@ export const config = {
     "AGENT_FEED_PROXY_OBSERVER_ENDPOINT",
     "http://127.0.0.1:9155",
   ),
+  // Telemetry (`telemetry/`): how much of it is kept on disk, and the local Spotlight it is shown in.
+  telemetryArchiveBytes: integerEnvironment("AGENT_FEED_TELEMETRY_ARCHIVE_BYTES", 1024 ** 3, 64 * 1024 ** 2, 64 * 1024 ** 3),
+  spotlightUrl: urlEnvironment("AGENT_FEED_SPOTLIGHT_URL", "http://127.0.0.1:8969/stream"),
   claudeLiveEnabled: booleanEnvironment("AGENT_FEED_CLAUDE_LIVE_ENABLED", true),
   claudeLiveReconnectMs: integerEnvironment(
     "AGENT_FEED_CLAUDE_LIVE_RECONNECT_MS",

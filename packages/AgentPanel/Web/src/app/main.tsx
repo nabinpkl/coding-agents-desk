@@ -17,6 +17,7 @@ import { installKeyboardInset } from "@/app/page/keyboardInset";
 import { installPagehideLifecycle } from "@/app/page/pageLifecycle";
 import { installWindowDrag } from "@/app/page/windowDrag";
 import { installScrollDiagnostics } from "@/features/scroll-diagnostics/scrollDiagnostics";
+import { installPanelTelemetry } from "@/features/telemetry/panelTelemetry";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { BrowserSurfaces } from "@/app/BrowserSurfaces";
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
@@ -46,6 +47,10 @@ function isFixtureMode(): boolean {
 function hasNativeHost(): boolean {
   return window.webkit?.messageHandlers?.agentFeed !== undefined;
 }
+
+// First, so the page-load trace starts before anything it measures. Not under a fixture or a native
+// container: neither has the sidecar's `/api` to send telemetry to.
+if (!isFixtureMode() && !hasNativeHost()) installPanelTelemetry();
 
 // Before the transport, because the fixture installs the message handler the transport chooses by.
 if (isFixtureMode()) installFixture();

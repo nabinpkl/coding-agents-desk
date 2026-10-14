@@ -7,6 +7,7 @@ export interface RuntimePaths {
   sidecarRegistry: string;
   webrtcDiagLog: string;
   panelScrollLog: string;
+  telemetryArchive: string;
 }
 
 export function runtimePaths(

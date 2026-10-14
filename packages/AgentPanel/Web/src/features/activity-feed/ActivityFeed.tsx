@@ -59,6 +59,7 @@ import { useStickyIndices } from "@/features/activity-feed/sticky-headers/useSti
 import { useTranscriptScrollRestore } from "@/features/activity-feed/scroll-position/useTranscriptScrollRestore";
 import { useOlderPageAnchor } from "@/features/activity-feed/scroll-position/useOlderPageAnchor";
 import { gapIdentity, useGapFill } from "@/features/activity-feed/scroll-position/useGapFill";
+import { expectMilestone, reachMilestone } from "@/features/telemetry/pageMilestones";
 
 /** A thread with nothing to show: one with no events yet, or none this mode shows. */
 export function EmptyFeed({ text = "no events" }: { text?: string }) {
@@ -295,6 +296,9 @@ export function ActivityFeed({
   });
   changesAtRef.current = changesAt;
   useEffect(() => { setAskBefore(userBarBefore); }, [userBarBefore]);
+  const hasRows = rowItems.length > 0;
+  useEffect(() => expectMilestone("first-rows"), []);
+  useEffect(() => { if (hasRows) reachMilestone("first-rows"); }, [hasRows]);
   const remoteMessage = userBarBefore !== null && remoteBar.remote?.before === userBarBefore ? remoteBar.message : null;
 
   const { restoring } = useTranscriptScrollRestore({

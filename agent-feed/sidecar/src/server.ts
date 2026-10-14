@@ -1,3 +1,5 @@
+// First, so the SDK is set up before anything it should see (telemetry/sidecarTelemetry.ts).
+import { sidecarListening, traceRequest } from "@/telemetry/sidecarTelemetry";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
@@ -5,6 +7,8 @@ import { refuseForeignRequest } from "@/http/protocol/requestGuard";
 import { announceDirectory, announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
 import { createSupervisorRoutes } from "@/http/supervisorRoutes";
 import { createPanelScrollRoutes } from "@/http/panelScrollRoutes";
+import { createTelemetryRoutes } from "@/telemetry/telemetryRoutes";
+import { sinkEnvelope } from "@/telemetry/telemetrySink";
 import {
   BYE_BYTES,
   errorResponse,
@@ -240,6 +244,7 @@ const routes: RouteHandler[] = [
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
   createSupervisorRoutes(),
   createPanelScrollRoutes(),
+  createTelemetryRoutes(sinkEnvelope),
   createArenaRoutes(arenaService),
   createArenaCodeRoutes(arenaService, repositoryGitWatch, {
     maxTextBytes: config.workspaceMaxTextBytes,
@@ -388,17 +393,20 @@ const server = Bun.serve<undefined>({
       };
       return jsonResponse(body);
     }
-    for (const route of routes) {
-      const response = route(request, url, bunServer);
-      if (response !== undefined) return response;
-    }
-    // Coded, so the panel can tell "this sidecar has no such route" -- usually one running older
-    // code than the panel calling it -- from a route that answered that its thing is missing.
-    return errorResponse("route-not-found", `this sidecar has no route ${request.method} ${url.pathname}`, 404);
+    return traceRequest(request, url, () => {
+      for (const route of routes) {
+        const response = route(request, url, bunServer);
+        if (response !== undefined) return response;
+      }
+      // Coded, so the panel can tell "this sidecar has no such route" -- usually one running older
+      // code than the panel calling it -- from a route that answered that its thing is missing.
+      return errorResponse("route-not-found", `this sidecar has no route ${request.method} ${url.pathname}`, 404);
+    });
   },
 });
 
 console.log(`agent feed sidecar listening on http://${config.host}:${server.port}`);
+sidecarListening();
 // Announce on the shared board so any panel on the machine can offer this session with no port
 // hand-fed to it. Withdrawn in shutdown; a crash leaves a descriptor that ages out on its own.
 // A sidecar pointed at its own announce directory joins a board of one instead, which is how a

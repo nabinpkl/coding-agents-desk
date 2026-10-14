@@ -210,6 +210,7 @@ launch_sidecar() {
     on_peer "cd '${remote_repo}/agent-feed/sidecar' && \
         AGENTDESK_RUNTIME_ROOT='${remote_root}/runtime' \
         AGENTDESK_SIDECAR_REGISTRY='${remote_root}/sidecars' \
+        AGENTDESK_TELEMETRY_ARCHIVE='${remote_root}/telemetry' \
         AGENT_FEED_SUPERVISOR_SETTLE_MS='${SETTLE_MS}' \
         AGENT_FEED_ANCHOR_POOL='${ANCHOR_POOL}' \
         AGENT_FEED_HOST='${1}' \

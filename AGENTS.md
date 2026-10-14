@@ -538,6 +538,15 @@ started it.
 - A proposed Swift change for glue or diagnostics must name the native capability TypeScript cannot
   provide. If there is none, keep it in TypeScript so verification does not acquire a build
   checkpoint.
+- **Load timing and traces are Sentry's SDKs, kept on this machine** (2026-10-14). The panel
+  (`features/telemetry/`) and the sidecar (`telemetry/`) record page loads, Web Vitals, each
+  stream's first message, the panel's milestones, and the sidecar's handling of every request a
+  load made, as one trace. Nothing goes to Sentry: the DSN is a placeholder on `telemetry.invalid`
+  and both SDKs deliver to the sidecar, which keeps every envelope in a 1GB-capped archive
+  (`runtime-paths.mjs telemetry-archive`) and copies it to Spotlight if one is running.
+  `node tools/telemetry-replay.mjs list|trace|replay` searches the archive and sends an old trace
+  back into Spotlight. `npx @spotlightjs/spotlight` is the viewer, and it listens on EVERY
+  interface with no option to narrow it, so run it by hand rather than leaving it up.
 
 ## Durable runtime and disposable builds
 
