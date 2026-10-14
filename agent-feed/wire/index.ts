@@ -144,6 +144,7 @@ export type {
   ForkSessionCommand,
   LastSessionMessage,
   ProjectSummary,
+  SessionAutomation,
   SessionSummary,
   StartedSession,
   StartedSourceSession,

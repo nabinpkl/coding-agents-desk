@@ -59,6 +59,11 @@ export function useProjectInventory(
   const [recentLimit, setRecentLimit] = useState(RECENT_SESSIONS_PAGE);
   const [recent, setRecent] = useState<RecentSessionsPayload | null>(null);
   const recentCount = recentWanted ? recentLimit : undefined;
+  // How many held-out security reviews the flat list asks for: none while their row is folded,
+  // because a folded row draws only the count the stream sends anyway.
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+  const [reviewLimit, setReviewLimit] = useState(RECENT_SESSIONS_PAGE);
+  const reviewCount = reviewsOpen ? reviewLimit : 0;
   // The subscription's identity, not merely its argument: expanding or collapsing a
   // project reopens the inventory stream exactly once, and re-rendering for any other
   // reason leaves the open stream alone. Joined on NUL, the one byte a POSIX path
@@ -131,12 +136,12 @@ export function useProjectInventory(
         setArchivedByProject((current) => new Map(current).set(projectPath, archived));
       },
       onRecent: setRecent,
-    }, onError, recentCount);
+    }, onError, recentCount, reviewCount);
     return () => {
       if (timer !== undefined) clearTimeout(timer);
       stop?.();
     };
-  }, [feed, retryNonce, subscribedProjectPaths, recentCount]);
+  }, [feed, retryNonce, subscribedProjectPaths, recentCount, reviewCount]);
 
   useEffect(() => {
     if (projects.length === 0) return;
@@ -183,12 +188,20 @@ export function useProjectInventory(
   }, []);
 
   const showMoreRecent = useCallback(() => setRecentLimit((count) => count + RECENT_SESSIONS_PAGE), []);
+  const toggleRecentReviews = useCallback(() => setReviewsOpen((open) => !open), []);
+  const showMoreRecentReviews = useCallback(
+    () => setReviewLimit((count) => count + RECENT_SESSIONS_PAGE),
+    [],
+  );
 
   return {
     projects,
     sessionsByProject,
     recent,
     showMoreRecent,
+    recentReviewsOpen: reviewsOpen,
+    toggleRecentReviews,
+    showMoreRecentReviews,
     archivedByProject,
     loadingLayer,
     layerError,

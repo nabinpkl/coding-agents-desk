@@ -17,6 +17,7 @@ import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
 import { OPENCODE_AGENT_CAPABILITIES } from "@/agents/opencode/opencodeAgentBackend";
 import { state } from "@/transcripts/transcriptState";
 import { compactTitle } from "@/transcripts/catalog/catalogRecords";
+import { sessionAutomation } from "@/transcripts/catalog/sessionAutomation";
 import type { Bin, Session, SourceId } from "@/transcripts/transcriptTypes";
 import {
   memoizedProjectSummaries,
@@ -163,6 +164,7 @@ export function summarizeSession(
   // emission time could only disagree with the one every other consumer is using.
   const lastEventAt = session.lastEventAt;
   const archivedAt = sessionArchivedAt(session.source, session.sessionId);
+  const automation = sessionAutomation(session);
   return {
     sessionId: session.sessionId,
     source: session.source,
@@ -179,11 +181,12 @@ export function summarizeSession(
       resolveAgentSession,
     ),
     ...(archivedAt === undefined ? {} : { archivedAt }),
+    ...(automation === undefined ? {} : { automation }),
   };
 }
 
 /** Which bin a row lands in, given what the catalog knows and who is answering for it. */
-function summaryActivity(
+export function summaryActivity(
   session: Session,
   live: AgentSessionDescriptor | undefined,
 ): Bin {
@@ -229,23 +232,43 @@ export function sessionSummaries(
   return summaries;
 }
 
+/** One cut of the flat list: its first `limit` sessions, and whether more stand behind them. */
+export interface SessionCut {
+  sessions: Session[];
+  more: boolean;
+}
+
 /**
- * The `limit` most recently changed unarchived sessions across every project, and whether more
- * stand behind them.
+ * The `limit` most recently changed unarchived sessions across every project, the
+ * `reviewLimit` most recent security reviews held out of them, and how many reviews there are.
  *
  * Cheap because the order is already paid for: every catalog snapshot is sorted by `lastEventAt`
- * before a subscriber sees it, so this walks the front of it and stops. Records, not summaries --
- * the stream compares the cut before deciding whether to summarize it at all.
+ * before a subscriber sees it, so this walks it once and keeps the front of each list. The whole
+ * walk rather than stopping at the cut, because the review row shows a count, and a count is a
+ * walk; it costs two prefix comparisons per session. Records, not summaries -- the stream compares
+ * the cut before deciding whether to summarize it at all.
  */
 export function mostRecentSessions(
   snapshot: Session[],
   limit: number,
-): { sessions: Session[]; more: boolean } {
+  reviewLimit = 0,
+): SessionCut & { reviews: SessionCut & { all: Session[] } } {
   const sessions: Session[] = [];
+  const reviews: Session[] = [];
+  let more = false;
   for (const session of snapshot) {
     if (sessionArchivedAt(session.source, session.sessionId) !== undefined) continue;
-    if (sessions.length === limit) return { sessions, more: true };
-    sessions.push(session);
+    if (sessionAutomation(session) === "security-review") reviews.push(session);
+    else if (sessions.length === limit) more = true;
+    else sessions.push(session);
   }
-  return { sessions, more: false };
+  return {
+    sessions,
+    more,
+    reviews: {
+      sessions: reviews.slice(0, reviewLimit),
+      more: reviews.length > reviewLimit,
+      all: reviews,
+    },
+  };
 }

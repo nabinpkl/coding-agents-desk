@@ -207,6 +207,42 @@ test("the recent list is every project's sessions, newest first, and a change mo
   await leave();
 });
 
+test("security reviews are held out of the recent list and counted, and sent only when asked for", async () => {
+  state.watcherState = "live";
+  await projectWithSession("alpha", "11111111-1111-1111-1111-111111111111");
+  await projectWithSession("beta", "22222222-2222-2222-2222-222222222222");
+  await projectWithSession("gamma", "33333333-3333-3333-3333-333333333333");
+  // Newer than the person's session, which is the shape that buried it: one review per commit.
+  for (const [sessionId, opening, at] of [
+    ["22222222-2222-2222-2222-222222222222", "Review this change for security vulnerabilities. Changed files", 3_000],
+    ["33333333-3333-3333-3333-333333333333", "You previously flagged these candidate vulnerabilities: 1.", 2_000],
+  ] as const) {
+    Object.assign(state.sessions.get(sessionKey("claude", sessionId))!, {
+      entrypoint: "sdk-py",
+      firstPrompt: opening,
+      lastEventAt: at,
+    });
+  }
+
+  const folded = await open("?recent=1");
+  const foldedReader = streamReader(folded);
+  const first = (await foldedReader.take(2))[1] as RecentSessionsPayload;
+  expect(first.recent.map((row) => row.sessionId)).toEqual(["11111111-1111-1111-1111-111111111111"]);
+  // Two reviews behind the cut do not make the person's list say there is more.
+  expect(first.more).toBeFalse();
+  expect(first.securityReviews).toEqual({ count: 2, live: 0, recent: [], more: true });
+  await foldedReader.leave();
+
+  const unfolded = await open("?recent=1&reviews=1");
+  const unfoldedReader = streamReader(unfolded);
+  const second = (await unfoldedReader.take(2))[1] as RecentSessionsPayload;
+  expect(second.securityReviews.recent.map((row) => [row.sessionId, row.automation])).toEqual([
+    ["22222222-2222-2222-2222-222222222222", "security-review"],
+  ]);
+  expect(second.securityReviews.more).toBeTrue();
+  await unfoldedReader.leave();
+});
+
 test("a surface that does not ask for the recent list is sent none", async () => {
   state.watcherState = "live";
   const alpha = await projectWithSession("alpha", "11111111-1111-1111-1111-111111111111");

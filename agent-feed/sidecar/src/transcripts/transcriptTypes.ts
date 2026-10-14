@@ -65,6 +65,7 @@ export interface Header {
    */
   recentCwds?: string[];
   gitBranch?: string;
+  /** What started the session: the head's launcher, not whatever surface wrote last. */
   entrypoint?: string;
   title?: string;
   /**

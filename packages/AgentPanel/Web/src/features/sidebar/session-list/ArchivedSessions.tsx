@@ -10,7 +10,7 @@
 import { ArchiveRestore, ChevronDown, LoaderCircle } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import { SessionMeta } from "@/features/sidebar/SessionMeta";
+import { SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
 
 export type SetSessionArchived = (session: SessionSummary, archived: boolean) => Promise<void>;
 

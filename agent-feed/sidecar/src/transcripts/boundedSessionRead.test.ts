@@ -14,7 +14,9 @@
 // with enough `file-history-snapshot` records to push it past the head window.
 // So `cwd`, and only `cwd`, is looked for forward of the window when the window
 // has none, and backward of the tail (`cwdsFromEnd`) by a resolver that has run
-// out of directories that exist. Titles and prompts stay bounded.
+// out of directories that exist. The record that answers it also carries the
+// session's `entrypoint`, which is kept for free: it is what tells a plugin's
+// security review from a person's session. Titles and prompts stay bounded.
 
 import { expect, test } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -200,6 +202,33 @@ test('a first record too large for the window still yields its prompt', async ()
   expect(prompt.startsWith('Review this change for security vulnerabilities.')).toBeTrue();
   // Bounded even though the record is not: only the front of it is ever wanted.
   expect(prompt.length).toBeLessThan(500);
+});
+
+// A security review opens with its prompt twice -- the enqueue and the user record -- and both
+// carry the diff, so the user record, which is where the launcher is, starts past the window too.
+test('the launcher of an opening record past the head window is kept with its cwd', async () => {
+  const prompt = `Review this change for security vulnerabilities. ${'/some/path.ts '.repeat(5000)}`;
+  const path = await transcript('c.jsonl', [
+    JSON.stringify({ type: 'queue-operation', operation: 'enqueue', content: prompt }),
+    JSON.stringify({ type: 'queue-operation', operation: 'dequeue' }),
+    // The CLI's own key order: `entrypoint` after `message`, so a window that cuts the
+    // record cuts the launcher off.
+    JSON.stringify({ type: 'user', message: { role: 'user', content: prompt }, entrypoint: 'sdk-py', cwd: CWD }),
+    JSON.stringify({ type: 'cost-state', totalCostUSD: 0.4 }),
+  ]);
+  const header = await claudeAdapter.readHeader(path);
+  expect(header?.cwd).toBe(CWD);
+  expect(header?.entrypoint).toBe('sdk-py');
+});
+
+test('the launcher is the one the session opened with, not the surface that carried it on', async () => {
+  const path = await transcript('c.jsonl', [
+    JSON.stringify({ type: 'user', cwd: CWD, entrypoint: 'sdk-py', message: { role: 'user', content: 'Review this change for security vulnerabilities.' } }),
+    ...GAP,
+    // Desktop finds the SDK session and continues it on its own, seconds later.
+    JSON.stringify({ type: 'user', cwd: CWD, entrypoint: 'claude-desktop', message: { role: 'user', content: 'Continue from where you left off.' } }),
+  ]);
+  expect((await claudeAdapter.readHeader(path))?.entrypoint).toBe('sdk-py');
 });
 
 test('an oversized record with no prompt in it yields nothing rather than junk', async () => {

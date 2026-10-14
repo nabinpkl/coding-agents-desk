@@ -9,13 +9,19 @@
 
 import { FolderTree, Plus } from "lucide-react";
 import { useMemo } from "react";
-import type { ProjectSummary, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { useSessionArchiveCommand } from "@/features/sidebar/ArchivedSessions";
+import type {
+  ProjectSummary,
+  RecentSession,
+  RecentSessionsPayload,
+  SessionSummary,
+} from "@agentdesk/agent-feed-wire";
+import { useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
+import { SecurityReviewFold } from "@/features/sidebar/session-list/SecurityReviewSessions";
 import {
   ProjectSessionList,
   SessionRow,
   type SessionCanvasMove,
-} from "@/features/sidebar/ProjectSidebarItem";
+} from "@/features/sidebar/session-list/ProjectSidebarItem";
 import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
 /** What the project list needs whichever list it sits in; the rest is this view's. */
@@ -36,6 +42,11 @@ export interface CanvasSessions {
   recent: RecentSessionsPayload | null;
   /** Asks the stream for the next page of the flat list. */
   onShowMore: () => void;
+  /**
+   * The flat list's security reviews, held out of it by the sidecar and folded into one row at
+   * its bottom. Opening the row is what asks the stream for them, so it is the inventory's state.
+   */
+  reviews: { open: boolean; onToggle: () => void; onShowMore: () => void };
   /** Opens the dialog that starts a session on no Bot, in Claude Code or opencode. */
   onNewSession: () => void;
 }
@@ -91,38 +102,64 @@ function RecentSessionList({ list, sessions }: { list: ProjectListProps; session
 
   if (list.error) return <SidebarError message={`Sessions unavailable: ${list.error}`} retrying={list.retrying} />;
   if (list.loading || !sessions.recent) return <SidebarStatus>Loading sessions…</SidebarStatus>;
-  if (sessions.recent.recent.length === 0) return <SidebarStatus>No sessions yet</SidebarStatus>;
+  const { recent, securityReviews } = sessions.recent;
+  if (recent.length === 0 && securityReviews.count === 0) return <SidebarStatus>No sessions yet</SidebarStatus>;
+
+  const row = (session: RecentSession) => {
+    // The project list and this cut come off one catalog snapshot, and the stream writes the
+    // project list first, so a row's project is always known by the time the row is.
+    const project = projects.get(session.projectPath);
+    if (!project) return null;
+    return (
+      <SessionRow
+        key={`${session.source}:${session.sessionId}`}
+        session={session}
+        selectedSessionKey={sessions.modalSelection?.sessionKey ?? null}
+        onSelect={() => sessions.onOpen(project, session)}
+        canvasMove={sessions.canvasMove}
+        archive={list.archiving ? archive : undefined}
+        project={project.displayName || session.projectPath}
+      />
+    );
+  };
 
   return (
     <>
       <ul role="list" aria-label="Sessions, most recently changed first" className="pb-1">
-        {sessions.recent.recent.map((row) => {
-          // The project list and this cut come off one catalog snapshot, and the stream writes the
-          // project list first, so a row's project is always known by the time the row is.
-          const project = projects.get(row.projectPath);
-          if (!project) return null;
-          return (
-            <SessionRow
-              key={`${row.source}:${row.sessionId}`}
-              session={row}
-              selectedSessionKey={sessions.modalSelection?.sessionKey ?? null}
-              onSelect={() => sessions.onOpen(project, row)}
-              canvasMove={sessions.canvasMove}
-              archive={list.archiving ? archive : undefined}
-              project={project.displayName || row.projectPath}
-            />
-          );
-        })}
+        {recent.map(row)}
       </ul>
-      {sessions.recent.more ? (
-        <button
-          type="button"
-          onClick={sessions.onShowMore}
-          className="flex min-h-11 w-full cursor-pointer items-center px-3 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground outline-none hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-        >
-          Show more
-        </button>
-      ) : null}
+      {sessions.recent.more ? <ShowMore onClick={sessions.onShowMore} /> : null}
+      <SecurityReviewFold
+        count={securityReviews.count}
+        live={securityReviews.live}
+        open={sessions.reviews.open}
+        onToggle={sessions.reviews.onToggle}
+        inset={false}
+      >
+        {/* Empty for the moment between opening the row and the stream answering for it. */}
+        {securityReviews.recent.length === 0 ? (
+          <SidebarStatus>Loading security reviews…</SidebarStatus>
+        ) : (
+          <ul role="list" aria-label="Security reviews, most recently changed first">
+            {securityReviews.recent.map(row)}
+          </ul>
+        )}
+        {securityReviews.more && securityReviews.recent.length > 0
+          ? <ShowMore onClick={sessions.reviews.onShowMore} />
+          : null}
+      </SecurityReviewFold>
     </>
+  );
+}
+
+function ShowMore({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-11 w-full cursor-pointer items-center px-3 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground outline-none hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+    >
+      Show more
+    </button>
   );
 }

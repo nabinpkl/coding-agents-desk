@@ -16,8 +16,8 @@ import { MessagesPanel } from "@/features/messages/MessagesPanel";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import type { UsageHandle } from "@/features/usage/useUsage";
-import { ProjectSessionList, type SessionArchiving } from "@/features/sidebar/ProjectSidebarItem";
-import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/CanvasSessionsList";
+import { ProjectSessionList, type SessionArchiving } from "@/features/sidebar/session-list/ProjectSidebarItem";
+import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/session-list/CanvasSessionsList";
 import { CanvasSidebarViews, type CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 

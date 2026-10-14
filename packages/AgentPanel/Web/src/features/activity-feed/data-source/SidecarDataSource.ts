@@ -98,7 +98,8 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    *
    * `recent` asks the same stream for that many of the most recently changed sessions across
    * every project as well, ordered by the sidecar (`RecentSessionsPayload`), delivered to
-   * `onRecent`.
+   * `onRecent`. Security reviews are held out of that list and counted; `reviews` asks for that
+   * many of them, which is none while their row is folded.
    */
   subscribeInventory(
     projectPaths: readonly string[],
@@ -109,10 +110,12 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
     },
     onError?: (reason: string) => void,
     recent?: number,
+    reviews = 0,
   ): () => void {
     const query = [
       ...projectPaths.map((path) => `projectPath=${encodeURIComponent(path)}`),
       ...(recent === undefined ? [] : [`recent=${recent}`]),
+      ...(recent === undefined || reviews === 0 ? [] : [`reviews=${reviews}`]),
     ].join("&");
     return this.transport.subscribe(
       query ? `/api/inventory/stream?${query}` : "/api/inventory/stream",
@@ -124,9 +127,16 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
             sessions?: SessionSummary[];
             recent?: RecentSessionsPayload["recent"];
             more?: boolean;
+            securityReviews: RecentSessionsPayload["securityReviews"];
           };
           if (message.projects) handlers.onProjects(message.projects);
-          else if (message.recent) handlers.onRecent?.({ recent: message.recent, more: message.more === true });
+          else if (message.recent) {
+            handlers.onRecent?.({
+              recent: message.recent,
+              more: message.more === true,
+              securityReviews: message.securityReviews,
+            });
+          }
           else if (message.projectPath && message.sessions) {
             handlers.onSessions(
               message.projectPath,

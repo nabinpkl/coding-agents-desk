@@ -7,9 +7,11 @@ import {
   sessionSummaries,
   subscribeCatalog,
   summarizeSession,
+  summaryActivity,
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
 import { sessionArchivedAt } from "@/transcripts/session-ops/sessionArchive";
+import type { RecentSessionsPayload } from "@agentdesk/agent-feed-wire";
 import type { Session } from "@/transcripts/transcriptTypes";
 import {
   encodeServerSentEvent,
@@ -61,6 +63,15 @@ function requestedRecent(url: URL): number | null {
 }
 
 /**
+ * How many of the security reviews held out of the recent list to send, under the same cap.
+ * Absent or unreadable is none: their row starts folded, and a folded row needs only the count.
+ */
+function requestedReviews(url: URL): number {
+  const count = Number(url.searchParams.get("reviews"));
+  return Number.isInteger(count) && count > 0 ? Math.min(count, MAX_RECENT_SESSIONS) : 0;
+}
+
+/**
  * What a list of session rows depends on, flattened for comparison.
  *
  * The catalog broadcasts on any change to any source, so most ticks change nothing
@@ -102,6 +113,7 @@ async function inventoryStream(
 ): Promise<Response> {
   const projectPaths = await requestedProjects(url);
   const recentCount = requestedRecent(url);
+  const reviewCount = requestedReviews(url);
   return startServerSentEventStream(request, server, (write) => {
     let projectsFingerprint: string | null = null;
     const sessionFingerprints = new Map<string, string>();
@@ -135,17 +147,35 @@ async function inventoryStream(
     // of its front and one string. A session that changes moves to the top of it here, because
     // the snapshot it is cut from is already in `lastEventAt` order.
     const pushRecent = (sessions: Session[], count: number): void => {
-      const cut = mostRecentSessions(sessions, count);
-      const fingerprint = `${cut.more}${sessionsFingerprint(cut.sessions, resolveAgentSession)}`;
+      const cut = mostRecentSessions(sessions, count, reviewCount);
+      const live = cut.reviews.all.filter((session) =>
+        summaryActivity(session, resolveAgentSession?.(session.source, session.sessionId)) === "live"
+      ).length;
+      const fingerprint = [
+        cut.more,
+        sessionsFingerprint(cut.sessions, resolveAgentSession),
+        cut.reviews.all.length,
+        live,
+        cut.reviews.more,
+        sessionsFingerprint(cut.reviews.sessions, resolveAgentSession),
+      ].join("\0");
       if (fingerprint === recentFingerprint) return;
       recentFingerprint = fingerprint;
-      write(encodeServerSentEvent({
-        recent: cut.sessions.map((session) => ({
-          ...summarizeSession(session, resolveAgentSession),
-          projectPath: session.project,
-        })),
+      const row = (session: Session) => ({
+        ...summarizeSession(session, resolveAgentSession),
+        projectPath: session.project,
+      });
+      const payload: RecentSessionsPayload = {
+        recent: cut.sessions.map(row),
         more: cut.more,
-      }));
+        securityReviews: {
+          count: cut.reviews.all.length,
+          live,
+          recent: cut.reviews.sessions.map(row),
+          more: cut.reviews.more,
+        },
+      };
+      write(encodeServerSentEvent(payload));
     };
 
     const push = (sessions = getSnapshot()): void => {

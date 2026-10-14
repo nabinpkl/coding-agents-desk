@@ -1,7 +1,7 @@
 import { ChevronRight, EyeOff, Plus } from "lucide-react";
 import { useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/ArchivedSessions";
+import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";

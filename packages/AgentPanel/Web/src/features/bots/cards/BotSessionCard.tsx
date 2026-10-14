@@ -9,7 +9,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
-import { SessionMeta } from "@/features/sidebar/SessionMeta";
+import { SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import type { HandoverDestination } from "@/features/bots/sessionHandover";
@@ -17,7 +17,7 @@ import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
-import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/ArchivedSessions";
+import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
 
 /** How far a press has to travel before it stops being a click and becomes a carry. */
 const MOVE_THRESHOLD = 4;

@@ -9,8 +9,9 @@ import {
   ArchiveFailure,
   useSessionArchiveCommand,
   type SessionArchiving,
-} from "@/features/sidebar/ArchivedSessions";
-import { ActivityDot, SessionMeta } from "@/features/sidebar/SessionMeta";
+} from "@/features/sidebar/session-list/ArchivedSessions";
+import { SecurityReviewFold, splitSecurityReviews } from "@/features/sidebar/session-list/SecurityReviewSessions";
+import { ActivityDot, SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { InlineStatus, SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
@@ -146,6 +147,8 @@ export function ProjectSessionPreview({
   // How much of a long list is unfolded is this row's own business, and it lives and
   // dies with the row: collapsing a project unmounts this, so reopening it starts folded.
   const [visibleCount, setVisibleCount] = useState(INITIAL_SESSION_COUNT);
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+  const [visibleReviews, setVisibleReviews] = useState(SESSION_BATCH_SIZE);
 
   // A failure has one home now, the inventory stream's, so there is no per-project
   // error state here: an unreachable sidecar is reported once at the top of the list
@@ -153,34 +156,60 @@ export function ProjectSessionPreview({
   if (!sessions) return <InlineStatus>Loading sessions…</InlineStatus>;
   if (sessions.length === 0) return <InlineStatus>No sessions</InlineStatus>;
 
-  const visibleSessions = sessions.slice(0, visibleCount);
-  const remaining = Math.max(0, sessions.length - visibleSessions.length);
-  const nextBatch = Math.min(SESSION_BATCH_SIZE, remaining);
+  const { sessions: own, reviews } = splitSecurityReviews(sessions);
+  const row = (session: SessionSummary) => (
+    <SessionRow
+      key={`${session.source}:${session.sessionId}`}
+      session={session}
+      selectedSessionKey={selectedSessionKey}
+      onSelect={() => onSelect(session)}
+      canvasMove={canvasMove}
+      archive={archiving ? archive : undefined}
+    />
+  );
 
   return (
     <>
-      <ul role="list" aria-label="Sessions" className="pb-1">
-        {visibleSessions.map((session) => (
-          <SessionRow
-            key={`${session.source}:${session.sessionId}`}
-            session={session}
-            selectedSessionKey={selectedSessionKey}
-            onSelect={() => onSelect(session)}
-            canvasMove={canvasMove}
-            archive={archiving ? archive : undefined}
+      {own.length > 0 ? (
+        <>
+          <ul role="list" aria-label="Sessions" className="pb-1">
+            {own.slice(0, visibleCount).map(row)}
+          </ul>
+          <ShowMore
+            remaining={Math.max(0, own.length - visibleCount)}
+            onShowMore={() => setVisibleCount((current) => current + SESSION_BATCH_SIZE)}
           />
-        ))}
-      </ul>
-      {remaining > 0 ? (
-        <button
-          type="button"
-          onClick={() => setVisibleCount((current) => current + SESSION_BATCH_SIZE)}
-          className="flex min-h-11 w-full items-center px-8 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-        >
-          Show {nextBatch} more ({remaining} remaining)
-        </button>
+        </>
       ) : null}
+      <SecurityReviewFold
+        count={reviews.length}
+        live={reviews.filter((session) => session.activity === "live").length}
+        open={reviewsOpen}
+        onToggle={() => setReviewsOpen((current) => !current)}
+        inset
+      >
+        <ul role="list" aria-label="Security reviews">
+          {reviews.slice(0, visibleReviews).map(row)}
+        </ul>
+        <ShowMore
+          remaining={Math.max(0, reviews.length - visibleReviews)}
+          onShowMore={() => setVisibleReviews((current) => current + SESSION_BATCH_SIZE)}
+        />
+      </SecurityReviewFold>
     </>
+  );
+}
+
+function ShowMore({ remaining, onShowMore }: { remaining: number; onShowMore: () => void }) {
+  if (remaining === 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={onShowMore}
+      className="flex min-h-11 w-full items-center px-8 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+    >
+      Show {Math.min(SESSION_BATCH_SIZE, remaining)} more ({remaining} remaining)
+    </button>
   );
 }
 

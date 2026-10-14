@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ProjectSummary, RecentSession } from "@agentdesk/agent-feed-wire";
-import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/CanvasSessionsList";
+import type { ProjectSummary, RecentSession, RecentSessionsPayload } from "@agentdesk/agent-feed-wire";
+import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/session-list/CanvasSessionsList";
 
 const desk: ProjectSummary = {
   projectPath: "/repo/agent-desk", displayName: "agent-desk", sourceCounts: { claude: 1 }, sessionCount: 1, lastEventAt: 2,
@@ -12,6 +12,7 @@ const oss: ProjectSummary = {
 function row(sessionId: string, title: string, projectPath: string, lastEventAt: number): RecentSession {
   return { source: "claude", sessionId, title, lastEventAt, activity: "ready", projectPath } as RecentSession;
 }
+const NO_REVIEWS: RecentSessionsPayload["securityReviews"] = { count: 0, live: 0, recent: [], more: false };
 
 const list = {
   projects: [oss, desk],
@@ -32,6 +33,7 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
     onGroupedChange: () => {},
     recent: null,
     onShowMore: () => {},
+    reviews: { open: false, onToggle: () => {}, onShowMore: () => {} },
     onNewSession: () => {},
     ...overrides,
   };
@@ -39,7 +41,7 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
 
 describe("the Canvas tab's Sessions view", () => {
   it("lists sessions in the order the sidecar sent, each naming its project", () => {
-    const recent = { recent: [row("b", "Brian", oss.projectPath, 3), row("a", "Alan", desk.projectPath, 2)], more: false };
+    const recent = { recent: [row("b", "Brian", oss.projectPath, 3), row("a", "Alan", desk.projectPath, 2)], more: false, securityReviews: NO_REVIEWS };
     render(<CanvasSessionsList list={list} sessions={sessions({ recent })} />);
 
     const rows = within(screen.getByRole("list", { name: "Sessions, most recently changed first" }))
@@ -66,7 +68,7 @@ describe("the Canvas tab's Sessions view", () => {
   it("opens a row with the project it belongs to", () => {
     const onOpen = vi.fn();
     const brian = row("b", "Brian", oss.projectPath, 3);
-    render(<CanvasSessionsList list={list} sessions={sessions({ onOpen, recent: { recent: [brian], more: false } })} />);
+    render(<CanvasSessionsList list={list} sessions={sessions({ onOpen, recent: { recent: [brian], more: false, securityReviews: NO_REVIEWS } })} />);
 
     fireEvent.click(screen.getByRole("button", { name: /^Brian/ }));
 
@@ -75,7 +77,7 @@ describe("the Canvas tab's Sessions view", () => {
 
   it("asks for the next page only when the sidecar says there is one", () => {
     const onShowMore = vi.fn();
-    const recent = { recent: [row("b", "Brian", oss.projectPath, 3)], more: true };
+    const recent = { recent: [row("b", "Brian", oss.projectPath, 3)], more: true, securityReviews: NO_REVIEWS };
     const { rerender } = render(<CanvasSessionsList list={list} sessions={sessions({ recent, onShowMore })} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
@@ -83,6 +85,44 @@ describe("the Canvas tab's Sessions view", () => {
 
     rerender(<CanvasSessionsList list={list} sessions={sessions({ recent: { ...recent, more: false }, onShowMore })} />);
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+  });
+
+  it("folds the security reviews into one row at the bottom, and asks for them only when it opens", () => {
+    const onToggle = vi.fn();
+    const onShowMore = vi.fn();
+    const review = { ...row("r", "BotFace security review", desk.projectPath, 4), automation: "security-review" as const };
+    const recent = {
+      recent: [row("b", "Brian", oss.projectPath, 3)],
+      more: false,
+      securityReviews: { count: 40, live: 2, recent: [], more: true },
+    };
+    const { rerender } = render(
+      <CanvasSessionsList list={list} sessions={sessions({ recent, reviews: { open: false, onToggle, onShowMore } })} />,
+    );
+
+    const fold = screen.getByRole("button", { name: /Security reviews \(40\)/ });
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    expect(fold).toHaveTextContent("2 running");
+    expect(screen.queryByRole("button", { name: /BotFace/ })).toBeNull();
+    fireEvent.click(fold);
+    expect(onToggle).toHaveBeenCalledOnce();
+
+    rerender(
+      <CanvasSessionsList
+        list={list}
+        sessions={sessions({
+          recent: { ...recent, securityReviews: { ...recent.securityReviews, recent: [review] } },
+          reviews: { open: true, onToggle, onShowMore },
+        })}
+      />,
+    );
+    const reviews = screen.getByRole("list", { name: "Security reviews, most recently changed first" });
+    expect(within(reviews).getByRole("button", { name: /^BotFace security review/ })).toHaveTextContent("agent-desk");
+    // The person's list says nothing more is behind it; the fold's own page does.
+    const more = screen.getAllByRole("button", { name: "Show more" });
+    expect(more).toHaveLength(1);
+    fireEvent.click(more[0]!);
+    expect(onShowMore).toHaveBeenCalledOnce();
   });
 
   it("says it is loading until the first page arrives, rather than saying there are none", () => {

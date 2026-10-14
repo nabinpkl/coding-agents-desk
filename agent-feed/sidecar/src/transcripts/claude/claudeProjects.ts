@@ -158,7 +158,13 @@ export function promptFromOversizedRecord(text: string): string | undefined {
 }
 
 /**
- * The first `cwd` after `from`, for a transcript whose opening records outrun the head window.
+ * The first `cwd` after `from`, for a transcript whose opening records outrun the head window,
+ * and the `entrypoint` the same record carries.
+ *
+ * The launcher rides along because it is lost the same way: a security review's opening prompt
+ * carries the whole diff, the CLI writes `entrypoint` after `message`, and a record that outruns
+ * the window takes its launcher with it. Measured 2026-10-14 across this machine's 1,644 reviews:
+ * with the launcher kept here and the head's preferred over the tail's, 1,643 are told apart.
  *
  * Reads forward in the same 32 KB steps and stops at the first record that answers, so a file
  * that opens with four oversized snapshots costs one extra read and a file that does not costs
@@ -170,7 +176,7 @@ async function scanForOpeningCwd(
   fh: Awaited<ReturnType<typeof open>>,
   from: number,
   size: number,
-): Promise<string | undefined> {
+): Promise<{ cwd: string; entrypoint?: string } | undefined> {
   const stop = Math.min(size, from + OPENING_CWD_SCAN_BYTES);
   let position = from;
   let pending = Buffer.alloc(0);
@@ -187,7 +193,11 @@ async function scanForOpeningCwd(
       if (line) {
         try {
           const ev = JSON.parse(line) as Record<string, unknown>;
-          if (ev && typeof ev === 'object' && typeof ev.cwd === 'string') return ev.cwd;
+          if (ev && typeof ev === 'object' && typeof ev.cwd === 'string') {
+            return typeof ev.entrypoint === 'string'
+              ? { cwd: ev.cwd, entrypoint: ev.entrypoint }
+              : { cwd: ev.cwd };
+          }
         } catch { /* a line this scan cannot read is one it does not need */ }
       }
     }
@@ -228,6 +238,9 @@ export async function readHeader(filePath: string): Promise<Header | null> {
     const tail: Titles = {};
     // Every `cwd` in file order, across both windows. Ranked newest first below.
     const wandered: string[] = [];
+    // The tail's launcher, kept only for a head with none: a session can be carried on by another
+    // surface (Desktop auto-continues an SDK session it finds), and what started it is the fact.
+    let tailEntrypoint: string | undefined;
     let tailFrom = 0;
     let through = 0;
     for (const [index, range] of ranges.entries()) {
@@ -267,7 +280,10 @@ export async function readHeader(filePath: string): Promise<Header | null> {
           wandered.push(ev.cwd);
         }
         if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
-        if (typeof ev.entrypoint === 'string') out.entrypoint = ev.entrypoint;
+        if (typeof ev.entrypoint === 'string') {
+          if (isHead) out.entrypoint ??= ev.entrypoint;
+          else tailEntrypoint = ev.entrypoint;
+        }
         if (isHead) titlesOf(line, head);
         if (isTail) titlesOf(line, tail);
         // Last one in the window wins: this is the turn state as of the most
@@ -292,8 +308,11 @@ export async function readHeader(filePath: string): Promise<Header | null> {
     // larger than the tail window. Read forward for it instead: this is identity rather than
     // something a row displays, so it is the one fact worth leaving the two windows for.
     if (!out.cwd && ranges.length > 1) {
-      out.cwd = await scanForOpeningCwd(fh, HEADER_EDGE_BYTES, metadata.size);
+      const opening = await scanForOpeningCwd(fh, HEADER_EDGE_BYTES, metadata.size);
+      out.cwd = opening?.cwd;
+      out.entrypoint ??= opening?.entrypoint;
     }
+    out.entrypoint ??= tailEntrypoint;
     const titles = await currentTitles(fh, filePath, {
       whole: ranges.length === 1,
       head,

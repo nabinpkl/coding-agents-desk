@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import { ArchivedSessions } from "@/features/sidebar/ArchivedSessions";
+import { ArchivedSessions } from "@/features/sidebar/session-list/ArchivedSessions";
 
 const filed = {
   source: "claude",

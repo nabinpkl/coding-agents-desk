@@ -145,6 +145,11 @@ export function sidebarProps({
       onGroupedChange: chrome.changeCanvasSessionsGrouped,
       recent: inventory.recent,
       onShowMore: inventory.showMoreRecent,
+      reviews: {
+        open: inventory.recentReviewsOpen,
+        onToggle: inventory.toggleRecentReviews,
+        onShowMore: inventory.showMoreRecentReviews,
+      },
       onNewSession: () => {
         newSession.openDialog();
         chrome.setHoverPreviewOpen(false);

@@ -26,6 +26,13 @@ export interface AgentSessionCapabilities {
   canStreamLive: boolean;
 }
 
+/**
+ * A session a tool started on its own rather than a person. One kind today: the
+ * `security-guidance` plugin's review of a commit or a stopped turn, which saves a transcript like
+ * any session and outnumbers the person's own in a busy repository.
+ */
+export type SessionAutomation = "security-review";
+
 export interface ProjectSummary {
   projectPath: string;
   displayName: string;
@@ -61,6 +68,11 @@ export interface SessionSummary {
    * carries one, because the sidecar leaves archived sessions out of Bot views altogether.
    */
   archivedAt?: number;
+  /**
+   * Present when a tool started this session, which the lists fold into one row of their own at
+   * the bottom. Absent for a session a person started.
+   */
+  automation?: SessionAutomation;
 }
 
 /**

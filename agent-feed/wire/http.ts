@@ -43,10 +43,21 @@ export interface RecentSession extends SessionSummary {
 /**
  * The inventory stream's cross-project list: unarchived sessions, most recently changed first,
  * cut at the `recent` the surface asked for. `more` says the catalog holds sessions past the cut.
+ *
+ * Security reviews are held out of `recent` and counted in `securityReviews`, because they arrive
+ * one per commit and would otherwise be most of every page. Its `recent` is cut at the `reviews`
+ * the surface asked for, which is none while their row is folded: the count and how many are
+ * running are all a folded row shows.
  */
 export interface RecentSessionsPayload {
   recent: RecentSession[];
   more: boolean;
+  securityReviews: {
+    count: number;
+    live: number;
+    recent: RecentSession[];
+    more: boolean;
+  };
 }
 
 /**

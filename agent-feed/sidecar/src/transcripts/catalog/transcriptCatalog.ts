@@ -66,6 +66,7 @@ export {
   sessionCapabilities,
   sessionSummaries,
   summarizeSession,
+  summaryActivity,
 } from "@/transcripts/catalog/catalogViews";
 
 function attachSourceWatchers(): void {

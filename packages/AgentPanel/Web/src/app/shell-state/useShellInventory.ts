@@ -18,7 +18,7 @@ import { loadSelection } from "@/features/sidebar/selectionStore";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";
 import { useProjectInventory } from "@/app/shell-state/useProjectInventory";
-import type { SessionArchiving } from "@/features/sidebar/ArchivedSessions";
+import type { SessionArchiving } from "@/features/sidebar/session-list/ArchivedSessions";
 
 export function useShellInventory({
   feed,

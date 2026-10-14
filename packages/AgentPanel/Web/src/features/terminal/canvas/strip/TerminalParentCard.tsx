@@ -11,7 +11,7 @@ import { EyeOff, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
-import { ActivityDot } from "@/features/sidebar/SessionMeta";
+import { ActivityDot } from "@/features/sidebar/session-list/SessionMeta";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import { botSurfaceStyle, sessionInitials } from "@/features/bots/botSurface";
 import { TerminalChildCard } from "@/features/terminal/canvas/strip/TerminalChildCard";

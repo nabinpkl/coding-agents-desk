@@ -66,4 +66,4 @@ The rules that come with it:
 
 - `agent-feed/sidecar/src/transcripts/session-ops/sessionArchive.ts`
 - `agent-feed/sidecar/src/http/agent-routes/sessionArchiveRoutes.ts`
-- `packages/AgentPanel/Web/src/features/sidebar/ArchivedSessions.tsx`
+- `packages/AgentPanel/Web/src/features/sidebar/session-list/ArchivedSessions.tsx`
