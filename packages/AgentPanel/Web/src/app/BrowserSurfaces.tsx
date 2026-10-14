@@ -20,32 +20,14 @@ import type { HostActionsClient } from "@/features/activity-feed/data-source/Hos
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { sessionTransport } from "@/features/activity-feed/transport/SessionTransport";
 import { parseSessionIndex, type PanelSessionRef } from "@/app/panelSessions";
-
-export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals" | "ide" | "arena";
-
-const SURFACES: { readonly name: BrowserSurface; readonly label: string }[] = [
-  { name: "desktop", label: "Desktop" },
-  { name: "feed", label: "Feed" },
-  { name: "screen", label: "Screen" },
-  { name: "terminals", label: "Terminals" },
-  { name: "ide", label: "IDE" },
-  { name: "arena", label: "Arena" },
-];
-
-const NAMED = new Set<string>(SURFACES.map((surface) => surface.name));
-
-/**
- * Which surface a plain browser opens on.
- *
- * The desktop viewer is the default, which is the opposite of every native container: a shell opens
- * the webview it wants, so the feed is reachable from anywhere, while the desktop was reachable from
- * nowhere but inside the iOS app. `?entry=` asks for another, and the value is the same vocabulary
- * `panelEntry` reads, so one parameter means one thing everywhere.
- */
-export function initialSurface(search: string = window.location.search): BrowserSurface {
-  const asked = new URLSearchParams(search).get("entry") ?? "";
-  return NAMED.has(asked) ? (asked as BrowserSurface) : "desktop";
-}
+import {
+  initialSurface,
+  rememberedSession,
+  rememberSurface,
+  storeSession,
+  SURFACES,
+  type BrowserSurface,
+} from "@/app/page/browserSurface";
 
 /**
  * The login sessions this origin can reach, or none when it does not say.
@@ -86,33 +68,6 @@ function useSessions(): PanelSessionRef[] {
     };
   }, []);
   return sessions;
-}
-
-const SESSION_STORAGE_KEY = "agentdesk.panel.session";
-/** Matches the ids the server will route; a hand-edited value must not reshape a path. */
-const SESSION_ID = /^[a-z0-9-]+$/i;
-
-/**
- * The session this panel was last showing, restored optimistically.
- *
- * Optimistic because the live list arrives over the stream a moment later, and waiting for it would
- * open every reload on the default session and then jump. If the remembered session turns out not
- * to be running, `BrowserSurfaces` drops back to the default once the list says so.
- */
-export function rememberedSession(): string | undefined {
-  try {
-    const stored = localStorage.getItem(SESSION_STORAGE_KEY);
-    return stored && SESSION_ID.test(stored) ? stored : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Keeps the address bar honest, so a reload returns to the surface you were on. */
-function remember(surface: BrowserSurface): void {
-  const url = new URL(window.location.href);
-  url.searchParams.set("entry", surface);
-  window.history.replaceState(null, "", url);
 }
 
 /**
@@ -167,12 +122,7 @@ export function BrowserSurfaces({
   const [sessionId, setSessionId] = useState<string | undefined>(rememberedSession);
   const selectSession = useCallback((next: string | undefined) => {
     setSessionId(next);
-    try {
-      if (next) localStorage.setItem(SESSION_STORAGE_KEY, next);
-      else localStorage.removeItem(SESSION_STORAGE_KEY);
-    } catch {
-      // a private window still gets the choice for this session
-    }
+    storeSession(next);
   }, []);
   // A remembered session that is no longer announced would proxy to nothing, so fall back once the
   // live list has actually arrived. An empty list means "not known yet", not "gone".
@@ -241,7 +191,7 @@ export function BrowserSurfaces({
   useEffect(() => {
     if (desktopAvailable) return;
     if (surface === "desktop" || surface === "screen") {
-      remember("feed");
+      rememberSurface("feed");
       setSurface("feed");
     }
   }, [desktopAvailable, surface]);
@@ -268,7 +218,7 @@ export function BrowserSurfaces({
   }, []);
   function select(next: BrowserSurface): void {
     if (next === surface) return;
-    remember(next);
+    rememberSurface(next);
     setSurface(next);
   }
 

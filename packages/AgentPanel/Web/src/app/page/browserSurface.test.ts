@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialSurface, rememberedSession } from "@/app/BrowserSurfaces";
+import { initialSurface, rememberedSession, storeSession } from "@/app/page/browserSurface";
 
 describe("initialSurface", () => {
   it("opens a browser tab on the desktop viewer, the surface it could not otherwise reach", () => {
@@ -55,6 +55,15 @@ describe("rememberedSession", () => {
     localStorage.setItem("agentdesk.panel.session", "../api");
     expect(rememberedSession()).toBeUndefined();
     localStorage.setItem("agentdesk.panel.session", "a/b");
+    expect(rememberedSession()).toBeUndefined();
+  });
+});
+
+describe("storeSession", () => {
+  it("is what rememberedSession reads back, and forgetting returns to the default", () => {
+    storeSession("agent");
+    expect(rememberedSession()).toBe("agent");
+    storeSession(undefined);
     expect(rememberedSession()).toBeUndefined();
   });
 });

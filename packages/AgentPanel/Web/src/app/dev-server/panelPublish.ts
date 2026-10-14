@@ -29,14 +29,12 @@
 // ones and the reader releases them, by a reload, which is the only honest release there is: an
 // update Vite was not allowed to send is gone rather than parked.
 //
-// And a third question, which neither the parse nor the reader can answer alone: whether a whole file
-// should arrive while THIS Mac's sidecar is about to change under it. An agent's change is often a
-// sidecar half and a panel half -- a route renamed and its caller -- and taking the panel's half
-// while the old sidecar still runs, or the other way round, is a panel that matches neither. So under
-// `auto`, while the sidecar supervisor is holding a change of its own, a whole panel file is held as
-// well; the supervisor waits until both trees are quiet (`agent-feed/sidecar/src/supervisor/`), and
-// once the new sidecar has announced itself every page is reloaded onto both together. A panel-only
-// edit, with no sidecar change waiting, goes through live exactly as before.
+// It also tells this Mac's sidecar supervisor what the panel's tree is doing -- when a file last
+// changed, and whether one will not parse -- so a sidecar restart waits for an agent's panel edits
+// to settle too (`agent-feed/sidecar/src/supervisor/`). It used to go further and hold the panel's
+// own updates while a sidecar change was waiting, reloading every page once the new sidecar was up;
+// with several agents editing both trees that turned live updates into full reloads more often than
+// it saved one, so the panel side now only reports and never waits.
 
 import { basename } from "node:path";
 import { transformWithEsbuild, type HotUpdateOptions, type Plugin, type ViteDevServer } from "vite";
@@ -112,26 +110,9 @@ export interface PublishGateIO {
   /** What the reader chose last time there was a server, and where this one records their choice. */
   remembered(): UpdateMode;
   remember(mode: UpdateMode): void;
-  /**
-   * This Mac's own sidecar, as its supervisor and its announcement say. Absent where there is none
-   * to coordinate with, which then behaves exactly as a panel on its own.
-   */
-  localSidecar?(): LocalSidecar;
-  /** Tell this Mac's supervisor what the panel's tree is doing, so it can wait for it. */
+  /** Tell this Mac's supervisor what the panel's tree is doing, so a restart can wait for it. */
   recordActivity?(activity: { changedAt: number; blocked: string | null }): void;
 }
-
-/** What the panel needs to know about this Mac's sidecar to take a change together with it. */
-export interface LocalSidecar {
-  /** A supervisor is running and heartbeating. Without one, nothing is coming to wait for. */
-  supervised: boolean;
-  /** It is holding a sidecar change it will take by itself (`auto`), whole or not. */
-  pending: boolean;
-  /** When the sidecar now serving started, or null when none has announced itself. */
-  startedAt: number | null;
-}
-
-const NO_LOCAL_SIDECAR: LocalSidecar = { supervised: false, pending: false, startedAt: null };
 
 /** Only these are held. A stylesheet cannot take a render down, and holding one would just delay it. */
 const HELD_EXTENSIONS = /\.(ts|tsx)$/;
@@ -139,8 +120,6 @@ const HELD_EXTENSIONS = /\.(ts|tsx)$/;
 /** How often the machines' states are compared, since nothing pushes a change here. */
 const SUPERVISOR_POLL_MS = 2_000;
 
-/** How often a panel held for this Mac's sidecar checks whether that sidecar is back. */
-const SIDECAR_SETTLE_POLL_MS = 300;
 
 /**
  * What is held and why.
@@ -152,14 +131,9 @@ export function createPublishGate(io: PublishGateIO) {
   /** Absolute path to why it will not parse, or null for a whole file waiting on the reader. */
   const held = new Map<string, string | null>();
 
-  /** Whole files waiting for this Mac's sidecar to restart, so the two arrive together. */
-  const waitingOnSidecar = new Set<string>();
-  /** When the first of those was held: a sidecar that started after this is the one it waited for. */
-  let waitingSince = 0;
   /** When a panel source last changed, carried on every heartbeat to the supervisor. */
   let changedAt = 0;
 
-  const localSidecar = () => io.localSidecar?.() ?? NO_LOCAL_SIDECAR;
   const recordActivity = () => io.recordActivity?.({ changedAt, blocked: firstReason(held) });
 
   /**
@@ -175,12 +149,11 @@ export function createPublishGate(io: PublishGateIO) {
   const report = (): PublishReport => ({
     build: io.buildId(),
     mode,
-    held: [...held.keys(), ...waitingOnSidecar].map((file) => basename(file)),
+    held: [...held.keys()].map((file) => basename(file)),
     // The first held file that will not parse, which is the one a reader can do something about
     // and the one that decides whether the queue can be applied at all. Named by file, because the
-    // row is one line wide and the path is the half that does not fit. Failing that, why whole files
-    // are held under `auto`, which the row would otherwise have no words for.
-    blocked: firstReason(held) ?? (waitingOnSidecar.size > 0 ? "waiting for the sidecar to restart" : null),
+    // row is one line wide and the path is the half that does not fit.
+    blocked: firstReason(held),
     // Only the ones with something to say. A machine that is merely running is not news, and the
     // row is built to render nothing at all when there is nothing to render.
     sidecars: io.sidecars().filter((sidecar) => sidecar.held || sidecar.behind),
@@ -204,20 +177,11 @@ export function createPublishGate(io: PublishGateIO) {
   };
 
   /** The body of `hold`, apart so the supervisor hears about every outcome from one place. */
-  const decide = (file: string, failure: string | null, now: number): boolean => {
+  const decide = (file: string, failure: string | null): boolean => {
     if (failure === null && mode === "auto") {
-      const wasBroken = held.delete(file);
-      if (localSidecar().pending) {
-        if (waitingOnSidecar.size === 0) waitingSince = now;
-        waitingOnSidecar.add(file);
-        broadcast();
-        return true;
-      }
-      if (wasBroken) broadcast();
+      if (held.delete(file)) broadcast();
       return false;
     }
-    // Held for its author now rather than for the sidecar; it rejoins that wait once it is whole.
-    waitingOnSidecar.delete(file);
     // `has` as well as `get`, because a whole file held by the mode is recorded as null and that
     // is the value a missing key does NOT have: `undefined === null` is false.
     if (held.has(file) && held.get(file) === failure) return true;
@@ -241,27 +205,9 @@ export function createPublishGate(io: PublishGateIO) {
     hold(file: string, failure: string | null, now = Date.now()): boolean {
       if (!HELD_EXTENSIONS.test(file)) return false;
       changedAt = now;
-      const suppressed = decide(file, failure, now);
+      const suppressed = decide(file, failure);
       recordActivity();
       return suppressed;
-    },
-
-    /**
-     * Reload onto the new sidecar once it is up, if anything was held for it.
-     *
-     * Up means its supervisor has stopped holding and a sidecar that started after the hold began has
-     * announced itself -- it does that only once it is serving. A supervisor that is gone releases
-     * at once, since no restart is coming to wait for. Not while a held file will not parse: a
-     * reload then would land on exactly the broken page the parse gate exists to prevent.
-     */
-    settleWithSidecar(): void {
-      if (waitingOnSidecar.size === 0 || firstReason(held) !== null) return;
-      const sidecar = localSidecar();
-      const restarted = sidecar.startedAt !== null && sidecar.startedAt > waitingSince;
-      if (sidecar.supervised && (sidecar.pending || !restarted)) return;
-      waitingOnSidecar.clear();
-      broadcast();
-      io.reload();
     },
 
     /** Say what the panel's tree is doing again, so the supervisor reading it knows it is alive. */
@@ -288,12 +234,6 @@ export function createPublishGate(io: PublishGateIO) {
     setMode(next: UpdateMode): void {
       if (next === mode) return;
       mode = next;
-      // Under manual the reader decides, sidecar or not: what was waiting on the sidecar waits on
-      // them now, in the queue Apply takes.
-      if (next === "manual") {
-        for (const file of waitingOnSidecar) held.set(file, null);
-        waitingOnSidecar.clear();
-      }
       io.remember(next);
       io.tell(next);
       // Coming back to auto IS the "yes, now" the queue was waiting for, and `release` broadcasts
@@ -361,8 +301,6 @@ export interface PanelPublishOptions {
    * no request.
    */
   supervisors: () => SupervisorReport[];
-  /** This Mac's own sidecar, read off the registry board. See `PublishGateIO.localSidecar`. */
-  localSidecar?: () => LocalSidecar;
   /** Where the panel's tree activity is written for the supervisor. */
   recordActivity?: (activity: { changedAt: number; blocked: string | null }) => void;
 }
@@ -390,7 +328,6 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
   let server: ViteDevServer | undefined;
 
   const gate = createPublishGate({
-    localSidecar: options.localSidecar,
     recordActivity: options.recordActivity,
     broadcast: (report) => server?.environments.client.hot.send(options.event, report),
     buildId: options.buildId,
@@ -432,17 +369,11 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
       poll.unref?.();
       dev.httpServer?.once("close", () => clearInterval(poll));
 
-      // Faster than the poll above, because a reader is looking at a panel held for a sidecar
-      // restart and the reload is the moment it comes back. Two small file reads when something is
-      // held, nothing otherwise; the heartbeat keeps the supervisor's view of the panel alive.
-      const sidecarClock = setInterval(() => gate.settleWithSidecar(), SIDECAR_SETTLE_POLL_MS);
-      sidecarClock.unref?.();
+      // Keeps the supervisor's view of the panel alive: a panel that stops saying anything reads to it
+      // as no panel at all, and it then waits on its own tree alone.
       const heartbeat = setInterval(() => gate.heartbeat(), SUPERVISOR_POLL_MS);
       heartbeat.unref?.();
-      dev.httpServer?.once("close", () => {
-        clearInterval(sidecarClock);
-        clearInterval(heartbeat);
-      });
+      dev.httpServer?.once("close", () => clearInterval(heartbeat));
 
       dev.middlewares.use((request, response, next) => {
         // The base is never used: `request.url` on a server is a path, and `URL` only insists on

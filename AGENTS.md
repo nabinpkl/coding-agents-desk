@@ -388,12 +388,11 @@ with no rebuild, no reinstall, and no re-pair.
   2026-10-14, heartbeat and all, while the sidecar served stale code). Code that resolves and then
   throws while loading still gets through, and still leaves nothing serving until the next save.
   Under `auto` it also waits until the sidecar's tree AND the panel's have been quiet for 3s
-  (`AGENT_FEED_SUPERVISOR_QUIET_MS`) and no panel file is half-written, while the panel's dev
-  server holds its own updates for as long as a sidecar change is waiting and reloads every page
-  once the new sidecar has announced itself -- so a route and its caller land together. The two
-  read each other through `supervisor/supervisorBoard.ts` on the registry board, which a peer
-  cannot see: a peer gets the quiet window and nothing else, and two halves saved in the same
-  instant (a `git pull`) still land panel first. It watches `src/` and `agent-feed/wire/` with one
+  (`AGENT_FEED_SUPERVISOR_QUIET_MS`) and no panel file is half-written, which the panel's dev
+  server reports through `supervisor/supervisorBoard.ts` on the registry board (a peer cannot see
+  it, and gets the quiet window alone). The panel does not wait in return: holding its updates
+  while a sidecar change was pending, then reloading every page, was tried on 2026-10-14 and with
+  several agents at work reloaded the canvas more often than it saved it. It watches `src/` and `agent-feed/wire/` with one
   recursive watch each (`watchTree`, 3 descriptors) rather than chokidar's per-file watches (514),
   the shape the catalog moved to when per-file watches went late. It replaced `bun --watch src/server.ts`,
   which re-read on every write: a write is a moment inside an edit, and a reload that threw left the

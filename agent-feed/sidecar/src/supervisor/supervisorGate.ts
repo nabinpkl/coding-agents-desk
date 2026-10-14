@@ -32,9 +32,8 @@
 // restart on the first of them puts the panel against a sidecar it does not match. So under `auto`
 // the restart waits until the sidecar's tree AND the panel's have been quiet for `quietMs`, and
 // until no panel file is half-written; the panel's dev server says what its side is doing through
-// `supervisorBoard.ts`, and holds its own updates while this waits (its half is in
-// `packages/AgentPanel/Web/src/app/dev-server/panelPublish.ts`). Taking the tree on the reader's
-// say-so does not wait for anything.
+// `supervisorBoard.ts` (from `packages/AgentPanel/Web/src/app/dev-server/panelPublish.ts`). Taking
+// the tree on the reader's say-so does not wait for anything.
 //
 // Parsed rather than typechecked. The first version of this ran `tsc --noEmit --watch` as the
 // watcher and the judge, which cost 844MB at its peak here, measured with `footprint`. It was also

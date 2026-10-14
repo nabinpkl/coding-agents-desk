@@ -1,18 +1,11 @@
-// The two processes coordinating a change read each other only through these files, so a reader that
-// takes a dead writer for a live one holds a panel or a sidecar for nothing, forever.
+// The supervisor hears about the panel only through this file, so taking a dead writer for a live one
+// would hold the sidecar for nothing, forever.
 
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  BOARD_STALE_MS,
-  readPanelActivity,
-  readSidecarStartedAt,
-  readSupervisorPending,
-  supervisorDescriptorPath,
-  writePanelActivity,
-} from "@/supervisor/supervisorBoard";
+import { BOARD_STALE_MS, readPanelActivity, writePanelActivity } from "@/supervisor/supervisorBoard";
 
 const made: string[] = [];
 afterEach(() => {
@@ -40,20 +33,4 @@ test("a panel that stopped heartbeating reads as no panel at all", () => {
   writePanelActivity(dir, { changedAt: 1_000, blocked: null }, 50_000);
   expect(readPanelActivity(dir, 50_001 + BOARD_STALE_MS)).toBeNull();
   expect(readPanelActivity(board(), 50_000)).toBeNull();
-});
-
-test("reads the supervisor's own state, and nothing from one that stopped", () => {
-  const dir = board();
-  writeFileSync(supervisorDescriptorPath(dir), JSON.stringify({ held: true, blocked: null, mode: "auto", heartbeat: 10_000 }));
-  expect(readSupervisorPending(dir, 12_000)).toEqual({ held: true, mode: "auto" });
-  expect(readSupervisorPending(dir, 10_001 + BOARD_STALE_MS)).toBeNull();
-});
-
-test("reads when the sidecar now on the board started", () => {
-  const dir = board();
-  const file = join(dir, `${userInfo().username}.json`);
-  writeFileSync(file, JSON.stringify({ startedAt: 7_000, heartbeat: 9_000 }));
-  expect(readSidecarStartedAt(dir, 9_500)).toBe(7_000);
-  writeFileSync(file, "{ half a fi");
-  expect(readSidecarStartedAt(dir, 9_500)).toBeNull();
 });

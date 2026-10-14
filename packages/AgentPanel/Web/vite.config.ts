@@ -22,11 +22,7 @@ import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
 import { sourceSignature, sourceVersion } from "../../../agent-feed/sidecar/src/sourceVersion";
-import {
-  readSidecarStartedAt,
-  readSupervisorPending,
-  writePanelActivity,
-} from "../../../agent-feed/sidecar/src/supervisor/supervisorBoard";
+import { writePanelActivity } from "../../../agent-feed/sidecar/src/supervisor/supervisorBoard";
 import { readPublishMode, writePublishMode } from "./src/app/dev-server/publishMode";
 import {
   PANEL_BUILD_ROUTE,
@@ -419,17 +415,8 @@ export default defineConfig({
       // The publisher reports it because the panel's own held work is reported there, and a reader
       // wants one answer to "is what I am looking at current", not two.
       supervisors: () => supervisorClient.report(treeVersion()),
-      // This Mac's own sidecar, off the registry board both processes already share, so a sidecar
-      // change and the panel change beside it are taken together (`supervisorBoard.ts`).
-      localSidecar: () => {
-        const registry = runtimePaths().sidecarRegistry;
-        const supervisor = readSupervisorPending(registry);
-        return {
-          supervised: supervisor !== null,
-          pending: supervisor?.held === true && supervisor.mode === "auto",
-          startedAt: readSidecarStartedAt(registry),
-        };
-      },
+      // Onto the registry board the sidecar supervisor reads, so a restart waits for the panel's edits
+      // to settle as well as its own (`supervisorBoard.ts`).
       recordActivity: (activity) => {
         try {
           writePanelActivity(runtimePaths().sidecarRegistry, activity);
