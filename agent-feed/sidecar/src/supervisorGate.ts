@@ -19,6 +19,14 @@
 // reader asks, which is strictly safer than the panel's half of the same switch: the old sidecar
 // keeps serving the whole time, and taking the tree later is just a restart.
 //
+// Whole files are not the whole question. A tree in which every file parses can still fail to start
+// -- the caller saved before the callee, importing a name that does not exist yet -- and the restart
+// that takes it stops the old sidecar first, so nothing serves until a later save fixes it. The
+// supervisor therefore also resolves the import graph before a restart (`supervisorLinks.ts`), and
+// a tree that will not link is held exactly like one that will not parse. Unlike a broken file it
+// is a property of the TREE, not of one path: the save that fixes it is often a different file, so
+// it is re-asked on every batch rather than cleared by the file that caused it.
+//
 // Parsed rather than typechecked. The first version of this ran `tsc --noEmit --watch` as the
 // watcher and the judge, which cost 844MB at its peak here, measured with `footprint`. It was also
 // the wrong instrument: bun strips types and never checks them, so a type error cannot break a
@@ -55,6 +63,8 @@ export interface SupervisorState {
 export function createSupervisorGate(io: SupervisorGateIO) {
   /** Files that have changed since the running sidecar started, and will not parse. */
   const broken = new Map<string, string>();
+  /** Why the tree as a whole will not link, as of the last batch. Null when it does. */
+  let unlinked: string | null = null;
   /** True once anything has changed at all, so an unchanged tree is never restarted into. */
   let dirty = false;
   /** Auto until the panel says otherwise, and again whenever this process starts. */
@@ -62,14 +72,14 @@ export function createSupervisorGate(io: SupervisorGateIO) {
 
   const state = (): SupervisorState => {
     const first = [...broken.entries()][0];
-    return { held: dirty, blocked: first ? `${base(first[0])}: ${first[1]}` : null, mode };
+    return { held: dirty, blocked: first ? `${base(first[0])}: ${first[1]}` : unlinked, mode };
   };
 
   const publish = () => io.publish(state());
 
-  /** Take the tree as it stands, if there is one to take and nothing in it is half a file. */
+  /** Take the tree as it stands, if there is one to take and it is whole and links. */
   const take = (reason: string): boolean => {
-    if (!dirty || broken.size > 0) return false;
+    if (!dirty || broken.size > 0 || unlinked !== null) return false;
     dirty = false;
     publish();
     io.restart(reason);
@@ -79,15 +89,19 @@ export function createSupervisorGate(io: SupervisorGateIO) {
   return {
     state,
 
-    /** One debounced batch of writes, each already parsed. */
-    changed(changes: ParsedChange[]): void {
+    /**
+     * One debounced batch of writes, each already parsed, and why the tree after them will not link
+     * (null, the default, when it does).
+     */
+    changed(changes: ParsedChange[], linkFailure: string | null = null): void {
       if (changes.length === 0) return;
       dirty = true;
       for (const { path, failure } of changes) {
         if (failure === null) broken.delete(path);
         else broken.set(path, failure);
       }
-      if (broken.size > 0) {
+      unlinked = linkFailure;
+      if (broken.size > 0 || unlinked !== null) {
         // Said every batch rather than once, because whoever reads this log is looking backwards
         // from a sidecar that stopped changing, and needs to see it was refusing the whole time.
         io.log(`holding the tree back: ${state().blocked}`);

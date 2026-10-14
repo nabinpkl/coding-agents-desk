@@ -154,3 +154,43 @@ test("hears the same mode over and over without deciding anything", () => {
   expect(restarts).toEqual([]);
   expect(published).toEqual([]);
 });
+
+// Every file whole and the tree still will not start: the caller saved before its callee. The
+// restart would stop the running sidecar to free the port and then die at startup, so nothing would
+// serve until a later save; holding keeps the old one serving instead.
+test("a tree that parses but will not link leaves the running sidecar alone, and says why", () => {
+  const { it, restarts, logs } = gate();
+  it.changed([{ path: ROUTES, failure: null }], 'server.ts:8: No matching export in "src/http/sessionRoutes.ts" for import "createRoutes"');
+  expect(restarts).toEqual([]);
+  expect(it.state()).toEqual({
+    held: true,
+    blocked: 'server.ts:8: No matching export in "src/http/sessionRoutes.ts" for import "createRoutes"',
+    mode: "auto",
+  });
+  expect(logs[0]).toContain("No matching export");
+});
+
+// The fix to a link failure is usually a DIFFERENT file from the one that broke it -- the callee,
+// saved after the caller -- so it is cleared by the next tree that links, not by its own path.
+test("the save that makes the tree link is what releases it, whichever file that is", () => {
+  const { it, restarts } = gate();
+  it.changed([{ path: ROUTES, failure: null }], "server.ts:8: No matching export");
+  it.changed([{ path: CONFIG, failure: null }], null);
+  expect(restarts).toEqual(["1 changed file parses"]);
+  expect(it.state()).toEqual({ held: false, blocked: null, mode: "auto" });
+});
+
+test("a half-written file is named ahead of a link failure, since it is the likelier cause", () => {
+  const { it } = gate();
+  it.changed([{ path: ROUTES, failure: "Unexpected end of file" }], "server.ts:8: Could not resolve");
+  expect(it.state().blocked).toBe("sessionRoutes.ts: Unexpected end of file");
+});
+
+test("refuses to take a tree that will not link when the reader asks, or on coming back to auto", () => {
+  const { it, restarts } = gate();
+  it.setMode("manual");
+  it.changed([{ path: ROUTES, failure: null }], "server.ts:8: Could not resolve");
+  expect(it.apply()).toBe(false);
+  it.setMode("auto");
+  expect(restarts).toEqual([]);
+});

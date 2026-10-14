@@ -381,8 +381,11 @@ with no rebuild, no reinstall, and no re-pair.
   (ADR-0095, ADR-0096).
 - **`sidecar` (`live` default | `bundled`)** spawns `agent-feed/sidecar/src/supervisor.ts` instead
   of the compiled binary. The supervisor owns the server as a child, watches the tree, PARSES what
-  changed, and replaces the child only once every changed file is whole -- so this arm executes the
-  working tree without a half-saved file being what runs. It replaced `bun --watch src/server.ts`,
+  changed, and replaces the child only once every changed file is whole and the tree's imports
+  resolve -- so this arm executes the working tree without a half-saved file, or a caller saved
+  before its callee, being what runs (`supervisorLinks.ts`: an in-memory `Bun.build`, ~40-130ms).
+  Code that resolves and then throws while loading still gets through, and still leaves nothing
+  serving until the next save. It replaced `bun --watch src/server.ts`,
   which re-read on every write: a write is a moment inside an edit, and a reload that threw left the
   process alive with its port free, killing every stream the panel held while nothing noticed for a
   minute. Parsed rather than typechecked, because neither tree typechecks at runtime and a resident

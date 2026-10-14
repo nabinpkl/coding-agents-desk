@@ -7,8 +7,8 @@
 // behind it, and the host's own port probe only gave up on it a minute later.
 //
 // So this owns the sidecar as a child process, watches the tree itself, and replaces the child only
-// once every file that changed is a whole file. `supervisorGate.ts` holds the decisions; this holds
-// the processes, the watcher and the parser.
+// once every file that changed is a whole file and the tree they make links (`supervisorLinks.ts`).
+// `supervisorGate.ts` holds the decisions; this holds the processes, the watcher and the parser.
 //
 // Everything it says goes to stdout, which the host writes to the sidecar's own log file, because
 // `log show` answers nothing in this session and a supervisor whose reasoning is unreadable after
@@ -25,6 +25,7 @@ import {
   writeSupervisorDescriptor,
 } from "@/sidecarRegistry";
 import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisorGate";
+import { declaredPackages, linkFailure } from "@/supervisorLinks";
 import { ownSources } from "@/supervisorSources";
 import { stopChild } from "@/supervisorStop";
 
@@ -220,9 +221,34 @@ async function parsed(path: string): Promise<ParsedChange> {
   }
 }
 
+/** What the link check may leave unfollowed: the sidecar's declared npm packages. */
+const PACKAGES = declaredPackages(dirname(SOURCE));
+
+/**
+ * Whether the tree as it stands now starts, as far as resolving its imports can tell.
+ *
+ * A check that cannot run holds the tree and says so, rather than waving it through: the reason is
+ * on the panel row, and the next save asks again.
+ */
+async function linked(): Promise<string | null> {
+  try {
+    return await linkFailure(SERVER, PACKAGES);
+  } catch (error) {
+    return `could not check the import graph: ${String((error as Error).message ?? error).split("\n")[0]}`;
+  }
+}
+
 /** Collected between decisions, so one burst of writes is judged as one change. */
 const pending = new Set<string>();
 let settle: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * The batch being judged, so the next one waits its turn.
+ *
+ * Judging takes the link check's 40-130ms, so two batches can overlap, and the later write's verdict
+ * must not be overwritten by an earlier tree's: the gate keeps whatever it was told last.
+ */
+let judging: Promise<void> = Promise.resolve();
 
 /** Set once a file this process is built from has moved, and cleared only by leaving. */
 let selfStale = false;
@@ -235,14 +261,18 @@ function noteChange(path: string): void {
   settle = setTimeout(() => {
     const batch = [...pending];
     pending.clear();
-    void Promise.all(batch.map(parsed)).then((changes) => {
+    judging = judging.then(() => Promise.all([Promise.all(batch.map(parsed)), linked()])).then(([changes, unlinked]) => {
       // The standing request is re-read HERE, not just on the timer below, because the timer is a
       // second behind by construction and this is the moment the mode decides something. Measured
       // 2026-09-15: a reader who chose manual and saved a file within the second got the restart
       // they had just asked not to have, because the command was still in flight through the
       // sidecar and onto the board when the batch was judged.
       readRequest();
-      gate.changed(changes);
+      gate.changed(changes, unlinked);
+    }).catch((error: unknown) => {
+      // Caught on the chain itself: a rejection left on it would skip every batch after this one,
+      // and the supervisor would stop acting on saves with nothing to say it had.
+      say(`could not judge a change: ${String(error)}`);
     });
   }, SETTLE_MS);
 }
