@@ -193,26 +193,41 @@ export function BotCanvasCard({
     count: shown.length,
     onDrop: rearrangeSessions,
   });
-  // Whether an open session is one of THIS card's, which is what the scroll below acts on.
-  const holdsOpen = shown.some((session) => openKeys.has(sessionKey(session)));
-  // Brings this card into view when it BECOMES an open one, because the row that opened it may
-  // have been in the sidebar rather than on the canvas, and the card can be anywhere in a tiled
-  // roster of thirty. `nearest` rather than `start`: it does nothing at all when the card is
+  // Brings this card into view when one of its sessions BECOMES open, because the row that opened
+  // it may have been in the sidebar rather than on the canvas, and the card can be anywhere in a
+  // tiled roster of thirty. `nearest` rather than `start`: it does nothing at all when the card is
   // already fully visible, which is the common case of clicking a row on the canvas itself, and a
   // card taller than the scroller aligns to its top under the same rule.
   //
-  // The transition and not the state, which is the difference between this and what it replaced. A
-  // card already open when it mounts is one the canvas is coming BACK to -- restored open keys, a
-  // tab switched away from and returned to -- and scrolling to it there drags the strip off the
-  // offset the reader left it at, with the last card to mount deciding where they land.
+  // The transition and not the state. A card already open when it mounts is one the canvas is
+  // coming BACK to -- restored open keys, a tab switched away from and returned to -- and scrolling
+  // to it there drags the strip off the offset the reader left it at, with the last card to mount
+  // deciding where they land.
+  //
+  // And the transition of the KEY, not of the card holding one. A session leaves `shown` without
+  // the reader closing it whenever the sidecar restarts: its catalog answers partially while it
+  // reconciles, so the reference reads as missing for a moment and then comes back. Judged on the
+  // card, that came back as a fresh open on every card at once, and the strip ended up at whichever
+  // of them scrolled last (measured 2026-10-13 in the panel's scroll log: three `scrollIntoView`
+  // calls within 500ms of the bots stream reconnecting, 336 -> 3984). So a key is announced once,
+  // and forgotten only when the reader closes it.
   const card = useRef<HTMLLIElement | null>(null);
-  const wasOpen = useRef(holdsOpen);
+  const announced = useRef<ReadonlySet<string>>(openKeys);
   useEffect(() => {
-    const opened = holdsOpen && !wasOpen.current;
-    wasOpen.current = holdsOpen;
+    const before = announced.current;
+    const opened = shown.some((session) => {
+      const key = sessionKey(session);
+      return openKeys.has(key) && !before.has(key);
+    });
+    const next = new Set([...before].filter((key) => openKeys.has(key)));
+    for (const session of shown) {
+      const key = sessionKey(session);
+      if (openKeys.has(key)) next.add(key);
+    }
+    announced.current = next;
     if (!opened) return;
     card.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-  }, [holdsOpen]);
+  }, [openKeys, shown]);
   // `bot-surface` sets the background and the border together, because a tinted card inside a
   // neutral border reads as a mistake rather than as a colour. A Bot the roster has not ranked
   // falls back to the plain card it was, which is defensive rather than expected: the canvas shows

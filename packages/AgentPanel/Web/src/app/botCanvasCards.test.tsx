@@ -139,6 +139,14 @@ describe("App shell", () => {
         "true",
       );
       expect(scrollIntoView).not.toHaveBeenCalled();
+      // A sidecar restart: its catalog answers partially while it reconciles, so the session reads
+      // missing and then comes back. The reader closed nothing, so nothing opened either.
+      for (const [revision, missing] of [[2, true], [3, false]] as const) {
+        act(() => transport.deliver("/api/bots/stream", { version: 2, revision, bots: [missing
+          ? { ...BOT_WITH_ONE_SESSION, sessions: [], missingSessionRefs: BOT_WITH_ONE_SESSION.sessionRefs }
+          : BOT_WITH_ONE_SESSION] }));
+      }
+      expect(scrollIntoView).not.toHaveBeenCalled();
 
       // Opening one from the sidebar still brings its card forward: that is a card BECOMING open,
       // which is the case the scroll was written for.
