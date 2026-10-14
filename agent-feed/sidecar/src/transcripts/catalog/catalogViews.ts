@@ -228,3 +228,24 @@ export function sessionSummaries(
   });
   return summaries;
 }
+
+/**
+ * The `limit` most recently changed unarchived sessions across every project, and whether more
+ * stand behind them.
+ *
+ * Cheap because the order is already paid for: every catalog snapshot is sorted by `lastEventAt`
+ * before a subscriber sees it, so this walks the front of it and stops. Records, not summaries --
+ * the stream compares the cut before deciding whether to summarize it at all.
+ */
+export function mostRecentSessions(
+  snapshot: Session[],
+  limit: number,
+): { sessions: Session[]; more: boolean } {
+  const sessions: Session[] = [];
+  for (const session of snapshot) {
+    if (sessionArchivedAt(session.source, session.sessionId) !== undefined) continue;
+    if (sessions.length === limit) return { sessions, more: true };
+    sessions.push(session);
+  }
+  return { sessions, more: false };
+}

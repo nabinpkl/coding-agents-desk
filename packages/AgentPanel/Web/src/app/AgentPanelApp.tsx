@@ -175,7 +175,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     picker: botSessionPicker
       ? { botId: botSessionPicker.botId, projectPath: botSessionPicker.environment.path }
       : null,
-    startedSessions: commands.newSessions,
+    startedSessions: commands.newSessions, recentWanted: chrome.recentSessionsShowing,
   });
   const thread = useThreadSelection({
     projects: inventory.projects,

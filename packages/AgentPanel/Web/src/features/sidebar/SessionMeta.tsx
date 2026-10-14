@@ -24,6 +24,7 @@ export function SessionMeta({
   lastEventAt,
   activity,
   worktree,
+  project,
 }: {
   source: string;
   lastEventAt: number;
@@ -36,6 +37,8 @@ export function SessionMeta({
    * identical here down to the title.
    */
   worktree?: { path: string; branch: string | null };
+  /** The project a row belongs to, on a list that does not group rows under their projects. */
+  project?: string;
 }) {
   const time = new Date(lastEventAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
@@ -46,6 +49,7 @@ export function SessionMeta({
     // other reader of this component -- are byte-identical to what they were.
     <span className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
       <SourceBadge source={source} />
+      {project === undefined ? null : <span className="min-w-0 truncate">{project}</span>}
       <span>{time}</span>
       <span className="capitalize">{activity}</span>
       {worktree ? (

@@ -129,14 +129,20 @@ export function sidebarProps({
     attachSessionToBot: roster.attachSessionToBot,
     canvasView: chrome.sidebarPreferences.canvasView,
     onCanvasViewChange: chrome.changeCanvasView,
-    onOpenSessionInModal: thread.openSessionInModal,
-    canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveListedSessionToCanvas },
-    modalSelection: thread.modalThread
-      ? {
-        projectPath: thread.modalThread.project.projectPath,
-        sessionKey: `${thread.modalThread.session.source}:${thread.modalThread.session.sessionId}`,
-      }
-      : null,
+    canvasSessions: {
+      onOpen: thread.openSessionInModal,
+      canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveListedSessionToCanvas },
+      modalSelection: thread.modalThread
+        ? {
+          projectPath: thread.modalThread.project.projectPath,
+          sessionKey: `${thread.modalThread.session.source}:${thread.modalThread.session.sessionId}`,
+        }
+        : null,
+      grouped: chrome.sidebarPreferences.canvasSessionsGrouped,
+      onGroupedChange: chrome.changeCanvasSessionsGrouped,
+      recent: inventory.recent,
+      onShowMore: inventory.showMoreRecent,
+    },
     onAddBot: () => {
       commands.setBotCreatorOpen(true);
       chrome.setHoverPreviewOpen(false);

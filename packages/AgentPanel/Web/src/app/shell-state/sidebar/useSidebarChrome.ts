@@ -172,6 +172,20 @@ export function useSidebarChrome() {
     });
   }, []);
 
+  const changeCanvasSessionsGrouped = useCallback((canvasSessionsGrouped: boolean) => {
+    setSidebarPreferences((current) => {
+      if (current.canvasSessionsGrouped === canvasSessionsGrouped) return current;
+      const next = { ...current, canvasSessionsGrouped };
+      storeSidebarPreferences(next);
+      return next;
+    });
+  }, []);
+
+  /** The Canvas tab's flat sessions list is on screen, so the inventory stream should carry it. */
+  const recentSessionsShowing = sidebarMode === "canvas" &&
+    sidebarPreferences.canvasView === "sessions" &&
+    !sidebarPreferences.canvasSessionsGrouped;
+
   return {
     compact,
     hoverCapable,
@@ -194,5 +208,7 @@ export function useSidebarChrome() {
     closePinnedSidebar,
     changeSidebarMode,
     changeCanvasView,
+    changeCanvasSessionsGrouped,
+    recentSessionsShowing,
   };
 }

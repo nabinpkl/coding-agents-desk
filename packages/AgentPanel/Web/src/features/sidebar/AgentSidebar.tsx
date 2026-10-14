@@ -16,7 +16,8 @@ import { MessagesPanel } from "@/features/messages/MessagesPanel";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import type { UsageHandle } from "@/features/usage/useUsage";
-import { ProjectSessionList, type SessionArchiving, type SessionCanvasMove } from "@/features/sidebar/ProjectSidebarItem";
+import { ProjectSessionList, type SessionArchiving } from "@/features/sidebar/ProjectSidebarItem";
+import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/CanvasSessionsList";
 import { CanvasSidebarViews, type CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 
 export type AgentSidebarMode = "sessions" | "bots" | "canvas" | "messages";
@@ -144,11 +145,8 @@ interface AgentSidebarProps {
   /** Which of the Canvas tab's two views is showing: its Bots, or every session. */
   canvasView: CanvasSidebarView;
   onCanvasViewChange: (view: CanvasSidebarView) => void;
-  /** Opens a session in a modal over the canvas, from the Canvas tab's Sessions view. */
-  onOpenSessionInModal: (project: ProjectSummary, session: SessionSummary) => void;
-  canvasMove: SessionCanvasMove;
-  /** The session that modal is showing, so its row reads as the one picked. */
-  modalSelection: { projectPath: string; sessionKey: string } | null;
+  /** The Canvas tab's Sessions view: what picking a row does, and grouped or most recent first. */
+  canvasSessions: CanvasSessions;
   /** The inbox's data and writes. Owned by the app, so all three sidebar mounts share one poll. */
   messages: MessagesHandle;
   onClose?: () => void;
@@ -321,15 +319,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           <CanvasSidebarViews
             view={props.canvasView}
             onViewChange={props.onCanvasViewChange}
-            sessions={
-              <ProjectSessionList
-                {...listProps}
-                selectedProjectPath={props.modalSelection?.projectPath ?? null}
-                selectedSessionKey={props.modalSelection?.sessionKey ?? null}
-                onSelectSession={props.onOpenSessionInModal}
-                canvasMove={props.canvasMove}
-              />
-            }
+            sessions={<CanvasSessionsList list={listProps} sessions={props.canvasSessions} />}
             bots={
               <BotSidebarPanel
                 bots={props.bots}

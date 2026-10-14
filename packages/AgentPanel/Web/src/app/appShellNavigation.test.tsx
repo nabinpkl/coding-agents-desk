@@ -378,7 +378,7 @@ describe("App shell", () => {
     // The Agents window is 480pt wide, which is compact, and it is on a Mac, which hovers. Both
     // at once is the case that used to fall through to the touch story and ignore the mouse.
     installViewport({ compact: true, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false, canvasView: "bots" });
+    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
     const { transport, unmount } = setup();
     deliverProjects(transport);
 
@@ -413,7 +413,7 @@ describe("App shell", () => {
   it("previews on desktop hover, pins on click, and restores the saved width", () => {
     vi.useFakeTimers();
     installViewport({ compact: false, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false, canvasView: "bots" });
+    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
     const first = setup();
     deliverProjects(first.transport);
 
@@ -430,6 +430,7 @@ describe("App shell", () => {
       mode: "sessions",
       botFaces: false,
       canvasView: "bots",
+      canvasSessionsGrouped: true,
     });
 
     fireEvent.pointerLeave(trigger);
@@ -451,6 +452,7 @@ describe("App shell", () => {
       mode: "sessions",
       botFaces: false,
       canvasView: "bots",
+      canvasSessionsGrouped: true,
     });
 
     firePointerEvent(separator, "pointerdown", { pointerId: 7, clientX: 316 });
@@ -463,6 +465,7 @@ describe("App shell", () => {
       mode: "sessions",
       botFaces: false,
       canvasView: "bots",
+      canvasSessionsGrouped: true,
     });
 
     first.unmount();
@@ -479,6 +482,7 @@ describe("App shell", () => {
       mode: "sessions",
       botFaces: false,
       canvasView: "bots",
+      canvasSessionsGrouped: true,
     });
     restored.unmount();
     vi.useRealTimers();

@@ -9,7 +9,7 @@
 // both add one, and neither is the inventory's business.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { ProjectSummary, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 
 /**
@@ -25,12 +25,21 @@ function retryDelayMs(attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 15000);
 }
 
+/** How many of the most recently changed sessions the flat list asks for at a time. */
+export const RECENT_SESSIONS_PAGE = 30;
+
 export function useProjectInventory(
   feed: SidecarDataSource,
   /** Directories to watch beyond the expanded ones; see the caller for what adds one. */
   extraProjectPaths: readonly string[],
   /** The project the last selection was in, expanded first so the restore has rows to match. */
   rememberedProjectPath: string | undefined,
+  /**
+   * Whether a flat, most-recently-changed list is showing. While it is, the stream carries that
+   * list instead of the expanded projects' lists: nothing on screen reads those, and the sidecar
+   * orders the flat one, so the panel neither holds every project's sessions nor sorts them.
+   */
+  recentWanted = false,
 ) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   // Every expanded project's sessions, owned here because they arrive on the same
@@ -47,13 +56,18 @@ export function useProjectInventory(
   const [loadingLayer, setLoadingLayer] = useState(true);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [expandedProjectPaths, setExpandedProjectPaths] = useState<Set<string>>(new Set());
+  const [recentLimit, setRecentLimit] = useState(RECENT_SESSIONS_PAGE);
+  const [recent, setRecent] = useState<RecentSessionsPayload | null>(null);
+  const recentCount = recentWanted ? recentLimit : undefined;
   // The subscription's identity, not merely its argument: expanding or collapsing a
   // project reopens the inventory stream exactly once, and re-rendering for any other
   // reason leaves the open stream alone. Joined on NUL, the one byte a POSIX path
   // cannot contain, so the round trip cannot invent or lose a path.
   const subscribedProjectKey = useMemo(
-    () => [...new Set([...expandedProjectPaths, ...extraProjectPaths])].sort().join("\0"),
-    [expandedProjectPaths, extraProjectPaths],
+    () => [...new Set([...(recentWanted ? [] : expandedProjectPaths), ...extraProjectPaths])]
+      .sort()
+      .join("\0"),
+    [expandedProjectPaths, extraProjectPaths, recentWanted],
   );
   const subscribedProjectPaths = useMemo(
     () => (subscribedProjectKey === "" ? [] : subscribedProjectKey.split("\0")),
@@ -86,6 +100,9 @@ export function useProjectInventory(
     // that flipped back to "Loading projects" each time a row was unfolded would be
     // reporting the transport's business as the reader's.
     if (!deliveredInventory.current) setLoadingLayer(true);
+    // Dropped when the flat list goes away, so turning it back on shows loading rather than a cut
+    // nothing has refreshed since.
+    if (recentCount === undefined) setRecent(null);
     setLayerError(null);
     setRetrying(false);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -113,12 +130,13 @@ export function useProjectInventory(
         setSessionsByProject((current) => new Map(current).set(projectPath, sessions));
         setArchivedByProject((current) => new Map(current).set(projectPath, archived));
       },
-    }, onError);
+      onRecent: setRecent,
+    }, onError, recentCount);
     return () => {
       if (timer !== undefined) clearTimeout(timer);
       stop?.();
     };
-  }, [feed, retryNonce, subscribedProjectPaths]);
+  }, [feed, retryNonce, subscribedProjectPaths, recentCount]);
 
   useEffect(() => {
     if (projects.length === 0) return;
@@ -164,9 +182,13 @@ export function useProjectInventory(
     });
   }, []);
 
+  const showMoreRecent = useCallback(() => setRecentLimit((count) => count + RECENT_SESSIONS_PAGE), []);
+
   return {
     projects,
     sessionsByProject,
+    recent,
+    showMoreRecent,
     archivedByProject,
     loadingLayer,
     layerError,

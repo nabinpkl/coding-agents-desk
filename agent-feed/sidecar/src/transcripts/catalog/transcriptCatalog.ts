@@ -61,6 +61,7 @@ export {
   scheduleOpencodeReconcile,
 } from "@/transcripts/catalog/opencodeCatalog";
 export {
+  mostRecentSessions,
   projectSummaries,
   sessionCapabilities,
   sessionSummaries,

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { ProjectsPayload, SessionsPayload } from "@agentdesk/agent-feed-wire";
+import type { ProjectsPayload, RecentSessionsPayload, SessionsPayload } from "@agentdesk/agent-feed-wire";
 import { createInventoryRoutes } from "@/http/inventoryRoutes";
 import { registerPiSession, sessionKey, stopCatalog } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
@@ -20,7 +20,7 @@ afterEach(async () => {
   ));
 });
 
-type InventoryMessage = ProjectsPayload | SessionsPayload | { error: string };
+type InventoryMessage = ProjectsPayload | SessionsPayload | RecentSessionsPayload | { error: string };
 
 /**
  * One reader over an open stream, taken in batches.
@@ -173,5 +173,48 @@ test("a project that vanished is dropped from the stream, not fatal to it", asyn
   expect(response.status).toBe(200);
   expect((messages[0] as ProjectsPayload).projects).toHaveLength(1);
   expect((messages[1] as SessionsPayload).projectPath).toBe(alpha);
+  await leave();
+});
+
+test("the recent list is every project's sessions, newest first, and a change moves a session to its top", async () => {
+  state.watcherState = "live";
+  const alpha = await projectWithSession("alpha", "11111111-1111-1111-1111-111111111111");
+  const beta = await projectWithSession("beta", "22222222-2222-2222-2222-222222222222");
+  state.sessions.get(sessionKey("claude", "22222222-2222-2222-2222-222222222222"))!.lastEventAt = 1_500;
+
+  // No project asked for: the cross-project list needs none of them open.
+  const response = await open("?recent=2");
+  const { take, leave } = streamReader(response);
+  const first = (await take(2))[1] as RecentSessionsPayload;
+  expect(first.recent.map((row) => row.projectPath)).toEqual([beta, alpha]);
+  expect(first.more).toBeFalse();
+
+  registerPiSession({
+    sessionId: "33333333-3333-3333-3333-333333333333",
+    projectPath: alpha,
+    transcriptPath: join(alpha, "pi.jsonl"),
+    title: "pi thread",
+    lastEventAt: 2_000,
+  });
+  const followUp = await take(2);
+  const recent = followUp.find((message) => "recent" in message) as RecentSessionsPayload;
+  // Cut at two, so the oldest falls behind the cut and the list says there is more.
+  expect(recent.recent.map((row) => row.sessionId)).toEqual([
+    "33333333-3333-3333-3333-333333333333",
+    "22222222-2222-2222-2222-222222222222",
+  ]);
+  expect(recent.more).toBeTrue();
+  await leave();
+});
+
+test("a surface that does not ask for the recent list is sent none", async () => {
+  state.watcherState = "live";
+  const alpha = await projectWithSession("alpha", "11111111-1111-1111-1111-111111111111");
+
+  const response = await open(`?projectPath=${encodeURIComponent(alpha)}&recent=nonsense`);
+  const { take, leave } = streamReader(response);
+  const messages = await take(2);
+
+  expect(messages.some((message) => "recent" in message)).toBeFalse();
   await leave();
 });

@@ -28,6 +28,7 @@ import type {
   ParkStateResponse,
   ProjectSummary,
   LimitsStreamMessage,
+  RecentSessionsPayload,
   SessionSummary,
   SidecarConfig,
   SourceId,
@@ -94,18 +95,25 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    * Archived sessions are split off HERE, the one place every inventory reader goes through, so
    * no list, picker or restore can show one by forgetting to filter: `sessions` never holds an
    * archived row, and only a caller that offers them back reads `archived`.
+   *
+   * `recent` asks the same stream for that many of the most recently changed sessions across
+   * every project as well, ordered by the sidecar (`RecentSessionsPayload`), delivered to
+   * `onRecent`.
    */
   subscribeInventory(
     projectPaths: readonly string[],
     handlers: {
       onProjects: (projects: ProjectSummary[]) => void;
       onSessions: (projectPath: string, sessions: SessionSummary[], archived: SessionSummary[]) => void;
+      onRecent?: (recent: RecentSessionsPayload) => void;
     },
     onError?: (reason: string) => void,
+    recent?: number,
   ): () => void {
-    const query = projectPaths
-      .map((path) => `projectPath=${encodeURIComponent(path)}`)
-      .join("&");
+    const query = [
+      ...projectPaths.map((path) => `projectPath=${encodeURIComponent(path)}`),
+      ...(recent === undefined ? [] : [`recent=${recent}`]),
+    ].join("&");
     return this.transport.subscribe(
       query ? `/api/inventory/stream?${query}` : "/api/inventory/stream",
       {
@@ -114,8 +122,11 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
             projects?: ProjectSummary[];
             projectPath?: string;
             sessions?: SessionSummary[];
+            recent?: RecentSessionsPayload["recent"];
+            more?: boolean;
           };
           if (message.projects) handlers.onProjects(message.projects);
+          else if (message.recent) handlers.onRecent?.({ recent: message.recent, more: message.more === true });
           else if (message.projectPath && message.sessions) {
             handlers.onSessions(
               message.projectPath,

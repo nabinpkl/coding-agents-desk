@@ -17,10 +17,11 @@ import type { UsageVendorId } from "./usage.ts";
 
 /**
  * A surface's whole inventory arrives on one stream:
- * `GET /api/inventory/stream?projectPath=<a>&projectPath=<b>`.
+ * `GET /api/inventory/stream?projectPath=<a>&projectPath=<b>&recent=<n>`.
  *
  * The project list rides it unconditionally; each requested project's session list
- * rides it too. A message is one or the other, told apart by which key it carries.
+ * rides it too, and so do the `recent` most recently changed sessions when a surface
+ * asks for them. A message is one of those, told apart by which key it carries.
  * `projectPath` repeats rather than joining on a separator, because these are
  * filesystem paths.
  */
@@ -32,6 +33,20 @@ export interface ProjectsPayload {
 export interface SessionsPayload {
   projectPath: string;
   sessions: SessionSummary[];
+}
+
+/** One session in the cross-project list, carrying the project it is listed under. */
+export interface RecentSession extends SessionSummary {
+  projectPath: string;
+}
+
+/**
+ * The inventory stream's cross-project list: unarchived sessions, most recently changed first,
+ * cut at the `recent` the surface asked for. `more` says the catalog holds sessions past the cut.
+ */
+export interface RecentSessionsPayload {
+  recent: RecentSession[];
+  more: boolean;
 }
 
 /**

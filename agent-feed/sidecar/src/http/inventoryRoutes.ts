@@ -2,9 +2,11 @@ import {
   canonicalProjectPath,
   getSnapshot,
   getWatcherState,
+  mostRecentSessions,
   projectSummaries,
   sessionSummaries,
   subscribeCatalog,
+  summarizeSession,
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
 import { sessionArchivedAt } from "@/transcripts/session-ops/sessionArchive";
@@ -43,7 +45,23 @@ async function requestedProjects(url: URL): Promise<string[]> {
 }
 
 /**
- * What a project's session list depends on, flattened for comparison.
+ * The most recently changed sessions a surface asked for, or null when it did not ask.
+ *
+ * Capped, because the list rides every catalog broadcast: a surface pages it by asking for more,
+ * and a number past the cap is a reader who wants the whole catalog, which is what the project
+ * lists are for.
+ */
+const MAX_RECENT_SESSIONS = 500;
+
+function requestedRecent(url: URL): number | null {
+  const raw = url.searchParams.get("recent");
+  if (raw === null) return null;
+  const count = Number(raw);
+  return Number.isInteger(count) && count > 0 ? Math.min(count, MAX_RECENT_SESSIONS) : null;
+}
+
+/**
+ * What a list of session rows depends on, flattened for comparison.
  *
  * The catalog broadcasts on any change to any source, so most ticks change nothing
  * this project's viewer would see. Comparing the inputs is what keeps a stream from
@@ -58,13 +76,12 @@ async function requestedProjects(url: URL): Promise<string[]> {
  */
 function sessionsFingerprint(
   sessions: Session[],
-  projectPath: string,
   resolveAgentSession?: AgentSessionDescriptorResolver,
 ): string {
   return JSON.stringify(
     sessions
-      .filter((session) => session.project === projectPath)
       .map((session) => [
+        session.project,
         session.source,
         session.sessionId,
         session.lastEventAt,
@@ -84,9 +101,11 @@ async function inventoryStream(
   resolveAgentSession?: AgentSessionDescriptorResolver,
 ): Promise<Response> {
   const projectPaths = await requestedProjects(url);
+  const recentCount = requestedRecent(url);
   return startServerSentEventStream(request, server, (write) => {
     let projectsFingerprint: string | null = null;
     const sessionFingerprints = new Map<string, string>();
+    let recentFingerprint: string | null = null;
 
     const pushProjects = (sessions: Session[]): void => {
       const projects = projectSummaries(sessions);
@@ -97,7 +116,10 @@ async function inventoryStream(
     };
 
     const pushSessions = (sessions: Session[], projectPath: string): void => {
-      const fingerprint = sessionsFingerprint(sessions, projectPath, resolveAgentSession);
+      const fingerprint = sessionsFingerprint(
+        sessions.filter((session) => session.project === projectPath),
+        resolveAgentSession,
+      );
       if (fingerprint === sessionFingerprints.get(projectPath)) return;
       sessionFingerprints.set(projectPath, fingerprint);
       write(encodeServerSentEvent({
@@ -109,9 +131,27 @@ async function inventoryStream(
       }));
     };
 
+    // Compared before it is summarized, so a broadcast that moved nothing in the cut costs a walk
+    // of its front and one string. A session that changes moves to the top of it here, because
+    // the snapshot it is cut from is already in `lastEventAt` order.
+    const pushRecent = (sessions: Session[], count: number): void => {
+      const cut = mostRecentSessions(sessions, count);
+      const fingerprint = `${cut.more}${sessionsFingerprint(cut.sessions, resolveAgentSession)}`;
+      if (fingerprint === recentFingerprint) return;
+      recentFingerprint = fingerprint;
+      write(encodeServerSentEvent({
+        recent: cut.sessions.map((session) => ({
+          ...summarizeSession(session, resolveAgentSession),
+          projectPath: session.project,
+        })),
+        more: cut.more,
+      }));
+    };
+
     const push = (sessions = getSnapshot()): void => {
       pushProjects(sessions);
       for (const projectPath of projectPaths) pushSessions(sessions, projectPath);
+      if (recentCount !== null) pushRecent(sessions, recentCount);
     };
 
     push();

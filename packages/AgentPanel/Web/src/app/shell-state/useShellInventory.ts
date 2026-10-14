@@ -27,11 +27,14 @@ export function useShellInventory({
   picker,
   /** Sessions this panel started that the catalog has not heard of yet, with the Bot that owns each. */
   startedSessions,
+  /** Whether the flat, most-recently-changed sessions list is on screen. See `useProjectInventory`. */
+  recentWanted,
 }: {
   feed: SidecarDataSource;
   machineOf: (botId: string) => BotMachine | undefined;
   picker: { botId: string; projectPath: string } | null;
   startedSessions: readonly { botId: string; projectPath: string }[];
+  recentWanted: boolean;
 }) {
   // Null unless the open picker's Bot is on a machine other than the one this shell is pointed at.
   const pickerPeer = useMemo(() => {
@@ -70,6 +73,7 @@ export function useShellInventory({
     feed,
     extraProjectPaths,
     rememberedSelection.current?.projectPath,
+    recentWanted,
   );
 
   /**

@@ -160,49 +160,16 @@ export function ProjectSessionPreview({
   return (
     <>
       <ul role="list" aria-label="Sessions" className="pb-1">
-        {visibleSessions.map((session) => {
-          const key = `${session.source}:${session.sessionId}`;
-          const active = key === selectedSessionKey;
-          const menu: RowMenuItem[] = [];
-          if (canvasMove && !canvasMove.held.has(key)) {
-            menu.push({ label: "Move to canvas", icon: LayoutDashboard, onSelect: () => canvasMove.onMove(session) });
-          }
-          if (archiving) menu.push({ label: "Archive session", icon: Archive, onSelect: () => archive.run(session, true) });
-          const failure = archive.failureFor(session);
-          return (
-            <li key={key} className={`flex flex-wrap items-center ${active ? "bg-muted" : ""}`}>
-              <button
-                type="button"
-                onClick={() => onSelect(session)}
-                aria-current={active ? "page" : undefined}
-                className={`flex min-h-11 min-w-0 flex-1 items-start gap-2 border-l-2 py-2 pr-3 pl-8 text-left hover:bg-muted/60 ${
-                  active ? "border-primary text-foreground" : "border-transparent"
-                }`}
-              >
-                <ActivityDot activity={session.activity} className="mt-1.5" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
-                    {session.title || session.sessionId}
-                  </span>
-                  <SessionMeta
-                    source={session.source}
-                    lastEventAt={session.lastEventAt}
-                    activity={session.activity}
-                  />
-                </span>
-              </button>
-              {archive.isPending(session) ? (
-                <LoaderCircle className="mr-2 size-3.5 shrink-0 text-muted-foreground motion-safe:animate-spin" role="img" aria-label="Archiving" />
-              ) : null}
-              {menu.length > 0 ? (
-                <span className="pr-1">
-                  <RowMenu label={session.title || session.sessionId} items={menu} />
-                </span>
-              ) : null}
-              {failure ? <ArchiveFailure message={failure} className="w-full px-8 pb-2" /> : null}
-            </li>
-          );
-        })}
+        {visibleSessions.map((session) => (
+          <SessionRow
+            key={`${session.source}:${session.sessionId}`}
+            session={session}
+            selectedSessionKey={selectedSessionKey}
+            onSelect={() => onSelect(session)}
+            canvasMove={canvasMove}
+            archive={archiving ? archive : undefined}
+          />
+        ))}
       </ul>
       {remaining > 0 ? (
         <button
@@ -214,6 +181,73 @@ export function ProjectSessionPreview({
         </button>
       ) : null}
     </>
+  );
+}
+
+/**
+ * One session's row, in a project's list or in the flat one.
+ *
+ * Shared so the two lists cannot drift: the same dot, meta, selection mark and row menu, whichever
+ * way the reader chose to see their sessions. `project` names the session's project on a row that
+ * is not already under it, which is every row of the flat list.
+ */
+export function SessionRow({
+  session,
+  selectedSessionKey,
+  onSelect,
+  canvasMove,
+  archive,
+  project,
+}: {
+  session: SessionSummary;
+  selectedSessionKey: string | null;
+  onSelect: () => void;
+  canvasMove?: SessionCanvasMove | undefined;
+  /** Archive, when the list offers it. One command per list, so its pending and failed rows are. */
+  archive?: ReturnType<typeof useSessionArchiveCommand> | undefined;
+  project?: string;
+}) {
+  const key = `${session.source}:${session.sessionId}`;
+  const active = key === selectedSessionKey;
+  const menu: RowMenuItem[] = [];
+  if (canvasMove && !canvasMove.held.has(key)) {
+    menu.push({ label: "Move to canvas", icon: LayoutDashboard, onSelect: () => canvasMove.onMove(session) });
+  }
+  if (archive) menu.push({ label: "Archive session", icon: Archive, onSelect: () => archive.run(session, true) });
+  const failure = archive?.failureFor(session) ?? null;
+  return (
+    <li className={`flex flex-wrap items-center ${active ? "bg-muted" : ""}`}>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={active ? "page" : undefined}
+        className={`flex min-h-11 min-w-0 flex-1 items-start gap-2 border-l-2 py-2 pr-3 text-left hover:bg-muted/60 ${
+          project === undefined ? "pl-8" : "pl-3"
+        } ${active ? "border-primary text-foreground" : "border-transparent"}`}
+      >
+        <ActivityDot activity={session.activity} className="mt-1.5" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
+            {session.title || session.sessionId}
+          </span>
+          <SessionMeta
+            source={session.source}
+            lastEventAt={session.lastEventAt}
+            activity={session.activity}
+            {...(project === undefined ? {} : { project })}
+          />
+        </span>
+      </button>
+      {archive?.isPending(session) ? (
+        <LoaderCircle className="mr-2 size-3.5 shrink-0 text-muted-foreground motion-safe:animate-spin" role="img" aria-label="Archiving" />
+      ) : null}
+      {menu.length > 0 ? (
+        <span className="pr-1">
+          <RowMenu label={session.title || session.sessionId} items={menu} />
+        </span>
+      ) : null}
+      {failure ? <ArchiveFailure message={failure} className={`w-full pb-2 ${project === undefined ? "px-8" : "px-3"}`} /> : null}
+    </li>
   );
 }
 

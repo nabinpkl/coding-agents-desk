@@ -27,6 +27,12 @@ export interface SidebarPreferences {
   botFaces: boolean;
   /** Which of the Canvas tab's views is selected, kept for the reason `mode` is. */
   canvasView: CanvasSidebarView;
+  /**
+   * Whether the Canvas tab's Sessions view groups sessions under their projects, or lists every
+   * session flat with the most recently changed first. Grouped until chosen otherwise, because
+   * that is the list every reader already knows.
+   */
+  canvasSessionsGrouped: boolean;
 }
 
 const SIDEBAR_MODES: readonly AgentSidebarMode[] = ["sessions", "bots", "canvas", "messages"];
@@ -37,6 +43,7 @@ export const DEFAULT_SIDEBAR_PREFERENCES: SidebarPreferences = {
   mode: "sessions",
   botFaces: false,
   canvasView: "bots",
+  canvasSessionsGrouped: true,
 };
 
 const STORAGE_KEY = "agent-panel.sidebar.preferences";
@@ -68,6 +75,9 @@ export function loadSidebarPreferences(): SidebarPreferences {
         ? parsed.botFaces
         : DEFAULT_SIDEBAR_PREFERENCES.botFaces,
       canvasView: parsed.canvasView === "sessions" ? "sessions" : "bots",
+      canvasSessionsGrouped: typeof parsed.canvasSessionsGrouped === "boolean"
+        ? parsed.canvasSessionsGrouped
+        : DEFAULT_SIDEBAR_PREFERENCES.canvasSessionsGrouped,
     };
   } catch {
     return DEFAULT_SIDEBAR_PREFERENCES;
@@ -82,6 +92,7 @@ export function storeSidebarPreferences(preferences: SidebarPreferences): void {
       mode: preferences.mode,
       botFaces: preferences.botFaces === true,
       canvasView: preferences.canvasView,
+      canvasSessionsGrouped: preferences.canvasSessionsGrouped,
     }));
   } catch {
     // The panel remains usable with in-memory state when WebKit storage is disabled.

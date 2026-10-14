@@ -250,6 +250,8 @@ export type {
   AgentUiRequestKind,
   EventsPage,
   ProjectsPayload,
+  RecentSession,
+  RecentSessionsPayload,
   SessionsPayload,
   SidecarConfig,
   SupervisorCommand,
