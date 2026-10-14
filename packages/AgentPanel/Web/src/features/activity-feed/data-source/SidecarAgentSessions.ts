@@ -14,6 +14,8 @@ import type {
   AgentSessionDescriptor,
   SourceId,
   StartedSession,
+  StartedSourceSession,
+  StartSessionCommand,
 } from "@agentdesk/agent-feed-wire";
 import { parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarTerminals } from "@/features/activity-feed/data-source/layers/SidecarTerminals";
@@ -49,6 +51,20 @@ export class SidecarAgentSessions extends SidecarTerminals {
     return parse<AgentSessionDescriptor>(
       await this.transport.request("POST", "/api/agent-sessions", {
         body: { requestId: crypto.randomUUID(), source, projectPath },
+      }),
+    );
+  }
+
+  /**
+   * Starts a session on no Bot, in either harness, already running in its own tmux pane.
+   *
+   * Answers with the pane as well as the id, because a fresh Claude session has no transcript
+   * until its first turn and the pane is all a surface can show of it until then.
+   */
+  async startSession(command: StartSessionCommand): Promise<StartedSourceSession> {
+    return parse<StartedSourceSession>(
+      await this.transport.request("POST", "/api/agent-sessions/start", {
+        body: { requestId: crypto.randomUUID(), ...command },
       }),
     );
   }

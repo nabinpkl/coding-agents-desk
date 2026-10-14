@@ -25,7 +25,10 @@ export function useShellInventory({
   machineOf,
   /** The Bot whose session picker is open, if one is. Its directory is what a peer read is FOR. */
   picker,
-  /** Sessions this panel started that the catalog has not heard of yet, with the Bot that owns each. */
+  /**
+   * Sessions this panel started that the catalog has not heard of yet, with the Bot that owns each.
+   * One with no Bot was started from the Sessions view, on the machine this shell reads.
+   */
   startedSessions,
   /** Whether the flat, most-recently-changed sessions list is on screen. See `useProjectInventory`. */
   recentWanted,
@@ -33,7 +36,7 @@ export function useShellInventory({
   feed: SidecarDataSource;
   machineOf: (botId: string) => BotMachine | undefined;
   picker: { botId: string; projectPath: string } | null;
-  startedSessions: readonly { botId: string; projectPath: string }[];
+  startedSessions: readonly { botId?: string; projectPath: string }[];
   recentWanted: boolean;
 }) {
   // Null unless the open picker's Bot is on a machine other than the one this shell is pointed at.
@@ -60,7 +63,7 @@ export function useShellInventory({
     // rendering the placeholder card, not so it can be attached -- the Bot did that when it started
     // it. A session started on a peer is watched by that peer's own Bot stream instead.
     for (const started of startedSessions) {
-      const machine = machineOf(started.botId);
+      const machine = started.botId === undefined ? undefined : machineOf(started.botId);
       if (!machine || machine.feed === feed) paths.push(started.projectPath);
     }
     return paths;

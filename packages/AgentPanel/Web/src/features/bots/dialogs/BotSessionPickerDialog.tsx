@@ -7,7 +7,7 @@ import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 /** The harness a new session runs in. Codex and Pi are not offered: neither is started from here. */
 export type NewSessionHarness = "claude" | "opencode";
 
-const HARNESSES: readonly { value: NewSessionHarness; label: string }[] = [
+export const HARNESSES: readonly { value: NewSessionHarness; label: string }[] = [
   { value: "claude", label: "Claude Code" },
   { value: "opencode", label: "opencode" },
 ];

@@ -146,6 +146,8 @@ export type {
   ProjectSummary,
   SessionSummary,
   StartedSession,
+  StartedSourceSession,
+  StartSessionCommand,
 } from "./session.ts";
 
 export type {

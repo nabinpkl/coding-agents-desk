@@ -137,6 +137,29 @@ export interface ForkSessionCommand {
 }
 
 /**
+ * Starting a session that belongs to nobody, in a directory the reader picked.
+ *
+ * The third way a session comes into existence, beside a Bot's launch and a fork, and the only one
+ * that is not asked of something already there. Either harness, and either way it runs in a tmux
+ * pane from its first moment: Claude because a Claude session IS a pane, opencode because its TUI
+ * is started beside the serve's session rather than on the first terminal that joins it.
+ */
+export interface StartSessionCommand {
+  source: "claude" | "opencode";
+  /** Where it runs. A directory this machine has, under its home, or one the catalog knows. */
+  projectPath: string;
+  /** Its name, required for the reason a fork's is: for Claude it is `-n`, the session's address. */
+  title: string;
+  /** Its first turn. Absent starts it idle, for a reader who will type into its pane. */
+  prompt?: string;
+}
+
+/** What `StartSessionCommand` started: the session, and which harness it is running in. */
+export interface StartedSourceSession extends StartedSession {
+  source: StartSessionCommand["source"];
+}
+
+/**
  * The newest message a person wrote in a session, addressed the way a transcript row is.
  *
  * Answered by the sidecar rather than counted in the panel, for the reason `messageAnchor.ts`

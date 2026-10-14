@@ -21,7 +21,10 @@ import type { NewSessionHarness } from "@/features/bots/dialogs/BotSessionPicker
 import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import { HandoverDialog, type HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
+import { NewSessionDialog } from "@/features/bots/dialogs/NewSessionDialog";
 import { SessionModal } from "@/features/session-view/SessionModal";
+import { StartedSessionModal } from "@/features/session-view/StartedSessionModal";
+import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 
 export function AppDialogs({
@@ -51,6 +54,7 @@ export function AppDialogs({
   startFork,
   startHandover,
   startNewSession,
+  newSession,
   sessionModal,
 }: {
   attachBotSessions: (bot: BotView, sessionRefs: BotSessionRef[]) => Promise<void>;
@@ -87,6 +91,13 @@ export function AppDialogs({
   startHandover: (request: HandoverRequest, message: string) => Promise<void>;
   startNewSession: (bot: BotView, title: string, harness: NewSessionHarness) => Promise<void>;
   /**
+   * A session on no Bot, from the Sessions view: its dialog, and the session it started until the
+   * catalog lists it, when `onListed` opens it in the session modal instead.
+   */
+  newSession: ReturnType<typeof useNewSessionCommands> & {
+    onListed: (project: ProjectSummary, session: SessionSummary) => void;
+  };
+  /**
    * The session opened in the modal, or null; mounted only while it is open. From the Canvas tab's
    * Sessions view, or maximized from a Bot's card, which names its Bot.
    */
@@ -119,6 +130,13 @@ export function AppDialogs({
     if (holders.length !== 1) return undefined;
     return holders[0]!.sessionAnchors![keyOf(renamingSession)]!;
   }, [bots, renamingSession]);
+  // The machine the Sessions view reads, which is the shell's: a new session starts where it will
+  // be listed.
+  const shellFeed = sessionModal.context.feed;
+  const shellMachine = useMemo(
+    () => machines.find((machine) => machine.feed === shellFeed) ?? { label: "This machine", feed: shellFeed },
+    [machines, shellFeed],
+  );
   // The picker's preview, same rule as the fork's.
   const pickerAnchor = botSessionPicker?.nextAnchor ?? "";
   return (
@@ -168,6 +186,28 @@ export function AppDialogs({
           onAttach={attachBotSessions}
           onStartNew={startNewSession}
         />
+        <NewSessionDialog
+          open={newSession.dialogOpen}
+          machine={shellMachine}
+          projects={projects}
+          loading={inventoryLoading}
+          onClose={newSession.closeDialog}
+          onStart={newSession.start}
+        />
+      {newSession.started ? (
+        <StartedSessionModal
+          key={keyOf(newSession.started)}
+          feed={shellFeed}
+          started={newSession.started}
+          projects={projects}
+          sessionsByProject={sessionsByProject}
+          onListed={(project, session) => {
+            newSession.clearStarted();
+            newSession.onListed(project, session);
+          }}
+          onClose={newSession.clearStarted}
+        />
+      ) : null}
       {sessionModal.thread ? (
         <SessionModal
           key={keyOf(sessionModal.thread.session)}

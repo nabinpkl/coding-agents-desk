@@ -126,17 +126,31 @@ async function createSession(request: Request, resolveBackend: (id: string) => A
     if (!requestId || !source || !requestedProject) return errorResponse("invalid-request", "requestId, source and projectPath are required", 400);
     const backend = resolveBackend(source);
     if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404, requestId);
-    const projectPath = await canonicalProjectPath(requestedProject);
-    // The catalog, or any directory under home: the same answer a Bot gets when it binds one, so
-    // a Bot whose directory has no sessions yet can still have its first one be an opencode one.
-    const inCatalog = (path: string) => getSnapshot().some((session) => session.project === path);
-    if (!projectPath || projectPath !== requestedProject || !bindableDirectory(projectPath, inCatalog)) {
-      return errorResponse("project-not-found", "projectPath is not a directory this machine can start a session in", 404, requestId);
-    }
+    const projectPath = await startableProjectPath(requestedProject);
+    if (!projectPath) return projectNotFound(requestId);
     return jsonResponse(await backend.createSession(requestId, projectPath), 201);
   } catch (error) {
     return routeError(error);
   }
+}
+
+/**
+ * The directory a new session may start in, or null.
+ *
+ * The catalog, or any directory under home: the same answer a Bot gets when it binds one, so a
+ * directory with no sessions yet can still have its first. The path must already be canonical,
+ * because a session reports the directory it is really in and a row under a symlink would never
+ * be found again. Shared with the start route beside this, which asks the same question.
+ */
+export async function startableProjectPath(requested: string): Promise<string | null> {
+  const projectPath = await canonicalProjectPath(requested);
+  const inCatalog = (path: string) => getSnapshot().some((session) => session.project === path);
+  if (!projectPath || projectPath !== requested || !bindableDirectory(projectPath, inCatalog)) return null;
+  return projectPath;
+}
+
+export function projectNotFound(requestId: string): Response {
+  return errorResponse("project-not-found", "projectPath is not a directory this machine can start a session in", 404, requestId);
 }
 
 async function sendMessage(

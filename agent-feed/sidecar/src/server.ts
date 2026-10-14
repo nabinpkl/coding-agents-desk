@@ -15,6 +15,7 @@ import {
   jsonResponse,
 } from "@/http/protocol/httpResponses";
 import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
+import { createStartSessionRoutes } from "@/http/agent-routes/startSessionRoutes";
 import { createHandoverRoutes, LIVE_HANDOVER_ACTIONS } from "@/http/agent-routes/handoverRoutes";
 import { createOpencodeRoutes } from "@/http/agent-routes/opencodeRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
@@ -269,6 +270,7 @@ const routes: RouteHandler[] = [
       },
     },
   }),
+  createStartSessionRoutes(resolveBackend),
   createAgentRoutes(resolveBackend),
   // Ahead of the session routes so `/timeline` is matched before their
   // catch-all rejection of unknown `/api/sessions/` paths.

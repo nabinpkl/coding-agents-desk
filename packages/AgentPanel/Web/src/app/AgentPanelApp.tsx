@@ -29,6 +29,7 @@ import {
 import { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
 import { sidebarEmptyText, EmptyThread } from "@/app/shell-state/sidebar/sidebarEmptyText";
 import { useShellInventory } from "@/app/shell-state/useShellInventory";
+import { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
 import { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import { useBotCommands } from "@/app/shell-state/useBotCommands";
 import { useThreadSelection } from "@/app/shell-state/useThreadSelection";
@@ -112,6 +113,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     { putBotOnCanvas: roster.putBotOnCanvas, setCanvasOpenKeys: roster.setCanvasOpenKeys },
     chrome.setHoverPreviewOpen,
   );
+  const newSession = useNewSessionCommands(feed);
   // A Bot command's failure, or a canvas change's that did not land. One band, the command's first.
   const botError = commands.botCommandError ?? roster.canvasError;
   // The home's wiring, shared by its two stands. Out of the way entirely where the site-wide
@@ -153,29 +155,16 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
    */
   const botHues = useMemo(() => botCanvasHues(botsState.bots), [botsState.bots]);
   const botRanks = useMemo(() => botCanvasRanks(botsState.bots), [botsState.bots]);
-  // Read once, at mount. Storage is written on every selection, so re-reading it later would
-  // race the write this component just made.
-  /**
-   * The directories the inventory must watch beyond the ones the reader expanded.
-   *
-   * A Bot session picker needs its Bot's project on the stream to list anything at all.
-   */
-  /**
-   * The machine the open session picker's Bot is on, or null when it is this one.
-   *
-   * The picker asks a DIRECTORY which sessions are in it, and a directory is a question only its
-   * own machine can answer. Before this it was always asked here, so a peer Bot's picker sat on
-   * "Loading sessions from this directory" for good: the Mac's inventory stream accepted the path,
-   * found no project, and simply never sent a sessions message for it. Measured, not reasoned --
-   * it is what the first oracle Bot's picker did.
-   */
+  // Sessions started here that the catalog has not listed yet: a Bot's, and one on no Bot.
+  const startedSessions = useMemo(() => [...commands.newSessions, ...newSession.watched], [commands.newSessions, newSession.watched]);
+  // Which directories are watched, and which machine answers for each: see `useShellInventory`.
   const { inventory, dialogSessionsByProject, rememberedSelection } = useShellInventory({
     feed,
     machineOf: botsState.machineOf,
     picker: botSessionPicker
       ? { botId: botSessionPicker.botId, projectPath: botSessionPicker.environment.path }
       : null,
-    startedSessions: commands.newSessions, recentWanted: chrome.recentSessionsShowing,
+    startedSessions, recentWanted: chrome.recentSessionsShowing,
   });
   const thread = useThreadSelection({
     projects: inventory.projects,
@@ -268,6 +257,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     inventory,
     machines: shellMachines,
     messages,
+    newSession,
     park,
     roster,
     thread,
@@ -311,6 +301,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
           startFork={commands.startFork}
           startHandover={commands.startHandover}
           startNewSession={commands.startNewSession}
+          newSession={{ ...newSession, onListed: thread.openSessionInModal }}
           sessionModal={{ thread: thread.modalThread, context: sessionViewContext, onClose: thread.closeSessionModal,
             contextFor: (botId) => shellMachines.contextFor(sessionViewContext, botId),
             canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveSessionToCanvas } }}

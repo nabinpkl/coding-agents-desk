@@ -18,6 +18,7 @@ import type { ShellMachines } from "@/app/shell-state/useBotMachines";
 import { botsOnShownMachines, machineIsHidden } from "@/features/bots/botMachines";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
+import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
 
 export function sidebarProps({
   botsState,
@@ -29,6 +30,7 @@ export function sidebarProps({
   inventory,
   machines,
   messages,
+  newSession,
   park,
   roster,
   thread,
@@ -43,6 +45,7 @@ export function sidebarProps({
   inventory: ReturnType<typeof useShellInventory>["inventory"];
   machines: ShellMachines;
   messages: ReturnType<typeof useMessages>;
+  newSession: ReturnType<typeof useNewSessionCommands>;
   park: ReturnType<typeof useDesktopPark>;
   roster: ReturnType<typeof useCanvasRoster>;
   thread: ReturnType<typeof useThreadSelection>;
@@ -142,6 +145,10 @@ export function sidebarProps({
       onGroupedChange: chrome.changeCanvasSessionsGrouped,
       recent: inventory.recent,
       onShowMore: inventory.showMoreRecent,
+      onNewSession: () => {
+        newSession.openDialog();
+        chrome.setHoverPreviewOpen(false);
+      },
     },
     onAddBot: () => {
       commands.setBotCreatorOpen(true);

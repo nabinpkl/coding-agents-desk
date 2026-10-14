@@ -7,7 +7,7 @@
 // session: a row subscribes to no thread, and picking one opens it in the modal, which is where
 // its transcript stream opens.
 
-import { FolderTree } from "lucide-react";
+import { FolderTree, Plus } from "lucide-react";
 import { useMemo } from "react";
 import type { ProjectSummary, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { useSessionArchiveCommand } from "@/features/sidebar/ArchivedSessions";
@@ -36,17 +36,30 @@ export interface CanvasSessions {
   recent: RecentSessionsPayload | null;
   /** Asks the stream for the next page of the flat list. */
   onShowMore: () => void;
+  /** Opens the dialog that starts a session on no Bot, in Claude Code or opencode. */
+  onNewSession: () => void;
 }
 
 export function CanvasSessionsList({ list, sessions }: { list: ProjectListProps; sessions: CanvasSessions }) {
   return (
     <>
-      <div className="flex justify-end border-b border-border/80 px-2 py-1">
+      <div className="flex justify-between gap-2 border-b border-border/80 px-2 py-1">
+        <button
+          type="button"
+          onClick={sessions.onNewSession}
+          aria-label="New session"
+          title="New session"
+          className="flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70"
+        >
+          <Plus className="size-4" aria-hidden />
+          {/* "New" beside the list it adds to, so both controls fit one row at the rail's width. */}
+          New
+        </button>
         <button
           type="button"
           aria-pressed={sessions.grouped}
           onClick={() => sessions.onGroupedChange(!sessions.grouped)}
-          className={`flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 ${
+          className={`flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 ${
             sessions.grouped ? "text-foreground" : "text-muted-foreground"
           }`}
         >

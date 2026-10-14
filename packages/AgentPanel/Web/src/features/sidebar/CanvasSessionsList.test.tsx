@@ -32,6 +32,7 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
     onGroupedChange: () => {},
     recent: null,
     onShowMore: () => {},
+    onNewSession: () => {},
     ...overrides,
   };
 }
@@ -51,6 +52,15 @@ describe("the Canvas tab's Sessions view", () => {
     expect(rows[1]).toHaveTextContent("agent-desk");
     // No grouping, so nothing to unfold.
     expect(screen.queryByRole("list", { name: "Projects" })).toBeNull();
+  });
+
+  it("offers a new session in either view", () => {
+    const onNewSession = vi.fn();
+    const { rerender } = render(<CanvasSessionsList list={list} sessions={sessions({ onNewSession })} />);
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    rerender(<CanvasSessionsList list={list} sessions={sessions({ onNewSession, grouped: true })} />);
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    expect(onNewSession).toHaveBeenCalledTimes(2);
   });
 
   it("opens a row with the project it belongs to", () => {
