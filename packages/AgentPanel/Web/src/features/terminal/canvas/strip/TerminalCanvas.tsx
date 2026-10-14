@@ -20,8 +20,7 @@ import {
   type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
 import { TERMINAL_ZOOM_STORAGE } from "@/features/terminal/canvas/terminalCanvasPreferences";
-import { loadStripScroll, useTerminalCanvasScroll } from "@/features/terminal/canvas/useTerminalCanvasScroll";
-import { useStripDiagnostics } from "@/features/scroll-diagnostics/scrollDiagnostics";
+import { useTerminalCanvasScroll } from "@/features/terminal/canvas/useTerminalCanvasScroll";
 
 export function TerminalCanvas({
   grouping,
@@ -141,7 +140,6 @@ export function TerminalCanvas({
     ready: !zoom.on || zoom.measured,
     pad: zoom.pad,
   });
-  useStripDiagnostics("terminal-canvas", scroller, loadStripScroll);
   const hiddenKeys = [...hiddenParents].sort();
 
   // Held in a const rather than written inline because the sizer below wraps it only while the

@@ -18,7 +18,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { keyboardInset, typesText } from "@/app/page/keyboardInset";
-import { noteScroll } from "@/features/scroll-diagnostics/scrollDiagnostics";
 
 const SCROLL_KEY = "agent-panel.terminal-canvas.scroll";
 const SCROLL_SETTLE_MS = 200;
@@ -29,7 +28,7 @@ interface StripScroll {
   top: number;
 }
 
-export function loadStripScroll(): StripScroll {
+function loadStripScroll(): StripScroll {
   if (typeof window === "undefined") return { left: 0, top: 0 };
   try {
     const raw = localStorage.getItem(SCROLL_KEY);
@@ -47,7 +46,6 @@ export function loadStripScroll(): StripScroll {
 }
 
 function storeStripScroll(scroll: StripScroll): void {
-  noteScroll("strip.store", { strip: "terminal-canvas", left: Math.round(scroll.left), top: Math.round(scroll.top) });
   try {
     if (scroll.left === 0 && scroll.top === 0) localStorage.removeItem(SCROLL_KEY);
     else {
@@ -125,10 +123,6 @@ export function useTerminalCanvasScroll(
     const asked = { left: left * zoom.scale + zoom.pad.left, top: top * zoom.scale + zoom.pad.top };
     el.scrollLeft = asked.left;
     el.scrollTop = asked.top;
-    noteScroll("strip.restore", {
-      strip: "terminal-canvas", asked: Math.round(asked.left), landed: Math.round(el.scrollLeft),
-      width: el.scrollWidth, client: el.clientWidth, scale: zoom.scale,
-    });
     // Landing short is the strip not reaching that far YET -- tiles mount and measure after the
     // listing -- so the offset is held and re-applied until it does. No hold when it landed:
     // the strip only grows, so an offset that fits keeps fitting.
@@ -140,13 +134,7 @@ export function useTerminalCanvasScroll(
       el.scrollTop = held.top;
       frame = requestAnimationFrame(again);
     });
-    noteScroll("strip.hold", { strip: "terminal-canvas", asked: Math.round(held.left) });
-    const release = (event?: Event): void => {
-      if (holding.current) {
-        noteScroll("strip.release", {
-          strip: "terminal-canvas", by: event?.type ?? "timeout", left: Math.round(el.scrollLeft), width: el.scrollWidth,
-        });
-      }
+    const release = (): void => {
       holding.current = false;
       cancelAnimationFrame(frame);
       clearTimeout(timeout);
@@ -157,7 +145,7 @@ export function useTerminalCanvasScroll(
     el.addEventListener("touchstart", release, { passive: true });
     el.addEventListener("pointerdown", release, { passive: true });
     return () => {
-      release({ type: "cleanup" } as Event);
+      release();
       el.removeEventListener("wheel", release);
       el.removeEventListener("touchstart", release);
       el.removeEventListener("pointerdown", release);

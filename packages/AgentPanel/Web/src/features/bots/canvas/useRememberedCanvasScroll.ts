@@ -7,7 +7,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { loadCanvasScroll, storeCanvasScroll, type CanvasScroll } from "@/features/bots/canvas/botCanvasPreferences";
-import { noteScroll } from "@/features/scroll-diagnostics/scrollDiagnostics";
 
 /**
  * The most often the canvas offset is written, and how long after the last scroll it is written
@@ -106,10 +105,6 @@ export function useRememberedCanvasScroll(
     };
     el.scrollLeft = asked.left;
     el.scrollTop = asked.top;
-    noteScroll("strip.restore", {
-      strip: "bot-canvas", asked: Math.round(asked.left), landed: Math.round(el.scrollLeft),
-      width: el.scrollWidth, client: el.clientWidth, scale: zoom.scale,
-    });
     // Landing short of what was asked for is the browser saying the strip does not reach that far
     // YET, so the offset is held and re-applied until it does. Landing exactly needs no hold: the
     // end only moves outwards while the cards fill in, so an offset that already fits keeps
@@ -122,13 +117,7 @@ export function useRememberedCanvasScroll(
     if (holding === null) return;
     const el = scroller.current;
     if (!el) return;
-    noteScroll("strip.hold", { strip: "bot-canvas", asked: Math.round(holding.left) });
-    const release = (event?: Event): void => {
-      noteScroll("strip.release", {
-        strip: "bot-canvas", by: event?.type ?? "timeout", left: Math.round(el.scrollLeft), width: el.scrollWidth,
-      });
-      setHolding(null);
-    };
+    const release = (): void => setHolding(null);
     let frame = requestAnimationFrame(function again() {
       // Writing the offset it already has is not a scroll, so re-asking after it has landed costs
       // nothing; what it buys is the case where the strip grows again before the hold is over.
@@ -171,22 +160,14 @@ export function useRememberedCanvasScroll(
     if (timer.current !== null) return;
     timer.current = setTimeout(() => {
       timer.current = null;
-      if (latest.current) {
-        noteScroll("strip.store", { strip: "bot-canvas", left: Math.round(latest.current.left), top: Math.round(latest.current.top) });
-        storeCanvasScroll(latest.current);
-      }
+      if (latest.current) storeCanvasScroll(latest.current);
     }, SCROLL_SETTLE_MS);
   }, [scroller, zoom.scale, zoom.pad.left, zoom.pad.top, holding]);
 
   // Leaving the canvas is the one scroll that never settles, because the component goes with it.
   useEffect(() => () => {
     if (timer.current !== null) clearTimeout(timer.current);
-    if (latest.current) {
-      noteScroll("strip.store", {
-        strip: "bot-canvas", left: Math.round(latest.current.left), top: Math.round(latest.current.top), on: "unmount",
-      });
-      storeCanvasScroll(latest.current);
-    }
+    if (latest.current) storeCanvasScroll(latest.current);
   }, []);
 
   return remember;

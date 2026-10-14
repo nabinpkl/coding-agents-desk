@@ -38,10 +38,6 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     // readable from another, and ~/Library is 0700.
     webrtcDiagLog: absoluteEnvironmentPath(environment, "AGENTDESK_WEBRTC_DIAG_LOG",
       join("/Users/Shared/agentdesk/logs", `${userInfo().username}-webrtc-diag.log`)),
-    // What the panel saw move its canvas strips, sent by the page (`scroll-diagnostics/`). Beside
-    // the sidecar's own log so the two read on one clock, per user for the reason above.
-    panelScrollLog: absoluteEnvironmentPath(environment, "AGENTDESK_PANEL_SCROLL_LOG",
-      join("/Users/Shared/agentdesk/logs", `${userInfo().username}-panel-scroll.log`)),
     // Every telemetry envelope the panel and this sidecar produced, as size-capped segment files
     // (`agent-feed/sidecar/src/telemetry/`). Beside the other logs for the same reasons.
     telemetryArchive: absoluteEnvironmentPath(environment, "AGENTDESK_TELEMETRY_ARCHIVE",
@@ -66,7 +62,6 @@ if (import.meta.main) {
     "panel-tls": paths.panelTlsDirectory,
     "sidecar-registry": paths.sidecarRegistry,
     "webrtc-diag-log": paths.webrtcDiagLog,
-    "panel-scroll-log": paths.panelScrollLog,
     "telemetry-archive": paths.telemetryArchive,
   };
   if (key === "host-app" && bundleId && extra.length === 0) {
@@ -74,6 +69,6 @@ if (import.meta.main) {
   } else if (Object.hasOwn(named, key) && bundleId === undefined) {
     process.stdout.write(`${named[key]}\n`);
   } else {
-    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|sidecar-registry|webrtc-diag-log|panel-scroll-log|telemetry-archive|host-app <bundle-id>");
+    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|sidecar-registry|webrtc-diag-log|telemetry-archive|host-app <bundle-id>");
   }
 }

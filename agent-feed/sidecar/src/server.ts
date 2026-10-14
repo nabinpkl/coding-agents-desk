@@ -6,7 +6,6 @@ import { config } from "@/config/config";
 import { refuseForeignRequest } from "@/http/protocol/requestGuard";
 import { announceDirectory, announceSidecar, readSupervisorDescriptor } from "@/sidecarRegistry";
 import { createSupervisorRoutes } from "@/http/supervisorRoutes";
-import { createPanelScrollRoutes } from "@/http/panelScrollRoutes";
 import { createTelemetryRoutes } from "@/telemetry/telemetryRoutes";
 import { sinkEnvelope } from "@/telemetry/telemetrySink";
 import {
@@ -244,7 +243,6 @@ const routes: RouteHandler[] = [
   // The one route about the process ABOVE this one: its state rides on `/api/config` and this is
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
   createSupervisorRoutes(),
-  createPanelScrollRoutes(),
   createTelemetryRoutes(sinkEnvelope),
   createArenaRoutes(arenaService),
   createArenaCodeRoutes(arenaService, repositoryGitWatch, {

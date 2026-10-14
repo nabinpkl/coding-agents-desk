@@ -6,7 +6,6 @@ export interface RuntimePaths {
   panelPublishMode: string;
   sidecarRegistry: string;
   webrtcDiagLog: string;
-  panelScrollLog: string;
   telemetryArchive: string;
 }
 

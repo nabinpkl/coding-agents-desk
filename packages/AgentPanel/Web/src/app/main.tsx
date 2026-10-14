@@ -16,7 +16,6 @@ import { installFixture } from "@/app/fake-sidecar/fixture";
 import { installKeyboardInset } from "@/app/page/keyboardInset";
 import { installPagehideLifecycle } from "@/app/page/pageLifecycle";
 import { installWindowDrag } from "@/app/page/windowDrag";
-import { installScrollDiagnostics } from "@/features/scroll-diagnostics/scrollDiagnostics";
 import { installPanelTelemetry } from "@/features/telemetry/panelTelemetry";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { BrowserSurfaces } from "@/app/BrowserSurfaces";
@@ -130,5 +129,4 @@ if (entry === "ide") {
   // Inert title-bar presses drag the native window. No-ops unless the Mac host installed its
   // window-chrome entry point, so the iOS client and a plain browser take no branch.
   installWindowDrag();
-  installScrollDiagnostics();
 }
