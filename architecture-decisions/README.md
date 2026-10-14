@@ -168,3 +168,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0135 | Arena runs are named, live in a folder in the arena home, and get a repository of their own | accepted | 2026-10-13 |
 | ADR-0136 | A Claude contestant's Write is confined by its Edit rule, with no Write rule of its own | accepted | 2026-10-13 |
 | ADR-0137 | A terminals arena run survives a sidecar restart | accepted | 2026-10-13 |
+| ADR-0138 | A Claude contestant runs with this machine's own setup, without `--safe-mode` | accepted | 2026-10-13 |

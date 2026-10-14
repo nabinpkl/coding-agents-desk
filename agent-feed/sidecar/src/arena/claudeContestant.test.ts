@@ -69,9 +69,9 @@ const basePlan = {
 };
 
 describe("claudeContestantArgv", () => {
-  test("print mode, safe mode, the chosen session, and the confinement, with no prompt in argv", () => {
+  test("print mode, the chosen session, and the confinement, with no prompt in argv", () => {
     expect(claudeContestantArgv({ binary: "/bin/claude", sessionId: SESSION, model: "haiku", effort: "low" })).toEqual([
-      "/bin/claude", "--print", "--safe-mode", "--session-id", SESSION,
+      "/bin/claude", "--print", "--session-id", SESSION,
       "--model", "haiku", "--effort", "low",
       "--permission-mode", "dontAsk", "--tools", "Read,Grep,Glob,Bash,Edit,Write",
       "--allowed-tools", "Read(./**)", "Edit(./**)", "Bash",

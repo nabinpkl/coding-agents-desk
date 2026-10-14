@@ -152,7 +152,7 @@ describe("runClaudeTerminalContestant", () => {
     await runClaudeTerminalContestant(planWith(log), { binary: "/bin/claude", newSessionId: () => SESSION, steps });
     const argv = command();
     expect(argv).not.toContain("--print");
-    expect(argv.slice(0, 6)).toEqual(["/bin/claude", "--safe-mode", "--session-id", SESSION, "-n", "arena c1 run-1"]);
+    expect(argv.slice(0, 5)).toEqual(["/bin/claude", "--session-id", SESSION, "-n", "arena c1 run-1"]);
     expect(argv).toContain("dontAsk");
     expect(argv.slice(argv.indexOf("--allowed-tools") + 1)).toEqual(["Read(./**)", "Edit(./**)", "Bash"]);
   });

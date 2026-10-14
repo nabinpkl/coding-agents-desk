@@ -6,15 +6,13 @@
 //
 //   - The prompt rides STDIN. The help says "stdin or as a prompt argument", but the
 //     positional argument is not accepted in print mode; stdin is the spelling that works.
-//   - `--safe-mode` is the context control. It drops the machine's hooks, CLAUDE.md discovery,
-//     skills and MCP servers while keeping auth and built-in tools, which is what keeps a
-//     contestant's context about the prompt rather than about this machine. (`--bare` looks
-//     like the same idea and is not: it drops keychain auth entirely and answers "Not logged
-//     in".) Without either, the machine's own hooks load and the request can arrive over the
-//     context limit before the model reads a word.
+//   - A contestant runs with this machine's own setup -- its hooks, CLAUDE.md, skills, plugins
+//     and MCP servers -- as a reader's own Claude session does. `--safe-mode`, which drops all of
+//     that, is not passed (ADR-0138). Neither is `--bare`, which also drops keychain auth and
+//     answers "Not logged in".
 //   - Nothing about print mode confines a contestant; the flags below do, and each one was
 //     measured by asking a contestant to read, write, edit and shell into a folder outside its
-//     worktree (2.1.296, 2026-10-12). `--safe-mode` keeps the machine's permission MODE, so a
+//     worktree (2.1.296, 2026-10-12). The machine's permission MODE applies unless named, so a
 //     contestant started on a machine set to `auto` ran in `auto`, and a bare tool name in
 //     `--allowed-tools` allows that tool on every path: with both, all four reached outside.
 //     `--permission-mode dontAsk` refuses whatever no rule allows, with nobody asked;
@@ -78,8 +76,8 @@ export function claudeContestantArgv(options: {
   interactive?: { name: string };
 }): string[] {
   const argv = options.interactive
-    ? [options.binary, "--safe-mode", "--session-id", options.sessionId, "-n", options.interactive.name]
-    : [options.binary, "--print", "--safe-mode", "--session-id", options.sessionId];
+    ? [options.binary, "--session-id", options.sessionId, "-n", options.interactive.name]
+    : [options.binary, "--print", "--session-id", options.sessionId];
   if (options.model) argv.push("--model", options.model);
   if (options.effort) argv.push("--effort", options.effort);
   argv.push("--permission-mode", "dontAsk", "--tools", CONTESTANT_TOOLS);
