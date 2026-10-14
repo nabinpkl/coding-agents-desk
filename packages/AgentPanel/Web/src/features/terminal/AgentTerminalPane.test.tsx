@@ -23,7 +23,7 @@ class FakeTerminal {
   }
 
   focuses = 0;
-  readonly buffer = { active: { type: "normal" as const } };
+  readonly buffer = { active: { type: "normal" as const, cursorY: 0, viewportY: 0, getLine: () => undefined } };
   textarea: HTMLTextAreaElement | undefined;
   open(element: HTMLElement) {
     this.element = element;
@@ -47,6 +47,8 @@ class FakeTerminal {
     this.dataListener = listener;
     return { dispose: () => { this.dataListener = null; } };
   }
+  // Nothing renders in jsdom; the pane's watch on the last drawn row only needs the hook.
+  onRender() { return { dispose: () => {} }; }
   onBinary(listener: (data: string) => void) {
     this.binaryListener = listener;
     return { dispose: () => { this.binaryListener = null; } };

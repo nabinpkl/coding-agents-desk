@@ -8,6 +8,7 @@ class FakeTerminal {
   readonly dimensions = { css: { cell: { width: 8, height: 16 } } };
   cols = 80;
   rows = 24;
+  readonly buffer = { active: { cursorY: 0, viewportY: 0, getLine: () => undefined } };
   // Just enough chrome for the fit to read and write: the real terminal carries far more.
   options: { fontSize: number | null } = { fontSize: 13 };
   element: HTMLElement | undefined;
@@ -28,6 +29,8 @@ class FakeTerminal {
   dispose() {}
   write(_data: unknown, done?: () => void) { done?.(); }
   onData() { return { dispose: () => {} }; }
+  // Nothing renders in jsdom; the pane's watch on the last drawn row only needs the hook.
+  onRender() { return { dispose: () => {} }; }
   onBinary() { return { dispose: () => {} }; }
 }
 

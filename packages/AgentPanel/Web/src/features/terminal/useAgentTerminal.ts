@@ -38,6 +38,7 @@ import type {
   TerminalSizing,
 } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
 import { createTerminalFit } from "@/features/terminal/mounted-terminal/agentTerminalFit";
+import { watchLastDrawnRow } from "@/features/terminal/mounted-terminal/terminalLastDrawnRow";
 import type { TerminalRuntime } from "@/features/terminal/mounted-terminal/agentTerminalRuntime";
 import type { TileTerminalMeasure } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
 import { createTerminalReceive } from "@/features/terminal/mounted-terminal/agentTerminalStream";
@@ -114,6 +115,7 @@ export function useAgentTerminal(
   const [contentHeight, setContentHeight] = useState<number | null>(null);
   /** The size actually in force, so the chrome can label what a zoom is moving. */
   const [fontSize, setFontSize] = useState<number | null>(null);
+  const [lastRow, setLastRow] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
   const [modifiers, setModifiers] = useState<Record<RailModifier, ModifierState>>(RAIL_MODIFIERS_OFF);
   // The effect's `onData` reads the latch as it stands at the keystroke, not as it stood when the
@@ -171,6 +173,7 @@ export function useAgentTerminal(
       // version pairing was not the problem: `0.20.0-beta.291` is the peer match for the vendored
       // `6.1.0-beta.292` core, and it was the one installed.
       terminal.open(mount);
+      const unwatchLastRow = watchLastDrawnRow(terminal, setLastRow);
 
       // What the reader is scrolling back over is not always in this buffer: on the alternate
       // screen it belongs to the program, and the wheel is sent to it. See `attachTerminalWheel`.
@@ -436,6 +439,7 @@ export function useAgentTerminal(
         if (resizeTimer !== null) clearTimeout(resizeTimer);
         observer?.disconnect();
         unbindTouchFocus();
+        unwatchLastRow();
         textarea?.removeEventListener("focus", noteFocus);
         textarea?.removeEventListener("blur", noteBlur);
         sendRef.current = null;
@@ -486,5 +490,6 @@ export function useAgentTerminal(
       setModifiers(releaseArmed);
     },
     measureCell: () => gridRef.current?.measureCell() ?? null,
+    lastDrawnRow: lastRow,
   };
 }

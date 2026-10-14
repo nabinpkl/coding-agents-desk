@@ -143,7 +143,7 @@ export function AgentTerminalPane(
    * stored per pane would come back on a card of a different width where it means something else.
    */
   const [zoom, setZoom] = useState<number | null>(null);
-  const { mountRef, labels, contentHeight, fontSize, focused, modifiers, toggleModifier, pressKey } =
+  const { mountRef, labels, contentHeight, fontSize, focused, modifiers, toggleModifier, pressKey, lastDrawnRow } =
     useAgentTerminal({
       feed,
       context,
@@ -231,24 +231,30 @@ export function AgentTerminalPane(
   }, [band, contentHeight]);
 
   /**
-   * Keeps the bottom of an echo's screen in view.
+   * Keeps the end of an echo's screen in view: its last DRAWN row, at the echo's bottom edge.
    *
    * An echo is shorter than the screen it shows, so the screen overflows and the mount scrolls --
    * and the mount centres what it holds (`m-auto`), which puts a too-tall screen's MIDDLE on
-   * screen. The line an echo exists to show is the last one, so it is scrolled to rather than
-   * hoped for.
+   * screen. The line an echo exists to show is the last one drawn, so it is scrolled to rather than
+   * hoped for. That is the screen's bottom row for a program that draws to the bottom, and well
+   * above it for Claude Code, whose box sits near the top of a tall pane over blank rows.
    *
-   * Re-run on the screen's height rather than on every write: a reflow is what moves the bottom,
-   * and a checkpoint that repaints the same grid leaves the scroll where it already is. `height`
-   * too, because a reader dragging the peek taller changes how much of the screen is off the
-   * bottom, and the answer should still be none of it.
+   * Re-run when that row moves rather than on every write, and on the screen's height: a reflow
+   * moves it, and a checkpoint that repaints the same frame leaves the scroll where it already is.
+   * `height` too, because a reader dragging the peek taller changes how much fits above it.
    */
   useEffect(() => {
     if (!echo) return;
     const mount = mountRef.current;
     if (!mount) return;
-    mount.scrollTop = mount.scrollHeight;
-  }, [echo, contentHeight, height, mountRef]);
+    const row = lastDrawnRow === null ? null : mount.querySelector(".xterm-rows")?.children[lastDrawnRow];
+    if (!row) {
+      mount.scrollTop = mount.scrollHeight;
+      return;
+    }
+    const bottom = row.getBoundingClientRect().bottom - mount.getBoundingClientRect().top + mount.scrollTop;
+    mount.scrollTop = bottom - mount.clientHeight;
+  }, [echo, contentHeight, height, lastDrawnRow, mountRef]);
 
   /**
    * The one place a reader-chosen height is set, which is why the report goes out from here.

@@ -95,6 +95,28 @@ const composersOnScreen = async (page, problems, when) => {
     if (!field || field.y + field.height > innerHeight) problems.push(`c${index + 1}'s composer is below the window ${when} (bottom ${field ? Math.round(field.y + field.height) : 'none'} of ${innerHeight})`);
   }
 };
+// What each lane's pane shows is the contestant's own harness, not a shell of its own in the
+// worktree, which looks alike in a screenshot: the harness's footer is on its screen, and a shell's
+// is not. Read from the rows actually in view, because the pane is a peek at a taller screen, and
+// the footer being somewhere in it says nothing about whether a reader can see it -- Claude draws
+// near the top of its pane, and a peek at the bottom showed only the blank rows under its box.
+const HARNESS_FOOTER = { opencode: /ctrl\+p commands/, claude: /don't ask on/ };
+const harnessInView = async (page, problems, when) => {
+  for (const [index, source] of LINEUP.entries()) {
+    const shown = await page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` }).locator('.xterm').first()
+      .evaluate((node) => {
+        const port = node.parentElement.getBoundingClientRect();
+        return [...(node.querySelector('.xterm-rows')?.children ?? [])]
+          .filter((row) => {
+            const box = row.getBoundingClientRect();
+            return box.top >= port.top - 1 && box.bottom <= port.bottom + 1;
+          })
+          .map((row) => row.textContent)
+          .join('\n');
+      });
+    if (!HARNESS_FOOTER[source].test(shown)) problems.push(`c${index + 1}'s pane does not show ${LABEL[source]}'s footer ${when}: ${JSON.stringify(shown.replace(/\s+/g, ' ').slice(-120))}`);
+  }
+};
 const paneText = (pane) => {
   try {
     return execFileSync(TMUX, ['capture-pane', '-p', '-t', pane], { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
@@ -190,6 +212,7 @@ try {
   await oneTerminalPerLane(page, problems, 'while waiting for the prompt');
   await sessionViewPerLane(page, problems, 'while waiting for the prompt');
   await composersOnScreen(page, problems, 'while waiting for the prompt');
+  await harnessInView(page, problems, 'while waiting for the prompt');
   await page.reload();
   await page.getByRole('tablist', { name: 'Compare by' }).waitFor({ timeout: 20_000 })
     .catch(() => problems.push('a reload did not come back to the run'));
@@ -215,14 +238,7 @@ try {
   await page.waitForTimeout(2000);
   await oneTerminalPerLane(page, problems, 'once the turns closed');
   await sessionViewPerLane(page, problems, 'once the turns closed');
-  // And that terminal is the contestant's own pane, not a shell of its own in the worktree, which
-  // looks alike in a screenshot: the harness's own footer is on its screen, and a shell's is not.
-  const HARNESS_FOOTER = { opencode: /ctrl\+p commands/, claude: /don't ask on/ };
-  for (const [index, source] of LINEUP.entries()) {
-    const shown = await page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` }).locator('.xterm').first()
-      .evaluate((node) => (node.querySelector('.xterm-rows') ?? node.querySelector('.xterm-accessibility-tree'))?.textContent ?? '');
-    if (!HARNESS_FOOTER[source].test(shown)) problems.push(`c${index + 1}'s lane terminal is not showing ${LABEL[source]}: ${shown.replace(/\s+/g, ' ').slice(-120)}`);
-  }
+  await harnessInView(page, problems, 'once the turns closed');
   // Only the contestants' own panes are new: a lane's terminal joins its pane, never starts one.
   const madeByRun = tmuxSessions().filter((name) => !sessionsBefore.has(name));
   if (madeByRun.length !== LINEUP.length) problems.push(`the run left ${madeByRun.length} new tmux sessions, not ${LINEUP.length}: ${madeByRun.join(', ')}`);

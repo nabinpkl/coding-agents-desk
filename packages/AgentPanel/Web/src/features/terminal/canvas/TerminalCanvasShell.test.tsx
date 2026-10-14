@@ -8,7 +8,7 @@ let terminal: FakeTerminal;
 class FakeTerminal {
   readonly dimensions = { css: { cell: { width: 8, height: 16 } } };
   readonly options: Record<string, unknown>;
-  readonly buffer = { active: { type: "normal" as "normal" | "alternate" } };
+  readonly buffer = { active: { type: "normal" as "normal" | "alternate", cursorY: 0, viewportY: 0, getLine: () => undefined } };
   element: HTMLElement | undefined;
   textarea: HTMLTextAreaElement | undefined;
   wheel: ((event: WheelEvent) => boolean) | null = null;
@@ -30,6 +30,8 @@ class FakeTerminal {
   dispose() {}
   write(_bytes: Uint8Array, done: () => void) { done(); }
   onData() { return { dispose: () => {} }; }
+  // Nothing renders in jsdom; the pane's watch on the last drawn row only needs the hook.
+  onRender() { return { dispose: () => {} }; }
   onBinary() { return { dispose: () => {} }; }
 }
 

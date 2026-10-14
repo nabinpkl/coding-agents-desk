@@ -30,6 +30,12 @@ export interface AgentTerminal {
   focused: boolean;
   /** The cell on screen now, or null before the first measure. */
   measureCell: () => { width: number; height: number } | null;
+  /**
+   * The screen's last row with anything on it, from the top of what is shown, or null before it
+   * is open. What a peek scrolls to, since a program that draws near the top leaves its bottom
+   * blank.
+   */
+  lastDrawnRow: number | null;
   modifiers: Record<RailModifier, ModifierState>;
   toggleModifier: (modifier: RailModifier) => void;
   pressKey: (key: RailKey) => void;
