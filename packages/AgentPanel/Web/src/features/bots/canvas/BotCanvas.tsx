@@ -4,6 +4,8 @@ import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { CanvasPlaceholder } from "@/features/bots/cards/canvasNotices";
 import { type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { BotCanvasList } from "@/features/bots/cards/BotCanvasList";
+import type { ComponentProps } from "react";
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 
 // Re-exported because this is the canvas's entry point: the app imports the surface and the shape
 // of a failure from one name, and the parts moving out did not move that.
@@ -32,8 +34,15 @@ export type { BotCommandError };
  * hides it. As many can be open at once as the reader opens; see `cards/BotCanvasList` for the budget
  * that rule was measured against, and note that anything a card portals out of itself needs a node
  * of its own rather than the app's, or the open sessions land on top of each other.
+ *
+ * Behind its own boundary, so a canvas that throws leaves the sidebar and the tab bar standing; each
+ * Bot and each session card inside has one too (`cards/BotCanvasList`, `cards/BotCanvasCard`).
  */
-export function BotCanvas({
+export function BotCanvas(props: ComponentProps<typeof CanvasContent>) {
+  return <PanelErrorBoundary surface="Bot canvas"><CanvasContent {...props} /></PanelErrorBoundary>;
+}
+
+function CanvasContent({
   bots,
   hues,
   ranks,

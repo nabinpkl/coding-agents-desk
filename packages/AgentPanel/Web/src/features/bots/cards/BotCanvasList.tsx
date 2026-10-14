@@ -17,6 +17,7 @@ import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedC
 import { useStripDiagnostics } from "@/features/scroll-diagnostics/scrollDiagnostics";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 
 /**
  * The roster, with as many sessions open in it as the reader has opened.
@@ -195,46 +196,49 @@ export function BotCanvasList({
       className="flex w-max items-start gap-3 p-3"
     >
       {standing.map((bot, index) => (
-        <BotCanvasCard
-          key={bot.botId}
-          offset={move.offsetOf(index)}
-          lifted={move.liftedIndex === index}
-          onMoveStart={(clientX) => move.start(index, clientX)}
-          onMoveBy={move.to}
-          onMoveEnd={move.end}
-          onMoveBySteps={(steps) => rearrange(index, index + steps)}
-          canMoveLeft={index > 0}
-          canMoveRight={index < standing.length - 1}
-          bot={bot}
-          hue={hues.get(bot.botId)}
-          rank={ranks.get(bot.botId)}
-          sessionContext={sessionContextFor(bot.botId)}
-          {...(labelOf(bot.botId) ? { machineLabel: labelOf(bot.botId)! } : {})}
-          botError={botError}
-          detachedSessionKeys={detachedSessionKeys}
-          openKeys={openKeys}
-          onToggleSession={onToggleSession}
-          sessionSizes={sessionSizes}
-          onResizeSession={resizeSession}
-          onAddSession={onAddSession}
-          onForkSession={onForkSession}
-          attachSessionToBot={attachSessionToBot}
-          onForkFromLastMessage={onForkFromLastMessage}
-          onForkFromLastCompaction={onForkFromLastCompaction}
-          onHandoverSession={onHandoverSession}
-          onRenameSession={onRenameSession}
-          onDetachSession={onDetachSession}
-          onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
-          onMaximizeSession={onMaximizeSession}
-          onDetachBot={onDetachBot}
-          onSetFatherSession={onSetFatherSession}
-          onRenameBot={onRenameBot}
-          onDeleteBot={onDeleteBot}
-          onReorderSessions={onReorderSessions}
-          scroller={canvas}
-          newSessions={newSessions.filter((each) => each.botId === bot.botId)}
-          onCloseNewSession={onCloseNewSession}
-        />
+        // One Bot that throws is one Bot gone, not the canvas: the boundary stands in its place in
+        // the strip, as the `<li>` the card would have been.
+        <PanelErrorBoundary key={bot.botId} surface={`Bot "${bot.name}"`} compact listItem>
+          <BotCanvasCard
+            offset={move.offsetOf(index)}
+            lifted={move.liftedIndex === index}
+            onMoveStart={(clientX) => move.start(index, clientX)}
+            onMoveBy={move.to}
+            onMoveEnd={move.end}
+            onMoveBySteps={(steps) => rearrange(index, index + steps)}
+            canMoveLeft={index > 0}
+            canMoveRight={index < standing.length - 1}
+            bot={bot}
+            hue={hues.get(bot.botId)}
+            rank={ranks.get(bot.botId)}
+            sessionContext={sessionContextFor(bot.botId)}
+            {...(labelOf(bot.botId) ? { machineLabel: labelOf(bot.botId)! } : {})}
+            botError={botError}
+            detachedSessionKeys={detachedSessionKeys}
+            openKeys={openKeys}
+            onToggleSession={onToggleSession}
+            sessionSizes={sessionSizes}
+            onResizeSession={resizeSession}
+            onAddSession={onAddSession}
+            onForkSession={onForkSession}
+            attachSessionToBot={attachSessionToBot}
+            onForkFromLastMessage={onForkFromLastMessage}
+            onForkFromLastCompaction={onForkFromLastCompaction}
+            onHandoverSession={onHandoverSession}
+            onRenameSession={onRenameSession}
+            onDetachSession={onDetachSession}
+            onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
+            onMaximizeSession={onMaximizeSession}
+            onDetachBot={onDetachBot}
+            onSetFatherSession={onSetFatherSession}
+            onRenameBot={onRenameBot}
+            onDeleteBot={onDeleteBot}
+            onReorderSessions={onReorderSessions}
+            scroller={canvas}
+            newSessions={newSessions.filter((each) => each.botId === bot.botId)}
+            onCloseNewSession={onCloseNewSession}
+          />
+        </PanelErrorBoundary>
       ))}
     </ul>
   );

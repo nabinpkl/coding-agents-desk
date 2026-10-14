@@ -27,6 +27,7 @@ import { reorderSessionRefs } from "@/features/bots/cards/botSessionOrder";
 import { isFatherSession } from "@/features/bots/botRosterOrder";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { reachMilestone } from "@/features/telemetry/pageMilestones";
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 
 export function BotCanvasCard({
   bot,
@@ -338,59 +339,62 @@ export function BotCanvasCard({
               className="flex items-start gap-4 p-2.5 pl-2"
             >
               {shown.map((session, index) => (
-                <BotSessionCard
-                  key={sessionKey(session)}
-                  bot={bot}
-                  session={session}
-                  offset={moveSession.offsetOf(index)}
-                  lifted={moveSession.liftedIndex === index}
-                  onMoveStart={(clientX) => moveSession.start(index, clientX)}
-                  onMoveBy={moveSession.to}
-                  onMoveEnd={moveSession.end}
-                  onMoveBySteps={(steps) => rearrangeSessions(index, index + steps)}
-                  canMoveEarlier={index > 0}
-                  canMoveLater={index < shown.length - 1}
-                  hue={hue}
-                  rank={rank}
-                  slot={slots.get(sessionKey(session))}
-                  solo={bot.sessionRefs.length === 1}
-                  open={openKeys.has(sessionKey(session))}
-                  onToggle={() => onToggleSession(sessionKey(session))}
-                  size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}
-                  onResize={(next) => onResizeSession(sessionKey(session), next, false)}
-                  onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
-                  sessionContext={sessionContext}
-                  botError={botError}
-                  // The forks are Claude-only, and absent rather than inert on a Codex row: forking
-                  // asks the Claude CLI for a branch it alone has. `canRenameSession` answers the
-                  // same question for a title, and it is not Claude's alone.
-                  onFork={
-                    session.source === "claude" ? () => onForkSession(bot, session) : undefined
-                  }
-                  onForkFromLastMessage={
-                    session.source === "claude"
-                      ? () => onForkFromLastMessage(bot, session)
-                      : undefined
-                  }
-                  onForkFromLastCompaction={
-                    session.source === "claude"
-                      ? () => onForkFromLastCompaction(bot, session)
-                      : undefined
-                  }
-                  handover={handoverMenuProp(session, () => onHandoverSession(bot, session))}
-                  onRename={
-                    canRenameSession(session) ? () => onRenameSession(session) : undefined
-                  }
-                  // Every source: `/new` and `/fork` are opencode's, but a session made from any
-                  // session's composer belongs to the Bot whose card asked.
-                  onAttachSession={attachSessionToBot(bot)}
-                  onDetach={() => onDetachSession(bot, session)}
-                  onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
-                  onMaximize={() => onMaximizeSession(bot, session)}
-                  isFather={isFatherSession(bot, session)}
-                  onSetFather={() => onSetFatherSession(bot, session)}
-                  onClearFather={() => onSetFatherSession(bot, null)}
-                />
+                // A session card that throws -- a transcript row the sidecar changed shape under --
+                // costs that card, and its siblings and the Bot's own header keep working.
+                <PanelErrorBoundary key={sessionKey(session)} surface="session card" compact listItem>
+                  <BotSessionCard
+                    bot={bot}
+                    session={session}
+                    offset={moveSession.offsetOf(index)}
+                    lifted={moveSession.liftedIndex === index}
+                    onMoveStart={(clientX) => moveSession.start(index, clientX)}
+                    onMoveBy={moveSession.to}
+                    onMoveEnd={moveSession.end}
+                    onMoveBySteps={(steps) => rearrangeSessions(index, index + steps)}
+                    canMoveEarlier={index > 0}
+                    canMoveLater={index < shown.length - 1}
+                    hue={hue}
+                    rank={rank}
+                    slot={slots.get(sessionKey(session))}
+                    solo={bot.sessionRefs.length === 1}
+                    open={openKeys.has(sessionKey(session))}
+                    onToggle={() => onToggleSession(sessionKey(session))}
+                    size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}
+                    onResize={(next) => onResizeSession(sessionKey(session), next, false)}
+                    onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
+                    sessionContext={sessionContext}
+                    botError={botError}
+                    // The forks are Claude-only, and absent rather than inert on a Codex row: forking
+                    // asks the Claude CLI for a branch it alone has. `canRenameSession` answers the
+                    // same question for a title, and it is not Claude's alone.
+                    onFork={
+                      session.source === "claude" ? () => onForkSession(bot, session) : undefined
+                    }
+                    onForkFromLastMessage={
+                      session.source === "claude"
+                        ? () => onForkFromLastMessage(bot, session)
+                        : undefined
+                    }
+                    onForkFromLastCompaction={
+                      session.source === "claude"
+                        ? () => onForkFromLastCompaction(bot, session)
+                        : undefined
+                    }
+                    handover={handoverMenuProp(session, () => onHandoverSession(bot, session))}
+                    onRename={
+                      canRenameSession(session) ? () => onRenameSession(session) : undefined
+                    }
+                    // Every source: `/new` and `/fork` are opencode's, but a session made from any
+                    // session's composer belongs to the Bot whose card asked.
+                    onAttachSession={attachSessionToBot(bot)}
+                    onDetach={() => onDetachSession(bot, session)}
+                    onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
+                    onMaximize={() => onMaximizeSession(bot, session)}
+                    isFather={isFatherSession(bot, session)}
+                    onSetFather={() => onSetFatherSession(bot, session)}
+                    onClearFather={() => onSetFatherSession(bot, null)}
+                  />
+                </PanelErrorBoundary>
               ))}
               {/* After the Bot's own sessions, because that is where each one lands the moment its
                   first turn writes a transcript: the card keeps its place in the row rather than

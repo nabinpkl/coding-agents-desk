@@ -11,6 +11,13 @@
 // broken for as long as it took the next save to land, and the boundary was holding a dead screen
 // long after the code behind it was fine again. So an applied update clears the error and re-renders
 // rather than waiting for somebody to reach for the reload button.
+//
+// One boundary at the root made one bad card cost the whole panel: a single session card reading a
+// field the sidecar had just stopped sending blanked every Bot, the sidebar and the tab bar with it,
+// which also took away the way to look at anything else. So boundaries sit at every place a reader
+// can lose one thing and keep the rest -- each tab's surface, the sidebar, the canvas, each Bot and
+// each session card -- and the root one stays for what is left. `compact` is the fallback sized for
+// a card rather than a screen; `listItem` makes it an `<li>`, for a card that is one in a list.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { devServerHooks } from "@/features/profile/panelBuild";
@@ -26,6 +33,10 @@ interface Props {
   surface: string;
   /** The seam: `import.meta.hot` in production, a stand-in under Vitest, absent in a bundle. */
   devServer?: unknown;
+  /** A card-sized fallback, for a boundary around one thing among many rather than a whole screen. */
+  compact?: boolean;
+  /** Render the fallback as an `<li>`, because what it stands in for was one. */
+  listItem?: boolean;
 }
 
 interface State {
@@ -70,6 +81,7 @@ export class PanelErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     const { error, stack } = this.state;
     if (!error) return this.props.children;
+    if (this.props.compact) return this.renderCompact(error, stack);
 
     return (
       <div className="flex h-full w-full items-center justify-center overflow-auto bg-background p-4 text-foreground">
@@ -83,22 +95,47 @@ export class PanelErrorBoundary extends Component<Props, State> {
               {stack.trim()}
             </pre>
           ) : null}
-          <div className="flex items-center gap-3 text-sm">
-            <button type="button" className={CONTROL_CLASS} onClick={this.retry}>
-              Try again
-            </button>
-            <button
-              type="button"
-              className={CONTROL_CLASS}
-              onClick={() => window.location.reload()}
-            >
-              Reload
-            </button>
-            {this.hot ? (
-              <span className="text-muted-foreground">Clears itself on the next update.</span>
-            ) : null}
-          </div>
+          {this.renderActions("text-sm")}
         </div>
+      </div>
+    );
+  }
+
+  /** In place of one card: what broke, with the stack folded away, since the card is narrow. */
+  private renderCompact(error: Error, stack: string | null): ReactNode {
+    const Root = this.props.listItem ? "li" : "div";
+    return (
+      <Root
+        role="alert"
+        className="w-80 max-w-full shrink-0 space-y-2 self-start rounded-lg border border-destructive bg-card p-3 text-foreground"
+      >
+        <p className="text-sm font-semibold">The {this.props.surface} stopped rendering</p>
+        <p className="font-mono text-xs break-words text-destructive">{error.message || String(error)}</p>
+        {stack ? (
+          <details className="text-xs">
+            <summary className="cursor-pointer rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary">
+              Where it threw
+            </summary>
+            <pre className="mt-1 max-h-40 overflow-auto rounded-sm bg-muted p-2 font-mono text-muted-foreground">
+              {stack.trim()}
+            </pre>
+          </details>
+        ) : null}
+        {this.renderActions("flex-wrap text-xs")}
+      </Root>
+    );
+  }
+
+  private renderActions(sizing: string): ReactNode {
+    return (
+      <div className={`flex items-center gap-3 ${sizing}`}>
+        <button type="button" className={CONTROL_CLASS} onClick={this.retry}>
+          Try again
+        </button>
+        <button type="button" className={CONTROL_CLASS} onClick={() => window.location.reload()}>
+          Reload
+        </button>
+        {this.hot ? <span className="text-muted-foreground">Clears itself on the next update.</span> : null}
       </div>
     );
   }

@@ -107,3 +107,53 @@ describe("a surface that throws while rendering", () => {
     expect(screen.queryByText("Clears itself on the next update.")).toBeNull();
   });
 });
+
+// One boundary at the root made one bad card cost every Bot, the sidebar and the tab bar. A card's
+// own boundary must cost that card and nothing beside it.
+describe("a card that throws among others", () => {
+  it("stands in for that card alone, as the list item it replaces", () => {
+    render(
+      <ul aria-label="cards">
+        <PanelErrorBoundary surface="session card" compact listItem>
+          <Surface broken={{ value: true }} />
+        </PanelErrorBoundary>
+        <PanelErrorBoundary surface="session card" compact listItem>
+          <li>
+            <Surface broken={{ value: false }} />
+          </li>
+        </PanelErrorBoundary>
+      </ul>,
+    );
+    const list = screen.getByRole("list", { name: "cards" });
+    // Still a list of two items: the fallback is an `<li>`, so the strip keeps its shape.
+    expect([...list.children].map((child) => child.tagName)).toEqual(["LI", "LI"]);
+    expect(screen.getByRole("alert").textContent).toContain("The session card stopped rendering");
+    expect(screen.getByText("the feed")).toBeDefined();
+  });
+
+  it("folds the stack away in a card, and still offers the way back", () => {
+    render(
+      <PanelErrorBoundary surface="sidebar" compact>
+        <Surface broken={{ value: true }} />
+      </PanelErrorBoundary>,
+    );
+    expect(screen.getByText("Where it threw").closest("details")?.open).toBe(false);
+    expect(screen.getByText(/reading 'blocks'/)).toBeDefined();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeDefined();
+  });
+
+  it("heals a card on the next update the way it heals a screen", () => {
+    const devServer = fakeDevServer();
+    const broken = { value: true };
+    render(
+      <PanelErrorBoundary surface="session card" compact devServer={devServer}>
+        <Surface broken={broken} />
+      </PanelErrorBoundary>,
+    );
+    broken.value = false;
+    act(() => devServer.emit("vite:afterUpdate"));
+    expect(screen.getByText("the feed")).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

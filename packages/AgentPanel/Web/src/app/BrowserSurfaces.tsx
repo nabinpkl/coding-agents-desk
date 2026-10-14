@@ -1,6 +1,7 @@
 import { SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { App } from "@/app/AgentPanelApp";
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { FatherScope } from "@/features/bots/father/FatherScope";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { TypeSettings } from "@/features/appearance/TypeSettings";
@@ -371,56 +372,60 @@ export function BrowserSurfaces({
         onClose={() => writeFatherOpen(false)}
       />
       <div className="min-h-0 flex-1">
-        {surface === "desktop" ? (
-          // Keyed by session so a switch tears the old viewer down. Its WebRTC track, its encoder
-          // and its display selection all belong to the session that answered, and none of them
-          // survive a move to another desktop.
-          <DesktopViewer
-            key={sessionId ?? "default"}
-            scope={sessionId ?? "default"}
-            transport={sessionTransport(transport, sessionId)}
-          />
-        ) : surface === "screen" ? (
-          <ScreenViewer />
-        ) : surface === "ide" ? (
-          // Keyed by session for the same reason the others are: the workspace roster, the shared
-          // open-tab state and every file it can reach belong to the sidecar that answered.
-          <WorkspaceIdeSurface
-            key={sessionId ?? "default"}
-            transport={sessionTransport(transport, sessionId)}
-            feed={sessionFeed}
-          />
-        ) : surface === "terminals" ? (
-          // Keyed by session for the same reason the desktop is: the tmux attaches, the terminal
-          // stream and every subscription belong to the sidecar that answered, and none of them
-          // survive a move to another one. The canvas reads every machine at once the way the Bot
-          // canvas does -- a tmux session is a directory and those are not all on one machine --
-          // so this moves the picker-scoped feed and the whole index beside it.
-          <TerminalCanvasShell
-            key={sessionId ?? "default"}
-            feed={sessionFeed}
-            machines={machines}
-          />
-        ) : surface === "arena" ? (
-          // Keyed by session for the same reason the others are: the runs, and the sessions each
-          // contestant is, belong to the sidecar that answered -- a run started on one machine is
-          // not a run on another, and the tab is not a view of a peer the picker left behind.
-          <ArenaSurface
-            key={sessionId ?? "default"}
-            transport={sessionTransport(transport, sessionId)}
-            feed={sessionFeed}
-            host={host}
-          />
-        ) : (
-          <App
-            key={sessionId ?? "default"}
-            feed={sessionFeed}
-            host={host}
-            machines={machines}
-            fill
-            fatherExternal
-          />
-        )}
+        {/* Under the tab bar, not around it: a surface that throws must leave the tabs that lead
+            away from it. Keyed by surface so moving to another tab starts it clean. */}
+        <PanelErrorBoundary key={surface} surface={`${SURFACES.find((s) => s.name === surface)?.label ?? surface} tab`}>
+          {surface === "desktop" ? (
+            // Keyed by session so a switch tears the old viewer down. Its WebRTC track, its encoder
+            // and its display selection all belong to the session that answered, and none of them
+            // survive a move to another desktop.
+            <DesktopViewer
+              key={sessionId ?? "default"}
+              scope={sessionId ?? "default"}
+              transport={sessionTransport(transport, sessionId)}
+            />
+          ) : surface === "screen" ? (
+            <ScreenViewer />
+          ) : surface === "ide" ? (
+            // Keyed by session for the same reason the others are: the workspace roster, the shared
+            // open-tab state and every file it can reach belong to the sidecar that answered.
+            <WorkspaceIdeSurface
+              key={sessionId ?? "default"}
+              transport={sessionTransport(transport, sessionId)}
+              feed={sessionFeed}
+            />
+          ) : surface === "terminals" ? (
+            // Keyed by session for the same reason the desktop is: the tmux attaches, the terminal
+            // stream and every subscription belong to the sidecar that answered, and none of them
+            // survive a move to another one. The canvas reads every machine at once the way the Bot
+            // canvas does -- a tmux session is a directory and those are not all on one machine --
+            // so this moves the picker-scoped feed and the whole index beside it.
+            <TerminalCanvasShell
+              key={sessionId ?? "default"}
+              feed={sessionFeed}
+              machines={machines}
+            />
+          ) : surface === "arena" ? (
+            // Keyed by session for the same reason the others are: the runs, and the sessions each
+            // contestant is, belong to the sidecar that answered -- a run started on one machine is
+            // not a run on another, and the tab is not a view of a peer the picker left behind.
+            <ArenaSurface
+              key={sessionId ?? "default"}
+              transport={sessionTransport(transport, sessionId)}
+              feed={sessionFeed}
+              host={host}
+            />
+          ) : (
+            <App
+              key={sessionId ?? "default"}
+              feed={sessionFeed}
+              host={host}
+              machines={machines}
+              fill
+              fatherExternal
+            />
+          )}
+        </PanelErrorBoundary>
       </div>
     </div>
   );

@@ -19,6 +19,7 @@ import type { UsageHandle } from "@/features/usage/useUsage";
 import { ProjectSessionList, type SessionArchiving } from "@/features/sidebar/ProjectSidebarItem";
 import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/CanvasSessionsList";
 import { CanvasSidebarViews, type CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 
 export type AgentSidebarMode = "sessions" | "bots" | "canvas" | "messages";
 
@@ -183,7 +184,12 @@ function revealInStrip(tab: HTMLButtonElement | null | undefined): void {
   }
 }
 
+/** Behind its own boundary, so a sidebar that throws leaves the canvas beside it standing. */
 export function AgentSidebar(props: AgentSidebarProps) {
+  return <PanelErrorBoundary surface="sidebar" compact><SidebarContent {...props} /></PanelErrorBoundary>;
+}
+
+function SidebarContent(props: AgentSidebarProps) {
   const tabGroupId = useId();
   const tabId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-tab`;
   const panelId = (mode: AgentSidebarMode) => `${tabGroupId}-${mode}-panel`;
