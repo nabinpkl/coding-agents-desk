@@ -37,7 +37,13 @@
 // it saved one, so the panel side now only reports and never waits.
 
 import { basename } from "node:path";
-import { transformWithEsbuild, type HotUpdateOptions, type Plugin, type ViteDevServer } from "vite";
+import {
+  transformWithEsbuild,
+  type EnvironmentModuleNode,
+  type HotUpdateOptions,
+  type Plugin,
+  type ViteDevServer,
+} from "vite";
 
 /** The shape the Profile row reads. Declared in `features/profile/panelBuildRoute.ts`. */
 export interface PublishReport {
@@ -324,6 +330,24 @@ export async function parseFailure(file: string, source: string): Promise<string
   }
 }
 
+/**
+ * Whether the page has never loaded this module, so an update to it has nobody to reach.
+ *
+ * Tailwind scans every source file for class names and registers each with Vite, so files the
+ * page never runs -- tests, test harnesses, modules imported only for their types -- sit in the
+ * module graph with nothing but the stylesheet importing them. Saving one was an update no module
+ * accepts, and Vite answers that by reloading every open panel: measured 2026-10-14, 168 of 293
+ * full reloads since 2026-09-30 were test files, and about 19 more were harnesses and type-only
+ * modules. A module the page did load has compiled at least once and recorded its own imports;
+ * one that never did has none, and only stylesheets above it. `main.tsx` is imported by nothing
+ * and still reloads, because it has imports of its own.
+ */
+export function neverLoaded(module: Pick<EnvironmentModuleNode, "importedModules" | "importers">): boolean {
+  if (module.importedModules.size > 0) return false;
+  for (const importer of module.importers) if (!importer.file?.endsWith(".css")) return false;
+  return true;
+}
+
 export function panelPublish(options: PanelPublishOptions): Plugin {
   let server: ViteDevServer | undefined;
 
@@ -346,7 +370,10 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
     hotUpdate: {
       order: "post",
       async handler({ file, modules, read }: HotUpdateOptions) {
-        if (modules.length === 0 || !HELD_EXTENSIONS.test(file)) return;
+        if (modules.length === 0) return;
+        // Nothing on the page runs it, so there is nothing to update and no reason to reload.
+        if (modules.every(neverLoaded)) return [];
+        if (!HELD_EXTENSIONS.test(file)) return;
         const failure = await parseFailure(file, await read());
         return gate.hold(file, failure, Date.now()) ? [] : undefined;
       },

@@ -8,13 +8,6 @@
    explicit source so those classes are generated. */
 @source "../src";
 
-/* Test files are not part of the page, but Tailwind registers every file it scans with Vite, so
-   saving one -- which agents do constantly -- became an update no module accepts, and Vite reloaded
-   every open panel for it. Measured 2026-10-14: 168 of the 293 full reloads in the dev server's log
-   since 2026-09-30 were test-file saves. Their classes are never on screen, so nothing is lost. */
-@source not "../**/*.test.ts";
-@source not "../**/*.test.tsx";
-
 /* The panel is embedded in native AppKit and UIKit shells. Follow the WebKit
    system appearance directly instead of requiring either shell to maintain a
    parallel `.dark` class on the document. */

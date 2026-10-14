@@ -17,6 +17,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createPublishGate,
+  neverLoaded,
   parseFailure,
   type PublishReport,
   type SupervisorReport,
@@ -327,5 +328,27 @@ describe("telling this Mac's sidecar supervisor what the panel's tree is doing",
     gate.heartbeat();
     expect(activity).toHaveLength(2);
     expect(activity.at(-1)).toEqual({ changedAt: 6_000, blocked: null });
+  });
+});
+
+// Files the page never runs sit in the module graph only because Tailwind scanned them; an update to
+// one has nobody to reach, and letting it through reloaded every open panel.
+describe("an update to a file the page never loaded", () => {
+  const stylesheet = { file: `${PANEL}/app/styles.css` };
+  const component = { file: `${PANEL}/features/bots/cards/BotCanvasCard.tsx` };
+  const node = (imports: number, importers: { file: string }[]) =>
+    ({ importedModules: new Set(Array.from({ length: imports })), importers: new Set(importers) }) as unknown as Parameters<typeof neverLoaded>[0];
+
+  it("is dropped for a test, a harness or a type-only module, which only the stylesheet points at", () => {
+    expect(neverLoaded(node(0, [stylesheet]))).toBe(true);
+  });
+
+  it("goes through for a module a page imports", () => {
+    expect(neverLoaded(node(0, [component, stylesheet]))).toBe(false);
+  });
+
+  // The entry has no importer at all; what marks it loaded is that it compiled and recorded imports.
+  it("goes through for the entry, which nothing imports but which has imports of its own", () => {
+    expect(neverLoaded(node(4, [stylesheet]))).toBe(false);
   });
 });
