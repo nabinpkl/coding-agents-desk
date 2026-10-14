@@ -294,3 +294,103 @@ describe("reading whether a file is whole", () => {
     expect(await parseFailure("a.tsx", "export const A = () => <div>hi</div>;\n")).toBeNull();
   });
 });
+
+// A sidecar change and the panel change beside it land together: while this Mac's supervisor holds a
+// change of its own, a whole panel file waits too, and the page reloads once the new sidecar is up.
+describe("taking a change together with this Mac's sidecar", () => {
+  const ROUTES = `${PANEL}/features/bots/cards/canvasNotices.tsx`;
+
+  function coupled(initial: { supervised: boolean; pending: boolean; startedAt: number | null }) {
+    const sidecar = { ...initial };
+    const activity: { changedAt: number; blocked: string | null }[] = [];
+    const reports: PublishReport[] = [];
+    let reloads = 0;
+    const gate = createPublishGate({
+      broadcast: (report) => reports.push(report),
+      buildId: () => "abc1234+",
+      sidecars: () => [],
+      reload: () => {
+        reloads += 1;
+      },
+      tell: () => {},
+      remembered: () => "auto",
+      remember: () => {},
+      localSidecar: () => sidecar,
+      recordActivity: (each) => activity.push(each),
+    });
+    return { gate, sidecar, activity, reloaded: () => reloads };
+  }
+
+  it("lets a panel-only edit through live when no sidecar change is waiting", () => {
+    const { gate, reloaded } = coupled({ supervised: true, pending: false, startedAt: 1_000 });
+    expect(gate.hold(ROUTES, null, 5_000)).toBe(false);
+    gate.settleWithSidecar();
+    expect(reloaded()).toBe(0);
+  });
+
+  it("holds a whole file while the sidecar has a change waiting, and says why", () => {
+    const { gate } = coupled({ supervised: true, pending: true, startedAt: 1_000 });
+    expect(gate.hold(ROUTES, null, 5_000)).toBe(true);
+    expect(gate.report().held).toEqual(["canvasNotices.tsx"]);
+    expect(gate.report().blocked).toBe("waiting for the sidecar to restart");
+  });
+
+  it("reloads once the new sidecar has announced itself, and not before", () => {
+    const { gate, sidecar, reloaded } = coupled({ supervised: true, pending: true, startedAt: 1_000 });
+    gate.hold(ROUTES, null, 5_000);
+    gate.settleWithSidecar();
+    expect(reloaded()).toBe(0);
+    // The supervisor has let go, but the sidecar on the board is still the old one.
+    sidecar.pending = false;
+    gate.settleWithSidecar();
+    expect(reloaded()).toBe(0);
+    sidecar.startedAt = 6_000;
+    gate.settleWithSidecar();
+    expect(reloaded()).toBe(1);
+    expect(gate.report().held).toEqual([]);
+    gate.settleWithSidecar();
+    expect(reloaded()).toBe(1);
+  });
+
+  it("does not reload onto a panel file that will not parse", () => {
+    const { gate, sidecar, reloaded } = coupled({ supervised: true, pending: true, startedAt: 1_000 });
+    gate.hold(ROUTES, null, 5_000);
+    gate.hold(MAIN, "Unexpected end of file", 5_100);
+    Object.assign(sidecar, { pending: false, startedAt: 6_000 });
+    gate.settleWithSidecar();
+    expect(reloaded()).toBe(0);
+    // The fix arrives with nothing waiting on the sidecar any more, so it goes through live, and
+    // what was held for the sidecar is taken by the reload.
+    expect(gate.hold(MAIN, null, 7_000)).toBe(false);
+    gate.settleWithSidecar();
+    expect(reloaded()).toBe(1);
+  });
+
+  // A supervisor that stopped has no restart coming; waiting on it would hold the panel forever.
+  it("lets go at once when the supervisor is gone", () => {
+    const { gate, sidecar, reloaded } = coupled({ supervised: true, pending: true, startedAt: 1_000 });
+    gate.hold(ROUTES, null, 5_000);
+    Object.assign(sidecar, { supervised: false, pending: false });
+    gate.settleWithSidecar();
+    expect(reloaded()).toBe(1);
+  });
+
+  it("tells the supervisor when the panel's tree moved, and whether it is whole", () => {
+    const { gate, activity } = coupled({ supervised: true, pending: false, startedAt: 1_000 });
+    gate.hold(MAIN, "Unexpected end of file", 5_000);
+    expect(activity.at(-1)).toEqual({ changedAt: 5_000, blocked: "main.tsx: Unexpected end of file" });
+    gate.hold(MAIN, null, 6_000);
+    expect(activity.at(-1)).toEqual({ changedAt: 6_000, blocked: null });
+    gate.heartbeat();
+    expect(activity.at(-1)).toEqual({ changedAt: 6_000, blocked: null });
+  });
+
+  it("hands what waited on the sidecar to the reader when they switch to manual", () => {
+    const { gate } = coupled({ supervised: true, pending: true, startedAt: 1_000 });
+    gate.hold(ROUTES, null, 5_000);
+    gate.setMode("manual");
+    expect(gate.report().held).toEqual(["canvasNotices.tsx"]);
+    expect(gate.report().blocked).toBeNull();
+    expect(gate.apply()).toBe(true);
+  });
+});

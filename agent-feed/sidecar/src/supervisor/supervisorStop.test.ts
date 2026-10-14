@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { stopChild } from "@/supervisorStop";
+import { stopChild } from "@/supervisor/supervisorStop";
 
 /**
  * A child that has its SIGTERM handler installed before it says so, so the signal cannot arrive

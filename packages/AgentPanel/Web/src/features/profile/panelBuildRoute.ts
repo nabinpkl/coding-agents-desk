@@ -54,7 +54,7 @@ export const PANEL_COMMAND_PARAM = "action";
  * What the sidecar's own supervisor is holding back.
  *
  * The other half of the same idea, in a different process: the sidecar runs the working tree, so it
- * is gated the same way the panel is (`agent-feed/sidecar/src/supervisorGate.ts`). A reader looking
+ * is gated the same way the panel is (`agent-feed/sidecar/src/supervisor/supervisorGate.ts`). A reader looking
  * at a feed with no new rows cannot tell a quiet session from a sidecar that has been refusing to
  * restart for ten minutes, and until this crossed over, only its log could.
  *

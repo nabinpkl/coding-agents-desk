@@ -22,6 +22,11 @@ import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
 import { sourceSignature, sourceVersion } from "../../../agent-feed/sidecar/src/sourceVersion";
+import {
+  readSidecarStartedAt,
+  readSupervisorPending,
+  writePanelActivity,
+} from "../../../agent-feed/sidecar/src/supervisor/supervisorBoard";
 import { readPublishMode, writePublishMode } from "./src/app/dev-server/publishMode";
 import {
   PANEL_BUILD_ROUTE,
@@ -159,6 +164,8 @@ const declaredPeers = parseDeclaredPeers(process.env.AGENTDESK_PANEL_REMOTE_SIDE
  * plugin knows which machines exist, and the publisher plugin is where a reader's choice arrives.
  */
 const supervisorClient = createSupervisorClient();
+/** Whether the last write of the panel's activity for the supervisor failed, so it is said once. */
+let activityFailing = false;
 
 /** Every machine the panel can reach right now, filled in by the session plugin below. */
 let knownMachines: () => Machine[] = () => [];
@@ -412,6 +419,28 @@ export default defineConfig({
       // The publisher reports it because the panel's own held work is reported there, and a reader
       // wants one answer to "is what I am looking at current", not two.
       supervisors: () => supervisorClient.report(treeVersion()),
+      // This Mac's own sidecar, off the registry board both processes already share, so a sidecar
+      // change and the panel change beside it are taken together (`supervisorBoard.ts`).
+      localSidecar: () => {
+        const registry = runtimePaths().sidecarRegistry;
+        const supervisor = readSupervisorPending(registry);
+        return {
+          supervised: supervisor !== null,
+          pending: supervisor?.held === true && supervisor.mode === "auto",
+          startedAt: readSidecarStartedAt(registry),
+        };
+      },
+      recordActivity: (activity) => {
+        try {
+          writePanelActivity(runtimePaths().sidecarRegistry, activity);
+          activityFailing = false;
+        } catch (error) {
+          // The supervisor then sees no panel and waits on its own tree alone, which is what it does
+          // for a peer; worth a line, once, not worth failing an update over. This runs every 2s.
+          if (!activityFailing) console.warn(`[panel-publish] could not tell the supervisor what the panel is doing: ${String(error)}`);
+          activityFailing = true;
+        }
+      },
       // Every machine, for a mode and for a restart alike: what a reader means by manual is "stop
       // changing under me", and the Mac and a peer run one tree between them.
       tell: (command) => supervisorClient.tell(knownMachines(), command),

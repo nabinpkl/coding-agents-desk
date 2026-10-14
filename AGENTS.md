@@ -383,9 +383,19 @@ with no rebuild, no reinstall, and no re-pair.
   of the compiled binary. The supervisor owns the server as a child, watches the tree, PARSES what
   changed, and replaces the child only once every changed file is whole and the tree's imports
   resolve -- so this arm executes the working tree without a half-saved file, or a caller saved
-  before its callee, being what runs (`supervisorLinks.ts`: an in-memory `Bun.build`, ~40-130ms).
-  Code that resolves and then throws while loading still gets through, and still leaves nothing
-  serving until the next save. It replaced `bun --watch src/server.ts`,
+  before its callee, being what runs (`supervisor/supervisorLinks.ts`: `Bun.build` in a CHILD
+  `bun`, ~40ms, killed after 10s; run in-process it froze the supervisor on a native lock on
+  2026-10-14, heartbeat and all, while the sidecar served stale code). Code that resolves and then
+  throws while loading still gets through, and still leaves nothing serving until the next save.
+  Under `auto` it also waits until the sidecar's tree AND the panel's have been quiet for 3s
+  (`AGENT_FEED_SUPERVISOR_QUIET_MS`) and no panel file is half-written, while the panel's dev
+  server holds its own updates for as long as a sidecar change is waiting and reloads every page
+  once the new sidecar has announced itself -- so a route and its caller land together. The two
+  read each other through `supervisor/supervisorBoard.ts` on the registry board, which a peer
+  cannot see: a peer gets the quiet window and nothing else, and two halves saved in the same
+  instant (a `git pull`) still land panel first. It watches `src/` and `agent-feed/wire/` with one
+  recursive watch each (`watchTree`, 3 descriptors) rather than chokidar's per-file watches (514),
+  the shape the catalog moved to when per-file watches went late. It replaced `bun --watch src/server.ts`,
   which re-read on every write: a write is a moment inside an edit, and a reload that threw left the
   process alive with its port free, killing every stream the panel held while nothing noticed for a
   minute. Parsed rather than typechecked, because neither tree typechecks at runtime and a resident

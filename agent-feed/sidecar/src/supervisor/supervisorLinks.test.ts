@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { declaredPackages, linkFailure } from "@/supervisorLinks";
+import { declaredPackages, linkFailure } from "@/supervisor/supervisorLinks";
 
 const made: string[] = [];
 afterEach(() => {
@@ -58,15 +58,16 @@ test("a type imported without `type` is not held", async () => {
   expect(await linkFailure(join(root, "src/main.ts"), declaredPackages(root))).toBeNull();
 });
 
-// In a plain `bun` process, which is how the supervisor runs it. Inside `bun test` the bundler
-// cannot resolve this tree's `@/http/*` imports (measured on 1.3.13: every one of them, and no
-// other `@/` path), so asked in-process this test would report a failure the supervisor never sees.
 test("the sidecar as it stands links", async () => {
-  const sidecar = join(import.meta.dir, "..");
-  const script = `import { declaredPackages, linkFailure } from ${JSON.stringify(join(import.meta.dir, "supervisorLinks.ts"))};
-console.log(JSON.stringify(await linkFailure(${JSON.stringify(join(sidecar, "src/server.ts"))}, declaredPackages(${JSON.stringify(sidecar)}))));`;
-  const run = Bun.spawn({ cmd: [process.execPath, "-e", script], stdout: "pipe", stderr: "pipe" });
-  const [out, err] = [await new Response(run.stdout).text(), await new Response(run.stderr).text()];
-  expect(await run.exited, err).toBe(0);
-  expect(JSON.parse(out)).toBeNull();
+  const sidecar = join(import.meta.dir, "../..");
+  expect(await linkFailure(join(sidecar, "src/server.ts"), declaredPackages(sidecar))).toBeNull();
+});
+
+// The reason the check runs in a child at all: in-process, a build that never returned froze the
+// supervisor whole. A child that never answers must cost a line on the panel row and nothing more.
+test("a check that never answers is killed and reported, not waited on", async () => {
+  const started = performance.now();
+  const failure = await linkFailure("/nowhere/server.ts", [], { timeoutMs: 200, command: ["sleep", "30"] });
+  expect(failure).toBe("could not check the import graph: no answer in 200ms");
+  expect(performance.now() - started).toBeLessThan(5_000);
 });

@@ -336,13 +336,17 @@ export interface SidecarConfig {
  * A sidecar supervisor's view of its own tree.
  *
  * The supervisor runs the sidecar as a child and replaces it only when every changed file parses
- * (`agent-feed/sidecar/src/supervisorGate.ts`), so a sidecar can be deliberately older than the
+ * (`agent-feed/sidecar/src/supervisor/supervisorGate.ts`), so a sidecar can be deliberately older than the
  * tree beside it. Without this the panel shows a feed that has merely gone quiet.
  */
 export interface SupervisorStatus {
   /** True when the tree has moved since the running sidecar was started. */
   held: boolean;
-  /** Which file will not parse, and why. Null when nothing is in the way. */
+  /**
+   * What is in the way, said for the panel row: a file that will not parse, a tree that will not
+   * link, or under `auto` what a whole tree is waiting out before it restarts (the quiet window, or
+   * the panel's own half-written file). Null when nothing is.
+   */
   blocked: string | null;
   /**
    * Whether it replaces the sidecar as soon as the tree parses, or waits to be asked.

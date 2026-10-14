@@ -16,24 +16,35 @@
 // same rendezvous board the sidecar announces itself on, so the panel can show a held sidecar
 // instead of the reader seeing a feed that has merely gone quiet.
 
-import { dirname } from "node:path";
-import chokidar from "chokidar";
+import { dirname, join } from "node:path";
+import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 import {
   clearSupervisorDescriptor,
   clearSupervisorRequest,
   readSupervisorRequest,
   writeSupervisorDescriptor,
 } from "@/sidecarRegistry";
-import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisorGate";
-import { declaredPackages, linkFailure } from "@/supervisorLinks";
-import { ownSources } from "@/supervisorSources";
-import { stopChild } from "@/supervisorStop";
+import { readPanelActivity } from "@/supervisor/supervisorBoard";
+import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisor/supervisorGate";
+import { declaredPackages, linkFailure } from "@/supervisor/supervisorLinks";
+import { ownSources } from "@/supervisor/supervisorSources";
+import { stopChild } from "@/supervisor/supervisorStop";
+import { watchTree } from "@/transcripts/catalog/watchTree";
 
 /** The sidecar itself, a sibling of this file: one argument for the host to get wrong, not two. */
 const SERVER = new URL("./server.ts", import.meta.url).pathname;
 
 /** The tree this watches, which is everything the sidecar can import. */
 const SOURCE = dirname(SERVER);
+
+/**
+ * The wire contract, which the sidecar imports from outside its own tree.
+ *
+ * Watched too, because a change there alone -- a route's shape, a field renamed -- is exactly the
+ * change the sidecar and the panel have to take together, and it used to go unseen here until
+ * something under `src/` happened to be saved as well.
+ */
+const WIRE = join(dirname(dirname(SOURCE)), "wire");
 
 /**
  * The files THIS process is built from, which are in that tree too.
@@ -60,6 +71,23 @@ const SETTLE_MS = Math.max(
   50,
   Number(process.env.AGENT_FEED_SUPERVISOR_SETTLE_MS) || 200,
 );
+
+/**
+ * How long the sidecar's tree and the panel's must both have been quiet before an automatic
+ * restart. See `supervisor/supervisorGate.ts`: an agent's change is several saves, often across both
+ * trees, and the restart should take the last of them rather than the first. Overridable for the
+ * same reason the settle window is.
+ */
+const QUIET_MS = quietWindow(process.env.AGENT_FEED_SUPERVISOR_QUIET_MS);
+
+/** The window from the environment, where 0 is a real answer (no window) and not "unset". */
+function quietWindow(raw: string | undefined): number {
+  const asked = raw === undefined || raw.trim() === "" ? Number.NaN : Number(raw);
+  return Number.isFinite(asked) && asked >= 0 ? asked : 3_000;
+}
+
+/** How often a whole tree waiting out that window is asked again. */
+const QUIET_TICK_MS = 250;
 
 /** After a child that died on its own, so a crash loop does not spin the machine. */
 const BACKOFF_MS = [500, 1_000, 2_000, 5_000, 10_000];
@@ -177,7 +205,10 @@ const gate = createSupervisorGate({
   restart: takeTheTree,
   log: say,
   publish,
-});
+}, { quietMs: QUIET_MS });
+
+/** What the panel's dev server last said about its tree, or null when none is saying anything. */
+const panelActivity = () => readPanelActivity(runtimePaths().sidecarRegistry);
 
 // ---------------------------------------------------------------------------
 // What the reader asked for
@@ -268,7 +299,7 @@ function noteChange(path: string): void {
       // they had just asked not to have, because the command was still in flight through the
       // sidecar and onto the board when the batch was judged.
       readRequest();
-      gate.changed(changes, unlinked);
+      gate.changed(changes, unlinked, Date.now(), panelActivity());
     }).catch((error: unknown) => {
       // Caught on the chain itself: a rejection left on it would skip every batch after this one,
       // and the supervisor would stop acting on saves with nothing to say it had.
@@ -278,15 +309,25 @@ function noteChange(path: string): void {
 }
 
 function startWatching(): void {
-  // One watcher for the process, created once and never closed. Under Bun every SECOND `fs.watch`
-  // on a path is inert (measured on 1.3.13: six open/close cycles delivered 3, 0, 3, 0, 3, 0
-  // events), so a watcher that comes and goes silently stops working the second time.
-  const watcher = chokidar.watch(SOURCE, { ignoreInitial: true });
-  watcher.on("add", noteChange);
-  watcher.on("change", noteChange);
-  watcher.on("unlink", noteChange);
-  watcher.on("error", (error) => say(`watcher error: ${String(error)}`));
-  say(`watching ${SOURCE}`);
+  // One recursive watch per root, created once and never closed: the shape the transcript catalog
+  // moved to after per-file watches went minutes late in a long-lived Bun process
+  // (`transcripts/catalog/watchTree.ts`). It used to be chokidar, which here meant one kqueue watch
+  // per file, 514 descriptors; this is 3. Never closed because under Bun a watch you close poisons
+  // the next one on that path.
+  for (const root of [SOURCE, WIRE]) {
+    watchTree({
+      root,
+      depth: Number.POSITIVE_INFINITY,
+      onPath: noteChange,
+      onError: (error) => say(`watcher error under ${root}: ${String(error)}`),
+    });
+  }
+  say(`watching ${SOURCE} and ${WIRE}`);
+  // A whole tree waiting out the quiet window has no event to wake it when the window ends, so it
+  // is asked again on a clock. Only while something is waiting, which is a read of a few bytes.
+  setInterval(() => {
+    if (gate.state().held) gate.tick(Date.now(), panelActivity());
+  }, QUIET_TICK_MS).unref?.();
 }
 
 // ---------------------------------------------------------------------------

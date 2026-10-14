@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ownSources } from "@/supervisorSources";
+import { ownSources } from "@/supervisor/supervisorSources";
 
 /** Removed by the name this run was handed, never a glob and never a parent. */
 const made: string[] = [];

@@ -8,6 +8,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 import { ensureCrossSessionDirectory } from "@/crossSessionDirectory";
+import { supervisorDescriptorPath as boardSupervisorPath } from "@/supervisor/supervisorBoard";
 
 /** How often the descriptor's heartbeat is refreshed. A reader ages entries out at three misses. */
 const HEARTBEAT_MS = 5_000;
@@ -116,9 +117,13 @@ export function announceSidecar(
 /** How stale a supervisor descriptor may be before it reads as no supervisor at all. */
 const SUPERVISOR_STALE_MS = HEARTBEAT_MS * 3;
 
-/** `<registry>/<user>.supervisor.json`, beside the sidecar descriptor this user already writes. */
+/**
+ * `<registry>/<user>.supervisor.json`, beside the sidecar descriptor this user already writes.
+ *
+ * Named in `supervisor/supervisorBoard.ts`, which the panel's dev server also reads it through.
+ */
 export function supervisorDescriptorPath(dir = runtimePaths().sidecarRegistry): string {
-  return join(dir, `${userInfo().username}.supervisor.json`);
+  return boardSupervisorPath(dir);
 }
 
 /**

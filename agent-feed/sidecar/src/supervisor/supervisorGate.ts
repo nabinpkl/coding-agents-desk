@@ -27,12 +27,22 @@
 // is a property of the TREE, not of one path: the save that fixes it is often a different file, so
 // it is re-asked on every batch rather than cleared by the file that caused it.
 //
+// And a tree that is whole and links is still not necessarily the one to restart into. An agent's
+// change is several saves, sidecar and panel both -- a route renamed here, its caller there -- and a
+// restart on the first of them puts the panel against a sidecar it does not match. So under `auto`
+// the restart waits until the sidecar's tree AND the panel's have been quiet for `quietMs`, and
+// until no panel file is half-written; the panel's dev server says what its side is doing through
+// `supervisorBoard.ts`, and holds its own updates while this waits (its half is in
+// `packages/AgentPanel/Web/src/app/dev-server/panelPublish.ts`). Taking the tree on the reader's
+// say-so does not wait for anything.
+//
 // Parsed rather than typechecked. The first version of this ran `tsc --noEmit --watch` as the
 // watcher and the judge, which cost 844MB at its peak here, measured with `footprint`. It was also
 // the wrong instrument: bun strips types and never checks them, so a type error cannot break a
 // running sidecar and was never what broke one. Half a file is. `just check` still catches types.
 
 import type { SupervisorMode } from "@agentdesk/agent-feed-wire";
+import type { PanelActivity } from "@/supervisor/supervisorBoard";
 
 /** What a changed file is, once somebody has tried to parse it. */
 export interface ParsedChange {
@@ -60,11 +70,26 @@ export interface SupervisorState {
   mode: SupervisorMode;
 }
 
-export function createSupervisorGate(io: SupervisorGateIO) {
+export interface SupervisorGateOptions {
+  /**
+   * How long both trees must have been quiet before an automatic restart. 0 is no window: a batch
+   * that is whole and links restarts at once, unless a panel file beside it is half-written.
+   */
+  quietMs?: number;
+}
+
+export function createSupervisorGate(io: SupervisorGateIO, options: SupervisorGateOptions = {}) {
+  const quietMs = options.quietMs ?? 0;
   /** Files that have changed since the running sidecar started, and will not parse. */
   const broken = new Map<string, string>();
   /** Why the tree as a whole will not link, as of the last batch. Null when it does. */
   let unlinked: string | null = null;
+  /** What a whole tree is waiting on before it restarts by itself, said on the panel row. */
+  let waitingOn: string | null = null;
+  /** When the last batch arrived, which is when this tree last moved. */
+  let lastChangeAt = 0;
+  /** What the restart will say it took, from the batch that made the tree whole. */
+  let pendingReason = "";
   /** True once anything has changed at all, so an unchanged tree is never restarted into. */
   let dirty = false;
   /** Auto until the panel says otherwise, and again whenever this process starts. */
@@ -72,7 +97,7 @@ export function createSupervisorGate(io: SupervisorGateIO) {
 
   const state = (): SupervisorState => {
     const first = [...broken.entries()][0];
-    return { held: dirty, blocked: first ? `${base(first[0])}: ${first[1]}` : unlinked, mode };
+    return { held: dirty, blocked: first ? `${base(first[0])}: ${first[1]}` : unlinked ?? waitingOn, mode };
   };
 
   const publish = () => io.publish(state());
@@ -81,9 +106,25 @@ export function createSupervisorGate(io: SupervisorGateIO) {
   const take = (reason: string): boolean => {
     if (!dirty || broken.size > 0 || unlinked !== null) return false;
     dirty = false;
+    waitingOn = null;
     publish();
     io.restart(reason);
     return true;
+  };
+
+  /** Say what the tree is waiting on, publishing only when that changes: this runs on a timer. */
+  const wait = (on: string): void => {
+    if (waitingOn === on) return;
+    waitingOn = on;
+    publish();
+  };
+
+  /** Restart into a whole tree once it, and the panel beside it, have stopped moving. */
+  const settle = (now: number, panel: PanelActivity | null): void => {
+    if (now - lastChangeAt < quietMs) return wait("waiting for edits to settle");
+    if (panel?.blocked) return wait(`waiting for the panel: ${panel.blocked}`);
+    if (panel && now - panel.changedAt < quietMs) return wait("waiting for the panel's edits to settle");
+    take(pendingReason);
   };
 
   return {
@@ -91,11 +132,19 @@ export function createSupervisorGate(io: SupervisorGateIO) {
 
     /**
      * One debounced batch of writes, each already parsed, and why the tree after them will not link
-     * (null, the default, when it does).
+     * (null, the default, when it does). `now` is when the batch was judged, for the quiet window,
+     * and `panel` what the panel's dev server last said: null when there is none to wait for.
      */
-    changed(changes: ParsedChange[], linkFailure: string | null = null): void {
+    changed(
+      changes: ParsedChange[],
+      linkFailure: string | null = null,
+      now = 0,
+      panel: PanelActivity | null = null,
+    ): void {
       if (changes.length === 0) return;
       dirty = true;
+      lastChangeAt = now;
+      waitingOn = null;
       for (const { path, failure } of changes) {
         if (failure === null) broken.delete(path);
         else broken.set(path, failure);
@@ -115,10 +164,15 @@ export function createSupervisorGate(io: SupervisorGateIO) {
         publish();
         return;
       }
-      dirty = false;
-      publish();
       const n = changes.length;
-      io.restart(n === 1 ? "1 changed file parses" : `${n} changed files parse`);
+      pendingReason = n === 1 ? "1 changed file parses" : `${n} changed files parse`;
+      settle(now, panel);
+    },
+
+    /** Ask again whether a whole tree has waited long enough. The supervisor calls this on a timer. */
+    tick(now: number, panel: PanelActivity | null): void {
+      if (mode !== "auto" || !dirty || broken.size > 0 || unlinked !== null) return;
+      settle(now, panel);
     },
 
     /** Take the tree now, staying in whichever mode the reader chose. */

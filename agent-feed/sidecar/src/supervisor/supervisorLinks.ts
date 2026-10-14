@@ -19,6 +19,12 @@
 //
 // What it cannot see is code that resolves and then throws while the module loads. That still
 // crashes the replacement; this narrows the gap, it does not close it.
+//
+// The build runs in a CHILD `bun`, never in the supervisor. Measured 2026-10-14: run in-process, it
+// froze the supervisor -- main thread parked on a native lock (`_os_unfair_lock_lock_slow`, sampled),
+// no heartbeat, no watcher, no restarts -- from the moment files were being moved under it, while
+// the sidecar it supervised kept serving stale code with nothing to say so. A child that hangs is
+// killed on a timer and reported; the supervisor's own loop never waits on the bundler.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,8 +44,43 @@ export function declaredPackages(sidecarRoot: string): string[] {
   return names.flatMap((name) => [name, `${name}/*`]);
 }
 
-/** Why the program reached from `entry` will not link, or null when it does. */
-export async function linkFailure(entry: string, external: string[]): Promise<string | null> {
+/** Long enough for a cold build of this tree many times over; it takes 40-130ms warm. */
+const LINK_TIMEOUT_MS = 10_000;
+
+/**
+ * Why the program reached from `entry` will not link, or null when it does -- asked of a child
+ * `bun`, so a build that hangs costs that child and not the caller.
+ *
+ * `command` is the seam: the process to ask, which a test replaces with one that never answers.
+ */
+export async function linkFailure(
+  entry: string,
+  external: string[],
+  options: { timeoutMs?: number; command?: string[] } = {},
+): Promise<string | null> {
+  const command = options.command ?? [process.execPath, import.meta.path, entry, JSON.stringify(external)];
+  const child = Bun.spawn({ cmd: command, stdout: "pipe", stderr: "pipe" });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGKILL");
+  }, options.timeoutMs ?? LINK_TIMEOUT_MS);
+  try {
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (timedOut) return `could not check the import graph: no answer in ${options.timeoutMs ?? LINK_TIMEOUT_MS}ms`;
+    if (code !== 0) return `could not check the import graph: ${err.trim().split("\n").pop() || `exit ${code}`}`;
+    return JSON.parse(out) as string | null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The check itself, which only ever runs in the child (see `linkFailure`). */
+async function linkFailureHere(entry: string, external: string[]): Promise<string | null> {
   const result = await Bun.build({ entrypoints: [entry], target: "bun", external, throw: false });
   if (result.success) return null;
   const first = result.logs.find((log) => log.level === "error") ?? result.logs[0];
@@ -56,4 +97,11 @@ export async function linkFailure(entry: string, external: string[]): Promise<st
  */
 function shortenPaths(message: string): string {
   return message.replace(/"(?:(?:\.\.?\/)+|\/)[^"]*?([^"/]+)"/g, '"$1"');
+}
+
+// Run as a script, this file is the child `linkFailure` asks: `bun supervisorLinks.ts <entry> <external as JSON>`.
+if (import.meta.main) {
+  const [entry, external] = process.argv.slice(2);
+  if (!entry || !external) throw new Error("usage: supervisorLinks.ts <entry> <external packages as JSON>");
+  console.log(JSON.stringify(await linkFailureHere(entry, JSON.parse(external) as string[])));
 }

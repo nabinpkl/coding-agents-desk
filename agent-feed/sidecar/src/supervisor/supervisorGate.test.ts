@@ -1,10 +1,10 @@
-import { expect, test } from "bun:test";
-import { createSupervisorGate, type SupervisorState } from "@/supervisorGate";
+import { describe, expect, test } from "bun:test";
+import { createSupervisorGate, type SupervisorState } from "@/supervisor/supervisorGate";
 
 const ROUTES = "/repo/agent-feed/sidecar/src/http/sessionRoutes.ts";
 const CONFIG = "/repo/agent-feed/sidecar/src/config.ts";
 
-function gate() {
+function gate(quietMs = 0) {
   const restarts: string[] = [];
   const logs: string[] = [];
   const published: SupervisorState[] = [];
@@ -12,7 +12,7 @@ function gate() {
     restart: (reason) => restarts.push(reason),
     log: (message) => logs.push(message),
     publish: (state) => published.push(state),
-  });
+  }, { quietMs });
   return { it, restarts, logs, published };
 }
 
@@ -193,4 +193,90 @@ test("refuses to take a tree that will not link when the reader asks, or on comi
   expect(it.apply()).toBe(false);
   it.setMode("auto");
   expect(restarts).toEqual([]);
+});
+
+// An agent's change is several saves across the sidecar and the panel. Restarting on the first of
+// them puts the panel against a sidecar it does not match, so a whole tree waits for both to stop.
+describe("the quiet window", () => {
+  const QUIET = 3_000;
+  const PANEL_QUIET = { changedAt: 0, blocked: null };
+
+  test("a whole tree waits for its own edits to settle, and says so", () => {
+    const { it, restarts } = gate(QUIET);
+    it.changed([{ path: ROUTES, failure: null }], null, 10_000, PANEL_QUIET);
+    expect(restarts).toEqual([]);
+    expect(it.state()).toEqual({ held: true, blocked: "waiting for edits to settle", mode: "auto" });
+    it.tick(12_999, PANEL_QUIET);
+    expect(restarts).toEqual([]);
+    it.tick(13_000, PANEL_QUIET);
+    expect(restarts).toEqual(["1 changed file parses"]);
+    expect(it.state()).toEqual({ held: false, blocked: null, mode: "auto" });
+  });
+
+  test("another save inside the window starts it again", () => {
+    const { it, restarts } = gate(QUIET);
+    it.changed([{ path: ROUTES, failure: null }], null, 10_000, PANEL_QUIET);
+    it.changed([{ path: CONFIG, failure: null }], null, 12_000, PANEL_QUIET);
+    it.tick(13_500, PANEL_QUIET);
+    expect(restarts).toEqual([]);
+    it.tick(15_000, PANEL_QUIET);
+    expect(restarts).toEqual(["1 changed file parses"]);
+  });
+
+  test("waits for the panel's edits to settle too", () => {
+    const { it, restarts } = gate(QUIET);
+    it.changed([{ path: ROUTES, failure: null }], null, 10_000, PANEL_QUIET);
+    it.tick(13_000, { changedAt: 12_000, blocked: null });
+    expect(restarts).toEqual([]);
+    expect(it.state().blocked).toBe("waiting for the panel's edits to settle");
+    it.tick(15_000, { changedAt: 12_000, blocked: null });
+    expect(restarts).toEqual(["1 changed file parses"]);
+  });
+
+  test("does not restart under a panel with a half-written file, and names it", () => {
+    const { it, restarts } = gate(QUIET);
+    const broken = { changedAt: 0, blocked: "BotCanvasCard.tsx: Unexpected end of file" };
+    it.changed([{ path: ROUTES, failure: null }], null, 10_000, broken);
+    it.tick(60_000, broken);
+    expect(restarts).toEqual([]);
+    expect(it.state().blocked).toBe("waiting for the panel: BotCanvasCard.tsx: Unexpected end of file");
+    it.tick(61_000, PANEL_QUIET);
+    expect(restarts).toEqual(["1 changed file parses"]);
+  });
+
+  // A peer, a bundled panel, a dev server that stopped: there is no panel to wait for, and waiting on
+  // one would hold the sidecar forever.
+  test("with no panel saying anything, waits on its own tree alone", () => {
+    const { it, restarts } = gate(QUIET);
+    it.changed([{ path: ROUTES, failure: null }], null, 10_000, null);
+    it.tick(13_000, null);
+    expect(restarts).toEqual(["1 changed file parses"]);
+  });
+
+  test("publishes the wait once, not on every tick", () => {
+    const { it, published } = gate(QUIET);
+    it.changed([{ path: ROUTES, failure: null }], null, 10_000, PANEL_QUIET);
+    const before = published.length;
+    it.tick(11_000, PANEL_QUIET);
+    it.tick(12_000, PANEL_QUIET);
+    expect(published.length).toBe(before);
+  });
+
+  test("the reader's own yes does not wait", () => {
+    const { it, restarts } = gate(QUIET);
+    it.setMode("manual");
+    it.changed([{ path: ROUTES, failure: null }], null, 10_000, PANEL_QUIET);
+    expect(it.apply()).toBe(true);
+    expect(restarts).toEqual(["asked for from the panel"]);
+  });
+
+  test("ticks decide nothing under manual, or for a tree that is not whole", () => {
+    const { it, restarts } = gate(QUIET);
+    it.changed([{ path: ROUTES, failure: "Unexpected end of file" }], null, 10_000, PANEL_QUIET);
+    it.tick(60_000, PANEL_QUIET);
+    it.setMode("manual");
+    it.changed([{ path: ROUTES, failure: null }], null, 61_000, PANEL_QUIET);
+    it.tick(90_000, PANEL_QUIET);
+    expect(restarts).toEqual([]);
+  });
 });
