@@ -85,6 +85,16 @@ const sessionViewPerLane = async (page, problems, when) => {
     if (await lane.getByRole('button', { name: 'Hide the terminal' }).count() !== 1) problems.push(`c${index + 1}'s lane has no terminal control showing its pane ${when}`);
   }
 };
+// The lanes take the room under the facts, so every composer, and the pane above it, is on screen
+// without scrolling the page: an empty feed is the part that gives way.
+const composersOnScreen = async (page, problems, when) => {
+  const { innerHeight } = await page.evaluate(() => ({ innerHeight: window.innerHeight }));
+  for (const [index, source] of LINEUP.entries()) {
+    const lane = page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` });
+    const field = await lane.getByRole('button', { name: /Add an image/ }).boundingBox();
+    if (!field || field.y + field.height > innerHeight) problems.push(`c${index + 1}'s composer is below the window ${when} (bottom ${field ? Math.round(field.y + field.height) : 'none'} of ${innerHeight})`);
+  }
+};
 const paneText = (pane) => {
   try {
     return execFileSync(TMUX, ['capture-pane', '-p', '-t', pane], { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
@@ -124,6 +134,8 @@ try {
   await page.getByRole('tablist', { name: 'Compare by' }).waitFor({ timeout: 20_000 });
   runId = (await api('/api/arena/runs')).body?.runs?.[0]?.runId ?? null;
   if (!runId) throw new Error('no run was listed after starting one');
+  // The run is in the address, so a reload comes back to it rather than to the form.
+  if (new URL(page.url()).searchParams.get('run') !== runId) problems.push(`the address does not name the run: ${page.url()}`);
   const run = (await api(`/api/arena/runs/${runId}`)).body;
   if (run?.mode !== 'terminals') problems.push(`the run was made in mode ${run?.mode}`);
   if (run?.prompt !== '') problems.push(`lanes opened without a prompt carry one: "${run?.prompt}"`);
@@ -177,6 +189,13 @@ try {
   await page.waitForTimeout(2000);
   await oneTerminalPerLane(page, problems, 'while waiting for the prompt');
   await sessionViewPerLane(page, problems, 'while waiting for the prompt');
+  await composersOnScreen(page, problems, 'while waiting for the prompt');
+  await page.reload();
+  await page.getByRole('tablist', { name: 'Compare by' }).waitFor({ timeout: 20_000 })
+    .catch(() => problems.push('a reload did not come back to the run'));
+  await page.waitForTimeout(3000);
+  await oneTerminalPerLane(page, problems, 'after a reload');
+  await sessionViewPerLane(page, problems, 'after a reload');
   await page.screenshot({ path: join(shots, 'arena-terminals-ready.png') });
   for (const [index, source] of LINEUP.entries()) {
     await page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` })

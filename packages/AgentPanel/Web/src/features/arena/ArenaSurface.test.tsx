@@ -6,7 +6,11 @@ import type { AgentHttpTransport, TransportResponse } from "@/features/activity-
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // The surface keeps its run in the address, which outlives a test the way it outlives a reload.
+  window.history.replaceState(null, "", "/");
+});
 
 // The diff viewer measures text on a canvas, which jsdom does not have; the same stub the app's
 // own tests use. What is pinned here is which lane a diff lands in, not how the viewer draws it.
@@ -153,6 +157,22 @@ describe("ArenaSurface", () => {
     // The stream is the whole reason the tab needs no refresh: a run closes under the reader.
     push.send?.(JSON.stringify({ type: "runs", runs: [run({ prompt: "the streamed prompt" })] }));
     await screen.findByText("the streamed prompt");
+  });
+
+  test("a run named in the address opens on mount, the way a reload finds it", async () => {
+    window.history.replaceState(null, "", `/?entry=arena&run=${run().runId}`);
+    mount(harness({ runs: [run()], detail: run() }).transport);
+    expect(await screen.findByRole("article", { name: "Arena run" })).toBeTruthy();
+    expect(screen.queryByText("That run is no longer listed.")).toBeNull();
+  });
+
+  test("choosing a run puts it in the address, and the new-run form takes it out", async () => {
+    window.history.replaceState(null, "", "/?entry=arena");
+    mount(harness({ runs: [run()], detail: run() }).transport);
+    await openRun("say one word");
+    expect(window.location.search).toBe(`?entry=arena&run=${run().runId}`);
+    screen.getByRole("button", { name: /New run/ }).click();
+    await waitFor(() => expect(window.location.search).toBe("?entry=arena"));
   });
 
   test("each lane carries the same fact rows, in the same order, over its own contestant", async () => {

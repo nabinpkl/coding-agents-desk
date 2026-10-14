@@ -77,7 +77,13 @@ export function ArenaRunView({
   ];
 
   return (
-    <article aria-label="Arena run" className="flex min-h-full flex-col">
+    // The sessions view is exactly the column's height, so its lanes take what the header leaves
+    // and each composer sits on screen with the feed above it absorbing the difference; below a
+    // height where a lane would be too short to work in, the column scrolls instead.
+    <article
+      aria-label="Arena run"
+      className={`flex flex-col ${view === "sessions" ? "h-full min-h-[44rem]" : "min-h-full"}`}
+    >
       <header className="flex flex-col gap-3 border-b border-border px-5 pt-5 pb-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
@@ -284,15 +290,15 @@ function LaneGrid({ lanes, tall, children }: { lanes: number; tall: boolean; chi
     };
   }, [lanes]);
   return (
-    <div className="relative">
-      <div ref={scroller} className="overflow-x-auto">
+    <div className={`relative ${tall ? "min-h-0 flex-1" : ""}`}>
+      <div ref={scroller} className={`overflow-x-auto ${tall ? "h-full" : ""}`}>
         <div
-          className="grid min-w-full gap-x-px bg-border"
+          className={`grid min-w-full gap-x-px bg-border ${tall ? "h-full" : ""}`}
           style={{
             gridTemplateColumns: `repeat(${lanes}, minmax(min(22rem, 86vw), 1fr))`,
-            // A session lane is a whole session -- transcript and composer -- so it gets most of
-            // a screen rather than whatever is left under the facts.
-            gridTemplateRows: tall ? "auto max(32rem, calc(100dvh - 11rem))" : "auto auto",
+            // A session lane is a whole session -- transcript and composer -- and gets all the
+            // height under the facts, whatever the header above took.
+            gridTemplateRows: tall ? "auto minmax(0, 1fr)" : "auto auto",
           }}
         >
           {children}

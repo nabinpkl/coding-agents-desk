@@ -38,8 +38,14 @@ function chooseView(name) {
 }
 
 export default async function ({ page, sweep }) {
-  await page.goto(`${ORIGIN}/?entry=arena`);
-  await page.waitFor(`document.querySelector('nav[aria-label="Arena runs"] li')`, { timeout: 20000 });
+  // A fresh load of the tab: the switcher pass presses every control on the page after a state,
+  // the app's own header included, and an overlay one of those opens would otherwise sit over the
+  // next state and be judged as part of it.
+  const fresh = async () => {
+    await page.goto(`${ORIGIN}/?entry=arena`);
+    await page.waitFor(`document.querySelector('nav[aria-label="Arena runs"] li')`, { timeout: 20000 });
+  };
+  await fresh();
   await sweep('composer, default lineup');
 
   await sweep('composer, four lanes and a long draft', {
@@ -61,6 +67,7 @@ export default async function ({ page, sweep }) {
     // that renders a session, and is left out of this state's judgment.
     ignore: '.absolute.inset-x-0.top-0.z-20',
     setup: async () => {
+      await fresh();
       await page.waitFor(openRun('Read README.md'), { timeout: 10000 });
       await page.sleep(2500);
     },
@@ -68,6 +75,7 @@ export default async function ({ page, sweep }) {
 
   await sweep('three-lane run, files', {
     setup: async () => {
+      await fresh();
       await page.waitFor(openRun('Read README.md'), { timeout: 10000 });
       await page.evaluate(chooseView('Files'));
       await page.settle();
@@ -76,6 +84,7 @@ export default async function ({ page, sweep }) {
 
   await sweep('three-lane run, diffs', {
     setup: async () => {
+      await fresh();
       await page.waitFor(openRun('Read README.md'), { timeout: 10000 });
       await page.evaluate(chooseView('Diffs'));
       await page.sleep(1200);
@@ -89,7 +98,20 @@ export default async function ({ page, sweep }) {
     // inside it is the harness's screen, not this page's layout.
     ignore: '.absolute.inset-x-0.top-0.z-20, .xterm',
     setup: async () => {
+      await fresh();
       await page.waitFor(openRun('Reply with exactly'), { timeout: 10000 });
+      await page.evaluate(chooseView('Sessions'));
+      await page.sleep(3000);
+    },
+  });
+
+  // Seed: any Terminals-mode run with its lanes open and no prompt yet. The lanes take the height
+  // under the header, so each composer and its pane sit on screen with the empty feed above them.
+  await sweep('terminals run waiting for its prompt, sessions', {
+    ignore: '.xterm',
+    setup: async () => {
+      await fresh();
+      await page.waitFor(openRun('Waiting for a prompt'), { timeout: 10000 });
       await page.evaluate(chooseView('Sessions'));
       await page.sleep(3000);
     },
@@ -97,6 +119,7 @@ export default async function ({ page, sweep }) {
 
   await sweep('one-lane failed run, sessions', {
     setup: async () => {
+      await fresh();
       await page.waitFor(openRun('Volume run 1'), { timeout: 10000 });
       await page.evaluate(chooseView('Sessions'));
       await page.sleep(1500);

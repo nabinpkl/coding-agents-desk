@@ -33,6 +33,7 @@ import { ArenaNewRun, EMPTY_DRAFT, type ArenaDraft } from "@/features/arena/Aren
 import { ArenaRunRail } from "@/features/arena/ArenaRunRail";
 import { ArenaRunView, type ArenaView } from "@/features/arena/ArenaRunView";
 import { isLive, useNow } from "@/features/arena/arenaVocabulary";
+import { addressWithRun, runInAddress } from "@/features/arena/arenaAddress";
 
 export function ArenaSurface({
   transport,
@@ -45,8 +46,27 @@ export function ArenaSurface({
   host: HostActionsClient;
 }) {
   const [runs, setRuns] = useState<ArenaRunSummary[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [composing, setComposing] = useState(true);
+  // The run on screen, or null for the new-run form. Read from the address and written back to
+  // it, so a reload or a shared link opens the same run.
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(() => runInAddress(window.location.search));
+  const composing = selectedRunId === null;
+  // Each run its own entry in the history, so back and forward move between runs. A removed run's
+  // entry is replaced instead: going back to it would only say it is gone.
+  const showRun = useCallback((runId: string | null, { replace = false } = {}) => {
+    setSelectedRunId(runId);
+    const next = addressWithRun(window.location.href, runId);
+    if (next === window.location.href) return;
+    if (replace) window.history.replaceState(null, "", next);
+    else window.history.pushState(null, "", next);
+  }, []);
+  useEffect(() => {
+    const follow = () => setSelectedRunId(runInAddress(window.location.search));
+    window.addEventListener("popstate", follow);
+    return () => window.removeEventListener("popstate", follow);
+  }, []);
+  // Whether the sidecar has said which runs there are yet: until then a run named by the address
+  // is not missing, only not read.
+  const [runsRead, setRunsRead] = useState(false);
   const [detail, setDetail] = useState<ArenaRunDetail | null>(null);
   const [view, setView] = useState<ArenaView>("sessions");
   // Held here rather than in the composer, so moving to a run and back keeps what was typed;
@@ -65,7 +85,10 @@ export function ArenaSurface({
     const off = transport.subscribe(STREAM_PATH, {
       onMessage: (payload) => {
         const frame = parseRunsStreamFrame(payload);
-        if (frame) setRuns(frame);
+        if (frame) {
+          setRuns(frame);
+          setRunsRead(true);
+        }
       },
       // A dropped stream is EventSource's to reconnect, and the one-shot fetch below re-reads
       // the list on any later remount -- so there is nothing here to say to a reader.
@@ -94,6 +117,7 @@ export function ArenaSurface({
   useEffect(() => {
     void fetchArenaRuns(transport).then((held) => {
       setRuns((current) => (current.length > 0 ? current : held));
+      setRunsRead(true);
     });
   }, [transport]);
 
@@ -143,13 +167,12 @@ export function ArenaSurface({
       setRuns((current) =>
         current.some((run) => run.runId === answer.run.runId) ? current : [answer.run, ...current],
       );
-      setSelectedRunId(answer.run.runId);
-      setComposing(false);
+      showRun(answer.run.runId);
       setView("sessions");
       return;
     }
     setProblem(answer.message);
-  }, [transport, draft]);
+  }, [transport, draft, showRun]);
 
   const sendPrompt = useCallback(async (prompt: string): Promise<string | null> => {
     if (!selectedRunId) return "no run is selected";
@@ -169,9 +192,8 @@ export function ArenaSurface({
       setProblem(answer.message);
       return;
     }
-    setSelectedRunId(null);
-    setComposing(true);
-  }, [transport, selectedRunId]);
+    showRun(null, { replace: true });
+  }, [transport, selectedRunId, showRun]);
 
   // What a lane's `SessionView` needs from its surface, built from this tab's own machine. Mode
   // and cache hits are the reader's toggles across every lane at once: a comparison read raw in
@@ -202,10 +224,9 @@ export function ArenaSurface({
   );
 
   const selectRun = useCallback((runId: string) => {
-    setSelectedRunId(runId);
-    setComposing(false);
+    showRun(runId);
     setProblem(null);
-  }, []);
+  }, [showRun]);
 
   return (
     <div data-arena-surface className="@container flex h-full min-h-0 bg-background text-foreground">
@@ -218,13 +239,13 @@ export function ArenaSurface({
             now={now}
             onSelect={selectRun}
             onCompose={() => {
-              setComposing(true);
+              showRun(null);
               setProblem(null);
             }}
           />
         </aside>
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {composing || !selectedRunId ? (
+          {selectedRunId === null ? (
             <ArenaNewRun
               draft={draft}
               onDraft={setDraft}
@@ -248,11 +269,11 @@ export function ArenaSurface({
               onDelete={() => void tearDown()}
               onSendPrompt={sendPrompt}
             />
-          ) : (
+          ) : runsRead ? (
             <p className="px-5 py-8 text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">
               That run is no longer listed.
             </p>
-          )}
+          ) : null}
         </main>
       </div>
     </div>
