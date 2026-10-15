@@ -49,6 +49,11 @@ export class BotViewer {
     onError?: (error: unknown) => void,
     options: BotSubscribeOptions = {},
   ): Promise<() => void> {
+    // Before listening as well as inside `snapshot()`: a change heard while the catalog is unread
+    // queues an emit that would land ahead of the initial snapshot, handing the subscriber the
+    // same view twice in an order decided by timing. The initial snapshot below is read after
+    // this, so nothing that happened while waiting is missed.
+    await this.catalog.ready();
     const onChange = options.onChange ?? "store";
     let closed = false;
     let tail: Promise<void> = Promise.resolve();
