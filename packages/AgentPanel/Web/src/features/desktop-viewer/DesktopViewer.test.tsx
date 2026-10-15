@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
-import { desktopDocumentFallbackHeight, DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
+import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import type { DesktopControlEvent, DesktopControlInput } from "@agentdesk/agent-feed-wire";
 import { stubDeckLayout } from "@/features/desktop-viewer/keyboard-deck/keyboardDeckTestLayout";
 
@@ -321,12 +321,6 @@ describe("DesktopViewer", () => {
     fireEvent.click(within(chrome).getByRole("button", { name: "Hide" }));
     expect(chrome).not.toBeInTheDocument();
     expect(capture).toBeInTheDocument();
-  });
-
-  it("recovers a zero-height WebKit viewport from the physical CSS screen", () => {
-    expect(desktopDocumentFallbackHeight(0, 956)).toBe(956);
-    expect(desktopDocumentFallbackHeight(844, 956)).toBeNull();
-    expect(desktopDocumentFallbackHeight(0, 0)).toBeNull();
   });
 
   it("gets source metadata from WebRTC without a display bootstrap request", async () => {

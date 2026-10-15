@@ -15,7 +15,6 @@ function snapshot(id: string, revision = 1): DesktopNavigationState {
 vi.mock("@/features/desktop-viewer/DesktopViewerSurface", async () => {
   const React = await import("react");
   return {
-    desktopDocumentFallbackHeight: () => null,
     DesktopViewerSurface: (props: SurfaceProps) => {
       const id = props.displayId ?? "A";
       harness.surfaces.set(id, props);

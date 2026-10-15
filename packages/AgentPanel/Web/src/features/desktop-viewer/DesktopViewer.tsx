@@ -9,11 +9,7 @@ import { DesktopNavigationChrome } from "@/features/desktop-viewer/navigation/De
 import { useDesktopNavigation } from "@/features/desktop-viewer/navigation/useDesktopNavigation";
 import { postTileTelemetry, type DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
-
-export function desktopDocumentFallbackHeight(viewportHeight: number, screenHeight: number): number | null {
-  if (viewportHeight > 0 || !Number.isFinite(screenHeight) || screenHeight <= 0) return null;
-  return Math.round(screenHeight);
-}
+import { desktopDocumentFallbackHeight } from "@/features/desktop-viewer/desktopDocumentHeight";
 
 /**
  * Which monitor this session was last looking at, remembered per session because display ids belong
