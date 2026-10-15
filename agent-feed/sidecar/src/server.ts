@@ -94,6 +94,7 @@ import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
 import { renameClaudeSession } from "@/transcripts/session-ops/renameSession";
 import { AgentTerminalService } from "@/terminal/agentTerminalService";
+import { userShellPath } from "@/terminal/userShellPath";
 import { sourceVersion } from "@/sourceVersion";
 
 /**
@@ -142,6 +143,8 @@ const botCatalog: BotRegistryCatalog = {
   },
 };
 const botRegistry = new BotRegistry(botStore, botCatalog);
+// Asked now rather than at the first launch, which would otherwise wait on the user's ~/.zshrc.
+void userShellPath();
 const agentTerminals = new AgentTerminalService(
   config.ptyManagerSocketPath,
   (source, sessionId) => {

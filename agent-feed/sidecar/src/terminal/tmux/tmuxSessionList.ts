@@ -6,6 +6,7 @@
 
 import type { TmuxPaneSummary, TmuxSessionSummary, TmuxWindowSummary } from "@agentdesk/agent-feed-wire";
 import { noServerRunning, noSuchSession, TmuxUnavailable, tmux } from "@/terminal/tmux/tmuxCommand";
+import { userShellPath } from "@/terminal/userShellPath";
 
 /**
  * One line per session, fields in the order this format string names them.
@@ -151,9 +152,11 @@ export async function renameTmuxSessionTo(session: string, name: string): Promis
  * path does: tmux hands a shell-command to `/bin/sh -c`, and this process's environment is
  * deliberately stripped of the PATH that would find `claude`. It is built here as one string, from
  * a fixed executable name and an argument this module's callers have already validated as a UUID.
+ * `path` is the interactive shell's PATH (`userShellPath`), which the login shell alone misses.
  */
 export function newSessionArgs(
   { session, cwd, command, columns, rows }: NewTmuxSession,
+  path?: string,
 ): string[] {
   return [
     // `-A` for the race: two viewers of one session can both find it missing, and without this the
@@ -161,7 +164,7 @@ export function newSessionArgs(
     // no-op that exits 0, and the caller's own existence check stays as the ordinary path.
     "new-session", "-A", "-d", "-s", session, "-c", cwd,
     "-x", String(columns), "-y", String(rows),
-    paneShellCommand(command),
+    paneShellCommand(command, path),
   ];
 }
 
@@ -177,9 +180,14 @@ export function newSessionArgs(
  * joined. It went unnoticed while every argument was a bare token; the first title passed to `-n`
  * broke it, because zsh reads the `(fork 1)` in `Session (fork 1)` as a glob qualifier and answers
  * "invalid mode specification" instead of running anything.
+ *
+ * PATH is set inside the script rather than on the pane's environment, so it holds after the login
+ * profile has run: a profile that sets or reorders PATH (macOS's path_helper does) would otherwise
+ * win, and the command would again miss what only ~/.zshrc adds.
  */
-function paneShellCommand(command: readonly string[]): string {
-  const script = `${command.map(shellQuote).join(" ")}; exec ${LOGIN_SHELL} -l`;
+function paneShellCommand(command: readonly string[], path: string | undefined): string {
+  const run = command.map(shellQuote).join(" ");
+  const script = `${path ? `export PATH=${shellQuote(path)}; ` : ""}${run}; exec ${LOGIN_SHELL} -l`;
   return `${LOGIN_SHELL} -l -c ${shellQuote(script)}`;
 }
 
@@ -211,12 +219,12 @@ export async function tmuxPaneStarts(session: string): Promise<{ pane: string; c
  * attached to it keeps streaming and sees the new process start where the old one stopped. Takes a
  * pane id (`%N`) rather than a session, so it cannot land on whichever pane happens to be active.
  */
-export function respawnPaneArgs(pane: string, cwd: string, command: readonly string[]): string[] {
-  return ["respawn-pane", "-k", "-t", pane, "-c", cwd, paneShellCommand(command)];
+export function respawnPaneArgs(pane: string, cwd: string, command: readonly string[], path?: string): string[] {
+  return ["respawn-pane", "-k", "-t", pane, "-c", cwd, paneShellCommand(command, path)];
 }
 
 export async function respawnTmuxPane(pane: string, cwd: string, command: readonly string[]): Promise<void> {
-  const { out, err, code } = await tmux(respawnPaneArgs(pane, cwd, command));
+  const { out, err, code } = await tmux(respawnPaneArgs(pane, cwd, command, await userShellPath()));
   if (code !== 0) throw new TmuxUnavailable(`tmux respawn-pane exited ${code}: ${err.trim() || out.trim()}`);
 }
 
@@ -273,7 +281,7 @@ export async function reviveExitedPane(
 }
 
 export async function createTmuxSession(options: NewTmuxSession): Promise<void> {
-  const { err, code } = await tmux(newSessionArgs(options));
+  const { err, code } = await tmux(newSessionArgs(options, await userShellPath()));
   if (code !== 0) {
     throw new TmuxUnavailable(`tmux new-session exited ${code}: ${err.trim()}`);
   }

@@ -10,6 +10,7 @@ import {
   renameSessionArgs,
   setSessionIdentityArgs,
   newSessionArgs,
+  respawnPaneArgs,
   paneDescriptionArgs,
   paneGeometryArgs,
   parsePaneDescription,
@@ -308,6 +309,21 @@ test("an argument survives the two shells it is flattened through, whatever is i
     .toEqual({ out: "Canvas session (fork 1)", code: 0 });
   expect(argvFrom(["/bin/echo", "-n", "it's a $HOME; `boom`"]))
     .toEqual({ out: "it's a $HOME; `boom`", code: 0 });
+});
+
+test("a pane's command runs on the interactive shell's PATH, set after the login profile", () => {
+  // A login shell that is not interactive never reads ~/.zshrc, so what only that file puts on
+  // PATH -- bun's own install dir, on the Oracle peer -- was missing from every launched session.
+  // Set inside the script, so a profile that reorders PATH (macOS's path_helper) cannot undo it.
+  const path = "/opt/only in zshrc/bin:/usr/bin:/bin";
+  const script = newSessionArgs(
+    { session: "s", cwd: "/tmp", command: ["/bin/sh", "-c", 'printf %s "$PATH"'], columns: 80, rows: 24 },
+    path,
+  ).at(-1)!;
+  const spawned = Bun.spawnSync(["/bin/sh", "-c", script.replace("; exec /bin/zsh -l", "")]);
+  expect(new TextDecoder().decode(spawned.stdout)).toBe(path);
+  expect(respawnPaneArgs("%7", "/tmp", ["claude"], path).at(-1)).toContain("export PATH=");
+  expect(respawnPaneArgs("%7", "/tmp", ["claude"]).at(-1)).not.toContain("PATH");
 });
 
 test("waits until a pane stops changing, then attaches", async () => {

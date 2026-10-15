@@ -16,6 +16,7 @@ import type { PtySessionSummary } from "@/terminal/pty/ptyProtocol";
 import { AgentTerminalConflictError, AgentTerminalUnavailableError } from "@/terminal/agentTerminalErrors";
 import type { TerminalIdentity } from "@/terminal/agentTerminalIdentity";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
+import { userShellPath } from "@/terminal/userShellPath";
 
 export interface AgentTerminalPtyClient {
   listSessions(): Promise<PtySessionSummary[]>;
@@ -200,12 +201,7 @@ export async function connectPtyTerminal(
       launch: {
         cwd: identity.cwd,
         executable: "/bin/zsh",
-        // Through a login shell, so a command is found on the user's own PATH rather than the
-        // sidecar's, which is deliberately stripped of it. With no command it IS the shell: the
-        // pty gives it a tty, which is what makes `-l` interactive.
-        arguments: identity.command.length === 0
-          ? ["-l"]
-          : ["-l", "-c", 'exec "$0" "$@"', ...identity.command],
+        arguments: ptyShellArguments(identity.command, await userShellPath()),
       },
       columns,
       rows,
@@ -226,4 +222,20 @@ export async function connectPtyTerminal(
 
 function isRunning(session: PtySessionSummary): boolean {
   return session.state === "SESSION_STATE_RUNNING" || session.state === 1;
+}
+
+/**
+ * How the PTY's zsh is asked to run a command, or to be the shell itself when there is none.
+ *
+ * Through a login shell, so a command is found on the user's own PATH rather than the sidecar's,
+ * which is deliberately stripped of it -- and with the interactive shell's PATH set over the login
+ * one's when it is known (`userShellPath`), since a login shell that is not interactive never reads
+ * ~/.zshrc. Both values ride as arguments rather than inside the script, so neither needs quoting.
+ * With no command it IS the shell: the pty gives it a tty, which is what makes `-l` interactive and
+ * reads ~/.zshrc by itself.
+ */
+export function ptyShellArguments(command: readonly string[], path: string | undefined): string[] {
+  if (command.length === 0) return ["-l"];
+  if (!path) return ["-l", "-c", 'exec "$0" "$@"', ...command];
+  return ["-l", "-c", 'export PATH="$0"; exec "$@"', path, ...command];
 }
