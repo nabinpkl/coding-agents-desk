@@ -3,13 +3,13 @@
 //
 // The panel renders the literal word "missing" for every reference in `missingSessionRefs`
 // (`BotCanvasCard.tsx`, `BotRosterRow.tsx`), and a reference lands there for one reason: the
-// catalog does not hold the session. A restart is what that most often looks like from here. The
-// bots stream is registered at `server.ts:308` and `startCatalog()` is called at `:314`, so for the
-// whole of startup the stream answers while the catalog holds zero sessions, and every reference on
-// every Bot resolves to nothing. Measured 2026-09-26 on this machine: that window is 416ms at the
-// median, 550ms at p90, 1.6s at the worst, and the sidecar restarted 32 times in the hour -- in
-// bursts 1.4s apart, one restart per save into its own import graph. The other way is a transcript
-// that is gone for good.
+// catalog does not hold the session. That should mean a transcript that is gone for good. It used
+// to mean a restart far more often: the bots stream answers from the moment the sidecar listens,
+// and the catalog's first read of every source finishes a second or more later, so every reference
+// on every Bot resolved to nothing in between. Measured 2026-09-26: 416ms at the median, 1.6s at
+// the worst; 1.3s on 2026-10-15, when it closed every card on a canvas. Since then `BotViewer`
+// waits for `catalogReady()` before resolving anything, so this runs against an unread catalog only
+// in a test that asks for one.
 //
 // There used to be a second reason, and it is gone on purpose. Every pass also asked whether the
 // catalog's directory for the session was still the Bot's, and called the reference missing when
@@ -184,7 +184,8 @@ function noteMissing(outcome: BotSessionOutcome): void {
     source: outcome.ref.source,
     sessionId: outcome.ref.sessionId,
     botPath: outcome.botPath,
-    // Zero of these is the restart window, and it is the one field that says so without inference.
+    // Zero of these would be a view resolved against an unread catalog, which `catalogReady` is
+    // there to prevent; this is the one field that would say so without inference.
     catalogSessions: state.sessions.size,
     catalogState: getWatcherState(),
   }));

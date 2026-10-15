@@ -34,6 +34,13 @@ export class BotViewer {
   ) {}
 
   async snapshot(): Promise<BotSnapshot> {
+    // Never against a catalog that has not been read yet. A sidecar answers from the moment it
+    // listens, more than a second before its first read of every source finishes, and a view
+    // resolved in between calls every session on every Bot missing: a restart then closed every
+    // card on every canvas attached to it, which reopened a moment later with nothing they held.
+    // Before the store is read, so the records published are the ones current when it is ready.
+    // This covers the one-off snapshot, the stream's first answer and every emit queued behind it.
+    await this.catalog.ready();
     return this.view(await this.store.snapshot());
   }
 
@@ -100,6 +107,7 @@ export class BotViewer {
    * snapshot. A line from here would report every other Bot's still-missing reference as resolved.
    */
   async viewRecord(record: BotRecord): Promise<BotView> {
+    await this.catalog.ready();
     const snapshot = await this.store.snapshot();
     return (await this.resolveRecord(record, nextAnchor(spentAnchors(snapshot.bots)))).view;
   }

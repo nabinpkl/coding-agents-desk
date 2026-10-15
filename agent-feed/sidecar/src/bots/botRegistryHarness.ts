@@ -37,6 +37,11 @@ export function botRegistryHarness() {
   const sessions = new Map<string, ResolvedBotSession>();
   const listeners = new Set<() => void>();
   /**
+   * What the catalog's readiness is waiting on. Already settled, which is every test but the ones
+   * about a restart: those call `startingCatalog` and release it when the catalog has been read.
+   */
+  let catalogStarted: Promise<void> = Promise.resolve();
+  /**
    * Which sessions have a pane, and what it is called.
    *
    * A test opts a session into being "running" by putting it here; anything absent answers null
@@ -76,6 +81,9 @@ export function botRegistryHarness() {
         listeners.delete(listener);
       };
     },
+    ready() {
+      return catalogStarted;
+    },
   };
 
   afterEach(async () => {
@@ -85,6 +93,7 @@ export function botRegistryHarness() {
     projects.clear();
     sessions.clear();
     listeners.clear();
+    catalogStarted = Promise.resolve();
     runningPanes.clear();
     endedPanes.length = 0;
     rewound.length = 0;
@@ -235,6 +244,18 @@ export function botRegistryHarness() {
 
 
   /**
+   * Puts the catalog back where a sidecar that has just started has it: answering, but not yet
+   * read. Returns what marks it read.
+   */
+  function startingCatalog(): () => void {
+    let release: () => void = () => {};
+    catalogStarted = new Promise((resolve) => {
+      release = resolve;
+    });
+    return release;
+  }
+
+  /**
    * Fires a catalog event, the way ordinary session churn does: a session's state or token count
    * changing, with no Bot touched. Exposed because a subscriber that cannot tell this apart from a
    * real change republishes on every one of them, and nothing else in the suite can produce one.
@@ -258,6 +279,7 @@ export function botRegistryHarness() {
     rewound,
     runningPanes,
     sessions,
+    startingCatalog,
     summary,
     temporaryDirectories,
   };

@@ -22,6 +22,8 @@ export interface BotRegistryCatalog {
   resolveProject(path: string): { projectPath: string } | undefined;
   resolveSession(ref: BotSessionRef): ResolvedBotSession | undefined;
   subscribe(listener: () => void): () => void;
+  /** Settles once the catalog has read every source; until then a session it lacks is unread, not gone. */
+  ready(): Promise<void>;
 }
 
 export class BotInvalidError extends Error {}

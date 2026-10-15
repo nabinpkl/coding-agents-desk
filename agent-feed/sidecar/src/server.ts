@@ -63,6 +63,7 @@ import {
   summarizeSession,
   subscribeCatalog,
   startCatalog,
+  catalogReady,
   stopCatalog,
   registerPiSession,
   resolvePiSession,
@@ -141,6 +142,7 @@ const botCatalog: BotRegistryCatalog = {
   subscribe(listener) {
     return subscribeCatalog(() => listener());
   },
+  ready: catalogReady,
 };
 const botRegistry = new BotRegistry(botStore, botCatalog);
 // Asked now rather than at the first launch, which would otherwise wait on the user's ~/.zshrc.

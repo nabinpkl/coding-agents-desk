@@ -13,7 +13,7 @@
 import { expect, test } from "bun:test";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
-const { addBot, addSessions, fixture, notifyCatalog, sessions, summary } = botRegistryHarness();
+const { addBot, addSessions, fixture, notifyCatalog, sessions, startingCatalog, summary } = botRegistryHarness();
 
 /** The emit is queued on a promise chain and reads the store, so it lands a tick or two later. */
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 10));
@@ -108,6 +108,38 @@ async function aBotHoldingAResolvableReference() {
   );
   return world;
 }
+
+// A restart, played out: the sidecar is answering and its catalog has not been read. Before, the
+// stream's first answer resolved against that and said every session on every Bot was missing, so
+// every canvas closed every card and reopened them a moment later with nothing they had held.
+test("nothing is said about a Bot until the catalog has been read, and then it is whole", async () => {
+  const { registry } = await aBotHoldingAResolvableReference();
+  const held = sessions.get("pi:session-1")!;
+  sessions.delete("pi:session-1");
+  const read = startingCatalog();
+
+  const drawn: { sessions: number; missing: number }[] = [];
+  const subscribed = registry.subscribe(
+    (snapshot) => drawn.push({
+      sessions: snapshot.bots[0]!.sessions.length,
+      missing: snapshot.bots[0]!.missingSessionRefs.length,
+    }),
+    undefined,
+    { onChange: "view" },
+  );
+  const asked = registry.snapshot();
+  notifyCatalog();
+  await settle();
+  expect(drawn).toEqual([]);
+
+  sessions.set("pi:session-1", held);
+  read();
+  const stop = await subscribed;
+  await settle();
+  expect(drawn).toEqual([{ sessions: 1, missing: 0 }]);
+  expect((await asked).bots[0]!.missingSessionRefs).toEqual([]);
+  stop();
+});
 
 test('a subscriber drawing the view is told when a reference stops resolving', async () => {
   const { registry } = await aBotHoldingAResolvableReference();

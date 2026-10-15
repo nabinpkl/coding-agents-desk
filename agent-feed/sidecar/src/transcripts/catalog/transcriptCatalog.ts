@@ -195,12 +195,41 @@ function reconcileAllSources(): Promise<void[]> {
   ]);
 }
 
+/**
+ * Settles once the first start has read every source, and never moves again.
+ *
+ * What a reader waits on before it treats an absent session as absent. The sidecar answers requests
+ * from the moment it listens, and the first read of every source takes over a second (1.3s on
+ * 2026-10-15), so until then the catalog is not small, it is unread: a Bot resolved against it
+ * comes back with every session missing, and a canvas told that closes every card it has. Settled
+ * by the first start only, because every later reconcile runs against a catalog that is already
+ * whole. It rejects when that start throws, so a reader fails rather than waiting forever.
+ */
+let markCatalogReady: () => void = () => {};
+let markCatalogFailed: (error: unknown) => void = () => {};
+const catalogReadiness = new Promise<void>((resolve, reject) => {
+  markCatalogReady = resolve;
+  markCatalogFailed = reject;
+});
+// Handled here as well as by every reader: `startCatalog` rethrows the same error to its own
+// caller, so a start that fails before anyone has waited is reported there and not twice.
+catalogReadiness.catch(() => {});
+
+export function catalogReady(): Promise<void> {
+  return catalogReadiness;
+}
+
 export async function startCatalog(): Promise<void> {
   if (state.sourceWatchers.length > 0 || state.watcherState !== "idle") return;
   const startedAt = performance.now();
   state.watcherState = "reconciling";
-  await reconcileAllSources();
-  attachSourceWatchers();
+  try {
+    await reconcileAllSources();
+    attachSourceWatchers();
+  } catch (error) {
+    markCatalogFailed(error);
+    throw error;
+  }
   state.discoveryTimer = setInterval(() => {
     void reconcileAllSources()
       .then(broadcast)
@@ -213,6 +242,7 @@ export async function startCatalog(): Promise<void> {
     sessions: state.sessions.size,
     projects: projectSummaries().length,
   }));
+  markCatalogReady();
 }
 
 export async function stopCatalog(): Promise<void> {
