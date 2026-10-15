@@ -12,6 +12,7 @@
 // directory that is least about a card.
 
 import { Bot, LoaderCircle, Plus } from "lucide-react";
+import type { MachineError } from "@/features/bots/useBots";
 
 export function CanvasNotice({ children }: { children: React.ReactNode }) {
   return (
@@ -119,9 +120,10 @@ export function CanvasNotices({
    *
    * Said rather than swallowed: a declared peer that is unreachable looks exactly like a peer with
    * no Bots on it, so an empty strip where a machine's cards used to be is the one failure on this
-   * surface that reports itself as success.
+   * surface that reports itself as success. One whose last snapshot is still drawn is said to be
+   * reconnecting instead, because its cards are on the canvas and saying otherwise is untrue.
    */
-  machineErrors: readonly { label: string; reason: string }[];
+  machineErrors: readonly MachineError[];
   /** Bots on the canvas at all, hidden machines included. */
   onCanvas: number;
   /** Of those, the ones the strip is actually drawing. */
@@ -131,11 +133,15 @@ export function CanvasNotices({
 }) {
   return (
     <>
-      {machineErrors.map(({ label, reason }) => (
-        <Band key={label}>
-          {label} is not answering, so its Bots are not on the canvas: {reason}
-        </Band>
-      ))}
+      {machineErrors.map(({ label, reason, held }) =>
+        held ? (
+          <Band key={label}>Reconnecting to {label}. Its Bots are shown as they last were.</Band>
+        ) : (
+          <Band key={label}>
+            {label} is not answering, so its Bots are not on the canvas: {reason}
+          </Band>
+        ),
+      )}
       {/* A canvas emptied by the machine chips rather than by having no Bots. Without this the
           strip is simply blank, and the two look identical to a reader who has forgotten pressing
           one. */}

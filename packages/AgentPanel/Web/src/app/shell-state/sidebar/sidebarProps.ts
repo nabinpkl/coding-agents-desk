@@ -145,6 +145,7 @@ export function sidebarProps({
       onGroupedChange: chrome.changeCanvasSessionsGrouped,
       recent: inventory.recent,
       onShowMore: inventory.showMoreRecent,
+      reconnecting: inventory.reconnecting,
       reviews: {
         open: inventory.recentReviewsOpen,
         onToggle: inventory.toggleRecentReviews,

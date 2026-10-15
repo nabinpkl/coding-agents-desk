@@ -112,10 +112,34 @@ export class SidecarTranscript extends SidecarRoutes {
     const path = timelinePath(session);
     let heardAt = Date.now();
     let compaction: string | null = null;
+    // A failed stream is reopened on a short backoff rather than left to the watchdog below.
+    // `EventSource` retries a dropped connection by itself, but never one the server answered
+    // with an error status, and a sidecar that has just restarted answers 503 until its catalog
+    // has been read: a thread that reconnected inside that second sat dead for the watchdog's
+    // 45 seconds while every row it held stayed on screen looking live. Cleared by an opening
+    // stream, so a reconnect the browser managed on its own is left alone.
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
+    const reopenSoon = (): void => {
+      if (retry !== null) return;
+      const delay = Math.min(1_000 * 2 ** failures, TIMELINE_HEARTBEAT_MS);
+      failures += 1;
+      retry = setTimeout(() => {
+        retry = null;
+        close();
+        heardAt = Date.now();
+        close = open();
+      }, delay);
+    };
     const open = (): (() => void) =>
       this.transport.subscribe(path, {
         onOpen: () => {
           heardAt = Date.now();
+          failures = 0;
+          if (retry !== null) {
+            clearTimeout(retry);
+            retry = null;
+          }
           // An opening stream says afresh whether a compaction is running, so one that ended while
           // the connection was down must not stay on screen.
           if (compaction !== null) {
@@ -136,7 +160,10 @@ export class SidecarTranscript extends SidecarRoutes {
         },
         // An error before the stream ever opened and one after it was running are the same thing
         // to the viewer: the thread is not live and it should say so.
-        onError: () => handlers.onError?.(),
+        onError: () => {
+          handlers.onError?.();
+          reopenSoon();
+        },
       });
     let close = open();
     // A connection that stops delivering without closing raises nothing: `EventSource` reconnects
@@ -159,6 +186,7 @@ export class SidecarTranscript extends SidecarRoutes {
     }, TIMELINE_HEARTBEAT_MS);
     return () => {
       clearInterval(watchdog);
+      if (retry !== null) clearTimeout(retry);
       close();
     };
   }

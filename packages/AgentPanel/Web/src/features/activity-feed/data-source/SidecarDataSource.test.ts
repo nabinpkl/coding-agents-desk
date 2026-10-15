@@ -222,6 +222,59 @@ describe("SidecarDataSource", () => {
       expect(sink.errors).toEqual([]);
     });
 
+    // A sidecar that has just restarted answers 503 until its catalog is read, and `EventSource`
+    // never retries an error status: before this, such a thread waited out the 45s watchdog.
+    it("is reopened a second after the server refuses it, and backs off if it keeps refusing", () => {
+      vi.useFakeTimers();
+      const transport = new FakeHttpTransport();
+      const source = new SidecarDataSource(transport);
+      const sink = handlers();
+      source.subscribeSessionEvents(SESSION, 0, sink);
+      const first = transport.subscriptions[0];
+
+      transport.fail("timeline");
+      vi.advanceTimersByTime(999);
+      expect(transport.subscriptions).toEqual([first]);
+      vi.advanceTimersByTime(1);
+      expect(transport.subscriptions).toHaveLength(1);
+      const second = transport.subscriptions[0];
+      expect(second).not.toBe(first);
+
+      transport.fail("timeline");
+      vi.advanceTimersByTime(1_999);
+      expect(transport.subscriptions).toEqual([second]);
+      vi.advanceTimersByTime(1);
+      expect(transport.subscriptions[0]).not.toBe(second);
+      expect(sink.errors).toEqual(["failed", "failed"]);
+    });
+
+    it("leaves a stream alone that the browser reconnected by itself", () => {
+      vi.useFakeTimers();
+      const transport = new FakeHttpTransport();
+      const source = new SidecarDataSource(transport);
+      source.subscribeSessionEvents(SESSION, 0, handlers());
+      const first = transport.subscriptions[0];
+
+      transport.fail("timeline");
+      transport.open("timeline");
+      vi.advanceTimersByTime(TIMELINE_HEARTBEAT_MS);
+
+      expect(transport.subscriptions).toEqual([first]);
+    });
+
+    it("does not reopen a failed stream after the reader has left", () => {
+      vi.useFakeTimers();
+      const transport = new FakeHttpTransport();
+      const source = new SidecarDataSource(transport);
+      const unsubscribe = source.subscribeSessionEvents(SESSION, 0, handlers());
+
+      transport.fail("timeline");
+      unsubscribe();
+      vi.advanceTimersByTime(TIMELINE_HEARTBEAT_MS);
+
+      expect(transport.subscriptions).toEqual([]);
+    });
+
     it("stops watching when the reader leaves", () => {
       vi.useFakeTimers();
       const transport = new FakeHttpTransport();

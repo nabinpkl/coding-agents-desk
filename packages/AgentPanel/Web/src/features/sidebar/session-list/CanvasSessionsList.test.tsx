@@ -33,6 +33,7 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
     onGroupedChange: () => {},
     recent: null,
     onShowMore: () => {},
+    reconnecting: false,
     reviews: { open: false, onToggle: () => {}, onShowMore: () => {} },
     onNewSession: () => {},
     ...overrides,

@@ -156,7 +156,11 @@ export function useSessionEventsStream(
     projectionId: null,
     snapshotCount: 0,
   });
-  const [connected, setConnected] = useState(false);
+  // A thread that was showing rows and lost its stream. Its rows stay, which is right, and nothing
+  // else on the card changes, which was not: a sidecar restart left every card looking live while
+  // none of them were. Only after a snapshot, because before one the thread has no rows to keep and
+  // `error` says what went wrong instead.
+  const [reconnecting, setReconnecting] = useState(false);
   // Not folded into `state`, because it is the one thing here that is not about events: it is set
   // precisely while none are arriving, and it survives no reconnect -- a stream that opens is told
   // afresh whether the context is being rewritten.
@@ -171,6 +175,7 @@ export function useSessionEventsStream(
     // Cleared on every open, not only on unsubscribe. The stream says afresh whether the context
     // is being rewritten, so a session swapped in behind a compacting one must not inherit it.
     setCompactionSummary(null);
+    setReconnecting(false);
     // Named afresh per open like the compaction notice: a session swapped in behind another
     // must not inherit its model, and a reconnect snapshot re-names it immediately below.
     setState((current) => (current.sessionModel === null ? current : { ...current, sessionModel: null }));
@@ -193,6 +198,7 @@ onEvent: (event) => {
       onSnapshot: (snapshot) => {
         timelineEpochRef.current += 1;
         seeded = true;
+        setReconnecting(false);
         setState((current) => {
           // A live tail can arrive before the first snapshot, so an empty durable map with no
           // identity yet is still the same projection; the snapshot must not throw that row away.
@@ -298,9 +304,9 @@ onEvent: (event) => {
           return { ...current, liveRows, mirroredMessages };
         }),
       onCompacting: setCompactionSummary,
-      onOpen: () => setConnected(true),
+      onOpen: () => setReconnecting(false),
       onError: (message) => {
-        setConnected(false);
+        if (seeded && !cancelled) setReconnecting(true);
         // The snapshot is the only way a thread is seeded, so a stream that fails before sending
         // one is a thread that cannot be read; say why rather than loading forever.
         if (message !== undefined && !seeded && !cancelled) {
@@ -383,7 +389,7 @@ onEvent: (event) => {
     loadAround,
     loading: state.loading,
     error: state.error,
-    connected,
+    reconnecting,
     sequence: state.sequence,
     runState: state.runState,
     queue: state.queue,

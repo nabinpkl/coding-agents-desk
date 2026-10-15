@@ -11,6 +11,7 @@ import {
 } from "@/features/activity-feed/useSessionEventsStream";
 import { liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
 import { CompactingNotice } from "@/features/activity-feed/blocks/CompactingNotice";
+import { ReconnectingNotice } from "@/features/activity-feed/ReconnectingNotice";
 import { useStickToBottom } from "@/features/activity-feed/scroll-position/useStickToBottom";
 import {
   type DisplayItem,
@@ -140,7 +141,7 @@ export function ActivityFeed({
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }) {
   const {
-    events, loadOlder, fillGap, loadAround, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary,
+    events, loadOlder, fillGap, loadAround, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary, reconnecting,
   } = useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
@@ -475,6 +476,7 @@ export function ActivityFeed({
         </div>
       ) : null}
       {compactionSummary !== null ? <CompactingNotice summary={compactionSummary} /> : null}
+      {reconnecting ? <ReconnectingNotice /> : null}
       {!following ? (
         <button
           type="button"

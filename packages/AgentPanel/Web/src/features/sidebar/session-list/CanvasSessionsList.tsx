@@ -22,7 +22,7 @@ import {
   SessionRow,
   type SessionCanvasMove,
 } from "@/features/sidebar/session-list/ProjectSidebarItem";
-import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
+import { SidebarError, SidebarReconnecting, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
 /** What the project list needs whichever list it sits in; the rest is this view's. */
 type ProjectListProps = Omit<
@@ -42,6 +42,8 @@ export interface CanvasSessions {
   recent: RecentSessionsPayload | null;
   /** Asks the stream for the next page of the flat list. */
   onShowMore: () => void;
+  /** The stream dropped after delivering; the list shown is the last one it sent. */
+  reconnecting: boolean;
   /**
    * The flat list's security reviews, held out of it by the sidecar and folded into one row at
    * its bottom. Opening the row is what asks the stream for them, so it is the inventory's state.
@@ -78,6 +80,7 @@ export function CanvasSessionsList({ list, sessions }: { list: ProjectListProps;
           Group by project
         </button>
       </div>
+      {sessions.reconnecting ? <SidebarReconnecting /> : null}
       {sessions.grouped ? (
         <ProjectSessionList
           {...list}

@@ -16,6 +16,7 @@ import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedC
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
+import type { MachineError } from "@/features/bots/useBots";
 
 /**
  * The roster, with as many sessions open in it as the reader has opened.
@@ -77,7 +78,7 @@ export function BotCanvasList({
   machines: readonly { key: string; label: string }[];
   keyOfBot: (botId: string) => string | undefined;
   hiddenMachines: ReadonlySet<string>;
-  machineErrors: readonly { label: string; reason: string }[];
+  machineErrors: readonly MachineError[];
   botError: BotCommandError | null;
   onAddSession: (bot: BotView) => void;
   onForkSession: (bot: BotView, session: SessionSummary) => void;

@@ -6,6 +6,7 @@ import { type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { BotCanvasList } from "@/features/bots/cards/BotCanvasList";
 import type { ComponentProps } from "react";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
+import type { MachineError } from "@/features/bots/useBots";
 
 // Re-exported because this is the canvas's entry point: the app imports the surface and the shape
 // of a failure from one name, and the parts moving out did not move that.
@@ -139,7 +140,7 @@ function CanvasContent({
    * cards used to be is the one failure on this surface that reports itself as success. The canvas
    * that IS working must not be replaced to say it, which is what `error` does.
    */
-  machineErrors: readonly { label: string; reason: string }[];
+  machineErrors: readonly MachineError[];
   /**
    * A failure from editing a Bot, shown on the card of the session it was about.
    *

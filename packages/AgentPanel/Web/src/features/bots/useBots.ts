@@ -12,6 +12,18 @@ function retryDelay(attempt: number): number {
   return Math.min(1_000 * 2 ** attempt, 15_000);
 }
 
+/** A machine whose Bot stream is failing. */
+export interface MachineError {
+  label: string;
+  reason: string;
+  /**
+   * Its last snapshot is still on the canvas. A stream drops on every sidecar restart and its
+   * Bots stay drawn as they were, so the reader is told it is reconnecting -- not that the
+   * machine's Bots are gone, which is what the same failure means before anything arrived.
+   */
+  held: boolean;
+}
+
 export interface BotRosterState {
   /** Every machine's Bots as one roster, in the order `mergeMachineBots` fixes. */
   bots: BotView[];
@@ -42,7 +54,7 @@ export interface BotRosterState {
    * VISIBLE -- it looks exactly like a peer with no Bots on it -- without blanking a canvas that is
    * otherwise fine.
    */
-  machineErrors: { label: string; reason: string }[];
+  machineErrors: MachineError[];
 }
 
 function withoutAbsent<T>(
@@ -163,10 +175,11 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
   const machineErrors = useMemo(
     () =>
       machines.flatMap((machine) => {
-        const reason = errors.get(machineKey(machine));
-        return reason === undefined ? [] : [{ label: machine.label, reason }];
+        const key = machineKey(machine);
+        const reason = errors.get(key);
+        return reason === undefined ? [] : [{ label: machine.label, reason, held: snapshots.has(key) }];
       }),
-    [machines, errors],
+    [machines, errors, snapshots],
   );
 
   return {

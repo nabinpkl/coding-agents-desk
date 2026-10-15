@@ -111,7 +111,10 @@ describe("visibility subscriptions recover from failure", () => {
     const failed = inventorySubscriptions().at(-1);
 
     act(() => void transport.fail("/api/inventory/stream", "agent feed is not ready"));
-    expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
+    // A list that had loaded stays while it reconnects, rather than giving way to an error: a
+    // sidecar restart drops this stream every time and is back within seconds.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Alpha Project")).toBeInTheDocument();
     act(() => void vi.advanceTimersByTime(30_000));
 
     // One open subscription, still, and a different one: the whole inventory reopens

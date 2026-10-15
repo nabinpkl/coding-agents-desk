@@ -95,9 +95,15 @@ export function useProjectInventory(
   // succeeded and re-subscribes, leaving the viewer back on "Loading".
   const [retryNonce, setRetryNonce] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  // The stream dropped after it had delivered, and what it delivered is still on screen. A sidecar
+  // restart drops it every time, and the list used to be swapped for "unavailable" and then
+  // "Loading" and then redrawn, for a stream that was back within seconds; now the list stays and
+  // this says it is not following. An error is for a stream that never delivered at all.
+  const [reconnecting, setReconnecting] = useState(false);
   const consecutiveFailures = useRef(0);
   // Whether this surface has ever been handed an inventory, which is what tells a
-  // reopened stream apart from a first one.
+  // reopened stream apart from a first one. Kept through a failure, so the retry after
+  // one reopens behind the list it already has rather than behind "Loading".
   const deliveredInventory = useRef(false);
 
   useEffect(() => {
@@ -112,8 +118,8 @@ export function useProjectInventory(
     setRetrying(false);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onError = (reason: string) => {
-      deliveredInventory.current = false;
-      setLayerError(reason);
+      if (deliveredInventory.current) setReconnecting(true);
+      else setLayerError(reason);
       setLoadingLayer(false);
       setRetrying(true);
       const delay = retryDelayMs(consecutiveFailures.current);
@@ -122,6 +128,7 @@ export function useProjectInventory(
     };
     const onLoaded = () => {
       deliveredInventory.current = true;
+      setReconnecting(false);
       setLoadingLayer(false);
       setRetrying(false);
       consecutiveFailures.current = 0;
@@ -206,6 +213,7 @@ export function useProjectInventory(
     loadingLayer,
     layerError,
     retrying,
+    reconnecting,
     expandedProjectPaths,
     setExpandedProjectPaths,
     toggleProject,
