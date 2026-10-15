@@ -77,6 +77,20 @@
         }
       }
     </style>
+    <!--
+      Room for every fetch a load makes, before the first one. Browsers keep 250 resource timings
+      and drop the rest, and the dev server's module graph is 487 scripts, so the load traces in
+      the telemetry archive (`features/telemetry/panelTelemetry.ts`) stopped at module 250 and
+      could not say where a slow load's time went: on an iPhone Safari load on 2026-10-14 the
+      first 250 arrived by 1.8s and the page started at 8.1s, with nothing recorded in between.
+
+      Here and not in `main.tsx`, because that runs only after the whole graph has loaded, which
+      is after the entries were dropped. 1000 because the SDK keeps at most 1000 spans per trace,
+      so a larger buffer would hold timings it then throws away.
+    -->
+    <script>
+      performance.setResourceTimingBufferSize?.(1000);
+    </script>
   </head>
   <body>
     <div id="root"></div>
