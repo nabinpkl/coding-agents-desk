@@ -1,0 +1,25 @@
+{
+  // Everything that runs in Node rather than in the page: the dev server's config and its plugins,
+  // and the tests, which Vitest runs in Node under jsdom. Same compiler options as the page's, plus
+  // Node's types; the page's own check (`tsconfig.json`) leaves all of this out.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "src/app/dev-server/**/*.ts",
+    "src/app/testSetup.ts",
+    // The panel's own globals (`import.meta.hot`, `__PANEL_BUILD__`, `?url` imports), which the
+    // code the tests import reads.
+    "src/**/*.d.ts",
+    // Declares the window globals the page's entry reads, which a test of that entry needs.
+    "src/app/main.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*Harness.tsx",
+    "../../../terminal/vendor/xterm/package/typings/xterm.d.ts"
+  ],
+  "exclude": []
+}

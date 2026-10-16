@@ -1,7 +1,13 @@
-// Three things the panel reads from its own bundler, none of which the DOM lib knows about.
+// What the panel reads from its own bundler, none of which the DOM lib knows about.
 //
 // `vite/client` is deliberately not pulled in for these: it declares the whole `import.meta.env`
-// surface and every asset-import module, and this tree uses exactly the three members below.
+// surface and every asset-import module, and this tree uses exactly the members below.
+
+/**
+ * A stylesheet imported for its effect, which Vite injects. TypeScript 7 checks that a side-effect
+ * import resolves to something (`noUncheckedSideEffectImports`), and a `.css` file has no types.
+ */
+declare module "*.css";
 
 /**
  * Which commit the panel's Vite config was loaded at, substituted at transform time.
