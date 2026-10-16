@@ -66,6 +66,14 @@ function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]
   const transport: AgentHttpTransport = {
     async request(method, path, requestOptions): Promise<TransportResponse> {
       if (method === "GET") asked.push(path);
+      if (method === "GET" && path === "/api/agent-sessions/opencode/models") {
+        const model = (providerID: string, modelID: string, name: string) =>
+          ({ providerID, modelID, name, contextLimit: null, inputCost: null, outputCost: null });
+        return {
+          status: 200,
+          body: JSON.stringify({ models: [model("opencode", "big-pickle", "Big Pickle"), model("opencode-go", "kimi-k2", "Kimi K2")] }),
+        };
+      }
       if (method === "GET" && path.startsWith("/api/arena/code/tree")) {
         return { status: 200, body: JSON.stringify({ tree: [] }) };
       }
@@ -346,6 +354,30 @@ describe("ArenaSurface", () => {
     open.click();
     await waitFor(() => expect(posted.length).toBe(1));
     expect(posted[0]).toMatchObject({ contestants: [], manager: "claude", prompt: "" });
+  });
+
+  test("an opencode lane picks its model from the serve's list, and goes back to the default when its harness changes", async () => {
+    const { transport, posted } = harness({ modes: ["terminals", "headless"] });
+    mount(transport);
+    screen.getByRole("button", { name: "Contestant 1 model" }).click();
+    const menu = await screen.findByRole("dialog", { name: "Contestant 1's model" });
+    (await within(menu).findByRole("option", { name: /Kimi K2/ })).click();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Contestant 1's model" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("opencode-go/kimi-k2");
+    await waitFor(() => expect(screen.getByText("Bake-off · 1 OpenCode opencode-go/kimi-k2 vs 1 Claude")).toBeTruthy());
+
+    const harnesses = screen.getByRole("radiogroup", { name: "Contestant 1 harness" });
+    within(harnesses).getByRole("radio", { name: "Claude" }).click();
+    await waitFor(() => expect((screen.getByLabelText("Contestant 1 model") as HTMLInputElement).value).toBe(""));
+    within(harnesses).getByRole("radio", { name: "OpenCode" }).click();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("Default model"));
+
+    screen.getByRole("button", { name: "Contestant 1 model" }).click();
+    (await screen.findByRole("option", { name: /Big Pickle/ })).click();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("opencode/big-pickle"));
+    screen.getByRole("button", { name: /Open lanes/ }).click();
+    await waitFor(() => expect(posted.length).toBe(1));
+    expect((posted[0] as { contestants: unknown[] }).contestants[0]).toEqual({ source: "opencode", model: "opencode/big-pickle" });
   });
 
   test("the manager is Claude unless the reader picks otherwise, and a headless run has none", async () => {

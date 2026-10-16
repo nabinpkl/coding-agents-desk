@@ -20,10 +20,14 @@
 // prompt them, or for a verdict. A run with a manager may start with no lanes at all, for it to
 // add. It lives in a terminal too, so a headless run has none.
 //
-// Each lane may name the model it runs; left empty, the harness's default.
+// Each lane may name the model it runs; left empty, the harness's default. An opencode lane picks
+// from the serve's own list, in the same menu the composer's model switcher opens; a Claude lane
+// takes an alias or a model id as typed.
 
-import { useId, type KeyboardEvent } from "react";
-import { Plus, X } from "lucide-react";
+import { useId, useState, type KeyboardEvent } from "react";
+import { ChevronDown, Plus, X } from "lucide-react";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import type { ArenaContestantSource, ArenaNewRunDefaults, ArenaRunMode } from "@agentdesk/agent-feed-wire";
 import {
   FIELD,
@@ -91,6 +95,7 @@ export function lineupKind(lineup: readonly { source: ArenaContestantSource; mod
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 export function ArenaNewRun({
+  feed,
   draft,
   onDraft,
   defaults,
@@ -98,6 +103,8 @@ export function ArenaNewRun({
   problem,
   onStart,
 }: {
+  /** Where an opencode lane's model list is read from. */
+  feed: SidecarDataSource;
   draft: ArenaDraft;
   onDraft: (next: ArenaDraft) => void;
   /**
@@ -221,24 +228,35 @@ export function ArenaNewRun({
                     type="button"
                     role="radio"
                     aria-checked={source === option}
-                    onClick={() => setLane(index, { source: option })}
+                    // A model is one harness's name for it: another harness would be handed a name it
+                    // does not know, so a lane that changes harness goes back to the default.
+                    onClick={() => setLane(index, option === source ? {} : { source: option, model: "" })}
                     className={`min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm ${FOCUS}`}
                   >
                     {SOURCE_LABEL[option]}
                   </button>
                 ))}
               </div>
-              <input
-                aria-label={`Contestant ${index + 1} model`}
-                value={model}
-                onChange={(event) => setLane(index, { model: event.target.value })}
-                placeholder="Default model"
-                title={source === "opencode" ? "A model as provider/model, or empty for the default" : "A model alias or id, or empty for the default"}
-                spellCheck={false}
-                autoComplete="off"
-                maxLength={200}
-                className={`min-h-8 w-full rounded-md border border-input bg-background px-2 py-1 font-mono ${TEXT.meta} text-foreground placeholder:text-muted-foreground transition-colors focus-visible:border-ring ${FOCUS}`}
-              />
+              {source === "opencode" ? (
+                <OpencodeLaneModel
+                  feed={feed}
+                  lane={index + 1}
+                  model={model}
+                  onModel={(next) => setLane(index, { model: next })}
+                />
+              ) : (
+                <input
+                  aria-label={`Contestant ${index + 1} model`}
+                  value={model}
+                  onChange={(event) => setLane(index, { model: event.target.value })}
+                  placeholder="Default model"
+                  title="A model alias (opus, sonnet, haiku) or id, or empty for the default"
+                  spellCheck={false}
+                  autoComplete="off"
+                  maxLength={200}
+                  className={`${MODEL_CONTROL} placeholder:text-muted-foreground focus-visible:border-ring`}
+                />
+              )}
             </div>
           ))}
           {draft.lineup.length < MAXIMUM_CONTESTANTS ? (
@@ -330,5 +348,61 @@ export function ArenaNewRun({
         </p>
       ) : null}
     </section>
+  );
+}
+
+/** The lane card's model control, the field and the picker's button alike. */
+const MODEL_CONTROL =
+  `min-h-8 w-full rounded-md border border-input bg-background px-2 py-1 font-mono ${TEXT.meta} text-foreground transition-colors ${FOCUS}`;
+
+/**
+ * An opencode lane's model: a button naming it, which opens the serve's model list under it, and
+ * a clear that puts the lane back on the serve's default.
+ */
+function OpencodeLaneModel({ feed, lane, model, onModel }: {
+  feed: SidecarDataSource;
+  lane: number;
+  /** As `providerID/modelID`; empty for the default. */
+  model: string;
+  onModel: (model: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative flex items-center gap-1">
+      <button
+        type="button"
+        aria-label={`Contestant ${lane} model`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={model || "The serve's default model"}
+        onClick={() => setOpen((was) => !was)}
+        className={`${MODEL_CONTROL} flex min-w-0 items-center gap-1 text-left hover:border-ring aria-expanded:border-ring`}
+      >
+        <span className={`min-w-0 flex-1 truncate ${model ? "" : "text-muted-foreground"}`}>{model || "Default model"}</span>
+        <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      </button>
+      {model ? (
+        <button
+          type="button"
+          aria-label={`Contestant ${lane} on the default model`}
+          title="Back to the default model"
+          onClick={() => onModel("")}
+          className={`${ICON_BUTTON} size-8`}
+        >
+          <X aria-hidden className="size-4" />
+        </button>
+      ) : null}
+      {open ? (
+        <OpencodeModelsHost
+          feed={feed}
+          current={model || null}
+          initialFilter=""
+          label={`Contestant ${lane}'s model`}
+          placement="below"
+          onClose={() => setOpen(false)}
+          onSwitch={async (providerID, modelID) => onModel(`${providerID}/${modelID}`)}
+        />
+      ) : null}
+    </div>
   );
 }

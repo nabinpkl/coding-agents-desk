@@ -1,22 +1,35 @@
 import { ChevronDown, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { OpencodeModel } from "@/features/activity-feed/data-source/SidecarAgentSessions";
 
 /**
  * Picking an opencode session's model, with its context window and price beside each entry.
  *
- * An anchored menu inside the composer band, not a modal: it rises from the footer cluster
- * that holds its switcher -- a narrow drop-up over the field and transcript -- and closes on
- * choose, Escape, or a click outside.
+ * An anchored menu, not a modal: in the composer band it rises from the footer cluster that holds
+ * its switcher -- a narrow drop-up over the field and transcript -- and under an arena lane's model
+ * button it drops below it. It closes on choose, Escape, or a click outside.
  * The slash args arrive as the initial filter, so `/models spark` opens already narrowed.
  * Choosing switches through the sidecar; the new model lands on the session event like a
  * rename, which is what moves the meter without a second read.
  */
+/**
+ * Where the menu opens from its anchor: rising from the composer's footer, or dropping below a
+ * control higher on the page, such as an arena lane's model button.
+ */
+export type OpencodeModelsPlacement = "above" | "below";
+
+const PLACEMENT_CLASS: Record<OpencodeModelsPlacement, string> = {
+  above: "bottom-full mb-2 max-w-full",
+  below: "top-full mt-2 max-w-[calc(100vw-2rem)]",
+};
+
 export function OpencodeModelsDialog({
   models,
   current,
   initialFilter,
+  label = "Switch model",
+  placement = "above",
   onClose,
   onSwitch,
 }: {
@@ -26,12 +39,22 @@ export function OpencodeModelsDialog({
   current: string | null;
   /** The slash args the menu was opened with, as its starting filter. */
   initialFilter: string;
+  /** What the menu is for, its accessible name. */
+  label?: string;
+  placement?: OpencodeModelsPlacement;
   onClose: () => void;
   onSwitch: (model: OpencodeModel) => Promise<void>;
 }) {
   const [filter, setFilter] = useState("");
   const [pendingName, setPendingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  // Dropped below a control lower on a page, the menu can open past the screen's bottom edge on a
+  // phone, where nothing says it opened: it brings itself into view, scrolling only as far as that.
+  useEffect(() => {
+    if (models && placement === "below") menu.current?.scrollIntoView?.({ block: "nearest" });
+  }, [models, placement]);
 
   useEffect(() => {
     if (!models) return;
@@ -103,12 +126,13 @@ export function OpencodeModelsDialog({
         }}
       />
       <div
+        ref={menu}
         role="dialog"
-        aria-label="Switch model"
+        aria-label={label}
         onKeyDown={(event) => {
           if (event.key === "Escape" && !pendingName) onClose();
         }}
-        className="absolute bottom-full left-0 z-50 mb-2 flex max-h-80 w-80 max-w-full flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card p-3 text-foreground shadow-2xl"
+        className={`absolute left-0 z-50 ${PLACEMENT_CLASS[placement]} flex max-h-80 w-80 flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card p-3 text-foreground shadow-2xl`}
       >
         <input
           autoFocus
@@ -222,6 +246,8 @@ export function OpencodeModelsHost({
   feed,
   current,
   initialFilter,
+  label,
+  placement,
   onClose,
   onSwitch,
 }: {
@@ -229,6 +255,8 @@ export function OpencodeModelsHost({
   /** The session's current model as `providerID/modelID`, or null while unknown. */
   current: string | null;
   initialFilter: string;
+  label?: string;
+  placement?: OpencodeModelsPlacement;
   onClose: () => void;
   onSwitch: (providerID: string, modelID: string) => Promise<void>;
 }) {
@@ -254,6 +282,8 @@ export function OpencodeModelsHost({
       models={models}
       current={current}
       initialFilter={initialFilter}
+      label={label}
+      placement={placement}
       onClose={onClose}
       onSwitch={async (model) => {
         await onSwitch(model.providerID, model.modelID);

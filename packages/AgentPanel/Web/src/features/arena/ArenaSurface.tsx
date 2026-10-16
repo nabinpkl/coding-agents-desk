@@ -287,6 +287,7 @@ export function ArenaSurface({
         <main ref={main} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {selectedRunId === null ? (
             <ArenaNewRun
+              feed={feed}
               draft={draft}
               onDraft={setDraft}
               defaults={defaults}
