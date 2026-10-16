@@ -5,6 +5,7 @@
 // panel puts in front of the reader and there is one place to read it. Every value comes from
 // above -- nothing here holds state.
 
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import {
   type AddBotCommand,
   type BotSessionRef,
@@ -139,89 +140,107 @@ export function AppDialogs({
   );
   // The picker's preview, same rule as the fork's.
   const pickerAnchor = botSessionPicker?.nextAnchor ?? "";
+  // Each dialog behind its own boundary: they mount here, beside the canvas rather than inside any
+  // card, so one that threw used to cost the whole Feed tab.
   return (
     <>
-        <BotCreatorDialog
-          open={botCreatorOpen}
-          projects={projects}
-          bots={bots}
-          machines={machines}
-          machineOfBot={machineOfBot}
-          inventoryLoading={inventoryLoading}
-          onClose={() => setBotCreatorOpen(false)}
-          onCreate={createBot}
-        />
-        <SessionRenameDialog
-          session={renamingSession}
-          anchor={renameAnchor}
-          onClose={() => setRenamingSession(null)}
-          onRename={renameSession}
-        />
-        <BotRenameDialog
-          bot={renamingBot}
-          onClose={() => setRenamingBot(null)}
-          onRename={renameBot}
-        />
-        <ForkSessionDialog
-          request={forkRequest}
-          // Every title in the source's project, so the proposal counts past the forks that are
-          // already there. Read from the same list the sidebar renders, which is what the reader
-          // is looking at when they press Fork.
-          takenTitles={forkTitlesInProject}
-          botAnchor={forkBotAnchor}
-          onClose={() => setForkRequest(null)}
-          onFork={startFork}
-        />
-        <HandoverDialog
-          request={handoverRequest}
-          onClose={() => setHandoverRequest(null)}
-          onHandover={startHandover}
-        />
-        <BotSessionPickerDialog
-          open={botSessionPicker !== null}
-          bot={botSessionPicker}
-          sessions={botSessionPicker ? sessionsByProject.get(botSessionPicker.environment.path) : undefined}
-          anchorPreview={pickerAnchor}
-          onClose={() => setBotSessionPickerId(null)}
-          onAttach={attachBotSessions}
-          onStartNew={startNewSession}
-        />
-        <NewSessionDialog
-          open={newSession.dialogOpen}
-          machine={shellMachine}
-          projects={projects}
-          loading={inventoryLoading}
-          onClose={newSession.closeDialog}
-          onStart={newSession.start}
-        />
+        <PanelErrorBoundary surface="new Bot dialog" overlay onDismiss={() => setBotCreatorOpen(false)}>
+          <BotCreatorDialog
+            open={botCreatorOpen}
+            projects={projects}
+            bots={bots}
+            machines={machines}
+            machineOfBot={machineOfBot}
+            inventoryLoading={inventoryLoading}
+            onClose={() => setBotCreatorOpen(false)}
+            onCreate={createBot}
+          />
+        </PanelErrorBoundary>
+        <PanelErrorBoundary surface="rename dialog" overlay onDismiss={() => setRenamingSession(null)}>
+          <SessionRenameDialog
+            session={renamingSession}
+            anchor={renameAnchor}
+            onClose={() => setRenamingSession(null)}
+            onRename={renameSession}
+          />
+        </PanelErrorBoundary>
+        <PanelErrorBoundary surface="Bot rename dialog" overlay onDismiss={() => setRenamingBot(null)}>
+          <BotRenameDialog
+            bot={renamingBot}
+            onClose={() => setRenamingBot(null)}
+            onRename={renameBot}
+          />
+        </PanelErrorBoundary>
+        <PanelErrorBoundary surface="fork dialog" overlay onDismiss={() => setForkRequest(null)}>
+          <ForkSessionDialog
+            request={forkRequest}
+            // Every title in the source's project, so the proposal counts past the forks that are
+            // already there. Read from the same list the sidebar renders, which is what the reader
+            // is looking at when they press Fork.
+            takenTitles={forkTitlesInProject}
+            botAnchor={forkBotAnchor}
+            onClose={() => setForkRequest(null)}
+            onFork={startFork}
+          />
+        </PanelErrorBoundary>
+        <PanelErrorBoundary surface="handover dialog" overlay onDismiss={() => setHandoverRequest(null)}>
+          <HandoverDialog
+            request={handoverRequest}
+            onClose={() => setHandoverRequest(null)}
+            onHandover={startHandover}
+          />
+        </PanelErrorBoundary>
+        <PanelErrorBoundary surface="session picker" overlay onDismiss={() => setBotSessionPickerId(null)}>
+          <BotSessionPickerDialog
+            open={botSessionPicker !== null}
+            bot={botSessionPicker}
+            sessions={botSessionPicker ? sessionsByProject.get(botSessionPicker.environment.path) : undefined}
+            anchorPreview={pickerAnchor}
+            onClose={() => setBotSessionPickerId(null)}
+            onAttach={attachBotSessions}
+            onStartNew={startNewSession}
+          />
+        </PanelErrorBoundary>
+        <PanelErrorBoundary surface="new session dialog" overlay onDismiss={newSession.closeDialog}>
+          <NewSessionDialog
+            open={newSession.dialogOpen}
+            machine={shellMachine}
+            projects={projects}
+            loading={inventoryLoading}
+            onClose={newSession.closeDialog}
+            onStart={newSession.start}
+          />
+        </PanelErrorBoundary>
       {newSession.started ? (
-        <StartedSessionModal
-          key={keyOf(newSession.started)}
-          feed={shellFeed}
-          started={newSession.started}
-          projects={projects}
-          sessionsByProject={sessionsByProject}
-          onListed={(project, session) => {
-            newSession.clearStarted();
-            newSession.onListed(project, session);
-          }}
-          onClose={newSession.clearStarted}
-        />
+        <PanelErrorBoundary key={keyOf(newSession.started)} surface="started session" overlay onDismiss={newSession.clearStarted}>
+          <StartedSessionModal
+            feed={shellFeed}
+            started={newSession.started}
+            projects={projects}
+            sessionsByProject={sessionsByProject}
+            onListed={(project, session) => {
+              newSession.clearStarted();
+              newSession.onListed(project, session);
+            }}
+            onClose={newSession.clearStarted}
+          />
+        </PanelErrorBoundary>
       ) : null}
       {sessionModal.thread ? (
-        <SessionModal
-          key={keyOf(sessionModal.thread.session)}
-          context={sessionModal.thread.botId === undefined
-            ? sessionModal.context
-            : sessionModal.contextFor(sessionModal.thread.botId)}
-          {...(sessionModal.thread.botId === undefined ? {} : { botId: sessionModal.thread.botId })}
-          project={sessionModal.thread.project}
-          session={sessionModal.thread.session}
-          onClose={sessionModal.onClose}
-          {...(sessionModal.canvasMove.held.has(keyOf(sessionModal.thread.session))
-            ? {}
-            : { onMoveToCanvas: sessionModal.canvasMove.onMove })}
-        />
+        <PanelErrorBoundary key={keyOf(sessionModal.thread.session)} surface="session window" overlay onDismiss={sessionModal.onClose}>
+          <SessionModal
+            context={sessionModal.thread.botId === undefined
+              ? sessionModal.context
+              : sessionModal.contextFor(sessionModal.thread.botId)}
+            {...(sessionModal.thread.botId === undefined ? {} : { botId: sessionModal.thread.botId })}
+            project={sessionModal.thread.project}
+            session={sessionModal.thread.session}
+            onClose={sessionModal.onClose}
+            {...(sessionModal.canvasMove.held.has(keyOf(sessionModal.thread.session))
+              ? {}
+              : { onMoveToCanvas: sessionModal.canvasMove.onMove })}
+          />
+        </PanelErrorBoundary>
       ) : null}
     </>
   );

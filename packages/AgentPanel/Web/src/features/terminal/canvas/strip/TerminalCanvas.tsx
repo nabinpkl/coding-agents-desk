@@ -8,6 +8,7 @@
 // closed card free: the terminal's subscriptions belong to hooks inside the tile, so they end
 // with it.
 
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { LoaderCircle, SquareTerminal } from "lucide-react";
 import { useRef } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -158,28 +159,31 @@ export function TerminalCanvas({
         const standing = all
           .filter((each) => (each.machineId ?? "") === (parent.machineId ?? ""))
           .flatMap((each) => each.children.map((child) => child.name));
+        // Each card behind its own boundary, so one terminal that throws costs that card rather
+        // than every terminal in the tab.
         return (
-          <TerminalParentCard
-            key={parent.key}
-            group={parent}
-            feed={feedFor(parent.machineId)}
-            hue={hues.get(parent.key)}
-            rank={ranks.get(parent.key)}
-            {...(machineLabelOf(parent.machineId) ? { machineLabel: machineLabelOf(parent.machineId)! } : {})}
-            openChildren={openChildren}
-            onToggleChild={onToggleChild}
-            offStripChildren={offStripChildren}
-            onHideChild={onHideChild}
-            onShowHidden={() => onShowHiddenChildren(parent.key)}
-            onKillChild={onKillChild}
-            onHideParent={() => onHideParent(parent.key)}
-            adding={addingKeys.has(parent.key)}
-            addError={addErrors.get(parent.key) ?? null}
-            suggestedName={suggestTerminalSessionName(parent.path, standing)}
-            existingNames={standing}
-            {...(parent.path ? { onAdd: (session: string) => onAddTerminal(parent, session) } : {})}
-            onDismissAddError={() => onDismissAddError(parent.key)}
-          />
+          <PanelErrorBoundary key={parent.key} surface="terminal card" compact listItem>
+            <TerminalParentCard
+              group={parent}
+              feed={feedFor(parent.machineId)}
+              hue={hues.get(parent.key)}
+              rank={ranks.get(parent.key)}
+              {...(machineLabelOf(parent.machineId) ? { machineLabel: machineLabelOf(parent.machineId)! } : {})}
+              openChildren={openChildren}
+              onToggleChild={onToggleChild}
+              offStripChildren={offStripChildren}
+              onHideChild={onHideChild}
+              onShowHidden={() => onShowHiddenChildren(parent.key)}
+              onKillChild={onKillChild}
+              onHideParent={() => onHideParent(parent.key)}
+              adding={addingKeys.has(parent.key)}
+              addError={addErrors.get(parent.key) ?? null}
+              suggestedName={suggestTerminalSessionName(parent.path, standing)}
+              existingNames={standing}
+              {...(parent.path ? { onAdd: (session: string) => onAddTerminal(parent, session) } : {})}
+              onDismissAddError={() => onDismissAddError(parent.key)}
+            />
+          </PanelErrorBoundary>
         );
       })}
     </ul>

@@ -70,6 +70,7 @@ import { terminalContextKey } from "@/features/terminal/terminalContext";
 import { useSessionComposerPane } from "@/features/session-view/useSessionComposerPane";
 import { SessionComposer } from "@/features/session-view/composer/SessionComposer";
 import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
+import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { TerminalControl, TerminalNotice } from "@/features/session-view/SessionTerminalControls";
 import type {
   AgentTerminalComposer,
@@ -109,7 +110,7 @@ export type { SessionViewContext } from "@/features/session-view/sessionTerminal
  * mode, because every event index the feed holds is counted in the mode it was read in, while a
  * draft and an open terminal are not.
  */
-export function SessionView({
+function SessionViewContent({
   feed,
   host,
   projectPath,
@@ -478,4 +479,19 @@ export function isTerminalSource(source: string): source is "claude" | "codex" |
 
 export function harnessName(source: "claude" | "codex" | "opencode"): string {
   return source === "claude" ? "Claude" : source === "codex" ? "Codex" : "Opencode";
+}
+
+/**
+ * One session's transcript and composer, behind a boundary of its own. A transcript is mounted
+ * where no card is -- the session window, the Father home, an arena lane, the manager's window --
+ * and without this a render error in one of those took its whole tab, or past the tab bar the
+ * whole panel. Inside whatever chrome mounted it, so that chrome's close button still works.
+ * Keyed by session so moving to another one starts it clean.
+ */
+export function SessionView(props: Parameters<typeof SessionViewContent>[0]) {
+  return (
+    <PanelErrorBoundary key={`${props.session.source}:${props.session.sessionId}`} surface="session" compact>
+      <SessionViewContent {...props} />
+    </PanelErrorBoundary>
+  );
 }

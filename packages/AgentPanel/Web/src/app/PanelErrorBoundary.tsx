@@ -18,6 +18,13 @@
 // can lose one thing and keep the rest -- each tab's surface, the sidebar, the canvas, each Bot and
 // each session card -- and the root one stays for what is left. `compact` is the fallback sized for
 // a card rather than a screen; `listItem` makes it an `<li>`, for a card that is one in a list.
+//
+// Every `SessionView` carries one of its own as well, because a transcript is mounted in places no
+// card is -- the session window, the Father home, an arena lane -- and each of those used to fall
+// through to its whole tab, or past the tab bar to the root. A dialog or floating window takes
+// `overlay`, so its fallback stands over the page where the overlay stood rather than landing in
+// whatever layout happened to hold it, and `onDismiss`, because trying again only reopens a dialog
+// that throws on open: Close puts it away.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { devServerHooks } from "@/features/profile/panelBuild";
@@ -37,6 +44,10 @@ interface Props {
   compact?: boolean;
   /** Render the fallback as an `<li>`, because what it stands in for was one. */
   listItem?: boolean;
+  /** Stand the fallback over the page, for a boundary around something that was an overlay. */
+  overlay?: boolean;
+  /** Put away whatever this wraps; offered as Close beside Try again. */
+  onDismiss?: () => void;
 }
 
 interface State {
@@ -78,9 +89,22 @@ export class PanelErrorBoundary extends Component<Props, State> {
     this.setState({ error: null, stack: null });
   };
 
+  /** Closes the thing first, so the retry that follows renders it closed rather than throwing again. */
+  private dismiss = (): void => {
+    this.props.onDismiss?.();
+    this.retry();
+  };
+
   render(): ReactNode {
     const { error, stack } = this.state;
     if (!error) return this.props.children;
+    if (this.props.overlay) {
+      return (
+        <div className="fixed inset-0 z-60 flex justify-center bg-black/45 p-4 pt-[15vh]">
+          {this.renderCompact(error, stack)}
+        </div>
+      );
+    }
     if (this.props.compact) return this.renderCompact(error, stack);
 
     return (
@@ -132,6 +156,11 @@ export class PanelErrorBoundary extends Component<Props, State> {
         <button type="button" className={CONTROL_CLASS} onClick={this.retry}>
           Try again
         </button>
+        {this.props.onDismiss ? (
+          <button type="button" className={CONTROL_CLASS} onClick={this.dismiss}>
+            Close
+          </button>
+        ) : null}
         <button type="button" className={CONTROL_CLASS} onClick={() => window.location.reload()}>
           Reload
         </button>

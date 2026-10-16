@@ -302,25 +302,32 @@ export function BrowserSurfaces({
         {/* Last in the bar, so it sits in the corner. The face and weight live behind this
             button rather than riding the bar beside it: two always-visible selects spent the
             corner on a choice most readers make once, and a control reached through one press
-            still shows its effect on the page it is on. */}
-        <TypeSettings />
+            still shows its effect on the page it is on. Above the tabs' own boundaries, so it
+            carries one: the root's would take the tab bar with it. */}
+        <PanelErrorBoundary surface="type settings" compact>
+          <TypeSettings />
+        </PanelErrorBoundary>
         {/* Right of the display settings, on every tab: the Father home's switch. */}
         <span className="flex shrink-0 items-center self-center">
           <FatherButton open={fatherOpen} onToggle={toggleFather} floating={false} />
         </span>
       </div>
       {terminalMachine ? (
-        <MachineTerminalDialog machine={terminalMachine} onClose={() => setTerminalMachine(null)} />
+        <PanelErrorBoundary surface="machine terminal" overlay onDismiss={() => setTerminalMachine(null)}>
+          <MachineTerminalDialog machine={terminalMachine} onClose={() => setTerminalMachine(null)} />
+        </PanelErrorBoundary>
       ) : null}
       {/* The site-wide Father home: bot records in, over every tab. Its switch is in the bar
           above; the drawer stands here so no surface owns it. */}
-      <FatherScope
-        feed={feed}
-        host={host}
-        machines={machines}
-        open={fatherOpen}
-        onClose={() => writeFatherOpen(false)}
-      />
+      <PanelErrorBoundary surface="Father home" overlay onDismiss={() => writeFatherOpen(false)}>
+        <FatherScope
+          feed={feed}
+          host={host}
+          machines={machines}
+          open={fatherOpen}
+          onClose={() => writeFatherOpen(false)}
+        />
+      </PanelErrorBoundary>
       <div className="min-h-0 flex-1">
         {/* Under the tab bar, not around it: a surface that throws must leave the tabs that lead
             away from it. Keyed by surface so moving to another tab starts it clean. */}

@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 
 /** A hot context that records its listeners, so a test can fire an update the way Vite would. */
@@ -155,5 +156,31 @@ describe("a card that throws among others", () => {
     act(() => devServer.emit("vite:afterUpdate"));
     expect(screen.getByText("the feed")).toBeDefined();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+// A dialog draws its own overlay, so its fallback has to stand over the page too, and retrying a
+// dialog that throws on open only opens it again: Close is what lets the reader carry on.
+describe("a dialog that throws", () => {
+  function Host() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <p>the page</p>
+        <PanelErrorBoundary surface="fork dialog" overlay onDismiss={() => setOpen(false)}>
+          {open ? <Surface broken={{ value: true }} /> : null}
+        </PanelErrorBoundary>
+      </>
+    );
+  }
+
+  it("stands over the page, and Close puts the dialog away rather than reopening it", () => {
+    render(<Host />);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("The fork dialog stopped rendering");
+    expect(alert.parentElement?.className).toContain("fixed");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("the page")).toBeDefined();
   });
 });
