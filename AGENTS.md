@@ -1354,6 +1354,9 @@ thing and each rediscovered the same traps.
 and the panel has only the transcript and the pane: what a turn looks like when the capture drops
 mid-response, and how the question-from-the-pane fallback was verified on 2026-10-14.
 
+**`THROWAWAY_PLUGIN_DIRS=<dir>:<dir>` loads plugins for that session only**, one `--plugin-dir`
+each, which is how a probe tries a mod without installing it or writing under `~/.claude`.
+
 **Probe on the cheap model.** The default is Haiku at `--effort low`, and the reason is not
 frugality for its own sake: a probe session exists to produce transcript records and API flows, and
 nothing reads what it says. The run that prompted this script spent Opus on the word "acorn", three
@@ -1369,7 +1372,9 @@ Four things the script does that a hand-rolled one keeps not doing:
   appears in the pane and the probe hangs there until somebody looks. This is not sandboxing, it is
   a session with nothing to ask about. `THROWAWAY_TOOLS='Read,Bash'` names the ones a probe needs,
   and then answering the pane is yours. An allow list, because the deny list it replaced went stale:
-  asked to say one word, a probe called a tool the list had never heard of.
+  asked to say one word, a probe called a tool the list had never heard of. `--tools ""` does not
+  reach the Claude in Chrome integration, so the script also passes `--no-chrome`: on 2026-10-16 a
+  probe with no tools answered its first message with `read_page` on the owner's browser.
 - **`say` chunks the text.** `tmux send-keys -l` drops a long string silently, which is already
   written down two sections up; this is where it is implemented, once.
 - **Ready means the session has registered, not that the pane drew a prompt.** Its record under

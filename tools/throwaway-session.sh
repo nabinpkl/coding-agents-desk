@@ -12,7 +12,7 @@
 #   - The session id is CHOSEN, with `--session-id`, and printed. Otherwise the caller has to find
 #     the transcript afterwards by grepping `~/.claude/projects` for its title, which is a race
 #     against every other session starting at the same moment.
-#   - No tools, via `--tools ""`. An interactive session cannot be asked a permission question by
+#   - No tools, via `--tools ""`, and no browser, via `--no-chrome`. An interactive session cannot be asked a permission question by
 #     a script: the prompt appears in the pane and the probe hangs there forever. This is not a
 #     sandbox -- it is a session that has nothing to ask about. `THROWAWAY_TOOLS` names the ones a
 #     probe genuinely needs, and then the caller owns answering. An allow list rather than the
@@ -45,6 +45,10 @@ READY_TIMEOUT="${THROWAWAY_READY_TIMEOUT:-60}"
 # capture drops mid-response. tmux hands every pane its server's global proxy variables, so they are
 # unset on the command itself rather than in this script's environment.
 PROXY="${THROWAWAY_PROXY:-on}"
+# Plugin directories to load for this session only, colon-separated, each passed as `--plugin-dir`.
+# This is how a probe tries a mod: it loads without being installed, and nothing is written under
+# ~/.claude. Earlier entries are passed first.
+PLUGIN_DIRS="${THROWAWAY_PLUGIN_DIRS:-}"
 
 usage() {
   echo "usage: $(basename "$0") start|say|pane|stop <name> [text]" >&2
@@ -65,6 +69,15 @@ case "$verb" in
     id="$(uuidgen | tr 'A-Z' 'a-z')"
     args=(claude --model "$MODEL" --effort "$EFFORT" --session-id "$id" -n "$name" --strict-mcp-config)
     args+=(--tools "$TOOLS")
+    # `--tools ""` does not reach the Claude in Chrome integration: measured 2026-10-16, a probe
+    # with no tools answered its first message by calling read_page on the owner's browser.
+    args+=(--no-chrome)
+    if [ -n "$PLUGIN_DIRS" ]; then
+      IFS=: read -r -a plugin_dirs <<<"$PLUGIN_DIRS"
+      for plugin_dir in "${plugin_dirs[@]}"; do
+        args+=(--plugin-dir "$plugin_dir")
+      done
+    fi
     if [ "$PROXY" = off ]; then
       args=(env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy "${args[@]}")
     fi
