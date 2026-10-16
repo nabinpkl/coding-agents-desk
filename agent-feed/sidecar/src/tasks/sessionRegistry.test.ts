@@ -61,7 +61,25 @@ describe("liveSessionProcesses", () => {
         entrypoint: "cli",
         tmuxSession: null,
         waiting: false,
+        activity: null,
+        version: null,
+        name: null,
       },
+    ]);
+  });
+
+  test("carries the row's status, version and name, and an unknown status as unknown", async () => {
+    // The status is what a restart asks before replacing a process; the version is what says it
+    // is behind the installed CLI. A status this reader does not know must not read as idle.
+    const directory = await registryWith({
+      "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart, status: "shell", version: "2.1.296", name: "Alan" },
+      "9673.json": { pid: 9673, sessionId: `${SESSION.slice(0, -1)}1`, cwd: "/x", procStart, status: "napping" },
+    });
+    const live = await liveSessionProcesses([row(9672, kernelStamp), row(9673, kernelStamp)], directory);
+    expect(live.map(({ pid, activity, version, name }) => ({ pid, activity, version, name }))
+      .sort((a, b) => a.pid - b.pid)).toEqual([
+      { pid: 9672, activity: "shell", version: "2.1.296", name: "Alan" },
+      { pid: 9673, activity: null, version: null, name: null },
     ]);
   });
 

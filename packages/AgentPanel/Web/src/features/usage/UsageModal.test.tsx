@@ -9,6 +9,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageReport } from "@agentdesk/agent-feed-wire";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import type { StaleSessionsHandle } from "@/features/profile/useStaleSessions";
 import { ProfileRow } from "@/features/profile/ProfileRow";
 import type { UsageHandle, UsageState } from "@/features/usage/useUsage";
 
@@ -106,6 +107,10 @@ function dayFigures(): HTMLElement {
  * state these tests care about: the entry exists, the usage assertions below are
  * unaffected by it.
  */
+function restartsHandle(overrides: Partial<StaleSessionsHandle> = {}): StaleSessionsHandle {
+  return { view: { kind: "idle" }, action: { kind: "none" }, load: () => {}, restart: () => {}, ...overrides };
+}
+
 function parkHandle(overrides: Partial<DesktopParkHandle> = {}): DesktopParkHandle {
   return {
     available: false,
@@ -172,7 +177,7 @@ function twoVendorReport(): UsageReport {
 
 describe("the usage modal", () => {
   function openModal(usage: UsageHandle = handle()) {
-    const rendered = render(<ProfileRow usage={usage} park={parkHandle()} />);
+    const rendered = render(<ProfileRow usage={usage} park={parkHandle()} restarts={restartsHandle()} />);
     openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: /Usage/ }));
     return rendered;

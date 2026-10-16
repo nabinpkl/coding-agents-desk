@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw } from "lucide-react";
+import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw, RotateCcw } from "lucide-react";
 import { DesktopParkModal } from "@/features/desktop-park/DesktopParkModal";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { UsageQuota } from "@agentdesk/agent-feed-wire";
@@ -15,6 +15,8 @@ import {
 } from "@/features/profile/mediaCapabilities";
 import { usePanelBuild } from "@/features/profile/panelBuild";
 import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
+import { StaleSessionsModal } from "@/features/profile/StaleSessionsModal";
+import type { StaleSessionsHandle } from "@/features/profile/useStaleSessions";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
@@ -30,6 +32,7 @@ import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
 export function ProfileRow({
   usage,
   park,
+  restarts,
   // The seam `panelBuild.ts` and the error boundary already use: `import.meta.hot` cannot be stood
   // up under Vitest, and the live-updates control exists only when there is a dev server behind
   // this page, so it is the half that most needs a test.
@@ -37,11 +40,13 @@ export function ProfileRow({
 }: {
   usage: UsageHandle;
   park: DesktopParkHandle;
+  restarts: StaleSessionsHandle;
   devServer?: unknown;
 }) {
   const [open, setOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [parkOpen, setParkOpen] = useState(false);
+  const [restartsOpen, setRestartsOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
@@ -151,6 +156,24 @@ export function ProfileRow({
             {!park.available ? (
               <span className="shrink-0 text-xs text-muted-foreground">no yabai</span>
             ) : null}
+          </button>
+          {/* Every session behind the launch flags or the installed CLI, on this machine. A list
+              before a restart, because which sessions that is changes every time it is asked. */}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              restarts.load();
+              setRestartsOpen(true);
+              close(false);
+            }}
+            className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm
+              transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80
+              focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2
+              focus-visible:outline-primary"
+          >
+            <RotateCcw className="size-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">Restart stale sessions</span>
           </button>
           {/* Whether an edit acts on anything the moment it is saved: this page's own modules, and
               every machine's sidecar, which is the half that costs more -- a restart takes every
@@ -281,6 +304,8 @@ export function ProfileRow({
       <PanelBuildStatus build={build} />
 
       <DesktopParkModal open={parkOpen} park={park} onClose={() => setParkOpen(false)} />
+
+      <StaleSessionsModal open={restartsOpen} restarts={restarts} onClose={() => setRestartsOpen(false)} />
 
       <UsageModal
         open={modalOpen}

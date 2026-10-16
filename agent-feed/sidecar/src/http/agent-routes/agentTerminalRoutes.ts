@@ -4,7 +4,10 @@ import type {
   AgentTerminalDescriptor,
   AgentTerminalStreamEnvelope,
   AgentTerminalViewport,
+  RestartStaleSessionsResponse,
   SessionTmuxTerminalContext,
+  StaleClaudeSessions,
+  StaleSessionRestartResult,
 } from "@agentdesk/agent-feed-wire";
 import {
   AgentTerminalConflictError,
@@ -20,6 +23,9 @@ const TERMINALS_ROUTE = "/api/terminals";
 const TERMINALS_STREAM_ROUTE = "/api/terminals/stream";
 /** A session's own pane, run again; addressed by the session because no terminal has to be open. */
 const TERMINALS_RESTART_ROUTE = "/api/terminals/restart";
+/** Every session behind the launch flags or the installed CLI, and restarting the ones agreed to. */
+const TERMINALS_STALE_ROUTE = "/api/terminals/stale";
+const TERMINALS_RESTART_STALE_ROUTE = "/api/terminals/restart-stale";
 const TERMINAL_ROUTE_PATTERN =
   /^\/api\/terminals\/([0-9a-f-]+)\/(input|viewport|close|checkpoint|history)$/;
 /** Enough to cover a generous tmux history without letting one request become a memory decision. */
@@ -38,6 +44,8 @@ export interface AgentTerminalRoutesService {
   updateViewport(terminalId: string, viewport: AgentTerminalViewport): void;
   close(terminalId: string, mode: "detach" | "kill"): void;
   restart(context: SessionTmuxTerminalContext): Promise<void>;
+  staleSessions(): Promise<StaleClaudeSessions>;
+  restartStale(sessionIds: readonly string[]): Promise<StaleSessionRestartResult[]>;
 }
 
 export function createAgentTerminalRoutes(service: AgentTerminalRoutesService): RouteHandler {
@@ -47,6 +55,12 @@ export function createAgentTerminalRoutes(service: AgentTerminalRoutesService): 
     }
     if (request.method === "POST" && url.pathname === TERMINALS_RESTART_ROUTE) {
       return restartSession(request, service);
+    }
+    if (request.method === "GET" && url.pathname === TERMINALS_STALE_ROUTE) {
+      return service.staleSessions().then((stale) => jsonResponse(stale), routeError);
+    }
+    if (request.method === "POST" && url.pathname === TERMINALS_RESTART_STALE_ROUTE) {
+      return restartStale(request, service);
     }
     // Before the id pattern, because "stream" is not a terminal id and must not be read as one.
     if (request.method === "GET" && url.pathname === TERMINALS_STREAM_ROUTE) {
@@ -99,6 +113,23 @@ async function restartSession(
     }
     await service.restart(context);
     return new Response(null, { status: 204 });
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function restartStale(
+  request: Request,
+  service: AgentTerminalRoutesService,
+): Promise<Response> {
+  try {
+    const body = await requestObject(request);
+    if (body instanceof Response) return body;
+    if (!Array.isArray(body.sessionIds) || !body.sessionIds.every((id) => typeof id === "string")) {
+      throw new AgentTerminalInvalidError("sessionIds must be an array of session ids");
+    }
+    const response: RestartStaleSessionsResponse = { results: await service.restartStale(body.sessionIds) };
+    return jsonResponse(response);
   } catch (error) {
     return routeError(error);
   }

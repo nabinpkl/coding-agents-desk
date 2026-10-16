@@ -290,3 +290,71 @@ export interface AgentTerminalViewport {
 export interface CloseAgentTerminalRequest {
   mode: "detach" | "kill";
 }
+
+/**
+ * What a Claude process says it is doing, from its row in the harness's session registry.
+ *
+ * Written by the CLI itself as its state moves (2.1.301: `busy` while a turn or delegated work
+ * runs, `waiting` while a dialog stands in place of the prompt box, `shell` when it is otherwise
+ * idle but a background shell is still running, `idle` when nothing is), so it is the one live
+ * answer to "can this session be replaced without cutting something off".
+ */
+export type ClaudeSessionActivity = "busy" | "shell" | "idle" | "waiting";
+
+/**
+ * Why a running Claude session is behind what a fresh launch would give it.
+ *
+ * `launch-flags`: its process was started without the permission flags the sidecar launches with
+ * now. `update`: it is running an older CLI than the one installed, the case its own footer
+ * reports as "Restart to update".
+ */
+export type StaleSessionReason = "launch-flags" | "update";
+
+/** One session a restart would bring up to date, in a pane this sidecar launched for it. */
+export interface StaleClaudeSession {
+  sessionId: string;
+  /** The session's registry name, which is what its pane header shows. */
+  name: string | null;
+  /** The CLI version the process is running, when its registry row says. */
+  version: string | null;
+  /** null when the row carries no status, which is read as "not known to be idle". */
+  activity: ClaudeSessionActivity | null;
+  reasons: StaleSessionReason[];
+  /**
+   * Started with flags of its own -- an arena lane, a probe with its model and tools -- which a
+   * restart under the sidecar's launch would silently drop. Listed so the reader sees it is behind,
+   * and never restarted from the list.
+   */
+  ownLaunch: boolean;
+}
+
+/** `GET /api/terminals/stale`. */
+export interface StaleClaudeSessions {
+  /** The CLI version a launch would run now; null when the installed binary does not say. */
+  installedVersion: string | null;
+  sessions: StaleClaudeSession[];
+}
+
+/** `POST /api/terminals/restart-stale`: the sessions the reader was shown and agreed to. */
+export interface RestartStaleSessionsRequest {
+  sessionIds: string[];
+}
+
+export type StaleSessionRestartOutcome =
+  | { kind: "restarted" }
+  /**
+   * Not restarted, on purpose: it is not idle, it was launched with flags of its own, or it is no
+   * longer stale or no longer running by the time its restart came.
+   */
+  | { kind: "skipped"; reason: string }
+  | { kind: "failed"; message: string };
+
+export interface StaleSessionRestartResult {
+  sessionId: string;
+  name: string | null;
+  outcome: StaleSessionRestartOutcome;
+}
+
+export interface RestartStaleSessionsResponse {
+  results: StaleSessionRestartResult[];
+}

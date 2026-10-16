@@ -15,6 +15,7 @@ import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSo
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { FontSizeRoot } from "@/features/activity-feed/reading-preferences/fontStore";
 import { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
+import { useStaleSessions } from "@/features/profile/useStaleSessions";
 import { useUsage } from "@/features/usage/useUsage";
 import {
   AgentSidebar,
@@ -101,6 +102,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   // Gathering windows onto one Desktop is a machine-level capability, probed once
   // the same way usage is. Absent yabai, the menu entry stays disabled.
   const park = useDesktopPark(feed);
+  const restarts = useStaleSessions(feed);
   const chrome = useSidebarChrome();
   // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
   // roster to drop stored cards against. See `useBotMachines`.
@@ -259,6 +261,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     messages,
     newSession,
     park,
+    restarts,
     roster,
     thread,
     usage,

@@ -10,6 +10,7 @@ import type { useBots } from "@/features/bots/useBots";
 import type { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
 import type { useMessages } from "@/features/messages/useMessages";
 import type { useUsage } from "@/features/usage/useUsage";
+import type { useStaleSessions } from "@/features/profile/useStaleSessions";
 import type { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
 import type { useShellInventory } from "@/app/shell-state/useShellInventory";
 import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
@@ -32,6 +33,7 @@ export function sidebarProps({
   messages,
   newSession,
   park,
+  restarts,
   roster,
   thread,
   usage,
@@ -47,6 +49,7 @@ export function sidebarProps({
   messages: ReturnType<typeof useMessages>;
   newSession: ReturnType<typeof useNewSessionCommands>;
   park: ReturnType<typeof useDesktopPark>;
+  restarts: ReturnType<typeof useStaleSessions>;
   roster: ReturnType<typeof useCanvasRoster>;
   thread: ReturnType<typeof useThreadSelection>;
   usage: ReturnType<typeof useUsage>;
@@ -56,6 +59,7 @@ export function sidebarProps({
     onModeChange: chrome.changeSidebarMode,
     usage,
     park,
+    restarts,
     messages,
     projects: inventory.projects,
     sessionsByProject: inventory.sessionsByProject,

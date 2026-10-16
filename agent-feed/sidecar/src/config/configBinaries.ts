@@ -4,9 +4,9 @@
 // would find a Homebrew install from its children, so a name resolved at spawn time finds
 // nothing. Null is a real answer, reported by the callers rather than guessed around.
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 const userHomeDirectory = homedir();
 
@@ -51,6 +51,28 @@ export function claudeBinary(): string | null {
     "/usr/local/bin/claude",
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+/**
+ * The version a `claude` launched now would run, or null when the install does not say.
+ *
+ * Read from where the binary resolves to, because the native installer keeps every version as
+ * `~/.local/share/claude/versions/<version>` and points `~/.local/bin/claude` at the newest one --
+ * the same comparison the CLI's own footer makes when it says "Restart to update". An install that
+ * resolves to anything not named for a version (Homebrew, a wrapper script) answers null, which
+ * callers report as unknown rather than reading every session as current or as stale.
+ */
+export function installedClaudeVersion(): string | null {
+  const binary = claudeBinary();
+  if (!binary) return null;
+  let target: string;
+  try {
+    target = realpathSync(binary);
+  } catch {
+    return null;
+  }
+  const name = basename(target);
+  return /^\d+\.\d+\.\d+$/.test(name) ? name : null;
 }
 
 /**

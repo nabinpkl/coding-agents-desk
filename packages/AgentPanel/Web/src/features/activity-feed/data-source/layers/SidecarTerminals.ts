@@ -10,7 +10,11 @@ import type {
   AgentTerminalHistory,
   AgentTerminalViewport,
   ComposerImageDrop,
+  RestartStaleSessionsRequest,
+  RestartStaleSessionsResponse,
   SessionTmuxTerminalContext,
+  StaleClaudeSessions,
+  StaleSessionRestartResult,
   TmuxSessionSummary,
   WorkspaceSummary,
 } from "@agentdesk/agent-feed-wire";
@@ -213,6 +217,23 @@ export class SidecarTerminals extends SidecarComposers {
    */
   async restartSessionTerminal(context: SessionTmuxTerminalContext): Promise<void> {
     expectEmpty(await this.transport.request("POST", "/api/terminals/restart", { body: { context } }));
+  }
+
+  /** Every Claude session on this machine behind the sidecar's launch flags or the installed CLI. */
+  async staleSessions(): Promise<StaleClaudeSessions> {
+    return parse<StaleClaudeSessions>(await this.transport.request("GET", "/api/terminals/stale"));
+  }
+
+  /**
+   * Restarts the sessions named, each only if it is still stale and idle when its turn comes.
+   * One result per id, in the order sent, so the reader sees what happened to every one they agreed to.
+   */
+  async restartStaleSessions(sessionIds: readonly string[]): Promise<StaleSessionRestartResult[]> {
+    const body: RestartStaleSessionsRequest = { sessionIds: [...sessionIds] };
+    const { results } = parse<RestartStaleSessionsResponse>(
+      await this.transport.request("POST", "/api/terminals/restart-stale", { body }),
+    );
+    return results;
   }
 
   /** Sent with `keepalive`, because the commonest time to close a terminal is by closing the page. */

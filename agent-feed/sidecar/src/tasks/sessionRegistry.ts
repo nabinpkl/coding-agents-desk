@@ -11,7 +11,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ClaudeSessionEntrypoint } from "@agentdesk/agent-feed-wire";
+import type { ClaudeSessionActivity, ClaudeSessionEntrypoint } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import type { ProcessRow } from "@/tasks/processProbe";
 import { parseRegistryProcStart, startTimesAgree } from "@/tasks/processStartTime";
@@ -56,7 +56,15 @@ export interface ClaudeSessionProcess {
    * may know nothing about. It says only THAT the process waits, not on what; the pane says what.
    */
   waiting: boolean;
+  /** The row's `status` as the CLI wrote it, or null for a value this reader does not know. */
+  activity: ClaudeSessionActivity | null;
+  /** The CLI version the process is running, which only the row records. */
+  version: string | null;
+  /** The session's address, which is what its pane header and `ListAgents` show. */
+  name: string | null;
 }
+
+const ACTIVITIES: readonly ClaudeSessionActivity[] = ["busy", "shell", "idle", "waiting"];
 
 interface RegistryRecord {
   pid?: unknown;
@@ -67,6 +75,8 @@ interface RegistryRecord {
   entrypoint?: unknown;
   tmux?: unknown;
   status?: unknown;
+  version?: unknown;
+  name?: unknown;
 }
 
 /**
@@ -151,6 +161,9 @@ export async function liveSessionProcesses(
       entrypoint: readEntrypoint(record.entrypoint),
       tmuxSession: readTmuxSession(record.tmux),
       waiting: record.status === "waiting",
+      activity: ACTIVITIES.find((activity) => activity === record.status) ?? null,
+      version: typeof record.version === "string" && record.version !== "" ? record.version : null,
+      name: typeof record.name === "string" && record.name !== "" ? record.name : null,
     });
   }
   return live;

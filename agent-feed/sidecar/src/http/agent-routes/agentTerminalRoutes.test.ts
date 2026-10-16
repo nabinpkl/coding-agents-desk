@@ -53,6 +53,14 @@ function fakeService(overrides: Partial<AgentTerminalRoutesService> = {}) {
     async restart(context) {
       calls.push({ restart: context });
     },
+    async staleSessions() {
+      calls.push({ stale: true });
+      return { installedVersion: "2.1.301", sessions: [] };
+    },
+    async restartStale(sessionIds) {
+      calls.push({ restartStale: sessionIds });
+      return sessionIds.map((sessionId) => ({ sessionId, name: null, outcome: { kind: "restarted" as const } }));
+    },
     ...overrides,
   };
   return { calls, route: createAgentTerminalRoutes(service) };
@@ -282,4 +290,32 @@ test("a pane somebody else started is a conflict, not a restart", async () => {
   });
 
   expect(response?.status).toBe(409);
+});
+
+test("lists the sessions behind the launch, as the service reads them", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "GET", "/api/terminals/stale");
+
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual({ installedVersion: "2.1.301", sessions: [] });
+  expect(calls).toEqual([{ stale: true }]);
+});
+
+test("restarts exactly the sessions the reader agreed to, one result each", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "POST", "/api/terminals/restart-stale", { sessionIds: [SESSION_ID] });
+
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual({
+    results: [{ sessionId: SESSION_ID, name: null, outcome: { kind: "restarted" } }],
+  });
+  expect(calls).toEqual([{ restartStale: [SESSION_ID] }]);
+});
+
+test("a restart of stale sessions names them, so anything else is refused before the service", async () => {
+  const { calls, route } = fakeService();
+  const response = await call(route, "POST", "/api/terminals/restart-stale", { sessionIds: [42] });
+
+  expect(response?.status).toBe(400);
+  expect(calls).toEqual([]);
 });

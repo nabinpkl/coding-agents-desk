@@ -16,6 +16,8 @@ import type {
   AgentTerminalStreamMessage,
   AgentTerminalViewport,
   SessionTmuxTerminalContext,
+  StaleClaudeSessions,
+  StaleSessionRestartResult,
 } from "@agentdesk/agent-feed-wire";
 import { PtyManagerClient, type PtySessionConnection } from "@/terminal/pty/ptyClient";
 import {
@@ -46,6 +48,12 @@ import {
   requiredSessionUuid,
 } from "@/terminal/agentTerminalErrors";
 import { restartClaudeSession } from "@/terminal/claudeSessionLaunch";
+import {
+  listStaleSessions,
+  liveStaleSessionSources,
+  restartStaleSessions,
+  type StaleSessionSources,
+} from "@/terminal/staleClaudeSessions";
 import {
   identifyTerminal,
   tmuxTargetSession,
@@ -175,7 +183,22 @@ export class AgentTerminalService {
     private readonly revivePane = reviveExitedPane,
     /** Whether a live Claude process holds a session, which forbids resuming it again in its pane. */
     private readonly claudeRunning = claudeSessionRunning,
+    /** What says which sessions are behind the launch; injected for the same reason. */
+    private readonly staleSources: StaleSessionSources = liveStaleSessionSources,
   ) {
+  }
+
+  /** Every Claude session in a pane this sidecar launched that is behind its flags or CLI version. */
+  staleSessions(): Promise<StaleClaudeSessions> {
+    return listStaleSessions(this.staleSources);
+  }
+
+  /** Restarts those of them the reader agreed to, each through `restart` and only while idle. */
+  restartStale(sessionIds: readonly string[]): Promise<StaleSessionRestartResult[]> {
+    return restartStaleSessions(sessionIds, {
+      ...this.staleSources,
+      restart: (sessionId) => this.restart({ kind: "session-tmux", source: "claude", sessionId }),
+    });
   }
 
   /**

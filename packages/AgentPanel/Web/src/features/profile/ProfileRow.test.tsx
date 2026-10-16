@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageReport } from "@agentdesk/agent-feed-wire";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import type { StaleSessionsHandle } from "@/features/profile/useStaleSessions";
 import { ProfileRow } from "@/features/profile/ProfileRow";
 import type { UsageHandle, UsageState } from "@/features/usage/useUsage";
 
@@ -89,6 +90,10 @@ function handle(overrides: Partial<UsageHandle> = {}): UsageHandle {
  * state these tests care about: the entry exists, the usage assertions below are
  * unaffected by it.
  */
+function restartsHandle(overrides: Partial<StaleSessionsHandle> = {}): StaleSessionsHandle {
+  return { view: { kind: "idle" }, action: { kind: "none" }, load: () => {}, restart: () => {}, ...overrides };
+}
+
 function parkHandle(overrides: Partial<DesktopParkHandle> = {}): DesktopParkHandle {
   return {
     available: false,
@@ -135,7 +140,7 @@ function serveBuild(mode: "auto" | "manual" = "auto") {
 
 describe("the profile row", () => {
   it("opens its menu upward, out of the row it belongs to", () => {
-    render(<ProfileRow usage={handle()} park={parkHandle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} />);
     openMenu();
     const menu = screen.getByRole("menu", { name: "Profile" });
     // `bottom-full` is what makes it open upward, with no measurement and nothing to clip it. It
@@ -146,7 +151,7 @@ describe("the profile row", () => {
   });
 
   it("says the trigger is a menu, and whether it is open", () => {
-    render(<ProfileRow usage={handle()} park={parkHandle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} />);
     const trigger = screen.getByRole("button", { name: /^Profile/ });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -155,22 +160,31 @@ describe("the profile row", () => {
   });
 
   it("closes on Escape and hands focus back to the trigger", () => {
-    render(<ProfileRow usage={handle()} park={parkHandle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} />);
     openMenu();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Profile/ }));
   });
 
+  it("reads the stale sessions when that entry is chosen, and closes the menu over it", () => {
+    const load = vi.fn();
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle({ load })} />);
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restart stale sessions" }));
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("closes when something outside it is pressed", () => {
-    render(<ProfileRow usage={handle()} park={parkHandle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} />);
     openMenu();
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("offers Usage as unavailable rather than hiding the machine has none", () => {
-    render(<ProfileRow usage={handle({ vendors: [], state: { kind: "idle" } })} park={parkHandle()} />);
+    render(<ProfileRow usage={handle({ vendors: [], state: { kind: "idle" } })} park={parkHandle()} restarts={restartsHandle()} />);
     openMenu();
     const item = screen.getByRole("menuitem", { name: /Usage/ });
     expect(item).toBeDisabled();
@@ -178,13 +192,13 @@ describe("the profile row", () => {
   });
 
   it("shows the quota on the row itself, once a report has arrived", () => {
-    render(<ProfileRow usage={handle()} park={parkHandle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} />);
     expect(screen.getByRole("button", { name: /^Profile/ })).toHaveTextContent("13%");
   });
 
   it("sweeps only when Usage is pressed", () => {
     const usage = handle();
-    render(<ProfileRow usage={usage} park={parkHandle()} />);
+    render(<ProfileRow usage={usage} park={parkHandle()} restarts={restartsHandle()} />);
     openMenu();
     expect(usage.load).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("menuitem", { name: /Usage/ }));
@@ -196,7 +210,7 @@ describe("build identity", () => {
   it("names the code this tab is running, on the row itself", () => {
     // The failure it exists for: a tab sitting on a bundle older than the tree answers questions
     // about code that has already been replaced, and nothing on screen says so.
-    render(<ProfileRow usage={handle()} park={parkHandle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} />);
 
     expect(screen.getByLabelText(/^Panel build /).textContent).toBe("unknown");
   });
@@ -209,14 +223,14 @@ describe("live updates", () => {
   it("is not offered at all in a build with no dev server behind it", () => {
     // A bundled panel receives no updates, so the question does not arise there. That is different
     // from Desktop park, which is disabled rather than hidden because the machine might gain yabai.
-    render(<ProfileRow usage={handle()} park={parkHandle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} />);
     openMenu();
     expect(screen.queryByRole("menuitemcheckbox", { name: /Live updates/ })).toBeNull();
   });
 
   it("says which way it is set, as a control that is on rather than a label", async () => {
     serveBuild("auto");
-    render(<ProfileRow usage={handle()} park={parkHandle()} devServer={devServer()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} devServer={devServer()} />);
     openMenu();
     const toggle = await screen.findByRole("menuitemcheckbox", { name: /Live updates/ });
     expect(toggle).toHaveAttribute("aria-checked", "true");
@@ -225,7 +239,7 @@ describe("live updates", () => {
 
   it("asks the dev server to hold them, since there is nowhere else the decision can be made", async () => {
     const { asked } = serveBuild("auto");
-    render(<ProfileRow usage={handle()} park={parkHandle()} devServer={devServer()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} devServer={devServer()} />);
     openMenu();
     fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Live updates/ }));
     await waitFor(() => expect(asked.at(-1)?.method).toBe("POST"));
@@ -234,7 +248,7 @@ describe("live updates", () => {
 
   it("stays open, because a setting is not a thing you press once", async () => {
     serveBuild("manual");
-    render(<ProfileRow usage={handle()} park={parkHandle()} devServer={devServer()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} devServer={devServer()} />);
     openMenu();
     const toggle = await screen.findByRole("menuitemcheckbox", { name: /Live updates/ });
     fireEvent.click(toggle);
@@ -244,11 +258,13 @@ describe("live updates", () => {
 
   it("is walked by the arrow keys like every other entry", async () => {
     serveBuild("auto");
-    render(<ProfileRow usage={handle()} park={parkHandle()} devServer={devServer()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} restarts={restartsHandle()} devServer={devServer()} />);
     openMenu();
     const toggle = await screen.findByRole("menuitemcheckbox", { name: /Live updates/ });
     const menu = screen.getByRole("menu", { name: "Profile" });
     // Usage has focus on open; Desktop park is disabled in this fixture and skipped.
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Restart stale sessions" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(toggle);
   });

@@ -341,17 +341,37 @@ export type ClaudeRestartOutcome =
  */
 export async function restartClaudeSession(
   options: { sessionId: string; cwd: string },
-  tmux: {
-    stamped: (sessionId: string) => Promise<string | null>;
-    paneStarts: (session: string) => Promise<{ pane: string; command: string }[]>;
+  tmux: ClaudePaneLookup & {
     respawn: (pane: string, cwd: string, command: readonly string[]) => Promise<void>;
   } = { stamped: findTmuxSessionByIdentity, paneStarts: tmuxPaneStarts, respawn: respawnTmuxPane },
 ): Promise<ClaudeRestartOutcome> {
-  const session = await tmux.stamped(options.sessionId);
-  if (!session) return { kind: "no-pane" };
-  const launched = (await tmux.paneStarts(session)).find(({ command }) =>
-    command.includes(options.sessionId) && /\bclaude\b/.test(command));
-  if (!launched) return { kind: "not-ours", session };
+  const launched = await launchedClaudePane(options.sessionId, tmux);
+  if (launched.kind === "no-pane" || launched.kind === "not-ours") return launched;
   await tmux.respawn(launched.pane, options.cwd, resumeClaudeSessionCommand(options.sessionId));
   return { kind: "restarted", pane: launched.pane };
+}
+
+/** The two tmux reads that decide whether a session's pane is one this sidecar launched. */
+export interface ClaudePaneLookup {
+  stamped: (sessionId: string) => Promise<string | null>;
+  paneStarts: (session: string) => Promise<{ pane: string; command: string }[]>;
+}
+
+/**
+ * The pane this sidecar launched for a session, by the rule `restartClaudeSession` restarts by.
+ *
+ * Its own function because listing what a restart WOULD touch has to apply the same rule as the
+ * restart: a list that counted a person's own pane would promise a restart the route then refuses.
+ */
+export async function launchedClaudePane(
+  sessionId: string,
+  tmux: ClaudePaneLookup = { stamped: findTmuxSessionByIdentity, paneStarts: tmuxPaneStarts },
+): Promise<
+  { kind: "pane"; pane: string; startCommand: string } | { kind: "no-pane" } | { kind: "not-ours"; session: string }
+> {
+  const session = await tmux.stamped(sessionId);
+  if (!session) return { kind: "no-pane" };
+  const launched = (await tmux.paneStarts(session)).find(({ command }) =>
+    command.includes(sessionId) && /\bclaude\b/.test(command));
+  return launched ? { kind: "pane", pane: launched.pane, startCommand: launched.command } : { kind: "not-ours", session };
 }
