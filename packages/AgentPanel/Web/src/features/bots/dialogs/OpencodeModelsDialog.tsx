@@ -9,6 +9,10 @@ import type { OpencodeModel } from "@/features/activity-feed/data-source/Sidecar
  * An anchored menu, not a modal: in the composer band it rises from the footer cluster that holds
  * its switcher -- a narrow drop-up over the field and transcript -- and under an arena lane's model
  * button it drops below it. It closes on choose, Escape, or a click outside.
+ *
+ * The list is whatever it is handed: the serve's models for opencode, or the aliases a Claude lane
+ * offers. Given `onCustom`, a filter that names no listed model can be used as typed, which is how a
+ * Claude lane takes a full model id the list does not hold.
  * The slash args arrive as the initial filter, so `/models spark` opens already narrowed.
  * Choosing switches through the sidecar; the new model lands on the session event like a
  * rename, which is what moves the meter without a second read.
@@ -30,8 +34,10 @@ export function OpencodeModelsDialog({
   initialFilter,
   label = "Switch model",
   placement = "above",
+  listLabel = "Models this serve offers",
   onClose,
   onSwitch,
+  onCustom,
 }: {
   /** Every model the serve offers, or null while the list is still loading. */
   models: readonly OpencodeModel[] | null;
@@ -42,8 +48,12 @@ export function OpencodeModelsDialog({
   /** What the menu is for, its accessible name. */
   label?: string;
   placement?: OpencodeModelsPlacement;
+  /** What the list holds, its accessible name. */
+  listLabel?: string;
   onClose: () => void;
   onSwitch: (model: OpencodeModel) => Promise<void>;
+  /** Takes the filter as typed, when it names no listed model; absent, only the list can be chosen. */
+  onCustom?: (text: string) => Promise<void>;
 }) {
   const [filter, setFilter] = useState("");
   const [pendingName, setPendingName] = useState<string | null>(null);
@@ -102,17 +112,23 @@ export function OpencodeModelsDialog({
 
   if (!models) return null;
 
-  const choose = async (model: OpencodeModel) => {
+  const typed = filter.trim();
+  const custom = onCustom && typed && !models.some((model) => model.modelID === typed) ? typed : null;
+
+  /** Runs one choice, holding the menu on it until it lands, and saying why when it does not. */
+  const settle = async (pending: string, act: () => Promise<void>) => {
     if (pendingName) return;
-    setPendingName(`${model.providerID}/${model.modelID}`);
+    setPendingName(pending);
     setError(null);
     try {
-      await onSwitch(model);
+      await act();
     } catch (reason) {
       setError(String((reason as Error).message ?? reason));
       setPendingName(null);
     }
   };
+  const choose = (model: OpencodeModel) => settle(`${model.providerID}/${model.modelID}`, () => onSwitch(model));
+  const takeCustom = (text: string) => settle(`custom:${text}`, () => onCustom!(text));
 
   return (
     <>
@@ -138,11 +154,33 @@ export function OpencodeModelsDialog({
           autoFocus
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter models…"
+          onKeyDown={(event) => {
+            // Enter takes what was typed only when nothing listed matches it, so it never picks a
+            // row the reader did not see chosen.
+            if (event.key === "Enter" && custom && shown.length === 0) void takeCustom(custom);
+          }}
+          placeholder={onCustom ? "Filter, or type a model id…" : "Filter models…"}
           aria-label="Filter models"
           className="min-h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
         />
-        <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto overscroll-contain" role="listbox" aria-label="Models this serve offers">
+        <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto overscroll-contain" role="listbox" aria-label={listLabel}>
+          {custom ? (
+            <li role="presentation" className="pb-1">
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                disabled={pendingName !== null}
+                onClick={() => void takeCustom(custom)}
+                className="flex w-full cursor-pointer items-baseline gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring active:bg-accent disabled:cursor-not-allowed"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                  Use <span className="font-mono">{custom}</span>
+                </span>
+                {pendingName === `custom:${custom}` ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden /> : null}
+              </button>
+            </li>
+          ) : null}
           {groups.map(({ provider, entries }) => {
             // A typed filter expands everything it matches: a hidden match is a missing match.
             const isCollapsed = filter.trim() === "" && collapsed.has(provider);
@@ -212,7 +250,7 @@ export function OpencodeModelsDialog({
             );
           })}
         </ul>
-        {shown.length === 0 ? (
+        {shown.length === 0 && !custom ? (
           <p className="text-sm text-muted-foreground">No models match that filter.</p>
         ) : null}
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}

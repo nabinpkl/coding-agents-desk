@@ -334,10 +334,19 @@ describe("ArenaSurface", () => {
   test("each lane may name its model, and a run with a manager may open with no lanes for it to add", async () => {
     const { transport, posted } = harness({ modes: ["terminals", "headless"] });
     mount(transport);
-    const model = screen.getByLabelText("Contestant 2 model");
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(model, "sonnet");
-    model.dispatchEvent(new Event("input", { bubbles: true }));
+    screen.getByRole("button", { name: "Contestant 2 model" }).click();
+    const aliases = await screen.findByRole("dialog", { name: "Contestant 2's model" });
+    within(aliases).getByRole("option", { name: /^Sonnet/ }).click();
     await waitFor(() => expect(screen.getByText("Bake-off · 1 OpenCode vs 1 Claude sonnet")).toBeTruthy());
+
+    // A full id the aliases do not hold is typed into the menu's filter and used as typed.
+    screen.getByRole("button", { name: "Contestant 2 model" }).click();
+    const typed = within(await screen.findByRole("dialog", { name: "Contestant 2's model" })).getByLabelText("Filter models");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(typed, "claude-opus-5-5");
+    typed.dispatchEvent(new Event("input", { bubbles: true }));
+    (await screen.findByRole("option", { name: "Use claude-opus-5-5" })).click();
+    await waitFor(() => expect(screen.getByText("Bake-off · 1 OpenCode vs 1 Claude claude-opus-5-5")).toBeTruthy());
+    expect(screen.queryByRole("dialog", { name: "Contestant 2's model" })).toBeNull();
 
     screen.getByLabelText("Remove contestant 2").click();
     await waitFor(() => expect(screen.queryByLabelText("Contestant 2 model")).toBeNull());
@@ -368,7 +377,7 @@ describe("ArenaSurface", () => {
 
     const harnesses = screen.getByRole("radiogroup", { name: "Contestant 1 harness" });
     within(harnesses).getByRole("radio", { name: "Claude" }).click();
-    await waitFor(() => expect((screen.getByLabelText("Contestant 1 model") as HTMLInputElement).value).toBe(""));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("Default model"));
     within(harnesses).getByRole("radio", { name: "OpenCode" }).click();
     await waitFor(() => expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("Default model"));
 

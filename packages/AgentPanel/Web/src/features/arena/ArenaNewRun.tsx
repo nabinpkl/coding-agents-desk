@@ -20,14 +20,15 @@
 // prompt them, or for a verdict. A run with a manager may start with no lanes at all, for it to
 // add. It lives in a terminal too, so a headless run has none.
 //
-// Each lane may name the model it runs; left empty, the harness's default. An opencode lane picks
-// from the serve's own list, in the same menu the composer's model switcher opens; a Claude lane
-// takes an alias or a model id as typed.
+// Each lane may name the model it runs; left empty, the harness's default. Both pick it in the
+// menu the composer's model switcher opens: an opencode lane from the serve's own list, a Claude
+// lane from the CLI's aliases or a full model id typed into the menu.
 
 import { useId, useState, type KeyboardEvent } from "react";
 import { ChevronDown, Plus, X } from "lucide-react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
+import type { OpencodeModel } from "@/features/activity-feed/data-source/SidecarAgentSessions";
+import { OpencodeModelsDialog, OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import type { ArenaContestantSource, ArenaNewRunDefaults, ArenaRunMode } from "@agentdesk/agent-feed-wire";
 import {
   FIELD,
@@ -237,26 +238,13 @@ export function ArenaNewRun({
                   </button>
                 ))}
               </div>
-              {source === "opencode" ? (
-                <OpencodeLaneModel
-                  feed={feed}
-                  lane={index + 1}
-                  model={model}
-                  onModel={(next) => setLane(index, { model: next })}
-                />
-              ) : (
-                <input
-                  aria-label={`Contestant ${index + 1} model`}
-                  value={model}
-                  onChange={(event) => setLane(index, { model: event.target.value })}
-                  placeholder="Default model"
-                  title="A model alias (opus, sonnet, haiku) or id, or empty for the default"
-                  spellCheck={false}
-                  autoComplete="off"
-                  maxLength={200}
-                  className={`${MODEL_CONTROL} placeholder:text-muted-foreground focus-visible:border-ring`}
-                />
-              )}
+              <LaneModel
+                feed={feed}
+                source={source}
+                lane={index + 1}
+                model={model}
+                onModel={(next) => setLane(index, { model: next })}
+              />
             </div>
           ))}
           {draft.lineup.length < MAXIMUM_CONTESTANTS ? (
@@ -351,22 +339,39 @@ export function ArenaNewRun({
   );
 }
 
-/** The lane card's model control, the field and the picker's button alike. */
+/** The lane model control's look. */
 const MODEL_CONTROL =
   `min-h-8 w-full rounded-md border border-input bg-background px-2 py-1 font-mono ${TEXT.meta} text-foreground transition-colors ${FOCUS}`;
 
 /**
- * An opencode lane's model: a button naming it, which opens the serve's model list under it, and
- * a clear that puts the lane back on the serve's default.
+ * What a Claude lane offers: the CLI's own aliases, which follow each family's latest model, so
+ * the list does not age with every release. A full model id is typed into the menu's filter.
  */
-function OpencodeLaneModel({ feed, lane, model, onModel }: {
+const CLAUDE_MODELS: readonly OpencodeModel[] = [
+  ["best", "Best available"],
+  ["fable", "Fable"],
+  ["opus", "Opus"],
+  ["sonnet", "Sonnet"],
+  ["haiku", "Haiku"],
+  ["opusplan", "Opus to plan, Sonnet to build"],
+].map(([modelID, name]) => ({ providerID: "claude", modelID: modelID!, name: name!, contextLimit: null, inputCost: null, outputCost: null }));
+
+/**
+ * A lane's model: a button naming it, which opens the model menu under it, and a clear that puts
+ * the lane back on its harness's default. An opencode lane's menu is the serve's own list, read when
+ * it opens; a Claude lane's is the CLI's aliases, and takes a full id typed into its filter.
+ */
+function LaneModel({ feed, source, lane, model, onModel }: {
   feed: SidecarDataSource;
+  source: ArenaContestantSource;
   lane: number;
-  /** As `providerID/modelID`; empty for the default. */
+  /** As the harness spells it (`providerID/modelID` for opencode); empty for the default. */
   model: string;
   onModel: (model: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
+  const label = `Contestant ${lane}'s model`;
   return (
     <div className="relative flex items-center gap-1">
       <button
@@ -374,8 +379,10 @@ function OpencodeLaneModel({ feed, lane, model, onModel }: {
         aria-label={`Contestant ${lane} model`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={model || "The serve's default model"}
+        title={model || "The harness's default model"}
         onClick={() => setOpen((was) => !was)}
+        // The border, not the fill, answers the pointer: a filled hover held the muted
+        // "Default model" under 4.5:1.
         className={`${MODEL_CONTROL} flex min-w-0 items-center gap-1 text-left hover:border-ring aria-expanded:border-ring`}
       >
         <span className={`min-w-0 flex-1 truncate ${model ? "" : "text-muted-foreground"}`}>{model || "Default model"}</span>
@@ -392,15 +399,34 @@ function OpencodeLaneModel({ feed, lane, model, onModel }: {
           <X aria-hidden className="size-4" />
         </button>
       ) : null}
-      {open ? (
+      {open && source === "opencode" ? (
         <OpencodeModelsHost
           feed={feed}
           current={model || null}
           initialFilter=""
-          label={`Contestant ${lane}'s model`}
+          label={label}
           placement="below"
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSwitch={async (providerID, modelID) => onModel(`${providerID}/${modelID}`)}
+        />
+      ) : null}
+      {open && source === "claude" ? (
+        <OpencodeModelsDialog
+          models={CLAUDE_MODELS}
+          current={model ? `claude/${model}` : null}
+          initialFilter=""
+          label={label}
+          listLabel="Claude's model aliases"
+          placement="below"
+          onClose={close}
+          onSwitch={async ({ modelID }) => {
+            onModel(modelID);
+            close();
+          }}
+          onCustom={async (text) => {
+            onModel(text);
+            close();
+          }}
         />
       ) : null}
     </div>
