@@ -108,7 +108,7 @@ function dayFigures(): HTMLElement {
  * unaffected by it.
  */
 function restartsHandle(overrides: Partial<StaleSessionsHandle> = {}): StaleSessionsHandle {
-  return { view: { kind: "idle" }, action: { kind: "none" }, load: () => {}, restart: () => {}, ...overrides };
+  return { machines: [], load: () => {}, restart: () => {}, ...overrides };
 }
 
 function parkHandle(overrides: Partial<DesktopParkHandle> = {}): DesktopParkHandle {

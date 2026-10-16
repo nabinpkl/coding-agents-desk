@@ -157,7 +157,7 @@ export function ProfileRow({
               <span className="shrink-0 text-xs text-muted-foreground">no yabai</span>
             ) : null}
           </button>
-          {/* Every session behind the launch flags or the installed CLI, on this machine. A list
+          {/* Every session behind the launch flags or the installed CLI, on every machine. A list
               before a restart, because which sessions that is changes every time it is asked. */}
           <button
             type="button"

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StaleClaudeSession } from "@agentdesk/agent-feed-wire";
 import { StaleSessionsPanel } from "@/features/profile/StaleSessionsModal";
-import type { StaleSessionsHandle } from "@/features/profile/useStaleSessions";
+import type { MachineStaleSessions, StaleSessionsHandle } from "@/features/profile/useStaleSessions";
 
 function session(overrides: Partial<StaleClaudeSession> & { sessionId: string }): StaleClaudeSession {
   return { name: overrides.sessionId, version: "2.1.296", activity: "idle", reasons: ["update"], ownLaunch: false, ...overrides };
@@ -16,14 +16,21 @@ const SESSIONS = [
   session({ sessionId: "arena", name: "arena manager", reasons: ["launch-flags"], ownLaunch: true }),
 ];
 
-function handle(overrides: Partial<StaleSessionsHandle> = {}): StaleSessionsHandle {
+function machine(overrides: Partial<MachineStaleSessions> = {}): MachineStaleSessions {
   return {
+    key: "",
+    label: "this machine",
     view: { kind: "ready", stale: { installedVersion: "2.1.301", sessions: SESSIONS } },
     action: { kind: "none" },
-    load: vi.fn(),
-    restart: vi.fn(),
     ...overrides,
   };
+}
+
+function handle(
+  overrides: Partial<MachineStaleSessions> = {},
+  rest: Partial<StaleSessionsHandle> = {},
+): StaleSessionsHandle {
+  return { machines: [machine(overrides)], load: vi.fn(), restart: vi.fn(), ...rest };
 }
 
 afterEach(() => {
@@ -52,7 +59,7 @@ describe("StaleSessionsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Restart 2/ }));
     expect(restarts.restart).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /Press again to restart 2/ }));
-    expect(restarts.restart).toHaveBeenCalledWith(["alan", "brian"]);
+    expect(restarts.restart).toHaveBeenCalledWith(new Map([["", ["alan", "brian"]]]));
   });
 
   it("disarms on its own, so a stray press is never a restart later", () => {
@@ -98,5 +105,47 @@ describe("StaleSessionsPanel", () => {
     );
     expect(screen.getByText("Every session runs the current launch flags and CLI.")).toBeTruthy();
     expect((screen.getByRole("button", { name: /Restart 0/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("lists each machine under its own name, and restarts each machine's own sessions", () => {
+    const restarts = handle({}, {
+      machines: [
+        machine({ key: "", label: "dev" }),
+        machine({
+          key: "oracle",
+          label: "oracle",
+          view: {
+            kind: "ready",
+            stale: { installedVersion: "2.1.296", sessions: [session({ sessionId: "acacia", name: "Acacia", version: "2.1.285" })] },
+          },
+        }),
+      ],
+    });
+    render(<StaleSessionsPanel restarts={restarts} onClose={() => {}} />);
+    const oracle = within(screen.getByRole("region", { name: "oracle" }));
+    expect(oracle.getByText("installed 2.1.296")).toBeTruthy();
+    expect(oracle.getByText("2.1.285 → 2.1.296")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "dev" })).getByText("Alan")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Restart 3$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Press again to restart 3/ }));
+    expect(restarts.restart).toHaveBeenCalledWith(new Map([["", ["alan", "brian"]], ["oracle", ["acacia"]]]));
+  });
+
+  it("says one machine could not be listed without hiding the others", () => {
+    render(
+      <StaleSessionsPanel
+        restarts={handle({}, {
+          machines: [
+            machine({ key: "", label: "dev" }),
+            machine({ key: "oracle", label: "oracle", view: { kind: "failed", message: "sidecar did not answer" } }),
+          ],
+        })}
+        onClose={() => {}}
+      />,
+    );
+    expect(within(screen.getByRole("region", { name: "oracle" })).getByRole("alert").textContent)
+      .toContain("sidecar did not answer");
+    expect(screen.getByRole("button", { name: /^Restart 2$/ })).toBeTruthy();
   });
 });

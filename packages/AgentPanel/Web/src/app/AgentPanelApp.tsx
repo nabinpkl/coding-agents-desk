@@ -102,7 +102,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   // Gathering windows onto one Desktop is a machine-level capability, probed once
   // the same way usage is. Absent yabai, the menu entry stays disabled.
   const park = useDesktopPark(feed);
-  const restarts = useStaleSessions(feed);
+  const restarts = useStaleSessions(shellMachines.all);
   const chrome = useSidebarChrome();
   // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
   // roster to drop stored cards against. See `useBotMachines`.
