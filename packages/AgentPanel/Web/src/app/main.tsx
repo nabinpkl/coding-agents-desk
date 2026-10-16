@@ -161,13 +161,36 @@ if (entry === "ide") {
   // terminal band above it -- which is exactly what a phone keyboard covers. It lands as a
   // document height (styles.css), so it lifts whatever chains its height through `#root`; that is
   // the browser surfaces, which is where both live surfaces are.
-  installKeyboardInset();
+  let keyboard = installKeyboardInset();
 
   // pagehide fires reliably in WKWebView (unload is often skipped under the
   // back-forward cache and on iOS); use it to tear down the host client.
-  installPagehideLifecycle(host);
+  let lifecycle = installPagehideLifecycle(host);
 
   // Inert title-bar presses drag the native window. No-ops unless the Mac host installed its
   // window-chrome entry point, so the iOS client and a plain browser take no branch.
-  installWindowDrag();
+  let drag = installWindowDrag();
+
+  // Each of these listens on the page itself, once, so an edit to one used to reload every panel to
+  // install it again. Taking the old listeners off and installing from the new module does the same
+  // thing in place, and nothing they own outlives the swap: each one's state is the listener.
+  if (import.meta.hot) {
+    import.meta.hot.accept(
+      ["@/app/page/keyboardInset", "@/app/page/pageLifecycle", "@/app/page/windowDrag"],
+      ([nextKeyboard, nextLifecycle, nextDrag]) => {
+        if (nextKeyboard) {
+          keyboard.remove();
+          keyboard = (nextKeyboard as typeof import("@/app/page/keyboardInset")).installKeyboardInset();
+        }
+        if (nextLifecycle) {
+          lifecycle.remove();
+          lifecycle = (nextLifecycle as typeof import("@/app/page/pageLifecycle")).installPagehideLifecycle(host);
+        }
+        if (nextDrag) {
+          drag.remove();
+          drag = (nextDrag as typeof import("@/app/page/windowDrag")).installWindowDrag();
+        }
+      },
+    );
+  }
 }
