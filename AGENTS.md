@@ -15,7 +15,8 @@ infer backwards from the shape of the tree:
 - **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
   of them, but the working loop is TypeScript: the Vite-served panel in `packages/AgentPanel/Web/`
   and the supervised sidecar in `agent-feed/sidecar/src/`, with `tools/grid-encoder` as the
-  native helper behind them. An edit reaches the running system by a page reload, not a rebuild.
+  native helper behind them. An edit reaches the running system without a rebuild: in place for
+  most panel edits, by a supervised restart for the sidecar ("What an edit costs the open panel").
   This repo began as a Swift host plus a Swift iOS client and moved off that path because compiling
   and reinstalling dominated iteration; the Swift that remains is lifecycle, transport, security
   boundaries, and OS capabilities.
@@ -191,8 +192,9 @@ panel that remembers its font size and forgets which session it was reading.
   it. Write it with `replaceState`, not `pushState` -- choosing a view is not a navigation, and
   making Back walk the tabs would take a reader out of the panel to leave it.
 - **Storage** remembers everything deeper than a link. The reason it exists at all is that this
-  panel is edited while it is being read: a Vite save throws away every piece of React state many
-  times an hour, and a phone whose webview was discarded comes back the same way.
+  panel is edited while it is being read: a Vite save that cannot update in place reloads the page
+  and throws away every piece of React state, and a phone whose webview was discarded comes back
+  the same way.
 
 **The test for whether something is stored** is not "would it be nice to have back". It is:
 
@@ -429,6 +431,37 @@ with no rebuild, no reinstall, and no re-pair.
   the bundle id, not a flag: logs, keychain, launchd registration and Application Support directory
   all derive from it, and the kill-before-relaunch step matches the variant's exact installed
   executable rather than a bare `pkill -f AgentDeskHost`, which would kill both.
+
+### What an edit costs the open panel
+
+Settled 2026-10-15. Most edits reach every open panel without reloading the page, and the ones that
+still reload are a short list. A reload is the expensive outcome: every card's scroll, terminal and
+loaded history goes, and the page fetches its ~490 modules again, which is seconds on the phone.
+
+- **Components and hooks update in place** through React Fast Refresh. A `.tsx` file that exports
+  anything besides components is not a boundary, so its update passes to every importer, which is
+  harmless until the chain reaches `main.tsx`. Keep a plain helper out of a component file, the way
+  `desktopDocumentHeight.ts` came out of `DesktopViewer.tsx`.
+- **The data source, its layers, the transport and the wire are swapped in place.** `main.tsx`
+  accepts them, builds a fresh `FetchHttpTransport` and `SidecarDataSource`, and re-renders the
+  root it already has. Every effect keyed on the feed reopens its stream with the new code, so the
+  reader sees what a sidecar restart looks like. A subscription keyed on anything less than the
+  feed's identity stays on the replaced one; `useBots` keys on each machine's feed for that reason.
+- **The page-level listeners are reinstalled** (`keyboardInset.ts`, `pageLifecycle.ts`,
+  `windowDrag.ts`): `main.tsx` keeps the `remove()` each returns and installs from the new module.
+- **A sidecar edit restarts the sidecar and reloads nothing.** Each list and card keeps what it had
+  and shows a "Reconnecting…" chip (`ReconnectingNotice.tsx`) until its stream is back, and Bot
+  views wait for the catalog (`catalogReady`), so a restart no longer reads every session as
+  missing.
+- **Still a full reload:** `main.tsx` itself, `panelEntry.ts`, `HostActionsClient.ts` and
+  `HostBridge.ts`, the telemetry modules (Sentry's `init` wraps `fetch` and closing the client does
+  not unwrap it, so it is not swapped), and anything the dev server reads at startup:
+  `vite.config.ts` and its plugins, `index.html`, `tsconfig.json`, `.env`, dependencies. Under a
+  native container or in fixture mode a data-source edit reloads too, on purpose: both install
+  their transport once.
+- **A new module `main.tsx` creates or installs goes on its accept list in the same change.**
+  Otherwise every edit to it reloads every open panel, and nothing reports it: the page simply
+  reloads, which reads as normal.
 
 ### A restart used to hand this Mac back the SHIPPED configuration
 
