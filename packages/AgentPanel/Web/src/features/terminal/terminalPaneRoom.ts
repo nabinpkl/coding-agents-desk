@@ -1,11 +1,11 @@
-// How tall a terminal pane may grow on its own before it crowds out the transcript above it.
+// How tall a terminal pane may make itself before it crowds out the transcript above it.
 //
-// A pane under a transcript sizes itself to the rows its program has drawn, up to a share of the
-// session's column. A program that fills its screen (opencode streaming a turn) takes all of that
-// share, and the composer around the pane takes most of what is left: measured in an arena lane,
-// the transcript was left 58px, every pixel of it under its pinned prompt header, so no wheel over
-// the transcript could reach the scroller beneath. The pane growing by itself now stops where the
-// transcript would drop below its floor. A reader's own drag is not held to this.
+// A pane under a transcript sizes itself: an echo to a share of the session's column, a band to its
+// terminal's grid. Either can leave the transcript too little once the composer around the pane has
+// its share: measured in an arena lane, a pane then grown to its screen left the transcript 58px,
+// every pixel of it under its pinned prompt header, so no wheel over the transcript could reach the
+// scroller beneath. A pane sizing itself stops where the transcript would drop below its floor. A
+// reader's own drag is not held to this.
 
 /** What the transcript keeps: its pinned prompt header, and a few lines under it to scroll. */
 export const TRANSCRIPT_FLOOR = 180;

@@ -17,6 +17,9 @@ import { TERMINAL_ZOOM, useAgentTerminal, type AgentTerminalState } from "@/feat
 const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;
 const BAND_TERMINAL_SHARE = 0.42;
+/** An echo's share of its column: half the share a pane may grow to, so a peek stays a peek. */
+const ECHO_TERMINAL_SHARE = MAXIMUM_TERMINAL_SHARE / 2;
+const echoHeight = (basis: number): number => Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(basis * ECHO_TERMINAL_SHARE));
 
 /**
  * What a band pane is a share of when it is given nothing else to measure: what is actually
@@ -57,8 +60,8 @@ interface Props {
    * the band, and takes its ceiling from there too. Growing it makes the band taller, which moves
    * the band's top edge up: the direction a handle along the pane's top edge implies.
    *
-   * `echo` is a band that is a PEEK rather than a place to work: it opens at the minimum height
-   * instead of at the height its screen wants, and keeps the BOTTOM of that screen in view. It
+   * `echo` is a band that is a PEEK rather than a place to work: it holds a fixed share of its
+   * column instead of the height its screen wants, and keeps the BOTTOM of that screen in view. It
    * exists so a reader can watch their own typing arrive in the agent's composer line while still
    * having the field to type it in, and the line they are watching is the last one on the screen.
    * Still draggable: a peek that turns out to be worth more room is one drag from having it.
@@ -129,7 +132,7 @@ export function AgentTerminalPane(
   const [height, setHeight] = useState<number | null>(
     rememberedHeight
       ?? (echo
-        ? MINIMUM_TERMINAL_HEIGHT
+        ? echoHeight(measureBasis())
         : band
           ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(measureBasis() * BAND_TERMINAL_SHARE))
           : null),
@@ -262,33 +265,20 @@ export function AgentTerminalPane(
   }, [echo, contentHeight, height, lastDrawnRow, mountRef]);
 
   /**
-   * Opens an echo at the height its drawn rows need, rather than at the floor.
+   * Holds an echo at a fixed share of the session's column, whatever its program has drawn.
    *
-   * The floor showed six rows of a screen whose box and footer alone are more than that, so every
-   * pane opened needing a drag. The rows that need room are the drawn ones -- the screen's blank
-   * tail is not worth height -- measured off the rendered rows, since the fit sets their size. It
-   * only grows: a program redrawing its frame blanks rows for a moment, and a pane that shrank with
-   * each redraw would jump. Capped short of the drag's ceiling, at what leaves the transcript its
-   * floor (`selfCeiling`), so a screen that needs the room gets what the transcript can spare; a
-   * reader who wants more drags it up, and that height is remembered. Never over a drag.
+   * It used to open at the height its drawn rows needed and grow with them, so a pane sat small
+   * until its program filled the screen and then took most of the column: a lane's pane grew while
+   * opencode streamed and Claude's grew turn by turn, and the transcript shrank under the reader.
+   * A share of the column is the same size from the first frame and follows the screen when it
+   * resizes. Still never past what leaves the transcript its floor, and never over a drag.
    */
   useEffect(() => {
-    if (!echo || sized.current || lastDrawnRow === null) return;
-    const pane = paneRef.current;
-    const mount = mountRef.current;
-    const screen = mount?.querySelector<HTMLElement>(".xterm");
-    const row = mount?.querySelector(".xterm-rows")?.children[lastDrawnRow];
-    if (!pane || !mount || !screen || !row) return;
-    const style = getComputedStyle(mount);
-    const below = Number.parseFloat(getComputedStyle(screen).paddingBottom) || 0;
-    const drawn = row.getBoundingClientRect().bottom - screen.getBoundingClientRect().top + below;
-    const frame = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
-    const chrome = pane.offsetHeight - mount.clientHeight;
-    const wanted = Math.ceil(drawn + frame + chrome);
-    // Never past its own ceiling, even where an earlier growth went further before the composer
-    // under it grew: what it already had is kept only up to what the transcript can spare.
-    setHeight((current) => Math.min(Math.max(current ?? MINIMUM_TERMINAL_HEIGHT, wanted), selfCeiling()));
-  }, [echo, lastDrawnRow, contentHeight, basis, mountRef]);
+    if (!echo || sized.current) return;
+    setHeight(Math.min(selfCeiling(), echoHeight(basis)));
+    // `selfCeiling` reads the layout this render measured; the basis is what moves it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [echo, basis]);
 
   /**
    * The one place a reader-chosen height is set, which is why the report goes out from here.
