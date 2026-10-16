@@ -11,12 +11,12 @@ import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import { terminalContextLabel } from "@/features/terminal/terminalContext";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { TerminalRestartButton } from "@/features/terminal/TerminalRestartButton";
+import { paneRoomBesideTranscript } from "@/features/terminal/terminalPaneRoom";
 import { TERMINAL_ZOOM, useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;
 const BAND_TERMINAL_SHARE = 0.42;
-
 
 /**
  * What a band pane is a share of when it is given nothing else to measure: what is actually
@@ -199,6 +199,11 @@ export function AgentTerminalPane(
     Math.max(MINIMUM_TERMINAL_HEIGHT, available * MAXIMUM_TERMINAL_SHARE);
   const ceiling = (): number =>
     share(band ? basis : (paneRef.current?.parentElement?.clientHeight ?? 0));
+  /** The most a band pane may take sizing itself: the ceiling, short of crowding the transcript. */
+  const selfCeiling = (): number => {
+    const room = band && heightBasis && paneRef.current ? paneRoomBesideTranscript(paneRef.current, heightBasis) : null;
+    return room === null ? ceiling() : Math.max(MINIMUM_TERMINAL_HEIGHT, Math.min(ceiling(), room));
+  };
   // The height asked for is kept, and the ceiling applied on top of it, so a keyboard that forces
   // the pane down to fit gives its size back when it closes rather than costing the user the drag.
   const appliedHeight = height !== null && band ? Math.min(height, share(basis)) : height;
@@ -224,7 +229,7 @@ export function AgentTerminalPane(
     // measured without the border is a pixel short -- and a pixel short is a whole point of type,
     // because the fit floors.
     const chrome = pane.offsetHeight - mount.clientHeight;
-    setHeight(Math.min(ceiling(), Math.max(MINIMUM_TERMINAL_HEIGHT, contentHeight + chrome)));
+    setHeight(Math.min(selfCeiling(), Math.max(MINIMUM_TERMINAL_HEIGHT, contentHeight + chrome)));
     // `ceiling` reads the basis this render measured; re-running it on every render would fight
     // the drag rather than follow the grid.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,9 +268,9 @@ export function AgentTerminalPane(
    * pane opened needing a drag. The rows that need room are the drawn ones -- the screen's blank
    * tail is not worth height -- measured off the rendered rows, since the fit sets their size. It
    * only grows: a program redrawing its frame blanks rows for a moment, and a pane that shrank with
-   * each redraw would jump. Capped at the same ceiling a drag is, so a screen that needs the room
-   * gets it and the transcript keeps the rest; a reader who wants the transcript back drags it down,
-   * and that height is remembered. Never over a drag.
+   * each redraw would jump. Capped short of the drag's ceiling, at what leaves the transcript its
+   * floor (`selfCeiling`), so a screen that needs the room gets what the transcript can spare; a
+   * reader who wants more drags it up, and that height is remembered. Never over a drag.
    */
   useEffect(() => {
     if (!echo || sized.current || lastDrawnRow === null) return;
@@ -280,7 +285,9 @@ export function AgentTerminalPane(
     const frame = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
     const chrome = pane.offsetHeight - mount.clientHeight;
     const wanted = Math.ceil(drawn + frame + chrome);
-    setHeight((current) => Math.max(current ?? MINIMUM_TERMINAL_HEIGHT, Math.min(ceiling(), wanted)));
+    // Never past its own ceiling, even where an earlier growth went further before the composer
+    // under it grew: what it already had is kept only up to what the transcript can spare.
+    setHeight((current) => Math.min(Math.max(current ?? MINIMUM_TERMINAL_HEIGHT, wanted), selfCeiling()));
   }, [echo, lastDrawnRow, contentHeight, basis, mountRef]);
 
   /**
