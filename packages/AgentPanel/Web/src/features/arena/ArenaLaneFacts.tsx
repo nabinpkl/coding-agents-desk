@@ -68,6 +68,7 @@ export function ArenaLaneFacts({
         </span>
       </header>
       <dl className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 ${TEXT.meta}`}>
+        {contestant.model ? <Fact label="Model" caption="model"><span className="font-mono">{contestant.model}</span></Fact> : null}
         {ms === null ? null : (
           <Fact label="Time">
             {formatDuration(ms)}

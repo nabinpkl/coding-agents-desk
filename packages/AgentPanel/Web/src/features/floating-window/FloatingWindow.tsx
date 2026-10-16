@@ -1,7 +1,7 @@
 // A window that floats over the panel: hangs below the switch that opened it, carried by its
 // header, resized by its right and bottom edges, and closed by its X.
 //
-// Written once for every such window -- the Father home over the Bot strip, an arena run's judge
+// Written once for every such window -- the Father home over the Bot strip, an arena run's manager
 // over its lanes -- because each is the same object with different contents: one session, shown
 // as itself, in a drawer the reader can put where it is out of their way. The two used to be two
 // windows that differed in everything a reader handles (one carried, one did not; one closed with

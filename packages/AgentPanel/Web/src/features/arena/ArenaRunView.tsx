@@ -15,9 +15,9 @@
 // between views of one run never has it move out from under the finger.
 //
 // The run's folder opens in the folder viewer from beside them, and each contestant's worktree from
-// its lane's head (`code/ArenaCodeButton.tsx`). A run with a judge has its switch beside Remove;
-// the judge's window floats over the lanes' corner only while it is open
-// (`judge/ArenaJudgeWindow.tsx`).
+// its lane's head (`code/ArenaCodeButton.tsx`). A run with a manager has its switch beside Remove;
+// the manager's window floats over the lanes' corner only while it is open
+// (`manager/ArenaManagerWindow.tsx`).
 //
 // A terminals run whose lanes were opened before its prompt has no prompt to show yet, so the
 // header holds the box the prompt is typed into instead. It goes to every lane at once, as soon as
@@ -34,7 +34,7 @@ import { ArenaFilesMatrix } from "@/features/arena/ArenaFilesMatrix";
 import { ArenaCodeButton } from "@/features/arena/code/ArenaCodeButton";
 import { ArenaLaneFacts } from "@/features/arena/ArenaLaneFacts";
 import { SessionLane, useRunSessions } from "@/features/arena/ArenaSessionLanes";
-import { ArenaJudgeWindow, JudgeSwitch } from "@/features/arena/judge/ArenaJudgeWindow";
+import { ArenaManagerWindow, ManagerSwitch } from "@/features/arena/manager/ArenaManagerWindow";
 import { lineupKind } from "@/features/arena/ArenaNewRun";
 import { basename, diffStat, elapsedMs, fileMatrix, formatAgo } from "@/features/arena/arenaFacts";
 import { FIELD, FOCUS, ICON_BUTTON, isLive, PRIMARY_BUTTON, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
@@ -77,7 +77,7 @@ export function ArenaRunView({
   onSendPrompt: (prompt: string) => Promise<string | null>;
 }) {
   const [promptOpen, setPromptOpen] = useState(false);
-  const [judgeOpen, setJudgeOpen] = useState(false);
+  const [managerOpen, setManagerOpen] = useState(false);
   const live = run.contestants.some(isLive);
   const awaitingPrompt = run.mode === "terminals" && run.prompt === "";
   const ready = run.contestants.filter((c) => c.status === "ready").length;
@@ -87,7 +87,7 @@ export function ArenaRunView({
   const changed = contestants.filter((c) => diffStat(c.gitDiff).files > 0).length;
   const long = run.prompt.length > 160 || run.prompt.split("\n").length > 2;
   const slowestMs = Math.max(1, ...contestants.map((c) => elapsedMs(c, now) ?? 0));
-  const directories = [run.repoPath, ...run.contestants.map((c) => c.worktreePath), ...(run.judge ? [run.judge.folder] : [])];
+  const directories = [run.repoPath, ...run.contestants.map((c) => c.worktreePath), ...(run.manager ? [run.manager.folder] : [])];
   const { sessions, error: catalogError } = useRunSessions(feed, directories);
   const controlsHosts = useControlsHosts();
   // Where the run works is worth a word only when the reader chose it: a repository the arena
@@ -153,7 +153,7 @@ export function ArenaRunView({
                   <span aria-hidden>·</span>
                 </>
               )}
-              <span>{lineupKind(run.contestants.map((c) => c.source))}</span>
+              <span>{lineupKind(run.contestants)}</span>
               {where ? (
                 <>
                   <span aria-hidden>·</span>
@@ -196,7 +196,7 @@ export function ArenaRunView({
                 title={run.name}
                 path={run.folder}
               />
-              {run.judge ? <JudgeSwitch judge={run.judge} open={judgeOpen} onToggle={() => setJudgeOpen((open) => !open)} /> : null}
+              {run.manager ? <ManagerSwitch manager={run.manager} open={managerOpen} onToggle={() => setManagerOpen((open) => !open)} /> : null}
               <button
                 type="button"
                 aria-label="Remove run"
@@ -272,12 +272,12 @@ export function ArenaRunView({
           </>
         )}
       </div>
-      {run.judge && judgeOpen ? (
-        <ArenaJudgeWindow
-          judge={run.judge}
-          listed={run.judge.sessionId ? sessions.get(run.judge.sessionId) ?? null : null}
+      {run.manager && managerOpen ? (
+        <ArenaManagerWindow
+          manager={run.manager}
+          listed={run.manager.sessionId ? sessions.get(run.manager.sessionId) ?? null : null}
           context={context}
-          onClose={() => setJudgeOpen(false)}
+          onClose={() => setManagerOpen(false)}
         />
       ) : null}
     </article>

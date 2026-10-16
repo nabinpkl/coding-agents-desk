@@ -24,6 +24,9 @@ afterEach(async () => {
 
 /** A backend whose every contestant closes at once, right behind the send. */
 const closingBackend: OpencodeContestantBackend = {
+  async switchModel() {
+    return { requestId: "r", delivery: "immediate" };
+  },
   async createSession(_requestId, projectPath) {
     return {
       sessionId: `ses-${Math.random().toString(36).slice(2, 8)}`,
@@ -260,4 +263,17 @@ test("a settled run takes its next prompt; one still on its last is a 409; an un
   });
   expect(unknown.status).toBe(404);
   expect((await at(`/api/arena/runs/${created.runId}/prompt`)).status).toBe(405);
+});
+
+test("lanes are added by POST: a run past its first prompt is a 409, an unknown run a 404, a GET a 405", async () => {
+  const { at } = await start();
+  const created = (await (await at("/api/arena/runs", body())).json()) as { runId: string };
+  const add = (runId: string, payload: string) =>
+    at(`/api/arena/runs/${runId}/contestants`, { method: "POST", body: payload });
+  const late = await add(created.runId, JSON.stringify({ contestants: [{ source: "opencode" }] }));
+  expect(late.status).toBe(409);
+  expect(((await late.json()) as { error: { message: string } }).error.message).toContain("before its first prompt");
+  expect((await add("22222222-2222-4222-8222-222222222222", JSON.stringify({ contestants: [] }))).status).toBe(404);
+  expect((await add(created.runId, "not json")).status).toBe(400);
+  expect((await at(`/api/arena/runs/${created.runId}/contestants`)).status).toBe(405);
 });

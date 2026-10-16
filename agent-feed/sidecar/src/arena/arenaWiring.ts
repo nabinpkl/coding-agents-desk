@@ -10,7 +10,7 @@ import {
 import { runClaudeContestant } from "@/arena/contestants/claudeContestant";
 import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
 import { runClaudeTerminalContestant, runOpencodeTerminalContestant } from "@/arena/contestants/terminalContestants";
-import { ArenaJudges, liveJudgeSteps, type JudgeOpencodeBackend } from "@/arena/judge/arenaJudges";
+import { ArenaManagers, liveManagerSteps, type ManagerOpencodeBackend } from "@/arena/manager/arenaManagers";
 import { config } from "@/config/config";
 
 /**
@@ -22,21 +22,23 @@ import { config } from "@/config/config";
  * interrupted are picked back up from their panes, or failed saying why they cannot be.
  *
  * The terminals mode's drivers are wired only where there is a tmux to run them in; without one
- * the arena offers headless alone, and says so when a run asks for terminals. A run's judge lives
- * in a pane too, so it is wired only with them.
+ * the arena offers headless alone, and says so when a run asks for terminals. A run's manager lives
+ * in a pane too, so it is wired only with them. A lane that names no model runs the configured one.
+ * The manager is told this sidecar's own address, which it calls for its run.
  */
 export function startArenaService(
-  opencodeBackend: OpencodeContestantBackend & JudgeOpencodeBackend,
+  opencodeBackend: OpencodeContestantBackend & ManagerOpencodeBackend,
 ): ArenaService {
   const store = new ArenaStore(arenaRoot());
   const registry = new ArenaRunRegistry({
     initial: store.load(),
   });
-  const judges = config.tmuxPath
-    ? new ArenaJudges({
+  const managers = config.tmuxPath
+    ? new ArenaManagers({
       registry,
-      steps: liveJudgeSteps(opencodeBackend, (runId, contestantId) => store.readContestantDiff(runId, contestantId)),
+      steps: liveManagerSteps(opencodeBackend, (runId, contestantId) => store.readContestantDiff(runId, contestantId)),
       claude: { model: arenaClaudeModel(), effort: arenaClaudeEffort() },
+      api: `http://127.0.0.1:${config.port}`,
     })
     : null;
   const service = new ArenaService({
@@ -45,19 +47,19 @@ export function startArenaService(
     drivers: {
       opencode: (plan) => runOpencodeContestant(opencodeBackend, plan),
       claude: (plan) =>
-        runClaudeContestant(plan, { model: arenaClaudeModel(), effort: arenaClaudeEffort() }),
+        runClaudeContestant(plan, { model: plan.model ?? arenaClaudeModel(), effort: arenaClaudeEffort() }),
     },
     terminalDrivers: config.tmuxPath
       ? {
         opencode: (plan) => runOpencodeTerminalContestant(opencodeBackend, plan),
         claude: (plan) =>
-          runClaudeTerminalContestant(plan, { model: arenaClaudeModel(), effort: arenaClaudeEffort() }),
+          runClaudeTerminalContestant(plan, { model: plan.model ?? arenaClaudeModel(), effort: arenaClaudeEffort() }),
       }
       : null,
-    judges,
+    managers,
     arenaHome: arenaHome(),
   });
   service.resumeInterruptedRuns();
-  judges?.resume();
+  managers?.resume();
   return service;
 }

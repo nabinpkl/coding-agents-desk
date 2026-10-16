@@ -29,11 +29,9 @@ export function arenaHome(): string {
 }
 
 /**
- * The model and effort a Claude contestant runs with, or null for the CLI's own defaults.
- * Deliberately not named per run yet: a duel's fairness lives in both contestants answering
- * the same question the same way, and the model is the first thing that changes when they do
- * not. The day a run wants to name models per contestant is the day this moves onto the
- * request.
+ * The model and effort a Claude contestant runs with when its lane names no model, and a Claude
+ * manager always; null for the CLI's own defaults. A lane may name its own (`ArenaLaneRequest`),
+ * which is how a run compares models rather than harnesses.
  */
 export function arenaClaudeModel(): string | null {
   return process.env.AGENT_FEED_ARENA_CLAUDE_MODEL?.trim() || null;

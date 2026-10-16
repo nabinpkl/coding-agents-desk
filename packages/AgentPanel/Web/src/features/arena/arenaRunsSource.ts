@@ -16,7 +16,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantDetail,
   type ArenaContestantStatus,
-  type ArenaJudgeSummary,
+  type ArenaManagerSummary,
   type ArenaNewRunDefaults,
   type ArenaOutsideReach,
   type ArenaRunDetail,
@@ -44,6 +44,7 @@ function contestantSummaryOf(value: unknown): ArenaRunSummary["contestants"][num
   return {
     contestantId: c.contestantId,
     source: c.source,
+    model: typeof c.model === "string" ? c.model : null,
     sessionId: typeof c.sessionId === "string" ? c.sessionId : null,
     worktreePath: c.worktreePath,
     tmuxSession: typeof c.tmuxSession === "string" ? c.tmuxSession : null,
@@ -55,8 +56,8 @@ function contestantSummaryOf(value: unknown): ArenaRunSummary["contestants"][num
   };
 }
 
-/** A run's judge; absent or null is a run with none, anything else unreadable makes the run so. */
-function judgeOf(value: unknown): ArenaJudgeSummary | null | undefined {
+/** A run's manager; absent or null is a run with none, anything else unreadable makes the run so. */
+function managerOf(value: unknown): ArenaManagerSummary | null | undefined {
   if (value === undefined || value === null) return null;
   const j = value as Record<string, unknown>;
   if (j.source !== "opencode" && j.source !== "claude") return undefined;
@@ -85,8 +86,8 @@ export function parseRunSummary(value: unknown): ArenaRunSummary | null {
   if (typeof run.createdAt !== "number" || !Array.isArray(run.contestants)) return null;
   const contestants = run.contestants.map(contestantSummaryOf);
   if (contestants.some((one) => one === null)) return null;
-  const judge = judgeOf(run.judge);
-  if (judge === undefined) return null;
+  const manager = managerOf(run.manager);
+  if (manager === undefined) return null;
   return {
     runId: run.runId,
     name: run.name,
@@ -99,7 +100,7 @@ export function parseRunSummary(value: unknown): ArenaRunSummary | null {
     mode: run.mode,
     createdAt: run.createdAt,
     contestants: contestants as ArenaRunSummary["contestants"],
-    judge,
+    manager,
   };
 }
 
@@ -200,9 +201,10 @@ export async function createArenaRun(
     /** Empty for a new repository of the run's own. */
     repoPath: string;
     mode: ArenaRunMode;
-    contestants: readonly ArenaContestantSource[];
-    /** The judge's harness, or null for none. */
-    judge: ArenaContestantSource | null;
+    /** Each lane's harness and the model it names, empty for the harness's default. */
+    contestants: readonly { source: ArenaContestantSource; model: string }[];
+    /** The manager's harness, or null for none; with one, a terminals run may name no lanes. */
+    manager: ArenaContestantSource | null;
   },
 ): Promise<{ run: ArenaRunSummary } | { message: string }> {
   const response = await transport.request("POST", RUNS_PATH, {
@@ -211,8 +213,8 @@ export async function createArenaRun(
       prompt: request.prompt,
       repoPath: request.repoPath,
       mode: request.mode,
-      contestants: request.contestants.map((source) => ({ source })),
-      judge: request.judge,
+      contestants: request.contestants.map(({ source, model }) => ({ source, model: model.trim() || null })),
+      manager: request.manager,
     },
   });
   if (response.status !== 201) return { message: failureMessage(response.body, response.status) };

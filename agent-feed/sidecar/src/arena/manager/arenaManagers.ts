@@ -1,15 +1,20 @@
-// A run's judge: started with the lanes, briefed while the run lives, ended with the run.
+// A run's manager: started with the lanes, briefed while the run lives, ended with the run.
 //
-// The judge is an ordinary interactive session in a tmux pane, started the way a contestant's is
-// (`startClaudeSession`, the opencode TUI on a serve session), in the run's `judge` folder. It is
-// read-only by its own harness's means: Claude runs in its plan mode, and the opencode session is
-// created holding rules that deny every edit and ask before a shell command. The arena never
-// prompts it. What the arena does is keep its folder current: the brief, and every settled
-// contestant's transcript and diff, rewritten whenever the run changes, so the reader can ask for a
-// verdict at any point and the judge reads what is true now.
+// The manager is an ordinary interactive session in a tmux pane, started the way a contestant's is
+// (`startClaudeSession`, the opencode TUI on a serve session), in the run's `manager` folder. It acts
+// on the run only through the arena's own HTTP API, which its brief spells out, and by its own
+// harness's means it edits no file: Claude runs without its edit tools, and the opencode session is
+// created holding rules that deny every edit. Its shell commands, each call to the API included,
+// go through its harness's own permission mode, as the machine sets it (ADR-0138): asked of the
+// reader, or put to Claude's auto-mode classifier. No allow rule is added for its run's routes: one
+// would allow whatever else a curl line carries (a second URL, a file sent as the body), and the
+// manager reads transcripts a contestant could have written to steer it. The arena never prompts it. What the arena does is
+// keep its folder current: the brief, and every settled contestant's transcript and diff, rewritten
+// whenever the run changes, so the reader can ask it to plan, prompt or compare the lanes at any
+// point and the manager reads what is true now.
 //
 // The writes ride the registry's change signal rather than the service's own steps, so the service
-// says only when a judge opens and when it goes; everything a contestant does that a judge should
+// says only when a manager opens and when it goes; everything a contestant does that a manager should
 // know about is a registry change already. They are queued one at a time per run, and each reads
 // the run as it stands when its turn comes, so a burst of changes is one write, never two writes
 // racing for one file.
@@ -22,7 +27,7 @@ import type { OpencodePermissionRule } from "@/agents/opencode/opencodeAgentBack
 import type { ArenaContestantRecord, ArenaRunRecord, ArenaRunRegistry } from "@/arena/arenaRun";
 import { claudeContestantArgv } from "@/arena/contestants/claudeContestant";
 import { LIVE_TERMINAL_STEPS } from "@/arena/contestants/terminalContestants";
-import { briefFileName, renderJudgeBrief, renderTranscriptFile } from "@/arena/judge/judgeBrief";
+import { briefFileName, renderManagerBrief, renderTranscriptFile } from "@/arena/manager/managerBrief";
 import { claudeBinary } from "@/config/configBinaries";
 import { claudeTranscriptPath } from "@/tasks/taskIdentity";
 import { startClaudeSession } from "@/terminal/claudeSessionLaunch";
@@ -30,22 +35,28 @@ import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { renderOpencodeHandover } from "@/transcripts/opencodeHandover";
 import { renderHandover, type RenderedHandover } from "@/transcripts/sessionHandover";
 
-/** The folder a run's judge works in, beside the contestants' worktrees. */
-export const JUDGE_FOLDER = "judge";
+/** The folder a run's manager works in, beside the contestants' worktrees. */
+export const MANAGER_FOLDER = "manager";
 
 /**
- * The rules an opencode judge's session holds, after its agent's: no edit of any file (the serve's
+ * The rules an opencode manager's session holds, after its agent's: no edit of any file (the serve's
  * `edit` covers writing and patching too), and a shell command only once the reader allows it. The
  * serve's shell tool is `shell`, not `bash`: a rule under the old name is stored and never matches,
- * which a judge writing a file with `printf` showed.
+ * which a judge (the manager's first form) writing a file with `printf` showed.
  */
-export const JUDGE_OPENCODE_RULES: readonly OpencodePermissionRule[] = [
+export const MANAGER_OPENCODE_RULES: readonly OpencodePermissionRule[] = [
   { action: "edit", resource: "*", effect: "deny" },
   { action: "shell", resource: "*", effect: "ask" },
 ];
 
-/** What starting an opencode judge needs of the serve: a session created holding rules. */
-export interface JudgeOpencodeBackend {
+/**
+ * Claude's tools a manager runs without: it changes the run through the API, never a file. Removed
+ * from its context rather than refused at the call, so it never spends a turn trying one.
+ */
+export const MANAGER_CLAUDE_WITHOUT: readonly string[] = ["Edit", "Write", "NotebookEdit"];
+
+/** What starting an opencode manager needs of the serve: a session created holding rules. */
+export interface ManagerOpencodeBackend {
   createSession(
     requestId: string,
     projectPath: string,
@@ -53,11 +64,11 @@ export interface JudgeOpencodeBackend {
   ): Promise<AgentSessionDescriptor>;
 }
 
-/** The acts a judge's life takes, injectable so its order can be tested without tmux or a harness. */
-export interface JudgeSteps {
-  /** Starts a Claude judge in a pane in `cwd` and answers the pane's name. */
+/** The acts a manager's life takes, injectable so its order can be tested without tmux or a harness. */
+export interface ManagerSteps {
+  /** Starts a Claude manager in a pane in `cwd` and answers the pane's name. */
   startClaude(options: { cwd: string; sessionId: string; title: string; command: string[] }): Promise<string>;
-  /** Makes the opencode judge's session, holding the judge's rules, and answers its id. */
+  /** Makes the opencode manager's session, holding the manager's rules, and answers its id. */
   openOpencode(requestId: string, cwd: string): Promise<string>;
   /** Starts the TUI on that session in a pane and answers the pane's name. */
   startOpencode(options: { cwd: string; sessionId: string; title: string }): Promise<string>;
@@ -69,11 +80,11 @@ export interface JudgeSteps {
 }
 
 /** The live steps, over this machine's tmux, CLIs and serve. */
-export function liveJudgeSteps(backend: JudgeOpencodeBackend, storedDiff: JudgeSteps["storedDiff"]): JudgeSteps {
+export function liveManagerSteps(backend: ManagerOpencodeBackend, storedDiff: ManagerSteps["storedDiff"]): ManagerSteps {
   return {
     startClaude: async (options) => (await startClaudeSession(options)).tmuxSession,
     openOpencode: async (requestId, cwd) =>
-      (await backend.createSession(requestId, cwd, { permissions: JUDGE_OPENCODE_RULES })).sessionId,
+      (await backend.createSession(requestId, cwd, { permissions: MANAGER_OPENCODE_RULES })).sessionId,
     startOpencode: LIVE_TERMINAL_STEPS.startOpencode,
     killPane: killTmuxSession,
     renderTranscript: async (source, sessionId) => {
@@ -92,7 +103,7 @@ function handoverText(rendered: RenderedHandover): string {
     : rendered.turns;
 }
 
-/** What one run's judge folder was last written from, and the queue its writes wait in. */
+/** What one run's manager folder was last written from, and the queue its writes wait in. */
 interface Written {
   nonce: string;
   brief: string | null;
@@ -101,22 +112,26 @@ interface Written {
   queue: Promise<void>;
 }
 
-export class ArenaJudges {
+export class ArenaManagers {
   private readonly registry: ArenaRunRegistry;
-  private readonly steps: JudgeSteps;
+  private readonly steps: ManagerSteps;
   private readonly claude: { binary?: string | null; model?: string | null; effort?: string | null };
+  private readonly api: string;
   private readonly newSessionId: () => string;
   private readonly now: () => number;
   private readonly written = new Map<string, Written>();
 
   constructor(options: {
     registry: ArenaRunRegistry;
-    steps: JudgeSteps;
+    steps: ManagerSteps;
     /** Overrides the binary lookup; null is "not installed", as the lookup answers it. */
     claude?: { binary?: string | null; model?: string | null; effort?: string | null };
+    /** This sidecar's own address, which the brief tells the manager to call. */
+    api: string;
     newSessionId?: () => string;
     now?: () => number;
   }) {
+    this.api = options.api;
     this.registry = options.registry;
     this.steps = options.steps;
     this.claude = options.claude ?? {};
@@ -124,43 +139,43 @@ export class ArenaJudges {
     this.now = options.now ?? Date.now;
     this.registry.onChange(() => {
       for (const run of this.registry.list()) {
-        if (run.judge && run.judge.status !== "failed") void this.brief(run.runId);
+        if (run.manager && run.manager.status !== "failed") void this.brief(run.runId);
       }
     });
   }
 
   /**
-   * Picks the judges back up once, after a restart: a judge that was still starting is failed
+   * Picks the managers back up once, after a restart: a manager that was still starting is failed
    * with why, since what started it died with the old process; an open one's pane is tmux's and
    * still there, and its folder is written afresh.
    */
   resume(): void {
     for (const run of this.registry.list()) {
-      if (run.judge?.status !== "starting") continue;
+      if (run.manager?.status !== "starting") continue;
       this.registry.updateRun(run.runId, (one) => {
-        one.judge = { ...one.judge!, status: "failed", error: "the sidecar restarted while the judge was starting" };
+        one.manager = { ...one.manager!, status: "failed", error: "the sidecar restarted while the manager was starting" };
       });
     }
     for (const run of this.registry.list()) {
-      if (run.judge?.status === "open") void this.brief(run.runId);
+      if (run.manager?.status === "open") void this.brief(run.runId);
     }
   }
 
   /**
-   * Starts a run's judge: its folder and brief first, so the harness finds its brief as it loads,
-   * then its pane. A judge that cannot start fails on its own record; the run is not touched.
+   * Starts a run's manager: its folder and brief first, so the harness finds its brief as it loads,
+   * then its pane. A manager that cannot start fails on its own record; the run is not touched.
    */
   async open(runId: string): Promise<void> {
     const run = this.registry.get(runId);
-    const judge = run?.judge;
-    if (!run || !judge) throw new Error(`run "${runId}" has no judge to open`);
-    const title = `arena judge ${runId.slice(0, 8)}`;
+    const manager = run?.manager;
+    if (!run || !manager) throw new Error(`run "${runId}" has no manager to open`);
+    const title = `arena manager ${runId.slice(0, 8)}`;
     try {
-      await mkdir(judge.folder, { recursive: true });
+      await mkdir(manager.folder, { recursive: true });
       await this.brief(runId);
       let sessionId: string;
       let pane: string;
-      if (judge.source === "claude") {
+      if (manager.source === "claude") {
         const binary = this.claude.binary !== undefined ? this.claude.binary : claudeBinary();
         if (!binary) throw new Error("no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH");
         sessionId = this.newSessionId();
@@ -172,45 +187,45 @@ export class ArenaJudges {
             effort: this.claude.effort,
             interactive: { name: title },
           }),
-          "--permission-mode",
-          "plan",
+          "--disallowedTools",
+          MANAGER_CLAUDE_WITHOUT.join(","),
         ];
-        pane = await this.steps.startClaude({ cwd: judge.folder, sessionId, title, command });
+        pane = await this.steps.startClaude({ cwd: manager.folder, sessionId, title, command });
       } else {
-        sessionId = await this.steps.openOpencode(`${runId}:judge`, judge.folder);
-        pane = await this.steps.startOpencode({ cwd: judge.folder, sessionId, title });
+        sessionId = await this.steps.openOpencode(`${runId}:manager`, manager.folder);
+        pane = await this.steps.startOpencode({ cwd: manager.folder, sessionId, title });
       }
       this.registry.updateRun(runId, (one) => {
-        if (one.judge) one.judge = { ...one.judge, status: "open", sessionId, tmuxSession: pane };
+        if (one.manager) one.manager = { ...one.manager, status: "open", sessionId, tmuxSession: pane };
       });
     } catch (error) {
       this.registry.updateRun(runId, (one) => {
-        if (one.judge) {
-          one.judge = { ...one.judge, status: "failed", error: error instanceof Error ? error.message : String(error) };
+        if (one.manager) {
+          one.manager = { ...one.manager, status: "failed", error: error instanceof Error ? error.message : String(error) };
         }
       });
     }
   }
 
-  /** Ends a run's judge: its pane, then its folder, once its last write has landed. */
+  /** Ends a run's manager: its pane, then its folder, once its last write has landed. */
   async close(run: ArenaRunRecord): Promise<void> {
-    const judge = run.judge;
-    if (!judge) return;
-    if (judge.tmuxSession) {
-      await this.steps.killPane(judge.tmuxSession).catch((error: unknown) => {
-        console.error(`agent feed arena could not end the judge's pane ${judge.tmuxSession}`, error);
+    const manager = run.manager;
+    if (!manager) return;
+    if (manager.tmuxSession) {
+      await this.steps.killPane(manager.tmuxSession).catch((error: unknown) => {
+        console.error(`agent feed arena could not end the manager's pane ${manager.tmuxSession}`, error);
       });
     }
     await this.written.get(run.runId)?.queue;
     this.written.delete(run.runId);
-    // Only the run's own judge folder is ever removed, so a corrupt record cannot point this anywhere else.
-    if (dirname(judge.folder) !== run.folder || basename(judge.folder) !== JUDGE_FOLDER) {
-      throw new Error(`${judge.folder} is not the judge folder of ${run.folder}`);
+    // Only the run's own manager folder is ever removed, so a corrupt record cannot point this anywhere else.
+    if (dirname(manager.folder) !== run.folder || basename(manager.folder) !== MANAGER_FOLDER) {
+      throw new Error(`${manager.folder} is not the manager folder of ${run.folder}`);
     }
-    await rm(judge.folder, { recursive: true, force: true });
+    await rm(manager.folder, { recursive: true, force: true });
   }
 
-  /** Queues a write of the run's judge folder; resolves once it has landed or failed. */
+  /** Queues a write of the run's manager folder; resolves once it has landed or failed. */
   private brief(runId: string): Promise<void> {
     let state = this.written.get(runId);
     if (!state) {
@@ -221,7 +236,7 @@ export class ArenaJudges {
     written.queue = written.queue
       .then(() => this.write(runId, written))
       .catch((error: unknown) => {
-        console.error(`agent feed arena could not brief the judge of run ${runId}`, error);
+        console.error(`agent feed arena could not brief the manager of run ${runId}`, error);
       });
     return written.queue;
   }
@@ -229,8 +244,8 @@ export class ArenaJudges {
   /** Writes what changed since the last write: each newly settled contestant's files, then the brief. */
   private async write(runId: string, written: Written): Promise<void> {
     const run = this.registry.get(runId);
-    if (!run?.judge || this.written.get(runId) !== written) return;
-    const folder = run.judge.folder;
+    if (!run?.manager || this.written.get(runId) !== written) return;
+    const folder = run.manager.folder;
     const withDiffs: ArenaRunRecord = {
       ...run,
       contestants: run.contestants.map((one) => ({
@@ -245,12 +260,12 @@ export class ArenaJudges {
       written.settled.set(contestant.contestantId, turn);
     }
     // Stamped with the time of writing, so it is compared without one.
-    const key = JSON.stringify(renderJudgeBrief(withDiffs, { nonce: written.nonce, now: 0, judgeFolder: folder }));
+    const key = JSON.stringify(renderManagerBrief(withDiffs, { nonce: written.nonce, now: 0, managerFolder: folder, api: this.api }));
     if (key === written.brief) return;
     await mkdir(folder, { recursive: true });
     await writeWhole(
-      join(folder, briefFileName(run.judge.source)),
-      renderJudgeBrief(withDiffs, { nonce: written.nonce, now: this.now(), judgeFolder: folder }),
+      join(folder, briefFileName(run.manager.source)),
+      renderManagerBrief(withDiffs, { nonce: written.nonce, now: this.now(), managerFolder: folder, api: this.api }),
     );
     written.brief = key;
   }
@@ -260,7 +275,7 @@ export class ArenaJudges {
     try {
       rendered = await this.steps.renderTranscript(contestant.source, contestant.sessionId!);
     } catch (error) {
-      // Said in the file the judge would read, so a missing transcript is a fact it can report.
+      // Said in the file the manager would read, so a missing transcript is a fact it can report.
       rendered = { problem: error instanceof Error ? error.message : String(error) };
     }
     const transcript = renderTranscriptFile(contestant, rendered, nonce);
@@ -277,7 +292,7 @@ function settledTurn(contestant: ArenaContestantRecord): string | null {
   return `${contestant.status}:${contestant.closedAt}`;
 }
 
-/** Temp-then-rename, so the judge reading mid-write sees the last whole file, never half the next. */
+/** Temp-then-rename, so the manager reading mid-write sees the last whole file, never half the next. */
 async function writeWhole(path: string, text: string): Promise<void> {
   const temporary = `${path}.${process.pid}.tmp`;
   await writeFile(temporary, text);

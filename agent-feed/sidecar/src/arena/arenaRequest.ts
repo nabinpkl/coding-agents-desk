@@ -25,6 +25,48 @@ export function promptProblem(prompt: string): string | null {
     : null;
 }
 
+/** A model name as a harness's flag or the serve takes it: an id, an alias, `provider/model`. */
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,199}$/;
+
+/** One lane as the service makes it. */
+export interface CheckedLane {
+  source: ArenaContestantSource;
+  /** Null for the harness's own default. */
+  model: string | null;
+}
+
+/**
+ * The lanes a request names, or the problem with them: each a source this machine's drivers can
+ * drive, and a model the harness could be handed. `already` is how many lanes the run has, so a
+ * run that grows is held to the same cap as one asked for whole.
+ */
+export function checkLanes(
+  raw: unknown,
+  drivers: ContestantDrivers,
+  already = 0,
+): CheckedLane[] | { problem: string } {
+  if (!Array.isArray(raw)) return { problem: "contestants must be a list of lanes" };
+  if (already + raw.length > MAXIMUM_CONTESTANTS) {
+    return { problem: `a run fans out to at most ${MAXIMUM_CONTESTANTS} contestants` };
+  }
+  const lanes: CheckedLane[] = [];
+  for (const [index, lane] of raw.entries()) {
+    const { source, model } = (lane ?? {}) as { source?: unknown; model?: unknown };
+    if (!drivers[source as ArenaContestantSource]) {
+      return { problem: `contestant ${index} names source "${String(source ?? "none")}", which this arena cannot drive` };
+    }
+    const named = typeof model === "string" ? model.trim() : model ?? null;
+    if (named !== null && named !== "" && (typeof named !== "string" || !MODEL_NAME.test(named))) {
+      return { problem: `contestant ${index} names model "${String(model)}", which is not a model name` };
+    }
+    if (source === "opencode" && named && !named.includes("/")) {
+      return { problem: `contestant ${index} is opencode, whose model is named "provider/model", not "${named}"` };
+    }
+    lanes.push({ source: source as ArenaContestantSource, model: named || null });
+  }
+  return lanes;
+}
+
 export interface CheckedRunRequest {
   /** Trimmed; empty for a terminals run that opens its lanes before its prompt. */
   prompt: string;
@@ -33,9 +75,9 @@ export interface CheckedRunRequest {
   baseRef: string;
   mode: ArenaRunMode;
   drivers: ContestantDrivers;
-  sources: ArenaContestantSource[];
-  /** The judge's harness, or null for a run with none. */
-  judge: ArenaContestantSource | null;
+  lanes: CheckedLane[];
+  /** The manager's harness, or null for a run with none. */
+  manager: ArenaContestantSource | null;
 }
 
 /**
@@ -62,26 +104,17 @@ export function checkRunRequest(
   // run has nothing to open, so its prompt is the run.
   if (!prompt && mode === "headless") return { problem: "a run needs a prompt" };
 
-  if (!Array.isArray(request.contestants) || request.contestants.length === 0) {
-    return { problem: "a run needs at least one contestant" };
+  const lanes = checkLanes(request.contestants, drivers);
+  if ("problem" in lanes) return lanes;
+  const manager = request.manager ?? null;
+  if (manager !== null && manager !== "opencode" && manager !== "claude") {
+    return { problem: `the manager names source "${String(manager)}", which this arena cannot run` };
   }
-  if (request.contestants.length > MAXIMUM_CONTESTANTS) {
-    return { problem: `a run fans out to at most ${MAXIMUM_CONTESTANTS} contestants` };
+  // A manager is a session in a pane, which a headless run has none of.
+  if (manager !== null && mode !== "terminals") return { problem: "only a terminals run can have a manager" };
+  // No lanes is a run whose manager will add them, which it can only do before the first prompt.
+  if (lanes.length === 0 && (manager === null || prompt)) {
+    return { problem: "a run needs at least one contestant, unless it has a manager to add them and no prompt yet" };
   }
-  const sources: ArenaContestantSource[] = [];
-  for (const [index, contestant] of request.contestants.entries()) {
-    if (!contestant || !drivers[contestant.source as ArenaContestantSource]) {
-      return {
-        problem: `contestant ${index} names source "${contestant?.source ?? "none"}", which this arena cannot drive`,
-      };
-    }
-    sources.push(contestant.source);
-  }
-  const judge = request.judge ?? null;
-  if (judge !== null && judge !== "opencode" && judge !== "claude") {
-    return { problem: `the judge names source "${String(judge)}", which this arena cannot run` };
-  }
-  // A judge is a session in a pane, which a headless run has none of.
-  if (judge !== null && mode !== "terminals") return { problem: "only a terminals run can have a judge" };
-  return { prompt, namedRepo, baseRef, mode, drivers, sources, judge };
+  return { prompt, namedRepo, baseRef, mode, drivers, lanes, manager };
 }

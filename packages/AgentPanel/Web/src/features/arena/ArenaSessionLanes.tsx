@@ -152,7 +152,7 @@ export function SessionLane({
 }
 
 /**
- * The session a pane is running -- a contestant's, or the judge's -- before the catalog lists it.
+ * The session a pane is running -- a contestant's, or the manager's -- before the catalog lists it.
  * It claims nothing the sidecar has not said -- no sends, no terminal beyond the pane, one mode --
  * and the listed summary replaces it the moment there is one.
  */

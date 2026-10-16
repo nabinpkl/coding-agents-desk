@@ -73,6 +73,9 @@ function fakeBackend(
 ) {
   const created: string[] = [];
   const backend: OpencodeContestantBackend = {
+    async switchModel() {
+      return { requestId: "r", delivery: "immediate" };
+    },
     async createSession(_requestId, projectPath) {
       const sessionId = `ses-${created.length + 1}`;
       created.push(`${projectPath}:${sessionId}`);
@@ -316,7 +319,7 @@ test("a run that names no repository gets a new one of its own: its folder, work
   const folder = join(home, "arena-run-1");
   expect([summary.name, summary.repoPath, summary.repoCreated]).toEqual(["arena run 1", folder, true]);
   // The repository is made before any worktree of it, with the worktree folders kept out of it.
-  expect(worktrees.initialized).toEqual([{ path: folder, message: "arena run 1", worktreeFolders: ["c1", "c2"] }]);
+  expect(worktrees.initialized).toEqual([{ path: folder, message: "arena run 1", worktreeFolders: ["c[0-9]*", "manager"] }]);
   expect(worktrees.added.map((one) => [one.repoPath, one.path])).toEqual([
     [folder, join(folder, "c1")],
     [folder, join(folder, "c2")],

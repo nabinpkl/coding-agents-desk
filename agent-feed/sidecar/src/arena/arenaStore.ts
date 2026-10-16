@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { ARENA_LIVE_STATUSES, type ArenaContestantStatus, type ArenaOutsideReach } from "@agentdesk/agent-feed-wire";
-import type { ArenaContestantRecord, ArenaJudgeRecord, ArenaRunRecord } from "@/arena/arenaRun";
+import type { ArenaContestantRecord, ArenaManagerRecord, ArenaRunRecord } from "@/arena/arenaRun";
 
 /** One arena record too many on disk is a broken store, not a quiet truncation. */
 export class ArenaStoreError extends Error {}
@@ -69,6 +69,7 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
     return {
       contestantId,
       source,
+      model: typeof c.model === "string" ? c.model : null,
       sessionId: typeof c.sessionId === "string" ? c.sessionId : null,
       worktreePath,
       tmuxSession: typeof c.tmuxSession === "string" ? c.tmuxSession : null,
@@ -86,17 +87,17 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
   });
   // A run stored before rounds existed had been given exactly the prompt it holds, or none yet.
   const round = typeof record.round === "number" ? record.round : prompt ? 1 : 0;
-  const judge = parseJudge(record.judge, at);
-  return { runId, name, folder, prompt, round, repoPath, repoCreated, baseRef, mode, createdAt, contestants, judge };
+  const manager = parseManager(record.manager, at);
+  return { runId, name, folder, prompt, round, repoPath, repoCreated, baseRef, mode, createdAt, contestants, manager };
 }
 
-/** A run's judge; absent or null is a run that asked for none. */
-function parseJudge(value: unknown, at: number): ArenaJudgeRecord | null {
+/** A run's manager; absent or null is a run that asked for none. */
+function parseManager(value: unknown, at: number): ArenaManagerRecord | null {
   if (value === undefined || value === null) return null;
   const j = value as Record<string, unknown>;
   const source = j.source === "opencode" || j.source === "claude" ? j.source : null;
   const folder = typeof j.folder === "string" ? j.folder : null;
-  if (!source || !folder) throw new ArenaStoreError(`runs.json entry ${at} has a judge missing its identity`);
+  if (!source || !folder) throw new ArenaStoreError(`runs.json entry ${at} has a manager missing its identity`);
   return {
     source,
     folder,

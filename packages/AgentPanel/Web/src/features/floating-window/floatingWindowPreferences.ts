@@ -1,8 +1,8 @@
 /**
  * How a floating window stands, remembered across visits: its size, and where its reader carried it.
  *
- * One recipe for every window that floats over the panel -- the Father home, an arena run's judge --
- * each with its own storage keys and its own size range, since a home over the Bot strip and a judge
+ * One recipe for every window that floats over the panel -- the Father home, an arena run's manager --
+ * each with its own storage keys and its own size range, since a home over the Bot strip and a manager
  * over a run's lanes want different room. A reading storage cannot give back, or one that makes no
  * sense, costs nothing: the window opens at its default.
  */

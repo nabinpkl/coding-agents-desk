@@ -170,4 +170,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0137 | A terminals arena run survives a sidecar restart | accepted | 2026-10-13 |
 | ADR-0138 | A Claude contestant runs with this machine's own setup, without `--safe-mode` | accepted | 2026-10-13 |
 | ADR-0139 | Arena contestants run as plain agents, and the arena records what each reached outside its worktree | accepted | 2026-10-13 |
-| ADR-0140 | An arena run may have a judge: a read-only session in a pane, briefed by the sidecar, prompted only by the reader | accepted | 2026-10-13 |
+| ADR-0140 | An arena run may have a judge: a read-only session in a pane, briefed by the sidecar, prompted only by the reader | superseded by ADR-0141 | 2026-10-13 |
+| ADR-0141 | The arena's judge becomes its manager, which plans the lanes and runs them through the arena's own API | accepted | 2026-10-16 |

@@ -22,7 +22,7 @@ async function arenaRoot(): Promise<string> {
 
 const run = (over: Partial<ArenaRunRecord> = {}): ArenaRunRecord => ({
   runId: "11111111-1111-4111-8111-111111111111",
-  judge: null,
+  manager: null,
   name: "arena run 1",
   folder: "/arena/arena-run-1",
   prompt: "say one word",
@@ -35,6 +35,7 @@ const run = (over: Partial<ArenaRunRecord> = {}): ArenaRunRecord => ({
   contestants: [{
     contestantId: "c1",
     source: "opencode",
+    model: null,
     sessionId: "ses-1",
     worktreePath: "/nowhere/c1",
     tmuxSession: null,

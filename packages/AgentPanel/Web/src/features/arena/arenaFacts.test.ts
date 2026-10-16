@@ -12,6 +12,7 @@ import {
 const contestant = (over: Partial<ArenaContestantDetail> = {}): ArenaContestantDetail => ({
   contestantId: "c1",
   source: "opencode",
+  model: null,
   sessionId: "s1",
   worktreePath: "/arena/run/c1",
   tmuxSession: null,

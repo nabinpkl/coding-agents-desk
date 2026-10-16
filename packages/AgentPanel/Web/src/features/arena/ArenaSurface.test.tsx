@@ -290,7 +290,7 @@ describe("ArenaSurface", () => {
     await waitFor(() => expect(posted.length).toBe(1));
     const body = posted[0] as { prompt: string; contestants: unknown[] };
     expect(body.prompt).toBe("count to three");
-    expect(body.contestants).toEqual([{ source: "opencode" }, { source: "claude" }]);
+    expect(body.contestants).toEqual([{ source: "opencode", model: null }, { source: "claude", model: null }]);
     await screen.findByRole("tablist", { name: "Compare by" });
   });
 
@@ -320,44 +320,69 @@ describe("ArenaSurface", () => {
     await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
     open.click();
     await waitFor(() => expect(posted.length).toBe(1));
-    expect(posted[0]).toMatchObject({ name: "", repoPath: "", prompt: "", mode: "terminals", judge: "claude" });
+    expect(posted[0]).toMatchObject({ name: "", repoPath: "", prompt: "", mode: "terminals", manager: "claude" });
   });
 
-  test("the judge is Claude unless the reader picks otherwise, and a headless run has none", async () => {
+  test("each lane may name its model, and a run with a manager may open with no lanes for it to add", async () => {
     const { transport, posted } = harness({ modes: ["terminals", "headless"] });
     mount(transport);
-    const judges = await screen.findByRole("radiogroup", { name: "The run's judge" });
-    expect(judges.querySelector("[aria-checked=true]")?.textContent).toBe("Claude");
+    const model = screen.getByLabelText("Contestant 2 model");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(model, "sonnet");
+    model.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => expect(screen.getByText("Bake-off · 1 OpenCode vs 1 Claude sonnet")).toBeTruthy());
+
+    screen.getByLabelText("Remove contestant 2").click();
+    await waitFor(() => expect(screen.queryByLabelText("Contestant 2 model")).toBeNull());
+    screen.getByLabelText("Remove contestant 1").click();
+    await waitFor(() => expect(screen.getByText("The manager plans the lanes")).toBeTruthy());
+
     screen.getByRole("radio", { name: "None" }).click();
-    await waitFor(() => expect(judges.querySelector("[aria-checked=true]")?.textContent).toBe("None"));
+    await waitFor(() => expect(screen.getByText("Add a lane, or choose a manager to plan them")).toBeTruthy());
+    expect((screen.getByRole("button", { name: /Open manager/ }) as HTMLButtonElement).disabled).toBe(true);
+
+    screen.getByRole("radio", { name: "Claude" }).click();
+    const open = await screen.findByRole("button", { name: /Open manager/ });
+    await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
+    open.click();
+    await waitFor(() => expect(posted.length).toBe(1));
+    expect(posted[0]).toMatchObject({ contestants: [], manager: "claude", prompt: "" });
+  });
+
+  test("the manager is Claude unless the reader picks otherwise, and a headless run has none", async () => {
+    const { transport, posted } = harness({ modes: ["terminals", "headless"] });
+    mount(transport);
+    const managers = await screen.findByRole("radiogroup", { name: "The run's manager" });
+    expect(managers.querySelector("[aria-checked=true]")?.textContent).toBe("Claude");
+    screen.getByRole("radio", { name: "None" }).click();
+    await waitFor(() => expect(managers.querySelector("[aria-checked=true]")?.textContent).toBe("None"));
     const open = await screen.findByRole("button", { name: /Open lanes/ });
     await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
     open.click();
     await waitFor(() => expect(posted.length).toBe(1));
-    expect(posted[0]).toMatchObject({ judge: null });
+    expect(posted[0]).toMatchObject({ manager: null });
   });
 
-  test("a run's judge waits as a switch in the header, and opens into a window of its session", async () => {
-    const judged = run({
-      judge: {
+  test("a run's manager waits as a switch in the header, and opens into a window of its session", async () => {
+    const managed = run({
+      manager: {
         source: "claude",
         status: "open",
-        folder: "/arena/run/judge",
-        sessionId: "judge-session",
-        tmuxSession: "judge-pane",
+        folder: "/arena/run/manager",
+        sessionId: "manager-session",
+        tmuxSession: "manager-pane",
         error: null,
       },
     });
-    mount(harness({ runs: [judged], detail: judged }).transport);
+    mount(harness({ runs: [managed], detail: managed }).transport);
     await openRun("say one word");
-    const button = await screen.findByRole("button", { name: "Judge" });
+    const button = await screen.findByRole("button", { name: "Manager" });
     expect(button.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByRole("region", { name: "Judge" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Manager" })).toBeNull();
     button.click();
-    const window = await screen.findByRole("region", { name: "Judge" });
-    expect(window.textContent).toContain("Judge · Claude");
-    screen.getByRole("button", { name: "Close the judge" }).click();
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Judge" })).toBeNull());
+    const window = await screen.findByRole("region", { name: "Manager" });
+    expect(window.textContent).toContain("Manager · Claude");
+    screen.getByRole("button", { name: "Close the manager" }).click();
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Manager" })).toBeNull());
   });
 
   test("a run whose lanes wait for their prompt takes it in its header and sends it to every lane", async () => {

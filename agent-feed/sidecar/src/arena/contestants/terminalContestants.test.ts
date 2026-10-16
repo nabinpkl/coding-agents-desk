@@ -68,6 +68,7 @@ function planWith(log: string[], over: Partial<ContestantPlan> = {}): Contestant
     // Empty, as a run that opened its lanes before its prompt has it: the line carries the prompt.
     prompt: "",
     worktreePath: "/arena/run/c1",
+    model: null,
     requestId: "run-1:c1",
     turnTimeoutMs: 1000,
     onSessionId: () => log.push("onSessionId"),
@@ -206,6 +207,9 @@ describe("runOpencodeTerminalContestant", () => {
         log.push(`create:${projectPath}`);
         return { sessionId: "ses_1", projectPath } as AgentSessionDescriptor;
       },
+      async switchModel() {
+        return { requestId: "r", delivery: "immediate" as const };
+      },
       async subscribe(_sessionId, _after, listener) {
         log.push("subscribe");
         const idle: TimelineEnvelope = {
@@ -244,6 +248,9 @@ describe("runOpencodeTerminalContestant", () => {
       async createSession(_requestId: string, projectPath: string) {
         return { sessionId: "ses_2", projectPath } as AgentSessionDescriptor;
       },
+      async switchModel() {
+        return { requestId: "r", delivery: "immediate" as const };
+      },
       async subscribe() {
         log.push("subscribe");
         return () => {};
@@ -273,6 +280,9 @@ function idleBackend(log: string[]): OpencodeContestantBackend {
     async createSession(_requestId, projectPath) {
       log.push("create");
       return { sessionId: "ses_new", projectPath } as AgentSessionDescriptor;
+    },
+    async switchModel() {
+      return { requestId: "r", delivery: "immediate" as const };
     },
     async subscribe(_sessionId, _after, listener) {
       log.push("subscribe");

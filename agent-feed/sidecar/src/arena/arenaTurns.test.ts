@@ -8,6 +8,7 @@ import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 const contestant = (over: Partial<ArenaContestantRecord> = {}): ArenaContestantRecord => ({
   contestantId: "c1",
   source: "claude",
+  model: null,
   sessionId: "s1",
   worktreePath: "/arena/run/c1",
   tmuxSession: "pane-c1",
@@ -26,7 +27,7 @@ const contestant = (over: Partial<ArenaContestantRecord> = {}): ArenaContestantR
 
 const run = (contestants: ArenaContestantRecord[], mode: ArenaRunRecord["mode"] = "terminals"): ArenaRunRecord => ({
   runId: "11111111-1111-4111-8111-111111111111",
-  judge: null,
+  manager: null,
   name: "arena run 1",
   folder: "/arena/run",
   prompt: "first",

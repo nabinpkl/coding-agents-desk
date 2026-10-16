@@ -13,7 +13,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantStatus,
   type ArenaContestantSummary,
-  type ArenaJudgeSummary,
+  type ArenaManagerSummary,
   type ArenaOutsideReach,
   type ArenaRunDetail,
   type ArenaRunMode,
@@ -24,6 +24,8 @@ import {
 export interface ArenaContestantRecord {
   contestantId: string;
   source: ArenaContestantSource;
+  /** The model it was asked to run, or null for its harness's default. */
+  model: string | null;
   /** The session this contestant is, once its driver has one; null until then. */
   sessionId: string | null;
   worktreePath: string;
@@ -60,12 +62,12 @@ export interface ArenaRunRecord {
   mode: ArenaRunMode;
   createdAt: number;
   contestants: ArenaContestantRecord[];
-  /** The run's judge, or null when it asked for none; its life is `judge/arenaJudges.ts`. */
-  judge: ArenaJudgeRecord | null;
+  /** The run's manager, or null when it asked for none; its life is `manager/arenaManagers.ts`. */
+  manager: ArenaManagerRecord | null;
 }
 
-/** A judge, as the arena tracks it: the summary's own fields, since none of it is derived. */
-export type ArenaJudgeRecord = ArenaJudgeSummary;
+/** A manager, as the arena tracks it: the summary's own fields, since none of it is derived. */
+export type ArenaManagerRecord = ArenaManagerSummary;
 
 /** Whether a contestant is still live work rather than a settled fact. */
 export function isLiveContestant(contestant: Pick<ArenaContestantRecord, "status">): boolean {
@@ -77,6 +79,7 @@ export function contestantSummary(record: ArenaContestantRecord): ArenaContestan
   return {
     contestantId: record.contestantId,
     source: record.source,
+    model: record.model,
     sessionId: record.sessionId,
     worktreePath: record.worktreePath,
     tmuxSession: record.tmuxSession,
@@ -104,7 +107,7 @@ export function runSummary(run: ArenaRunRecord): ArenaRunSummary {
     mode: run.mode,
     createdAt: run.createdAt,
     contestants: run.contestants.map(contestantSummary),
-    judge: run.judge ? { ...run.judge } : null,
+    manager: run.manager ? { ...run.manager } : null,
   };
 }
 

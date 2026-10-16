@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded by ADR-0141
 date: 2026-10-13
+superseded-by: ADR-0141
 ---
 
 # An arena run may have a judge: a read-only session in a pane, briefed by the sidecar, prompted only by the reader
@@ -73,4 +74,5 @@ pins the nonce being struck from a transcript.
 
 ## Links
 
+- ADR-0141: the judge became the run's manager, which plans and starts the lanes through the arena's API.
 - ADR-0139: contestants run as plain agents, which is why the judge's input is untrusted.

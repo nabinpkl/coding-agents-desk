@@ -50,6 +50,8 @@ export interface OpencodeContestantBackend {
     listener: (envelope: TimelineEnvelope) => void,
   ): Promise<() => void>;
   sessionUsage?(sessionId: string): TokenUsage | null;
+  /** Sets the session's model before its first prompt, for a lane that names one. */
+  switchModel(sessionId: string, requestId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt>;
 }
 
 export class OpencodeContestantError extends Error {}
@@ -157,13 +159,24 @@ export async function runOpencodeContestant(
 
 /**
  * Makes the contestant's session on the serve, as the serve's own agent with its own rules -- a
- * plain session, like any the panel makes (ADR-0139) -- and answers its id.
+ * plain session, like any the panel makes (ADR-0139) -- on the lane's model when it names one, and
+ * answers its id. The model is `provider/model`, split at the first slash: a model id may hold more.
  */
 export async function openOpencodeContestant(
   backend: OpencodeContestantBackend,
   plan: ContestantPlan,
 ): Promise<string> {
   const descriptor = await backend.createSession(plan.requestId, plan.worktreePath);
+  if (plan.model) {
+    const slash = plan.model.indexOf("/");
+    if (slash < 1) throw new OpencodeContestantError(`the model "${plan.model}" is not "provider/model"`);
+    await backend.switchModel(
+      descriptor.sessionId,
+      `${plan.requestId}:model`,
+      plan.model.slice(0, slash),
+      plan.model.slice(slash + 1),
+    );
+  }
   return descriptor.sessionId;
 }
 

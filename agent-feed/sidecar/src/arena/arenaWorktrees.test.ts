@@ -6,6 +6,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, realpath, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LANE_FOLDERS_PATTERN } from "@/arena/arenaLanes";
 import {
   addContestantWorktree,
   assertGitRepository,
@@ -118,11 +119,15 @@ test("a run's own repository: one empty commit, worktrees inside it, and its own
   const folder = join(await realpath(created), "arena-run-1");
   await mkdir(folder);
   // Authored as the arena whatever this machine's git identity, signing or hooks say.
-  await initRunRepository({ path: folder, message: "arena run 1", worktreeFolders: ["c1", "c2"] });
+  await initRunRepository({ path: folder, message: "arena run 1", worktreeFolders: [LANE_FOLDERS_PATTERN, "manager"] });
 
   expect(await capture(["log", "--format=%s|%an", "HEAD"], folder)).toBe("arena run 1|Agent Desk Arena");
   await addContestantWorktree({ repoPath: folder, path: join(folder, "c1"), ref: "HEAD" });
   await addContestantWorktree({ repoPath: folder, path: join(folder, "c2"), ref: "HEAD" });
+  // A lane added later, numbered past the first nine, is kept out by the same one pattern.
+  await addContestantWorktree({ repoPath: folder, path: join(folder, "c12"), ref: "HEAD" });
+  await mkdir(join(folder, "manager"));
+  await writeFile(join(folder, "manager", "CLAUDE.md"), "brief\n");
   // The worktrees sit inside the checkout they belong to, without showing up in its status.
   expect(await capture(["status", "--porcelain"], folder)).toBe("");
   await writeFile(join(folder, "c1", "made.txt"), "work\n");

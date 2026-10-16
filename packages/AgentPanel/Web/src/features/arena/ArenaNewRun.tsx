@@ -15,9 +15,12 @@
 // terminals run may be started with no prompt at all: that opens the lanes, each harness comes up
 // in its terminal, and the prompt is typed on the run once they are ready.
 //
-// A terminals run may also have a judge: one more session, Claude unless the reader picks
-// otherwise, that the reader asks for a verdict once the lanes have something to judge. It lives
-// in a terminal too, so a headless run has none.
+// A terminals run may also have a manager: one more session, Claude unless the reader picks
+// otherwise, that the reader can ask to plan the lanes and start them through the arena's API, to
+// prompt them, or for a verdict. A run with a manager may start with no lanes at all, for it to
+// add. It lives in a terminal too, so a headless run has none.
+//
+// Each lane may name the model it runs; left empty, the harness's default.
 
 import { useId, type KeyboardEvent } from "react";
 import { Plus, X } from "lucide-react";
@@ -34,36 +37,55 @@ import {
   TEXT,
 } from "@/features/arena/arenaVocabulary";
 
+/** One lane as the reader drafts it. */
+export interface ArenaLaneDraft {
+  source: ArenaContestantSource;
+  /** As typed; empty for the harness's default. */
+  model: string;
+}
+
 export interface ArenaDraft {
   /** Empty for the sidecar's next default name. */
   name: string;
   prompt: string;
   repoPath: string;
-  lineup: ArenaContestantSource[];
+  lineup: ArenaLaneDraft[];
   mode: ArenaRunMode;
-  /** The judge's harness, or null for none; a headless run has none whatever this says. */
-  judge: ArenaContestantSource | null;
+  /** The manager's harness, or null for none; a headless run has none whatever this says. */
+  manager: ArenaContestantSource | null;
 }
 
 export const EMPTY_DRAFT: ArenaDraft = {
   name: "",
   prompt: "",
   repoPath: "",
-  lineup: ["opencode", "claude"],
+  lineup: [{ source: "opencode", model: "" }, { source: "claude", model: "" }],
   mode: "terminals",
-  judge: "claude",
+  manager: "claude",
 };
 
 const RUN_MODES: readonly ArenaRunMode[] = ["terminals", "headless"];
-const JUDGES: readonly (ArenaContestantSource | null)[] = ["claude", "opencode", null];
+const MANAGERS: readonly (ArenaContestantSource | null)[] = ["claude", "opencode", null];
 
-/** What kind of comparison a lineup is, in the words a reader would use for it. */
-export function lineupKind(lineup: readonly ArenaContestantSource[]): string {
-  const counts = SOURCES.map((source) => [source, lineup.filter((one) => one === source).length] as const)
-    .filter(([, count]) => count > 0);
-  if (lineup.length === 1) return `A single ${SOURCE_LABEL[lineup[0]!]} run`;
-  if (counts.length === 1) return `Variance · ${lineup.length} × ${SOURCE_LABEL[counts[0]![0]]}`;
-  return `Bake-off · ${counts.map(([source, count]) => `${count} ${SOURCE_LABEL[source]}`).join(" vs ")}`;
+/** A lane as a reader names it: its harness, and its model when it runs one of its own. */
+function laneName(lane: { source: ArenaContestantSource; model: string | null }): string {
+  const model = lane.model?.trim();
+  return model ? `${SOURCE_LABEL[lane.source]} ${model}` : SOURCE_LABEL[lane.source];
+}
+
+/**
+ * What kind of comparison a lineup is, in the words a reader would use for it: identical lanes
+ * measure variance, anything else is a bake-off between the harnesses or models it names.
+ */
+export function lineupKind(lineup: readonly { source: ArenaContestantSource; model: string | null }[]): string {
+  if (lineup.length === 0) return "No lanes yet";
+  if (lineup.length === 1) return `A single ${laneName(lineup[0]!)} run`;
+  const counts = new Map<string, number>();
+  for (const lane of SOURCES.flatMap((source) => lineup.filter((one) => one.source === source))) {
+    counts.set(laneName(lane), (counts.get(laneName(lane)) ?? 0) + 1);
+  }
+  if (counts.size === 1) return `Variance · ${lineup.length} × ${[...counts.keys()][0]}`;
+  return `Bake-off · ${[...counts].map(([name, count]) => `${count} ${name}`).join(" vs ")}`;
 }
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -92,8 +114,18 @@ export function ArenaNewRun({
   const repoId = useId();
   const modes = defaults?.modes ?? null;
   const opensLanes = draft.mode === "terminals" && draft.prompt.trim().length === 0;
-  const canStart = !starting && (opensLanes || draft.prompt.trim().length > 0);
-  const setLineup = (lineup: ArenaContestantSource[]) => onDraft({ ...draft, lineup });
+  const managed = draft.mode === "terminals" && draft.manager !== null;
+  // No lanes is a run whose manager adds them, which it does before the run's first prompt.
+  const noLanes = draft.lineup.length === 0;
+  const lanesProblem = !noLanes
+    ? null
+    : !managed
+      ? "Add a lane, or choose a manager to plan them"
+      : opensLanes ? null : "The manager adds the lanes before the prompt: leave the prompt empty";
+  const canStart = !starting && lanesProblem === null && (opensLanes || draft.prompt.trim().length > 0);
+  const setLineup = (lineup: ArenaLaneDraft[]) => onDraft({ ...draft, lineup });
+  const setLane = (index: number, lane: Partial<ArenaLaneDraft>) =>
+    setLineup(draft.lineup.map((one, at) => (at === index ? { ...one, ...lane } : one)));
 
   const submitOnChord = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canStart) {
@@ -159,14 +191,14 @@ export function ArenaNewRun({
       <fieldset className="flex flex-col gap-2">
         <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Lanes</legend>
         <div role="group" aria-label="Contestants" className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-2">
-          {draft.lineup.map((source, index) => (
+          {draft.lineup.map(({ source, model }, index) => (
             <div
               key={index}
               className="flex flex-col gap-2 rounded-lg border border-border bg-card p-2.5"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className={`font-mono ${TEXT.meta} text-muted-foreground`}>c{index + 1}</span>
-                {draft.lineup.length > 1 ? (
+                {draft.lineup.length > 1 || managed ? (
                   <button
                     type="button"
                     aria-label={`Remove contestant ${index + 1}`}
@@ -189,13 +221,24 @@ export function ArenaNewRun({
                     type="button"
                     role="radio"
                     aria-checked={source === option}
-                    onClick={() => setLineup(draft.lineup.map((one, at) => (at === index ? option : one)))}
+                    onClick={() => setLane(index, { source: option })}
                     className={`min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm ${FOCUS}`}
                   >
                     {SOURCE_LABEL[option]}
                   </button>
                 ))}
               </div>
+              <input
+                aria-label={`Contestant ${index + 1} model`}
+                value={model}
+                onChange={(event) => setLane(index, { model: event.target.value })}
+                placeholder="Default model"
+                title={source === "opencode" ? "A model as provider/model, or empty for the default" : "A model alias or id, or empty for the default"}
+                spellCheck={false}
+                autoComplete="off"
+                maxLength={200}
+                className={`min-h-8 w-full rounded-md border border-input bg-background px-2 py-1 font-mono ${TEXT.meta} text-foreground placeholder:text-muted-foreground transition-colors focus-visible:border-ring ${FOCUS}`}
+              />
             </div>
           ))}
           {draft.lineup.length < MAXIMUM_CONTESTANTS ? (
@@ -203,7 +246,7 @@ export function ArenaNewRun({
               type="button"
               aria-label="Add a contestant"
               title="Add a contestant"
-              onClick={() => setLineup([...draft.lineup, draft.lineup[draft.lineup.length - 1] ?? "opencode"])}
+              onClick={() => setLineup([...draft.lineup, draft.lineup[draft.lineup.length - 1] ?? { source: "opencode", model: "" }])}
               className={`flex min-h-[5.5rem] items-center justify-center gap-1.5 rounded-lg border border-dashed border-border ${TEXT.meta} text-muted-foreground transition-colors duration-150 hover:border-ring hover:bg-muted hover:text-foreground active:bg-accent ${FOCUS}`}
             >
               <Plus aria-hidden className="size-4" />
@@ -242,26 +285,26 @@ export function ArenaNewRun({
         </fieldset>
 
         <fieldset className="flex min-w-64 flex-1 flex-col gap-2">
-          <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Judge</legend>
+          <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Manager</legend>
           <div
             role="radiogroup"
-            aria-label="The run's judge"
+            aria-label="The run's manager"
             className="grid w-full max-w-sm grid-cols-3 gap-0.5 rounded-md bg-muted/50 p-0.5"
           >
-            {JUDGES.map((judge) => {
+            {MANAGERS.map((manager) => {
               const offered = draft.mode === "terminals";
               return (
                 <button
-                  key={judge ?? "none"}
+                  key={manager ?? "none"}
                   type="button"
                   role="radio"
-                  aria-checked={offered ? draft.judge === judge : judge === null}
+                  aria-checked={offered ? draft.manager === manager : manager === null}
                   disabled={!offered}
-                  title={offered ? undefined : "A judge runs in a terminal, so a headless run has none"}
-                  onClick={() => onDraft({ ...draft, judge })}
+                  title={offered ? undefined : "A manager runs in a terminal, so a headless run has none"}
+                  onClick={() => onDraft({ ...draft, manager })}
                   className={`min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground ${FOCUS}`}
                 >
-                  {judge ? SOURCE_LABEL[judge] : "None"}
+                  {manager ? SOURCE_LABEL[manager] : "None"}
                 </button>
               );
             })}
@@ -270,9 +313,11 @@ export function ArenaNewRun({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-        <span className={`${TEXT.body} text-foreground`}>{lineupKind(draft.lineup)}</span>
+        <span className={`${TEXT.body} text-foreground`}>
+          {lanesProblem ?? (noLanes ? "The manager plans the lanes" : lineupKind(draft.lineup))}
+        </span>
         <button type="button" onClick={onStart} disabled={!canStart} className={PRIMARY_BUTTON}>
-          {starting ? "Starting" : opensLanes ? "Open lanes" : "Start run"}
+          {starting ? "Starting" : noLanes ? "Open manager" : opensLanes ? "Open lanes" : "Start run"}
           <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
             {MAC ? "⌘↵" : "Ctrl↵"}
           </kbd>

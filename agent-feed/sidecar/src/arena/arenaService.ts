@@ -37,16 +37,7 @@ import {
 } from "@/arena/arenaRun";
 import { claimRunFolder, nextRunName, releaseRunFolder, runNameFor } from "@/arena/arenaRunFolders";
 import { ArenaStore } from "@/arena/arenaStore";
-import {
-  addContestantWorktree,
-  assertGitRepository,
-  captureWorktreeDiff,
-  initRunRepository,
-  pruneWorktrees,
-  removeContestantWorktree,
-  undoWorktrees,
-  type ArenaWorktreeSteps,
-} from "@/arena/arenaWorktrees";
+import { boundedDiff, LIVE_WORKTREE_STEPS, undoWorktrees, type ArenaWorktreeSteps } from "@/arena/arenaWorktrees";
 import {
   StartLine,
   startLineTerminal,
@@ -58,8 +49,9 @@ import {
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { homedir } from "node:os";
 import { ArenaNextPromptError, factsAfterTurn, nextPromptContestants } from "@/arena/arenaTurns";
-import { checkRunRequest, promptProblem } from "@/arena/arenaRequest";
-import { JUDGE_FOLDER, type ArenaJudges } from "@/arena/judge/arenaJudges";
+import { checkLanes, checkRunRequest, promptProblem } from "@/arena/arenaRequest";
+import { LANE_FOLDERS_PATTERN, newLaneRecords } from "@/arena/arenaLanes";
+import { MANAGER_FOLDER, type ArenaManagers } from "@/arena/manager/arenaManagers";
 
 /** The request could not become a run; the route answers it with a 400 naming this reason. */
 export class ArenaBadRequestError extends Error {}
@@ -67,9 +59,6 @@ export class ArenaBadRequestError extends Error {}
 export class ArenaRunNotFoundError extends Error {}
 /** The run is still dueling and cannot be torn down; the route answers with a 409. */
 export class ArenaRunBusyError extends Error {}
-
-/** A diff longer than this is truncated with a marker, in memory and in its file alike. */
-const MAXIMUM_DIFF_BYTES = 256 * 1024;
 
 /** How long one contestant's turn may run before the service gives up on it. */
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -79,7 +68,7 @@ export class ArenaService {
   private readonly store: ArenaStore;
   private readonly drivers: ContestantDrivers;
   private readonly terminalDrivers: ContestantDrivers | null;
-  private readonly judges: ArenaJudges | null;
+  private readonly managers: ArenaManagers | null;
   private readonly killPane: (pane: string) => Promise<void>;
   private readonly worktrees: ArenaWorktreeSteps;
   private readonly arenaHome: string;
@@ -88,6 +77,8 @@ export class ArenaService {
   /** Each live terminals run's start line, and the drives that wait at it, by run id. */
   private readonly lines = new Map<string, StartLine>();
   private readonly drives = new Map<string, Promise<void>[]>();
+  /** Runs whose added lanes' worktrees are being made: one addition at a time, and no removal. */
+  private readonly adding = new Set<string>();
 
   constructor(options: {
     registry: ArenaRunRegistry;
@@ -96,8 +87,8 @@ export class ArenaService {
     drivers: ContestantDrivers;
     /** The terminals mode's drivers, or null where this machine has no tmux to run them in. */
     terminalDrivers?: ContestantDrivers | null;
-    /** Starts and briefs a run's judge, where there is a tmux for one; `judge/arenaJudges.ts`. */
-    judges?: ArenaJudges | null;
+    /** Starts and briefs a run's manager, where there is a tmux for one; `manager/arenaManagers.ts`. */
+    managers?: ArenaManagers | null;
     /** Ends a contestant's pane when its run is deleted; tmux's own kill unless a test says. */
     killPane?: (pane: string) => Promise<void>;
     /** Overridden in tests; the real steps are this module's own `arenaWorktrees.ts`. */
@@ -111,16 +102,9 @@ export class ArenaService {
     this.store = options.store;
     this.drivers = options.drivers;
     this.terminalDrivers = options.terminalDrivers ?? null;
-    this.judges = options.judges ?? null;
+    this.managers = options.managers ?? null;
     this.killPane = options.killPane ?? killTmuxSession;
-    this.worktrees = options.worktrees ?? {
-      assertRepository: assertGitRepository,
-      initRepository: initRunRepository,
-      add: addContestantWorktree,
-      remove: removeContestantWorktree,
-      prune: pruneWorktrees,
-      captureDiff: captureWorktreeDiff,
-    };
+    this.worktrees = options.worktrees ?? LIVE_WORKTREE_STEPS;
     if (!isAbsolute(options.arenaHome)) throw new Error(`the arena home must be absolute: "${options.arenaHome}"`);
     this.arenaHome = options.arenaHome;
     this.turnTimeoutMs = options.turnTimeoutMs ?? TURN_TIMEOUT_MS;
@@ -177,7 +161,8 @@ export class ArenaService {
         });
       }
       const drivers = this.terminalDrivers;
-      if (picked.length === 0 || !drivers) continue;
+      // A run before its first prompt keeps a line with no lane on it, so it can still take lanes.
+      if (!drivers || (picked.length === 0 && run.round > 0)) continue;
       const line = new StartLine(picked.filter((one) => !one.resume?.prompted).length, run.prompt || null);
       this.lines.set(run.runId, line);
       this.drives.set(
@@ -199,8 +184,8 @@ export class ArenaService {
       driversFor: (mode) => (mode === "terminals" ? this.terminalDrivers : this.drivers),
     });
     if ("problem" in checked) throw new ArenaBadRequestError(checked.problem);
-    const { prompt, namedRepo, baseRef, mode, drivers, sources, judge } = checked;
-    if (judge && !this.judges) throw new ArenaBadRequestError("this machine has no tmux for a judge to run in");
+    const { prompt, namedRepo, baseRef, mode, drivers, lanes, manager } = checked;
+    if (manager && !this.managers) throw new ArenaBadRequestError("this machine has no tmux for a manager to run in");
 
     const naming = runNameFor(request.name, this.arenaHome, this.registry.list().map((run) => run.name));
     if ("problem" in naming) throw new ArenaBadRequestError(naming.problem);
@@ -226,23 +211,7 @@ export class ArenaService {
     const repoCreated = !namedRepo;
     const repoPath = namedRepo || folder;
 
-    const records: ArenaContestantRecord[] = sources.map((source, index) => ({
-      contestantId: `c${index + 1}`,
-      source,
-      sessionId: null,
-      worktreePath: join(folder, `c${index + 1}`),
-      tmuxSession: null,
-      status: "preparing" as const,
-      startedAt: null,
-      closedAt: null,
-      error: null,
-      contextTokens: null,
-      costUsd: null,
-      filesRead: [],
-      filesWritten: [],
-      outsideReached: [],
-      gitDiff: null,
-    }));
+    const records = newLaneRecords(folder, lanes, 0);
 
     // Every worktree before the run is registered, so a run that reaches the registry is whole:
     // a contestant cannot be handed a prompt for a directory that was never made. A failure
@@ -252,7 +221,7 @@ export class ArenaService {
         await this.worktrees.initRepository({
           path: folder,
           message: name,
-          worktreeFolders: [...records.map((record) => record.contestantId), ...(judge ? [JUDGE_FOLDER] : [])],
+          worktreeFolders: [LANE_FOLDERS_PATTERN, MANAGER_FOLDER],
         });
       }
       for (const record of records) {
@@ -276,13 +245,13 @@ export class ArenaService {
       mode,
       createdAt: Date.now(),
       contestants: records,
-      judge: judge
-        ? { source: judge, status: "starting", folder: join(folder, JUDGE_FOLDER), sessionId: null, tmuxSession: null, error: null }
+      manager: manager
+        ? { source: manager, status: "starting", folder: join(folder, MANAGER_FOLDER), sessionId: null, tmuxSession: null, error: null }
         : null,
     };
     this.registry.add(run);
-    // Started with the lanes, so it is up by the time there is anything to judge.
-    if (judge) void this.judges!.open(runId);
+    // Started with the lanes, so it is up to plan them, or by the time there is anything to judge.
+    if (manager) void this.managers!.open(runId);
 
     // Fanned out, not awaited: the run is live the moment it is registered, and each contestant
     // closes on its own. `void` with the failure handled inside, so a contestant that fails
@@ -307,6 +276,7 @@ export class ArenaService {
     const tooLong = promptProblem(prompt);
     if (tooLong) throw new ArenaBadRequestError(tooLong);
     const line = this.lines.get(runId);
+    if (run.contestants.length === 0) throw new ArenaBadRequestError("this run has no lanes yet: add them before its prompt");
     if (!run.prompt && line && !line.prompted) {
       this.registry.updateRun(runId, (one) => {
         one.prompt = prompt;
@@ -317,6 +287,41 @@ export class ArenaService {
     }
     if (!run.prompt) throw new ArenaBadRequestError("this run's lanes closed before they were given a prompt");
     this.startNextRound(run, prompt);
+    return runSummary(run);
+  }
+
+  /**
+   * More lanes for a terminals run before its first prompt: worktrees made, then the lanes opened at
+   * its start line to take that prompt with the others. How a manager starts the lanes it planned.
+   */
+  async addContestants(runId: string, raw: unknown): Promise<ArenaRunSummary> {
+    const run = this.registry.get(runId);
+    if (!run) throw new ArenaRunNotFoundError(`no arena run "${runId}"`);
+    const line = this.lines.get(runId);
+    const drivers = this.terminalDrivers;
+    const closed = (): boolean => run.mode !== "terminals" || !drivers || !line || line.prompted || !this.registry.get(runId);
+    if (closed()) throw new ArenaRunBusyError("lanes are added only to a terminals run before its first prompt");
+    if (this.adding.has(runId)) throw new ArenaRunBusyError("this run is already adding lanes");
+    const lanes = checkLanes(raw, drivers!, run.contestants.length);
+    if ("problem" in lanes) throw new ArenaBadRequestError(lanes.problem);
+    if (lanes.length === 0) throw new ArenaBadRequestError("name at least one lane to add");
+    const records = newLaneRecords(run.folder, lanes, run.contestants.length);
+    this.adding.add(runId);
+    try {
+      for (const record of records) await this.worktrees.add({ repoPath: run.repoPath, path: record.worktreePath, ref: run.baseRef });
+      // The prompt may have been given while the worktrees were made; these lanes missed it.
+      if (closed()) throw new ArenaRunBusyError("the run was given its prompt while its lanes were being added");
+    } catch (error) {
+      await undoWorktrees(this.worktrees, run.repoPath, records).catch(() => undefined);
+      throw error;
+    } finally {
+      this.adding.delete(runId);
+    }
+    for (const _ of records) line!.join();
+    this.registry.updateRun(runId, (one) => one.contestants.push(...records));
+    const drives = this.drives.get(runId) ?? [];
+    drives.push(...records.map((record) => this.driveOne(run, record, drivers!, line!)));
+    this.drives.set(runId, drives);
     return runSummary(run);
   }
 
@@ -373,6 +378,7 @@ export class ArenaService {
     // removing the run is closing them: the line refuses whoever waits at it, the panes are ended
     // under whoever is still on the way up, and the removal waits for every drive to have failed.
     const unprompted = line !== undefined && !line.prompted;
+    if (this.adding.has(runId)) throw new ArenaRunBusyError(`run "${runId}" is adding lanes`);
     if (run.contestants.some(isLiveContestant) && !unprompted) {
       throw new ArenaRunBusyError(`run "${runId}" still has a contestant dueling`);
     }
@@ -384,7 +390,7 @@ export class ArenaService {
       });
     }
     await Promise.allSettled(this.drives.get(runId) ?? []);
-    await this.judges?.close(run).catch((error: unknown) => console.error("agent feed arena left a judge", error));
+    await this.managers?.close(run).catch((error: unknown) => console.error("agent feed arena left a manager", error));
     this.lines.delete(runId);
     this.drives.delete(runId);
     await undoWorktrees(this.worktrees, run.repoPath, run.contestants);
@@ -449,6 +455,7 @@ export class ArenaService {
       const plan: ContestantPlan = {
         prompt: run.prompt,
         worktreePath: record.worktreePath,
+        model: record.model,
         // One per prompt, not per contestant: a harness deduplicates a send by it, so a later
         // prompt under the first one's id would be refused as the same command sent again.
         requestId: `${run.runId}:${record.contestantId}:${run.round}`,
@@ -468,13 +475,7 @@ export class ArenaService {
       const result = await drive(plan);
 
       const facts = factsAfterTurn(record, result.events, run, homedir());
-      const diff = await this.worktrees.captureDiff({
-        worktreePath: record.worktreePath,
-        ref: run.baseRef,
-      });
-      const bounded = diff.length > MAXIMUM_DIFF_BYTES
-        ? `${diff.slice(0, MAXIMUM_DIFF_BYTES)}\n… truncated at ${MAXIMUM_DIFF_BYTES} bytes\n`
-        : diff;
+      const bounded = boundedDiff(await this.worktrees.captureDiff({ worktreePath: record.worktreePath, ref: run.baseRef }));
       this.store.writeContestantDiff(run.runId, record.contestantId, bounded);
       this.registry.updateContestant(run.runId, record.contestantId, (contestant, now) => {
         contestant.status = "closed";

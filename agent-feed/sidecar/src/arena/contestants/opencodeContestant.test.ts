@@ -48,8 +48,13 @@ function fakeBackend(options: {
 }) {
   const sent: { sessionId: string; text: string; delivery: string }[] = [];
   const created: { projectPath: string }[] = [];
+  const switched: string[] = [];
   const subscriptions: ((envelope: TimelineEnvelope) => void)[] = [];
   const backend: OpencodeContestantBackend = {
+    async switchModel(sessionId, _requestId, providerID, modelID) {
+      switched.push(`${sessionId}:${providerID}/${modelID}`);
+      return { requestId: "r", delivery: "immediate" };
+    },
     async createSession(_requestId, projectPath) {
       created.push({ projectPath });
       return {
@@ -89,12 +94,13 @@ function fakeBackend(options: {
   const deliver = (one: TimelineEnvelope): void => {
     for (const listener of subscriptions) listener(one);
   };
-  return { backend, sent, created, deliver };
+  return { backend, sent, created, switched, deliver };
 }
 
 const plan = {
   prompt: "say one word",
   worktreePath: "/nowhere/c1",
+  model: null as string | null,
   requestId: "run-1:c1",
   turnTimeoutMs: 1000,
   onSessionId: () => {},

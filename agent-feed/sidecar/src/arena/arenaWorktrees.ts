@@ -177,6 +177,26 @@ export interface ArenaWorktreeSteps {
   captureDiff(options: { worktreePath: string; ref: string }): Promise<string>;
 }
 
+/** The steps over this machine's git. */
+export const LIVE_WORKTREE_STEPS: ArenaWorktreeSteps = {
+  assertRepository: assertGitRepository,
+  initRepository: initRunRepository,
+  add: addContestantWorktree,
+  remove: removeContestantWorktree,
+  prune: pruneWorktrees,
+  captureDiff: captureWorktreeDiff,
+};
+
+/** A diff longer than this is truncated with a marker, in memory and in its file alike. */
+const MAXIMUM_DIFF_BYTES = 256 * 1024;
+
+/** The diff as the arena keeps it: whole, or cut at the limit with a line saying so. */
+export function boundedDiff(diff: string): string {
+  return diff.length > MAXIMUM_DIFF_BYTES
+    ? `${diff.slice(0, MAXIMUM_DIFF_BYTES)}\n… truncated at ${MAXIMUM_DIFF_BYTES} bytes\n`
+    : diff;
+}
+
 /**
  * Removes every contestant's worktree and prunes the registrations, best-effort and whole.
  *

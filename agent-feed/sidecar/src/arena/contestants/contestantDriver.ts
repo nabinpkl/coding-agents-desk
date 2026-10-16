@@ -15,6 +15,8 @@ import type { ActivityEvent, TokenUsage } from "@/transcripts/transcriptTypes";
 export interface ContestantPlan {
   prompt: string;
   worktreePath: string;
+  /** The model the lane was asked to run, or null for its harness's default. */
+  model: string | null;
   /** Unique per run and contestant: whichever harness deduplicates by it. */
   requestId: string;
   /** How long the turn may run before the contestant is abandoned as failed. */
@@ -172,6 +174,12 @@ export class StartLine {
   leave(): void {
     this.waiting -= 1;
     this.check();
+  }
+
+  /** One more contestant to wait for: a lane added to a run that has not had its prompt. */
+  join(): void {
+    if (this.prompt !== null) throw new Error("this run already has its prompt");
+    this.waiting += 1;
   }
 
   give(prompt: string): void {

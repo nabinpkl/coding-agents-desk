@@ -5,8 +5,10 @@
 // panel shows those facts. Judgment is a reader's act, and a reader judges from the session
 // itself: a contestant's session is an ordinary catalog session that every existing session
 // surface already renders, so the arena adds the grouping and the facts, not a new session viewer.
-// A run may have a judge, which is the same thing again: an ordinary session the reader asks for a
-// verdict, briefed with the facts, never a score the arena keeps.
+// A run may have a manager, which is the same thing again: an ordinary session, briefed with the
+// facts and with this API, that the reader can ask to plan the lanes (how many, which harness, which
+// model), to prompt them, or for a verdict. What it decides is an API call anyone could have made;
+// a verdict is its answer, never a score the arena keeps.
 //
 // Statuses travel, facts wait. `gitDiff` and the file lists scale with the work a prompt asked
 // for, so they ride the detail route on demand rather than every status push, the same split the
@@ -43,6 +45,11 @@ export const ARENA_LIVE_STATUSES: readonly ArenaContestantStatus[] = ["preparing
 export interface ArenaContestantSummary {
   contestantId: string;
   source: ArenaContestantSource;
+  /**
+   * The model the lane was asked to run, as its harness spells it (`sonnet`, `claude-opus-5-5`;
+   * `provider/model` for opencode), or null for the harness's own default.
+   */
+  model: string | null;
   /** The session this contestant is, once its backend has made one; null until then. */
   sessionId: string | null;
   worktreePath: string;
@@ -70,7 +77,7 @@ export interface ArenaRunSummary {
    * folder in the arena home is named after it, and holds the contestants' worktrees.
    */
   name: string;
-  /** The run's folder in the arena home, holding its contestants' worktrees and its judge's folder. */
+  /** The run's folder in the arena home, holding its contestants' worktrees and its manager's folder. */
   folder: string;
   /**
    * The latest prompt every lane was given. A run never ends: once every contestant has settled,
@@ -87,31 +94,40 @@ export interface ArenaRunSummary {
   mode: ArenaRunMode;
   createdAt: number;
   contestants: ArenaContestantSummary[];
-  /** The run's judge, or null for a run that asked for none. */
-  judge: ArenaJudgeSummary | null;
+  /** The run's manager, or null for a run that asked for none. */
+  manager: ArenaManagerSummary | null;
 }
 
 /**
- * Where a judge stands: its pane on the way up, open for the reader to ask, or failed to start.
- * A judge takes no turn the arena drives, so it has no running or closed of its own.
+ * Where a manager stands: its pane on the way up, open for the reader to ask, or failed to start.
+ * A manager takes no turn the arena drives, so it has no running or closed of its own.
  */
-export type ArenaJudgeStatus = "starting" | "open" | "failed";
+export type ArenaManagerStatus = "starting" | "open" | "failed";
 
 /**
- * A run's judge: an ordinary interactive session in a tmux pane, read-only by its harness's own
- * means, working in the run's `judge` folder. The arena keeps a brief there -- the prompt, every
- * contestant's facts, and each one's transcript and diff as files -- rewritten whenever the run
- * changes, and never prompts the judge itself: the reader asks it, when they want a verdict.
+ * A run's manager: an ordinary interactive session in a tmux pane, working in the run's `manager`
+ * folder. The arena keeps a brief there -- the prompt, every contestant's facts, each one's
+ * transcript and diff as files, and how to call this API for its run -- rewritten whenever the run
+ * changes, and never prompts the manager itself: the reader does, to have it plan and start the
+ * lanes, prompt them, or compare what they did. Its harness lets it edit no file; its calls to this
+ * API are shell commands under the harness's own permission mode.
  */
-export interface ArenaJudgeSummary {
+export interface ArenaManagerSummary {
   source: ArenaContestantSource;
-  status: ArenaJudgeStatus;
-  /** The judge's working folder, `<run folder>/judge`, which holds its brief. */
+  status: ArenaManagerStatus;
+  /** The manager's working folder, `<run folder>/manager`, which holds its brief. */
   folder: string;
   sessionId: string | null;
   tmuxSession: string | null;
-  /** Why the judge failed to start, one line; null otherwise. */
+  /** Why the manager failed to start, one line; null otherwise. */
   error: string | null;
+}
+
+/** One lane a run is asked for: the harness that drives it, and optionally the model it runs. */
+export interface ArenaLaneRequest {
+  source: ArenaContestantSource;
+  /** As the harness spells it; `provider/model` for opencode. Absent or null for its default. */
+  model?: string | null;
 }
 
 /** Facts a contestant left behind, read on demand. */
@@ -178,12 +194,24 @@ export interface ArenaCreateRunRequest {
   baseRef?: string;
   /** How the contestants are driven; the sidecar picks `terminals` when it has tmux, otherwise `headless`. */
   mode?: ArenaRunMode;
-  contestants: { source: ArenaContestantSource }[];
   /**
-   * The harness the run's judge runs in, or null (or absent) for no judge. A judge lives in a
-   * terminal, so only a terminals run may ask for one.
+   * The lanes. A terminals run with a manager and no prompt may name none: its manager adds them
+   * (`POST /api/arena/runs/:id/contestants`) once the reader has asked it to plan them.
    */
-  judge?: ArenaContestantSource | null;
+  contestants: ArenaLaneRequest[];
+  /**
+   * The harness the run's manager runs in, or null (or absent) for no manager. A manager lives in
+   * a terminal, so only a terminals run may ask for one.
+   */
+  manager?: ArenaContestantSource | null;
+}
+
+/**
+ * `POST /api/arena/runs/:id/contestants`: more lanes for a terminals run that has not had its first
+ * prompt yet. They open beside the others and wait for that prompt with them.
+ */
+export interface ArenaAddLanesRequest {
+  contestants: ArenaLaneRequest[];
 }
 
 /** `POST /api/arena/runs/:id/prompt`: the prompt a terminals run's open lanes wait for. Given once. */

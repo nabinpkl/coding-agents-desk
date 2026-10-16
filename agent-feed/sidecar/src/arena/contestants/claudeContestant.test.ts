@@ -64,6 +64,7 @@ function fakeChild(options: { code?: number; stderr?: string; hang?: boolean } =
 const basePlan = {
   prompt: "say one word",
   worktreePath: "/arena/run/c1",
+  model: null,
   requestId: "run-1:c1",
   turnTimeoutMs: 1000,
 };
