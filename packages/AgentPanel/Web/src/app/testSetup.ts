@@ -28,6 +28,26 @@ Object.defineProperty(globalThis, "ResizeObserver", {
   },
 });
 
+// jsdom has no matchMedia either, and Vitest 4 refuses to spy on a property that is not a function,
+// so the suites that pose as a touch device need one to wrap. Matching nothing is what every guarded
+// caller already read from its absence; a suite that wants a query to match spies on this.
+if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList,
+  });
+}
+
 // Everything below patches the browser a suite is running IN, and a few suites deliberately run
 // under `node` instead: the dev-server modules never touch a DOM, and one of them loads esbuild,
 // which refuses to start under jsdom's `TextEncoder`. Without this guard those suites fail while

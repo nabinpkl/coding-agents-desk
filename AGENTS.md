@@ -441,7 +441,10 @@ loaded history goes, and the page fetches its ~490 modules again, which is secon
 - **Components and hooks update in place** through React Fast Refresh. A `.tsx` file that exports
   anything besides components is not a boundary, so its update passes to every importer, which is
   harmless until the chain reaches `main.tsx`. Keep a plain helper out of a component file, the way
-  `desktopDocumentHeight.ts` came out of `DesktopViewer.tsx`.
+  `desktopDocumentHeight.ts` came out of `DesktopViewer.tsx`. A hook in a `.ts` file is the gap:
+  Vite gives Fast Refresh only to files whose name ends in `x` or that import the JSX runtime
+  (still so in Vite 8.3), so adding or removing a hook inside one keeps the component's old state
+  and its boundary shows "Should have a queue". Try again clears it; nothing is broken.
 - **The data source, its layers, the transport and the wire are swapped in place.** `main.tsx`
   accepts them, builds a fresh `FetchHttpTransport` and `SidecarDataSource`, and re-renders the
   root it already has. Every effect keyed on the feed reopens its stream with the new code, so the
