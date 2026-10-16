@@ -213,6 +213,12 @@ test("a run with no lanes needs a manager to add them, and no prompt it could no
   await expect(service.createRun(request({ contestants: [{ source: "claude", model: "two words" }] }))).rejects.toThrow(
     "which is not a model name",
   );
+  // A name an object inherits is not a harness, and a run holding one would not load after a restart.
+  for (const source of ["toString", "__proto__", "constructor"]) {
+    await expect(service.createRun(request({ contestants: [{ source: source as never }] }))).rejects.toThrow(
+      `names source "${source}"`,
+    );
+  }
 });
 
 test("a run with no lanes yet still takes them after the sidecar restarts", async () => {

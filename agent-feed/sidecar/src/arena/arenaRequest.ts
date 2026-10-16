@@ -52,7 +52,8 @@ export function checkLanes(
   const lanes: CheckedLane[] = [];
   for (const [index, lane] of raw.entries()) {
     const { source, model } = (lane ?? {}) as { source?: unknown; model?: unknown };
-    if (!drivers[source as ArenaContestantSource]) {
+    // Named, not looked up: `drivers` is an object, and "toString" would find its prototype's.
+    if ((source !== "opencode" && source !== "claude") || !Object.hasOwn(drivers, source)) {
       return { problem: `contestant ${index} names source "${String(source ?? "none")}", which this arena cannot drive` };
     }
     const named = typeof model === "string" ? model.trim() : model ?? null;
