@@ -7,9 +7,7 @@
 
 import type { ProjectSummary } from "@agentdesk/agent-feed-wire";
 import type { useBots } from "@/features/bots/useBots";
-import type { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
-import type { useMessages } from "@/features/messages/useMessages";
-import type { useUsage } from "@/features/usage/useUsage";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
 import type { useShellInventory } from "@/app/shell-state/useShellInventory";
 import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
@@ -27,14 +25,12 @@ export function sidebarProps({
   creatingProjectPath,
   creationErrors,
   createPiSession,
+  feed,
   inventory,
   machines,
-  messages,
   newSession,
-  park,
   roster,
   thread,
-  usage,
 }: {
   botsState: ReturnType<typeof useBots>;
   chrome: ReturnType<typeof useSidebarChrome>;
@@ -42,22 +38,18 @@ export function sidebarProps({
   creatingProjectPath: ReturnType<typeof usePiSessionCreation>["creatingProjectPath"];
   creationErrors: ReturnType<typeof usePiSessionCreation>["creationErrors"];
   createPiSession: ReturnType<typeof usePiSessionCreation>["createPiSession"];
+  feed: SidecarDataSource;
   inventory: ReturnType<typeof useShellInventory>["inventory"];
   machines: ShellMachines;
-  messages: ReturnType<typeof useMessages>;
   newSession: ReturnType<typeof useNewSessionCommands>;
-  park: ReturnType<typeof useDesktopPark>;
   roster: ReturnType<typeof useCanvasRoster>;
   thread: ReturnType<typeof useThreadSelection>;
-  usage: ReturnType<typeof useUsage>;
 }) {
   return {
     mode: chrome.sidebarMode,
     onModeChange: chrome.changeSidebarMode,
-    usage,
-    park,
+    feed,
     machines: machines.all,
-    messages,
     projects: inventory.projects,
     sessionsByProject: inventory.sessionsByProject,
     archiving: inventory.archiving,

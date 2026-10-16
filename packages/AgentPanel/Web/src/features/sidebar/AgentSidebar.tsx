@@ -9,14 +9,11 @@ import {
 } from "react";
 import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { ProfileRow } from "@/features/profile/ProfileRow";
+import { LiveProfileRow, type ProfileFeed } from "@/features/profile/ProfileRow";
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
 import { BotCanvasStatus } from "@/features/bots/canvas/BotCanvasStatus";
-import { MessagesPanel } from "@/features/messages/MessagesPanel";
-import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import { MessagesInbox } from "@/features/messages/MessagesPanel";
 import type { StaleSessionsMachine } from "@/features/profile/useStaleSessions";
-import type { MessagesHandle } from "@/features/messages/useMessages";
-import type { UsageHandle } from "@/features/usage/useUsage";
 import { ProjectSessionList, type SessionArchiving } from "@/features/sidebar/session-list/ProjectSidebarItem";
 import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/session-list/CanvasSessionsList";
 import { CanvasSidebarViews, type CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
@@ -149,14 +146,13 @@ interface AgentSidebarProps {
   onCanvasViewChange: (view: CanvasSidebarView) => void;
   /** The Canvas tab's Sessions view: what picking a row does, and grouped or most recent first. */
   canvasSessions: CanvasSessions;
-  /** The inbox's data and writes. Owned by the app, so all three sidebar mounts share one poll. */
-  messages: MessagesHandle;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
-  /** Drives the Profile section's Usage entry. Owned by the app, so all three sidebar mounts
-   *  share one subscription rather than opening one each. */
-  usage: UsageHandle;
-  park: DesktopParkHandle;
+  /**
+   * The shell's machine, which the inbox and the Profile row read from. Their data lives in stores
+   * keyed on it, so all three sidebar mounts share one poll and one subscription.
+   */
+  feed: ProfileFeed & Pick<SidecarDataSource, "hub">;
   /** Every machine the shell can see, for the Profile menu's stale sessions. */
   machines: readonly StaleSessionsMachine[];
 }
@@ -417,11 +413,11 @@ function SidebarContent(props: AgentSidebarProps) {
           aria-labelledby={tabId("messages")}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <MessagesPanel messages={props.messages} />
+          <MessagesInbox feed={props.feed} />
         </div>
       )}
 
-      <ProfileRow usage={props.usage} park={props.park} machines={props.machines} />
+      <LiveProfileRow feed={props.feed} machines={props.machines} />
     </div>
   );
 }

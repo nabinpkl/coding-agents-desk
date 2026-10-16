@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import type { DirectoryEntry, Message, MessageAddress } from "@agentdesk/agent-feed-wire";
 import type { HubHandle } from "@/features/activity-feed/data-source/layers/SidecarHub";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { createSourceStore, useSourceStore } from "@/features/activity-feed/data-source/sourceStore";
 
 export type MessagesState =
   | { kind: "idle" }
@@ -33,57 +35,77 @@ function describe(error: unknown): string {
   return String(error);
 }
 
+/** Each hub's poll, so the last reader leaving can stop it. */
+const timers = new WeakMap<HubHandle, ReturnType<typeof setInterval>>();
+
+const store = createSourceStore<HubHandle, MessagesState>({
+  initial: () => ({ kind: "idle" }),
+  closed: stop,
+});
+
+/** One hub per data source: `hub()` builds a new handle on every call, and the store keys on it. */
+const hubs = new WeakMap<Pick<SidecarDataSource, "hub">, HubHandle>();
+
+export function hubOf(feed: Pick<SidecarDataSource, "hub">): HubHandle {
+  let hub = hubs.get(feed);
+  if (!hub) {
+    hub = feed.hub();
+    hubs.set(feed, hub);
+  }
+  return hub;
+}
+
+async function refresh(hub: HubHandle): Promise<void> {
+  try {
+    const [threads, directory] = await Promise.all([hub.threads(), hub.directory()]);
+    store.set(hub, () => ({ kind: "ready", threads, directory }));
+  } catch (error) {
+    store.set(hub, () => ({ kind: "error", message: describe(error) }));
+  }
+}
+
+function load(hub: HubHandle): void {
+  if (timers.has(hub)) return;
+  // Threads already on screen stay while they are read again, rather than blinking to a spinner.
+  store.set(hub, (current) => (current.kind === "ready" ? current : { kind: "loading" }));
+  void refresh(hub);
+  timers.set(hub, setInterval(() => void refresh(hub), REFRESH_MS));
+}
+
+function stop(hub: HubHandle): void {
+  clearInterval(timers.get(hub));
+  timers.delete(hub);
+}
+
+async function act(hub: HubHandle, run: () => Promise<unknown>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    store.set(hub, () => ({ kind: "error", message: describe(error) }));
+    throw error;
+  }
+  await refresh(hub);
+}
+
 /**
  * The inbox's data: the owner's threads and the hub's directory, plus the three writes.
  *
- * Threads are re-read on a timer while the surface is open rather than streamed. The hub's stream
- * is per session, and the inbox is a view of every thread the owner is in at once, so there is no
- * one stream to hold; a ten-second poll is what keeps a reply from arriving minutes after the agent
- * sent it, and the panel is on a tailnet where that read is small.
+ * Threads are re-read on a timer while the inbox is open rather than streamed. The hub's stream is
+ * per session, and the inbox is a view of every thread the owner is in at once, so there is no one
+ * stream to hold; a ten-second poll is what keeps a reply from arriving minutes after the agent
+ * sent it, and the panel is on a tailnet where that read is small. The poll stops when the last
+ * inbox closes.
  */
 export function useMessages(hub: HubHandle): MessagesHandle {
-  const [state, setState] = useState<MessagesState>({ kind: "idle" });
-  const loaded = useRef(false);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const [threads, directory] = await Promise.all([hub.threads(), hub.directory()]);
-      setState({ kind: "ready", threads, directory });
-    } catch (error) {
-      setState({ kind: "error", message: describe(error) });
-    }
-  }, [hub]);
-
-  const load = useCallback(() => {
-    if (loaded.current) return;
-    loaded.current = true;
-    setState({ kind: "loading" });
-    void refresh();
-    timer.current = setInterval(() => void refresh(), REFRESH_MS);
-  }, [refresh]);
-
-  useEffect(() => () => {
-    if (timer.current) clearInterval(timer.current);
-  }, []);
-
-  const act = useCallback(
-    async (run: () => Promise<unknown>) => {
-      try {
-        await run();
-      } catch (error) {
-        setState({ kind: "error", message: describe(error) });
-        throw error;
-      }
-      await refresh();
-    },
-    [refresh],
+  const state = useSourceStore(store, hub);
+  const open = useCallback(() => load(hub), [hub]);
+  const reread = useCallback(() => refresh(hub), [hub]);
+  const send = useCallback(
+    (input: { to: string; body: string; kind?: "request" | "notice" }) => act(hub, () => hub.send(input)),
+    [hub],
   );
-
-  const send = useCallback((input: { to: string; body: string; kind?: "request" | "notice" }) => act(() => hub.send(input)), [act, hub]);
-  const reply = useCallback((messageId: string, body: string) => act(() => hub.reply(messageId, body)), [act, hub]);
-  const cancel = useCallback((messageId: string) => act(() => hub.cancel(messageId)), [act, hub]);
-
+  const reply = useCallback((messageId: string, body: string) => act(hub, () => hub.reply(messageId, body)), [hub]);
+  const cancel = useCallback((messageId: string) => act(hub, () => hub.cancel(messageId)), [hub]);
   const addressable = useMemo(
     () =>
       state.kind === "ready"
@@ -91,6 +113,5 @@ export function useMessages(hub: HubHandle): MessagesHandle {
         : [],
     [state],
   );
-
-  return { state, load, refresh, send, reply, cancel, addressable };
+  return { state, load: open, refresh: reread, send, reply, cancel, addressable };
 }

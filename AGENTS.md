@@ -256,18 +256,26 @@ The pull the other way is real and is why this kept happening: the sidebar is dr
 or each mount opens its own stream and closing the drawer drops a restart in flight. Lifting into
 `App` answered that; a store answers it without making the tab pay. Two shapes, both in the tree:
 
-- **A stream, per machine**: `features/usage/useLimits.ts`. A module-level `WeakMap` keyed on the
-  data source, one subscription per sidecar shared by every reader, opened by the first and closed
-  by the last.
-- **State and actions with no stream**: `features/profile/useStaleSessions.ts`. A module-level
-  `zustand` store (`createStore` from `zustand/vanilla`, read with `useStore`), the work as plain
-  functions beside it, and a hook that only selects and binds. Key per machine by `machineKey`, not
-  by the data source object, which is rebuilt when its code is hot-swapped.
+- **One machine's data**: `createSourceStore` in `activity-feed/data-source/sourceStore.ts`. One
+  entry per data source in a `WeakMap`, readers counted, and whatever the entry holds open (a
+  stream, a poll) closed after the last reader leaves while its state stays for the next. The work
+  is plain functions beside the store; the hook only reads it with `useSourceStore` and binds them.
+  `useUsage`, `useDesktopPark` and `useMessages` are built on it. `useLimits` is the same shape
+  written by hand before the helper existed. A store keyed on the data source starts fresh when
+  that object is rebuilt by a hot swap, which is the right answer for one machine's data.
+- **Data across every machine**: `features/profile/useStaleSessions.ts`. A module-level `zustand`
+  store (`createStore` from `zustand/vanilla`, read with `useStore`) keyed by `machineKey`, because
+  its answer spans machines and outlives any one data source.
 
-A module store is the page's, so a test file that uses one resets it in `afterEach`
-(`resetStaleSessions`); without that, what one test read is where the next one starts. Still in
-`App` and owed a move: `useUsage`, `useDesktopPark`, `useMessages`. `usePiSessionCreation` is for a
-dormant provider and should go rather than move.
+The widget stays presentational and takes its handles as props, so its tests stand them up
+directly; a `Live*` wrapper beside it does the subscribing (`LiveProfileRow`, `MessagesInbox`), and
+the sidebar passes the wrapper the data source rather than the data. A module store is the page's,
+so a test file that reuses one source across tests resets it in `afterEach`
+(`resetStaleSessions`); a fresh fake per test needs nothing.
+
+Still in `App`: `usePiSessionCreation`, for the dormant Pi provider. It backs the Sessions tab's
+New Pi session button and the harness's `createPiSession`, which several thread tests use to open a
+live session, so it goes when Pi leaves the panel rather than moving.
 
 ## How long a file gets, and how flat a directory gets
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import type {
   ParkPlanResponse,
   ParkReport,
@@ -8,6 +8,7 @@ import type {
   ParkStateResponse,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { createSourceStore, useSourceStore } from "@/features/activity-feed/data-source/sourceStore";
 
 export type ParkView =
   | { kind: "idle" }
@@ -44,107 +45,88 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+interface ParkEntry {
+  available: boolean;
+  view: ParkView;
+  action: ParkAction;
+  busy: boolean;
+}
+
+/** Machines whose config has been asked for, so a second reader does not ask again. */
+const asked = new WeakSet<ParkDataSource>();
+
+const store = createSourceStore<ParkDataSource, ParkEntry>({
+  initial: () => ({ available: false, view: { kind: "idle" }, action: { kind: "none" }, busy: false }),
+  opened: readAvailability,
+});
+
+function patch(feed: ParkDataSource, change: Partial<ParkEntry>): void {
+  store.set(feed, (entry) => ({ ...entry, ...change }));
+}
+
+/**
+ * Availability comes from the config read the panel already makes, not from a probe of our own.
+ *
+ * A probe fired on mount competes for one of the few concurrent relay slots at the busiest moment
+ * of startup, and it lost: the host logged `relay refused /api/park/state: 4 concurrent requests
+ * already in flight`, which was then reported to the user as "no yabai". A failed request is not an
+ * absent capability, and the fix is to stop asking a second time for something a process-global
+ * fact can carry.
+ */
+function readAvailability(feed: ParkDataSource): void {
+  if (asked.has(feed)) return;
+  asked.add(feed);
+  void feed.fetchConfig().then(
+    (config) => patch(feed, { available: config.parkAvailable === true }),
+    // A config read that fails means the sidecar is not answering at all, and the panel's own
+    // connection errors are what the viewer sees. The next reader asks again.
+    () => asked.delete(feed),
+  );
+}
+
+function load(feed: ParkDataSource): void {
+  store.set(feed, (entry) => ({ ...entry, view: entry.view.kind === "ready" ? entry.view : { kind: "loading" } }));
+  void Promise.all([feed.fetchParkState(), feed.fetchParkPlan()]).then(
+    ([state, plan]) => patch(feed, { available: true, view: { kind: "ready", state, plan } }),
+    (error: unknown) => patch(feed, { view: { kind: "error", message: messageOf(error) } }),
+  );
+}
+
+function run(feed: ParkDataSource, what: "park" | "restore"): void {
+  if (store.get(feed).busy) return;
+  patch(feed, { busy: true, action: { kind: "running", what } });
+  const work = what === "park" ? feed.park() : feed.restorePark();
+  void work.then(
+    (report) => {
+      patch(feed, {
+        busy: false,
+        action: what === "park"
+          ? { kind: "parked", report: report as ParkReport }
+          : { kind: "restored", report: report as ParkRestoreReport },
+      });
+      // The layout it was showing is now wrong by construction, so re-read rather than leaving a
+      // stale plan under a fresh result.
+      load(feed);
+    },
+    (error: unknown) => patch(feed, { busy: false, action: { kind: "failed", what, message: messageOf(error) } }),
+  );
+}
+
 /**
  * The Desktop Park panel's data.
  *
- * Availability rides the config read the panel already makes, the same way the
- * summarizer's and the usage vendors' do: whether this machine can park windows
- * is a property of the machine, not of the moment, and the panel should not
- * spend a request discovering it.
+ * Availability rides the config read the panel already makes, the same way the summarizer's and
+ * the usage vendors' do: whether this machine can park windows is a property of the machine, not of
+ * the moment, and the panel should not spend a request discovering it.
  *
- * State and plan are fetched together and always as a pair. A plan describes the
- * state it was computed from, and showing one beside a newer other would invite
- * someone to press Park against a layout that has already moved.
+ * State and plan are fetched together and always as a pair. A plan describes the state it was
+ * computed from, and showing one beside a newer other would invite someone to press Park against a
+ * layout that has already moved.
  */
 export function useDesktopPark(feed: ParkDataSource): DesktopParkHandle {
-  const [available, setAvailable] = useState(false);
-  const [view, setView] = useState<ParkView>({ kind: "idle" });
-  const [action, setAction] = useState<ParkAction>({ kind: "none" });
-  const [busy, setBusy] = useState(false);
-  const mounted = useRef(true);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  const load = useCallback(() => {
-    setView((current) => (current.kind === "ready" ? current : { kind: "loading" }));
-    void Promise.all([feed.fetchParkState(), feed.fetchParkPlan()]).then(
-      ([state, plan]) => {
-        if (!mounted.current) return;
-        setAvailable(true);
-        setView({ kind: "ready", state, plan });
-      },
-      (error: unknown) => {
-        if (!mounted.current) return;
-        setView({ kind: "error", message: messageOf(error) });
-      },
-    );
-  }, [feed]);
-
-  // Availability comes from the config read the panel already makes, not from a
-  // probe of our own.
-  //
-  // A probe fired on mount competes for one of the few concurrent relay slots at
-  // the busiest moment of startup, and it lost: the host logged
-  // `relay refused /api/park/state: 4 concurrent requests already in flight`,
-  // which this hook then reported to the user as "no yabai". A failed request is
-  // not an absent capability, and the fix is to stop asking a second time for
-  // something a process-global fact can carry.
-  useEffect(() => {
-    let cancelled = false;
-    void feed.fetchConfig().then(
-      (config) => {
-        if (!cancelled) setAvailable(config.parkAvailable === true);
-      },
-      // A config read that fails means the sidecar is not answering at all, and
-      // the panel's own connection errors are what the viewer sees.
-      () => {},
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [feed]);
-
-  const run = useCallback(
-    (what: "park" | "restore") => {
-      if (busy) return;
-      setBusy(true);
-      setAction({ kind: "running", what });
-      const work = what === "park" ? feed.park() : feed.restorePark();
-      void work.then(
-        (report) => {
-          if (!mounted.current) return;
-          setAction(
-            what === "park"
-              ? { kind: "parked", report: report as ParkReport }
-              : { kind: "restored", report: report as ParkRestoreReport },
-          );
-          setBusy(false);
-          // The layout it was showing is now wrong by construction, so re-read
-          // rather than leaving a stale plan under a fresh result.
-          load();
-        },
-        (error: unknown) => {
-          if (!mounted.current) return;
-          setAction({ kind: "failed", what, message: messageOf(error) });
-          setBusy(false);
-        },
-      );
-    },
-    [busy, feed, load],
-  );
-
-  return {
-    available,
-    view,
-    action,
-    load,
-    park: useCallback(() => run("park"), [run]),
-    restore: useCallback(() => run("restore"), [run]),
-    busy,
-  };
+  const entry = useSourceStore(store, feed);
+  const read = useCallback(() => load(feed), [feed]);
+  const park = useCallback(() => run(feed, "park"), [feed]);
+  const restore = useCallback(() => run(feed, "restore"), [feed]);
+  return { ...entry, load: read, park, restore };
 }

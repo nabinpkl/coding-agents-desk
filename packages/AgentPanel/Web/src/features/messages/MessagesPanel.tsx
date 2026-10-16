@@ -1,7 +1,8 @@
 import { CornerUpLeft, SendHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
-import type { MessagesHandle } from "@/features/messages/useMessages";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { hubOf, useMessages, type MessagesHandle } from "@/features/messages/useMessages";
 import { isCancellable, isUnanswered, messageTime, threadState, threadStateLabel } from "@/features/messages/messageState";
 import { runtimesOf } from "@/features/messages/hubRuntime";
 import { SessionPicker } from "@/features/messages/SessionPicker";
@@ -277,4 +278,13 @@ function Thread({
       ) : null}
     </li>
   );
+}
+
+/**
+ * The inbox with its data, read from a store keyed on this machine's hub (`useMessages`) rather
+ * than handed down from `App`. Mounted only while the Messages tab is showing, which is what keeps
+ * the hub's poll running and, once the last inbox closes, stops it.
+ */
+export function MessagesInbox({ feed }: { feed: Pick<SidecarDataSource, "hub"> }) {
+  return <MessagesPanel messages={useMessages(hubOf(feed))} />;
 }

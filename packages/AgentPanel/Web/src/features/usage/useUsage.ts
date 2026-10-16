@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import type { UsageReport, UsageVendorId } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { createSourceStore, useSourceStore } from "@/features/activity-feed/data-source/sourceStore";
 
 export type UsageState =
   | { kind: "idle" }
@@ -20,83 +21,96 @@ export interface UsageHandle {
   load: () => void;
 }
 
+export type UsageFeed = Pick<SidecarDataSource, "subscribeUsage" | "fetchConfig">;
+
+interface UsageEntry {
+  vendors: UsageVendorId[];
+  state: UsageState;
+}
+
+/** Each machine's open stream, so a terminal message or the last reader leaving can close it. */
+const streams = new WeakMap<UsageFeed, () => void>();
+/** Machines whose config has been asked for, so a second reader does not ask again. */
+const asked = new WeakSet<UsageFeed>();
+
+const store = createSourceStore<UsageFeed, UsageEntry>({
+  initial: () => ({ vendors: [], state: { kind: "idle" } }),
+  opened: readVendors,
+  closed: close,
+});
+
+function setState(feed: UsageFeed, next: (current: UsageState) => UsageState): void {
+  store.set(feed, (entry) => ({ ...entry, state: next(entry.state) }));
+}
+
+/**
+ * Availability is read from `/api/config` when the first reader arrives rather than per open, the
+ * same way the summarizer's is: whether this machine has Codex records is a property of the
+ * machine.
+ */
+function readVendors(feed: UsageFeed): void {
+  if (asked.has(feed)) return;
+  asked.add(feed);
+  void feed.fetchConfig().then(
+    (config) => {
+      // A config this panel cannot read a vendor list out of means "offer nothing", the same
+      // answer a failed read gives. This is an availability probe, not a data path: refusing to
+      // render because the field is absent would take the whole sidebar down over a menu entry.
+      const vendors = Array.isArray(config.usageVendors) ? config.usageVendors : [];
+      store.set(feed, (entry) => ({ ...entry, vendors }));
+    },
+    // A config read that fails means the sidecar is not answering, and the panel's own connection
+    // errors are what the viewer sees. The entry stays hidden, and the next reader asks again.
+    () => asked.delete(feed),
+  );
+}
+
+function close(feed: UsageFeed): void {
+  streams.get(feed)?.();
+  streams.delete(feed);
+}
+
+/**
+ * Opens the stream. The first report can be the cache's, with the sweep's still to come, so it
+ * stays open until the sidecar says the sweep has settled.
+ */
+function load(feed: UsageFeed): void {
+  if (streams.has(feed)) return;
+  setState(feed, (current) => (current.kind === "ready" ? { ...current, settled: false } : { kind: "loading" }));
+  streams.set(feed, feed.subscribeUsage({
+    onMessage: (message) => {
+      switch (message.type) {
+        case "report":
+          setState(feed, () => ({ kind: "ready", report: message.report, settled: false }));
+          return;
+        case "settled":
+          close(feed);
+          setState(feed, (current) => (current.kind === "ready" ? { ...current, settled: true } : { kind: "idle" }));
+          return;
+        case "error":
+          close(feed);
+          setState(feed, () => ({ kind: "error", message: message.error.message }));
+      }
+    },
+    // The stream never opened, or dropped before it settled. A report already on screen stays --
+    // it was real when it arrived -- and stops claiming a sweep is still running.
+    onError: (reason) => {
+      close(feed);
+      setState(feed, (current) =>
+        current.kind === "ready" ? { ...current, settled: true } : { kind: "error", message: reason });
+    },
+  }));
+}
+
 /**
  * The Usage modal's data, and the stream behind it.
  *
- * Availability is read from `/api/config` on mount rather than per open, the same way the
- * summarizer's is: whether this machine has Codex records is a property of the machine.
- *
- * The stream is opened on demand rather than at mount. A sweep reads gigabytes on a cold cache,
- * and doing that because the panel launched -- rather than because somebody asked what their week
- * cost -- would spend the disk on a question nobody had.
+ * The stream is opened on demand rather than when the row mounts. A sweep reads gigabytes on a cold
+ * cache, and doing that because the panel launched -- rather than because somebody asked what their
+ * week cost -- would spend the disk on a question nobody had.
  */
-export function useUsage(
-  feed: Pick<SidecarDataSource, "subscribeUsage" | "fetchConfig">,
-): UsageHandle {
-  const [vendors, setVendors] = useState<UsageVendorId[]>([]);
-  const [state, setState] = useState<UsageState>({ kind: "idle" });
-  // The open stream, so a terminal message or an unmount can close it. A ref rather than state
-  // because closing it is not a render.
-  const stream = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void feed.fetchConfig().then(
-      (config) => {
-        // A config this panel cannot read a vendor list out of means "offer nothing", the same
-        // answer a failed read gives. This is an availability probe, not a data path: refusing to
-        // render because the field is absent would take the whole sidebar down over a menu entry.
-        if (!cancelled) setVendors(Array.isArray(config.usageVendors) ? config.usageVendors : []);
-      },
-      // A config read that fails means the sidecar is not answering, and the panel's own
-      // connection errors are what the viewer sees. The entry stays hidden rather than offering
-      // something that cannot work.
-      () => {},
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [feed]);
-
-  const close = useCallback(() => {
-    stream.current?.();
-    stream.current = null;
-  }, []);
-
-  useEffect(() => close, [close]);
-
-  const load = useCallback(() => {
-    if (stream.current) return;
-    setState((current) => (current.kind === "ready" ? { ...current, settled: false } : { kind: "loading" }));
-    stream.current = feed.subscribeUsage({
-      onMessage: (message) => {
-        switch (message.type) {
-          case "report":
-            // Deliberately not closed here: the first report can be the cache's, with the
-            // sweep's still to come.
-            setState({ kind: "ready", report: message.report, settled: false });
-            return;
-          case "settled":
-            close();
-            setState((current) =>
-              current.kind === "ready" ? { ...current, settled: true } : { kind: "idle" });
-            return;
-          case "error":
-            close();
-            setState({ kind: "error", message: message.error.message });
-        }
-      },
-      // The stream never opened, or dropped before it settled. A report already on screen stays
-      // -- it was real when it arrived -- and stops claiming a sweep is still running.
-      onError: (reason) => {
-        close();
-        setState((current) =>
-          current.kind === "ready"
-            ? { ...current, settled: true }
-            : { kind: "error", message: reason });
-      },
-    });
-  }, [close, feed]);
-
-  return { vendors, state, load };
+export function useUsage(feed: UsageFeed): UsageHandle {
+  const { vendors, state } = useSourceStore(store, feed);
+  const open = useCallback(() => load(feed), [feed]);
+  return { vendors, state, load: open };
 }

@@ -14,14 +14,11 @@ import type {
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { FontSizeRoot } from "@/features/activity-feed/reading-preferences/fontStore";
-import { useDesktopPark } from "@/features/desktop-park/useDesktopPark";
-import { useUsage } from "@/features/usage/useUsage";
 import {
   AgentSidebar,
   AgentSidebarDialog,
   type AgentSidebarMode,
 } from "@/features/sidebar/AgentSidebar";
-import { useMessages } from "@/features/messages/useMessages";
 import {
   HoverSidebarPreview,
   ResizableSidebar,
@@ -91,16 +88,6 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   const shellMachines = useBotMachines(feed, machines);
   const botsState = shellMachines.roster;
   const windowComposers = shellMachines.composers;
-  // This machine's per-day token usage, behind the sidebar's Profile section. The stream opens
-  // when somebody asks for it, not on mount.
-  const usage = useUsage(feed);
-  // The owner's threads with every agent the hub can address. The handle is memoised because the
-  // hook's callbacks close over it, and a fresh one each render would restart its poll.
-  const hub = useMemo(() => feed.hub(), [feed]);
-  const messages = useMessages(hub);
-  // Gathering windows onto one Desktop is a machine-level capability, probed once
-  // the same way usage is. Absent yabai, the menu entry stays disabled.
-  const park = useDesktopPark(feed);
   const chrome = useSidebarChrome();
   // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
   // roster to drop stored cards against. See `useBotMachines`.
@@ -254,14 +241,12 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     creatingProjectPath,
     creationErrors,
     createPiSession,
+    feed,
     inventory,
     machines: shellMachines,
-    messages,
     newSession,
-    park,
     roster,
     thread,
-    usage,
   });
 
   return (

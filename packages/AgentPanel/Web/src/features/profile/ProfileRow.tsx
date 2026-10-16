@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw, RotateCcw } from "lucide-react";
 import { DesktopParkModal } from "@/features/desktop-park/DesktopParkModal";
-import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
+import { useDesktopPark, type DesktopParkHandle, type ParkDataSource } from "@/features/desktop-park/useDesktopPark";
 import type { UsageQuota } from "@agentdesk/agent-feed-wire";
 import { UsageModal } from "@/features/usage/UsageModal";
-import type { UsageHandle } from "@/features/usage/useUsage";
+import { useUsage, type UsageFeed, type UsageHandle } from "@/features/usage/useUsage";
 import { formatResetIn } from "@/features/usage/formatTokens";
 import {
   canReceiveFragmentedVideo,
@@ -16,7 +16,11 @@ import {
 import { usePanelBuild } from "@/features/profile/panelBuild";
 import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
 import { StaleSessionsModal } from "@/features/profile/StaleSessionsModal";
-import { useStaleSessions, type StaleSessionsMachine } from "@/features/profile/useStaleSessions";
+import {
+  useStaleSessions,
+  type StaleSessionsHandle,
+  type StaleSessionsMachine,
+} from "@/features/profile/useStaleSessions";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
@@ -32,7 +36,7 @@ import { useStaleSessions, type StaleSessionsMachine } from "@/features/profile/
 export function ProfileRow({
   usage,
   park,
-  machines,
+  restarts,
   // The seam `panelBuild.ts` and the error boundary already use: `import.meta.hot` cannot be stood
   // up under Vitest, and the live-updates control exists only when there is a dev server behind
   // this page, so it is the half that most needs a test.
@@ -40,13 +44,9 @@ export function ProfileRow({
 }: {
   usage: UsageHandle;
   park: DesktopParkHandle;
-  /** Every machine the shell can see, whose stale sessions the menu lists and restarts. */
-  machines: readonly StaleSessionsMachine[];
+  restarts: StaleSessionsHandle;
   devServer?: unknown;
 }) {
-  // Read here rather than handed down from the app: its state lives in a store the three sidebar
-  // mounts share, so subscribing from this row keeps its edits and its errors inside the sidebar.
-  const restarts = useStaleSessions(machines);
   const [open, setOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [parkOpen, setParkOpen] = useState(false);
@@ -346,4 +346,26 @@ function quotaOf(usage: UsageHandle) {
     (worst, quota) => (worst && worst.usedPercent >= quota.usedPercent ? worst : quota),
     null,
   );
+}
+
+/** One machine's data source, as far as the Profile row reads it. */
+export type ProfileFeed = UsageFeed & ParkDataSource;
+
+/**
+ * The Profile row with its data. Usage, Desktop park and stale sessions each live in a store
+ * outside React that the three sidebar mounts share, and are read here, inside the sidebar's
+ * boundary, rather than handed down from `App`, where a broken edit to any of them cost the whole
+ * Feed tab. `ProfileRow` itself takes the handles, so its tests stand them up directly.
+ */
+export function LiveProfileRow({
+  feed,
+  machines,
+}: {
+  feed: ProfileFeed;
+  machines: readonly StaleSessionsMachine[];
+}) {
+  const usage = useUsage(feed);
+  const park = useDesktopPark(feed);
+  const restarts = useStaleSessions(machines);
+  return <ProfileRow usage={usage} park={park} restarts={restarts} />;
 }
