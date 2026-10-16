@@ -1,4 +1,5 @@
-// How this page's loads are measured: the Sentry browser SDK, sending nothing to Sentry. Every
+// How this page's loads are measured, and its errors kept: Sentry's React SDK (its browser SDK
+// plus React's error hooks), sending nothing to Sentry. Every
 // envelope goes through `tunnel` to the sidecar's `/api/telemetry/envelope`, which archives it
 // under a byte cap and hands a copy to Spotlight (`agent-feed/sidecar/src/telemetry/`).
 //
@@ -15,9 +16,11 @@ import {
   browserTracingIntegration,
   getCurrentScope,
   init,
+  reactErrorHandler,
   spanToJSON,
   userTimingIntegration,
-} from "@sentry/browser";
+} from "@sentry/react";
+import type { RootOptions } from "react-dom/client";
 import { awaitMilestones } from "@/features/telemetry/pageMilestones";
 
 const TELEMETRY_ROUTE = "/api/telemetry/envelope";
@@ -30,6 +33,24 @@ const LOCAL_DSN = "https://local@telemetry.invalid/0";
  * worth reading are the slow ones, and the SDK's 30 seconds would end exactly those early.
  */
 const LOAD_LIMIT_MS = 60_000;
+
+/**
+ * Every root's error hooks. React 19 reports an error a boundary caught to the console only, and
+ * every surface sits under `PanelErrorBoundary`, so the SDK's global handlers never saw a render
+ * error at all. The other two reached the window, but without the component stack this carries.
+ * With no client installed (fixture, native container) the capture is a no-op and the console line
+ * is all that remains: the boundary logs what it catches, so only the other two log here, in place
+ * of the React defaults they replace.
+ */
+export const panelRootOptions: RootOptions = {
+  onCaughtError: reactErrorHandler(),
+  onUncaughtError: reactErrorHandler((error, info) => {
+    console.error("[panel] uncaught render error", error, info.componentStack);
+  }),
+  onRecoverableError: reactErrorHandler((error, info) => {
+    console.error("[panel] React recovered from", error, info.componentStack);
+  }),
+};
 
 export function installPanelTelemetry(): void {
   const client = init({

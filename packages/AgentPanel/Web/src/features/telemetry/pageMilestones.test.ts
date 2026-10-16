@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ended = vi.fn();
-vi.mock("@sentry/browser", () => ({ startInactiveSpan: vi.fn(() => ({ end: ended })) }));
+vi.mock("@sentry/react", () => ({ startInactiveSpan: vi.fn(() => ({ end: ended })) }));
 
 const {
   awaitMilestones,

@@ -12,7 +12,7 @@
 // open, so rows are awaited from the moment a transcript mounts (`expectMilestone`), not before:
 // awaiting them on a canvas with none open held every such load for the whole limit.
 
-import { startInactiveSpan, type Span } from "@sentry/browser";
+import { startInactiveSpan, type Span } from "@sentry/react";
 
 export type Milestone = "first-card" | "first-rows";
 

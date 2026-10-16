@@ -16,7 +16,7 @@ import { installFixture } from "@/app/fake-sidecar/fixture";
 import { installKeyboardInset } from "@/app/page/keyboardInset";
 import { installPagehideLifecycle } from "@/app/page/pageLifecycle";
 import { installWindowDrag } from "@/app/page/windowDrag";
-import { installPanelTelemetry } from "@/features/telemetry/panelTelemetry";
+import { installPanelTelemetry, panelRootOptions } from "@/features/telemetry/panelTelemetry";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { BrowserSurfaces } from "@/app/BrowserSurfaces";
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
@@ -69,7 +69,7 @@ if (entry === "ide") {
   // origin's `/api` proxy, because its whole backend is the sidecar. A browser tab reaches the
   // same surface through the tab bar instead, so this branch is never the browser's.
   const transport: AgentHttpTransport = new FetchHttpTransport();
-  createRoot(root).render(
+  createRoot(root, panelRootOptions).render(
     <StrictMode>
       <PanelErrorBoundary surface="IDE">
         <WorkspaceIdeSurface transport={transport} feed={new SidecarDataSource(transport)} />
@@ -81,7 +81,7 @@ if (entry === "ide") {
   // authenticated `/api` proxy. It deliberately has no native message transport: Swift chooses
   // the entry and owns visibility, while the page owns every desktop and pointer concern.
   const transport: AgentHttpTransport = new FetchHttpTransport();
-  createRoot(root).render(
+  createRoot(root, panelRootOptions).render(
     <StrictMode>
       <PanelErrorBoundary surface="desktop viewer">
         <DesktopViewer transport={transport} />
@@ -91,7 +91,7 @@ if (entry === "ide") {
 } else {
   const bridge = new WebkitHostBridge();
   const host = new HostActionsClient(bridge);
-  const panel = createRoot(root);
+  const panel = createRoot(root, panelRootOptions);
 
   // No `window.__agentFeedBridge`: it existed only to re-issue the composer's watches after a
   // reconnect, and those are relayed subscriptions now (ADR-0110) -- a relayed subscription that

@@ -586,7 +586,11 @@ started it.
 - **Load timing and traces are Sentry's SDKs, kept on this machine** (2026-10-14). The panel
   (`features/telemetry/`) and the sidecar (`telemetry/`) record page loads, Web Vitals, each
   stream's first message, the panel's milestones, and the sidecar's handling of every request a
-  load made, as one trace. Nothing goes to Sentry: the DSN is a placeholder on `telemetry.invalid`
+  load made, as one trace. They keep errors too: the sidecar's uncaught ones, and every error the
+  panel's React roots see, including the ones `PanelErrorBoundary` catches (`panelRootOptions`).
+  What they cannot keep is a panel that never started -- a missing import fails before any of
+  its code runs -- and that is in the dev server's log instead. Nothing goes to Sentry: the DSN
+  is a placeholder on `telemetry.invalid`
   and both SDKs deliver to the sidecar, which keeps every envelope in a 1GB-capped archive
   (`runtime-paths.mjs telemetry-archive`) and copies it to Spotlight if one is running.
   `node tools/telemetry-replay.mjs list|trace|replay` searches the archive and sends an old trace
