@@ -14,7 +14,7 @@ import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
 import { BotCanvasStatus } from "@/features/bots/canvas/BotCanvasStatus";
 import { MessagesPanel } from "@/features/messages/MessagesPanel";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
-import type { StaleSessionsHandle } from "@/features/profile/useStaleSessions";
+import type { StaleSessionsMachine } from "@/features/profile/useStaleSessions";
 import type { MessagesHandle } from "@/features/messages/useMessages";
 import type { UsageHandle } from "@/features/usage/useUsage";
 import { ProjectSessionList, type SessionArchiving } from "@/features/sidebar/session-list/ProjectSidebarItem";
@@ -157,7 +157,8 @@ interface AgentSidebarProps {
    *  share one subscription rather than opening one each. */
   usage: UsageHandle;
   park: DesktopParkHandle;
-  restarts: StaleSessionsHandle;
+  /** Every machine the shell can see, for the Profile menu's stale sessions. */
+  machines: readonly StaleSessionsMachine[];
 }
 
 /**
@@ -420,7 +421,7 @@ function SidebarContent(props: AgentSidebarProps) {
         </div>
       )}
 
-      <ProfileRow usage={props.usage} park={props.park} restarts={props.restarts} />
+      <ProfileRow usage={props.usage} park={props.park} machines={props.machines} />
     </div>
   );
 }

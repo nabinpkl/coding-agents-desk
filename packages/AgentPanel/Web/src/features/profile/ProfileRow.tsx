@@ -16,7 +16,7 @@ import {
 import { usePanelBuild } from "@/features/profile/panelBuild";
 import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
 import { StaleSessionsModal } from "@/features/profile/StaleSessionsModal";
-import type { StaleSessionsHandle } from "@/features/profile/useStaleSessions";
+import { useStaleSessions, type StaleSessionsMachine } from "@/features/profile/useStaleSessions";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
@@ -32,7 +32,7 @@ import type { StaleSessionsHandle } from "@/features/profile/useStaleSessions";
 export function ProfileRow({
   usage,
   park,
-  restarts,
+  machines,
   // The seam `panelBuild.ts` and the error boundary already use: `import.meta.hot` cannot be stood
   // up under Vitest, and the live-updates control exists only when there is a dev server behind
   // this page, so it is the half that most needs a test.
@@ -40,9 +40,13 @@ export function ProfileRow({
 }: {
   usage: UsageHandle;
   park: DesktopParkHandle;
-  restarts: StaleSessionsHandle;
+  /** Every machine the shell can see, whose stale sessions the menu lists and restarts. */
+  machines: readonly StaleSessionsMachine[];
   devServer?: unknown;
 }) {
+  // Read here rather than handed down from the app: its state lives in a store the three sidebar
+  // mounts share, so subscribing from this row keeps its edits and its errors inside the sidebar.
+  const restarts = useStaleSessions(machines);
   const [open, setOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [parkOpen, setParkOpen] = useState(false);

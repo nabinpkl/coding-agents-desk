@@ -238,6 +238,37 @@ a dependency) with `partialize`, `version` and `migrate`, and carries the migrat
 friction, so it has to be enforced here. A store that writes everything it holds resurrects
 transient state, and each of those comes back as a bug rather than as a convenience.
 
+### Live data a widget shows lives in a store, not in `App`
+
+Settled 2026-10-16, after two edits to one hook blanked the whole Feed tab three minutes apart. The
+section above is about what survives a reload; this is about who owns data that only lives while
+the page does -- a stream, a list read on request, an action still running.
+
+**`App` holds only state the shell genuinely shares**: machines, inventory, selection, the canvas
+roster, Bot commands, sidebar chrome. Everything else that a widget shows lives in a store the
+widget subscribes to, from inside its own error boundary. The reason is the live tree: a hook
+`App` calls is part of `App`. A save that breaks it, or a save that adds or removes a React hook
+inside it (React's "Should have a queue", because a hook in a `.ts` file has no Fast Refresh
+tracking), costs the whole tab, where the same edit in a store costs the widget at most.
+
+The pull the other way is real and is why this kept happening: the sidebar is drawn three times
+(pinned rail, hover preview, phone drawer), so a widget's state cannot live in the widget either,
+or each mount opens its own stream and closing the drawer drops a restart in flight. Lifting into
+`App` answered that; a store answers it without making the tab pay. Two shapes, both in the tree:
+
+- **A stream, per machine**: `features/usage/useLimits.ts`. A module-level `WeakMap` keyed on the
+  data source, one subscription per sidecar shared by every reader, opened by the first and closed
+  by the last.
+- **State and actions with no stream**: `features/profile/useStaleSessions.ts`. A module-level
+  `zustand` store (`createStore` from `zustand/vanilla`, read with `useStore`), the work as plain
+  functions beside it, and a hook that only selects and binds. Key per machine by `machineKey`, not
+  by the data source object, which is rebuilt when its code is hot-swapped.
+
+A module store is the page's, so a test file that uses one resets it in `afterEach`
+(`resetStaleSessions`); without that, what one test read is where the next one starts. Still in
+`App` and owed a move: `useUsage`, `useDesktopPark`, `useMessages`. `usePiSessionCreation` is for a
+dormant provider and should go rather than move.
+
 ## How long a file gets, and how flat a directory gets
 
 Two caps that pull against each other on purpose, because satisfying one alone produces the other's
