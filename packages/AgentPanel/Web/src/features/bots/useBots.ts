@@ -57,6 +57,18 @@ export interface BotRosterState {
   machineErrors: MachineError[];
 }
 
+/** A number per data source for the life of the page, so a subscription can tell two apart. */
+const feedIds = new WeakMap<object, number>();
+let lastFeedId = 0;
+function feedId(feed: object): number {
+  let id = feedIds.get(feed);
+  if (id === undefined) {
+    id = ++lastFeedId;
+    feedIds.set(feed, id);
+  }
+  return id;
+}
+
 function withoutAbsent<T>(
   current: ReadonlyMap<string, T>,
   machines: readonly BotMachine[],
@@ -73,10 +85,11 @@ function withoutAbsent<T>(
  * every time the unreachable one backed off, and the sidecar's stream budget is finite (see
  * `subscribeInventory` for what ran out of it first).
  *
- * The caller must memoize `machines`: the effect is keyed on the machines' ids rather than on the
- * array, so a fresh array of the same machines does not resubscribe, but a data source rebuilt
- * under an unchanged id would not be picked up either. That holds because a machine's feed is built
- * from its id and memoized on it.
+ * Keyed on each machine's id AND its data source rather than on the array, so a fresh array of the
+ * same machines does not resubscribe, and a data source rebuilt under an unchanged id does. The
+ * second is what an edit to the data source does in development: `main.tsx` builds it afresh
+ * instead of reloading the page, and a roster still subscribed through the old one would keep
+ * running the code that was just replaced. The roster it last had stays drawn while it reopens.
  */
 export function useBots(machines: readonly BotMachine[]): BotRosterState {
   const [snapshots, setSnapshots] = useState<ReadonlyMap<string, readonly BotView[]>>(new Map());
@@ -85,7 +98,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
   // only rebuilt the array.
   const machinesRef = useRef(machines);
   machinesRef.current = machines;
-  const signature = machines.map(machineKey).join("\0");
+  const signature = machines.map((machine) => `${machineKey(machine)}:${feedId(machine.feed)}`).join("\0");
 
   useEffect(() => {
     const current = machinesRef.current;

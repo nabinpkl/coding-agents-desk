@@ -15,6 +15,13 @@ interface ImportMeta {
     /** Vite's own events carry nothing this panel reads; a custom one carries its payload. */
     on(event: string, listener: (data?: unknown) => void): void;
     off(event: string, listener: (data?: unknown) => void): void;
+    /**
+     * Takes an update to any of `deps` in place: `main.tsx` rebuilds the data source and transport
+     * it created. Each module arrives in `deps` order, undefined for one that did not change.
+     */
+    accept(deps: readonly string[], callback: (modules: readonly (unknown | undefined)[]) => void): void;
+    /** Gives an update back to the page, which then reloads, when it cannot be taken in place. */
+    invalidate(message?: string): void;
   };
 }
 

@@ -90,11 +90,8 @@ if (entry === "ide") {
   );
 } else {
   const bridge = new WebkitHostBridge();
-  const transport: AgentHttpTransport = hasNativeHost()
-    ? new RelayHttpTransport(bridge)
-    : new FetchHttpTransport();
-  const feed = new SidecarDataSource(transport);
   const host = new HostActionsClient(bridge);
+  const panel = createRoot(root);
 
   // No `window.__agentFeedBridge`: it existed only to re-issue the composer's watches after a
   // reconnect, and those are relayed subscriptions now (ADR-0110) -- a relayed subscription that
@@ -104,17 +101,61 @@ if (entry === "ide") {
   // A native container chooses its surface and owns visibility, so it is handed that surface and
   // nothing else. A browser tab has no chooser, so it gets both behind a tab bar and opens on the
   // desktop viewer: the feed is reachable from every shell, the desktop from none of them.
-  createRoot(root).render(
-    <StrictMode>
-      <PanelErrorBoundary surface="panel">
-        {hasNativeHost() ? (
-          <App feed={feed} host={host} />
-        ) : (
-          <BrowserSurfaces transport={transport} feed={feed} host={host} />
-        )}
-      </PanelErrorBoundary>
-    </StrictMode>,
-  );
+  const renderPanel = (transport: AgentHttpTransport, feed: SidecarDataSource): void => {
+    panel.render(
+      <StrictMode>
+        <PanelErrorBoundary surface="panel">
+          {hasNativeHost() ? (
+            <App feed={feed} host={host} />
+          ) : (
+            <BrowserSurfaces transport={transport} feed={feed} host={host} />
+          )}
+        </PanelErrorBoundary>
+      </StrictMode>,
+    );
+  };
+  const transport: AgentHttpTransport = hasNativeHost()
+    ? new RelayHttpTransport(bridge)
+    : new FetchHttpTransport();
+  renderPanel(transport, new SidecarDataSource(transport));
+
+  // An edit to the data source, its layers or the transport -- or to the wire beneath them --
+  // builds both afresh and hands them to the tree that is already mounted, rather than reloading
+  // the page. Nothing unmounts: every effect keyed on the feed reopens its stream with the new
+  // code, so it looks exactly like a sidecar restart (each surface keeps what it had and says it
+  // is reconnecting), where a reload threw away every card's scroll, terminal and loaded history
+  // and fetched every module again -- eight seconds on a phone. These are the modules this file
+  // creates instances of; everything else under it is a component, which updates itself.
+  //
+  // Not under a native container, whose relay transport attaches to the one bridge and would need
+  // detaching first, and not under the fixture, whose routes are installed once at startup: both
+  // reload as before. The fixture is listed so that, outside fixture mode, a wire edit that reaches
+  // it does not reload the page for a module that was never installed.
+  if (import.meta.hot) {
+    let build = { SidecarDataSource, FetchHttpTransport };
+    import.meta.hot.accept(
+      [
+        "@/features/activity-feed/data-source/SidecarDataSource",
+        "@/features/activity-feed/transport/AgentHttpTransport",
+        "@/app/fake-sidecar/fixture",
+      ],
+      ([nextDataSource, nextTransport]) => {
+        if (hasNativeHost() || isFixtureMode()) {
+          import.meta.hot?.invalidate("the panel's data source changed under a native container or the fixture");
+          return;
+        }
+        if (!nextDataSource && !nextTransport) return;
+        build = {
+          SidecarDataSource: (nextDataSource as typeof import("@/features/activity-feed/data-source/SidecarDataSource") | undefined)
+            ?.SidecarDataSource ?? build.SidecarDataSource,
+          FetchHttpTransport: (nextTransport as typeof import("@/features/activity-feed/transport/AgentHttpTransport") | undefined)
+            ?.FetchHttpTransport ?? build.FetchHttpTransport,
+        };
+        const next = new build.FetchHttpTransport();
+        renderPanel(next, new build.SidecarDataSource(next));
+      },
+    );
+  }
 
   // The feed's surfaces all put something at the bottom of the screen -- the composer, and the
   // terminal band above it -- which is exactly what a phone keyboard covers. It lands as a

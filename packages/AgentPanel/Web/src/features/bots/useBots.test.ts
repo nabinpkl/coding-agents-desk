@@ -49,6 +49,22 @@ describe("useBots", () => {
     expect(result.current.machineErrors).toEqual([{ label: "Mac", reason: "stream failed", held: true }]);
   });
 
+  // What `main.tsx` does when the data source is edited in development: the same machine, a new
+  // feed. Keyed on the id alone, the roster stayed subscribed through the replaced code.
+  it("follows a data source rebuilt under the same machine, keeping the roster while it reopens", () => {
+    const before = machine("Mac");
+    const after = machine("Mac");
+    const { result, rerender } = renderHook(({ machines }) => useBots(machines), {
+      initialProps: { machines: [before.machine] },
+    });
+    act(() => before.stream.snapshot?.({ version: 2, revision: 1, bots: [BOT] }));
+
+    rerender({ machines: [after.machine] });
+
+    expect(after.stream.snapshot).toBeDefined();
+    expect(result.current.bots.map((bot) => bot.botId)).toEqual(["bot-1"]);
+  });
+
   it("says nothing is held for a machine that never answered", () => {
     const mac = machine("Mac");
     const machines = [mac.machine];
