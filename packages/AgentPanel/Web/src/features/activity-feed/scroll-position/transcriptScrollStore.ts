@@ -9,6 +9,12 @@
  * is what the sidecar's own records are counted by. The index remains as a fallback for older
  * stored entries and for events that have no id.
  *
+ * Plus how far into that event's row the top of the viewport was, in pixels. One event can be
+ * taller than the whole viewport -- a long answer on a narrow canvas card is several screens -- so
+ * the event alone put a reader who had scrolled 900px into one back at its first line, showing
+ * none of the text they left. Pixels rather than a fraction because the row reflows to the same
+ * height at the same width, which is the ordinary reload; at another width it lands nearby.
+ *
  * Only the sessions the reader scrolled AWAY from the tail in are held. Following the tail is the
  * default and the majority, and it is restored by doing nothing at all, so an entry for it would
  * be a record of the absence of a choice. A session that returns to the end forgets its entry on
@@ -35,10 +41,21 @@ export interface TranscriptScrollAnchor {
   index: number;
   /** The event's stable identity when the source provides one. */
   eventId?: string;
+  /** How far the top of the viewport was into the event's row, in pixels. Absent means its start. */
+  offset?: number;
 }
 
-/** The old two-item shape remains readable so an existing reader does not lose its place on upgrade. */
-type StoredAnchor = [key: string, index: number] | [key: string, index: number, eventId: string];
+/** No offset is ever this far into one row; anything larger is a corrupt entry, not a place. */
+const MAX_OFFSET = 1_000_000;
+
+/**
+ * The shorter shapes remain readable so an existing reader does not lose its place on upgrade. The
+ * offset rides fourth, with a null id for an event that has none.
+ */
+type StoredAnchor =
+  | [key: string, index: number]
+  | [key: string, index: number, eventId: string]
+  | [key: string, index: number, eventId: string | null, offset: number];
 type Anchors = StoredAnchor[];
 
 function sessionKey(session: TranscriptScrollSession): string {
@@ -56,12 +73,16 @@ function load(): Anchors {
     if (!Array.isArray(stored)) return [];
     // Validated rather than cast: a stale or hand-edited shape must fall back to remembering
     // nothing, not scroll a reader to a place no event could be.
+    const validId = (id: unknown) => typeof id === "string" && id.length > 0 && id.length <= 512;
     return stored.filter((entry): entry is StoredAnchor => {
-      if (!Array.isArray(entry) || (entry.length !== 2 && entry.length !== 3)) return false;
+      if (!Array.isArray(entry) || entry.length < 2 || entry.length > 4) return false;
       if (typeof entry[0] !== "string" || !entry[0].includes(":")) return false;
       if (typeof entry[1] !== "number" || !Number.isInteger(entry[1]) || entry[1] < 0) return false;
-      return entry.length === 2 ||
-        (typeof entry[2] === "string" && entry[2].length > 0 && entry[2].length <= 512);
+      if (entry.length === 2) return true;
+      if (entry.length === 3) return validId(entry[2]);
+      return (entry[2] === null || validId(entry[2]))
+        && typeof entry[3] === "number" && Number.isInteger(entry[3])
+        && entry[3] > 0 && entry[3] <= MAX_OFFSET;
     });
   } catch {
     return [];
@@ -82,9 +103,12 @@ export function loadTranscriptAnchor(session: TranscriptScrollSession): Transcri
   const key = sessionKey(session);
   const stored = load().find(([each]) => each === key);
   if (!stored) return null;
-  return stored.length === 3
-    ? { index: stored[1], eventId: stored[2] }
-    : { index: stored[1] };
+  const [, index, eventId, offset] = stored;
+  return {
+    index,
+    ...(typeof eventId === "string" ? { eventId } : {}),
+    ...(offset === undefined ? {} : { offset }),
+  };
 }
 
 /**
@@ -99,11 +123,14 @@ export function rememberTranscriptAnchor(
   session: TranscriptScrollSession,
   event: number,
   eventId?: string,
+  offset = 0,
 ): void {
   if (!Number.isInteger(event) || event < 0) return;
   const key = sessionKey(session);
   const next = load().filter(([each]) => each !== key);
-  next.push(eventId ? [key, event, eventId] : [key, event]);
+  const into = Number.isFinite(offset) ? Math.min(Math.max(0, Math.round(offset)), MAX_OFFSET) : 0;
+  if (into > 0) next.push([key, event, eventId || null, into]);
+  else next.push(eventId ? [key, event, eventId] : [key, event]);
   // The front is the place read longest ago, so a cap drops that rather than the one just left.
   store(next.slice(-REMEMBERED_SESSIONS));
 }

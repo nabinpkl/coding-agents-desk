@@ -81,6 +81,35 @@ describe("where each session was left", () => {
     ]);
   });
 
+  it("keeps how far into the row the reader was, for one event taller than the viewport", () => {
+    rememberTranscriptAnchor({ source: "claude", sessionId: "sid-a" }, 49, "claude:at:49", 878.4);
+    rememberTranscriptAnchor({ source: "codex", sessionId: "sid-b" }, 7, undefined, 120);
+
+    expect(loadTranscriptAnchor({ source: "claude", sessionId: "sid-a" })).toEqual({
+      index: 49,
+      eventId: "claude:at:49",
+      offset: 878,
+    });
+    expect(loadTranscriptAnchor({ source: "codex", sessionId: "sid-b" })).toEqual({ index: 7, offset: 120 });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual([
+      ["claude:sid-a", 49, "claude:at:49", 878],
+      ["codex:sid-b", 7, null, 120],
+    ]);
+  });
+
+  it("writes a row's own start the short way, and refuses an offset no row could have", () => {
+    rememberTranscriptAnchor(CLAUDE, 3, "claude:at:3", 0);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual([["claude:sid-a", 3, "claude:at:3"]]);
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([["claude:sid-a", 3, "claude:at:3", -5], ["codex:sid-b", 4, null, 2.5], ["claude:sid-c", 5, null, 40]]),
+    );
+    expect(loadTranscriptAnchor(CLAUDE)).toBeNull();
+    expect(loadTranscriptAnchor(CODEX)).toBeNull();
+    expect(loadTranscriptAnchor({ source: "claude", sessionId: "sid-c" })).toEqual({ index: 5, offset: 40 });
+  });
+
   it("opens at the tail rather than trusting a value it cannot parse", () => {
     localStorage.setItem(STORAGE_KEY, "{not json");
     expect(loadTranscriptAnchor(CLAUDE)).toBeNull();

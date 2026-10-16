@@ -176,7 +176,8 @@ export function useTranscriptScrollRestore({
   }, [source, sessionId, timelineEpoch, around, rowItems, virtualItems, rowVirtualizer, pause, loadAround]);
 
   /**
-   * Puts the held row back at the top after every commit that could have moved it.
+   * Puts the held place back at the top -- the row, and as far into it as the reader was -- after
+   * every commit that could have moved it.
    *
    * No dependency list on purpose: what moves it is a row being measured or collapsed, and those
    * arrive as ordinary renders rather than as a value this could watch. Re-applying costs nothing
@@ -185,7 +186,16 @@ export function useTranscriptScrollRestore({
   useLayoutEffect(() => {
     if (holdingEvent === null) return;
     const rowIndex = findAnchorRow(rowItems, holdingEvent, true);
-    if (rowIndex >= 0) rowVirtualizer.scrollToIndex(rowIndex, { align: "start" });
+    if (rowIndex < 0) return;
+    const row = rowVirtualizer.measurementsCache[rowIndex];
+    const offset = holdingEvent.offset ?? 0;
+    if (offset === 0 || !row) {
+      rowVirtualizer.scrollToIndex(rowIndex, { align: "start" });
+      return;
+    }
+    // Inside the row, never past it: an offset taken at another width can outrun the row's
+    // height here, and spilling into the next event would be a place the reader never was.
+    rowVirtualizer.scrollToOffset(row.start + Math.min(offset, Math.max(0, row.size - 1)), { align: "start" });
   });
 
   // The hold ends on its own, and early if the reader takes over -- fighting somebody who is
@@ -222,18 +232,43 @@ export function useTranscriptScrollRestore({
    * half-arrived. Every one of them restarts this timer, so what lands in storage is where the
    * reading ENDED, which is what stops a reload writing the top of the window over the place it
    * just put the reader back on. It also costs one write per flick rather than one per frame.
+   *
+   * The scroll itself restarts it too, not only a change of top line. A scroll inside one tall
+   * row re-renders nothing (`changesAt` in `useStickyIndices` asks for a render only when a row
+   * boundary crosses the top), so a reader who read down through one long answer used to keep
+   * whatever offset was current when that row first reached the top.
    */
+  const latest = useRef({ following, rowItems, topEvent });
+  latest.current = { following, rowItems, topEvent };
   useEffect(() => {
     if (restoredFor.current !== `${source}:${sessionId}:${timelineEpoch}` || holdingEvent !== null) return;
-    const timer = setTimeout(() => {
+    const el = parentRef.current;
+    const write = () => {
       const session = { source, sessionId };
+      const { following: atEnd, rowItems: rows, topEvent: top } = latest.current;
       // Back at the end is not a place worth keeping: it is where a session opens anyway, and an
       // entry saying so would outlive the reading it came from.
-      if (following || topEvent === null) forgetTranscriptAnchor(session);
-      else rememberTranscriptAnchor(session, topEvent.index, topEvent.id);
-    }, SCROLL_SETTLE_MS);
-    return () => clearTimeout(timer);
-  }, [source, sessionId, timelineEpoch, following, topEvent, holdingEvent]);
+      if (atEnd || top === null) {
+        forgetTranscriptAnchor(session);
+        return;
+      }
+      const rowIndex = findAnchorRow(rows, { index: top.index, eventId: top.id }, true);
+      const row = rowIndex < 0 ? undefined : rowVirtualizer.measurementsCache[rowIndex];
+      // Negative when the top line is a gap and the event is the row under it, which is its start.
+      const offset = row && el ? Math.max(0, el.scrollTop - row.start) : 0;
+      rememberTranscriptAnchor(session, top.index, top.id, offset);
+    };
+    let timer = setTimeout(write, SCROLL_SETTLE_MS);
+    const settle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(write, SCROLL_SETTLE_MS);
+    };
+    el?.addEventListener("scroll", settle, { passive: true });
+    return () => {
+      clearTimeout(timer);
+      el?.removeEventListener("scroll", settle);
+    };
+  }, [source, sessionId, timelineEpoch, following, topEvent, holdingEvent, parentRef, rowVirtualizer]);
 
   return { restoring: pendingAnchor !== null };
 }

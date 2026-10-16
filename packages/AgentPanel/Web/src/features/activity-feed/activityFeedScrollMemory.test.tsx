@@ -116,7 +116,10 @@ function mountFeed(
 
 /** Where the virtualiser has placed the row carrying this text. */
 function rowTop(text: string): number {
-  const row = screen.getByText(text).closest<HTMLElement>("[data-index]");
+  // The row itself, not the sticky bar that repeats a row the top of the viewport is partway into.
+  const row = screen.getAllByText(text)
+    .map((each) => each.closest<HTMLElement>("[data-index]"))
+    .find((each) => each !== null);
   if (!row) throw new Error(`no row is rendering ${text}`);
   return Number(/translateY\((-?\d+(?:\.\d+)?)px\)/.exec(row.style.transform)?.[1]);
 }
@@ -174,6 +177,42 @@ describe("where a session was left being read", () => {
     expect(scroller.scrollTop).toBe(rowTop("line 20"));
     // Detached, or the first row to be measured would snap the reader straight back to the end.
     expect(screen.getByRole("button", { name: "scroll to bottom" })).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("puts the reader back partway into a row, not at its first line", async () => {
+    // One answer can be taller than the card it is read in, so the row alone named a place a whole
+    // screen from the text that was on it (measured on a canvas card: 878px into one row).
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([[`claude:${SESSION}`, 20, "claude:line:20", 40]]));
+    const { scroller, view } = mountFeed();
+    await waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(0));
+    fireEvent.scroll(scroller);
+
+    expect((await screen.findAllByText("line 20")).length).toBeGreaterThan(0);
+    await waitFor(() => expect(scroller.scrollTop).toBe(rowTop("line 20") + 40));
+    view.unmount();
+  });
+
+  it("remembers a scroll that stays inside one row, which re-renders nothing", async () => {
+    const { scroller, view } = mountFeed();
+    await screen.findByText("line 0");
+
+    fireEvent.wheel(scroller, { deltaY: -240 });
+    scrollTo(scroller, rowTop("line 8"));
+    scrollTo(scroller, rowTop("line 4") + 30);
+    await waitFor(
+      () => expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]"))
+        .toEqual([[`claude:${SESSION}`, 4, "claude:line:4", 30]]),
+      { timeout: 2000 },
+    );
+
+    // Further down the same row: the top line has not changed, so only the scroll can say so.
+    scrollTo(scroller, rowTop("line 4") + 60);
+    await waitFor(
+      () => expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]"))
+        .toEqual([[`claude:${SESSION}`, 4, "claude:line:4", 60]]),
+      { timeout: 2000 },
+    );
     view.unmount();
   });
 
