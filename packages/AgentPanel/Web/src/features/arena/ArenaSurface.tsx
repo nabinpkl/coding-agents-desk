@@ -33,6 +33,7 @@ import { keepTypingInSight } from "@/app/page/keyboardInset";
 import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
 import { ArenaNewRun, EMPTY_DRAFT, type ArenaDraft } from "@/features/arena/ArenaNewRun";
 import { ArenaRunRail } from "@/features/arena/ArenaRunRail";
+import { ArenaCodeButton } from "@/features/arena/code/ArenaCodeButton";
 import { ArenaRunView, type ArenaView } from "@/features/arena/ArenaRunView";
 import { isLive, useNow } from "@/features/arena/arenaVocabulary";
 import { addressWithRun, runInAddress } from "@/features/arena/arenaAddress";
@@ -266,6 +267,15 @@ export function ArenaSurface({
             selectedRunId={selectedRunId}
             composing={composing}
             now={now}
+            browse={defaults ? (
+              <ArenaCodeButton
+                transport={transport}
+                place={{}}
+                label="Browse the arena folder"
+                title="Arena"
+                path={defaults.arenaHome}
+              />
+            ) : null}
             onSelect={selectRun}
             onCompose={() => {
               showRun(null);
@@ -288,6 +298,7 @@ export function ArenaSurface({
               key={selected.runId}
               run={selected}
               detail={shownDetail}
+              transport={transport}
               view={view}
               onView={setView}
               now={now}

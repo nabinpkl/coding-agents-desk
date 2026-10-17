@@ -3,7 +3,8 @@
 // One compact band, because the lane's work -- its session or its diff -- is what the reader came
 // for, and every row of frame above it is a row of work pushed off the screen. So the band holds:
 // the contestant and its status, the session's own controls on the same line (portalled in by the
-// session under it), then a line of facts, and a thin bar for its time.
+// session under it) with the way into its worktree, then a line of facts, and a thin bar for its
+// time.
 //
 // A fact is shown when it says something. Counts of files read and written are always worth
 // comparing, zero included, once a contestant has settled; reaching outside its folder, a diff, its
@@ -35,6 +36,7 @@ export function ArenaLaneFacts({
   slowestMs,
   now,
   controlsRef,
+  browse,
 }: {
   contestant: ArenaContestantDetail;
   /** The longest time of any lane in the run, which is this bar's full width. */
@@ -42,6 +44,8 @@ export function ArenaLaneFacts({
   now: number;
   /** Where the session under this head portals its controls, on the head's first line. */
   controlsRef?: (host: HTMLElement | null) => void;
+  /** The way into the contestant's worktree, at the end of the head's first line. */
+  browse?: ReactNode;
 }) {
   const ms = elapsedMs(contestant, now);
   const stat = diffStat(contestant.gitDiff);
@@ -58,7 +62,10 @@ export function ArenaLaneFacts({
           <span className="font-mono">{contestant.contestantId}</span> {SOURCE_LABEL[contestant.source]}
         </h3>
         <StatusMark status={contestant.status} />
-        {controlsRef ? <span ref={controlsRef} className="ml-auto flex flex-wrap items-center gap-1" /> : null}
+        <span className="ml-auto flex flex-wrap items-center gap-1">
+          {controlsRef ? <span ref={controlsRef} className="flex flex-wrap items-center gap-1" /> : null}
+          {browse}
+        </span>
       </header>
       <dl className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 ${TEXT.meta}`}>
         {ms === null ? null : (

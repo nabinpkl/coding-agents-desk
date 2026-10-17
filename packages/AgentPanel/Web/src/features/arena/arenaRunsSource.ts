@@ -76,6 +76,7 @@ export function parseRunSummary(value: unknown): ArenaRunSummary | null {
   if (!value || typeof value !== "object") return null;
   const run = value as Record<string, unknown>;
   if (typeof run.runId !== "string" || typeof run.name !== "string" || typeof run.prompt !== "string") return null;
+  if (typeof run.folder !== "string") return null;
   if (typeof run.round !== "number") return null;
   if (typeof run.repoPath !== "string" || typeof run.repoCreated !== "boolean" || typeof run.baseRef !== "string") {
     return null;
@@ -89,6 +90,7 @@ export function parseRunSummary(value: unknown): ArenaRunSummary | null {
   return {
     runId: run.runId,
     name: run.name,
+    folder: run.folder,
     prompt: run.prompt,
     round: run.round,
     repoPath: run.repoPath,

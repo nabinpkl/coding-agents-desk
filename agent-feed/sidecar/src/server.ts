@@ -73,6 +73,7 @@ import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
 import { CodexLiveBackend } from "@/live/codexLiveBackend";
 import { startArenaService } from "@/arena/arenaWiring";
+import { createArenaCodeRoutes } from "@/http/arenaCodeRoutes";
 import { createArenaRoutes } from "@/http/arenaRoutes";
 import { BotStore } from "@/bots/botStore";
 import { BotRegistry } from "@/bots/botRegistry";
@@ -240,6 +241,10 @@ const routes: RouteHandler[] = [
   createSupervisorRoutes(),
   createPanelScrollRoutes(),
   createArenaRoutes(arenaService),
+  createArenaCodeRoutes(arenaService, repositoryGitWatch, {
+    maxTextBytes: config.workspaceMaxTextBytes,
+    maxDocumentBytes: config.workspaceMaxDocumentBytes,
+  }),
   createInventoryRoutes(describeAgentSession),
   createBotRoutes(botRegistry, repositoryGitWatch, {
     maxTextBytes: config.workspaceMaxTextBytes,

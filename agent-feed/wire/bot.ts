@@ -3,7 +3,7 @@
 
 import type { SourceId } from "./activity.ts";
 import type { SessionSummary, StartedSession } from "./session.ts";
-import type { WorkspaceFileKind, WorkspaceGitEntry, WorkspaceTreeNode } from "./workspaceIde.ts";
+import type { FolderFileRead, FolderGitDiff, FolderGitStatus, FolderTree } from "./workspaceIde.ts";
 
 export type BotGrant = "add_bot";
 
@@ -422,60 +422,32 @@ export interface RenamedBracket {
 }
 
 /**
- * `GET /api/bots/:botId/git/stream` event: what is uncommitted in the Bot's directory, sent on
- * subscribing and again after every change the sidecar's repository watch sees.
+ * `GET /api/bots/:botId/git/stream` event: what is uncommitted in the Bot's directory.
  *
- * The Bot's own route rather than the IDE's, because a Bot is a directory and not a workspace: the
- * IDE addresses a root somebody registered, and a Bot's directory usually is not one. The entries
- * are the IDE's own shape, so both surfaces draw them with one list.
+ * The Bot's own route rather than the IDE's, because a Bot is a directory and not a workspace: see
+ * `FolderGitStatus`. The entries are the IDE's own shape, so both surfaces draw them with one list.
  */
-export interface BotGitStatus {
+export interface BotGitStatus extends FolderGitStatus {
   botId: string;
-  /**
-   * False when the directory is not inside a repository. Said rather than answered as an empty
-   * list, because "nothing changed" and "there is no git here" are different things to show.
-   */
-  repository: boolean;
-  branch: string | null;
-  /** Paths relative to the repository's top, which may be above the Bot's directory. */
-  entries: WorkspaceGitEntry[];
 }
 
 /** `GET /api/bots/:botId/git/diff?path=` response: one changed path against `HEAD`. */
-export interface BotGitDiff {
+export interface BotGitDiff extends FolderGitDiff {
   botId: string;
-  path: string;
-  /** Staged and unstaged together, or the whole file as added when git does not track it yet. */
-  patch: string;
-  /** True when the patch was cut at the sidecar's ceiling. */
-  truncated: boolean;
 }
 
 /**
  * `GET /api/bots/:botId/tree?expanded=<path>&expanded=<path>` response: the Bot's directory as the
  * IDE's explorer draws it, with every expanded directory listed beneath it.
- *
- * Expansion travels with the request rather than living on the sidecar, because it belongs to one
- * reader's glance at the Bot and not to the Bot: the IDE shares its open tabs between readers, and
- * a quick look into a Bot's code is not something a second reader should find rearranged. Paths
- * and git decorations are relative to the Bot's directory, not to the repository's top.
  */
-export interface BotTree {
+export interface BotTree extends FolderTree {
   botId: string;
-  tree: WorkspaceTreeNode[];
 }
 
 /**
- * `GET /api/bots/:botId/file?path=` response: one file in the Bot's directory, read-only.
- *
- * The IDE's read without its workspace: text for every kind the IDE opens, null for a binary-backed
- * one, whose bytes come from `GET /api/bots/:botId/content?path=` beside it.
+ * `GET /api/bots/:botId/file?path=` response: one file in the Bot's directory, read-only. A
+ * binary-backed one's bytes come from `GET /api/bots/:botId/content?path=` beside it.
  */
-export interface BotFileRead {
+export interface BotFileRead extends FolderFileRead {
   botId: string;
-  path: string;
-  kind: WorkspaceFileKind;
-  /** The sha256 of the bytes on disk, so a re-read can tell whether a rendered document moved. */
-  revision: string;
-  text: string | null;
 }

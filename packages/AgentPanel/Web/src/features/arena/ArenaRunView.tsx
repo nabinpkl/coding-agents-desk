@@ -14,8 +14,10 @@
 // The switch stays put: the header holds nothing that changes with the view, so a reader flicking
 // between views of one run never has it move out from under the finger.
 //
-// A run with a judge has its switch beside Remove; the judge's window floats over the lanes' corner
-// only while it is open (`judge/ArenaJudgeWindow.tsx`).
+// The run's folder opens in the folder viewer from beside them, and each contestant's worktree from
+// its lane's head (`code/ArenaCodeButton.tsx`). A run with a judge has its switch beside Remove;
+// the judge's window floats over the lanes' corner only while it is open
+// (`judge/ArenaJudgeWindow.tsx`).
 //
 // A terminals run whose lanes were opened before its prompt has no prompt to show yet, so the
 // header holds the box the prompt is typed into instead. It goes to every lane at once, as soon as
@@ -25,21 +27,24 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { ArrowUp, LoaderCircle, PanelLeftClose, PanelLeftOpen, Trash2 } from "lucide-react";
 import type { ArenaRunDetail, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { DiffLane } from "@/features/arena/ArenaDiffs";
 import { ArenaFilesMatrix } from "@/features/arena/ArenaFilesMatrix";
+import { ArenaCodeButton } from "@/features/arena/code/ArenaCodeButton";
 import { ArenaLaneFacts } from "@/features/arena/ArenaLaneFacts";
 import { SessionLane, useRunSessions } from "@/features/arena/ArenaSessionLanes";
 import { ArenaJudgeWindow, JudgeSwitch } from "@/features/arena/judge/ArenaJudgeWindow";
 import { lineupKind } from "@/features/arena/ArenaNewRun";
 import { basename, diffStat, elapsedMs, fileMatrix, formatAgo } from "@/features/arena/arenaFacts";
-import { FIELD, FOCUS, ICON_BUTTON, isLive, PRIMARY_BUTTON, TEXT } from "@/features/arena/arenaVocabulary";
+import { FIELD, FOCUS, ICON_BUTTON, isLive, PRIMARY_BUTTON, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 
 export type ArenaView = "sessions" | "files" | "diffs";
 
 export function ArenaRunView({
   run,
   detail,
+  transport,
   view,
   onView,
   now,
@@ -55,6 +60,8 @@ export function ArenaRunView({
   run: ArenaRunSummary;
   /** The facts, which arrive on their own request; null until they have. */
   detail: ArenaRunDetail | null;
+  /** What the run's folders are read through, for the code buttons. */
+  transport: AgentHttpTransport;
   view: ArenaView;
   onView: (view: ArenaView) => void;
   now: number;
@@ -163,8 +170,8 @@ export function ArenaRunView({
               </span>
             </p>
           </div>
-          {/* Wraps on the narrowest phones, where the switch and the run's actions are wider than
-              the screen: the actions drop under the switch, which stays where it was. */}
+          {/* Wraps on phones, where the switch and the run's actions are wider than the screen: the
+              actions drop under the switch together, which stays where it was. */}
           <div className="flex flex-wrap items-center gap-1">
             <div role="tablist" aria-label="Compare by" className="mr-1 inline-flex rounded-lg bg-muted p-0.5">
               {views.map((one) => (
@@ -181,21 +188,30 @@ export function ArenaRunView({
                 </button>
               ))}
             </div>
-            {run.judge ? <JudgeSwitch judge={run.judge} open={judgeOpen} onToggle={() => setJudgeOpen((open) => !open)} /> : null}
-            <button
-              type="button"
-              aria-label="Remove run"
-              title={
-                awaitingPrompt
-                  ? "Close the lanes and remove the run"
-                  : live ? "A run cannot be removed while it is dueling" : "Remove run and its worktrees"
-              }
-              onClick={onDelete}
-              disabled={deleting || (live && !awaitingPrompt)}
-              className={`${ICON_BUTTON} hover:text-destructive`}
-            >
-              <Trash2 aria-hidden className="size-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <ArenaCodeButton
+                transport={transport}
+                place={{ runId: run.runId }}
+                label="Browse the run's folder"
+                title={run.name}
+                path={run.folder}
+              />
+              {run.judge ? <JudgeSwitch judge={run.judge} open={judgeOpen} onToggle={() => setJudgeOpen((open) => !open)} /> : null}
+              <button
+                type="button"
+                aria-label="Remove run"
+                title={
+                  awaitingPrompt
+                    ? "Close the lanes and remove the run"
+                    : live ? "A run cannot be removed while it is dueling" : "Remove run and its worktrees"
+                }
+                onClick={onDelete}
+                disabled={deleting || (live && !awaitingPrompt)}
+                className={`${ICON_BUTTON} hover:text-destructive`}
+              >
+                <Trash2 aria-hidden className="size-4" />
+              </button>
+            </div>
           </div>
         </div>
         {/* A run never ends: once its lanes settle, the next prompt goes to every one of them, in
@@ -224,6 +240,16 @@ export function ArenaRunView({
                   slowestMs={slowestMs}
                   now={now}
                   controlsRef={view === "sessions" ? controlsHosts.refFor(contestant.contestantId) : undefined}
+                  browse={(
+                    <ArenaCodeButton
+                      transport={transport}
+                      place={{ runId: run.runId, contestantId: contestant.contestantId }}
+                      label={`Browse ${contestant.contestantId}'s worktree`}
+                      title={`${run.name} · ${contestant.contestantId} ${SOURCE_LABEL[contestant.source]}`}
+                      path={contestant.worktreePath}
+                      className="size-8"
+                    />
+                  )}
                 />
               ))}
               {view === "sessions"

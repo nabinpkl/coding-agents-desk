@@ -310,6 +310,10 @@ export type {
   WorkspaceStreamEvent,
   WorkspaceSummary,
   WorkspaceTreeNode,
+  FolderFileRead,
+  FolderGitDiff,
+  FolderGitStatus,
+  FolderTree,
 } from "./workspaceIde.ts";
 
 export type {

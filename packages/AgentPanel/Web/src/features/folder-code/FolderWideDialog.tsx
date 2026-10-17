@@ -1,7 +1,8 @@
-// The large modal a Bot's card opens for a look into its directory.
+// The large modal a look into a folder opens in: a Bot's directory from its card, an arena run's
+// folder or a contestant's worktree from the arena.
 //
 // A frame and nothing else: the backdrop, the header with its close button, and the rule about
-// events below. What goes inside is `BotCodeDialog`'s, which is already long enough carrying the
+// events below. What goes inside is `FolderCodeDialog`'s, which is already long enough carrying the
 // IDE's panes without the frame as well.
 
 import { X } from "lucide-react";
@@ -11,7 +12,7 @@ import { createPortal } from "react-dom";
 /** Stops an event at the dialog, for the reason given where it is attached. */
 const stop = (event: React.SyntheticEvent): void => event.stopPropagation();
 
-export function BotWideDialog({
+export function FolderWideDialog({
   titleId,
   title,
   subtitle,
@@ -51,8 +52,8 @@ export function BotWideDialog({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
-      // The dialog is portalled out of the card in the DOM, but React still bubbles its events
-      // through the card, and the card's header starts a drag on any press that is not on a
+      // The dialog is portalled out of whatever opened it in the DOM, but React still bubbles its
+      // events through it, and a Bot card's header starts a drag on any press that is not on a
       // button. A press on the content would otherwise pick the whole Bot up.
       onPointerDown={stop}
       onPointerMove={stop}

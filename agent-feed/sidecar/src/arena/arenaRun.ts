@@ -95,6 +95,7 @@ export function runSummary(run: ArenaRunRecord): ArenaRunSummary {
   return {
     runId: run.runId,
     name: run.name,
+    folder: run.folder,
     prompt: run.prompt,
     round: run.round,
     repoPath: run.repoPath,

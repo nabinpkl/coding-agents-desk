@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { ArenaSurface } from "@/features/arena/ArenaSurface";
 import type { AgentHttpTransport, TransportResponse } from "@/features/activity-feed/transport/AgentHttpTransport";
@@ -46,6 +46,7 @@ const contestant = (over: Record<string, unknown> = {}) => ({
 const run = (over: Record<string, unknown> = {}) => ({
   runId: "11111111-1111-4111-8111-111111111111",
   name: "arena run 1",
+  folder: "/arena/arena-run-1",
   prompt: "say one word",
   round: 1,
   repoPath: "/repos/one",
@@ -61,8 +62,13 @@ const run = (over: Record<string, unknown> = {}) => ({
 function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[] } = {}) {
   const posted: unknown[] = [];
   const postedTo: string[] = [];
+  const asked: string[] = [];
   const transport: AgentHttpTransport = {
     async request(method, path, requestOptions): Promise<TransportResponse> {
+      if (method === "GET") asked.push(path);
+      if (method === "GET" && path.startsWith("/api/arena/code/tree")) {
+        return { status: 200, body: JSON.stringify({ tree: [] }) };
+      }
       if (method === "GET" && path === "/api/arena/new-run" && options.modes) {
         return {
           status: 200,
@@ -90,7 +96,7 @@ function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]
     },
     subscribe: () => () => {},
   };
-  return { transport, posted, postedTo };
+  return { transport, posted, postedTo, asked };
 }
 
 /**
@@ -402,5 +408,27 @@ describe("ArenaSurface", () => {
     box.dispatchEvent(new Event("input", { bubbles: true }));
     await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe("later"));
     expect((screen.getByRole("button", { name: /Send to every lane/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+  test("the rail, the run's header and each lane's head open their own folder, named by what it belongs to", async () => {
+    const { transport, asked } = harness({ runs: [duel()], detail: duel(), modes: ["terminals"] });
+    mount(transport);
+    await openRun("say one word");
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const opens = async (button: string, heading: string, path: string, tree: string) => {
+      screen.getByRole("button", { name: button }).click();
+      const dialog = await screen.findByRole("dialog", { name: heading });
+      expect(within(dialog).getByText(path)).toBeTruthy();
+      await waitFor(() => expect(asked).toContain(tree));
+      within(dialog).getByRole("button", { name: "Close" }).click();
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    };
+    await opens(
+      "Browse c2's worktree",
+      "arena run 1 · c2 Claude",
+      "/arena/11111111-1111-4111-8111-111111111111/c2",
+      `/api/arena/code/tree?run=${runId}&contestant=c2`,
+    );
+    await opens("Browse the run's folder", "arena run 1", "/arena/arena-run-1", `/api/arena/code/tree?run=${runId}`);
+    await opens("Browse the arena folder", "Arena", "/Users/me/.arena", "/api/arena/code/tree");
   });
 });

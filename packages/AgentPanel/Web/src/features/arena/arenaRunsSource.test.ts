@@ -27,6 +27,7 @@ const contestant = (over: Record<string, unknown> = {}) => ({
 const run = (over: Record<string, unknown> = {}) => ({
   runId: "11111111-1111-4111-8111-111111111111",
   name: "arena run 1",
+  folder: "/arena/arena-run-1",
   prompt: "say one word",
   round: 1,
   repoPath: "/repos/one",
@@ -176,9 +177,9 @@ describe("the terminals mode", () => {
     ]);
   });
 
-  test("a run with no mode, name or repository flag is not a run this panel reads", () => {
+  test("a run with no mode, name, folder or repository flag is not a run this panel reads", () => {
     expect(parseRunSummary(run())?.contestants[0]?.tmuxSession).toBeNull();
-    for (const missing of ["mode", "name", "repoCreated"]) {
+    for (const missing of ["mode", "name", "folder", "repoCreated"]) {
       const { [missing]: _dropped, ...rest } = run() as Record<string, unknown>;
       expect(parseRunSummary(rest)).toBeNull();
     }

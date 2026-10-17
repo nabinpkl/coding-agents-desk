@@ -70,6 +70,8 @@ export interface ArenaRunSummary {
    * folder in the arena home is named after it, and holds the contestants' worktrees.
    */
   name: string;
+  /** The run's folder in the arena home, holding its contestants' worktrees and its judge's folder. */
+  folder: string;
   /**
    * The latest prompt every lane was given. A run never ends: once every contestant has settled,
    * the next prompt goes to each of them in the session it already has. Empty while a terminals

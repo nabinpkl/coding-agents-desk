@@ -7,6 +7,7 @@
 // which runs are still dueling and which lanes failed, without opening any of them.
 
 import { Plus } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ArenaContestantSummary, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import { basename, formatAgo } from "@/features/arena/arenaFacts";
 import {
@@ -32,6 +33,7 @@ export function ArenaRunRail({
   selectedRunId,
   composing,
   now,
+  browse,
   onSelect,
   onCompose,
 }: {
@@ -40,13 +42,16 @@ export function ArenaRunRail({
   /** The composer is what the main column shows, so "New run" reads as the current place. */
   composing: boolean;
   now: number;
+  /** The way into the arena home's files, beside "New run" once its path is known. */
+  browse?: ReactNode;
   onSelect: (runId: string) => void;
   onCompose: () => void;
 }) {
   return (
     <nav aria-label="Arena runs" className="flex min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2.5">
-        <h2 className={`${TEXT.title} font-semibold`}>Runs</h2>
+      <div className="flex shrink-0 items-center gap-1 px-3 py-2.5">
+        <h2 className={`${TEXT.title} mr-auto font-semibold`}>Runs</h2>
+        {browse}
         <button
           type="button"
           onClick={onCompose}

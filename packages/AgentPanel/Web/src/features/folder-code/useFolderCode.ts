@@ -1,5 +1,6 @@
-// What a quick look into a Bot's code holds: its tree as far as the reader has opened it, and the
-// one file they are reading.
+// What a quick look into a folder's code holds -- a Bot's directory, an arena run's folder, a
+// contestant's worktree: its tree as far as the reader has opened it, and the one file they are
+// reading.
 //
 // All of it is this reader's and none of it is stored. The IDE shares its tabs between readers and
 // remembers them across reloads because it is where work happens; this is a glance, and a glance
@@ -7,15 +8,15 @@
 // surprise rather than the convenience.
 //
 // Nothing here asks on a timer. The tree and the open file are read again when `refresh` moves,
-// which the caller ties to the Bot's pushed git status: that moves after every change git could
+// which the caller ties to the folder's pushed git status: that moves after every change git could
 // report, which is every change to a file a reader here could be looking at.
 
 import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { FolderSource } from "@/features/folder-code/folderSource";
 import type { ViewedFile } from "@/features/workspace-ide/editor/FilePreview";
 
-export interface BotCode {
+export interface FolderCode {
   /** Null until the first answer. */
   tree: WorkspaceTreeNode[] | null;
   openPath: string | null;
@@ -31,12 +32,12 @@ export interface BotCode {
  * `initialPath` opens with that file showing and the directories above it expanded, which is how a
  * path named in a session's transcript arrives.
  */
-export function useBotCode(
-  feed: SidecarDataSource,
-  botId: string,
+export function useFolderCode(
+  /** Keep it stable: a different source is a different folder, read from scratch. */
+  source: FolderSource,
   refresh: unknown,
   initialPath: string | null = null,
-): BotCode {
+): FolderCode {
   const [expanded, setExpanded] = useState<string[]>(() => (initialPath === null ? [] : ancestors(initialPath)));
   const [tree, setTree] = useState<WorkspaceTreeNode[] | null>(null);
   const [openPath, setOpenPath] = useState<string | null>(initialPath);
@@ -48,19 +49,19 @@ export function useBotCode(
   // blanks the list the reader is pointing at.
   useEffect(() => {
     let current = true;
-    feed.botTree(botId, expanded)
+    source.tree(expanded)
       .then((answer) => {
         if (!current) return;
         setTree(answer.tree);
         setTreeError(null);
       })
       .catch((cause: unknown) => {
-        if (current) setTreeError(describe(cause, "Could not list the Bot's files."));
+        if (current) setTreeError(describe(cause, "Could not list the files."));
       });
     return () => {
       current = false;
     };
-  }, [feed, botId, expanded, refresh]);
+  }, [source, expanded, refresh]);
 
   // A different file clears the pane; the same file read again after a change does not.
   useEffect(() => {
@@ -71,7 +72,7 @@ export function useBotCode(
   useEffect(() => {
     if (openPath === null) return;
     let current = true;
-    feed.botFile(botId, openPath)
+    source.file(openPath)
       .then((answer) => {
         if (!current) return;
         setFile({
@@ -79,7 +80,7 @@ export function useBotCode(
           kind: answer.kind,
           text: answer.text ?? "",
           revision: answer.revision,
-          contentUrl: feed.botContentUrl(botId, answer.path),
+          contentUrl: source.contentUrl(answer.path),
         });
         setFileError(null);
       })
@@ -89,7 +90,7 @@ export function useBotCode(
     return () => {
       current = false;
     };
-  }, [feed, botId, openPath, refresh]);
+  }, [source, openPath, refresh]);
 
   return {
     tree,

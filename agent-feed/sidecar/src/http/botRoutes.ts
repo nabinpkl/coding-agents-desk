@@ -27,23 +27,22 @@ import {
 } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 import {
-  documentResponse,
-  type WorkspaceFileLimits,
-} from "@/http/workspace-routes/workspaceFileRoutes";
+  folderContent,
+  folderFile,
+  folderGitDiff,
+  folderGitStream,
+  FolderReadInvalidError,
+  folderReadError,
+  folderTree,
+  type FolderReadCodes,
+} from "@/http/workspace-routes/folderReads";
+import type { WorkspaceFileLimits } from "@/http/workspace-routes/workspaceFileRoutes";
 import type { RepositoryGitWatch } from "@/workspace/repositoryWatch";
-import { fileKind, isBinaryKind, readDocumentFile, readTextFile } from "@/workspace/workspaceFiles";
-import { directoryGitEntries, workingTreeFileDiff } from "@/workspace/workspaceGit";
 import { WorkspaceFailure } from "@/workspace/workspacePaths";
-import { buildTree } from "@/workspace/workspaceTree";
 
 const BOTS_ROUTE = "/api/bots";
 const BOTS_STREAM_ROUTE = "/api/bots/stream";
 const PLACEMENTS_ROUTE = "/api/bots/placements";
-/**
- * How many expanded directories one tree request may name. Each one that is reachable costs a
- * directory read, and the caller is unauthenticated; a reader expands a handful.
- */
-const MAXIMUM_EXPANDED_PATHS = 512;
 
 export function createBotRoutes(
   registry: BotRegistry,
@@ -176,13 +175,14 @@ async function botDirectory(botId: string, registry: BotRegistry): Promise<strin
   return bot.environment.path;
 }
 
-/**
- * The Bot's directory's git status now, and again whenever it moves.
- *
- * Pushed from the repository watch the IDE reads too, rather than asked for on a timer: the
- * directory is resolved once, when the stream opens, so an unknown Bot or a missing directory is an
- * ordinary error response instead of a stream that opens and says nothing.
- */
+/** The Bot routes' spelling of the folder reads' refusals. */
+const BOT_FOLDER_CODES: FolderReadCodes = {
+  notFound: "bot-path-not-found",
+  forbidden: "bot-forbidden",
+  invalid: "invalid-bot",
+  unreadable: "bot-file-unreadable",
+};
+
 async function botGitStream(
   request: Request,
   server: Parameters<RouteHandler>[2],
@@ -193,17 +193,10 @@ async function botGitStream(
   try {
     const directory = await botDirectory(botId, registry);
     const decodedBotId = decodeBotId(botId);
-    return startServerSentEventStream(request, server, (write) =>
-      repositories.subscribe(directory, (status) => {
-        const answer: BotGitStatus = {
-          botId: decodedBotId,
-          repository: status !== null,
-          branch: status?.branch ?? null,
-          entries: status?.entries ?? [],
-        };
-        write(encodeServerSentEvent(answer));
-      }),
-    );
+    return await folderGitStream(request, server, directory, repositories, (status): BotGitStatus => ({
+      botId: decodedBotId,
+      ...status,
+    }));
   } catch (error) {
     return routeError(error);
   }
@@ -215,18 +208,17 @@ async function botGitDiff(
   registry: BotRegistry,
 ): Promise<Response> {
   try {
-    if (!path) throw new BotInvalidError("path is required");
     const directory = await botDirectory(botId, registry);
-    const diff = await workingTreeFileDiff(directory, path);
-    const answer: BotGitDiff = { botId: decodeBotId(botId), path, ...diff };
+    const answer: BotGitDiff = { botId: decodeBotId(botId), ...(await folderGitDiff(directory, path)) };
     return jsonResponse(answer);
   } catch (error) {
     // The workspace's refusals, spelled the way this route spells its own: a path that is not a
     // change is a missing resource, and one that is not a relative path is a bad request.
-    if (error instanceof WorkspaceFailure) {
-      return error.code === "notFound"
-        ? errorResponse("bot-git-path-not-found", `"${path}" has no uncommitted change`, 404)
-        : errorResponse("invalid-bot", error.message, 400);
+    if (error instanceof WorkspaceFailure && error.code === "notFound") {
+      return errorResponse("bot-git-path-not-found", `"${path}" has no uncommitted change`, 404);
+    }
+    if (error instanceof WorkspaceFailure || error instanceof FolderReadInvalidError) {
+      return errorResponse("invalid-bot", error.message, 400);
     }
     return routeError(error);
   }
@@ -238,15 +230,11 @@ async function botTree(
   registry: BotRegistry,
 ): Promise<Response> {
   try {
-    if (expanded.length > MAXIMUM_EXPANDED_PATHS) {
-      throw new BotInvalidError(`at most ${MAXIMUM_EXPANDED_PATHS} expanded directories`);
-    }
     const directory = await botDirectory(botId, registry);
-    const tree = await buildTree(directory, expanded, await directoryGitEntries(directory));
-    const answer: BotTree = { botId: decodeBotId(botId), tree };
+    const answer: BotTree = { botId: decodeBotId(botId), ...(await folderTree(directory, expanded)) };
     return jsonResponse(answer);
   } catch (error) {
-    return fileRouteError(error, null);
+    return folderReadError(error, null, BOT_FOLDER_CODES) ?? routeError(error);
   }
 }
 
@@ -257,24 +245,11 @@ async function botFile(
   limits: WorkspaceFileLimits,
 ): Promise<Response> {
   try {
-    if (!path) throw new BotInvalidError("path is required");
     const directory = await botDirectory(botId, registry);
-    const kind = fileKind(path);
-    // A binary-backed file is read to prove it is there and within bounds, and answered without
-    // its bytes, which the content route carries.
-    const read = isBinaryKind(kind)
-      ? { ...(await readDocumentFile(directory, path, limits.maxDocumentBytes)), text: null }
-      : await readTextFile(directory, path, limits.maxTextBytes);
-    const answer: BotFileRead = {
-      botId: decodeBotId(botId),
-      path,
-      kind,
-      revision: read.revision,
-      text: read.text,
-    };
+    const answer: BotFileRead = { botId: decodeBotId(botId), ...(await folderFile(directory, path, limits)) };
     return jsonResponse(answer);
   } catch (error) {
-    return fileRouteError(error, path);
+    return folderReadError(error, path, BOT_FOLDER_CODES) ?? routeError(error);
   }
 }
 
@@ -285,28 +260,10 @@ async function botContent(
   limits: WorkspaceFileLimits,
 ): Promise<Response> {
   try {
-    if (!path) throw new BotInvalidError("path is required");
-    const directory = await botDirectory(botId, registry);
-    return documentResponse(await readDocumentFile(directory, path, limits.maxDocumentBytes));
+    return await folderContent(await botDirectory(botId, registry), path, limits);
   } catch (error) {
-    return fileRouteError(error, path);
+    return folderReadError(error, path, BOT_FOLDER_CODES) ?? routeError(error);
   }
-}
-
-/**
- * The workspace's path refusals, spelled the way the Bot routes spell theirs. A path that is not
- * there is a missing resource, one that escapes the directory is forbidden, and a file that is
- * there but cannot be shown -- binary, too large, not UTF-8 -- says which in its message.
- */
-function fileRouteError(error: unknown, path: string | null): Response {
-  if (!(error instanceof WorkspaceFailure)) return routeError(error);
-  const subject = path === null ? "" : ` (${path})`;
-  if (error.code === "notFound") {
-    return errorResponse("bot-path-not-found", `${error.message}${subject}`, 404);
-  }
-  if (error.code === "forbidden") return errorResponse("bot-forbidden", error.message, 403);
-  if (error.code === "invalidPath") return errorResponse("invalid-bot", error.message, 400);
-  return errorResponse("bot-file-unreadable", `${error.message}${subject}`, 422);
 }
 
 async function createBot(request: Request, registry: BotRegistry): Promise<Response> {

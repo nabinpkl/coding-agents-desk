@@ -367,3 +367,57 @@ export interface WorkspaceSearchResult {
   /** The match cap was reached, so there are more than `matchCount`. */
   truncated: boolean;
 }
+
+/**
+ * A folder read from outside the IDE: a quick, read-only look into a directory somebody else is
+ * working in -- a Bot's, an arena run's, one contestant's worktree. The IDE addresses a root
+ * somebody registered, and these usually are not one; each owner's routes name the folder by what
+ * it belongs to, never by a path, and answer in these shapes, so one viewer draws them all.
+ */
+
+/**
+ * What is uncommitted in the folder, sent on subscribing and again after every change the
+ * sidecar's repository watch sees.
+ */
+export interface FolderGitStatus {
+  /**
+   * False when the folder is not inside a repository. Said rather than answered as an empty list,
+   * because "nothing changed" and "there is no git here" are different things to show.
+   */
+  repository: boolean;
+  branch: string | null;
+  /** Paths relative to the repository's top, which may be above the folder. */
+  entries: WorkspaceGitEntry[];
+}
+
+/** One changed path against `HEAD`. */
+export interface FolderGitDiff {
+  path: string;
+  /** Staged and unstaged together, or the whole file as added when git does not track it yet. */
+  patch: string;
+  /** True when the patch was cut at the sidecar's ceiling. */
+  truncated: boolean;
+}
+
+/**
+ * The folder as the IDE's explorer draws it, with every expanded directory listed beneath it.
+ *
+ * Expansion travels with the request rather than living on the sidecar, because it belongs to one
+ * reader's glance and not to the folder: a second reader should not find it rearranged. Paths and
+ * git decorations are relative to the folder, not to the repository's top.
+ */
+export interface FolderTree {
+  tree: WorkspaceTreeNode[];
+}
+
+/**
+ * One file in the folder, read-only: the IDE's read without its workspace. Text for every kind the
+ * IDE opens, null for a binary-backed one, whose bytes come from the owner's `content` route.
+ */
+export interface FolderFileRead {
+  path: string;
+  kind: WorkspaceFileKind;
+  /** The sha256 of the bytes on disk, so a re-read can tell whether a rendered document moved. */
+  revision: string;
+  text: string | null;
+}
