@@ -911,8 +911,9 @@ The work and the wall are separate, and conflating them wastes an evening. Settl
   a new one running as the console user, on that user's repo, with that user's permissions. Remote
   Control needs no enabling: it is on, and the forked session appears in the app's sidebar by itself.
 - **A session off the canvas that goes quiet is closed** (since 2026-10-16, on the owner's word).
-  Each sidecar sweeps its own machine hourly (`terminal/session-panes/idleSessionSweep.ts`) and
-  closes the tmux pane of a Claude session that is in no Bot on the canvas, is nobody's Father
+  Each sidecar sweeps its own machine a minute after it starts and hourly after that
+  (`terminal/session-panes/idleSessionSweep.ts`), and closes the tmux pane of a Claude session
+  that is in no Bot on the canvas, is nobody's Father
   session, has had no event for 2h (`AGENT_FEED_IDLE_CLOSE_AFTER_MS`, 0 turns it off), and whose
   own registry says `idle`, re-read just before the close. Only a pane the sidecar stamped, with
   nobody attached, nothing else in it, and the idle Claude process inside it. Opening the session

@@ -178,11 +178,19 @@ export async function listSweepPanes(): Promise<SweepPane[]> {
   });
 }
 
+/**
+ * How soon after the sidecar starts the first sweep runs. Not a whole interval: the live sidecar is
+ * replaced on every edit, often several times an hour, and a sweep that waited an hour from each
+ * start would never run on a working day. Soon is safe because idle is measured from the
+ * transcript, not from how long this process has been up; a minute gives the catalog its first read.
+ */
+const FIRST_SWEEP_MS = 60_000;
+
 /** Sweeps on a timer for the life of the process. 0 for `idleAfterMs` sweeps nothing. */
 export function startIdleSessionSweep(sources: IdleSweepSources, idleAfterMs: number, everyMs: number): () => void {
   if (idleAfterMs <= 0) return () => {};
   let running = false;
-  const timer = setInterval(() => {
+  const sweep = () => {
     if (running) return;
     running = true;
     sweepIdleSessions(sources, idleAfterMs)
@@ -190,9 +198,15 @@ export function startIdleSessionSweep(sources: IdleSweepSources, idleAfterMs: nu
       .finally(() => {
         running = false;
       });
-  }, everyMs);
+  };
+  const first = setTimeout(sweep, Math.min(FIRST_SWEEP_MS, everyMs));
+  const timer = setInterval(sweep, everyMs);
+  first.unref?.();
   timer.unref?.();
-  return () => clearInterval(timer);
+  return () => {
+    clearTimeout(first);
+    clearInterval(timer);
+  };
 }
 
 /** The sweep over this machine, as `server.ts` starts it. Logged to the sidecar's own log. */
