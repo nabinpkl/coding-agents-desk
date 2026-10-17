@@ -54,14 +54,30 @@ export type TmuxQuestionRefusal =
  * should END UP holding; this says what it holds NOW, so a reader answering in the panel sees what
  * somebody at the keyboard has already done rather than a blank draft that will overwrite it.
  *
- * Content is deliberately absent: the question's text, its options and their descriptions are the
- * tool call the panel already has, untruncated. What a screen can add is only the STATE -- which
- * rows are marked, which question the terminal is on, what the free-text row holds -- so that is
- * all this carries.
+ * What a panel matches and follows by is the STATE -- which rows are marked, which question the
+ * terminal is on, what the free-text row holds. The tool call is the content, untruncated, and
+ * wins wherever the panel has it.
+ *
+ * The screen's own copy of the content rides along too (`prompt`, each option's `detail`), for the
+ * one case where the panel has no tool call to draw from: the CLI writes the asking turn to the
+ * transcript only once it is answered, and the live mirror that runs ahead of the file loses a turn
+ * whenever proxy-agent's capture drops mid-response (measured 2026-10-14: the capture died 15s into
+ * a turn and the question stood in the pane with nothing anywhere else saying so). Then the screen
+ * is the only witness, and a worse copy beats a dialog the panel cannot see.
  */
 export interface TmuxQuestionState {
-  /** The question on screen, or null on the review screen. */
+  /**
+   * The first line of the question on screen, or null on the review screen.
+   *
+   * What everything matches against, by prefix. Only its first line because a question wraps, and
+   * the first line is the one part of it whose start is certain.
+   */
   question: string | null;
+  /**
+   * The whole question as drawn, its wrapped lines joined with single spaces, or null on the review
+   * screen.
+   */
+  prompt: string | null;
   review: boolean;
   /** Whether the rows carry checkboxes, which is the same fact the tool call states. */
   multiSelect: boolean;
@@ -74,7 +90,18 @@ export interface TmuxQuestionState {
    * row indented exactly like a description, so only its start is recoverable. Match it against
    * the tool call's own options by prefix, the way the driver does before it presses anything.
    */
-  options: { label: string; marked: boolean; cursor: boolean }[];
+  options: {
+    label: string;
+    /**
+     * Every line drawn under the label until the next row, joined with single spaces.
+     *
+     * The description, and the tail of a label that wrapped, which the screen indents the same way
+     * and so cannot be told apart. Empty when nothing is drawn there.
+     */
+    detail: string;
+    marked: boolean;
+    cursor: boolean;
+  }[];
   /** What the free-text row holds, or null while it is still showing its own prompt. */
   other: string | null;
 }

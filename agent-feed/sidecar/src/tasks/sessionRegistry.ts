@@ -45,6 +45,17 @@ export interface ClaudeSessionProcess {
    * name taken from an unverified row addresses some other session's pane.
    */
   tmuxSession: string | null;
+  /**
+   * Whether the process is blocked on the person at its terminal: a question dialog or a
+   * permission prompt is standing in place of the prompt box.
+   *
+   * The harness writes `status: "waiting"` (with `waitingFor: "input needed"`) the moment a dialog
+   * opens, measured 2026-10-14 on 2.1.296: the row's `statusUpdatedAt` landed three seconds after
+   * the asking turn was cut off, while the transcript held nothing of that turn for as long as the
+   * dialog stood. That makes it the one cheap, early signal that a session has a dialog the panel
+   * may know nothing about. It says only THAT the process waits, not on what; the pane says what.
+   */
+  waiting: boolean;
 }
 
 interface RegistryRecord {
@@ -55,6 +66,7 @@ interface RegistryRecord {
   messagingSocketPath?: unknown;
   entrypoint?: unknown;
   tmux?: unknown;
+  status?: unknown;
 }
 
 /**
@@ -138,6 +150,7 @@ export async function liveSessionProcesses(
         : null,
       entrypoint: readEntrypoint(record.entrypoint),
       tmuxSession: readTmuxSession(record.tmux),
+      waiting: record.status === "waiting",
     });
   }
   return live;

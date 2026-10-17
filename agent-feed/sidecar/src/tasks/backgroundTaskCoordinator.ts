@@ -37,7 +37,7 @@ import { type ClaudeSessionProcess, liveSessionProcesses } from "@/tasks/session
 
 export type BackgroundTaskListener = (snapshot: BackgroundTaskSnapshot) => void;
 
-const EMPTY: BackgroundTaskSnapshot = { running: [], finished: [], ownerAlive: false };
+const EMPTY: BackgroundTaskSnapshot = { running: [], finished: [], ownerAlive: false, ownerWaiting: false };
 
 export interface BackgroundTaskCoordinatorOptions {
   run?: CommandRunner;
@@ -64,6 +64,7 @@ interface KernelPass {
 function fingerprintOf(snapshot: BackgroundTaskSnapshot): string {
   return JSON.stringify({
     ownerAlive: snapshot.ownerAlive,
+    ownerWaiting: snapshot.ownerWaiting,
     running: snapshot.running.map((task) => [task.taskId, task.hasOutput]),
     finished: snapshot.finished.map((task) => [task.taskId, task.state]),
   });

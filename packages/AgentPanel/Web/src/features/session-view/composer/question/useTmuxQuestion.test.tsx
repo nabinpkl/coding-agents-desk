@@ -301,12 +301,13 @@ describe("the tmux question mirror", () => {
     // the keyboard before the panel was ever opened on it.
     const pane: TmuxQuestionState = {
       question: "Which colour?",
+      prompt: "Which colour?",
       review: false,
       multiSelect: false,
       tabs: [{ label: "Colour", answered: true }, { label: "Toppings", answered: false }],
       options: [
-        { label: "ALPHA", marked: false, cursor: false },
-        { label: "BRAVO", marked: true, cursor: true },
+        { label: "ALPHA", detail: "", marked: false, cursor: false },
+        { label: "BRAVO", detail: "", marked: true, cursor: true },
       ],
       other: null,
     };
@@ -326,12 +327,13 @@ describe("the tmux question mirror", () => {
     // committed yet and somebody else were moving in the dialog.
     const pane: TmuxQuestionState = {
       question: "Which colour?",
+      prompt: "Which colour?",
       review: false,
       multiSelect: false,
       tabs: [{ label: "Colour", answered: true }],
       options: [
-        { label: "ALPHA", marked: false, cursor: false },
-        { label: "BRAVO", marked: true, cursor: true },
+        { label: "ALPHA", detail: "", marked: false, cursor: false },
+        { label: "BRAVO", detail: "", marked: true, cursor: true },
       ],
       other: null,
     };

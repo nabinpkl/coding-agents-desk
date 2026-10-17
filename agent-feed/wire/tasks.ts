@@ -187,4 +187,12 @@ export interface BackgroundTaskSnapshot {
    * cannot tell", instead of inferring it from an empty list.
    */
   ownerAlive: boolean;
+  /**
+   * Whether that process is blocked on its terminal: a question dialog or a permission prompt.
+   *
+   * Here because this snapshot is already the one reading of the session's registry row on every
+   * tick, and the panel needs this from that row: a question the transcript and the live mirror
+   * both missed is still standing in the pane, and this is what tells the panel to go and look.
+   */
+  ownerWaiting: boolean;
 }

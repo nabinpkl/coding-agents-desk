@@ -1,6 +1,6 @@
 // Screens `tmux capture-pane -p` took off real panes, kept verbatim from the dialog's opening
 // rule to its footer: 120x40 and 120x44 on 2026-09-11 from Claude Code 2.1.268, and 80x24 on
-// 2026-09-15, both running Haiku 4.5.
+// 2026-09-15, both running Haiku 4.5, and one 80x24 screen from 2.1.296 on 2026-10-14.
 //
 // The width is part of the record. Every screen here was 120 columns wide until the last one,
 // and the footer fits on one row at 120 and does not at 80 -- so the parser agreed with every
@@ -396,5 +396,76 @@ export const CAPTURES: readonly QuestionCapture[] = [
     rows: [">1. A short one", " 2. A deliberately very long"],
     multiSelect: false,
     review: false,
+  },  {
+    // Claude Code 2.1.296, 80x24, taken 2026-10-14. The question is drawn behind a `│` bar on
+    // every one of its rows, which no earlier capture has: read as text, the bar became the start
+    // of the question, so it matched no tool call and the driver refused every answer as
+    // `wrong-dialog`. The question also wraps, which is what the panel's copy of it joins back up.
+    name: "a wrapped question behind a bar on an 80-column pane",
+    screen: [
+      "────────────────────────────────────────────────────────────────────────────────",
+      "←  ☐ Source  ✔ Submit  →",
+      "",
+      "│ Where do the secrets you want to store usually come from? You may pick every",
+      "│ source that applies.",
+      "",
+      "❯ 1. [ ] Environment variables",
+      "         Your application reads secrets from .env files or system environment",
+      "         variables during development or deployment. These are typically set",
+      "         locally or in CI/CD systems like GitHub Actions or Docker.",
+      "  2. [ ] Password managers",
+      "         Secrets are stored in password managers like 1Password, LastPass, or",
+      "         macOS Keychain and accessed when needed. You retrieve them manually or",
+      "         through automation tools that integrate with these managers.",
+      "  3. [ ] External services",
+      "         Secrets come from third-party services, APIs, or cloud platforms that",
+      "         you connect to during runtime. Examples include database connection",
+      "         strings, OAuth tokens, or API keys from cloud providers.",
+      "  4. [ ] Type something",
+      "     Submit",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  5. Chat about this",
+      "",
+      "Enter to select · ↑/↓ to navigate · Esc to cancel",
+    ].join("\n"),
+    tabs: ["Source", "Submit"],
+    question: "Where do the secrets you want to store usually come from? You may pick every",
+    rows: [
+      ">1. [ ] Environment variables",
+      " 2. [ ] Password managers",
+      " 3. [ ] External services",
+      " 4. [ ] Type something",
+    ],
+    multiSelect: true,
+    review: false,
+  },
+  {
+    // The same dialog's review screen, as the driver reads it WITH the scrollback above the pane.
+    // The question screen was taller than the pane, so its own tab row had scrolled into history,
+    // and the review screen then drew its tab row directly under it: two tab rows, the stale one
+    // still saying `☐`. Read off the line after the rule, the stale one is what came back, and the
+    // driver refused a fully answered dialog as `wrong-dialog` at its last step.
+    name: "a review screen under a stale tab row",
+    screen: [
+      "────────────────────────────────────────────────────────────────────────────────",
+      "←  ☐ Source  ✔ Submit  →",
+      "←  ☒ Source  ✔ Submit  →",
+      "",
+      "Review your answers",
+      "",
+      " │ ● Where do the secrets you want to store usually come from? You may pick",
+      " │   every source that applies.",
+      "   → Password managers, External services",
+      "",
+      "Ready to submit your answers?",
+      "",
+      "❯ 1. Submit answers",
+      "  2. Cancel",
+    ].join("\n"),
+    tabs: ["Source", "Submit"],
+    question: null,
+    rows: [">1. Submit answers", " 2. Cancel"],
+    multiSelect: false,
+    review: true,
   },
 ];

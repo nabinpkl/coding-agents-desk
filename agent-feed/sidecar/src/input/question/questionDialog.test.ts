@@ -42,6 +42,48 @@ for (const capture of CAPTURES) {
   });
 }
 
+test("keeps what is drawn under each option as its detail, and the question whole", () => {
+  // The screen's copy of the content, for a panel that never received the tool call.
+  const dialog = questionDialog(pane(capture("one single-select question")))!;
+  expect(dialog.prompt).toBe("Which colour should the probe use?");
+  expect(dialog.rows.map((row) => row.detail)).toEqual([
+    "A bold, high-contrast primary colour for maximum visibility.",
+    "A neutral, subtle colour for minimal visual interference.",
+    "A balanced mid-tone colour for general-purpose visibility.",
+    "",
+  ]);
+  // A description that wraps comes back as one line, its rows joined.
+  const tall = questionDialog(pane(capture("a question taller than the pane")))!;
+  expect(tall.rows[3]!.detail).toBe(
+    "This option preserves the current behavior where the panel draws content solely from the"
+      + " transcript and commits answers written in the panel directly to the pane, but never"
+      + " observes or reflects back what someone does in the terminal itself. The mirror remains"
+      + " unidirectional, keeping the implementation simple and avoiding any new resource costs,"
+      + " though the panel will not show cursor position or real-time changes made directly in"
+      + " the terminal.",
+  );
+  // The inline button is a control, and nothing under it is anybody's detail.
+  const multi = questionDialog(pane(capture("one multi-select question")))!;
+  expect(multi.rows.find((row) => row.button)!.detail).toBe("");
+});
+
+test("reads a question drawn behind a bar as the words alone, wrapped rows joined", () => {
+  const dialog = questionDialog(pane(capture("a wrapped question behind a bar on an 80-column pane")))!;
+  expect(dialog.prompt).toBe(
+    "Where do the secrets you want to store usually come from? You may pick every source that applies.",
+  );
+  expect(dialog.rows[1]!.detail).toBe(
+    "Secrets are stored in password managers like 1Password, LastPass, or macOS Keychain and"
+      + " accessed when needed. You retrieve them manually or through automation tools that"
+      + " integrate with these managers.",
+  );
+});
+
+test("a review screen reads its own tab row, not the stale one scrolled up above it", () => {
+  const dialog = questionDialog(pane(capture("a review screen under a stale tab row")))!;
+  expect(dialog.tabs.map((tab) => `${tab.label}:${tab.answered}`)).toEqual(["Source:true", "Submit:false"]);
+});
+
 test("the tab row says which questions still need an answer", () => {
   const dialog = questionDialog(pane(capture("three questions, two answered")))!;
   expect(dialog.tabs.map((tab) => `${tab.label}:${tab.answered}:${tab.submit}`)).toEqual([

@@ -45,7 +45,7 @@ const SNAPSHOT_LINES = 200;
  * because "we cannot see this source's background work" is exactly what that pair means, and the
  * panel already renders it as "no chip". A Codex adapter would slot in here without a wire change.
  */
-const EMPTY: BackgroundTaskSnapshot = { running: [], finished: [], ownerAlive: false };
+const EMPTY: BackgroundTaskSnapshot = { running: [], finished: [], ownerAlive: false, ownerWaiting: false };
 
 /**
  * Which file a task's output is actually going to.

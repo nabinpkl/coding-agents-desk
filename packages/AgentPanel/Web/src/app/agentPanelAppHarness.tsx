@@ -333,6 +333,7 @@ export function deliverRunningTask(transport: FakeHttpTransport, sessionId: stri
   act(() => {
     transport.deliver(`/${sessionId}/tasks`, {
       ownerAlive: true,
+      ownerWaiting: false,
       finished: [],
       running: [{
         taskId: `task-${sessionId}`,

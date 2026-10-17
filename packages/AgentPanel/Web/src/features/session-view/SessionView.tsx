@@ -450,6 +450,7 @@ export function SessionView({
         pending={commands.commandPending}
         error={commands.commandError ?? externalError}
         question={openQuestion}
+        ownerWaiting={backgroundTasks.ownerWaiting}
         cliInput={cliInput}
         windowComposerClient={source === "codex" ? windowComposers.codex : windowComposers.claude}
         agentTerminal={terminalComposer}

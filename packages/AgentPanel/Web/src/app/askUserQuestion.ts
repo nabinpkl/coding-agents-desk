@@ -40,6 +40,11 @@ export interface OpenAskUserQuestion {
    * submit until each has an answer, so answering only the first there finishes nothing.
    */
   questions: AskUserQuestionItem[];
+  /**
+   * Present when this was read off the session's terminal rather than from its tool call
+   * (`questionFromPane`), with how many of the call's other questions the screen could not show.
+   */
+  pane?: { unseen: number };
 }
 
 /**

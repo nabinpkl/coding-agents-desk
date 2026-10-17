@@ -86,6 +86,7 @@ export interface SnapshotSources {
   /** How long an uncorroborated shell must have run before it is shown. */
   uncorroboratedAfterMs: number;
   ownerAlive: boolean;
+  ownerWaiting: boolean;
   now: number;
 }
 
@@ -316,7 +317,7 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
 
   running.sort((left, right) => right.elapsedMs - left.elapsedMs);
   finished.sort((left, right) => (right.startedAt ?? 0) - (left.startedAt ?? 0));
-  return { running, finished, ownerAlive: sources.ownerAlive };
+  return { running, finished, ownerAlive: sources.ownerAlive, ownerWaiting: sources.ownerWaiting };
 }
 
 /**
@@ -341,7 +342,7 @@ export async function backgroundTaskSnapshot(
   now: number = Date.now(),
 ): Promise<BackgroundTaskSnapshot> {
   const { owner, shells, table } = kernel;
-  if (!owner) return { running: [], finished: [], ownerAlive: false };
+  if (!owner) return { running: [], finished: [], ownerAlive: false, ownerWaiting: false };
 
   const transcriptPath = await claudeTranscriptPath(sessionId);
   const scan = transcriptPath
@@ -386,6 +387,7 @@ export async function backgroundTaskSnapshot(
     ownerPid: owner.pid,
     uncorroboratedAfterMs: config.backgroundTaskUncorroboratedMs,
     ownerAlive: true,
+    ownerWaiting: owner.waiting,
     now,
   });
 }

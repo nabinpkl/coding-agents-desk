@@ -29,7 +29,7 @@ function running(overrides: Partial<RunningBackgroundTask> = {}): RunningBackgro
 }
 
 function snapshot(overrides: Partial<BackgroundTaskSnapshot> = {}): BackgroundTaskSnapshot {
-  return { running: [], finished: [], ownerAlive: true, ...overrides };
+  return { running: [], finished: [], ownerAlive: true, ownerWaiting: false, ...overrides };
 }
 
 describe("RunningTasksChip", () => {

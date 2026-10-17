@@ -141,13 +141,14 @@ describe("toAnswers", () => {
 function showing(overrides: Partial<TmuxQuestionState> = {}): TmuxQuestionState {
   return {
     question: "Which colour?",
+    prompt: "Which colour?",
     review: false,
     multiSelect: false,
     tabs: [{ label: "Colour", answered: false }],
     options: [
-      { label: "ALPHA", marked: false, cursor: true },
-      { label: "BRAVO", marked: false, cursor: false },
-      { label: "CHARLIE", marked: false, cursor: false },
+      { label: "ALPHA", detail: "", marked: false, cursor: true },
+      { label: "BRAVO", detail: "", marked: false, cursor: false },
+      { label: "CHARLIE", detail: "", marked: false, cursor: false },
     ],
     other: null,
     ...overrides,
@@ -172,9 +173,9 @@ describe("following what the terminal already holds", () => {
     const drafts = emptyDrafts([SINGLE]);
     const next = adoptPaneState(drafts, [SINGLE], showing({
       options: [
-        { label: "ALPHA", marked: false, cursor: false },
-        { label: "BRAVO", marked: true, cursor: false },
-        { label: "CHARLIE", marked: false, cursor: true },
+        { label: "ALPHA", detail: "", marked: false, cursor: false },
+        { label: "BRAVO", detail: "", marked: true, cursor: false },
+        { label: "CHARLIE", detail: "", marked: false, cursor: true },
       ],
     }), () => true);
 
@@ -187,9 +188,9 @@ describe("following what the terminal already holds", () => {
     const drafts = chooseOption(emptyDrafts([SINGLE]), 0, 2, false);
     const next = adoptPaneState(drafts, [SINGLE], showing({
       options: [
-        { label: "ALPHA", marked: true, cursor: false },
-        { label: "BRAVO", marked: false, cursor: false },
-        { label: "CHARLIE", marked: false, cursor: false },
+        { label: "ALPHA", detail: "", marked: true, cursor: false },
+        { label: "BRAVO", detail: "", marked: false, cursor: false },
+        { label: "CHARLIE", detail: "", marked: false, cursor: false },
       ],
     }), () => false);
 
@@ -222,9 +223,9 @@ describe("where the terminal's own cursor is", () => {
     expect(paneCursorFrom([SINGLE], showing())).toEqual({ at: 0, option: 0 });
     expect(paneCursorFrom([SINGLE], showing({
       options: [
-        { label: "ALPHA", marked: false, cursor: false },
-        { label: "BRAVO", marked: false, cursor: false },
-        { label: "CHARLIE", marked: false, cursor: true },
+        { label: "ALPHA", detail: "", marked: false, cursor: false },
+        { label: "BRAVO", detail: "", marked: false, cursor: false },
+        { label: "CHARLIE", detail: "", marked: false, cursor: true },
       ],
     }))).toEqual({ at: 0, option: 2 });
   });
@@ -236,9 +237,9 @@ describe("where the terminal's own cursor is", () => {
     // whatever row somebody last walked past.
     const pane = showing({
       options: [
-        { label: "ALPHA", marked: false, cursor: true },
-        { label: "BRAVO", marked: true, cursor: false },
-        { label: "CHARLIE", marked: false, cursor: false },
+        { label: "ALPHA", detail: "", marked: false, cursor: true },
+        { label: "BRAVO", detail: "", marked: true, cursor: false },
+        { label: "CHARLIE", detail: "", marked: false, cursor: false },
       ],
     });
 
@@ -252,9 +253,9 @@ describe("where the terminal's own cursor is", () => {
     // is an option, and `TmuxQuestionState` has already dropped both, so no option carries it.
     expect(paneCursorFrom([SINGLE], showing({
       options: [
-        { label: "ALPHA", marked: false, cursor: false },
-        { label: "BRAVO", marked: false, cursor: false },
-        { label: "CHARLIE", marked: false, cursor: false },
+        { label: "ALPHA", detail: "", marked: false, cursor: false },
+        { label: "BRAVO", detail: "", marked: false, cursor: false },
+        { label: "CHARLIE", detail: "", marked: false, cursor: false },
       ],
     }))).toBeNull();
   });
@@ -262,7 +263,7 @@ describe("where the terminal's own cursor is", () => {
   it("says nothing rather than guessing at a row it cannot match", () => {
     // A ring drawn on a guess is indistinguishable from one drawn on a reading.
     expect(paneCursorFrom([SINGLE], showing({
-      options: [{ label: "ZULU", marked: false, cursor: true }],
+      options: [{ label: "ZULU", detail: "", marked: false, cursor: true }],
     }))).toBeNull();
     expect(paneCursorFrom([SINGLE], showing({ question: null, review: true }))).toBeNull();
     expect(paneCursorFrom([SINGLE], null)).toBeNull();
@@ -276,12 +277,13 @@ describe("which question the terminal is on", () => {
     // reports a cursor -- while the pane is plainly still on that question.
     const pane = {
       question: "Which toppings?",
+      prompt: "Which toppings?",
       review: false,
       multiSelect: true,
       tabs: [{ label: "Colour", answered: true }, { label: "Toppings", answered: false }],
       options: [
-        { label: "DELTA", marked: false, cursor: false },
-        { label: "ECHO", marked: false, cursor: false },
+        { label: "DELTA", detail: "", marked: false, cursor: false },
+        { label: "ECHO", detail: "", marked: false, cursor: false },
       ],
       other: null,
     };

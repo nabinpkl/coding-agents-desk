@@ -22,6 +22,9 @@
 // The window half owns a question only where the host can AFFIRM its panel, which is a session
 // showing in Claude Desktop rather than running in a pane. Everything else is the reader's own
 // draft, committed against the pane when there is one.
+//
+// With no tool call at all, the pane's own drawing of the dialog stands in for it
+// (`questionFromPane`), because a question nothing else reported is still a question.
 
 import type { SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import type { WindowComposerClient } from "@/features/window-composer/WindowComposerClient";
@@ -33,6 +36,7 @@ import {
   type TmuxQuestionSender,
 } from "@/features/session-view/composer/question/useTmuxQuestion";
 import { useWindowQuestion } from "@/features/session-view/composer/question/useWindowQuestion";
+import { usePaneQuestion } from "@/features/session-view/composer/question/questionFromPane";
 
 /**
  * What the band needs to draw an open question and hand its answers somewhere.
@@ -106,9 +110,9 @@ export function useQuestionMirror({
   /**
    * What the session's own terminal shows for this question, once anything is watching it.
    *
-   * Only the draft half uses it. The Desktop panel reports its own live state and is mirrored
-   * click by click, so a second opinion read off a screen would be one more thing to disagree
-   * with it.
+   * The content too when `question` is null. Otherwise only the draft half uses it: the Desktop
+   * panel reports its own live state and is mirrored click by click, so a second opinion read off
+   * a screen would be one more thing to disagree with it.
    */
   paneQuestion: TmuxQuestionState | null;
   /**
@@ -118,21 +122,28 @@ export function useQuestionMirror({
    */
   engage: () => void;
 }): QuestionMirrorModel | null {
-  const tmuxQuestion = useTmuxQuestion(feed, session, isClaude ? question : null, paneQuestion);
-  const windowQuestion = useWindowQuestion(host, sessionId, isClaude && question != null, question);
-  if (!isClaude || question == null) return null;
+  const fromPane = usePaneQuestion(paneQuestion);
+  const shown = question ?? fromPane;
+  const tmuxQuestion = useTmuxQuestion(feed, session, isClaude ? shown : null, paneQuestion);
+  const windowQuestion = useWindowQuestion(host, sessionId, isClaude && shown != null, shown);
+  if (!isClaude || shown == null) return null;
   if (!windowQuestion.visible) {
+    // Read off the screen with questions it could not see: drawn, never answered, because the
+    // dialog takes every question's answer at once and the others cannot be named.
+    const unseen = shown.pane?.unseen ?? 0;
     return {
-      callId: question.callId,
+      callId: shown.callId,
       questions: tmuxQuestion.questions,
       drafts: tmuxQuestion.drafts,
       paneCursor: tmuxQuestion.paneCursor,
       paneAt: tmuxQuestion.paneAt,
       pending: tmuxQuestion.pending,
-      disabled: false,
+      disabled: unseen > 0,
       error: tmuxQuestion.error,
-      notice: null,
-      canSubmit: tmuxQuestion.canSubmit,
+      notice: unseen > 0
+        ? `The terminal is asking ${unseen + 1} questions and shows one at a time, so answer them there`
+        : null,
+      canSubmit: unseen === 0 && tmuxQuestion.canSubmit,
       onChoose: (at, option) => {
         engage();
         tmuxQuestion.choose(at, option);
@@ -150,7 +161,7 @@ export function useQuestionMirror({
   }
   if (!windowQuestion.question) return null;
   return {
-    callId: question.callId,
+    callId: shown.callId,
     questions: [windowQuestion.question],
     drafts: [{ chosen: windowQuestion.selected, other: windowQuestion.otherText }],
     // This half has no terminal to follow: what it mirrors is a Desktop panel, which reports its

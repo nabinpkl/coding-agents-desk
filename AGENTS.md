@@ -1292,6 +1292,10 @@ thing and each rediscovered the same traps.
     tools/throwaway-session.sh pane probe
     tools/throwaway-session.sh stop probe
 
+**`THROWAWAY_PROXY=off` starts it around proxy-agent**, so the live mirror never sees its traffic
+and the panel has only the transcript and the pane: what a turn looks like when the capture drops
+mid-response, and how the question-from-the-pane fallback was verified on 2026-10-14.
+
 **Probe on the cheap model.** The default is Haiku at `--effort low`, and the reason is not
 frugality for its own sake: a probe session exists to produce transcript records and API flows, and
 nothing reads what it says. The run that prompted this script spent Opus on the word "acorn", three

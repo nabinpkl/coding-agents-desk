@@ -135,12 +135,13 @@ describe("the live cursor mirror", () => {
         answer={async () => ({ answered: true })}
         pane={{
           question: "Which colour?",
+          prompt: "Which colour?",
           review: false,
           multiSelect: false,
           tabs: [{ label: "Colour", answered: false }],
           options: [
-            { label: "ALPHA", marked: false, cursor: false },
-            { label: "BRAVO", marked: false, cursor: true },
+            { label: "ALPHA", detail: "", marked: false, cursor: false },
+            { label: "BRAVO", detail: "", marked: false, cursor: true },
           ],
           other: null,
         }}
@@ -164,12 +165,13 @@ describe("keeping the panel and the terminal on the same question", () => {
         answer={async () => ({ answered: true })}
         pane={{
           question: "Which toppings?",
+          prompt: "Which toppings?",
           review: false,
           multiSelect: true,
           tabs: [{ label: "Colour", answered: true }, { label: "Toppings", answered: false }],
           options: [
-            { label: "DELTA", marked: false, cursor: false },
-            { label: "ECHO", marked: false, cursor: false },
+            { label: "DELTA", detail: "", marked: false, cursor: false },
+            { label: "ECHO", detail: "", marked: false, cursor: false },
           ],
           other: null,
         }}

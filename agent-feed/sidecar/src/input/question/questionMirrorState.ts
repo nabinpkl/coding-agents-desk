@@ -6,10 +6,11 @@
  * answering in the panel sees what somebody at that keyboard has already chosen instead of a blank
  * draft that would overwrite it.
  *
- * Only STATE crosses. The question's text, its options and their descriptions are the tool call,
- * which the panel already holds in full and untruncated -- where a screen has them wrapped, cut to
- * the pane width, and indistinguishable from the description lines under them. Sending the screen's
- * version of content the panel already has would be offering a worse copy of it.
+ * What the panel follows by is the STATE. The question's text, its options and their descriptions
+ * are the tool call, which the panel holds in full and untruncated wherever it has one -- where a
+ * screen has them wrapped, cut to the pane width, and indistinguishable from the description lines
+ * under them. The screen's copy still crosses (`prompt`, `detail`), for the turn whose tool call
+ * the panel never received; see `TmuxQuestionState`.
  */
 import type { TmuxQuestionState } from "@agentdesk/agent-feed-wire";
 import {
@@ -27,6 +28,7 @@ export function questionStateFrom(dialog: QuestionDialog): TmuxQuestionState {
     .filter((row) => !row.button)
     .map((row) => ({
       label: row.text,
+      detail: row.detail,
       // One field for two shapes, because a panel asks one question of them: is this the answer.
       // A multi-select row carries its own box; a single-select one marks its answer with a
       // trailing tick and leaves the cursor somewhere else entirely.
@@ -39,6 +41,7 @@ export function questionStateFrom(dialog: QuestionDialog): TmuxQuestionState {
   const free = other >= 0 ? dialog.rows[other]!.text : dialog.notes?.text;
   return {
     question: dialog.question,
+    prompt: dialog.prompt,
     review: dialog.review,
     multiSelect: dialog.multiSelect,
     // The Submit entry is dropped: it is a control, not a question, and a panel counting tabs

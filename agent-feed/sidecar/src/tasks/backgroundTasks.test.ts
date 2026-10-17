@@ -50,6 +50,7 @@ function sources(overrides: Partial<SnapshotSources> = {}): SnapshotSources {
     ownerPid: 1,
     uncorroboratedAfterMs: 5000,
     ownerAlive: true,
+    ownerWaiting: false,
     now: NOW,
     ...overrides,
   };
@@ -221,7 +222,7 @@ describe("assembleSnapshot", () => {
 
   test("a dead owner reports ownerAlive false rather than an ambiguous empty list", () => {
     const snapshot = assembleSnapshot(sources({ ownerAlive: false }));
-    expect(snapshot).toEqual({ running: [], finished: [], ownerAlive: false });
+    expect(snapshot).toEqual({ running: [], finished: [], ownerAlive: false, ownerWaiting: false });
   });
 });
 

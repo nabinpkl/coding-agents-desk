@@ -118,6 +118,7 @@ export function SessionComposer({
   pending,
   error,
   question,
+  ownerWaiting,
   cliInput,
   windowComposerClient,
   agentTerminal,
@@ -144,6 +145,8 @@ export function SessionComposer({
    * watch exists.
    */
   question: OpenAskUserQuestion | null;
+  /** The session's process is blocked on its terminal, which may hold a dialog `question` missed. */
+  ownerWaiting: boolean;
   /**
    * Whether this session is a Claude Code process in a terminal, and the way to type into it.
    * Resolved by the app, because it is a sidecar read and this component takes only the host.
@@ -251,7 +254,9 @@ export function SessionComposer({
   const sendAttachments = useSendAttachments(`${source}/${sessionId}`);  const tmuxComposer = useTmuxComposer(
     feed,
     tmuxComposerSession,
-    isClaude && (engaged || question !== null),
+    // A process blocked on its terminal attaches it too: a dialog the feed never reported is
+    // still standing there, and only the pane can say so (`questionFromPane`).
+    isClaude && (engaged || question !== null || ownerWaiting),
   );
 
   // Delivery priority is one explicit state, not several independent availability flags.

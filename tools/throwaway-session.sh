@@ -40,6 +40,11 @@ DIR="${THROWAWAY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # The built-in tools the probe may use: none unless named, e.g. THROWAWAY_TOOLS='Read,Bash'.
 TOOLS="${THROWAWAY_TOOLS:-}"
 READY_TIMEOUT="${THROWAWAY_READY_TIMEOUT:-60}"
+# `off` starts the session around proxy-agent rather than through it, so the live mirror never sees
+# its traffic and the panel has only the transcript and the pane -- what a turn looks like when the
+# capture drops mid-response. tmux hands every pane its server's global proxy variables, so they are
+# unset on the command itself rather than in this script's environment.
+PROXY="${THROWAWAY_PROXY:-on}"
 
 usage() {
   echo "usage: $(basename "$0") start|say|pane|stop <name> [text]" >&2
@@ -60,6 +65,9 @@ case "$verb" in
     id="$(uuidgen | tr 'A-Z' 'a-z')"
     args=(claude --model "$MODEL" --effort "$EFFORT" --session-id "$id" -n "$name" --strict-mcp-config)
     args+=(--tools "$TOOLS")
+    if [ "$PROXY" = off ]; then
+      args=(env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy "${args[@]}")
+    fi
     # One argument per array element, quoted by tmux's own `--` handling rather than by a string
     # this script assembles: a name with a space in it is what broke the last hand-rolled one.
     tmux new-session -d -s "$name" -c "$DIR" "${args[@]}"

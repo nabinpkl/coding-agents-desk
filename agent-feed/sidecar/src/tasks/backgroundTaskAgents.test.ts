@@ -23,6 +23,7 @@ function sources(overrides: Partial<SnapshotSources> = {}): SnapshotSources {
     ownerPid: 1,
     uncorroboratedAfterMs: 5000,
     ownerAlive: true,
+    ownerWaiting: false,
     now: NOW,
     ...overrides,
   };

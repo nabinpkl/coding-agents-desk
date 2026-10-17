@@ -103,6 +103,11 @@ const NOTES = "Notes:";
 const PANEL = /^[\u250c\u2502\u251c\u2514]/;
 /** In the footer only while a text field holds the keyboard, which is how focus is read here. */
 const EDITOR = "ctrl+g to edit in VS Code";
+/**
+ * The bar 2.1.296 draws down the left of a question's own rows, which is not part of what it says.
+ * Earlier builds drew the question bare.
+ */
+const QUESTION_BAR = /^│\s?/;
 /** One tab: its state glyph and its label, up to the next glyph or the closing arrow. */
 const TAB = /([☐☒✔])\s+([^☐☒✔→]+)/g;
 
@@ -112,6 +117,11 @@ export interface QuestionRow {
   number: number | null;
   /** What the row says. A wrapped label arrives here truncated, so only its start is reliable. */
   text: string;
+  /**
+   * The lines drawn under the row until the next one, joined with single spaces: its description
+   * and the tail of a wrapped label, which the screen indents alike. Empty when there are none.
+   */
+  detail: string;
   /** Whether the cursor is on this row, which is where typing and Space land. */
   cursor: boolean;
   /** A multi-select row's tick, or null on a row that draws no box. */
@@ -146,8 +156,10 @@ export interface QuestionNotes {
 /** A question dialog as the pane is drawing it right now. */
 export interface QuestionDialog {
   tabs: QuestionTab[];
-  /** The question being shown, or null on the review screen. */
+  /** The first line of the question being shown, or null on the review screen. */
   question: string | null;
+  /** The whole question as drawn, its wrapped lines joined, or null on the review screen. */
+  prompt: string | null;
   review: boolean;
   /** Whether this question's rows carry checkboxes, which changes what every key does. */
   multiSelect: boolean;
@@ -179,15 +191,32 @@ function reviewScreen(lines: readonly string[], ready: number): QuestionDialog |
     if (row) rows.push(row);
   }
   if (rows.length === 0) return null;
-  const opening = lastIndex(lines.slice(0, ready), (line) => RULE.test(line));
   return {
-    tabs: opening >= 0 ? tabRow(lines[opening + 1] ?? "") : [],
+    tabs: reviewTabs(lines, ready),
     question: null,
+    prompt: null,
     review: true,
     multiSelect: false,
     rows,
     notes: null,
   };
+}
+
+/**
+ * The review screen's tab row: the one nearest its own prose, not the line after the rule.
+ *
+ * A question screen taller than the pane leaves its tab row in the scrollback, and the review
+ * screen draws its own straight under it with no rule between (measured on 2.1.296). The stale
+ * row still says the question is unanswered, so reading the first one under the rule refused every
+ * finished answer of a tall dialog.
+ */
+function reviewTabs(lines: readonly string[], ready: number): QuestionTab[] {
+  const opening = lastIndex(lines.slice(0, ready), (line) => RULE.test(line));
+  for (let index = ready - 1; index > opening; index -= 1) {
+    const tabs = tabRow(lines[index]!);
+    if (tabs.length > 0) return tabs;
+  }
+  return [];
 }
 
 /** A question's own screen, found by the footer and bounded by the two rules above it. */
@@ -213,20 +242,40 @@ function questionScreen(lines: readonly string[]): QuestionDialog | null {
   // whole width, so cutting it to the band would truncate any question longer than the band is
   // wide -- which is most of them. Caught by a capture whose question is three characters too
   // long, having been invisible on one whose question was short enough to survive.
-  const asked = inside.find((line) => line.trim().length > 0);
-  if (!asked) return null;
+  const askedAt = inside.findIndex((line) => line.trim().length > 0);
+  if (askedAt < 0) return null;
+  const asked = questionText(inside[askedAt]!);
+  // The question's wrapped lines run on until the blank line before the options. Only the panel's
+  // copy of the content reads this; the driver matches on the first line.
+  const prompt: string[] = [];
+  for (const line of inside.slice(askedAt)) {
+    if (line.trim().length === 0 || ROW.test(line)) break;
+    prompt.push(questionText(line));
+  }
 
   const rows: QuestionRow[] = [];
+  const details: string[][] = [];
   for (const line of box) {
     const row = numberedRow(line) ?? buttonRow(line);
-    // A line this cannot parse is a wrapped label or a description, and is skipped rather than
-    // counted. Neither carries anything the driver acts on.
-    if (row) rows.push(row);
+    if (row) {
+      rows.push(row);
+      details.push([]);
+      continue;
+    }
+    // A line this cannot parse is a wrapped label or a description. Neither carries anything the
+    // driver acts on, so it is not a row; it is kept as the detail of the row above it, which is
+    // what a panel with no tool call to draw from shows under the label.
+    const said = line.trim();
+    if (said && details.length > 0 && !rows.at(-1)!.button) details.at(-1)!.push(said);
   }
   if (rows.length === 0) return null;
+  rows.forEach((row, at) => {
+    row.detail = details[at]!.join(" ");
+  });
   return {
     tabs,
-    question: asked.trim(),
+    question: asked,
+    prompt: prompt.join(" "),
     review: false,
     multiSelect: rows.some((row) => row.ticked !== null),
     rows,
@@ -262,6 +311,11 @@ function notesField(
   };
 }
 
+/** One row of the question's own text, without the bar a newer build draws beside it. */
+function questionText(line: string): string {
+  return line.trim().replace(QUESTION_BAR, "").trim();
+}
+
 /** The tab row's entries, or none when this line is not one. */
 function tabRow(line: string): QuestionTab[] {
   const tabs: QuestionTab[] = [];
@@ -284,6 +338,7 @@ function numberedRow(line: string): QuestionRow | null {
       number: Number(match[2]),
       text: box[2]!.trim(),
       cursor,
+      detail: "",
       ticked: box[1] === "✔",
       chosen: false,
       button: false,
@@ -295,6 +350,7 @@ function numberedRow(line: string): QuestionRow | null {
   return {
     number: Number(match[2]),
     text: (answered ? match[3]!.replace(/\s✔$/, "") : match[3]!).trim(),
+    detail: "",
     cursor,
     ticked: null,
     chosen: answered,
@@ -308,6 +364,7 @@ function buttonRow(line: string): QuestionRow | null {
   return {
     number: null,
     text: match[2]!,
+    detail: "",
     cursor: match[1] === MARKER,
     ticked: null,
     chosen: false,

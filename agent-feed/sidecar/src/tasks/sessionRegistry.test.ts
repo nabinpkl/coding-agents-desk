@@ -60,8 +60,26 @@ describe("liveSessionProcesses", () => {
         messagingSocketPath: "/tmp/cc-socks/9672.sock",
         entrypoint: "cli",
         tmuxSession: null,
+        waiting: false,
       },
     ]);
+  });
+
+  test("reads a process blocked on its terminal from the row's status", async () => {
+    // What the harness writes while a question dialog or a permission prompt stands in the pane.
+    const directory = await registryWith({
+      "9672.json": {
+        pid: 9672,
+        sessionId: SESSION,
+        cwd: "/x",
+        procStart,
+        status: "waiting",
+        waitingFor: "input needed",
+      },
+      "9673.json": { pid: 9673, sessionId: `${SESSION.slice(0, -1)}1`, cwd: "/x", procStart, status: "busy" },
+    });
+    const live = await liveSessionProcesses([row(9672, kernelStamp), row(9673, kernelStamp)], directory);
+    expect(live.map((entry) => [entry.pid, entry.waiting]).sort()).toEqual([[9672, true], [9673, false]]);
   });
 
   test("a record with no inbox is live, just not writable", async () => {
