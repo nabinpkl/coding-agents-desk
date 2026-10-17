@@ -430,6 +430,9 @@ with no rebuild, no reinstall, and no re-pair.
   typechecks with no error the running tree did not already have (`supervisor/typecheck.ts`,
   TypeScript 7 in a child, a second or two): a call saved before the declaration it names resolves
   and then dies on `ReferenceError` as it loads, which crash-looped this sidecar on 2026-10-16.
+  Errors in test files do not count: the sidecar never loads one, and the watcher does not judge
+  their saves, so a hold on one could never be lifted by fixing it (held from 21:57 to 22:04 on
+  2026-10-17, until an unrelated save arrived).
   Code that typechecks and still throws while loading gets through, and leaves nothing serving
   until the next save.
   Under `auto` it also waits until the sidecar's tree AND the panel's have been quiet for 3s

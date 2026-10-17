@@ -194,6 +194,27 @@ export function createSupervisorGate(io: SupervisorGateIO, options: SupervisorGa
   };
 }
 
+/**
+ * Whether a saved file is one the supervisor judges: source the sidecar can load, never a test.
+ *
+ * The same rule decides which type errors may hold the tree (`holdsTheTree`), and the two have to
+ * agree. When they did not, a type error that surfaced in a test fixture -- a wire type grew a field
+ * the fixture lacked -- held the sidecar, and fixing the fixture never made a batch, because test
+ * saves are not judged. The running sidecar stayed on the old tree with nothing left to retry it
+ * (measured 2026-10-17: held from 21:57 to 22:04, until an unrelated source edit arrived).
+ */
+export function judgesFile(path: string): boolean {
+  return /\.tsx?$/.test(path) && !/\.test\.tsx?$/.test(path);
+}
+
+/**
+ * The errors that may keep a tree from starting: those in files the running sidecar can load. A test
+ * file is never loaded by it, so an error there cannot stop it, and saving the fix would not be seen.
+ */
+export function holdsTheTree<T extends { file: string }>(errors: readonly T[]): T[] {
+  return errors.filter((error) => judgesFile(error.file));
+}
+
 /** The file's own name: the log line and the panel row both have one line to spend. */
 function base(path: string): string {
   return path.split("/").pop() || path;

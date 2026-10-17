@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createSupervisorGate, type SupervisorState } from "@/supervisor/supervisorGate";
+import { createSupervisorGate, holdsTheTree, judgesFile, type SupervisorState } from "@/supervisor/supervisorGate";
 
 const ROUTES = "/repo/agent-feed/sidecar/src/http/sessionRoutes.ts";
 const CONFIG = "/repo/agent-feed/sidecar/src/config.ts";
@@ -278,5 +278,27 @@ describe("the quiet window", () => {
     it.changed([{ path: ROUTES, failure: null }], null, 61_000, PANEL_QUIET);
     it.tick(90_000, PANEL_QUIET);
     expect(restarts).toEqual([]);
+  });
+});
+
+describe("which files can hold the tree", () => {
+  test("a test file is never judged, and its type errors never hold the sidecar", () => {
+    expect(judgesFile("/repo/src/claude-sdk/claudeSdkRunner.ts")).toBe(true);
+    expect(judgesFile("/repo/src/app/Card.tsx")).toBe(true);
+    expect(judgesFile("/repo/src/claude-sdk/claudeSdkSwitch.test.ts")).toBe(false);
+    expect(judgesFile("/repo/src/app/Card.test.tsx")).toBe(false);
+    expect(judgesFile("/repo/src/notes.md")).toBe(false);
+    const errors = [
+      { file: "/repo/src/claude-sdk/claudeSdkSwitch.test.ts", line: 11 },
+      { file: "/repo/src/claude-sdk/claudeSdkRunner.ts", line: 40 },
+    ];
+    expect(holdsTheTree(errors)).toEqual([{ file: "/repo/src/claude-sdk/claudeSdkRunner.ts", line: 40 }]);
+  });
+
+  test("whatever holds the tree is a file whose next save is judged, so fixing it releases it", () => {
+    // The stuck state this pins: an error in a file whose saves are ignored held the sidecar, and
+    // saving the fix produced no batch to clear it.
+    const files = ["/a/x.ts", "/a/x.test.ts", "/a/y.tsx", "/a/y.test.tsx", "/a/harness.ts"];
+    for (const error of holdsTheTree(files.map((file) => ({ file })))) expect(judgesFile(error.file)).toBe(true);
   });
 });

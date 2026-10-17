@@ -27,7 +27,13 @@ import {
   writeSupervisorDescriptor,
 } from "@/sidecarRegistry";
 import { readPanelActivity } from "@/supervisor/supervisorBoard";
-import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@/supervisor/supervisorGate";
+import {
+  createSupervisorGate,
+  holdsTheTree,
+  judgesFile,
+  type ParsedChange,
+  type SupervisorState,
+} from "@/supervisor/supervisorGate";
 import { declaredPackages, linkFailure } from "@/supervisor/supervisorLinks";
 import { ownSources } from "@/supervisor/supervisorSources";
 import { stopChild } from "@/supervisor/supervisorStop";
@@ -313,7 +319,7 @@ async function typed(): Promise<string | null> {
   }
   typecheckFailing = false;
   acceptTyped = result.accept;
-  const [first, ...more] = result.fresh;
+  const [first, ...more] = holdsTheTree(result.fresh);
   return first ? `type error, ${describeTypeError(first, more.length)}` : null;
 }
 
@@ -334,7 +340,7 @@ let judging: Promise<void> = Promise.resolve();
 let selfStale = false;
 
 function noteChange(path: string): void {
-  if (!/\.tsx?$/.test(path) || path.endsWith(".test.ts") || path.endsWith(".test.tsx")) return;
+  if (!judgesFile(path)) return;
   if (OWN.has(path)) selfStale = true;
   pending.add(path);
   clearTimeout(settle);
