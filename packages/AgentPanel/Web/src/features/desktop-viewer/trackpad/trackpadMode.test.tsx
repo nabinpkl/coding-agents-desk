@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
+import { useDeckHeight } from "@/features/desktop-viewer/trackpad/deckHeightPreference";
 import type { DesktopControlInput } from "@agentdesk/agent-feed-wire";
 
 const tileMock = vi.hoisted(() => ({
@@ -53,6 +54,7 @@ beforeEach(() => {
     disconnect() {}
   });
   localStorage.clear();
+  useDeckHeight.getState().resetDeckShare();
 });
 
 afterEach(() => {
@@ -111,6 +113,40 @@ describe("DesktopViewer trackpad deck", () => {
       expect(screen.queryByTestId("trackpad-deck")).not.toBeInTheDocument();
       expect(localStorage.getItem("agentdesk.desktop.trackpadDeck")).toBe("false");
     } finally {
+      media.mockRestore();
+    }
+  });
+
+  it("sizes the deck to the share of the viewer chosen in Tuning, and keeps that share", async () => {
+    const media = coarsePointer(true);
+    // jsdom lays nothing out, so give the viewer a height for the share to be a share of.
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({ height: 800 } as DOMRect);
+    try {
+      localStorage.setItem("agentdesk.desktop.trackpadDeck", "true");
+      tileMock.publishSource = true;
+      tileMock.controlVersion = 2;
+      render(<DesktopViewer transport={transport()} />);
+      const deck = await screen.findByTestId("trackpad-deck");
+      const box = screen.getByTestId("desktop-video-box");
+      expect(deck.style.height).toBe("304px");
+      const before = Number.parseFloat(box.style.bottom);
+
+      fireEvent.click(screen.getByRole("button", { name: "Tuning" }));
+      const slider = screen.getByLabelText("Trackpad height");
+      expect(slider).toHaveValue("0.38");
+      fireEvent.change(slider, { target: { value: "0.5" } });
+      expect(deck.style.height).toBe("400px");
+      // The picture gives up exactly what the deck took.
+      expect(Number.parseFloat(box.style.bottom)).toBe(before + 96);
+      expect(screen.getByText("50%")).toBeInTheDocument();
+      expect(JSON.parse(localStorage.getItem("agentdesk.desktop.trackpadDeckHeight")!).state)
+        .toEqual({ deckShare: 0.5 });
+
+      fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+      expect(deck.style.height).toBe("304px");
+    } finally {
+      rect.mockRestore();
       media.mockRestore();
     }
   });

@@ -3,7 +3,8 @@
 // The first five are the iPhone client's layout (`PairingViewController+Layout.swift`), checked
 // against it by `swiftParity.test.ts`. The deck's height is the web's own: the Swift pad filled
 // whatever its constraints left below the picture, and a browser box has no such layout to
-// inherit, so it takes a share of the viewer bounded at both ends.
+// inherit, so it takes the share of the viewer the reader chose in Tuning
+// (`deckHeightPreference.ts`), with a floor.
 
 /** The scroll strip's width. */
 export const SCROLL_STRIP_WIDTH = 60;
@@ -14,19 +15,14 @@ export const SCROLL_STRIP_HIT_OUTSET = 12;
 export const TRACKPAD_HIT_OUTSET = 12;
 export const TRACKPAD_STRIP_GAP = 8;
 
-/** The deck's share of the viewer's height, and the bounds that share is held to. */
-export const TRACKPAD_DECK_SHARE = 0.38;
-export const TRACKPAD_DECK_MIN_HEIGHT = 170;
-export const TRACKPAD_DECK_MAX_HEIGHT = 320;
+/** The shortest deck that still leaves a pad worth dragging on and room for its button row. */
+export const TRACKPAD_DECK_MIN_HEIGHT = 120;
 
 export const TRACKPAD_DECK_STORAGE_KEY = "agentdesk.desktop.trackpadDeck";
 
-/** How tall the deck is in a viewer this tall. */
-export function trackpadDeckHeight(viewerHeight: number): number {
-  return Math.round(Math.min(
-    TRACKPAD_DECK_MAX_HEIGHT,
-    Math.max(TRACKPAD_DECK_MIN_HEIGHT, viewerHeight * TRACKPAD_DECK_SHARE),
-  ));
+/** How tall the deck is in a viewer this tall, at this share of it. */
+export function trackpadDeckHeight(viewerHeight: number, share: number): number {
+  return Math.round(Math.max(TRACKPAD_DECK_MIN_HEIGHT, viewerHeight * share));
 }
 
 /**

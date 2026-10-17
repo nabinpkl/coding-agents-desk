@@ -37,6 +37,7 @@ import { DesktopKeyboardChrome } from "@/features/desktop-viewer/keyboard-input/
 import { useDesktopKeyboard } from "@/features/desktop-viewer/keyboard-input/useDesktopKeyboard";
 import { usePointerInputSession } from "@/features/desktop-viewer/pointer-input/pointerInputSession";
 import { TrackpadDeck } from "@/features/desktop-viewer/trackpad/TrackpadDeck";
+import { useDeckHeight } from "@/features/desktop-viewer/trackpad/deckHeightPreference";
 import {
   primaryPointerIsTouch,
   storeTrackpadDeck,
@@ -225,7 +226,8 @@ export function DesktopViewerSurface({
     && tile.kind === "playing";
   // Typing takes the bottom of the screen for the keyboard; the deck gives it back.
   const deckShown = touchDevice && pictureMode === "trackpad" && interactive && !keyboard.keyboardPresented;
-  const deckHeight = deckShown ? trackpadDeckHeight(viewerHeight) : 0;
+  const deckShare = useDeckHeight((state) => state.deckShare);
+  const deckHeight = deckShown ? trackpadDeckHeight(viewerHeight, deckShare) : 0;
   const zoomMode = useZoomMode();
   const overviewLayer = useOverviewLayer();
   const twoStreams = zoomMode === "crop" && overviewLayer;
