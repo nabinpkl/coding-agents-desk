@@ -241,6 +241,9 @@ function Limits({ state, now }: { state: LimitsState; now: () => number }) {
   if (state.kind !== "ready") {
     return <p className="text-xs text-muted-foreground">Reading limits...</p>;
   }
+  if (state.quotas.length === 0 && state.unavailable !== undefined) {
+    return <p className="text-xs text-muted-foreground">Plan usage unavailable ({state.unavailable}).</p>;
+  }
   if (state.quotas.length === 0) {
     // The one thing a reader genuinely cannot work out from the surface: the meters are missing
     // because none has been observed yet, not because they are at zero.

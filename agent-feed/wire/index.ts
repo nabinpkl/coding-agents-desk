@@ -207,6 +207,7 @@ export type {
   UsageStreamMessage,
   UsageTotals,
   UsageVendorId,
+  QuotaVendorId,
   VendorQuotas,
   VendorUsage,
 } from "./usage.ts";

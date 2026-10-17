@@ -102,6 +102,12 @@ export interface UsageQuota {
    * so a reader shown the number alone would read a two-day-old meter as current.
    */
   sampledAt: number;
+  /**
+   * The vendor's own status word for this window, passed through verbatim (OpenCode Go sends
+   * `"ok"`; no other value has been observed, so none is assumed). Absent for vendors that
+   * publish none.
+   */
+  status?: string;
 }
 
 export interface UsageCoverage {
@@ -150,10 +156,22 @@ export interface UsageReport {
  * have them in milliseconds instead of opening the whole Usage sweep to get at one row.
  */
 export interface VendorQuotas {
-  vendor: UsageVendorId;
+  vendor: QuotaVendorId;
   displayName: string;
   quotas: UsageQuota[];
+  /**
+   * Set when the vendor has a meter this machine is entitled to but it could not be read just now
+   * (a refused request, an unexpected body). A short reason, never a secret. The panel shows the
+   * meter as unavailable: an unreadable meter is not a 0% one.
+   */
+  unavailable?: string;
 }
+
+/**
+ * Whose meters `/api/limits` carries. A superset of `UsageVendorId` because OpenCode Go has a plan
+ * meter but no usage sweep, so it has no tab in the Usage modal and must not widen that id.
+ */
+export type QuotaVendorId = UsageVendorId | "opencode-go";
 
 /** Every vendor's live meters, and nothing else. */
 export interface QuotaReport {

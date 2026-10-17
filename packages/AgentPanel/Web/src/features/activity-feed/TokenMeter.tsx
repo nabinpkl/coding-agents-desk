@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { UsageQuota, UsageVendorId } from "@agentdesk/agent-feed-wire";
+import type { QuotaVendorId, UsageQuota } from "@agentdesk/agent-feed-wire";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TokenMeterDetails } from "@/features/activity-feed/TokenMeterDetails";
@@ -248,7 +248,7 @@ export function TokenMeter({
    * reading `5h` at different numbers side by side -- and either could be read as the one about
    * to stop you.
    */
-  vendor?: UsageVendorId | null;
+  vendor?: QuotaVendorId | null;
   /** The panel's Compact button, or null where this session's composer cannot run one. */
   compact?: CompactControl | null;
 }) {
@@ -332,7 +332,7 @@ export function TokenMeter({
       >
         <ModelChip model={usage.model} />
         <CacheCountdown usage={usage} />
-        <LimitChips quotas={accountWide(limits)} />
+        <LimitChips quotas={accountWide(limits)} unavailable={limits.kind === "ready" ? limits.unavailable : undefined} />
         <span className="flex flex-col items-end gap-[2px]">
           <span
             className={
@@ -414,7 +414,18 @@ function accountWide(limits: LimitsState): UsageQuota[] {
  * Nothing at all until a reading arrives: a chip reading `5h: 0%` before the first API response
  * would be a confident wrong answer, where an absent chip is merely quiet.
  */
-function LimitChips({ quotas }: { quotas: UsageQuota[] }) {
+function LimitChips({ quotas, unavailable }: { quotas: UsageQuota[]; unavailable?: string }) {
+  // A meter that exists but could not be read says so; it is never drawn as 0%.
+  if (quotas.length === 0 && unavailable !== undefined) {
+    return (
+      <span
+        title={`Plan usage unavailable: ${unavailable}`}
+        className="shrink-0 font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none text-muted-foreground/50"
+      >
+        usage n/a
+      </span>
+    );
+  }
   if (quotas.length === 0) return null;
   const at = Date.now();
   return (

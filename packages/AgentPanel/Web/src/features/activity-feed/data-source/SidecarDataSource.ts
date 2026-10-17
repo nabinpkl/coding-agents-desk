@@ -329,11 +329,18 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    * away. Pushed rather than polled because the sidecar is already told: the proxy observer hands
    * it the rate-limit headers as each Anthropic response comes back.
    */
-  subscribeLimits(handlers: {
-    onMessage: (message: LimitsStreamMessage) => void;
-    onError: (reason: string) => void;
-  }): () => void {
-    return this.transport.subscribe("/api/limits", {
+  subscribeLimits(
+    handlers: {
+      onMessage: (message: LimitsStreamMessage) => void;
+      onError: (reason: string) => void;
+    },
+    /**
+     * "opencode-go" opens the Go plan meter's own stream instead. It is separate because the
+     * sidecar polls for it, and that poll should run only while a Go meter is on screen.
+     */
+    stream: "opencode-go" | null = null,
+  ): () => void {
+    return this.transport.subscribe(stream === "opencode-go" ? "/api/limits/opencode-go" : "/api/limits", {
       onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as LimitsStreamMessage),
       onError: (reason) => handlers.onError(reason),
     });

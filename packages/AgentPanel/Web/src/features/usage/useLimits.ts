@@ -5,7 +5,7 @@ import type {
   LimitsStreamMessage,
   QuotaReport,
   UsageQuota,
-  UsageVendorId,
+  QuotaVendorId,
   VendorQuotas,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -17,7 +17,15 @@ export type LimitsState =
   | { kind: "idle" }
   | { kind: "loading" }
   /** Every window every vendor publishes, already ordered by the sidecar. Empty is a real answer. */
-  | { kind: "ready"; quotas: UsageQuota[] }
+  | {
+      kind: "ready";
+      quotas: UsageQuota[];
+      /**
+       * Why a selected vendor's meter could not be read (OpenCode Go), or absent. Unreadable is not
+       * 0%: surfaces say "unavailable" instead of drawing a bar.
+       */
+      unavailable?: string;
+    }
   | { kind: "error"; message: string };
 
 /** The store's own state, which keeps the vendors apart so each reader can pick its own. */
@@ -51,12 +59,19 @@ const IDLE: Reading = { kind: "idle" };
  * for the life of the page.
  */
 const entries = new WeakMap<LimitsFeed, Entry>();
+/**
+ * The OpenCode Go plan meter, one subscription per sidecar like the above but its own stream:
+ * the sidecar polls opencode.ai for it, so it is opened by a mounted Go meter (an expanded
+ * opencode session card on the Go plan) and by nothing else.
+ */
+const goEntries = new WeakMap<LimitsFeed, Entry>();
 
-function entryFor(feed: LimitsFeed): Entry {
-  const existing = entries.get(feed);
+function entryFor(feed: LimitsFeed, go: boolean): Entry {
+  const store = go ? goEntries : entries;
+  const existing = store.get(feed);
   if (existing) return existing;
   const made: Entry = { reading: IDLE, listeners: new Set(), live: 0, unsubscribe: null };
-  entries.set(feed, made);
+  store.set(feed, made);
   return made;
 }
 
@@ -104,9 +119,10 @@ function receive(entry: Entry, message: LimitsStreamMessage) {
 export function useLimits(
   feed: LimitsFeed | null,
   /** Show only this vendor's windows, or every vendor's where a surface wants them all. */
-  vendor: UsageVendorId | null = null,
+  vendor: QuotaVendorId | null = null,
 ): LimitsState {
-  const entry = feed ? entryFor(feed) : null;
+  const go = vendor === "opencode-go";
+  const entry = feed ? entryFor(feed, go) : null;
 
   const subscribe = useCallback(
     (onChange: () => void) => {
@@ -135,10 +151,13 @@ export function useLimits(
     // subscription, so a card reopening shows the last known meters at once and then corrects.
     if (entry.live === 1 && !entry.unsubscribe) {
       if (entry.reading.kind === "idle") publish(entry, { kind: "loading" });
-      entry.unsubscribe = feed.subscribeLimits({
-        onMessage: (message) => receive(entry, message),
-        onError: (reason) => publish(entry, { kind: "error", message: reason }),
-      });
+      entry.unsubscribe = feed.subscribeLimits(
+        {
+          onMessage: (message) => receive(entry, message),
+          onError: (reason) => publish(entry, { kind: "error", message: reason }),
+        },
+        go ? "opencode-go" : null,
+      );
     }
     return () => {
       entry.live -= 1;
@@ -146,7 +165,7 @@ export function useLimits(
       entry.unsubscribe?.();
       entry.unsubscribe = null;
     };
-  }, [entry, feed]);
+  }, [entry, feed, go]);
 
   return useMemo<LimitsState>(() => {
     if (reading.kind !== "ready") return reading;
@@ -155,6 +174,10 @@ export function useLimits(
     // numbers -- a surface that looks broken and is worse than that, because either could be read
     // as the one about to stop you.
     const vendors = vendor ? reading.vendors.filter((each) => each.vendor === vendor) : reading.vendors;
-    return { kind: "ready", quotas: vendors.flatMap((each) => each.quotas) };
+    const quotas = vendors.flatMap((each) => each.quotas);
+    const unavailable = vendors.find((each) => typeof each.unavailable === "string")?.unavailable;
+    return unavailable !== undefined && quotas.length === 0
+      ? { kind: "ready", quotas, unavailable }
+      : { kind: "ready", quotas };
   }, [reading, vendor]);
 }

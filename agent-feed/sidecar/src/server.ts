@@ -44,6 +44,7 @@ import { createTmuxRoutes } from "@/http/tmuxRoutes";
 import { createSubagentRoutes } from "@/http/session-routes/subagentRoutes";
 import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
 import { createLimitsRoutes } from "@/http/limitsRoutes";
+import { createOpencodeGoLimitsRoute } from "@/http/opencodeGoLimitsRoute";
 import { createUsageRoutes } from "@/http/usageRoutes";
 import { createWorkspaceFileRoutes } from "@/http/workspace-routes/workspaceFileRoutes";
 import { createWorkspaceHistoryRoutes } from "@/http/workspace-routes/workspaceHistoryRoutes";
@@ -315,6 +316,8 @@ const routes: RouteHandler[] = [
   // The rate-limit meters on their own, for the surfaces that want the meter without the sweep
   // behind it. Given the same scanner so Codex's meter comes from whatever the last sweep read.
   createLimitsRoutes(usageScanner),
+  // The OpenCode Go plan meter, polled only while a panel has one on screen.
+  createOpencodeGoLimitsRoute(),
   createParkRoutes(),
   // Desktop and window reads through the standalone helper. Not under `/api/sessions/`, so its
   // position here is only for readability.

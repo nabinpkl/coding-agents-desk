@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { LimitsStreamMessage, UsageQuota } from "@agentdesk/agent-feed-wire";
+import type { LimitsStreamMessage, QuotaVendorId, UsageQuota } from "@agentdesk/agent-feed-wire";
 import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 
 const USAGE = { current: 150_000, limit: 200_000, updatedAt: Date.now(), model: "claude-opus-5" };
@@ -44,7 +44,9 @@ function limits() {
         type: "report",
         report: { vendors: [{ vendor: "claude", displayName: "Claude", quotas }] },
       })),
-    pushVendors: (vendors: { vendor: "claude" | "codex"; displayName: string; quotas: UsageQuota[] }[]) =>
+    pushVendors: (
+      vendors: { vendor: QuotaVendorId; displayName: string; quotas: UsageQuota[]; unavailable?: string }[],
+    ) =>
       act(() => deliver?.({ type: "report", report: { vendors } })),
     pushError: (message: string) =>
       act(() => deliver?.({
@@ -352,5 +354,45 @@ describe("the panel's Compact button", () => {
     render(<TokenMeter usage={USAGE} />);
     fireEvent.click(meter());
     expect(screen.queryByRole("button", { name: "Compact this session's context" })).toBeNull();
+  });
+});
+
+describe("OpenCode Go plan meters", () => {
+  const go = (percent: number): UsageQuota => ({ ...quota("Go 5-hour limit", percent), windowMinutes: 300, planType: "go", status: "ok" });
+
+  it("draws only the Go windows for a Go session and keeps 0% as a real reading", () => {
+    const sidecar = limits();
+    render(<TokenMeter usage={USAGE} feed={sidecar.feed} vendor="opencode-go" />);
+    sidecar.pushVendors([
+      { vendor: "claude", displayName: "Claude", quotas: [quota("5-hour limit", 41)] },
+      { vendor: "opencode-go", displayName: "OpenCode Go", quotas: [go(0)] },
+    ]);
+    expect(screen.getByText("5h: 0%")).toBeInTheDocument();
+    expect(screen.queryByText("5h: 41%")).toBeNull();
+  });
+
+  it("says unavailable, never 0%, when the plan meter could not be read", () => {
+    const sidecar = limits();
+    render(<TokenMeter usage={USAGE} feed={sidecar.feed} vendor="opencode-go" />);
+    sidecar.pushVendors([
+      { vendor: "opencode-go", displayName: "OpenCode Go", quotas: [], unavailable: "HTTP 401" },
+    ]);
+    expect(screen.getByText("usage n/a")).toBeInTheDocument();
+    expect(screen.queryByText(/0%/)).toBeNull();
+    fireEvent.pointerEnter(meter());
+    expect(screen.getByRole("dialog", { name: "Context and limits" }).textContent)
+      .toContain("Plan usage unavailable (HTTP 401)");
+  });
+
+  it("opens the Go stream only for a Go meter and the shared stream for a Claude one", () => {
+    const goSide = limits();
+    const first = render(<TokenMeter usage={USAGE} feed={goSide.feed} vendor="opencode-go" />);
+    expect(goSide.subscribeLimits).toHaveBeenCalledWith(expect.anything(), "opencode-go");
+    first.unmount();
+    expect(goSide.unsubscribe).toHaveBeenCalledTimes(1);
+
+    const claudeSide = limits();
+    render(<TokenMeter usage={USAGE} feed={claudeSide.feed} vendor="claude" />);
+    expect(claudeSide.subscribeLimits).toHaveBeenCalledWith(expect.anything(), null);
   });
 });

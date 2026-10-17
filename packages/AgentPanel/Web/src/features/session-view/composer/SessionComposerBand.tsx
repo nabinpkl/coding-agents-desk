@@ -93,6 +93,9 @@ export function SessionComposerBand({
   terminalHeightBasis: HTMLElement | null;
   usage: TokenUsage | null;
 }) {
+  // An opencode session whose model comes from the Go plan (`opencode-go/<model>`).
+  const onOpencodeGo = session.source === "opencode"
+    && (model.sessionModel ?? usage?.model ?? "").startsWith("opencode-go/");
   // Split off the call id, which is the mirror's key rather than one of its props: the surface
   // pages between the call's questions, and a new call starts at its own first one.
   const question = questionMirror
@@ -339,8 +342,10 @@ export function SessionComposerBand({
                 // Opencode answers spend, not windows: Claude's 5h/7d chips are another
                 // vendor's answer about to stop you, and opencode's own limits live in
                 // its console rather than any feed this meter could read.
-                feed={isClaude || isCodex ? feed : null}
-                vendor={isCodex ? "codex" : isClaude ? "claude" : null}
+                // The exception is a session running on the OpenCode Go plan, whose meter the
+                // sidecar reads from the plan's own usage endpoint.
+                feed={isClaude || isCodex || onOpencodeGo ? feed : null}
+                vendor={isCodex ? "codex" : isClaude ? "claude" : onOpencodeGo ? "opencode-go" : null}
                 compact={compactControl(model)}
               />
             </div>
