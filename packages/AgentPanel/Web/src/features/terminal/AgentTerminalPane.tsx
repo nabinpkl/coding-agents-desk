@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -8,10 +9,12 @@ import {
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
+import { KEEP_IN_SIGHT_ATTRIBUTE } from "@/app/page/keyboardInset";
 import { terminalContextLabel } from "@/features/terminal/terminalContext";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { TerminalRestartButton } from "@/features/terminal/TerminalRestartButton";
 import { paneRoomBesideTranscript } from "@/features/terminal/terminalPaneRoom";
+import { keepLastDrawnRowInView } from "@/features/terminal/lastDrawnRowInView";
 import { TERMINAL_ZOOM, useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
@@ -239,29 +242,12 @@ export function AgentTerminalPane(
   }, [band, contentHeight]);
 
   /**
-   * Keeps the end of an echo's screen in view: its last DRAWN row, at the echo's bottom edge.
-   *
-   * An echo is shorter than the screen it shows, so the screen overflows and the mount scrolls --
-   * and the mount centres what it holds (`m-auto`), which puts a too-tall screen's MIDDLE on
-   * screen. The line an echo exists to show is the last one drawn, so it is scrolled to rather than
-   * hoped for. That is the screen's bottom row for a program that draws to the bottom, and well
-   * above it for Claude Code, whose box sits near the top of a tall pane over blank rows.
-   *
-   * Re-run when that row moves rather than on every write, and on the screen's height: a reflow
-   * moves it, and a checkpoint that repaints the same frame leaves the scroll where it already is.
-   * `height` too, because a reader dragging the peek taller changes how much fits above it.
+   * Keeps an echo's last drawn row at its bottom edge (`lastDrawnRowInView.ts`). Re-run when that
+   * row moves rather than on every write, on the screen's height, which a reflow moves, and on
+   * `height`, because a reader dragging the peek taller changes how much fits above it.
    */
-  useEffect(() => {
-    if (!echo) return;
-    const mount = mountRef.current;
-    if (!mount) return;
-    const row = lastDrawnRow === null ? null : mount.querySelector(".xterm-rows")?.children[lastDrawnRow];
-    if (!row) {
-      mount.scrollTop = mount.scrollHeight;
-      return;
-    }
-    const bottom = row.getBoundingClientRect().bottom - mount.getBoundingClientRect().top + mount.scrollTop;
-    mount.scrollTop = bottom - mount.clientHeight;
+  useLayoutEffect(() => {
+    if (echo && mountRef.current) keepLastDrawnRowInView(mountRef.current, lastDrawnRow);
   }, [echo, contentHeight, height, lastDrawnRow, mountRef]);
 
   /**
@@ -336,6 +322,9 @@ export function AgentTerminalPane(
     <section
       ref={paneRef}
       aria-label={`${terminalContextLabel(context)} terminal`}
+      // What a phone keyboard must not cover while the terminal has focus: the whole pane, key rail
+      // included, rather than xterm's hidden field alone (`keepTypingInSight`).
+      {...{ [KEEP_IN_SIGHT_ATTRIBUTE]: "" }}
       className={`flex min-h-[150px] shrink-0 flex-col border-t border-border ${
         band ? "" : "h-[38%]"
       }`}
@@ -348,7 +337,8 @@ export function AgentTerminalPane(
         aria-orientation="horizontal"
         onPointerDown={beginResize}
         onKeyDown={resizeWithKeyboard}
-        className="group relative h-2 shrink-0 cursor-row-resize bg-card focus-visible:outline-2 focus-visible:outline-primary"
+        // `touch-none`, or a phone takes the drag for a scroll a few pixels in and cancels it.
+        className="group relative h-2 shrink-0 cursor-row-resize touch-none bg-card focus-visible:outline-2 focus-visible:outline-primary"
       >
         <span className="absolute inset-x-0 top-0 h-px bg-border transition-colors group-hover:bg-primary" />
       </button>

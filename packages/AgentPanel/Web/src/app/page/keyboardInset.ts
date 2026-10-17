@@ -81,19 +81,31 @@ export function installKeyboardInset(): { remove(): void } {
 }
 
 /**
+ * Marks a region to keep in sight as a whole while a field inside it is typed into.
+ *
+ * A terminal is typed into through xterm's hidden one-line field, so bringing that field into view
+ * left the screen above it and the key rail below it under the keyboard.
+ */
+export const KEEP_IN_SIGHT_ATTRIBUTE = "data-keep-in-sight";
+
+/**
  * Keep the field being typed into in sight whenever `scroller` gets shorter.
  *
  * Shortening the document lifts whatever sits at the bottom of a scroller that fits it, but not a
  * field partway down a scroller with more under it -- a column with a floor under its height
- * leaves its lower fields beneath the keyboard. The browser scrolled the field into view on focus,
- * before the keyboard said how much it covers, so this does it again once the scroller has shrunk:
- * a resize of the box itself rather than another viewport listener, so it runs after the inset has
- * been laid out. Only a field inside `scroller`, and only as far as it takes.
+ * leaves its lower fields beneath the keyboard, and a Canvas card has a fixed height, so the
+ * Canvas shrinking moved none of it. The browser scrolled the field into view on focus, before the
+ * keyboard said how much it covers, so this does it again once the scroller has shrunk: a resize
+ * of the box itself rather than another viewport listener, so it runs after the inset has been
+ * laid out. Only a field inside `scroller`, and only as far as it takes; the region around it
+ * when one is marked (`KEEP_IN_SIGHT_ATTRIBUTE`).
  */
 export function keepTypingInSight(scroller: HTMLElement): { remove(): void } {
   const observer = new ResizeObserver(() => {
     const active = document.activeElement;
-    if (typesText(active) && scroller.contains(active)) active.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (!typesText(active) || !scroller.contains(active)) return;
+    const region = active.closest<HTMLElement>(`[${KEEP_IN_SIGHT_ATTRIBUTE}]`);
+    (region && scroller.contains(region) ? region : active).scrollIntoView({ block: "nearest", inline: "nearest" });
   });
   observer.observe(scroller);
   return { remove: () => observer.disconnect() };

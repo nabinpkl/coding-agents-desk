@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import {
@@ -16,6 +16,7 @@ import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedC
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
+import { keepTypingInSight } from "@/app/page/keyboardInset";
 import type { MachineError } from "@/features/bots/useBots";
 
 /**
@@ -127,6 +128,13 @@ export function BotCanvasList({
   // asked how much room a card has -- and the strip is what a move reads card positions from.
   const canvas = useRef<HTMLDivElement | null>(null);
   const list = useRef<HTMLUListElement | null>(null);
+  // A card has a fixed height, so a phone keyboard shortening the page shortens this scroller and
+  // leaves the card's composer and terminal where they were: under the keyboard. Scroll them back.
+  useEffect(() => {
+    if (!canvas.current) return;
+    const keeping = keepTypingInSight(canvas.current);
+    return () => keeping.remove();
+  }, []);
   // Moved by id rather than by these indices: the strip is showing a subset of the roster -- a
   // detached Bot has no card, and a hidden machine's are filtered out -- while the order a drop
   // rewrites is the whole roster's, and the sidebar's list draws from that same one.

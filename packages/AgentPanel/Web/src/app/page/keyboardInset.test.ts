@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { keepTypingInSight, keyboardInset, typesText } from "@/app/page/keyboardInset";
+import { KEEP_IN_SIGHT_ATTRIBUTE, keepTypingInSight, keyboardInset, typesText } from "@/app/page/keyboardInset";
 
 describe("keyboardInset", () => {
   it("gives back the strip a keyboard covers", () => {
@@ -82,6 +82,21 @@ describe("keepTypingInSight", () => {
     field.focus();
     resize();
     expect(field.scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+  });
+
+  it("brings a marked region into sight whole, not just the field inside it", () => {
+    // A terminal is typed into through xterm's hidden field; its screen and key rail are the pane.
+    const { scroller, field, resize } = setUp();
+    const pane = document.createElement("section");
+    pane.setAttribute(KEEP_IN_SIGHT_ATTRIBUTE, "");
+    pane.scrollIntoView = vi.fn();
+    scroller.append(pane);
+    pane.append(field);
+    keepTypingInSight(scroller);
+    field.focus();
+    resize();
+    expect(pane.scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    expect(field.scrollIntoView).not.toHaveBeenCalled();
   });
 
   it("leaves a field outside the scroller, and stops once removed", () => {

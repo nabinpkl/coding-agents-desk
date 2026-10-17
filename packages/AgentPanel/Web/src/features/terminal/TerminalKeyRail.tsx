@@ -43,7 +43,9 @@ export function TerminalKeyRail({
       // with it, which is the one thing this row exists to work alongside.
       onPointerDown={(event) => event.preventDefault()}
       onMouseDown={(event) => event.preventDefault()}
-      className="grid h-9 shrink-0 grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(2,minmax(0,1fr))] gap-1 border-t border-border px-1.5 py-1"
+      // As tall as its keys rather than a fixed height: the arrow pad's two rows need 38px, and a
+      // 36px rail let them hang over the footer below. Taking the room pushes the screen up instead.
+      className="grid shrink-0 grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(2,minmax(0,1fr))] gap-1 border-t border-border px-1.5 py-1"
     >
       <KeyRailButton label="Esc" onClick={() => onKey("escape")} />
       <KeyRailButton label="Tab" onClick={() => onKey("tab")} />
