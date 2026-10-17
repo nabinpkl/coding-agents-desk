@@ -66,7 +66,8 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
     setSending(true);
     setFailure(null);
     try {
-      await messages.send({ to, body: body.trim() });
+      // What the owner writes to an agent is an instruction, so it goes as a request.
+      await messages.send({ to, body: body.trim(), kind: "request" });
       setBody("");
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import type { DirectoryEntry, Message, MessageAddress } from "@agentdesk/agent-feed-wire";
+import type { DirectoryEntry, Message, MessageAddress, SentMessageKind } from "@agentdesk/agent-feed-wire";
 import type { HubHandle } from "@/features/activity-feed/data-source/layers/SidecarHub";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { createSourceStore, useSourceStore } from "@/features/activity-feed/data-source/sourceStore";
@@ -18,7 +18,7 @@ export interface MessagesHandle {
   load: () => void;
   /** Re-reads threads and the directory. Called after every send, so the state shown is the hub's. */
   refresh: () => Promise<void>;
-  send: (input: { to: string; body: string; kind?: "request" | "notice" }) => Promise<void>;
+  send: (input: { to: string; body: string; kind: SentMessageKind }) => Promise<void>;
   reply: (messageId: string, body: string) => Promise<void>;
   cancel: (messageId: string) => Promise<void>;
   /** Directory entries a person can be addressed by, Bots and sessions, human excluded. */
@@ -101,7 +101,7 @@ export function useMessages(hub: HubHandle): MessagesHandle {
   const open = useCallback(() => load(hub), [hub]);
   const reread = useCallback(() => refresh(hub), [hub]);
   const send = useCallback(
-    (input: { to: string; body: string; kind?: "request" | "notice" }) => act(hub, () => hub.send(input)),
+    (input: { to: string; body: string; kind: SentMessageKind }) => act(hub, () => hub.send(input)),
     [hub],
   );
   const reply = useCallback((messageId: string, body: string) => act(hub, () => hub.reply(messageId, body)), [hub]);

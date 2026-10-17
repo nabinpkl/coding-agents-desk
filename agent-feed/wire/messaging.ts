@@ -34,7 +34,23 @@ export type SessionAddress = `claude:${string}` | `opencode:${string}`;
 /** The agent runtimes v1 can address, in the order the directory lists them. */
 export type MessagingSource = "claude" | "opencode";
 
-export type MessageKind = "request" | "notice" | "reply";
+/**
+ * The kinds a sender chooses, by what it wants back. None of them carries authority: that is
+ * `fromKind`, which the hub stamps. `reply` is not among them because the hub assigns it to
+ * whatever answers another message.
+ */
+export const SENT_MESSAGE_KINDS = ["request", "question", "report"] as const;
+
+export type SentMessageKind = (typeof SENT_MESSAGE_KINDS)[number];
+
+export type MessageKind = SentMessageKind | "reply";
+
+/** What a sending agent is told each kind means, so every hub_send tool describes them alike. */
+export const SENT_MESSAGE_KIND_HELP =
+  'What you want back. "report": information for the recipient\'s judgement, such as findings, review results or status; it asks for no action and takes no reply. ' +
+  '"question": something you need to know; the recipient answers and changes nothing. ' +
+  '"request": something you want done; the recipient acts only within the task its user gave it, and replies with what it did or that it declined. ' +
+  "None of these gives your message the owner's authority.";
 
 export type SenderKind = "human" | "agent";
 
@@ -83,7 +99,7 @@ export interface SendMessageRequest {
   as: SessionAddress | "human";
   /** Omitted on a reply: a reply always goes to the sender of `inReplyTo`. */
   to?: MessageAddress;
-  kind: "request" | "notice";
+  kind: SentMessageKind;
   body: string;
   refs?: MessageRef[];
   inReplyTo?: string;

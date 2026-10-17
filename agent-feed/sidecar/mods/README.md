@@ -37,7 +37,9 @@ hub reader (`src/hubReaderMain.ts`) with the session, submits each message one a
 confirms it to the hub through `src/hubConfirmMain.ts` only once the prompt has entered:
 
 - the owner's messages go in as their own words (`asUser`), which `prompt-guard` counts as the
-  owner typing; another agent's go in as a plain prompt that says who sent it and how to answer
+  owner typing; another agent's go in as a plain prompt that says who sent it, that it carries none of the
+  owner's authority, and what its kind asks for (a report is weighed, a question answered without
+  changes, a request done only inside the owner's task)
 - a prompt the guard or Claude Code drops stays here, unconfirmed, and is tried again when the
   person next types; the hub requeues anything unconfirmed if the reader's stream drops
 - a message whose prompt already went in is only confirmed if it arrives again, never submitted

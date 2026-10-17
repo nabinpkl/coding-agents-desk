@@ -10,6 +10,7 @@ import type {
   SenderKind,
   SessionAddress,
 } from "@agentdesk/agent-feed-wire";
+import { SENT_MESSAGE_KINDS, type SentMessageKind } from "@agentdesk/agent-feed-wire";
 import type { Principal } from "@/config";
 import { botAddress, Directory, isAddress, memberAddress, sessionAddress } from "@/directory";
 import { publicMessage, type HubStore, type StoredMessage } from "@/store";
@@ -55,6 +56,10 @@ export interface SendInput {
   body?: unknown;
   refs?: unknown;
   inReplyTo?: unknown;
+}
+
+function isSentKind(kind: unknown): kind is SentMessageKind {
+  return (SENT_MESSAGE_KINDS as readonly unknown[]).includes(kind);
 }
 
 const FORGED_ENVELOPE = /<\/?\s*channel\b/i;
@@ -194,7 +199,7 @@ export class Messages {
       if (typeof input.inReplyTo !== "string") throw new InvalidMessage("inReplyTo must be a message id");
       parent = this.store.getMessage(input.inReplyTo);
       if (!parent) throw new NotFound(`message ${input.inReplyTo} not found`);
-      if (parent.kind === "notice") throw new Refused("a notice takes no reply");
+      if (parent.kind === "report") throw new Refused("a report takes no reply; to answer it, send a message of your own");
       // A reply names the sender of what it answers, so it is exempt from the Bot-member rule on the
       // recipient side: a session the owner deliberately involved must be able to answer even if the
       // owner has since taken it out of a Bot. The sender check in `sender` is the guard that matters,
@@ -207,7 +212,7 @@ export class Messages {
       if (!isAddress(input.to)) {
         throw new InvalidMessage('to must be "human" or a Bot address: "bot:<id>", or "bot:<id>/<sessionId>" when the Bot curates several sessions');
       }
-      if (input.kind !== "request" && input.kind !== "notice") throw new InvalidMessage("kind must be request or notice");
+      if (!isSentKind(input.kind)) throw new InvalidMessage(`kind must be one of ${SENT_MESSAGE_KINDS.join(", ")}`);
       to = input.to;
       kind = input.kind;
     }
@@ -257,7 +262,8 @@ export class Messages {
         createdAt: now.toISOString(),
         expiresAt: new Date(now.getTime() + LIMITS.ttlMs).toISOString(),
       });
-      if (parent && parent.kind === "request") this.store.markAnswered(parent.id, id);
+      // A request and a question are owed an answer; the reply settles them.
+      if (parent && (parent.kind === "request" || parent.kind === "question")) this.store.markAnswered(parent.id, id);
       return row;
     });
     this.pump();
@@ -289,7 +295,7 @@ export class Messages {
     return this.store.threadsFor([session], bots, limit).map((t) => t.map(publicMessage));
   }
 
-  /** Requests and notices that reached a session, or wait for it, and are not answered yet. */
+  /** Messages that reached a session, or wait for it, and are not answered yet. */
   inbox(session: SessionAddress): Message[] {
     return this.store.openFor(session).filter((m) => m.kind !== "reply" || m.state !== "answered").map(publicMessage);
   }

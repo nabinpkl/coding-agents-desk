@@ -13,7 +13,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
+import type { DirectoryEntry, Message, SentMessageKind } from "@agentdesk/agent-feed-wire";
+import { SENT_MESSAGE_KIND_HELP, SENT_MESSAGE_KINDS } from "@agentdesk/agent-feed-wire";
 import { z } from "zod";
 import { Unauthorized, type Identified } from "@/auth";
 import type { Messages } from "@/messages";
@@ -70,15 +71,15 @@ export function buildMcpServer(deps: Pick<RouteDeps, "messages" | "limiter" | "d
   server.registerTool(
     "hub_send",
     {
-      description: "Start a conversation on the agent messaging hub: a request (expects a reply) or a notice (FYI) to the owner (\"human\") or a Bot (\"bot:<id>\", or \"bot:<id>/<sessionId>\" when the Bot curates several sessions). session_id names the opencode session sending, as shown in hub_directory.",
+      description: "Start a conversation on the agent messaging hub: a request, a question or a report to the owner (\"human\") or a Bot (\"bot:<id>\", or \"bot:<id>/<sessionId>\" when the Bot curates several sessions). session_id names the opencode session sending, as shown in hub_directory.",
       inputSchema: {
         to: z.string(),
         body: z.string(),
-        kind: z.enum(["request", "notice"]).default("request"),
+        kind: z.enum(SENT_MESSAGE_KINDS).describe(SENT_MESSAGE_KIND_HELP),
         session_id: z.string(),
       },
     },
-    async ({ to, body, kind, session_id }: { to: string; body: string; kind: "request" | "notice"; session_id: string }) => {
+    async ({ to, body, kind, session_id }: { to: string; body: string; kind: SentMessageKind; session_id: string }) => {
       try {
         const { identified } = context();
         deps.limiter?.take(identified.clientId, "writes", "mcp hub_send");

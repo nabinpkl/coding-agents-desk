@@ -124,7 +124,7 @@ describe("MessagesPanel", () => {
     await waitFor(() => {
       // The address sent is the one the hub published for that session, not a session id assembled
       // here: a Bot curating one session gives that session the Bot's own address.
-      expect(data.send).toHaveBeenCalledWith({ to: "bot:fixer/two", body: "when you are up" });
+      expect(data.send).toHaveBeenCalledWith({ to: "bot:fixer/two", body: "when you are up", kind: "request" });
     });
   });
 

@@ -143,7 +143,7 @@ describe("mcp owner login", () => {
       await publish([["abot", A]]);
       const c = await connectEmail("owner@example.com");
       try {
-        const sent = await c.callTool({ name: "hub_send", arguments: { to: "human", body: "owner note", kind: "notice", session_id: A } });
+        const sent = await c.callTool({ name: "hub_send", arguments: { to: "human", body: "owner note", kind: "report", session_id: A } });
         expect(sent.isError).toBeFalsy();
         expect(JSON.parse((sent.content as [{ text: string }])[0]!.text)).toMatchObject({ from: `opencode:${A}`, to: "human" });
       } finally {
@@ -191,7 +191,7 @@ describe("mcp tools", () => {
     const b = await streamSession(B);
     const c = await connect("mac.access");
     try {
-      const result = await c.callTool({ name: "hub_send", arguments: { to: "human", body: "hi", kind: "notice", session_id: B } });
+      const result = await c.callTool({ name: "hub_send", arguments: { to: "human", body: "hi", kind: "report", session_id: B } });
       expect(result.isError).toBe(true);
       expect((result.content as [{ text: string }])[0]!.text).toContain("no published Bot");
     } finally {

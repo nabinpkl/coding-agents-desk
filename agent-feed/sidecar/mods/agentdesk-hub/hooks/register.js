@@ -70,7 +70,17 @@ async function pump($) {
     for (;;) {
       const head = run.queue.head()
       if (!head || run !== current) return
-      const { text, asUser } = framePrompt(head)
+      let framed
+      try {
+        framed = framePrompt(head)
+      } catch (err) {
+        // A message this mod cannot frame stays unconfirmed, so the hub keeps it, and is set aside
+        // here rather than holding back every message behind it.
+        $.ui.log(`could not deliver the message from ${head.fromName}: ${String(err)}`)
+        run.queue.setAsideHead()
+        continue
+      }
+      const { text, asUser } = framed
       // Recorded before the submit, because a reload of this mod can land while the prompt goes
       // in, and then nothing after the submit runs.
       await setId($, SENT_KEY, run.sid, head.message.id, true)

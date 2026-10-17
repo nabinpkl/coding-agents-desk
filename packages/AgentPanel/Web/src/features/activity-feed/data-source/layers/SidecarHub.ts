@@ -8,7 +8,7 @@
  * machine's sessions.
  */
 
-import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
+import type { DirectoryEntry, Message, SentMessageKind } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { parse } from "@/features/activity-feed/data-source/sidecarRoutes";
 
@@ -18,7 +18,7 @@ export interface HubHandle {
   /** The threads the owner is part of, newest activity first. */
   threads(): Promise<Message[][]>;
   /** Starts a thread as the owner. `to` is an address or a directory name. */
-  send(input: { to: string; body: string; kind?: "request" | "notice" }): Promise<Message>;
+  send(input: { to: string; body: string; kind: SentMessageKind }): Promise<Message>;
   /** Answers a message in its own thread, which is how the owner replies in the inbox. */
   reply(messageId: string, body: string): Promise<Message>;
   /** Cancels a message still queued for a recipient that is not there yet. */
@@ -36,10 +36,10 @@ export class SidecarHub implements HubHandle {
     return parse<Message[][]>(await this.transport.request("GET", "/api/hub/threads"));
   }
 
-  async send(input: { to: string; body: string; kind?: "request" | "notice" }): Promise<Message> {
+  async send(input: { to: string; body: string; kind: SentMessageKind }): Promise<Message> {
     return parse<Message>(
       await this.transport.request("POST", "/api/hub/messages", {
-        body: { to: input.to, body: input.body, ...(input.kind ? { kind: input.kind } : {}) },
+        body: { to: input.to, body: input.body, kind: input.kind },
       }),
     );
   }

@@ -37,9 +37,9 @@ export function threadState(thread: Message[]): ThreadState {
   if (!last) return "open";
   if (last.state === "queued") return "waiting";
   if (last.state === "expired" || last.state === "cancelled") return "closed";
-  // An agent's request that has not been replied to is the one thing that is owed to the owner.
-  if (last.kind === "request" && last.from !== "human" && last.state === "delivered") return "needs-you";
-  if (last.kind === "request" && last.from !== "human" && last.state === "pushed") return "needs-you";
+  // An agent's request or question that has not been replied to is what is owed to the owner.
+  const owed = (last.kind === "request" || last.kind === "question") && last.from !== "human";
+  if (owed && (last.state === "delivered" || last.state === "pushed")) return "needs-you";
   return "done";
 }
 

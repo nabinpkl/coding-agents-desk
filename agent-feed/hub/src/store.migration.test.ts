@@ -63,6 +63,7 @@ function atVersionTwo(file: string): void {
   insert.run("delivered-to-bot", "t4", "human", "human", "bot:y", "request", "aimed at a Bot", "[]", 1, "delivered", "claude:s9", "2026-01-01", "2027-01-01");
   insert.run("queued-to-bot", "t5", "human", "human", "bot:y", "request", "aimed at a Bot, waiting", "[]", 1, "queued", null, "2026-01-01", "2027-01-01");
   insert.run("queued-bare", "t6", "human", "human", "claude:s7", "request", "aimed at a bare session", "[]", 1, "queued", null, "2026-01-01", "2027-01-01");
+  insert.run("delivered-notice", "t7", "human", "human", "bot:y", "notice", "an old notice", "[]", 0, "delivered", "claude:s9", "2026-01-01", "2027-01-01");
   db.close();
 }
 
@@ -130,7 +131,19 @@ describe("the Bot-address migration", () => {
       expect(columns).toContain("to_session");
       expect(columns).not.toContain("fallback_bot");
       const version = (new Database(file).query("PRAGMA user_version").get() as { user_version: number }).user_version;
-      expect(version).toBe(3);
+      expect(version).toBe(4);
+    });
+  });
+});
+
+describe("the message-kind migration", () => {
+  test("a stored notice becomes a report, the kind that took its place, and other kinds are kept", () => {
+    withDb(atVersionTwo, (file) => {
+      const store = new HubStore(file);
+      expect(store.getMessage("delivered-notice")?.kind).toBe("report");
+      expect(store.getMessage("delivered-notice")?.body).toBe("an old notice");
+      expect(store.getMessage("delivered-to-bot")?.kind).toBe("request");
+      store.close();
     });
   });
 });

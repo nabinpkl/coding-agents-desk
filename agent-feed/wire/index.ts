@@ -343,5 +343,7 @@ export type {
   ReplyMessageRequest,
   SendMessageRequest,
   SenderKind,
+  SentMessageKind,
   SessionAddress,
 } from "./messaging.ts";
+export { SENT_MESSAGE_KIND_HELP, SENT_MESSAGE_KINDS } from "./messaging.ts";

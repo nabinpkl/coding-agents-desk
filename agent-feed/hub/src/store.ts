@@ -152,6 +152,45 @@ const MIGRATIONS: readonly string[] = [
   CREATE INDEX messages_from ON messages (from_addr, created_at);
   CREATE INDEX messages_to_session ON messages (to_session, state);
   `,
+  // A sender now says what it wants back: a request (do this), a question (tell me) or a report
+  // (information for your judgement). A notice was the FYI that a report now is, and took no reply
+  // the same way, so stored notices become reports. The kind sits in a CHECK, which SQLite cannot
+  // alter, so the table is rebuilt like the migrations before it.
+  `
+  CREATE TABLE messages_with_kinds (
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            TEXT NOT NULL UNIQUE,
+    thread_id     TEXT NOT NULL,
+    in_reply_to   TEXT,
+    from_addr     TEXT NOT NULL,
+    from_kind     TEXT NOT NULL CHECK (from_kind IN ('human', 'agent')),
+    to_addr       TEXT NOT NULL,
+    to_session    TEXT,
+    kind          TEXT NOT NULL CHECK (kind IN ('request', 'question', 'report', 'reply')),
+    body          TEXT NOT NULL,
+    refs_json     TEXT NOT NULL,
+    hops          INTEGER NOT NULL,
+    state         TEXT NOT NULL CHECK (state IN ('queued', 'pushed', 'delivered', 'answered', 'expired', 'cancelled')),
+    pushed_stream TEXT,
+    delivered_to  TEXT,
+    delivered_at  TEXT,
+    answered_by   TEXT,
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL
+  );
+  INSERT INTO messages_with_kinds
+    SELECT seq, id, thread_id, in_reply_to, from_addr, from_kind, to_addr, to_session,
+           CASE kind WHEN 'notice' THEN 'report' ELSE kind END,
+           body, refs_json, hops, state, pushed_stream, delivered_to, delivered_at, answered_by,
+           created_at, expires_at
+    FROM messages;
+  DROP TABLE messages;
+  ALTER TABLE messages_with_kinds RENAME TO messages;
+  CREATE INDEX messages_thread ON messages (thread_id, seq);
+  CREATE INDEX messages_state ON messages (state, seq);
+  CREATE INDEX messages_from ON messages (from_addr, created_at);
+  CREATE INDEX messages_to_session ON messages (to_session, state);
+  `,
 ];
 
 interface MessageRow {
