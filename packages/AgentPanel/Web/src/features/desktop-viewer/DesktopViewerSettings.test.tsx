@@ -62,14 +62,16 @@ describe("the viewer's settings popover", () => {
     expect(screen.queryByLabelText("Mac swipe direction")).toBeNull();
   });
 
-  it("closes on a press outside it and on Escape, but not on a press inside", () => {
+  it("closes on a tap outside it and on Escape, but not on a tap inside", () => {
     renderSettings();
     const trigger = screen.getByRole("button", { name: "Viewer settings" });
     fireEvent.click(trigger);
-    fireEvent.pointerDown(screen.getByLabelText("Desktop stream status"));
+    fireEvent.click(screen.getByLabelText("Desktop stream status"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.pointerDown(document.body);
+    // Outside is a layer of its own, so the tap that closes it reaches nothing under it.
+    fireEvent.click(screen.getByTestId("viewer-settings-dismiss"));
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByTestId("viewer-settings-dismiss")).toBeNull();
 
     fireEvent.click(trigger);
     fireEvent.keyDown(document, { key: "Escape" });

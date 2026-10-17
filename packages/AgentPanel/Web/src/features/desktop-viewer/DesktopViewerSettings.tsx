@@ -9,6 +9,10 @@
 // Positioned inside the dock rather than portalled: the dock is the viewer's top layer and the
 // popover opens upward into the viewer, so no ancestor between them clips it, and it hides with
 // the dock when the keyboard takes the bottom of the screen.
+//
+// A press outside it only closes it. Under it is a live desktop, where a tap is a click on the
+// Mac, so dismissing by listening on the document would let the same press go on to click
+// whatever was behind the popover. A transparent layer over the viewer takes that press instead.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Settings2 } from "lucide-react";
@@ -43,7 +47,6 @@ export function DesktopViewerSettings({
   hidden: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   const zoomMode = useZoomMode();
@@ -54,26 +57,19 @@ export function DesktopViewerSettings({
   useEffect(() => { if (hidden) setOpen(false); }, [hidden]);
   useEffect(() => {
     if (!open) return;
-    // `composedPath`, not `contains`: a control inside that removes itself on press (the Overview
-    // row does when Crop is turned off) is already detached by the time this runs.
-    const outside = (event: PointerEvent) => {
-      if (root.current && !event.composedPath().includes(root.current)) setOpen(false);
-    };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setOpen(false);
       trigger.current?.focus();
     };
-    document.addEventListener("pointerdown", outside);
     document.addEventListener("keydown", escape);
     return () => {
-      document.removeEventListener("pointerdown", outside);
       document.removeEventListener("keydown", escape);
     };
   }, [open]);
 
   return (
-    <div ref={root} className="relative shrink-0">
+    <div className="relative shrink-0">
       <button
         ref={trigger}
         type="button"
@@ -90,11 +86,21 @@ export function DesktopViewerSettings({
         {attention ? <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-amber-400" /> : null}
       </button>
       {open ? (
+        // Closes on the click rather than the press, so it is still here for the whole press: gone
+        // at pointerdown, the release and its click would land on the picture under it.
+        <div
+          data-testid="viewer-settings-dismiss"
+          aria-hidden
+          onClick={() => setOpen(false)}
+          className="pointer-events-auto fixed inset-0 z-40 touch-none"
+        />
+      ) : null}
+      {open ? (
         <div
           id={panelId}
           role="dialog"
           aria-label="Viewer settings"
-          className="absolute right-0 bottom-full mb-2 flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-xl
+          className="pointer-events-auto absolute right-0 bottom-full z-50 mb-2 flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-xl
             border border-white/15 bg-neutral-950/95 p-3 text-[11px] text-white shadow-lg"
         >
           <p aria-label="Desktop stream status" className="truncate font-mono text-[10px] text-white/70">{status}</p>
