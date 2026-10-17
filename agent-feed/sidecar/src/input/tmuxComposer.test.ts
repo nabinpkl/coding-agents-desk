@@ -280,6 +280,59 @@ test("answers nothing for a dialog, whose menu cursor is not a prompt to type in
   expect(composerBox({ screen: MODEL_PICKER, cursor: { row: 13, column: 2 } })).toBeNull();
 });
 
+/** A title too wide for an 80-column pane, as 2.1.302 draws it: cut with `…`, one `─` left. */
+const CUT_TITLE = "\u001b[38;5;244m Curtis (2026 oct 6 search for gitlab transcent hackathon and prepare context… ─";
+const FULL_RULE = `\u001b[38;5;244m${"─".repeat(80)}`;
+
+/** Captured 2026-10-17 from a throwaway renamed to a long title, typed until it wrapped twice. */
+const WRAPPED_UNDER_CUT_TITLE = [
+  "     hackathon and prepare context for the agent)",
+  "",
+  CUT_TITLE,
+  "\u001b[39m❯ first line of a long draft that should wrap across several rows of this",
+  "  narrow eighty column pane so that the box grows taller than one row and",
+  "  keeps going for a third",
+  FULL_RULE,
+  "\u001b[39m  \u001b[38;5;246magent-desk\u001b[39m  \u001b[38;5;246mHaiku\u001b[39m \u001b[38;5;246m4.5\u001b[39m",
+].join("\n");
+
+const WRAPPED_ROWS = [
+  "first line of a long draft that should wrap across several rows of this",
+  "narrow eighty column pane so that the box grows taller than one row and",
+  "keeps going for a third",
+];
+
+test("finds the box under a title cut short for a narrow pane", () => {
+  // Curtis's pane on 2026-10-17, which read as `no-composer` until this.
+  const empty = [CUT_TITLE, "\u001b[39m❯ ", FULL_RULE, "  gitlab-transcend-hackathon  Opus 5.5"].join("\n");
+  expect(composerBox({ screen: empty, cursor: { row: 1, column: BOX_COLUMN } })).toEqual({ rows: [""], hint: null, exact: true, commands: [], clearPresses: 1 });
+});
+
+test("reads every row of a wrapped box under a cut title, and trusts it only with the caret at the end", () => {
+  // Measured: the caret sat at (5, 25) after typing, and Up moved it to (4, 25).
+  const atEnd = composerBox({ screen: WRAPPED_UNDER_CUT_TITLE, cursor: { row: 5, column: 25 } })!;
+  expect(atEnd).toEqual({ rows: WRAPPED_ROWS, hint: null, exact: true, commands: [], clearPresses: clearPressesFor(WRAPPED_ROWS) });
+  const mid = composerBox({ screen: WRAPPED_UNDER_CUT_TITLE, cursor: { row: 4, column: 25 } })!;
+  expect(mid.rows).toEqual(WRAPPED_ROWS);
+  expect(mid.exact).toBe(false);
+});
+
+test("does not take an echoed turn under a line ending in a dash for the box", () => {
+  // The cut-title anchor needs the box to close on a rule too. This turn is followed by output,
+  // and the only rule below it belongs to a permission dialog that has replaced the box.
+  const screen = [
+    "  the last thing it printed ended in a dash ─",
+    "❯ clean the build directory",
+    "",
+    "⏺ Bash(rm -rf build)",
+    FULL_RULE,
+    " Bash command",
+    "  Do you want to proceed?",
+    "  ❯ 1. Yes",
+  ].join("\n");
+  expect(composerBox({ screen, cursor: { row: 7, column: 4 } })).toBeNull();
+});
+
 test("recovers the trailing space the capture cannot show, from the cursor's column", () => {
   // tmux pads every captured row to the pane width, so a box holding "abc " and one holding "abc"
   // come back as the same string and `plainText` trims both to "abc". The cursor is the only thing

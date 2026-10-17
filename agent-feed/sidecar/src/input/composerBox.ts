@@ -30,6 +30,16 @@ const INDENT = "  ";
  * drawn into the top one. Eight is far more than prose contains and far less than any rule.
  */
 const RULE = /─{8}/;
+/**
+ * The top rule when the title drawn into it is wider than the pane.
+ *
+ * Claude cuts the title with `…` and keeps only the rule's last segment, so the row is
+ * ` Curtis (2026 oct 6 search for gitlab transcent hackathon and prepare context… ─`: one `─`,
+ * which `RULE` cannot see. Measured 2026-10-17 on 2.1.301 and 2.1.302 alike, on an 80-column
+ * pane; every Bot pane restarted that night came back at 80 columns, and a session with a long
+ * title read as having no composer at all.
+ */
+const TITLE_ROW = / ─$/;
 /** Every colour and style run, which the screen carries because one of them is load-bearing. */
 const SGR = /\u001b\[[0-9;]*m/g;
 /** One such run at the head of what is left, with its parameters, for asking whether it is dim. */
@@ -375,12 +385,17 @@ function setsFaint(parameters: string): boolean {
  * Anchored on the rule above it rather than on the marker alone. Claude echoes each of the user's
  * own turns into the transcript with the same marker, so a screen holding two turns has three
  * candidate rows and only the last one is a box that can be typed into.
+ *
+ * A truncated title (`TITLE_ROW`) stands in for that rule only when the box below also closes on
+ * one, because the closing rule is always drawn whole. That second guard is what keeps a turn
+ * echoed under some line that happens to end in ` ─` from reading as the box.
  */
 function lastPromptRow(lines: string[]): number | null {
   for (let index = lines.length - 1; index >= 1; index -= 1) {
     if (!lines[index]!.startsWith(PROMPT)) continue;
-    if (!RULE.test(lines[index - 1]!)) continue;
-    return index;
+    const above = lines[index - 1]!;
+    if (RULE.test(above)) return index;
+    if (TITLE_ROW.test(above) && closingRule(lines, index) !== -1) return index;
   }
   return null;
 }
