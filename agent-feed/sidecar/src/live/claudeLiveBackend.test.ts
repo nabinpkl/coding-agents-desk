@@ -280,6 +280,39 @@ describe("ClaudeLiveBackend ingest", () => {
     await local.dispose();
   });
 
+  test("a capture that dies finishes the messages it was recording", async () => {
+    // proxy-agent never ends a flow whose capture died, so without this its message streams for
+    // good. Measured: the capture exited mid-turn and the reply stayed a streaming thought.
+    const local = new ClaudeLiveBackend(fixture.url, true, 8);
+    const health = (sourceId: string, lifecycle: string): ObserverEvent => ({
+      observedAt: new Date().toISOString(),
+      captureHealthChanged: { health: { sourceId, lifecycle, failureCategory: "CAPTURE_FAILURE_CATEGORY_PROCESS_EXIT" } },
+    });
+    const open = (flowId: string, session: string, sourceId: string) => {
+      const announced = flowEvent(flowId, "/v1/messages", "api.anthropic.com", session);
+      announced.flowUpserted!.flow!.sourceId = sourceId;
+      local.acceptObserverEvent(announced);
+      local.acceptObserverEvent(delta(flowId, { type: "message_start", message: { id: `msg_${flowId}` } }));
+      local.acceptObserverEvent(delta(flowId, { type: "content_block_start", index: 0, content_block: { type: "thinking" } }));
+    };
+    const phase = async (session: string) => (await local.page(`sess-${session}`, 0, 10, "nice")).events[0]!.phase;
+    open("dying", "dying1", "cap-a");
+    await flush(160);
+    // The capture saying it is still running ends nothing of its own.
+    local.acceptObserverEvent(health("cap-a", "CAPTURE_LIFECYCLE_RUNNING"));
+    expect(await phase("dying1")).toBe("streaming");
+    local.acceptObserverEvent(health("cap-a", "CAPTURE_LIFECYCLE_FAILED"));
+    expect(await phase("dying1")).toBe("complete");
+    // One capture runs at a time, so a different one taking over means the last is gone, whether
+    // or not it said so first.
+    open("next", "next1", "cap-b");
+    await flush(160);
+    expect(await phase("next1")).toBe("streaming");
+    local.acceptObserverEvent(health("cap-c", "CAPTURE_LIFECYCLE_STARTING"));
+    expect(await phase("next1")).toBe("complete");
+    await local.dispose();
+  });
+
   test("a flow that ends before it binds, with no message_stop, still finishes its message", async () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("early", "/v1/messages", "api.anthropic.com", "early1"));

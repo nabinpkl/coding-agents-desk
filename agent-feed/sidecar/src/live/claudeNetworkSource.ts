@@ -13,14 +13,18 @@
 //     base64 of the event JSON payload (possibly content-encoded),
 //   - `streamEnded {flowId}`,
 //   - `recordsDropped {firstMissingSequence, lastMissingSequence, droppedRecordCount}`
-//     when its own capture pipeline could not keep up, which is the one event here
-//     that says the mirror is now wrong rather than merely behind.
+//     when its own capture pipeline could not keep up, which says the mirror is now
+//     wrong rather than merely behind,
+//   - `captureHealthChanged {health}` when the capture itself starts, stops or dies,
+//     which is how a flow whose capture died learns it will never end on its own.
 
 import { config } from "@/config/config";
 import { noteRateLimitHeaders, readingTimeMs } from "@/usage/claudeLiveQuota";
 
 export interface ObserverFlow {
   flowId: string;
+  /** The capture that recorded this flow; it changes whenever proxy-agent restarts its capture. */
+  sourceId?: unknown;
   authority?: unknown;
   path?: unknown;
   method?: unknown;
@@ -112,6 +116,17 @@ export interface ObserverRecordsDropped {
   droppedRecordCount?: unknown;
 }
 
+/**
+ * proxy-agent's capture changing state: `lifecycle` is `CAPTURE_LIFECYCLE_RUNNING` and its
+ * siblings, `sourceId` the capture it describes. Sent on every viewer stream whatever its filter,
+ * first in the opening snapshot and then whenever it changes.
+ */
+export interface ObserverCaptureHealth {
+  lifecycle?: unknown;
+  sourceId?: unknown;
+  failureCategory?: unknown;
+}
+
 export type ObserverEvent = {
   observedAt?: unknown;
   flowUpserted?: ObserverFlowUpserted;
@@ -119,6 +134,7 @@ export type ObserverEvent = {
   websocketMessageObserved?: ObserverWebSocketMessage;
   streamEnded?: ObserverStreamEnded;
   recordsDropped?: ObserverRecordsDropped;
+  captureHealthChanged?: { health?: ObserverCaptureHealth };
 };
 
 /** One dropped-record report as a log line: how many, and which capture sequences are missing. */

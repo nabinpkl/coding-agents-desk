@@ -5,7 +5,7 @@
 // `session_id` that keys the mirror lives in that body. So deltas can arrive with
 // nowhere to put them yet; a flow buffers them, bounded, until the bind lands.
 
-import type { ObserverEvent } from "@/live/claudeNetworkSource";
+import type { ObserverCaptureHealth, ObserverEvent } from "@/live/claudeNetworkSource";
 import type { LiveMessage } from "@/live/claudeLiveMessages";
 
 const MESSAGE_STREAM_AUTHORITIES = new Set(["api.anthropic.com", "a-api.anthropic.com"]);
@@ -35,10 +35,63 @@ export interface FlowContext {
   binding: boolean;
   /** True once the observer reported stream end while the body bind was still in flight. */
   ended: boolean;
+  /** The capture that recorded the flow, null when its announcement never said. */
+  sourceId: string | null;
 }
 
 export function newFlowContext(sessionId: string | null = null): FlowContext {
-  return { sessionId, message: null, pending: [], pendingBytes: 0, lost: 0, binding: false, ended: false };
+  return {
+    sessionId,
+    message: null,
+    pending: [],
+    pendingBytes: 0,
+    lost: 0,
+    binding: false,
+    ended: false,
+    sourceId: null,
+  };
+}
+
+/** The lifecycles in which a capture is still recording what it started. */
+const CAPTURE_ALIVE = new Set(["CAPTURE_LIFECYCLE_STARTING", "CAPTURE_LIFECYCLE_RUNNING"]);
+
+/**
+ * The open flows a capture change has orphaned, and a line saying so when any of them was mid-reply;
+ * null when it orphaned none.
+ *
+ * Most orphans are nothing: the flows a fresh subscription replays are finished, and are only still
+ * held because nothing ends them. They are ended all the same, but only a reply cut off mid-stream
+ * is worth a line, so the log does not cry wolf on every capture restart.
+ *
+ * proxy-agent records a flow under the capture that saw it start, and when that capture dies it
+ * neither ends the flow nor carries it over: the flow stays active for good, its remaining deltas
+ * never arrive, and its message would stream forever. Measured 2026-10-14: the capture exited 15s
+ * into a turn, the mirror held only the turn's thinking, and the message read as streaming while
+ * the session's own terminal sat on the question the rest of that turn had asked.
+ *
+ * Two readings say a flow's capture is gone, because one capture runs at a time: that capture
+ * reported itself stopped or failed, or a different one reported itself running.
+ */
+export function flowsLostWithCapture(
+  contexts: ReadonlyMap<string, FlowContext>,
+  health: ObserverCaptureHealth,
+): { flowIds: string[]; line: string | null } | null {
+  const source = health.sourceId;
+  if (typeof source !== "string" || !source) return null;
+  const alive = typeof health.lifecycle === "string" && CAPTURE_ALIVE.has(health.lifecycle);
+  const flowIds: string[] = [];
+  for (const [flowId, context] of contexts) {
+    if (context.sourceId === null) continue;
+    if (alive ? context.sourceId !== source : context.sourceId === source) flowIds.push(flowId);
+  }
+  if (flowIds.length === 0) return null;
+  const cut = flowIds.filter((flowId) => contexts.get(flowId)!.message?.phase === "streaming").length;
+  return {
+    flowIds,
+    line: cut === 0 ? null : `agent-feed-claude-live-capture-lost: replies=${cut}`
+      + ` capture=${source} lifecycle=${String(health.lifecycle ?? "?")}`
+      + (health.failureCategory ? ` failure=${String(health.failureCategory)}` : ""),
+  };
 }
 
 /** Holds one delta until the bind lands, or counts it lost when the flow has buffered its fill. */

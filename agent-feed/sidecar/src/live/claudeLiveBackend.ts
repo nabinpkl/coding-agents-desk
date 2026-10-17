@@ -45,6 +45,7 @@ import { CompactionWatch } from "@/live/claudeCompactionWatch";
 import {
   bufferDelta,
   flowStartedAtMs,
+  flowsLostWithCapture,
   isMessageStream,
   newFlowContext,
   observedAtMs,
@@ -246,6 +247,14 @@ export class ClaudeLiveBackend implements AgentBackend {
     // is the one cause of a live message stopping mid-sentence this process cannot otherwise see,
     // and because it is not ours to fix from here.
     if (event.recordsDropped) console.warn(describeRecordsDropped(event.recordsDropped));
+    // A capture that died takes its open flows with it, and nothing else will ever end them.
+    const lost = event.captureHealthChanged?.health
+      ? flowsLostWithCapture(this.flowContexts, event.captureHealthChanged.health)
+      : null;
+    if (lost) {
+      if (lost.line) console.warn(lost.line);
+      for (const flowId of lost.flowIds) this.acceptStreamEnded(flowId);
+    }
   }
 
   private acceptFlowUpserted(flow: ObserverFlow, ts: number): void {
@@ -255,6 +264,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     if (!isMessageStream(flow)) return;
     const context = this.flowContexts.get(flowId) ?? newFlowContext();
     this.flowContexts.set(flowId, context);
+    if (typeof flow.sourceId === "string" && flow.sourceId) context.sourceId = flow.sourceId;
     if (context.binding) return;
     const reference = flow.requestBody?.value;
     if (typeof reference !== "string" || reference.length === 0) {
