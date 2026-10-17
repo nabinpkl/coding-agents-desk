@@ -11,13 +11,15 @@ import type { CliSessionStatus } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import type { CommandRunner } from "@/tasks/processProbe";
 import { currentProcessTable, runCommand } from "@/tasks/processProbe";
-import { sessionOwner } from "@/tasks/sessionRegistry";
+import { liveSessionProcesses, sessionOwner } from "@/tasks/sessionRegistry";
 
 export async function cliSessionStatus(
   sessionId: string,
   run: CommandRunner = runCommand,
   sessionsDirectory: string = config.claudeSessionsDirectory,
 ): Promise<CliSessionStatus> {
-  const owner = await sessionOwner(sessionId, await currentProcessTable(run), sessionsDirectory);
-  return { entrypoint: owner?.entrypoint ?? null, tmuxSession: owner?.tmuxSession ?? null };
+  const table = await currentProcessTable(run);
+  const owner = await sessionOwner(sessionId, table, sessionsDirectory);
+  const live = (await liveSessionProcesses(table, sessionsDirectory)).filter((entry) => entry.sessionId === sessionId);
+  return { entrypoint: owner?.entrypoint ?? null, tmuxSession: owner?.tmuxSession ?? null, liveProcesses: live.length };
 }

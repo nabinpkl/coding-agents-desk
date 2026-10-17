@@ -8,7 +8,7 @@ const server = { timeout() {} } as never;
 function call(path: string, method = "GET", asked: string[] = []) {
   const route = createCliSessionRoutes(async (sessionId): Promise<CliSessionStatus> => {
     asked.push(sessionId);
-    return { entrypoint: "cli", tmuxSession: "alder" };
+    return { entrypoint: "cli", tmuxSession: "alder", liveProcesses: 1 };
   });
   const url = new URL(`http://127.0.0.1${path}`);
   return route(new Request(url.toString(), { method }), url, server);
@@ -19,7 +19,7 @@ describe("cli session status route", () => {
     const asked: string[] = [];
     const response = await call(`/api/sessions/claude/${SESSION.toUpperCase()}/cli`, "GET", asked);
     expect(response?.status).toBe(200);
-    expect(await response!.json()).toEqual({ entrypoint: "cli", tmuxSession: "alder" });
+    expect(await response!.json()).toEqual({ entrypoint: "cli", tmuxSession: "alder", liveProcesses: 1 });
     expect(asked).toEqual([SESSION]);
   });
 

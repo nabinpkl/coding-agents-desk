@@ -145,3 +145,22 @@ export type ClaudeSdkCommandOutcome =
  * so `sent` is always false on a refusal, and the typed text always comes back.
  */
 export type ClaudeSdkAnswerOutcome = TmuxQuestionOutcome;
+
+/** Move a running session to the other mode, while it is idle (ADR-0143). */
+export interface ClaudeSdkSwitchCommand {
+  mode: ClaudeRunMode;
+}
+
+/** Why a session was not moved; the message says it in the reader's terms. */
+export type ClaudeSdkSwitchRefusal =
+  | "not-running"
+  | "several-processes"
+  | "not-ours"
+  | "already"
+  | "busy"
+  | "invalid"
+  | "failed";
+
+export type ClaudeSdkSwitchOutcome =
+  | { ok: true }
+  | { ok: false; reason: ClaudeSdkSwitchRefusal; message: string };

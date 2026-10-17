@@ -21,4 +21,9 @@ export interface CliSessionStatus {
   entrypoint: ClaudeSessionEntrypoint | null;
   /** The tmux session the live process is running inside, or null. */
   tmuxSession: string | null;
+  /**
+   * How many live processes hold the session. More than one forks its transcript (ADR-0143) --
+   * typically a `claude --resume` typed by hand beside the panel's own -- and the card says so.
+   */
+  liveProcesses: number;
 }

@@ -6,12 +6,14 @@
 //   POST /api/sessions/claude/:id/sdk/decide     { toolUseId, allow, message? }
 //   POST /api/sessions/claude/:id/sdk/mode       { mode }
 //   POST /api/sessions/claude/:id/sdk/interrupt
+//   POST /api/sessions/claude/:id/sdk/switch       { mode }  -> moves a live, idle session between modes
 //
 // Here rather than under `http/` for the reason `messaging/hubRoutes.ts` is: the routes are this
 // feature's surface and nothing else serves them.
 
 import type {
   ClaudeSdkCommandOutcome,
+  ClaudeSdkSwitchOutcome,
   ClaudeSdkRefusal,
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
@@ -21,6 +23,8 @@ import { config } from "@/config/config";
 import { ClaudeSdkClient, NO_RUNNER, type RunnerCommand } from "@/claude-sdk/claudeSdkClient";
 import { parseSidecarMessage, type RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
 import { ClaudeSdkLiveFeed, type RunnerStreamTarget } from "@/claude-sdk/claudeSdkLiveFeed";
+import { liveSwitchSteps, switchRunMode, type SwitchSteps } from "@/claude-sdk/claudeSdkSwitch";
+import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import {
   encodeServerSentEvent,
   errorResponse,
@@ -29,7 +33,7 @@ import {
 } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 
-const SDK_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/sdk\/(stream|prompt|answer|decide|mode|interrupt)$/i;
+const SDK_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/sdk\/(stream|prompt|answer|decide|mode|interrupt|switch)$/i;
 
 /** How long `EventSource` waits before asking again once a stream ends. */
 const RETRY = new TextEncoder().encode("retry: 5000\n\n");
@@ -62,6 +66,7 @@ export function createClaudeSdkRoutes(
       });
     }
     if (request.method !== "POST") return undefined;
+    if (action === "switch") return switchMode(client, request, sessionId);
     return command(client, request, sessionId, action);
   };
 }
@@ -128,4 +133,31 @@ export function answerOutcome(answers: readonly TmuxQuestionAnswer[], reply: Run
         ? "no-dialog"
         : "pane-stalled";
   return { answered: false, reason, keptText, sent: false };
+}
+
+/**
+ * Moves a live, idle session to the other mode. The catalog supplies where it runs and what it is
+ * called, which a resume needs and the request does not get to choose.
+ */
+export async function switchMode(
+  client: ClaudeSdkClient,
+  request: Request,
+  sessionId: string,
+  steps: SwitchSteps = liveSwitchSteps(client),
+): Promise<Response> {
+  const fields = await body(request);
+  const mode = fields?.mode;
+  if (mode !== "terminal" && mode !== "sdk") {
+    return jsonResponse({ ok: false, reason: "invalid", message: "mode must be terminal or sdk" } satisfies ClaudeSdkSwitchOutcome, 400);
+  }
+  const session = findSession("claude", sessionId);
+  if (!session) {
+    return jsonResponse({ ok: false, reason: "not-running", message: "this session is not in the catalog" } satisfies ClaudeSdkSwitchOutcome, 404);
+  }
+  const outcome = await switchRunMode(
+    { sessionId, cwd: session.project, title: session.title ?? sessionId },
+    mode,
+    steps,
+  );
+  return jsonResponse(outcome satisfies ClaudeSdkSwitchOutcome);
 }

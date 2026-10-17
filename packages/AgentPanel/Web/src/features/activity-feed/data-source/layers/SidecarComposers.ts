@@ -11,7 +11,9 @@ import type {
   ClaudePermissionMode,
   ClaudeSdkCommandOutcome,
   ClaudeSdkDecideCommand,
+  ClaudeRunMode,
   ClaudeSdkSessionState,
+  ClaudeSdkSwitchOutcome,
   CliSessionStatus,
   ComposerImageDrop,
   ComposerKeyPress,
@@ -35,7 +37,7 @@ import { SidecarTranscript } from "@/features/activity-feed/data-source/layers/S
 /** A session run through the Agent SDK, reached through its runner (ADR-0143). */
 function claudeSdkPath(
   session: SessionAddress,
-  action: "stream" | "prompt" | "answer" | "decide" | "mode" | "interrupt",
+  action: "stream" | "prompt" | "answer" | "decide" | "mode" | "interrupt" | "switch",
 ): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/sdk/${action}`;
 }
@@ -424,6 +426,16 @@ export class SidecarComposers extends SidecarTranscript {
   async interruptClaudeSdk(session: SessionAddress): Promise<ClaudeSdkCommandOutcome> {
     return parse<ClaudeSdkCommandOutcome>(
       await this.transport.request("POST", claudeSdkPath(session, "interrupt"), { body: {} }),
+    );
+  }
+
+  /**
+   * Moves a running, idle session between the terminal and the SDK runner. The sidecar refuses
+   * rather than forces -- a turn running, a request waiting, two processes already -- and says why.
+   */
+  async switchClaudeRunMode(session: SessionAddress, mode: ClaudeRunMode): Promise<ClaudeSdkSwitchOutcome> {
+    return parse<ClaudeSdkSwitchOutcome>(
+      await this.transport.request("POST", claudeSdkPath(session, "switch"), { body: { mode } }),
     );
   }
 }

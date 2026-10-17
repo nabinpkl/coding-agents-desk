@@ -229,6 +229,15 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
 
 
 export function composerCaption(m: ComposerModel): { caption: string | null; captionIsError: boolean } {
+  // Above everything a band says: each process keeps its own copy of the conversation and writes its
+  // turns beside the other's, so the transcript is forking while this is true (ADR-0143).
+  if (m.liveProcesses > 1) {
+    return {
+      caption: `${m.liveProcesses} processes are running this session, each with its own copy of the conversation, so its transcript will fork. Close all but one.`,
+      captionIsError: true,
+    };
+  }
+  if (m.runModeSwitch?.error) return { caption: m.runModeSwitch.error, captionIsError: true };
   let caption: string | null = null;
   let captionIsError = false;
   if (m.sdkBand) {

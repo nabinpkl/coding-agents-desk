@@ -257,6 +257,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
     // The tail's launcher, kept only for a head with none: a session can be carried on by another
     // surface (Desktop auto-continues an SDK session it finds), and what started it is the fact.
     let tailEntrypoint: string | undefined;
+    let lastEntrypoint: string | undefined;
     let tailFrom = 0;
     let through = 0;
     for (const [index, range] of ranges.entries()) {
@@ -299,6 +300,8 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         if (typeof ev.entrypoint === 'string') {
           if (isHead) out.entrypoint ??= ev.entrypoint;
           else tailEntrypoint = ev.entrypoint;
+          // Read forward, so the last one in the tail window is the newest record's.
+          if (isTail) lastEntrypoint = ev.entrypoint;
         }
         if (isHead) titlesOf(line, head);
         if (isTail) titlesOf(line, tail);
@@ -329,6 +332,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
       out.entrypoint ??= opening?.entrypoint;
     }
     out.entrypoint ??= tailEntrypoint;
+    out.lastEntrypoint = lastEntrypoint ?? out.entrypoint;
     const titles = await currentTitles(fh, filePath, {
       whole: ranges.length === 1,
       head,

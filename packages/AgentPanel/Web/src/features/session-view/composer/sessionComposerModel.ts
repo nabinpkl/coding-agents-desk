@@ -10,6 +10,8 @@ import type { AgentSessionControlState } from "@/features/activity-feed/data-sou
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 import type { SdkSessionHandle } from "@/features/cli-input/useSdkSession";
+import type { RunModeSwitchHandle } from "@/features/cli-input/useRunModeSwitch";
+import type { ClaudeRunMode } from "@agentdesk/agent-feed-wire";
 import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/useComposerHold";
 import type { OpencodeSlashCommand } from "@/features/session-view/composer/useOpencodeCommands";
 import type { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
@@ -116,6 +118,11 @@ export interface ComposerModel {
   sdkBand: boolean;
   /** That runner's state and commands; inert for every other session. */
   sdkSession: SdkSessionHandle;
+  /** How the session runs now, when it is one of the two modes a switch moves between (ADR-0143). */
+  runMode: ClaudeRunMode | null;
+  runModeSwitch: RunModeSwitchHandle;
+  /** Live processes holding the session. More than one forks its transcript. */
+  liveProcesses: number;
   transport: ComposerTransport;
   unavailable: boolean;
   windowBand: boolean;

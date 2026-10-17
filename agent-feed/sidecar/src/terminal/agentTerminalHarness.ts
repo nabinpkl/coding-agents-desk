@@ -38,6 +38,8 @@ export interface SessionTmuxFakes {
   paneExited?: boolean;
   /** Whether a live Claude process holds the session somewhere; absent reads as none. */
   claudeRunning?: boolean;
+  /** The session's newest record's launcher, which decides how it reopens; absent reads as a terminal. */
+  lastEntrypoint?: string;
 }
 
 export function agentTerminalHarness() {
@@ -120,7 +122,7 @@ export function agentTerminalHarness() {
     await mkdir(project, { recursive: true });
     const service = new AgentTerminalService(
       "/unused/pty.sock",
-      () => ({ projectPath: project, activity: "live", title: "Source session" }),
+      () => ({ projectPath: project, activity: "live", title: "Source session", lastEntrypoint: fakes.lastEntrypoint }),
       home,
       { listSessions: async () => [], openSession: async () => { throw new Error("unreached"); } },
       async () => "",

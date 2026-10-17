@@ -49,6 +49,7 @@ export function makeSession(
     title?: string;
     gitBranch?: string;
     entrypoint?: string;
+    lastEntrypoint?: string;
     lastTurnClosed?: boolean;
     firstPrompt?: string;
     taskState?: SessionTaskState;

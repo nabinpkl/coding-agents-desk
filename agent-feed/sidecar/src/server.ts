@@ -158,11 +158,8 @@ const agentTerminals = new AgentTerminalService(
     const session = findSession(source, sessionId);
     if (!session) return undefined;
     const summary = summarizeSession(session, describeAgentSession);
-    return {
-      projectPath: session.project,
-      activity: summary.activity,
-      title: summary.title,
-    };
+    const { project: projectPath, lastEntrypoint } = session;
+    return { projectPath, activity: summary.activity, title: summary.title, lastEntrypoint };
   },
 );
 backends.register(new PiAgentBackend({

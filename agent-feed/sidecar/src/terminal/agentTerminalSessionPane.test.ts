@@ -68,6 +68,27 @@ test("starts a tmux session that resumes the agent session when nothing is runni
   expect(attached).toEqual([{ session: `agentdesk-${SESSION_ID}`, columns: 100, rows: 30 }]);
 });
 
+test("refuses to start a pane while a process it cannot attach to holds the session", async () => {
+  // A Desktop window, or a `claude --resume` typed in somebody's own terminal: resuming beside it
+  // would put a second process on one transcript, which forks it (ADR-0143).
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [], claudeRunning: true };
+  const service = await sessionTmuxService(fakes, []);
+  await expect(service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 }))
+    .rejects.toThrow(/second process/);
+  expect(fakes.created).toEqual([]);
+});
+
+test("reopens a session through the SDK runner when that is how it last ran", async () => {
+  const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [], lastEntrypoint: "sdk-cli" };
+  const service = await sessionTmuxService(fakes, []);
+  await service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
+  const command = fakes.created[0]!.command;
+  expect(command.some((argument) => argument.endsWith("claudeSdkRunnerMain.ts"))).toBe(true);
+  expect(command.join(" ")).toContain(`--session ${SESSION_ID}`);
+  expect(command.join(" ")).toContain("--start resume");
+  expect(command.join(" ")).toContain("--name Source session");
+});
+
 test("says a session is running again when it starts its pane, and not when it joins one", async () => {
   const heard: string[] = [];
   const stop = subscribeSessionPaneStarts((sessionId) => heard.push(sessionId));

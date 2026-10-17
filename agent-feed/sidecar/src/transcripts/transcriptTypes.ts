@@ -68,6 +68,8 @@ export interface Header {
   gitBranch?: string;
   /** What started the session: the head's launcher, not whatever surface wrote last. */
   entrypoint?: string;
+  /** What wrote last: how the session last ran, which is how it reopens (ADR-0143). */
+  lastEntrypoint?: string;
   title?: string;
   /**
    * Turn state as of the last boundary-bearing line in the TAIL edge, absent when
@@ -176,6 +178,8 @@ export interface Session {
   title?: string;
   gitBranch?: string;
   entrypoint?: string;
+  /** The newest record's launcher: `cli` or `sdk-cli` for a session that ran both ways. */
+  lastEntrypoint?: string;
   // The two fields the session list needs that are not identity. Carried on the
   // record rather than derived per read, because the read that produced the rest
   // of this record is the only one that should ever open the transcript to build

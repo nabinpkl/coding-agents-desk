@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CliSessionStatus } from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
@@ -19,9 +19,19 @@ export interface CliSessionHandle {
    * answered through the runner, never through its pane, which shows the runner's log.
    */
   isSdkSession: boolean;
+  /**
+   * How many live processes hold the session. More than one forks its transcript (ADR-0143), which
+   * the band says out loud; a `claude --resume` typed by hand is the usual way there.
+   */
+  liveProcesses: number;
+  /**
+   * Reads it again. For the moment the panel itself changes how the session runs -- a switch between
+   * the terminal and the SDK -- which is the one time it does not stay as it was launched.
+   */
+  refresh: () => void;
 }
 
-const IDLE: CliSessionStatus = { entrypoint: null, tmuxSession: null };
+const IDLE: CliSessionStatus = { entrypoint: null, tmuxSession: null, liveProcesses: 0 };
 
 /**
  * Whether the selected session is a terminal Claude session.
@@ -41,6 +51,10 @@ export function useCliSession(
   active: boolean,
 ): CliSessionHandle {
   const [status, setStatus] = useState<CliSessionStatus>(IDLE);
+  // Bumped by `refresh`, so the read below runs again for the same session.
+  const [reads, setReads] = useState(0);
+
+  const refresh = useCallback(() => setReads((count) => count + 1), []);
   // Which session the in-flight read was issued for, so an answer that lands after the viewer
   // moved on cannot switch the composer for a different thread.
   const readFor = useRef<string | null>(null);
@@ -50,8 +64,15 @@ export function useCliSession(
 
   const key = session && active ? `${session.source}/${session.sessionId}` : null;
 
+  // Which session the shown status belongs to: a new one starts blank, a refresh of the same one
+  // keeps showing the old answer until the new one lands.
+  const shownFor = useRef<string | null>(null);
+
   useEffect(() => {
-    setStatus(IDLE);
+    if (shownFor.current !== key) {
+      shownFor.current = key;
+      setStatus(IDLE);
+    }
     readFor.current = key;
     const address = sessionRef.current;
     if (!key || !address) return;
@@ -63,7 +84,12 @@ export function useCliSession(
       // its own connection state.
       () => {},
     );
-  }, [feed, key]);
+  }, [feed, key, reads]);
 
-  return { isTerminalSession: status.entrypoint === "cli", isSdkSession: status.entrypoint === "sdk-cli" };
+  return {
+    isTerminalSession: status.entrypoint === "cli",
+    isSdkSession: status.entrypoint === "sdk-cli",
+    liveProcesses: status.liveProcesses ?? 0,
+    refresh,
+  };
 }

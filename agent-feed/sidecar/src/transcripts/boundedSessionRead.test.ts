@@ -243,6 +243,24 @@ test('the launcher is the one the session opened with, not the surface that carr
   expect((await claudeAdapter.readHeader(path))?.entrypoint).toBe('sdk-py');
 });
 
+test('how the session last ran is the newest record\'s launcher, in a long file and a short one', async () => {
+  const long = await transcript('c.jsonl', [
+    JSON.stringify({ type: 'user', cwd: CWD, entrypoint: 'cli', message: { role: 'user', content: 'start' } }),
+    ...GAP,
+    // Switched to the SDK runner and back to the terminal and to the runner again (ADR-0143).
+    JSON.stringify({ type: 'user', cwd: CWD, entrypoint: 'cli', message: { role: 'user', content: 'a' } }),
+    JSON.stringify({ type: 'user', cwd: CWD, entrypoint: 'sdk-cli', message: { role: 'user', content: 'b' } }),
+  ]);
+  const header = await claudeAdapter.readHeader(long);
+  expect(header?.entrypoint).toBe('cli');
+  expect(header?.lastEntrypoint).toBe('sdk-cli');
+  const short = await transcript('d.jsonl', [
+    JSON.stringify({ type: 'user', cwd: CWD, entrypoint: 'sdk-cli', message: { role: 'user', content: 'a' } }),
+    JSON.stringify({ type: 'user', cwd: CWD, entrypoint: 'cli', message: { role: 'user', content: 'b' } }),
+  ]);
+  expect((await claudeAdapter.readHeader(short))?.lastEntrypoint).toBe('cli');
+});
+
 test('an oversized record with no prompt in it yields nothing rather than junk', async () => {
   const path = await transcript('c.jsonl', [
     JSON.stringify({ type: 'assistant', cwd: CWD, pad: 'z'.repeat(70000) }),

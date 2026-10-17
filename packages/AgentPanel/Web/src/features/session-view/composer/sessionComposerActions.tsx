@@ -5,7 +5,7 @@
 // The two submit paths are separate on purpose: one joins the panel's own queue and can be
 // steered, the other hands a whole turn to a transport the panel does not own.
 
-import { ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldAlert, Square } from "lucide-react";
+import { ArrowLeftRight, ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldAlert, Square } from "lucide-react";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
@@ -208,6 +208,25 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       className: `${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`,
       placement: "footer",
       onClick: () => m.filePicker.current?.click(),
+    });
+  }
+  // Moving the session between the terminal and the SDK runner, in its own pane. Offered wherever it
+  // runs one of the two ways; whether it is idle enough is the sidecar's to say, and it says why not.
+  if (m.runMode === "terminal" || (m.runMode === "sdk" && m.sdkSession.state.connected)) {
+    const target = m.runMode === "sdk" ? "terminal" : "sdk";
+    actions.push({
+      key: "switch-run-mode",
+      ariaLabel: target === "sdk" ? "Run this session through the SDK" : "Run this session in the terminal",
+      title: target === "sdk"
+        ? "Move this idle session to the SDK runner, in the same pane"
+        : "Move this idle session back to the terminal, in the same pane",
+      icon: m.runModeSwitch.pending
+        ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        : <ArrowLeftRight className="size-3.5" aria-hidden />,
+      disabled: m.runModeSwitch.pending,
+      className: `${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`,
+      placement: "footer",
+      onClick: () => void m.runModeSwitch.switchTo(target),
     });
   }
   // The mode line under Claude's box, pressed the way Shift+Tab is pressed there. Unknown until the

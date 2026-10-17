@@ -91,18 +91,24 @@ which the transcript still supplies, and a message whose start the sidecar misse
   append to one file, and the file forks at the last turn they shared. `claude --resume` then
   follows the branch named by the `last-prompt` record the last process to exit wrote, while the
   SDK's `getSessionMessages` follows the leaf on the highest line, so the two readers disagree.
-  Slice 1 refuses a second runner at its socket and keeps the terminal's own restart off runner
-  panes (`isClaudeSdkRunnerCommand`); the registry lock for every path and switching while idle
-  are the next slice.
+  So nothing starts a second one: a runner refuses a socket another runner is serving, the
+  terminal's own restart leaves runner panes alone (`isClaudeSdkRunnerCommand`), and opening a
+  session's terminal is refused while a live process the panel has no pane for holds it. A session
+  moves between modes only while idle (`claude-sdk/claudeSdkSwitch.ts`): the old process is stopped,
+  the switch waits until the registry no longer lists it and its pane is back at its shell, and the
+  other mode is respawned in that same pane. Measured terminal to SDK to terminal on one session:
+  about two seconds each way, one process throughout, and the transcript kept a single leaf. A
+  process the panel cannot stop -- a `claude --resume` typed by hand -- is the remaining way to two,
+  and the card says so when the registry lists more than one.
 - Bad, because the runner's pane shows its log rather than Claude, so a reader goes to the card.
 - Bad, because a running runner keeps the code it started with until its session restarts, which
   is why both sides announce `PROTOCOL_VERSION` and refuse a mismatch.
 - Neutral, because the SDK releases with the CLI (same patch number, same minute), and is a caret
   dependency exempted from the owner's 48-hour `minimumReleaseAge` in `agent-feed/sidecar/bunfig.toml`
   only, so it can keep up with the CLI it drives.
-- Neutral, because a fork, a cold reopen and switching between modes stay terminal-only for now: a
-  fork asked for in SDK mode is refused, and a cold SDK session opened from a card resumes in the
-  terminal.
+- Neutral, because a stopped session reopens the way it last ran, read from its newest record's
+  `entrypoint` (`lastEntrypoint`), so one switched to the SDK comes back through its runner. A fork
+  is still terminal-only: one asked for in SDK mode is refused.
 
 ### Confirmation
 

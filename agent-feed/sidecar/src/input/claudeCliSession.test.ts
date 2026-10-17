@@ -37,12 +37,12 @@ async function registry(row: Record<string, unknown> = {}): Promise<string> {
 
 describe("cliSessionStatus", () => {
   test("names how a live session was launched", async () => {
-    expect(await cliSessionStatus(SESSION, alive, await registry())).toEqual({ entrypoint: "cli", tmuxSession: null });
+    expect(await cliSessionStatus(SESSION, alive, await registry())).toEqual({ entrypoint: "cli", tmuxSession: null, liveProcesses: 1 });
     expect(await cliSessionStatus(SESSION, alive, await registry({ entrypoint: "claude-desktop" })))
-      .toEqual({ entrypoint: "claude-desktop", tmuxSession: null });
+      .toEqual({ entrypoint: "claude-desktop", tmuxSession: null, liveProcesses: 1 });
   });
 
   test("names nothing when no live process serves the session", async () => {
-    expect(await cliSessionStatus(SESSION, async () => "", await registry())).toEqual({ entrypoint: null, tmuxSession: null });
+    expect(await cliSessionStatus(SESSION, async () => "", await registry())).toEqual({ entrypoint: null, tmuxSession: null, liveProcesses: 0 });
   });
 });

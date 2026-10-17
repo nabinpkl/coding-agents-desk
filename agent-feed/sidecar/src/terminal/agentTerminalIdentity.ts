@@ -23,7 +23,8 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
-import { claudeSessionPaneName, resumeClaudeSessionCommand } from "@/terminal/session-panes/claudeSessionLaunch";
+import { claudeSessionPaneName } from "@/terminal/session-panes/claudeSessionLaunch";
+import { lastRunMode, resumeCommandFor } from "@/claude-sdk/claudeSdkLaunch";
 import { opencodeTuiCommand, sessionPaneRevival } from "@/terminal/session-panes/sessionPaneRevival";
 import {
   AgentTerminalConflictError,
@@ -39,6 +40,8 @@ export interface ResolvedAgentTerminalSession {
   activity: string;
   /** What the session is called, which is what a pane this path creates gets named after. */
   title: string;
+  /** The newest record's launcher, which decides how a stopped session reopens (ADR-0143). */
+  lastEntrypoint?: string;
 }
 
 /** Everything `open` needs that depends on what the terminal is pointed at. */
@@ -429,7 +432,10 @@ async function identifySessionTmux(
       command: [],
       refuseNew: null,
       createTmux: null,
-      reviveTmux: await sessionPaneRevival(context.source, sessionId, projectPath, deps.claudeRunning),
+      reviveTmux: await sessionPaneRevival(context.source, sessionId, projectPath, deps.claudeRunning, {
+        mode: lastRunMode(session),
+        title: session.title ?? sessionId,
+      }),
       stampSession: sessionId,
     };
   }
@@ -455,6 +461,13 @@ async function identifySessionTmux(
     };
   }
 
+  // A live process this sidecar has no pane for -- a Desktop window, a terminal somebody opened by
+  // hand -- holds the transcript already, and resuming beside it would fork it (ADR-0143).
+  if (context.source === "claude" && await deps.claudeRunning(sessionId)) {
+    throw new AgentTerminalConflictError(
+      "this session is already running somewhere the panel cannot attach to, so opening it here would start a second process on it",
+    );
+  }
   const pane = claudeSessionPaneName(sessionId);
   return {
     ptySessionName: `agent-tmux-${pane}`,
@@ -464,8 +477,9 @@ async function identifySessionTmux(
     refuseNew: null,
     createTmux: {
       cwd: projectPath,
+      // The way it last ran, so a session switched to the SDK reopens through its runner.
       command: context.source === "claude"
-        ? resumeClaudeSessionCommand(sessionId)
+        ? resumeCommandFor(lastRunMode(session), { sessionId, cwd: projectPath, title: session.title ?? sessionId })
         : ["codex", "resume", sessionId],
     },
     // Resuming, not creating: the session already exists and already has whatever name it has.

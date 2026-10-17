@@ -5,7 +5,8 @@
 // back to life in it, and `reviveExitedPane` says whether the pane in front of it qualifies.
 
 import { opencodeBinary } from "@/config/configBinaries";
-import { resumeClaudeSessionCommand } from "@/terminal/session-panes/claudeSessionLaunch";
+import type { ClaudeRunMode } from "@agentdesk/agent-feed-wire";
+import { resumeCommandFor } from "@/claude-sdk/claudeSdkLaunch";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
 
 /**
@@ -39,11 +40,13 @@ export async function sessionPaneRevival(
   sessionId: string,
   cwd: string,
   claudeRunning: (sessionId: string) => Promise<boolean>,
+  /** A Claude session comes back the way it last ran: the terminal, or the SDK runner (ADR-0143). */
+  claude: { mode: ClaudeRunMode; title: string } = { mode: "terminal", title: sessionId },
 ): Promise<PaneRevival | null> {
   if (source === "opencode") {
     const tui = opencodeTuiCommand(sessionId);
     return tui ? { startedFor: sessionId, cwd, command: tui } : null;
   }
   if (source !== "claude" || await claudeRunning(sessionId)) return null;
-  return { startedFor: sessionId, cwd, command: resumeClaudeSessionCommand(sessionId) };
+  return { startedFor: sessionId, cwd, command: resumeCommandFor(claude.mode, { sessionId, cwd, title: claude.title }) };
 }

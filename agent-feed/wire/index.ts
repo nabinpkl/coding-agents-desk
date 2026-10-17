@@ -30,6 +30,9 @@ export type {
   ClaudeSdkRefusal,
   ClaudeSdkRunStatus,
   ClaudeSdkSessionState,
+  ClaudeSdkSwitchCommand,
+  ClaudeSdkSwitchOutcome,
+  ClaudeSdkSwitchRefusal,
 } from "./claudeSdk.ts";
 export { DISCONNECTED_CLAUDE_SDK_STATE } from "./claudeSdk.ts";
 

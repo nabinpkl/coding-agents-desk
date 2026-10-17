@@ -167,6 +167,7 @@ async function readClaudeCandidate(filePath: string): Promise<ClaudeCandidate> {
     title: header.title,
     gitBranch: header.gitBranch,
     entrypoint: header.entrypoint,
+    lastEntrypoint: header.lastEntrypoint,
     lastTurnClosed: header.lastTurnClosed,
     firstPrompt: header.firstPrompt,
     taskState: header.taskState,

@@ -16,8 +16,10 @@ import { fileURLToPath } from "node:url";
 import { config } from "@/config/config";
 import { claudeBinary } from "@/config/configBinaries";
 import { claudeLaunchModDirectories, claudeLaunchPermission } from "@/config/configClaudeLaunch";
+import type { ClaudeRunMode } from "@agentdesk/agent-feed-wire";
 import {
   claudeSessionPaneName,
+  resumeClaudeSessionCommand,
   UNATTENDED_COLUMNS,
   UNATTENDED_ROWS,
   type StartedClaudeSession,
@@ -107,4 +109,22 @@ export async function startClaudeSdkSession(options: {
   }
   const tmuxSession = await adoptTitleName(pane, options.sessionId, options.title);
   return { sessionId: options.sessionId, title: options.title, tmuxSession };
+}
+
+/**
+ * How a stopped session reopens: the way its newest record says it last ran, so a session switched
+ * to the SDK comes back through the runner rather than as a terminal nobody asked for.
+ */
+export function lastRunMode(session: { lastEntrypoint?: string }): ClaudeRunMode {
+  return session.lastEntrypoint === "sdk-cli" ? "sdk" : "terminal";
+}
+
+/** The argv that resumes a session in one mode or the other. */
+export function resumeCommandFor(
+  mode: ClaudeRunMode,
+  options: { sessionId: string; cwd: string; title: string },
+): string[] {
+  return mode === "sdk"
+    ? claudeSdkRunnerCommand({ ...options, start: "resume" })
+    : resumeClaudeSessionCommand(options.sessionId);
 }

@@ -4,9 +4,9 @@ import type { CliSessionStatus } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useCliSession } from "@/features/cli-input/useCliSession";
 
-const TERMINAL: CliSessionStatus = { entrypoint: "cli", tmuxSession: "keyboard" };
-const DESKTOP: CliSessionStatus = { entrypoint: "claude-desktop", tmuxSession: null };
-const GONE: CliSessionStatus = { entrypoint: null, tmuxSession: null };
+const TERMINAL: CliSessionStatus = { entrypoint: "cli", tmuxSession: "keyboard", liveProcesses: 1 };
+const DESKTOP: CliSessionStatus = { entrypoint: "claude-desktop", tmuxSession: null, liveProcesses: 1 };
+const GONE: CliSessionStatus = { entrypoint: null, tmuxSession: null, liveProcesses: 0 };
 
 const S1: SessionAddress = { source: "claude", sessionId: "s1" };
 const S2: SessionAddress = { source: "claude", sessionId: "s2" };
@@ -74,5 +74,27 @@ describe("useCliSession", () => {
     render(<Probe feed={feed} session={S1} />);
     await flush();
     expect(screen.getByTestId("terminal").textContent).toBe("false");
+  });
+
+  it("reads again on refresh, keeping the old answer until the new one lands, and counts processes", async () => {
+    // The one time a session stops being what it was launched as: the panel switched it.
+    const feed = {
+      cliSessionStatus: vi.fn()
+        .mockResolvedValueOnce(TERMINAL)
+        .mockResolvedValue({ entrypoint: "sdk-cli", tmuxSession: "keyboard", liveProcesses: 2 }),
+    };
+    let handle!: ReturnType<typeof useCliSession>;
+    function Holder() {
+      handle = useCliSession(feed, S1, true);
+      return null;
+    }
+    render(<Holder />);
+    await flush();
+    expect(handle).toMatchObject({ isTerminalSession: true, isSdkSession: false, liveProcesses: 1 });
+    act(() => handle.refresh());
+    expect(handle.isTerminalSession).toBe(true);
+    await flush();
+    expect(handle).toMatchObject({ isTerminalSession: false, isSdkSession: true, liveProcesses: 2 });
+    expect(feed.cliSessionStatus).toHaveBeenCalledTimes(2);
   });
 });

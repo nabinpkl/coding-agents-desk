@@ -129,6 +129,34 @@ describe("the SDK band's actions", () => {
   });
 });
 
+describe("moving a session between the terminal and the SDK", () => {
+  const switcher = () => ({ pending: false, error: null, switchTo: vi.fn(async () => {}) });
+
+  it("offers the SDK to a terminal session and the terminal to a live SDK one", () => {
+    const toSdk = sdkModel(handle(), { sdkBand: false, runMode: "terminal", runModeSwitch: switcher() });
+    composerActions(toSdk).find((action) => action.key === "switch-run-mode")!.onClick();
+    expect(toSdk.runModeSwitch.switchTo).toHaveBeenCalledWith("sdk");
+    const toTerminal = sdkModel(handle(), { runMode: "sdk", runModeSwitch: switcher() });
+    composerActions(toTerminal).find((action) => action.key === "switch-run-mode")!.onClick();
+    expect(toTerminal.runModeSwitch.switchTo).toHaveBeenCalledWith("terminal");
+  });
+
+  it("offers nothing where neither mode is running", () => {
+    expect(composerActions(sdkModel(handle(), { runMode: null, runModeSwitch: switcher() }))
+      .some((action) => action.key === "switch-run-mode")).toBe(false);
+    expect(composerActions(sdkModel(handle({ connected: false }), { runMode: "sdk", runModeSwitch: switcher() }))
+      .some((action) => action.key === "switch-run-mode")).toBe(false);
+  });
+
+  it("puts a refusal in the caption, and two processes above everything", () => {
+    expect(composerCaption(sdkModel(handle(), { runModeSwitch: { ...switcher(), error: "Not switched: a turn is running." } })))
+      .toEqual({ caption: "Not switched: a turn is running.", captionIsError: true });
+    const forked = composerCaption(sdkModel(handle(), { liveProcesses: 2, runModeSwitch: { ...switcher(), error: "x" } }));
+    expect(forked.captionIsError).toBe(true);
+    expect(forked.caption).toMatch(/^2 processes are running this session/);
+  });
+});
+
 describe("the mode cycle", () => {
   it("follows the terminal's order, and skips bypass where the launch did not allow it", () => {
     expect(nextPermissionMode("auto", true)).toBe("acceptEdits");

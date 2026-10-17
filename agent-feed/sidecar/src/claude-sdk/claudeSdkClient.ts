@@ -79,12 +79,18 @@ export class ClaudeSdkClient {
     };
   }
 
+  /** The runner's state now, connecting to ask; the disconnected state when none answers. */
+  async state(sessionId: string): Promise<ClaudeSdkSessionState> {
+    const connection = this.connection(sessionId);
+    await this.open(connection);
+    const state = connection.state;
+    this.release(connection);
+    return state;
+  }
+
   /** Whether a runner is serving this session, connecting to find out. */
   async isServing(sessionId: string): Promise<boolean> {
-    const connection = this.connection(sessionId);
-    const serving = await this.open(connection);
-    this.release(connection);
-    return serving;
+    return (await this.state(sessionId)).connected;
   }
 
   /** Sends one command and waits for the runner's answer to it. */

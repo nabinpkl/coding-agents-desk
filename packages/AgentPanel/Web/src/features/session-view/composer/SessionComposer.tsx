@@ -91,6 +91,7 @@ import {
 } from "@/features/session-view/composer/sessionComposerEditor";
 import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { useSdkSession } from "@/features/cli-input/useSdkSession";
+import { useRunModeSwitch } from "@/features/cli-input/useRunModeSwitch";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
 
 /** One action in the composer, rendered in array order in the place its `placement` names. */
@@ -213,6 +214,7 @@ export function SessionComposer({
   // learns of its socket from a directory watch -- and costs an idle stream where none ever does.
   const sdkSession = useSdkSession(feed, tmuxComposerSession, isClaude);
   const sdkCandidate = isClaude && (cliSession.isSdkSession || sdkSession.state.connected);
+  const runModeSwitch = useRunModeSwitch(feed, tmuxComposerSession, cliSession.refresh);
   const windowCandidate = (isClaude || isCodex) && !terminalCandidate && !sdkCandidate;
 
   // A Claude or Codex session being shown in a window reaches its prompt through that window's
@@ -443,6 +445,9 @@ export function SessionComposer({
     sendAttachments,
     sdkBand,
     sdkSession,
+    runMode: sdkBand ? "sdk" : isClaude && cliSession.isTerminalSession ? "terminal" : null,
+    runModeSwitch,
+    liveProcesses: cliSession.liveProcesses,
     session,
     sessionModel: sessionModel ?? usage?.model ?? null,
     setDeliveryError,
