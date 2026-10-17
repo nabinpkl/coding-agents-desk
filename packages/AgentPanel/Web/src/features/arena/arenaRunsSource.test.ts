@@ -120,7 +120,7 @@ describe("requests", () => {
         ? { status: 201, body: JSON.stringify(run()) }
         : { status: 500, body: "" }
     );
-    const answer = await createArenaRun(transport, { name: "", prompt: "say one word", repoPath: "/repos/one", mode: "terminals", contestants: ["opencode", "claude", "opencode"] });
+    const answer = await createArenaRun(transport, { name: "", prompt: "say one word", repoPath: "/repos/one", mode: "terminals", contestants: ["opencode", "claude", "opencode"], judge: null });
     expect("run" in answer && answer.run.runId).toBe(run().runId);
     expect((calls[0]?.body as { contestants: unknown[] }).contestants).toEqual([
       { source: "opencode" },
@@ -134,7 +134,7 @@ describe("requests", () => {
       status: 400,
       body: JSON.stringify({ error: { code: "arena-bad-request", message: "a run needs a prompt" } }),
     }));
-    const answer = await createArenaRun(transport, { name: "", prompt: "", repoPath: "/x", mode: "headless", contestants: ["opencode"] });
+    const answer = await createArenaRun(transport, { name: "", prompt: "", repoPath: "/x", mode: "headless", contestants: ["opencode"], judge: null });
     expect("message" in answer && answer.message).toBe("a run needs a prompt");
   });
 
@@ -186,8 +186,22 @@ describe("the terminals mode", () => {
 
   test("the mode the reader chose and the name they gave ride the create request", async () => {
     const { transport, calls } = transportOf(() => ({ status: 201, body: JSON.stringify(run()) }));
-    await createArenaRun(transport, { name: "duel", prompt: "p", repoPath: "", mode: "terminals", contestants: ["claude"] });
-    expect(calls[0]?.body).toMatchObject({ name: "duel", repoPath: "", mode: "terminals" });
+    await createArenaRun(transport, { name: "duel", prompt: "p", repoPath: "", mode: "terminals", contestants: ["claude"], judge: "claude" });
+    expect(calls[0]?.body).toMatchObject({ name: "duel", repoPath: "", mode: "terminals", judge: "claude" });
+  });
+
+  test("a run's judge is read whole; none is null, and one this panel cannot read makes the run unreadable", () => {
+    expect(parseRunSummary(run())?.judge).toBeNull();
+    const judge = {
+      source: "claude",
+      status: "open",
+      folder: "/arena/run/judge",
+      sessionId: "s-judge",
+      tmuxSession: "pane-judge",
+      error: null,
+    };
+    expect(parseRunSummary({ ...run(), judge })?.judge).toEqual(judge);
+    expect(parseRunSummary({ ...run(), judge: { ...judge, status: "deliberating" } })).toBeNull();
   });
 
   test("a blank run's defaults are read whole, and an answer missing any part is none", async () => {

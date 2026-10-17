@@ -21,7 +21,7 @@
 // in it once it is listed.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ArenaContestantDetail, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { ArenaContestantDetail, ArenaContestantSource, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -99,7 +99,10 @@ export function SessionLane({
   // A terminal contestant's session from the moment it has an id: its pane is already running it.
   const awaited = useMemo(
     () => (contestant.sessionId !== null && contestant.tmuxSession !== null
-      ? { session: awaitedSession(contestant, contestant.sessionId), projectPath: contestant.worktreePath }
+      ? {
+        session: awaitedSession(contestant.source, contestant.sessionId, label, contestant.startedAt),
+        projectPath: contestant.worktreePath,
+      }
       : null),
     // The fields it reads, not the record, which is a new object on every run update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,16 +155,21 @@ export function SessionLane({
 }
 
 /**
- * The session a contestant's pane is running, before the catalog lists it. It claims nothing the
- * sidecar has not said -- no sends, no terminal beyond the pane, one mode -- and the listed summary
- * replaces it the moment there is one.
+ * The session a pane is running -- a contestant's, or the judge's -- before the catalog lists it.
+ * It claims nothing the sidecar has not said -- no sends, no terminal beyond the pane, one mode --
+ * and the listed summary replaces it the moment there is one.
  */
-function awaitedSession(contestant: ArenaContestantDetail, sessionId: string): SessionSummary {
+export function awaitedSession(
+  source: ArenaContestantSource,
+  sessionId: string,
+  title: string,
+  at: number | null,
+): SessionSummary {
   return {
     sessionId,
-    source: contestant.source,
-    title: `${contestant.contestantId} ${SOURCE_LABEL[contestant.source]}`,
-    lastEventAt: contestant.startedAt ?? 0,
+    source,
+    title,
+    lastEventAt: at ?? 0,
     activity: "ready",
     capabilities: {
       modes: ["nice"],

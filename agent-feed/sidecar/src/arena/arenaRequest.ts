@@ -34,6 +34,8 @@ export interface CheckedRunRequest {
   mode: ArenaRunMode;
   drivers: ContestantDrivers;
   sources: ArenaContestantSource[];
+  /** The judge's harness, or null for a run with none. */
+  judge: ArenaContestantSource | null;
 }
 
 /**
@@ -75,5 +77,11 @@ export function checkRunRequest(
     }
     sources.push(contestant.source);
   }
-  return { prompt, namedRepo, baseRef, mode, drivers, sources };
+  const judge = request.judge ?? null;
+  if (judge !== null && judge !== "opencode" && judge !== "claude") {
+    return { problem: `the judge names source "${String(judge)}", which this arena cannot run` };
+  }
+  // A judge is a session in a pane, which a headless run has none of.
+  if (judge !== null && mode !== "terminals") return { problem: "only a terminals run can have a judge" };
+  return { prompt, namedRepo, baseRef, mode, drivers, sources, judge };
 }

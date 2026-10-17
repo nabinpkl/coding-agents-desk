@@ -13,12 +13,17 @@
 //
 //   PANEL_ORIGIN=https://<this-mac>.<tailnet>.ts.net:5173 node chrome-test/arena-terminals-verify.mjs
 //
+// The form leaves the judge at its default, Claude, so the run has one: a session in a pane of its
+// own, behind the switch in the run's header. Its trust question is answered in its window, its pane
+// must show Claude in plan mode, its folder must hold the brief and each contestant's transcript once
+// the first prompt closes, and it is asked which lanes answered, which must come back naming them.
+//
 // The run is deleted at the end, which ends its panes and removes its folder; ARENA_KEEP_RUN=1
 // keeps it to sweep it. Uses Playwright's Chrome for Testing with a throwaway profile.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const ORIGIN = process.env.PANEL_ORIGIN;
@@ -30,6 +35,7 @@ const PROMPT = 'Reply with exactly the word alder and nothing else';
 // session each already has, from the box under the run's prompt.
 const NEXT_PROMPT = 'Now reply with exactly the word birch and nothing else';
 const TMUX = process.env.AGENT_FEED_TMUX_PATH ?? '/opt/homebrew/bin/tmux';
+const JUDGE_QUESTION = 'Read your brief and the transcripts. Which contestants replied with exactly the word alder? Answer in one line naming them by id.';
 
 async function playwrightRoot() {
   const told = process.env.AGENTDESK_PLAYWRIGHT_ROOT;
@@ -147,6 +153,12 @@ try {
   // A blank form: the name and the repository are left to their defaults, which the form shows.
   await page.getByLabel('Run name').fill('');
   await page.getByLabel('Repository the contestants work in').fill('');
+  // The placeholder is the sidecar's answer once it has arrived; until then it is the form's own fallback.
+  await page.waitForFunction(
+    (name) => document.querySelector('[aria-label="Run name"]')?.getAttribute('placeholder') === name,
+    defaults.nextName,
+    { timeout: 10_000 },
+  ).catch(() => {});
   const shownName = await page.getByLabel('Run name').getAttribute('placeholder');
   if (shownName !== defaults.nextName) problems.push(`the form offers the name "${shownName}", the sidecar "${defaults.nextName}"`);
   while (await page.getByLabel('Remove contestant 1').count() > 0) await page.getByLabel('Remove contestant 1').click();
@@ -154,6 +166,8 @@ try {
     if (index > 0) await page.getByLabel('Add a contestant').click();
     await page.getByRole('radiogroup', { name: `Contestant ${index + 1} harness` }).getByRole('radio', { name: LABEL[source] }).click();
   }
+  const judgeChoice = page.getByRole('radiogroup', { name: "The run's judge" });
+  if (await judgeChoice.locator('[aria-checked=true]').textContent() !== 'Claude') problems.push('the judge is not Claude by default');
   const sessionsBefore = new Set(tmuxSessions());
   await page.getByRole('button', { name: /Open lanes/ }).click();
   await page.getByRole('tablist', { name: 'Compare by' }).waitFor({ timeout: 20_000 });
@@ -170,6 +184,10 @@ try {
     problems.push(`the run did not get a repository of its own in ${defaults.arenaHome}: ${folder} (repoCreated ${run?.repoCreated})`);
   } else if (!existsSync(join(folder, '.git')) || !run.contestants.every((c) => c.worktreePath.startsWith(`${folder}/`))) {
     problems.push(`${folder} is not a repository holding the contestants' worktrees`);
+  }
+
+  if (run?.judge?.source !== 'claude' || run?.judge?.folder !== join(folder ?? '', 'judge')) {
+    problems.push(`the run has no Claude judge in its folder: ${JSON.stringify(run?.judge)}`);
   }
 
   // Every contestant gets a pane, and its lane joins it.
@@ -201,6 +219,30 @@ try {
       console.log(`answered ${c.contestantId}'s folder-trust question in its lane`);
     }
   };
+  // The judge's own trust question, answered in its window, which opens from the run's header.
+  const judgeBy = Date.now() + 60_000;
+  let judge = null;
+  while (Date.now() < judgeBy && !((judge = (await api(`/api/arena/runs/${runId}`)).body?.judge)?.tmuxSession)) await page.waitForTimeout(500);
+  if (!judge?.tmuxSession || judge.status !== 'open') problems.push(`the judge did not open: ${JSON.stringify(judge)}`);
+  const judgeSwitch = page.getByRole('button', { name: 'Judge', exact: true });
+  await judgeSwitch.click();
+  const judgeWindow = page.locator('#arena-judge');
+  await judgeWindow.locator('.xterm').first().waitFor({ timeout: 20_000 }).catch(() => problems.push('the judge window has no terminal'));
+  const trustBy = Date.now() + 30_000;
+  while (Date.now() < trustBy && judge?.tmuxSession && !/trust/i.test(paneText(judge.tmuxSession))) await page.waitForTimeout(500);
+  if (judge?.tmuxSession && /trust/i.test(paneText(judge.tmuxSession))) {
+    await judgeWindow.locator('.xterm').first().click();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Enter');
+    console.log("answered the judge's folder-trust question in its window");
+  }
+  const planBy = Date.now() + 30_000;
+  while (Date.now() < planBy && judge?.tmuxSession && !/plan mode on/.test(paneText(judge.tmuxSession))) await page.waitForTimeout(500);
+  if (!/plan mode on/.test(paneText(judge?.tmuxSession ?? ''))) problems.push("the judge's pane does not show Claude in plan mode");
+  await page.screenshot({ path: join(shots, 'arena-terminals-judge.png') });
+  await page.getByRole('button', { name: 'Put the judge away' }).click();
+
   const readyBy = Date.now() + 120_000;
   while (Date.now() < readyBy && !(await contestants()).every((c) => c.status === 'ready' || c.status === 'failed')) {
     await answerTrust();
@@ -242,9 +284,9 @@ try {
   await oneTerminalPerLane(page, problems, 'once the turns closed');
   await sessionViewPerLane(page, problems, 'once the turns closed');
   await harnessInView(page, problems, 'once the turns closed');
-  // Only the contestants' own panes are new: a lane's terminal joins its pane, never starts one.
+  // Only the contestants' and the judge's own panes are new: a terminal joins its pane, never starts one.
   const madeByRun = tmuxSessions().filter((name) => !sessionsBefore.has(name));
-  if (madeByRun.length !== LINEUP.length) problems.push(`the run left ${madeByRun.length} new tmux sessions, not ${LINEUP.length}: ${madeByRun.join(', ')}`);
+  if (madeByRun.length !== LINEUP.length + 1) problems.push(`the run left ${madeByRun.length} new tmux sessions, not ${LINEUP.length + 1}: ${madeByRun.join(', ')}`);
   await page.screenshot({ path: join(shots, 'arena-terminals-closed.png') });
   for (const c of final) {
     if (c.status !== 'closed') problems.push(`${c.contestantId} (${c.source}) ended ${c.status}: ${c.error ?? ''}`);
@@ -257,6 +299,49 @@ try {
     problems.push(`the prompts did not go in together: starts ${starts.join(', ')}`);
   }
   console.log(final.map((c) => `${c.contestantId} ${c.source}: ${c.status} in ${c.durationMs}ms, pane ${c.tmuxSession}, wrote ${c.filesWritten.length} read ${c.filesRead.length}`).join('\n'));
+
+  // The judge's folder follows the run: the brief names the prompt, and each lane's transcript is there.
+  const judgeFolder = join(folder ?? '', 'judge');
+  const folderBy = Date.now() + 15_000;
+  const briefed = () => existsSync(join(judgeFolder, 'CLAUDE.md')) && readFileSync(join(judgeFolder, 'CLAUDE.md'), 'utf8').includes(PROMPT)
+    && LINEUP.every((_, index) => existsSync(join(judgeFolder, `c${index + 1}.md`)));
+  while (Date.now() < folderBy && !briefed()) await page.waitForTimeout(500);
+  if (!briefed()) problems.push(`the judge's folder does not hold the brief and every transcript: ${existsSync(judgeFolder) ? readdirSync(judgeFolder).join(', ') : 'no folder'}`);
+
+  // Asked from its window's composer, the judge answers naming the lanes.
+  await judgeSwitch.click();
+  await judgeWindow.getByRole('textbox').last().fill(JUDGE_QUESTION);
+  // The field mirrors into Claude's own composer as it is typed; Enter before the pane holds the
+  // question races that mirror, so wait for it the way a reader would see it land.
+  const typedBy = Date.now() + 15_000;
+  while (Date.now() < typedBy && !paneText(judge?.tmuxSession ?? '').replace(/\s+/g, ' ').includes('naming them by id')) {
+    await page.waitForTimeout(300);
+  }
+  await judgeWindow.getByRole('textbox').last().press('Enter');
+  const transcriptOf = (sessionId) => {
+    const root = join(homedir(), '.claude', 'projects');
+    for (const project of readdirSync(root)) {
+      const path = join(root, project, `${sessionId}.jsonl`);
+      if (existsSync(path)) return readFileSync(path, 'utf8');
+    }
+    return '';
+  };
+  const verdictOf = () => transcriptOf(judge?.sessionId ?? '').split('\n').filter(Boolean).flatMap((line) => {
+    try {
+      const record = JSON.parse(line);
+      if (record.type !== 'assistant' || record.message?.stop_reason !== 'end_turn') return [];
+      return (record.message.content ?? []).filter((block) => block.type === 'text').map((block) => block.text);
+    } catch {
+      return [];
+    }
+  }).join('\n');
+  const verdictBy = Date.now() + 180_000;
+  while (Date.now() < verdictBy && !verdictOf()) await page.waitForTimeout(2000);
+  const verdict = verdictOf();
+  if (!LINEUP.every((_, index) => verdict.includes(`c${index + 1}`))) problems.push(`the judge's answer does not name every lane: ${JSON.stringify(verdict.slice(0, 300))}`);
+  console.log(`the judge answered: ${verdict.replace(/\s+/g, ' ').slice(0, 200)}`);
+  await page.screenshot({ path: join(shots, 'arena-terminals-verdict.png') });
+  await page.getByRole('button', { name: 'Put the judge away' }).click();
 
   // The second prompt, typed once into the run's header, for every lane, in the pane it has.
   await page.getByLabel('Next prompt for every lane').fill(NEXT_PROMPT);
@@ -295,10 +380,14 @@ try {
     // Deleting the run ends its panes and removes its worktrees; a live one is refused, so give a
     // failed check's contestants nothing more to wait for first.
     const folder = (await api(`/api/arena/runs/${runId}`)).body?.repoPath;
+    const judgePane = (await api(`/api/arena/runs/${runId}`)).body?.judge?.tmuxSession;
     const deleted = await api(`/api/arena/runs/${runId}`, { method: 'DELETE' }).catch(() => null);
     if (deleted?.status !== 200) console.error(`the run could not be deleted (${deleted?.status}); delete ${runId} by hand`);
     else if (folder && existsSync(folder)) {
       console.error(`deleting the run left its folder ${folder}`);
+      failed = true;
+    } else if (judgePane && paneText(judgePane)) {
+      console.error(`deleting the run left the judge's pane ${judgePane}`);
       failed = true;
     }
   }

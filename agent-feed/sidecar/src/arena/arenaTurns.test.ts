@@ -26,6 +26,7 @@ const contestant = (over: Partial<ArenaContestantRecord> = {}): ArenaContestantR
 
 const run = (contestants: ArenaContestantRecord[], mode: ArenaRunRecord["mode"] = "terminals"): ArenaRunRecord => ({
   runId: "11111111-1111-4111-8111-111111111111",
+  judge: null,
   name: "arena run 1",
   folder: "/arena/run",
   prompt: "first",

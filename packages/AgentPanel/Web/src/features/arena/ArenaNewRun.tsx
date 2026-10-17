@@ -14,6 +14,10 @@
 // can watch and type into, or headless. Terminals is offered only where the machine has tmux. A
 // terminals run may be started with no prompt at all: that opens the lanes, each harness comes up
 // in its terminal, and the prompt is typed on the run once they are ready.
+//
+// A terminals run may also have a judge: one more session, Claude unless the reader picks
+// otherwise, that the reader asks for a verdict once the lanes have something to judge. It lives
+// in a terminal too, so a headless run has none.
 
 import { useId, type KeyboardEvent } from "react";
 import { Plus, X } from "lucide-react";
@@ -37,6 +41,8 @@ export interface ArenaDraft {
   repoPath: string;
   lineup: ArenaContestantSource[];
   mode: ArenaRunMode;
+  /** The judge's harness, or null for none; a headless run has none whatever this says. */
+  judge: ArenaContestantSource | null;
 }
 
 export const EMPTY_DRAFT: ArenaDraft = {
@@ -45,9 +51,11 @@ export const EMPTY_DRAFT: ArenaDraft = {
   repoPath: "",
   lineup: ["opencode", "claude"],
   mode: "terminals",
+  judge: "claude",
 };
 
 const RUN_MODES: readonly ArenaRunMode[] = ["terminals", "headless"];
+const JUDGES: readonly (ArenaContestantSource | null)[] = ["claude", "opencode", null];
 
 /** What kind of comparison a lineup is, in the words a reader would use for it. */
 export function lineupKind(lineup: readonly ArenaContestantSource[]): string {
@@ -205,32 +213,61 @@ export function ArenaNewRun({
         </div>
       </fieldset>
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Run in</legend>
-        <div
-          role="radiogroup"
-          aria-label="How the contestants are driven"
-          className="grid w-full max-w-xs grid-cols-2 gap-0.5 rounded-md bg-muted/50 p-0.5"
-        >
-          {RUN_MODES.map((mode) => {
-            const offered = modes === null || modes.includes(mode);
-            return (
-              <button
-                key={mode}
-                type="button"
-                role="radio"
-                aria-checked={draft.mode === mode}
-                disabled={!offered}
-                title={offered ? undefined : "This machine has no tmux to run terminals in"}
-                onClick={() => onDraft({ ...draft, mode })}
-                className={`min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground ${FOCUS}`}
-              >
-                {MODE_LABEL[mode]}
-              </button>
-            );
-          })}
-        </div>
-      </fieldset>
+      <div className="flex flex-wrap gap-x-6 gap-y-6">
+        <fieldset className="flex min-w-56 flex-1 flex-col gap-2">
+          <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Run in</legend>
+          <div
+            role="radiogroup"
+            aria-label="How the contestants are driven"
+            className="grid w-full max-w-xs grid-cols-2 gap-0.5 rounded-md bg-muted/50 p-0.5"
+          >
+            {RUN_MODES.map((mode) => {
+              const offered = modes === null || modes.includes(mode);
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={draft.mode === mode}
+                  disabled={!offered}
+                  title={offered ? undefined : "This machine has no tmux to run terminals in"}
+                  onClick={() => onDraft({ ...draft, mode })}
+                  className={`min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground ${FOCUS}`}
+                >
+                  {MODE_LABEL[mode]}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <fieldset className="flex min-w-64 flex-1 flex-col gap-2">
+          <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Judge</legend>
+          <div
+            role="radiogroup"
+            aria-label="The run's judge"
+            className="grid w-full max-w-sm grid-cols-3 gap-0.5 rounded-md bg-muted/50 p-0.5"
+          >
+            {JUDGES.map((judge) => {
+              const offered = draft.mode === "terminals";
+              return (
+                <button
+                  key={judge ?? "none"}
+                  type="button"
+                  role="radio"
+                  aria-checked={offered ? draft.judge === judge : judge === null}
+                  disabled={!offered}
+                  title={offered ? undefined : "A judge runs in a terminal, so a headless run has none"}
+                  onClick={() => onDraft({ ...draft, judge })}
+                  className={`min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground ${FOCUS}`}
+                >
+                  {judge ? SOURCE_LABEL[judge] : "None"}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <span className={`${TEXT.body} text-foreground`}>{lineupKind(draft.lineup)}</span>

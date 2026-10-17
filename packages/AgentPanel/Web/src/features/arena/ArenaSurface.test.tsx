@@ -304,7 +304,44 @@ describe("ArenaSurface", () => {
     await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
     open.click();
     await waitFor(() => expect(posted.length).toBe(1));
-    expect(posted[0]).toMatchObject({ name: "", repoPath: "", prompt: "", mode: "terminals" });
+    expect(posted[0]).toMatchObject({ name: "", repoPath: "", prompt: "", mode: "terminals", judge: "claude" });
+  });
+
+  test("the judge is Claude unless the reader picks otherwise, and a headless run has none", async () => {
+    const { transport, posted } = harness({ modes: ["terminals", "headless"] });
+    mount(transport);
+    const judges = await screen.findByRole("radiogroup", { name: "The run's judge" });
+    expect(judges.querySelector("[aria-checked=true]")?.textContent).toBe("Claude");
+    screen.getByRole("radio", { name: "None" }).click();
+    await waitFor(() => expect(judges.querySelector("[aria-checked=true]")?.textContent).toBe("None"));
+    const open = await screen.findByRole("button", { name: /Open lanes/ });
+    await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
+    open.click();
+    await waitFor(() => expect(posted.length).toBe(1));
+    expect(posted[0]).toMatchObject({ judge: null });
+  });
+
+  test("a run's judge waits as a switch in the header, and opens into a window of its session", async () => {
+    const judged = run({
+      judge: {
+        source: "claude",
+        status: "open",
+        folder: "/arena/run/judge",
+        sessionId: "judge-session",
+        tmuxSession: "judge-pane",
+        error: null,
+      },
+    });
+    mount(harness({ runs: [judged], detail: judged }).transport);
+    await openRun("say one word");
+    const button = await screen.findByRole("button", { name: "Judge" });
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: "Judge" })).toBeNull();
+    button.click();
+    const window = await screen.findByRole("region", { name: "Judge" });
+    expect(window.textContent).toContain("Judge · Claude");
+    screen.getByRole("button", { name: "Put the judge away" }).click();
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Judge" })).toBeNull());
   });
 
   test("a run whose lanes wait for their prompt takes it in its header and sends it to every lane", async () => {

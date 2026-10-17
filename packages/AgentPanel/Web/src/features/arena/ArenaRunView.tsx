@@ -10,6 +10,9 @@
 // prompt: a reader flicks between views of one run, and a switch that moved with its view would
 // move out from under the finger.
 //
+// A run with a judge has its switch beside Remove; the judge's window floats over the lanes' corner
+// only while it is open (`judge/ArenaJudgeWindow.tsx`).
+//
 // A terminals run whose lanes were opened before its prompt has no prompt to show yet, so the
 // header holds the box the prompt is typed into instead. It goes to every lane at once, as soon as
 // all of them are ready -- sending it early is fine, it waits at the same line.
@@ -23,6 +26,7 @@ import { DiffLane } from "@/features/arena/ArenaDiffs";
 import { ArenaFilesMatrix } from "@/features/arena/ArenaFilesMatrix";
 import { ArenaLaneFacts, factRowsFor } from "@/features/arena/ArenaLaneFacts";
 import { SessionLane, useRunSessions } from "@/features/arena/ArenaSessionLanes";
+import { ArenaJudgeWindow, JudgeSwitch } from "@/features/arena/judge/ArenaJudgeWindow";
 import { lineupKind } from "@/features/arena/ArenaNewRun";
 import { basename, diffStat, elapsedMs, fileMatrix, formatAgo } from "@/features/arena/arenaFacts";
 import { FIELD, FOCUS, ICON_BUTTON, isLive, PRIMARY_BUTTON, TEXT } from "@/features/arena/arenaVocabulary";
@@ -57,6 +61,7 @@ export function ArenaRunView({
   onSendPrompt: (prompt: string) => Promise<string | null>;
 }) {
   const [promptOpen, setPromptOpen] = useState(false);
+  const [judgeOpen, setJudgeOpen] = useState(false);
   const live = run.contestants.some(isLive);
   const awaitingPrompt = run.mode === "terminals" && run.prompt === "";
   const ready = run.contestants.filter((c) => c.status === "ready").length;
@@ -67,7 +72,7 @@ export function ArenaRunView({
   const long = run.prompt.length > 280 || run.prompt.split("\n").length > 4;
   const slowestMs = Math.max(1, ...contestants.map((c) => elapsedMs(c, now) ?? 0));
   const rows = factRowsFor(contestants);
-  const directories = [run.repoPath, ...run.contestants.map((c) => c.worktreePath)];
+  const directories = [run.repoPath, ...run.contestants.map((c) => c.worktreePath), ...(run.judge ? [run.judge.folder] : [])];
   const { sessions, error: catalogError } = useRunSessions(feed, directories);
 
   const views: { name: ArenaView; label: string; count: number | null }[] = [
@@ -111,25 +116,29 @@ export function ArenaRunView({
                 {promptOpen ? "Show less" : "Show the whole prompt"}
               </button>
             ) : null}
-            {/* A run never ends: once its lanes settle, the next prompt goes to every one of them,
-                in the session each already has. */}
-            {awaitingPrompt ? null : <LanesPrompt onSend={onSendPrompt} next busy={live} />}
           </div>
-          <button
-            type="button"
-            aria-label="Remove run"
-            title={
-              awaitingPrompt
-                ? "Close the lanes and remove the run"
-                : live ? "A run cannot be removed while it is dueling" : "Remove run and its worktrees"
-            }
-            onClick={onDelete}
-            disabled={deleting || (live && !awaitingPrompt)}
-            className={`${ICON_BUTTON} hover:text-destructive`}
-          >
-            <Trash2 aria-hidden className="size-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {run.judge ? <JudgeSwitch judge={run.judge} open={judgeOpen} onToggle={() => setJudgeOpen((open) => !open)} /> : null}
+            <button
+              type="button"
+              aria-label="Remove run"
+              title={
+                awaitingPrompt
+                  ? "Close the lanes and remove the run"
+                  : live ? "A run cannot be removed while it is dueling" : "Remove run and its worktrees"
+              }
+              onClick={onDelete}
+              disabled={deleting || (live && !awaitingPrompt)}
+              className={`${ICON_BUTTON} hover:text-destructive`}
+            >
+              <Trash2 aria-hidden className="size-4" />
+            </button>
+          </div>
         </div>
+        {/* A run never ends: once its lanes settle, the next prompt goes to every one of them, in
+            the session each already has. Under the header's controls rather than beside them, so
+            it has the header's whole width. */}
+        {awaitingPrompt ? null : <LanesPrompt onSend={onSendPrompt} next busy={live} />}
         <p className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${TEXT.meta} text-muted-foreground`}>
           <span className="font-medium text-foreground">{run.name}</span>
           <span aria-hidden>·</span>
@@ -215,6 +224,14 @@ export function ArenaRunView({
           </>
         )}
       </div>
+      {run.judge && judgeOpen ? (
+        <ArenaJudgeWindow
+          judge={run.judge}
+          listed={run.judge.sessionId ? sessions.get(run.judge.sessionId) ?? null : null}
+          context={context}
+          onClose={() => setJudgeOpen(false)}
+        />
+      ) : null}
     </article>
   );
 }
@@ -263,7 +280,7 @@ function LanesPrompt({
       onClick={() => void send()}
       disabled={!canSend}
       title={busy ? "The lanes are still on the last prompt; send this once they settle" : undefined}
-      className={PRIMARY_BUTTON}
+      className={`${PRIMARY_BUTTON} whitespace-nowrap`}
     >
       {sending ? "Sending" : "Send to every lane"}
       <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
@@ -273,8 +290,8 @@ function LanesPrompt({
   );
   if (next) {
     return (
-      <div className="mt-3 flex flex-col gap-1.5">
-        <div className="flex items-end gap-2">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-end justify-end gap-2">
           <textarea
             aria-label="Next prompt for every lane"
             value={text}
@@ -282,7 +299,7 @@ function LanesPrompt({
             onKeyDown={sendOnChord}
             placeholder={busy ? "Draft the next prompt; send it once every lane settles" : "Next prompt for every lane"}
             rows={1}
-            className={`${FIELD} min-h-10 flex-1 resize-y leading-relaxed`}
+            className={`${FIELD} min-h-10 min-w-48 flex-1 resize-y leading-relaxed`}
           />
           {sendButton}
         </div>

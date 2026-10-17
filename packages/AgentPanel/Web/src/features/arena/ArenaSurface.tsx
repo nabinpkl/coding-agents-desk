@@ -9,7 +9,8 @@
 // The arena judges nothing. Every view puts the same fact for each contestant on one line and
 // leaves the reading to the reader, and a contestant's session is the ordinary catalog session
 // rendered by the ordinary `SessionView` -- the tab adds the grouping, the alignment and the
-// facts, never a second transcript reader.
+// facts, never a second transcript reader. A run's judge is one more such session, which the
+// reader asks for a verdict; the verdict is its answer in its session, not a score the tab keeps.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -158,6 +159,7 @@ export function ArenaSurface({
       repoPath: draft.repoPath.trim(),
       mode: draft.mode,
       contestants: draft.lineup,
+      judge: draft.mode === "terminals" ? draft.judge : null,
     });
     setStarting(false);
     if ("run" in answer) {

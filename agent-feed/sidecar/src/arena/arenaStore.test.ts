@@ -22,6 +22,7 @@ async function arenaRoot(): Promise<string> {
 
 const run = (over: Partial<ArenaRunRecord> = {}): ArenaRunRecord => ({
   runId: "11111111-1111-4111-8111-111111111111",
+  judge: null,
   name: "arena run 1",
   folder: "/arena/arena-run-1",
   prompt: "say one word",

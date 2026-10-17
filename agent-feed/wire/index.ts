@@ -170,6 +170,8 @@ export type {
   ArenaContestantStatus,
   ArenaContestantSummary,
   ArenaCreateRunRequest,
+  ArenaJudgeStatus,
+  ArenaJudgeSummary,
   ArenaNewRunDefaults,
   ArenaOutsideReach,
   ArenaPromptRequest,

@@ -13,6 +13,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantStatus,
   type ArenaContestantSummary,
+  type ArenaJudgeSummary,
   type ArenaOutsideReach,
   type ArenaRunDetail,
   type ArenaRunMode,
@@ -59,7 +60,12 @@ export interface ArenaRunRecord {
   mode: ArenaRunMode;
   createdAt: number;
   contestants: ArenaContestantRecord[];
+  /** The run's judge, or null when it asked for none; its life is `judge/arenaJudges.ts`. */
+  judge: ArenaJudgeRecord | null;
 }
+
+/** A judge, as the arena tracks it: the summary's own fields, since none of it is derived. */
+export type ArenaJudgeRecord = ArenaJudgeSummary;
 
 /** Whether a contestant is still live work rather than a settled fact. */
 export function isLiveContestant(contestant: Pick<ArenaContestantRecord, "status">): boolean {
@@ -97,6 +103,7 @@ export function runSummary(run: ArenaRunRecord): ArenaRunSummary {
     mode: run.mode,
     createdAt: run.createdAt,
     contestants: run.contestants.map(contestantSummary),
+    judge: run.judge ? { ...run.judge } : null,
   };
 }
 

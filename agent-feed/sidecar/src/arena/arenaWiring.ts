@@ -10,6 +10,7 @@ import {
 import { runClaudeContestant } from "@/arena/contestants/claudeContestant";
 import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
 import { runClaudeTerminalContestant, runOpencodeTerminalContestant } from "@/arena/contestants/terminalContestants";
+import { ArenaJudges, liveJudgeSteps, type JudgeOpencodeBackend } from "@/arena/judge/arenaJudges";
 import { config } from "@/config/config";
 
 /**
@@ -21,13 +22,23 @@ import { config } from "@/config/config";
  * interrupted are picked back up from their panes, or failed saying why they cannot be.
  *
  * The terminals mode's drivers are wired only where there is a tmux to run them in; without one
- * the arena offers headless alone, and says so when a run asks for terminals.
+ * the arena offers headless alone, and says so when a run asks for terminals. A run's judge lives
+ * in a pane too, so it is wired only with them.
  */
-export function startArenaService(opencodeBackend: OpencodeContestantBackend): ArenaService {
+export function startArenaService(
+  opencodeBackend: OpencodeContestantBackend & JudgeOpencodeBackend,
+): ArenaService {
   const store = new ArenaStore(arenaRoot());
   const registry = new ArenaRunRegistry({
     initial: store.load(),
   });
+  const judges = config.tmuxPath
+    ? new ArenaJudges({
+      registry,
+      steps: liveJudgeSteps(opencodeBackend, (runId, contestantId) => store.readContestantDiff(runId, contestantId)),
+      claude: { model: arenaClaudeModel(), effort: arenaClaudeEffort() },
+    })
+    : null;
   const service = new ArenaService({
     registry,
     store,
@@ -43,8 +54,10 @@ export function startArenaService(opencodeBackend: OpencodeContestantBackend): A
           runClaudeTerminalContestant(plan, { model: arenaClaudeModel(), effort: arenaClaudeEffort() }),
       }
       : null,
+    judges,
     arenaHome: arenaHome(),
   });
   service.resumeInterruptedRuns();
+  judges?.resume();
   return service;
 }

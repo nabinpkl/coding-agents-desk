@@ -59,6 +59,7 @@ import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { homedir } from "node:os";
 import { ArenaNextPromptError, factsAfterTurn, nextPromptContestants } from "@/arena/arenaTurns";
 import { checkRunRequest, promptProblem } from "@/arena/arenaRequest";
+import { JUDGE_FOLDER, type ArenaJudges } from "@/arena/judge/arenaJudges";
 
 /** The request could not become a run; the route answers it with a 400 naming this reason. */
 export class ArenaBadRequestError extends Error {}
@@ -73,12 +74,12 @@ const MAXIMUM_DIFF_BYTES = 256 * 1024;
 /** How long one contestant's turn may run before the service gives up on it. */
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 
-
 export class ArenaService {
   private readonly registry: ArenaRunRegistry;
   private readonly store: ArenaStore;
   private readonly drivers: ContestantDrivers;
   private readonly terminalDrivers: ContestantDrivers | null;
+  private readonly judges: ArenaJudges | null;
   private readonly killPane: (pane: string) => Promise<void>;
   private readonly worktrees: ArenaWorktreeSteps;
   private readonly arenaHome: string;
@@ -95,6 +96,8 @@ export class ArenaService {
     drivers: ContestantDrivers;
     /** The terminals mode's drivers, or null where this machine has no tmux to run them in. */
     terminalDrivers?: ContestantDrivers | null;
+    /** Starts and briefs a run's judge, where there is a tmux for one; `judge/arenaJudges.ts`. */
+    judges?: ArenaJudges | null;
     /** Ends a contestant's pane when its run is deleted; tmux's own kill unless a test says. */
     killPane?: (pane: string) => Promise<void>;
     /** Overridden in tests; the real steps are this module's own `arenaWorktrees.ts`. */
@@ -108,6 +111,7 @@ export class ArenaService {
     this.store = options.store;
     this.drivers = options.drivers;
     this.terminalDrivers = options.terminalDrivers ?? null;
+    this.judges = options.judges ?? null;
     this.killPane = options.killPane ?? killTmuxSession;
     this.worktrees = options.worktrees ?? {
       assertRepository: assertGitRepository,
@@ -195,7 +199,8 @@ export class ArenaService {
       driversFor: (mode) => (mode === "terminals" ? this.terminalDrivers : this.drivers),
     });
     if ("problem" in checked) throw new ArenaBadRequestError(checked.problem);
-    const { prompt, namedRepo, baseRef, mode, drivers, sources } = checked;
+    const { prompt, namedRepo, baseRef, mode, drivers, sources, judge } = checked;
+    if (judge && !this.judges) throw new ArenaBadRequestError("this machine has no tmux for a judge to run in");
 
     const naming = runNameFor(request.name, this.arenaHome, this.registry.list().map((run) => run.name));
     if ("problem" in naming) throw new ArenaBadRequestError(naming.problem);
@@ -247,7 +252,7 @@ export class ArenaService {
         await this.worktrees.initRepository({
           path: folder,
           message: name,
-          worktreeFolders: records.map((record) => record.contestantId),
+          worktreeFolders: [...records.map((record) => record.contestantId), ...(judge ? [JUDGE_FOLDER] : [])],
         });
       }
       for (const record of records) {
@@ -271,8 +276,13 @@ export class ArenaService {
       mode,
       createdAt: Date.now(),
       contestants: records,
+      judge: judge
+        ? { source: judge, status: "starting", folder: join(folder, JUDGE_FOLDER), sessionId: null, tmuxSession: null, error: null }
+        : null,
     };
     this.registry.add(run);
+    // Started with the lanes, so it is up by the time there is anything to judge.
+    if (judge) void this.judges!.open(runId);
 
     // Fanned out, not awaited: the run is live the moment it is registered, and each contestant
     // closes on its own. `void` with the failure handled inside, so a contestant that fails
@@ -374,6 +384,7 @@ export class ArenaService {
       });
     }
     await Promise.allSettled(this.drives.get(runId) ?? []);
+    await this.judges?.close(run).catch((error: unknown) => console.error("agent feed arena left a judge", error));
     this.lines.delete(runId);
     this.drives.delete(runId);
     await undoWorktrees(this.worktrees, run.repoPath, run.contestants);

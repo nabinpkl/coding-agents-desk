@@ -5,7 +5,7 @@
 //
 // It reads the runs the arena sidecar behind that origin already holds rather than making any,
 // so seed it first: one run with three lanes whose prompt starts "Read README.md" (the
-// comparison states), one Terminals-mode run whose prompt starts "Reply with exactly" (what
+// comparison states), one Terminals-mode run whose prompt holds "with exactly the word" (what
 // `chrome-test/arena-terminals-verify.mjs` starts, with ARENA_KEEP_RUN=1 so it is not deleted),
 // plus several more for list volume. Runs whose contestants fail on a spent
 // provider quota are as good as any for layout, and free. The debug browser must be started with
@@ -50,8 +50,10 @@ export default async function ({ page, sweep }) {
 
   await sweep('composer, four lanes and a long draft', {
     setup: async () => {
-      // Each state puts the page where it needs it: the switcher pass clicks through the rail's
-      // rows after every state, so the page is wherever that left it.
+      // Each state puts the page where it needs it: the switcher pass clicks through every
+      // switcher after a state, the app's own tabs included, and one of those leaves a terminal
+      // overlay open over whatever comes next.
+      await fresh();
       await page.click('text=New run');
       await page.settle();
       await page.click('text=Add a contestant');
@@ -99,8 +101,27 @@ export default async function ({ page, sweep }) {
     ignore: '.absolute.inset-x-0.top-0.z-20, .xterm',
     setup: async () => {
       await fresh();
-      await page.waitFor(openRun('Reply with exactly'), { timeout: 10000 });
+      await page.waitFor(openRun('with exactly the word'), { timeout: 10000 });
       await page.evaluate(chooseView('Sessions'));
+      await page.sleep(3000);
+    },
+  });
+
+  // The same run with its judge open: the verifier's form leaves the judge at its default, Claude,
+  // so the run it keeps has one. The window floats over the lanes' corner; its pane is xterm's.
+  await sweep('terminals run, judge open', {
+    ignore: '.absolute.inset-x-0.top-0.z-20, .xterm',
+    setup: async () => {
+      await fresh();
+      await page.waitFor(openRun('with exactly the word'), { timeout: 10000 });
+      await page.evaluate(chooseView('Sessions'));
+      await page.evaluate(`(() => {
+        const judge = [...document.querySelectorAll('button')].find((one) => one.textContent.trim() === 'Judge');
+        if (!judge) throw new Error('no judge switch on this run');
+        judge.click();
+        return true;
+      })()`);
+      await page.waitFor(`!!document.querySelector('#arena-judge')`, { timeout: 10000 });
       await page.sleep(3000);
     },
   });

@@ -16,6 +16,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantDetail,
   type ArenaContestantStatus,
+  type ArenaJudgeSummary,
   type ArenaNewRunDefaults,
   type ArenaOutsideReach,
   type ArenaRunDetail,
@@ -54,6 +55,23 @@ function contestantSummaryOf(value: unknown): ArenaRunSummary["contestants"][num
   };
 }
 
+/** A run's judge; absent or null is a run with none, anything else unreadable makes the run so. */
+function judgeOf(value: unknown): ArenaJudgeSummary | null | undefined {
+  if (value === undefined || value === null) return null;
+  const j = value as Record<string, unknown>;
+  if (j.source !== "opencode" && j.source !== "claude") return undefined;
+  if (j.status !== "starting" && j.status !== "open" && j.status !== "failed") return undefined;
+  if (typeof j.folder !== "string") return undefined;
+  return {
+    source: j.source,
+    status: j.status,
+    folder: j.folder,
+    sessionId: typeof j.sessionId === "string" ? j.sessionId : null,
+    tmuxSession: typeof j.tmuxSession === "string" ? j.tmuxSession : null,
+    error: typeof j.error === "string" ? j.error : null,
+  };
+}
+
 export function parseRunSummary(value: unknown): ArenaRunSummary | null {
   if (!value || typeof value !== "object") return null;
   const run = value as Record<string, unknown>;
@@ -66,6 +84,8 @@ export function parseRunSummary(value: unknown): ArenaRunSummary | null {
   if (typeof run.createdAt !== "number" || !Array.isArray(run.contestants)) return null;
   const contestants = run.contestants.map(contestantSummaryOf);
   if (contestants.some((one) => one === null)) return null;
+  const judge = judgeOf(run.judge);
+  if (judge === undefined) return null;
   return {
     runId: run.runId,
     name: run.name,
@@ -77,6 +97,7 @@ export function parseRunSummary(value: unknown): ArenaRunSummary | null {
     mode: run.mode,
     createdAt: run.createdAt,
     contestants: contestants as ArenaRunSummary["contestants"],
+    judge,
   };
 }
 
@@ -178,6 +199,8 @@ export async function createArenaRun(
     repoPath: string;
     mode: ArenaRunMode;
     contestants: readonly ArenaContestantSource[];
+    /** The judge's harness, or null for none. */
+    judge: ArenaContestantSource | null;
   },
 ): Promise<{ run: ArenaRunSummary } | { message: string }> {
   const response = await transport.request("POST", RUNS_PATH, {
@@ -187,6 +210,7 @@ export async function createArenaRun(
       repoPath: request.repoPath,
       mode: request.mode,
       contestants: request.contestants.map((source) => ({ source })),
+      judge: request.judge,
     },
   });
   if (response.status !== 201) return { message: failureMessage(response.body, response.status) };

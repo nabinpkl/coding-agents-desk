@@ -5,6 +5,8 @@
 // panel shows those facts. Judgment is a reader's act, and a reader judges from the session
 // itself: a contestant's session is an ordinary catalog session that every existing session
 // surface already renders, so the arena adds the grouping and the facts, not a new session viewer.
+// A run may have a judge, which is the same thing again: an ordinary session the reader asks for a
+// verdict, briefed with the facts, never a score the arena keeps.
 //
 // Statuses travel, facts wait. `gitDiff` and the file lists scale with the work a prompt asked
 // for, so they ride the detail route on demand rather than every status push, the same split the
@@ -83,6 +85,31 @@ export interface ArenaRunSummary {
   mode: ArenaRunMode;
   createdAt: number;
   contestants: ArenaContestantSummary[];
+  /** The run's judge, or null for a run that asked for none. */
+  judge: ArenaJudgeSummary | null;
+}
+
+/**
+ * Where a judge stands: its pane on the way up, open for the reader to ask, or failed to start.
+ * A judge takes no turn the arena drives, so it has no running or closed of its own.
+ */
+export type ArenaJudgeStatus = "starting" | "open" | "failed";
+
+/**
+ * A run's judge: an ordinary interactive session in a tmux pane, read-only by its harness's own
+ * means, working in the run's `judge` folder. The arena keeps a brief there -- the prompt, every
+ * contestant's facts, and each one's transcript and diff as files -- rewritten whenever the run
+ * changes, and never prompts the judge itself: the reader asks it, when they want a verdict.
+ */
+export interface ArenaJudgeSummary {
+  source: ArenaContestantSource;
+  status: ArenaJudgeStatus;
+  /** The judge's working folder, `<run folder>/judge`, which holds its brief. */
+  folder: string;
+  sessionId: string | null;
+  tmuxSession: string | null;
+  /** Why the judge failed to start, one line; null otherwise. */
+  error: string | null;
 }
 
 /** Facts a contestant left behind, read on demand. */
@@ -150,6 +177,11 @@ export interface ArenaCreateRunRequest {
   /** How the contestants are driven; the sidecar picks `terminals` when it has tmux, otherwise `headless`. */
   mode?: ArenaRunMode;
   contestants: { source: ArenaContestantSource }[];
+  /**
+   * The harness the run's judge runs in, or null (or absent) for no judge. A judge lives in a
+   * terminal, so only a terminals run may ask for one.
+   */
+  judge?: ArenaContestantSource | null;
 }
 
 /** `POST /api/arena/runs/:id/prompt`: the prompt a terminals run's open lanes wait for. Given once. */
