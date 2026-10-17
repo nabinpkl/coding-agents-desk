@@ -1,6 +1,6 @@
 # Agent messaging: H2A, A2H, A2A
 
-Status: hub, relay, Bot publishing and the OpenCode adapter are built and live. The panel inbox and the annotator adapter are not. Written 2026-09-25, OpenCode slice landed the same day. It replaces the annotator-only dispatch plan. The annotator becomes one adapter on top of this design.
+Status: hub, relay, Bot publishing and the OpenCode adapter are built and live. The panel inbox and the annotator adapter are not. Claude delivery through a mod instead of the channel flag is proposed (2026-10-16), not built: see "Delivering into a Claude session through a mod". Written 2026-09-25, OpenCode slice landed the same day. It replaces the annotator-only dispatch plan. The annotator becomes one adapter on top of this design.
 
 ## Goal
 
@@ -213,16 +213,89 @@ body text
    - The annotator needs a hub surface token. Nothing in the hub knows about annotations.
 3. **Later:** phone push for A2H requests, and permission relay.
 
-## Launching Claude sessions with the channel (not in v1)
+## Delivering into a Claude session through a mod (proposed, not built)
 
-OpenCode needs none of this. It is kept here because the Claude path is built and would be re-enabled
-by exactly this work:
+Proposed 2026-10-16 in place of launching every Claude session with the development-channel flag.
+Nothing in this section is built except the prompt guard it relies on
+(`agent-feed/sidecar/mods/prompt-guard/`). Every measurement below is Claude Code 2.1.301.
 
-- **Flag on every start:** each machine gets a zsh function that adds `--dangerously-load-development-channels server:agentdesk-relay` to every interactive `claude` start. It passes `-p` runs through unchanged, because headless runs such as the oracle Cloudflare flow must not hit the warning screen.
-- **Human starts:** one Enter on the warning, each start.
-- **agent-desk launches:** Bot sessions and forks from `terminal/claudeSessionLaunch.ts` add the flag. The launcher accepts the warning through tmux, and fails loud with a `BotLaunchError` if the warning never appears or never clears.
-- **Claude Desktop sessions** cannot take the flag, so they appear with `channel: false`.
-- **Research preview risk:** the flag, the warning or the protocol can change in a Claude Code update. The start-up check fails loud and the directory shows `channel: false`, so breakage is visible rather than silent.
+**Why replace the flag.** The channel path needs `--dangerously-load-development-channels` and its
+warning on every start, cannot reach a Claude Desktop session, is a research preview that can change
+under an update, and depends on the relay child staying alive, which it does not reliably do. A mod
+is a supported way to put text into a session: `$.prompt.submit({ text })` starts a turn, and with
+`asUser: true` the model reads the text as the owner's own words.
+
+**The shape.**
+
+1. **A mod, `agentdesk-hub`, loaded into Bot sessions** with `--plugin-dir` by the launcher
+   (`terminal/claudeSessionLaunch.ts`), beside `prompt-guard`. Nothing is installed under
+   `~/.claude`.
+2. **One reader child per session.** At `session.start` the mod starts a small reader with
+   `$.process.spawn`. The reader holds the session's hub stream (`GET /v1/stream`, `source=claude`,
+   `channel=1`, the machine token from `hub.env`) and writes each message to stdout as one line. A
+   child started this way lives exactly as long as the session: ending the session sends it SIGTERM
+   within a second. **The reader must also exit on its own when its parent goes**, by watching its
+   stdin close or its parent pid change: after a SIGKILL of Claude, the probe child died only
+   because it wrote every two seconds and the closed pipe killed it, and a reader waiting silently
+   for messages writes nothing.
+3. **The reader is the session's only hub stream.** The hub keeps one stream per session address
+   and a second connection from the same machine replaces the first and requeues its messages
+   (`Messages.connect` in `agent-feed/hub/src/messages.ts`). The relay child already opens a `channel=0` stream for presence, so
+   left as it is the two would knock each other off. The relay child keeps its four tools and stops
+   streaming when the mod is loaded.
+4. **Delivery by sender, as the hub stamped it.**
+   - `from_kind="human"`: `$.prompt.submit({ text, asUser: true })`, the body under a short visible
+     prefix ("From you, via the hub:") so the transcript says how it came.
+   - `from_kind="agent"`: a plain `$.prompt.submit`, which carries none of the owner's authority.
+     The wording matters: Claude Code frames it as "The agentdesk-hub plugin sent a message", and
+     Haiku read a bare instruction under that frame as a prompt injection and declined it. The text
+     has to say what it is: which Bot sent it, the hop count, the thread, and the `message_id` to
+     answer with `hub_reply`.
+5. **Confirm only after the prompt enters.** The reader holds each message and the mod confirms it
+   (`POST /v1/messages/:id/delivered`) only once its prompt has gone in. A prompt the guard refuses
+   stays held and is tried again after the owner next types; a session that ends drops the stream,
+   and the hub requeues whatever was unconfirmed. So `delivered` stays an honest claim, and no
+   message is lost to a refusal.
+
+**When a message lands.** A mod's prompt never enters mid-turn, with or without `asUser`: it waits
+for the running turn to end and then starts its own (measured: submitted during a turn of four Bash
+calls, it went in after the last one). A message to a busy Bot therefore waits for it to finish
+rather than interrupting it. That is slower than the channel, whose events arrive during a turn,
+and it is also what keeps a stream of A2A traffic from steering a session mid-task.
+
+**Loops and cost.** Every hub message becomes a turn, so the prompt guard is what bounds them. It
+already sees every mod's prompt with the mod named on it (`origin: { kind: 'plugin', name,
+asUser? }`, stamped by Claude Code, so another mod cannot claim it). One change it needs: an `asUser`
+prompt from `agentdesk-hub` is the owner speaking through the hub and must count as the owner
+typing, or three messages sent from a phone would pause every mod until the owner typed locally.
+Agent messages still count, so the guard's three-since-the-owner-typed is the effective A2A limit
+per session, stricter than the hub's six hops. The guard counts these as the owner typing:
+
+| How the owner sends | `origin` on the prompt |
+|---|---|
+| typing in the pane, or the panel's composer (which pastes into the pane) | `{ kind: 'composer' }` |
+| the phone or claude.ai, through Remote Control | `{ kind: 'bridge' }` |
+
+**What stays the same.** The hub, its addresses, threads and limits; OpenCode delivery; the four
+`hub_*` tools in the relay child.
+
+**What it does not defend.** A mod is not sandboxed, and other mods installed on the same machine
+can intercept this one's calls (`process.spawn` output, `prompt.submit` text) whatever order they
+load in: a test mod at the user tier rewrote and answered the calls of one placed first with
+`prependPlugins`. The hub's stamp
+of who sent a message is only as good as the machine that delivers it: keep the installed mods to
+ones that have been read, and check each with `bun mods/checkModPrompts.ts` and
+`claude plugin validate` before loading it.
+
+**Open before building.**
+- Whether the reader confirms per message or the hub should pause pushing to a stream while one
+  message is held, so a long hold does not pile messages up in the reader.
+- The exact wording an agent message needs for a stronger model to act on it as a colleague's
+  request; only Haiku was measured.
+- How the relay child learns that the mod is loaded, so it stops streaming.
+
+The channel path (relay child plus the flag) stays in the tree until this is built and verified,
+and goes when it is.
 
 ## What gets deleted
 
@@ -267,8 +340,15 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
    is not.
 6. **Annotator adapter.** Not started beyond the `sends` table.
 7. **Permission relay:** only after its own go, and Claude-only.
+8. **Claude delivery through a mod.** Proposed, not started beyond the prompt guard it relies on
+   (`agent-feed/sidecar/mods/prompt-guard/`, built and verified live 2026-10-16). First slice: the
+   reader child and owner messages delivered with `asUser`, confirmed only after the prompt enters,
+   on a throwaway Claude session with a Bot address.
 
 ## Decisions for the owner
 
 All four are settled (2026-09-25): a new `relay.example.com` service on oracle; v1 is OpenCode only,
 so no Claude startup flag; peer messages carry colleague weight; A2H is the agent-desk panel only.
+
+Open (2026-10-16): whether Claude delivery moves to the mod in "Delivering into a Claude session
+through a mod", and with it whether a message to a busy Claude Bot may wait for its turn to end.
