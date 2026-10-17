@@ -41,6 +41,19 @@ export class FakeQuery implements RunnerQuery {
     this.interrupts += 1;
   }
 
+  readonly models: string[] = [];
+
+  async setModel(model?: string): Promise<void> {
+    this.models.push(model ?? "default");
+  }
+
+  async supportedModels() {
+    return [
+      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "Most capable" },
+      { value: "haiku", resolvedModel: "claude-haiku-4-5", displayName: "Haiku", description: "Fastest" },
+    ];
+  }
+
   readonly renamed: string[] = [];
 
   async renameSession(title: string, sessionId?: string): Promise<void> {

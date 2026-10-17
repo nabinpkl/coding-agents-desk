@@ -24,7 +24,8 @@ import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
 import { SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
 import type { QuestionMirrorModel } from "@/features/session-view/composer/question/useQuestionMirror";
-import { OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
+import { OpencodeModelsDialog, OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
+import { currentSdkModel, sdkModelRows } from "@/features/cli-input/useSdkSession";
 import { OpencodeAsideDialog } from "@/features/session-view/OpencodeAsideDialog";
 import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
@@ -293,7 +294,23 @@ export function SessionComposerBand({
           {/* The models menu, rising from the footer cluster that holds its switcher -- a narrow
               drop-up at the footer's own left, over the field and transcript, rather than a modal
               in the middle of the card or a full-width sheet above the field. */}
-          {surfaces.models ? (
+          {surfaces.models && model.sdkBand ? (
+            // An SDK session's models are its runner's, and choosing one switches through it.
+            <OpencodeModelsDialog
+              models={sdkModelRows(model.sdkSession.state)}
+              current={(() => {
+                const current = currentSdkModel(model.sdkSession.state);
+                return current ? `claude/${current.value}` : null;
+              })()}
+              initialFilter={surfaces.models.filter}
+              listLabel="Models this Claude offers"
+              onClose={surfaces.models.onClose}
+              onSwitch={async (row) => {
+                await model.sdkSession.setModel(row.modelID);
+                surfaces.models?.onClose();
+              }}
+            />
+          ) : surfaces.models ? (
             <OpencodeModelsHost
               feed={feed}
               current={model.sessionModel ?? usage?.model ?? null}

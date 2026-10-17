@@ -37,7 +37,7 @@ import { SidecarTranscript } from "@/features/activity-feed/data-source/layers/S
 /** A session run through the Agent SDK, reached through its runner (ADR-0143). */
 function claudeSdkPath(
   session: SessionAddress,
-  action: "stream" | "prompt" | "answer" | "decide" | "mode" | "interrupt" | "switch",
+  action: "stream" | "prompt" | "answer" | "decide" | "mode" | "model" | "interrupt" | "switch",
 ): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/sdk/${action}`;
 }
@@ -427,6 +427,13 @@ export class SidecarComposers extends SidecarTranscript {
   async setClaudeSdkMode(session: SessionAddress, mode: ClaudePermissionMode): Promise<ClaudeSdkCommandOutcome> {
     return parse<ClaudeSdkCommandOutcome>(
       await this.transport.request("POST", claudeSdkPath(session, "mode"), { body: { mode } }),
+    );
+  }
+
+  /** Switches the model the session answers with, from its next turn. */
+  async setClaudeSdkModel(session: SessionAddress, model: string): Promise<ClaudeSdkCommandOutcome> {
+    return parse<ClaudeSdkCommandOutcome>(
+      await this.transport.request("POST", claudeSdkPath(session, "model"), { body: { model } }),
     );
   }
 

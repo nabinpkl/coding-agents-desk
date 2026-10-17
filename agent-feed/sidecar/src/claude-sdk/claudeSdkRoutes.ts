@@ -5,6 +5,7 @@
 //   POST /api/sessions/claude/:id/sdk/answer     { answers }  -> the terminal dialog's outcome shape
 //   POST /api/sessions/claude/:id/sdk/decide     { toolUseId, allow, message? }
 //   POST /api/sessions/claude/:id/sdk/mode       { mode }
+//   POST /api/sessions/claude/:id/sdk/model      { model }
 //   POST /api/sessions/claude/:id/sdk/interrupt
 //   POST /api/sessions/claude/:id/sdk/switch       { mode }  -> moves a live, idle session between modes
 //
@@ -33,7 +34,7 @@ import {
 } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 
-const SDK_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/sdk\/(stream|prompt|answer|decide|mode|interrupt|switch)$/i;
+const SDK_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/sdk\/(stream|prompt|answer|decide|mode|model|interrupt|switch)$/i;
 
 /** How long `EventSource` waits before asking again once a stream ends. */
 const RETRY = new TextEncoder().encode("retry: 5000\n\n");
@@ -86,7 +87,7 @@ async function body(request: Request, limit = MAXIMUM_BODY_BYTES): Promise<Recor
  * can never disagree about what a valid command is.
  */
 function runnerCommand(action: string, fields: Record<string, unknown>): RunnerCommand | null {
-  const type = action === "mode" ? "set-mode" : action;
+  const type = action === "mode" ? "set-mode" : action === "model" ? "set-model" : action;
   const parsed = parseSidecarMessage(JSON.stringify({ ...fields, type, id: "request" }));
   if (!parsed || parsed.type === "hello") return null;
   const { id: _id, ...command } = parsed;

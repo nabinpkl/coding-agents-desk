@@ -48,6 +48,15 @@ describe("a prompt with images", () => {
   });
 });
 
+describe("a model switch", () => {
+  test("goes to the runner as the model it names, and a name that cannot be one is refused", async () => {
+    const { sent, post } = routes();
+    expect(await post("model", { model: "haiku" })).toEqual({ status: 200, body: { ok: true } });
+    expect(sent).toEqual([{ type: "set-model", model: "haiku" }]);
+    expect((await post("model", { model: "opus; rm -rf" })).status).toBe(400);
+  });
+});
+
 describe("a switch", () => {
   test("refuses a mode that is neither", async () => {
     const { post } = routes();

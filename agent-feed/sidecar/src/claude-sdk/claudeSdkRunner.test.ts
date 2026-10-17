@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { FakeQuery } from "@/claude-sdk/claudeSdkHarness";
-import { ClaudeSdkRunner, sdkAnswers, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";
+import { sdkAnswers } from "@/claude-sdk/claudeSdkAnswers";
+import { ClaudeSdkRunner, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";
 
 const PLAN: RunnerPlan = {
   sessionId: "11111111-2222-4333-8444-555555555555",
@@ -93,7 +94,8 @@ describe("a session's state", () => {
     fake().send({ type: "system", subtype: "status", status: null, permissionMode: "plan" });
     fake().send({ type: "system", subtype: "session_state_changed", state: "idle" });
     await Bun.sleep(5);
-    expect(seen).toEqual(["idle/manual", "running/manual", "running/manual", "running/plan", "idle/plan"]);
+    // The first is the model list arriving, which the SDK answers as soon as the query is open.
+    expect(seen).toEqual(["starting/null", "idle/manual", "running/manual", "running/manual", "running/plan", "idle/plan"]);
     expect(runner.state()).toMatchObject({ backgroundTasks: 2, claudeCodeVersion: "2.1.302" });
     fake().end();
     await done;
@@ -274,6 +276,23 @@ describe("the permission mode", () => {
     fake().end();
     await done;
     expect(await runner.setMode("plan")).toMatchObject({ ok: false, reason: "failed" });
+  });
+});
+
+describe("the model", () => {
+  test("is named by the CLI's init, offered from the SDK's list, and switched live", async () => {
+    const { runner, fake, done } = started();
+    fake().send({ type: "system", subtype: "init", permissionMode: "auto", claude_code_version: "2.1.302", model: "claude-opus-5-5" });
+    await Bun.sleep(5);
+    expect(runner.state().model).toBe("claude-opus-5-5");
+    expect(runner.state().models.map((entry) => entry.value)).toEqual(["opus", "haiku"]);
+    expect(await runner.setModel("haiku")).toEqual({ ok: true });
+    expect(fake().models).toEqual(["haiku"]);
+    // Shown as the full id the alias stands for, which is how the CLI names it on the next turn.
+    expect(runner.state().model).toBe("claude-haiku-4-5");
+    fake().end();
+    await done;
+    expect(await runner.setModel("opus")).toMatchObject({ ok: false, reason: "failed" });
   });
 });
 

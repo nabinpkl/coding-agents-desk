@@ -83,6 +83,25 @@ export interface ClaudeSdkSessionState {
   backgroundTasks: number;
   /** The CLI version the runner's `claude` reported at start, when it has. */
   claudeCodeVersion: string | null;
+  /** The model the session is answering with, as the CLI names it (`claude-opus-5-5`), once known. */
+  model: string | null;
+  /** The models this `claude` offers, from the SDK's `supportedModels()`; empty until it answers. */
+  models: ClaudeSdkModel[];
+}
+
+/** One model the session can be switched to. */
+export interface ClaudeSdkModel {
+  /** What `setModel` takes: an alias (`opus`) or a full id. */
+  value: string;
+  /** The full model id an alias stands for, which is how the current model is matched to its row. */
+  resolvedModel?: string;
+  displayName: string;
+  description: string;
+}
+
+/** Switch the model a session answers with, from its next turn. */
+export interface ClaudeSdkModelCommand {
+  model: string;
 }
 
 /** The state a reader holds before a runner has answered, and after one is gone. */
@@ -94,6 +113,8 @@ export const DISCONNECTED_CLAUDE_SDK_STATE: ClaudeSdkSessionState = {
   pending: [],
   backgroundTasks: 0,
   claudeCodeVersion: null,
+  model: null,
+  models: [],
 };
 
 /** A turn typed into an SDK session. */

@@ -24,6 +24,7 @@ type SdkFeed = Pick<
   | "answerClaudeSdkQuestion"
   | "decideClaudeSdk"
   | "setClaudeSdkMode"
+  | "setClaudeSdkModel"
   | "interruptClaudeSdk"
 >;
 
@@ -90,6 +91,14 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
       run(() => feed.decideClaudeSdk(address, { toolUseId, allow, ...(message ? { message } : {}) })),
     [address, feed, run],
   );
+  /**
+   * Switches the model, throwing a refusal rather than parking it in `error`: the picker that asks
+   * keeps itself open and shows why, which is where the reader is looking.
+   */
+  const setModel = useCallback(async (model: string) => {
+    const outcome = await feed.setClaudeSdkModel(address, model);
+    if (!outcome.ok) throw new Error(sdkRefusalText(outcome));
+  }, [address, feed]);
   const cycleMode = useCallback(
     () => run(() => feed.setClaudeSdkMode(address, nextPermissionMode(state.permissionMode, state.allowBypass))),
     [address, feed, run, state.allowBypass, state.permissionMode],
@@ -104,7 +113,31 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
     pointTmuxQuestion: async () => ({ pointed: true }),
   }), [feed]);
 
-  return { state, pending, error, send, interrupt, decide, cycleMode, questions };
+  return { state, pending, error, send, interrupt, decide, cycleMode, setModel, questions };
 }
 
 export type SdkSessionHandle = ReturnType<typeof useSdkSession>;
+
+/**
+ * The runner's models as the shared picker takes them, or null while the list has not arrived. A
+ * row is one model, keyed by what `setModel` takes; the `claude` provider is the arena's spelling.
+ */
+export function sdkModelRows(state: ClaudeSdkSessionState) {
+  if (state.models.length === 0) return null;
+  return state.models.map((entry) => ({
+    providerID: "claude",
+    modelID: entry.value,
+    name: entry.displayName,
+    contextLimit: null,
+    inputCost: null,
+    outputCost: null,
+  }));
+}
+
+/** The row the session is answering with, matched by alias or by the full id an alias stands for. */
+export function currentSdkModel(state: ClaudeSdkSessionState): ClaudeSdkSessionState["models"][number] | null {
+  if (!state.model) return null;
+  return state.models.find((entry) => entry.value === state.model)
+    ?? state.models.find((entry) => entry.value !== "default" && entry.resolvedModel === state.model)
+    ?? null;
+}

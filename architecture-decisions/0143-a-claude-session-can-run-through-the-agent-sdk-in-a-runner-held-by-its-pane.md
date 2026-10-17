@@ -117,6 +117,9 @@ which the transcript still supplies, and a message whose start the sidecar misse
   does not wait behind a turn the way a `/rename` prompt does. Its `Query` method is not in the
   SDK's typed interface, so the runner checks for it and refuses loudly without it. Images ride a
   prompt as image blocks ahead of the text; `/compact` sent as a prompt compacts.
+- Neutral, because an SDK session's model is switched live through the runner (`setModel`), from
+  the list its own `claude` offers (`supportedModels()`), in the picker opencode's sessions use.
+  Measured: a switch to `sonnet` and the next turn was answered by `claude-sonnet-5-5`.
 - Neutral, because the idle sweep needed nothing: it closes an idle pane by `kill-session`, the
   runner's hangup handler stops cleanly and `claude` writes its exit records, and a runner holding a
   question or approval reads `waiting` in the registry, one with background work `shell`.

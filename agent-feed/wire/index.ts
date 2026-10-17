@@ -23,6 +23,8 @@ export type {
   ClaudeSdkCommandOutcome,
   ClaudeSdkDecideCommand,
   ClaudeSdkModeCommand,
+  ClaudeSdkModel,
+  ClaudeSdkModelCommand,
   ClaudeSdkPendingRequest,
   ClaudeSdkPromptCommand,
   ClaudeSdkQuestion,

@@ -10,6 +10,7 @@
 
 import type {
   CanUseTool,
+  ModelInfo,
   Options,
   PermissionResult,
   SDKMessage,
@@ -18,12 +19,13 @@ import type {
 import type {
   ClaudePermissionMode,
   ClaudeSdkApprovalRequest,
+  ClaudeSdkModel,
   ClaudeSdkPendingRequest,
-  ClaudeSdkQuestion,
   ClaudeSdkQuestionRequest,
   ClaudeSdkRunStatus,
   TmuxQuestionAnswer,
 } from "@agentdesk/agent-feed-wire";
+import { askedQuestions, sdkAnswers, type AnswersFit } from "@/claude-sdk/claudeSdkAnswers";
 import {
   cliPermissionMode,
   sdkPermissionMode,
@@ -56,6 +58,8 @@ export interface RunnerPlan {
 export interface RunnerQuery extends AsyncIterable<SDKMessage> {
   setPermissionMode(mode: "default" | Exclude<ClaudePermissionMode, "manual">): Promise<void>;
   interrupt(): Promise<unknown>;
+  setModel(model?: string): Promise<void>;
+  supportedModels(): Promise<ModelInfo[]>;
   /**
    * The CLI's `rename_session` control request, as a user rename (`source: "host"`). On the SDK's
    * `Query` though not in its typed interface (0.3.302), so it is checked for at the call rather
@@ -108,65 +112,6 @@ interface Pending {
 
 const DENIED_IN_PANEL = "The person denied this from the agent panel.";
 
-/** The questions of an AskUserQuestion call, or null when the input is not that shape. */
-export function askedQuestions(input: Record<string, unknown>): ClaudeSdkQuestion[] | null {
-  const questions = input.questions;
-  if (!Array.isArray(questions) || questions.length === 0) return null;
-  const parsed: ClaudeSdkQuestion[] = [];
-  for (const entry of questions) {
-    if (entry === null || typeof entry !== "object") return null;
-    const { question, header, multiSelect, options } = entry as Record<string, unknown>;
-    if (typeof question !== "string" || !Array.isArray(options)) return null;
-    parsed.push({
-      question,
-      header: typeof header === "string" ? header : "",
-      multiSelect: multiSelect === true,
-      options: options.map((option) => {
-        const { label, description } = (option ?? {}) as Record<string, unknown>;
-        return { label: String(label ?? ""), description: typeof description === "string" ? description : "" };
-      }),
-    });
-  }
-  return parsed;
-}
-
-export type AnswersFit =
-  | { ok: true; answers: Record<string, string> }
-  | { ok: false; refused: "wrong-dialog" | "wrong-option"; message: string };
-
-/**
- * The SDK's answers for one call, keyed by question text, or the reason they do not fit it.
- *
- * Matched by the text of every question, in order, the rule the terminal dialog's driver answers
- * by: position picks the row and text decides whether to go through with it. A choice is checked
- * by index AND label, so an option list that changed under the reader is refused rather than
- * answered with whatever now sits at that index.
- */
-export function sdkAnswers(
-  questions: readonly ClaudeSdkQuestion[],
-  answers: readonly TmuxQuestionAnswer[],
-): AnswersFit {
-  if (questions.length !== answers.length || questions.some((asked, at) => asked.question !== answers[at]!.question)) {
-    return { ok: false, refused: "wrong-dialog", message: "the answers do not describe the question that is waiting" };
-  }
-  const result: Record<string, string> = {};
-  for (const [at, asked] of questions.entries()) {
-    const answer = answers[at]!;
-    if (!asked.multiSelect && answer.chosen.length > 1) {
-      return { ok: false, refused: "wrong-option", message: `"${asked.question}" takes one answer` };
-    }
-    for (const pick of answer.chosen) {
-      if (asked.options[pick.index]?.label !== pick.label) {
-        return { ok: false, refused: "wrong-option", message: `"${pick.label}" is not option ${pick.index + 1} of "${asked.question}"` };
-      }
-    }
-    const said = [...answer.chosen.map((pick) => pick.label), ...(answer.other.trim() ? [answer.other.trim()] : [])];
-    if (said.length === 0) return { ok: false, refused: "wrong-option", message: `"${asked.question}" has no answer` };
-    result[asked.question] = said.join(", ");
-  }
-  return { ok: true, answers: result };
-}
-
 const SESSION_STATES: Record<string, ClaudeSdkRunStatus> = {
   idle: "idle",
   running: "running",
@@ -199,6 +144,8 @@ export class ClaudeSdkRunner {
   private status: ClaudeSdkRunStatus = "starting";
   private permissionMode: ClaudePermissionMode | null = null;
   private claudeCodeVersion: string | null = null;
+  private model: string | null = null;
+  private models: ClaudeSdkModel[] = [];
   private backgroundTasks = 0;
   private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Set<(state: RunnerState) => void>();
@@ -242,6 +189,8 @@ export class ClaudeSdkRunner {
       pending: [...this.pending.values()].map((entry) => entry.request),
       backgroundTasks: this.backgroundTasks,
       claudeCodeVersion: this.claudeCodeVersion,
+      model: this.model,
+      models: this.models,
     };
   }
 
@@ -260,6 +209,7 @@ export class ClaudeSdkRunner {
   async run(log: (line: string) => void): Promise<void> {
     const query = this.createQuery({ prompt: this.prompts, options: this.options() });
     this.query = query;
+    void this.loadModels(query, log);
     if (this.plan.firstTurn) this.prompts.push(this.userMessage(this.plan.firstTurn));
     try {
       for await (const message of query) this.handle(message);
@@ -345,6 +295,39 @@ export class ClaudeSdkRunner {
       return { ok: true };
     } catch (error) {
       return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Switches the model the session answers with, from its next turn. */
+  async setModel(model: string): Promise<RunnerReply> {
+    if (!this.query) return { ok: false, reason: "failed", message: "the session is not running" };
+    try {
+      await this.query.setModel(model);
+    } catch (error) {
+      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
+    }
+    // The CLI names the model it now answers with on the next turn's init; until then the choice is
+    // the best account, resolved to its full id where the list says what an alias stands for.
+    this.model = this.models.find((entry) => entry.value === model)?.resolvedModel ?? model;
+    this.publish();
+    return { ok: true };
+  }
+
+  /**
+   * The models this `claude` offers, asked once the query is open. A failure leaves the list empty,
+   * which the panel reads as nothing to switch to rather than as an error to show.
+   */
+  private async loadModels(query: RunnerQuery, log: (line: string) => void): Promise<void> {
+    try {
+      this.models = (await query.supportedModels()).map((entry) => ({
+        value: entry.value,
+        ...(entry.resolvedModel ? { resolvedModel: entry.resolvedModel } : {}),
+        displayName: entry.displayName,
+        description: entry.description,
+      }));
+      this.publish();
+    } catch (error) {
+      log(`could not list the models: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -439,6 +422,7 @@ export class ClaudeSdkRunner {
       case "init":
         this.permissionMode = cliPermissionMode(message.permissionMode);
         this.claudeCodeVersion = message.claude_code_version;
+        this.model = message.model;
         if (this.status === "starting") this.status = "idle";
         break;
       case "status":

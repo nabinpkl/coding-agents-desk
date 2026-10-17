@@ -10,7 +10,7 @@ import { DISCONNECTED_CLAUDE_SDK_STATE, type ClaudeSdkSessionState } from "@agen
 import { compactControl, composerActions, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import { composerCaption, composerEditor } from "@/features/session-view/composer/sessionComposerEditor";
 import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
-import { nextPermissionMode, type SdkSessionHandle } from "@/features/cli-input/useSdkSession";
+import { currentSdkModel, nextPermissionMode, sdkModelRows, type SdkSessionHandle } from "@/features/cli-input/useSdkSession";
 import { runnerQuestion, sdkQuestionReasonText } from "@/features/session-view/composer/question/useQuestionMirror";
 import { approvalDetail, SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
 
@@ -22,6 +22,12 @@ const LIVE: ClaudeSdkSessionState = {
   pending: [],
   backgroundTasks: 0,
   claudeCodeVersion: "2.1.302",
+  model: "claude-opus-5-5",
+  models: [
+    { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", description: "" },
+    { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "" },
+    { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku", description: "" },
+  ],
 };
 
 function handle(state: Partial<ClaudeSdkSessionState> = {}, overrides: Partial<SdkSessionHandle> = {}): SdkSessionHandle {
@@ -33,6 +39,7 @@ function handle(state: Partial<ClaudeSdkSessionState> = {}, overrides: Partial<S
     interrupt: vi.fn(async () => true),
     decide: vi.fn(async () => true),
     cycleMode: vi.fn(async () => true),
+    setModel: vi.fn(async () => {}),
     questions: { answerTmuxQuestion: vi.fn(), pointTmuxQuestion: vi.fn() },
     ...overrides,
   };
@@ -183,6 +190,29 @@ describe("moving a session between the terminal and the SDK", () => {
     const forked = composerCaption(sdkModel(handle(), { liveProcesses: 2, runModeSwitch: { ...switcher(), error: "x" } }));
     expect(forked.captionIsError).toBe(true);
     expect(forked.caption).toMatch(/^2 processes are running this session/);
+  });
+});
+
+describe("the model", () => {
+  it("shows the model the session answers with and opens the picker the way /model does", () => {
+    const onRunSlash = vi.fn(async () => {});
+    const m = sdkModel(handle(), { onRunSlash });
+    const chip = composerActions(m).find((action) => action.key === "switch-model")!;
+    expect(chip.ariaLabel).toBe("Switch model, currently Opus");
+    chip.onClick();
+    expect(onRunSlash).toHaveBeenCalledWith("model", "");
+  });
+
+  it("offers no switch until the runner has listed what it can switch to", () => {
+    expect(composerActions(sdkModel(handle({ models: [] }))).some((action) => action.key === "switch-model")).toBe(false);
+  });
+
+  it("matches the current model by its full id without taking the default row for it", () => {
+    expect(currentSdkModel(LIVE)?.value).toBe("opus");
+    expect(currentSdkModel({ ...LIVE, model: "haiku" })?.value).toBe("haiku");
+    expect(currentSdkModel({ ...LIVE, model: null })).toBeNull();
+    expect(sdkModelRows({ ...LIVE, models: [] })).toBeNull();
+    expect(sdkModelRows(LIVE)?.[1]).toEqual({ providerID: "claude", modelID: "opus", name: "Opus", contextLimit: null, inputCost: null, outputCost: null });
   });
 });
 

@@ -10,6 +10,7 @@ import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { parseOpencodeCommand } from "@/features/session-view/composer/useOpencodeCommands";
+import { currentSdkModel } from "@/features/cli-input/useSdkSession";
 import type { CompactControl } from "@/features/activity-feed/TokenMeter";
 
 /**
@@ -270,6 +271,28 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       onClick: m.sdkBand
         ? () => void m.sdkSession.cycleMode()
         : mode === null ? m.engage : m.tmuxComposer.cyclePermissionMode,
+    });
+  }
+  // An SDK session's model, from its runner: what the CLI says it answers with, switched through the
+  // same picker opencode's uses, from the models that `claude` offers.
+  if (m.sdkBand && m.sdkSession.state.connected && m.sdkSession.state.models.length > 0) {
+    const current = currentSdkModel(m.sdkSession.state);
+    const label = current?.displayName ?? m.sdkSession.state.model ?? "Model";
+    actions.push({
+      key: "switch-model",
+      ariaLabel: `Switch model, currently ${label}`,
+      title: "Switch this session's model, from its next turn",
+      icon: (
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="block max-w-36 truncate">{label}</span>
+          <ChevronsUpDown className="size-3 shrink-0 opacity-60" aria-hidden />
+        </span>
+      ),
+      disabled: false,
+      className:
+        "h-9 min-w-0 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40",
+      placement: "footer",
+      onClick: () => void m.onRunSlash("model", ""),
     });
   }
   // The TUI's `{agent} · {model}` row, minus the agent: the sidecar names the session's model

@@ -43,6 +43,7 @@ export type SidecarToRunner =
   | { type: "answer"; id: string; answers: TmuxQuestionAnswer[] }
   | { type: "decide"; id: string; toolUseId: string; allow: boolean; message?: string }
   | { type: "set-mode"; id: string; mode: ClaudePermissionMode }
+  | { type: "set-model"; id: string; model: string }
   | { type: "interrupt"; id: string }
   | { type: "rename"; id: string; title: string }
   | { type: "stop"; id: string };
@@ -203,6 +204,10 @@ export function parseSidecarMessage(line: string): SidecarToRunner | null {
       };
     case "set-mode":
       return isId(fields.id) && isPermissionMode(fields.mode) ? { type: "set-mode", id: fields.id, mode: fields.mode } : null;
+    case "set-model":
+      return isId(fields.id) && isString(fields.model) && /^[A-Za-z0-9._:\[\]-]{1,128}$/.test(fields.model)
+        ? { type: "set-model", id: fields.id, model: fields.model }
+        : null;
     case "interrupt":
       return isId(fields.id) ? { type: "interrupt", id: fields.id } : null;
     case "rename":
@@ -232,6 +237,8 @@ function runnerState(value: unknown): RunnerState | null {
   if (typeof state.allowBypass !== "boolean") return null;
   if (!Array.isArray(state.pending) || !Number.isInteger(state.backgroundTasks)) return null;
   if (state.claudeCodeVersion !== null && !isString(state.claudeCodeVersion)) return null;
+  if (state.model !== null && !isString(state.model)) return null;
+  if (!Array.isArray(state.models)) return null;
   for (const request of state.pending) {
     if (request === null || typeof request !== "object") return null;
     const { kind, toolUseId } = request as Fields;

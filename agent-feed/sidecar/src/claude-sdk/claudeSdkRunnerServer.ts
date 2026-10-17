@@ -113,6 +113,8 @@ export async function serveRunner(
         return runner.decide(message.toolUseId, message.allow, message.message);
       case "set-mode":
         return runner.setMode(message.mode);
+      case "set-model":
+        return runner.setModel(message.model);
       case "interrupt":
         return runner.interrupt();
       case "rename":
