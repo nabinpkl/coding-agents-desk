@@ -243,6 +243,34 @@ test("a view subscriber IS woken by a rename, which is a value change and not a 
   stop();
 });
 
+test("a view subscriber IS woken by a new task block, which the card draws under the title", async () => {
+  // A block is written once per piece of handed-over work. Left out of the signature, a new one
+  // reached the card only when a title or a reference happened to move as well.
+  const { registry } = await aBotHoldingAResolvableReference();
+  const held = sessions.get("pi:session-1")!;
+  const drawn: (string | undefined)[] = [];
+  const stop = await registry.subscribe(
+    (snapshot) => drawn.push(snapshot.bots[0]!.sessions[0]!.taskState?.task),
+    undefined,
+    { onChange: "view" },
+  );
+  const before = drawn.length;
+
+  const block = { task: "fix the lag", lines: [], at: 1000 };
+  sessions.set("pi:session-1", { ...held, summary: { ...held.summary, taskState: block } });
+  notifyCatalog();
+  await settle();
+  expect(drawn.length).toBe(before + 1);
+  expect(drawn.at(-1)).toBe("fix the lag");
+
+  // The same block read again on a later write is not a change.
+  sessions.set("pi:session-1", { ...held, summary: { ...held.summary, taskState: block, lastEventAt: 99 } });
+  notifyCatalog();
+  await settle();
+  expect(drawn).toHaveLength(before + 1);
+  stop();
+});
+
 test('a "store" subscriber is still not woken by a reference resolving either', async () => {
   // The other half of the same fix: the hub's flood protection is unchanged, because a reference
   // appearing or disappearing says nothing about a Bot's membership.

@@ -52,13 +52,22 @@ export interface BotSubscribeOptions {
  * costs a repaint roughly every fifteen thousand writes. The cost is not zero, and this is the
  * field to drop first if it ever is: a rename that leaves a row showing the old name reads as a
  * rename that did nothing, and the reader has no other signal that it worked.
+ *
+ * The task is here for the same reason as the title, and it is cheaper still. A session writes a
+ * `<task-state>` block once per piece of work it is handed, not per write, and the card draws it
+ * under the title: left out, a new block reached the card only when something else in this
+ * signature happened to move, so the card went on showing the task before. Keyed on the block's
+ * time, so a block that repeats the last one's words still counts as the session saying it again.
  */
 export function viewSignature(snapshot: BotSnapshot): string {
   return snapshot.bots
     .map((bot) => [
       bot.botId,
       bot.environmentAvailability,
-      bot.sessions.map((one) => `${one.source}:${one.sessionId}:${one.title}`).sort().join(","),
+      bot.sessions
+        .map((one) => `${one.source}:${one.sessionId}:${one.title}:${one.taskState?.at ?? ""}`)
+        .sort()
+        .join(","),
       bot.missingSessionRefs.map((ref) => `${ref.source}:${ref.sessionId}`).sort().join(","),
     ].join("~"))
     .join("|");
