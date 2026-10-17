@@ -405,6 +405,31 @@ it("gives the band pane back its height when the keyboard closes", async () => {
   expect(pane).toHaveStyle({ height: "420px" });
 });
 
+it("grows with the finger even when the page moves under it mid-drag", async () => {
+  // With a phone keyboard up, iOS pans the page under a still finger to keep the caret in sight,
+  // and the pane growing is what makes it pan. Measured in the page, the finger read as moving
+  // down and the pane shrank toward its minimum on a drag upward.
+  vi.stubGlobal("innerHeight", 1000);
+  render(<AgentTerminalPane feed={railFeed()} context={{ kind: "tmux", session: "composerprobe" }} layout="band" />);
+  const pane = screen.getByRole("region", { name: "composerprobe terminal" });
+  expect(pane).toHaveStyle({ height: "420px" });
+  pane.getBoundingClientRect = () => ({ height: 420 } as DOMRect);
+  const separator = screen.getByRole("separator", { name: "Resize terminal" });
+  separator.setPointerCapture = () => {};
+  const pointer = (type: string, screenY: number, clientY: number) =>
+    new MouseEvent(type, { bubbles: true, cancelable: true, screenY, clientY });
+
+  fireEvent(separator, pointer("pointerdown", 600, 600));
+  // Up 100px on the glass, while the page slid 250px the other way underneath.
+  act(() => {
+    globalThis.dispatchEvent(pointer("pointermove", 500, 750));
+  });
+  expect(pane).toHaveStyle({ height: "520px" });
+  act(() => {
+    globalThis.dispatchEvent(pointer("pointerup", 500, 750));
+  });
+});
+
 function railFeed() {
   return {
     terminalHistory: vi.fn(async () => ""),

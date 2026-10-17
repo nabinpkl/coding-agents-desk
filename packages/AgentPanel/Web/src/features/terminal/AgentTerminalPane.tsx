@@ -286,10 +286,14 @@ export function AgentTerminalPane(
     if (!pane) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    const startY = event.clientY;
+    // Where the finger is on the GLASS, not in the page. With a phone keyboard up, iOS pans the
+    // page under a still finger to keep the caret in sight, and the pane growing is what makes it
+    // pan: read in the page, a drag upward read as one downward and shrank the pane to its minimum.
+    const onGlass = (pointer: { screenY: number }): number => pointer.screenY / (globalThis.visualViewport?.scale || 1);
+    const startY = onGlass(event);
     const startHeight = pane.getBoundingClientRect().height;
     const move = (moveEvent: PointerEvent): void => {
-      resizeTo(startHeight - (moveEvent.clientY - startY));
+      resizeTo(startHeight - (onGlass(moveEvent) - startY));
     };
     const finish = (): void => {
       globalThis.removeEventListener("pointermove", move);
