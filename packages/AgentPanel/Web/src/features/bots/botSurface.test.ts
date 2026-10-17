@@ -11,11 +11,12 @@ import {
   BOT_HUE_OFFSET,
   BOT_HUE_STEP,
   BOT_SESSION_FACE_BASE,
-  BOT_SESSION_HUE_SPACING,
+  BOT_SESSION_HUES,
   BOT_SESSION_SHADES,
   botCanvasHues,
   botCanvasRanks,
   botSessionFaceRank,
+  botSessionHue,
   botSessionSlots,
   botSessionStyle,
   botSurfaceStyle,
@@ -283,9 +284,10 @@ describe("botSessionStyle", () => {
     expect(botSessionStyle(137.508, 3)).toEqual({
       "--bot-hue": "137.51",
       "--bot-session-step": "3",
-      // Three slots of sixty degrees along from its Bot. The Bot's own hue is published
-      // UNTURNED beside it, because the rail reads that one and must not move with the session.
-      "--bot-session-hue": "317.51",
+      // Three steps along the walk from the entry nearest its Bot (154). The Bot's own hue is
+      // published UNTURNED beside it, because the rail reads that one and must not move with the
+      // session.
+      "--bot-session-hue": "319.00",
     });
   });
 
@@ -301,22 +303,52 @@ describe("botSessionStyle", () => {
     expect(botSessionStyle(24, 0)).toEqual({
       "--bot-hue": "24.00",
       "--bot-session-step": "0",
-      "--bot-session-hue": "24.00",
+      "--bot-session-hue": "354.00",
     });
   });
 
   test("a Bot's sessions are spread over the whole circle, not clustered on its own hue", () => {
     const spread = Array.from({ length: BOT_SESSION_SHADES }, (_, step) =>
       Number(botSessionStyle(180, step)!["--bot-session-hue" as keyof CSSProperties]));
-    expect(spread).toEqual([180, 240, 300, 0, 60, 120]);
-    // The first session lands ON its Bot's hue and every other one is a different colour entirely.
+    // The first session takes the palette entry nearest its Bot, and the rest walk on from there.
     // That is the point rather than a side effect: a narrow arc around the Bot was measured first
     // and moved a card 0.0054 dEok, because rotating a low-chroma colour barely moves it.
-    expect(spread[0]).toBe(180);
+    expect(spread).toEqual([191, 354, 228, 58, 154, 284]);
     expect(new Set(spread).size).toBe(BOT_SESSION_SHADES);
-    // Evenly, so the two sessions that end up closest are as far apart as six can be.
-    for (let i = 1; i < spread.length; i += 1) {
-      expect((spread[i]! - spread[i - 1]! + 360) % 360).toBeCloseTo(BOT_SESSION_HUE_SPACING, 6);
+  });
+
+  test("takes the whole slot: the ladder goes round six and the hue round eight", () => {
+    // A Bot with history holds slots like these, all one step on the ladder. They were one colour
+    // while the hue followed the step; three of one Bot's seven cards were, on the live canvas.
+    const styles = [1, 13, 19].map((slot) => botSessionStyle(180, slot)!);
+    const read = (style: CSSProperties, name: string) => style[name as keyof CSSProperties];
+    expect(styles.map((style) => read(style, "--bot-session-step"))).toEqual(["1", "1", "1"]);
+    expect(new Set(styles.map((style) => read(style, "--bot-session-hue"))).size).toBe(3);
+  });
+});
+
+describe("botSessionHue", () => {
+  test("paints only the palette, whatever the Bot's hue", () => {
+    for (let hue = 0; hue < 360; hue += 7) {
+      for (let step = 0; step < BOT_SESSION_SHADES; step += 1) {
+        expect(BOT_SESSION_HUES).toContain(botSessionHue(hue, step));
+      }
+    }
+  });
+
+  test("starts at the entry nearest the Bot's hue, around the circle as well as along it", () => {
+    expect(botSessionHue(60, 0)).toBe(58);
+    // 2 degrees is nearer 354 across zero than 58 along the line.
+    expect(botSessionHue(2, 0)).toBe(354);
+  });
+
+  test("neighbouring steps are neighbours on the walk, so siblings side by side never match", () => {
+    for (let hue = 0; hue < 360; hue += 11) {
+      for (let step = 1; step < BOT_SESSION_SHADES; step += 1) {
+        const before = BOT_SESSION_HUES.indexOf(botSessionHue(hue, step - 1) as never);
+        const after = BOT_SESSION_HUES.indexOf(botSessionHue(hue, step) as never);
+        expect(after).toBe((before + 1) % BOT_SESSION_HUES.length);
+      }
     }
   });
 });

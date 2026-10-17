@@ -222,30 +222,70 @@ export function botSessionSlots(
 }
 
 /**
- * How far apart two neighbouring sessions of one Bot sit on the colour wheel, in degrees.
+ * The hues a session's card can paint, in the order a Bot's sessions walk them.
  *
- * The whole circle divided by the number of slots, which is the widest six things can be spaced
- * and is deliberately NOT a narrow arc around the Bot's own hue. A narrow arc was tried and
- * measured first: at the chroma a card carries, rotating a nearly-grey colour leaves a nearly-grey
- * colour, and even a 110 degree arc moved a fill 0.0054 dEok. Sixty degrees between neighbours at
- * full separation moves it 0.0510, which is the widest separation anything on this canvas gets.
+ * A fixed set rather than any hue on the circle, because dark's session surfaces (lightness
+ * 0.205 to 0.255 at chroma 0.090) are outside sRGB for most of the circle, and clipping both drains
+ * and bends them: 40, 60 and 80 degrees all paint as an orange near 30 to 50, and 140 and 160 both
+ * paint near 145. So two hues 20 or 30 degrees apart, or further apart inside that stretch, came
+ * out as one muddy colour, and sessions of DIFFERENT Bots, each a sixth of the circle from its own
+ * Bot, landed within a few degrees of each other on a canvas whose neighbours have nothing to do
+ * with creation order. Measured 2026-10-17: two cards side by side at 281.5 and 286.6 degrees.
  *
- * So a Bot's sessions are not shades of the Bot. They are six different colours, and the first one
- * happens to land on the Bot's own hue because the count starts there. What says they belong to
- * one Bot is the RAIL, which does not take this and must not: it is the single channel answering
- * "whose card is this", and a grouping cue that varies inside the group is not one. Spending the
- * hue at this level is only affordable BECAUSE the rail exists -- before it, similarity between
- * the fills was the only thing holding a Bot together, and it had to be paid for in sameness.
+ * These eight were searched for, against the sRGB a display paints after clipping, to make the
+ * CLOSEST two as far apart as eight can be: 0.054 dEok on dark's view and fill surfaces and 0.048
+ * on light's border, the surfaces where each theme carries its colour. Two cards now either share a
+ * colour exactly or differ by at least that, where before any separation from zero upward was as
+ * likely as any other. What this does NOT buy is a guarantee about two cards from different Bots
+ * side by side: a colour is derived from the card itself and never from where it stands, so moving
+ * a card recolours nothing, and any two such cards share a colour one time in eight.
+ *
+ * The ORDER is the walk, chosen so that consecutive entries are the furthest apart of any ordering
+ * -- at least 0.117 dEok on dark's view surface, and 0.054 two steps apart -- because a Bot's
+ * sessions stand next to each other in slot order. The 60-degree steps this replaces held 0.040 at
+ * worst and 0.077 at the median.
  */
-export const BOT_SESSION_HUE_SPACING = 360 / BOT_SESSION_SHADES;
+export const BOT_SESSION_HUES = [58, 154, 284, 98, 319, 191, 354, 228] as const;
 
-/** The hue a session paints: its slot's share of the circle, started at its Bot's own hue. */
-function sessionHue(hue: number, shade: number): number {
-  return (hue + shade * BOT_SESSION_HUE_SPACING) % 360;
+/** Where a Bot's sessions start the walk: the entry nearest the Bot's own hue, around the circle. */
+function walkStart(hue: number): number {
+  let best = 0;
+  let nearest = Infinity;
+  BOT_SESSION_HUES.forEach((candidate, index) => {
+    const apart = Math.abs((((candidate - hue) % 360) + 540) % 360 - 180);
+    if (apart < nearest) {
+      nearest = apart;
+      best = index;
+    }
+  });
+  return best;
 }
 
 /**
- * What a session's card hands to CSS: its Bot's hue, and its own step on that Bot's ladder.
+ * The hue a session paints, from its Bot's hue and its stored slot.
+ *
+ * The first session takes the palette entry nearest its Bot's hue, so it still reads as that Bot's
+ * colour beside the rail, and each slot after it takes the next entry of the walk. The WHOLE slot,
+ * not the slot's step on the six-step ladder: the hue goes round all eight entries before it
+ * repeats, where the ladder cycles at six. A Bot's slots grow with every session it has ever held,
+ * so a Bot with history holds slots like 1, 13 and 19, which are one step on the ladder and were
+ * one colour while the hue followed the step (measured on this canvas, 2026-10-17: three of one
+ * Bot's seven cards). Counted round eight they are three different entries.
+ *
+ * The sessions are not shades of the Bot: they are different colours, and only the first is near
+ * the Bot's own. What says they belong to one Bot is the RAIL, which does not take this and must
+ * not: it is the single channel answering "whose card is this", and a grouping cue that varies
+ * inside the group is not one. A narrow arc around the Bot's hue was measured before any of this
+ * and moved a card 0.0054 dEok, because rotating a low-chroma colour barely moves it.
+ */
+export function botSessionHue(hue: number, slot: number): number {
+  return BOT_SESSION_HUES[(walkStart(hue) + slot) % BOT_SESSION_HUES.length]!;
+}
+
+/**
+ * What a session's card hands to CSS, from its Bot's hue and its stored slot: the Bot's hue, the
+ * session's step on that Bot's ladder (the slot round six), and its own hue (the slot round eight,
+ * `botSessionHue`).
  *
  * Both or neither. A session whose Bot the roster has not ranked has no hue to be a shade OF, and
  * a step with no hue would resolve against whatever `--bot-hue` it inherited from the card around
@@ -254,13 +294,13 @@ function sessionHue(hue: number, shade: number): number {
  */
 export function botSessionStyle(
   hue: number | undefined,
-  shade: number | undefined,
+  slot: number | undefined,
 ): CSSProperties | undefined {
-  if (hue === undefined || shade === undefined) return undefined;
+  if (hue === undefined || slot === undefined) return undefined;
   return {
     "--bot-hue": hue.toFixed(2),
-    "--bot-session-step": String(shade),
-    "--bot-session-hue": sessionHue(hue, shade).toFixed(2),
+    "--bot-session-step": String(slot % BOT_SESSION_SHADES),
+    "--bot-session-hue": botSessionHue(hue, slot).toFixed(2),
   } as CSSProperties;
 }
 

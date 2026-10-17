@@ -360,9 +360,10 @@
      other colour in this file separates by getting lighter or darker, because that is the channel
      with room; a card cannot use it, because a light theme's cards have to stay light and a dark
      theme's have to stay dark, and a ladder long enough to tell six apart runs out of the theme
-     before it runs out of contrast. So the six differ by HUE, a whole sixth of the circle between
-     neighbours, at one fixed lightness and one fixed chroma. Measured over 72 Bot hues: adjacent
-     sessions sit 0.0273 dEok apart here, against 0.0003 for the flat surface this replaces.
+     before it runs out of contrast. So the six differ by HUE, taken from the eight-hue palette
+     `BOT_SESSION_HUES` in `botSurface.ts`, at one fixed lightness and one fixed chroma. Measured
+     after sRGB clipping: sessions side by side in one Bot sit at least 0.0635 dEok apart here, and
+     any two different palette entries 0.0184.
 
      Light needed one more thing before it could be tinted at all, and it is the cap this file has
      recorded three times: `--muted-foreground` is a FIXED 0.556, it sits at 4.55:1 on the Bot's
@@ -520,8 +521,9 @@
 
        Dark can afford it outright. Over 72 hues the transcript holds `--muted-foreground` at
        5.73:1 and `--foreground` at 14.24:1, against 6.14 and 15.25 for the whisper this replaces,
-       and two sessions a sixth of the circle apart sit 0.0446 dEok apart on the ground where the
-       whisper managed 0.0220.
+       and two sessions a sixth of the circle apart sat 0.0446 dEok apart on the ground where the
+       whisper managed 0.0220. On the palette that replaced those sixths, any two different entries
+       sit at least 0.0537 apart on the ground, and a Bot's neighbouring sessions 0.1209.
 
        0.060 was measured and reaches 0.0444, the same separation for a third less chroma, and was
        not taken: the point of this is that the interior IS the card's colour rather than a hint
@@ -577,8 +579,8 @@
     background-color: oklch(var(--bot-accent-l) var(--bot-accent-c) var(--bot-hue));
   }
 
-  /* Every rule from here to `.bot-rail` paints `--bot-session-hue` -- the Bot's hue turned by
-     this session's share of a 60 degree arc, published by `botSessionStyle`, which is what lets
+  /* Every rule from here to `.bot-rail` paints `--bot-session-hue` -- this session's entry of the
+     palette `botSessionHue` walks from its Bot's hue, published by `botSessionStyle`, which is what lets
      two of one Bot's sessions differ in COLOUR and not only in shade. The fallback to `--bot-hue`
      is what a solo session and an unshaded card resolve to, and it is also the whole safety of
      the scheme: an unresolved custom property makes the declaration invalid at computed-value

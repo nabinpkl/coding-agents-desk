@@ -22,8 +22,8 @@ import type { CSSProperties } from "react";
 import {
   BOT_HUE_OFFSET,
   BOT_HUE_STEP,
-  BOT_SESSION_HUE_SPACING,
   BOT_SESSION_SHADES,
+  botSessionHue,
 } from "@/features/bots/botSurface";
 
 /** Enough of a terminal parent to colour its card: its key and the path it stands for. */
@@ -72,16 +72,17 @@ function orderedParents(parents: readonly TerminalParentIdentity[]): TerminalPar
 }
 
 /**
- * Each of one parent's sessions, by child key, on a step of that parent's ladder.
+ * Each of one parent's sessions, by child key, on its rank among that parent's sessions.
  *
  * Ranked over the name-sorted keys rather than over the sessions: a session that has just exited
- * still holds its step until the listing drops it, so the survivors keep their colours across the
- * refresh that reports the exit.
+ * still holds its rank until the listing drops it, so the survivors keep their colours across the
+ * refresh that reports the exit. The whole rank, the way a Bot's stored slot is: the ladder takes
+ * it round six and the hue round eight, in `terminalChildStyle` and `botSessionStyle`.
  */
 export function terminalChildSteps(children: readonly string[]): ReadonlyMap<string, number> {
   const steps = new Map<string, number>();
   [...children].sort().forEach((key, index) => {
-    steps.set(key, index % BOT_SESSION_SHADES);
+    steps.set(key, index);
   });
   return steps;
 }
@@ -100,7 +101,8 @@ export function terminalParentStyle(hue: number | undefined): CSSProperties | un
 }
 
 /**
- * What a session's card hands to CSS: its parent's hue, and its own step on that parent's ladder.
+ * What a session's card hands to CSS, from its parent's hue and its rank: the parent's hue, the
+ * session's step on that parent's ladder (the rank round six), and its own hue (round eight).
  *
  * Both or neither, for the reason `botSessionStyle` gives: a step with no hue would resolve
  * against whatever the card around it carries.
@@ -112,7 +114,7 @@ export function terminalChildStyle(
   if (hue === undefined || step === undefined) return undefined;
   return {
     "--terminal-hue": hue.toFixed(2),
-    "--terminal-session-step": String(step),
-    "--terminal-session-hue": ((hue + step * BOT_SESSION_HUE_SPACING) % 360).toFixed(2),
+    "--terminal-session-step": String(step % BOT_SESSION_SHADES),
+    "--terminal-session-hue": botSessionHue(hue, step).toFixed(2),
   } as CSSProperties;
 }

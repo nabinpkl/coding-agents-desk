@@ -7,7 +7,7 @@ import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { attachedSessionKey, isFatherSession, splitSessionsByCanvas } from "@/features/bots/botRosterOrder";
-import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionSlots, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
+import { botSessionFaceRank, botSessionSlots, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { canRenameSession } from "@/features/bots/sessionRename";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { BotTerminalButton } from "@/features/bots/BotTerminalButton";
@@ -110,7 +110,7 @@ export function BotRosterRow({
     const noCard = (canvas?.detachedSessionKeys.has(key) ?? false)
       || onStrip === false;
     const step = slots.get(key);
-    const shaded = botSessionStyle(hue, step === undefined ? undefined : step % BOT_SESSION_SHADES);
+    const shaded = botSessionStyle(hue, step);
     // Its own face rather than its Bot's, so siblings never share one; either
     // half missing leaves the mark on its disc.
     const botRank = rank;
@@ -126,10 +126,10 @@ export function BotRosterRow({
         key={key}
         // A bar where the child starts, one indent inside its Bot's, and the
         // only thing this row paints. `bot-rail`, so the Bot's hue and NOT this
-        // session's: the rule beside `BOT_SESSION_HUE_SPACING` in
-        // `botSurface.ts`, and the reason that constant can be as wide as it is.
-        // Neighbouring sessions sit sixty degrees apart around the WHOLE circle,
-        // so a rail on `--bot-session-hue` turns the one channel that answers
+        // session's: the rule beside `botSessionHue` in `botSurface.ts`, and
+        // the reason its palette can spread as wide as it does. Neighbouring
+        // sessions take far-apart entries from around the WHOLE circle, so a
+        // rail on `--bot-session-hue` turns the one channel that answers
         // whose Bot this is into six unrelated colours. Measured before it was
         // believed. Which session is the face's to say, on that turned hue.
         //
