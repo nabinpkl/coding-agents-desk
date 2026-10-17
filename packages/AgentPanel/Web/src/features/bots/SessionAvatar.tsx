@@ -35,8 +35,9 @@ import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
  * is behind it to read as sitting ON the disc, and what is behind it here changes: a session's
  * titlebar is `session-view-header` when the card is open and the card's own shade when it is
  * closed. A ring needs no such agreement. Cold is left unmarked rather than given a grey ring,
- * because the meta line under the title already says "Cold" in words and a second grey thing
- * next to it would be the row's third neutral shape.
+ * because a grey ring would be the row's third neutral shape. Where the row no longer says "Cold"
+ * in words -- a canvas card, whose second line now carries the session's task -- the face says it
+ * instead, with `sleeping`: a "zzz" beside the head, outside the disc so it needs no ring either.
  */
 export function SessionAvatar({
   title,
@@ -44,6 +45,7 @@ export function SessionAvatar({
   shaded,
   rank,
   shut = false,
+  sleeping = false,
   className = "",
 }: {
   title: string;
@@ -83,9 +85,42 @@ export function SessionAvatar({
    * no eyes to close and a second treatment for one fact is a second thing to learn.
    */
   shut?: boolean;
+  /** Whether to mark a cold session on the face, for a row that does not say "Cold" in words. */
+  sleeping?: boolean;
   className?: string;
 }) {
   const faces = useBotFaces();
+  const mark = sessionMark({ faces, title, activity, shaded, rank, shut, className: sleeping ? "" : className });
+  if (!sleeping || activity !== "cold") return mark;
+  return (
+    <span className={`relative shrink-0 ${className}`}>
+      {mark}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -top-1.5 -right-2 text-[9px] leading-none font-semibold session-muted-ink"
+      >
+        zzz
+      </span>
+    </span>
+  );
+}
+
+function sessionMark({
+  faces,
+  title,
+  activity,
+  shaded,
+  rank,
+  shut,
+  className,
+}: {
+  title: string;
+  activity: Bin;
+  shaded: boolean;
+  rank: number | undefined;
+  shut: boolean;
+  className: string;
+} & { faces: boolean }) {
   if (faces && rank !== undefined && shaded) {
     // The live ring stays, because the face says which session this is and only the ring says
     // whether it is live. Rounded with it, so the ring hugs the head rather than boxing it.

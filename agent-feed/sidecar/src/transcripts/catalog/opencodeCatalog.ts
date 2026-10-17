@@ -14,6 +14,7 @@ import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
 import { broadcast, findSession, scheduleBroadcast, sessionKey } from "@/transcripts/catalog/catalogState";
 import { canonicalDirectory, makeSession } from "@/transcripts/catalog/catalogRecords";
+import { lookUpOpencodeTaskStates, opencodeTaskState } from "@/transcripts/catalog/opencodeTaskState";
 
 let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -63,6 +64,7 @@ export async function reconcileOpencode(client: OpencodeClient | null = opencode
     if (session.source === "opencode" && !next.has(key)) state.sessions.delete(key);
   }
   for (const [key, session] of next) state.sessions.set(key, session);
+  lookUpOpencodeTaskStates(next.values());
   console.log(JSON.stringify({
     event: "agent-feed-catalog-source-ready",
     source: "opencode",
@@ -79,6 +81,7 @@ async function toRecord(session: SessionInfo): Promise<Session | null> {
     ?? session.location.directory;
   return makeSession("opencode", session.id, project, undefined, session.time.updated, {
     title: session.title || undefined,
+    taskState: opencodeTaskState(session.id),
   });
 }
 

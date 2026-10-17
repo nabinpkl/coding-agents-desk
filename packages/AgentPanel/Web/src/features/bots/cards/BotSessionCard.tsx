@@ -9,7 +9,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
-import { SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
+import { SessionCardMeta } from "@/features/bots/cards/SessionCardMeta";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import type { HandoverDestination } from "@/features/bots/sessionHandover";
@@ -342,17 +342,19 @@ export function BotSessionCard({
                 // draws: one session looks like one session in both places, which is the whole
                 // reason the row and the card share a mark at all.
                 shut={!open}
+                sleeping
                 className="mt-0.5"
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
                   {title}
                 </span>
-                <SessionMeta
+                <SessionCardMeta
                   source={session.source}
                   lastEventAt={session.lastEventAt}
                   activity={session.activity}
                   worktree={session.worktree}
+                  taskState={session.taskState}
                 />
               </span>
               <ChevronDown

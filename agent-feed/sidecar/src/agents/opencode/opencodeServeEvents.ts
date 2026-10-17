@@ -10,6 +10,7 @@ import type { V2Event } from "@opencode/client";
 import { isServeUnauthorized, resetOpencodeClient, type OpencodeClient } from "@/agents/opencode/opencodeClient";
 import type { OpencodeStreamedPart } from "@/agents/opencode/opencodeStreamTail";
 import type { AgentUiBroker } from "@/agents/agentUiBroker";
+import { noteOpencodeText } from "@/transcripts/catalog/opencodeTaskState";
 
 export type OpencodeRunState = "running" | "idle" | "error";
 
@@ -113,6 +114,11 @@ export class OpencodeServeEvents {
     // falling through to a read that would buy the same thing more slowly.
     if (event.type.startsWith("session.reasoning.") || event.type.startsWith("session.text.")) {
       const streamed = this.streamedPart(event.type, event);
+      // Every session's finished text, read or not: a part that opens with a `<task-state>` block
+      // is how the catalog learns what that session set out to do.
+      if (streamed?.kind === "text" && streamed.phase === "ended" && streamed.text && sessionId) {
+        noteOpencodeText(sessionId, streamed.text, Date.now());
+      }
       if (streamed && sessionId && this.router.hasSession(sessionId)) {
         this.router.streamPart(sessionId, streamed);
       }

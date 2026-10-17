@@ -52,18 +52,25 @@ export function SessionMeta({
       {project === undefined ? null : <span className="min-w-0 truncate">{project}</span>}
       <span>{time}</span>
       <span className="capitalize">{activity}</span>
-      {worktree ? (
-        // Named rather than merely marked: "worktree" alone says a row is elsewhere without saying
-        // where, which is the half of the answer a reader already had. A detached worktree has no
-        // branch, so it falls back to the directory it is in -- still an answer, just a worse one.
-        <span
-          className="flex min-w-0 items-center gap-1 rounded bg-muted px-1 py-px font-medium"
-          title={`Working in a git worktree at ${worktree.path}`}
-        >
-          <GitBranch className="size-3 shrink-0" aria-hidden />
-          <span className="truncate">{worktree.branch ?? basename(worktree.path)}</span>
-        </span>
-      ) : null}
+      {worktree ? <WorktreeChip worktree={worktree} /> : null}
+    </span>
+  );
+}
+
+/**
+ * Which worktree a session works in, named rather than merely marked: "worktree" alone says a row
+ * is elsewhere without saying where, which is the half of the answer a reader already had. A
+ * detached worktree has no branch, so it falls back to the directory it is in -- still an answer,
+ * just a worse one.
+ */
+export function WorktreeChip({ worktree }: { worktree: { path: string; branch: string | null } }) {
+  return (
+    <span
+      className="flex min-w-0 items-center gap-1 rounded bg-muted px-1 py-px font-medium"
+      title={`Working in a git worktree at ${worktree.path}`}
+    >
+      <GitBranch className="size-3 shrink-0" aria-hidden />
+      <span className="truncate">{worktree.branch ?? basename(worktree.path)}</span>
     </span>
   );
 }

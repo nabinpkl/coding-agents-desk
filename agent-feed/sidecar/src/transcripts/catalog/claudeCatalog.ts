@@ -169,6 +169,7 @@ async function readClaudeCandidate(filePath: string): Promise<ClaudeCandidate> {
     entrypoint: header.entrypoint,
     lastTurnClosed: header.lastTurnClosed,
     firstPrompt: header.firstPrompt,
+    taskState: header.taskState,
   });
   return { session, readable: true };
 }

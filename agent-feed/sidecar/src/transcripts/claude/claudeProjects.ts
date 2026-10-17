@@ -9,6 +9,7 @@ import { isHarnessUserText } from "@/transcripts/humanTurns";
 import type { Header } from "@/transcripts/transcriptTypes";
 import { turnClosedFor } from "@/transcripts/claude/claudePayloads";
 import { currentTitles, titlesOf, type Titles } from "@/transcripts/claude/claudeTitles";
+import { currentTaskState } from "@/transcripts/claude/claudeTaskState";
 
 const HEADER_EDGE_BYTES = 32 * 1024;
 /**
@@ -321,6 +322,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
       through,
     });
     out.title = titles.customTitle ?? titles.aiTitle;
+    out.taskState = await currentTaskState(fh, filePath, through);
     if (wandered.length > 0) out.recentCwds = [...new Set(wandered.reverse())];
     return out.cwd ? out : null;
   } finally {

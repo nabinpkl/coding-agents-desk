@@ -1,5 +1,9 @@
-export function SourceBadge({ source }: { source: string }) {
+/** One or two letters for a row with no room for the name; the hue still says which. */
+const SHORT_LABELS: Record<string, string> = { claude: "C", opencode: "O", codex: "Cx", pi: "Pi" };
+
+export function SourceBadge({ source, short = false }: { source: string; short?: boolean }) {
   const label = source === "claude" ? "Claude" : source === "codex" ? "Codex" : source === "pi" ? "Pi" : source === "opencode" ? "OpenCode" : source;
+  const shown = short ? (SHORT_LABELS[source] ?? label) : label;
   const cls =
     source === "claude"
       ? "bg-violet-500/20 text-violet-500 dark:text-violet-400"
@@ -21,7 +25,7 @@ export function SourceBadge({ source }: { source: string }) {
       // order, and the hue still does the job the badge exists for.
       className={`inline-flex items-center rounded px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium uppercase tracking-wide ${cls}`}
     >
-      {label}
+      {shown}
     </span>
   );
 }

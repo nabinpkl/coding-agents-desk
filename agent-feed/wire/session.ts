@@ -73,6 +73,24 @@ export interface SessionSummary {
    * the bottom. Absent for a session a person started.
    */
   automation?: SessionAutomation;
+  /**
+   * What the session said it set out to do, from the newest `<task-state>` block it opened a
+   * response with. Absent until it has written one.
+   *
+   * The session's own report, read from its transcript: nothing asks it, and nothing renames it.
+   * A fork carries its parent's block until it writes its first own one, which its first response
+   * does when its brief hands it work.
+   */
+  taskState?: SessionTaskState;
+}
+
+/** One `<task-state>` block: the goal, then the decisions the session wrote under it. */
+export interface SessionTaskState {
+  task: string;
+  /** At most four, each one line. */
+  lines: string[];
+  /** When the response carrying it was written, epoch ms. */
+  at: number;
 }
 
 /**

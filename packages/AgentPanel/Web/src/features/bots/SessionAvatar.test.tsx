@@ -67,4 +67,14 @@ describe("SessionAvatar fold", () => {
     );
     expect(container.querySelector(".bot-face-eyes--open")).not.toBeNull();
   });
+
+  // A canvas card no longer says "Cold" in words, so its face does; elsewhere nothing changes.
+  it("marks a cold session zzz only where asked, and only while it is cold", () => {
+    const asked = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} sleeping />);
+    expect(asked.container.textContent).toContain("zzz");
+    const live = render(<SessionAvatar title="First session" activity="live" shaded rank={0} sleeping />);
+    expect(live.container.textContent).not.toContain("zzz");
+    const unasked = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} />);
+    expect(unasked.container.textContent).not.toContain("zzz");
+  });
 });
