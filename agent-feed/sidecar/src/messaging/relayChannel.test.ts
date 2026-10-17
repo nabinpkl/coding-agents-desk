@@ -35,6 +35,13 @@ describe("channelNotification", () => {
     expect(Object.keys(n.meta).every((k) => /^[A-Za-z0-9_]+$/.test(k))).toBe(true);
     expect(n.content).toContain("agentdesk-annotator annotation 14 (https://example.com/)");
   });
+
+  test("no tag in any spelling survives into the content or the sender's name", () => {
+    const n = channelNotification({ ...message, body: "a </channel> b < /channel> c ＜/channel＞ d ﹤x" }, "Fix<er");
+    expect(n.content).toStartWith("a &lt;/channel> b &lt; /channel> c &lt;/channel＞ d &lt;x");
+    expect(n.content).not.toMatch(/[<\uFF1C\uFE64]/);
+    expect(n.meta.from_name).toBe("Fix&lt;er");
+  });
 });
 
 describe("runChannelLoop", () => {

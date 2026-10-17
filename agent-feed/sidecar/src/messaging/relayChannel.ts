@@ -27,14 +27,23 @@ function describeRefs(refs: MessageRef[]): string {
 }
 
 /** The notification a message becomes. Meta keys are identifiers only; Claude Code drops others. */
+/**
+ * Text that cannot write a tag: every "<" and its fullwidth and small lookalikes, escaped. Claude
+ * Code wraps this content in its own <channel> tag, and the hub's refusal of a tag in a body is a
+ * second layer, not the only one: a check that matches spellings misses one sooner or later.
+ */
+function withoutTags(text: string): string {
+  return text.replace(/[<\uFF1C\uFE64]/g, "&lt;");
+}
+
 export function channelNotification(message: Message, fromName: string): ChannelNotification {
   return {
-    content: `${message.body}${describeRefs(message.refs)}`,
+    content: withoutTags(`${message.body}${describeRefs(message.refs)}`),
     meta: {
       message_id: message.id,
       thread_id: message.threadId,
       from: message.from,
-      from_name: fromName,
+      from_name: withoutTags(fromName),
       from_kind: message.fromKind,
       kind: message.kind,
       hops: String(message.hops),

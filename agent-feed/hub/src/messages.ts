@@ -66,11 +66,12 @@ function isSentKind(kind: unknown): kind is SentMessageKind {
  * A <channel> tag in any spelling a model would read as one, opening or closing. Matched on a
  * normalised copy, because a pattern over the raw text slips: "< /channel>" got past
  * `<\/?\s*channel` (2026-10-17), and a fullwidth "＜/channel＞" or a zero-width character inside
- * the word would get past this one. NFKC folds the lookalike brackets onto "<", the invisible
- * characters are dropped, and whitespace is allowed on both sides of the slash.
+ * the word would get past this one. NFKC folds the lookalike brackets onto "<", every invisible
+ * character goes (Unicode's own classes, not a list of the ones thought of), and whitespace is
+ * allowed on both sides of the slash.
  */
 const FORGED_ENVELOPE = /<\s*\/?\s*channel\b/i;
-const INVISIBLE = /[\u00AD\u180E\u200B-\u200F\u2060-\u2064\uFEFF]/g;
+const INVISIBLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu;
 
 function holdsEnvelopeTag(text: string): boolean {
   return FORGED_ENVELOPE.test(text.normalize("NFKC").replace(INVISIBLE, ""));
