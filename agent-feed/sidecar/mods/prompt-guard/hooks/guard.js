@@ -25,10 +25,12 @@ export const LIMITS = {
 
 /**
  * Whether a prompt event is the person's own. Measured on 2.1.301: a typed prompt, and one pasted
- * into the pane, carries `origin: { kind: 'composer' }`; a mod's carries `{ kind: 'plugin', name }`.
+ * into the pane (which is how the panel's composer sends), carries `origin: { kind: 'composer' }`;
+ * one sent from the phone or claude.ai through Remote Control carries `{ kind: 'bridge' }`; a mod's
+ * carries `{ kind: 'plugin', name }`.
  */
 export function isUsersOwn(origin) {
-  return origin === undefined || origin === null || origin.kind === 'composer'
+  return origin === undefined || origin === null || origin.kind === 'composer' || origin.kind === 'bridge'
 }
 
 /** The mod that submitted a prompt, or null when no mod did. */

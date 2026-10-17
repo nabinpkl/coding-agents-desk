@@ -12,8 +12,9 @@ function sendAndEnter(state: unknown, sid: string, hash: string, now: number) {
 }
 
 describe("whose prompt it is", () => {
-  test("a typed or pasted prompt is the person's, a mod's names the mod", () => {
+  test("a typed, pasted or Remote Control prompt is the person's, a mod's names the mod", () => {
     expect(isUsersOwn({ kind: "composer" })).toBe(true);
+    expect(isUsersOwn({ kind: "bridge" })).toBe(true);
     expect(isUsersOwn(undefined)).toBe(true);
     expect(isUsersOwn({ kind: "plugin", name: "ad-loop" })).toBe(false);
     expect(submittingMod({ kind: "plugin", name: "ad-loop" })).toBe("ad-loop");

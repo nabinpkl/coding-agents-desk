@@ -18,8 +18,10 @@ Claude Code refuses every mod's prompt until the person types.
 `prompt-guard` sees every mod's prompt, because each one arrives as a `prompt.submit` event naming
 the mod that sent it, and drops the ones past its limits (`hooks/guard.js`):
 
-- 3 prompts per session since the person last typed there; typing lets mods send again
-- one waiting prompt at a time per session
+- 3 prompts per session since the person last typed there, in the pane, the panel or through
+  Remote Control; typing lets mods send again
+- one at a time per session. Claude Code holds a mod's prompt until the running turn ends, and
+  the guard sees it only as it enters, so prompts that queued up are judged one by one as they go in
 - 6 per session and 20 per machine in an hour, counted across every mod
 - the same text twice within 10 minutes
 - `/pause-mod-prompts` and `/resume-mod-prompts`, for every session on the machine
