@@ -11,7 +11,6 @@ import type { ClaudeSdkRunner } from "@/claude-sdk/claudeSdkRunner";
 import {
   encodeLine,
   LineReader,
-  MAXIMUM_LINE_BYTES,
   parseSidecarMessage,
   PROTOCOL_VERSION,
   type RunnerReply,
@@ -19,8 +18,11 @@ import {
   type SidecarToRunner,
 } from "@/claude-sdk/claudeSdkProtocol";
 
-/** Unsent bytes one connection may hold before it is closed. */
-const MAXIMUM_BACKLOG_BYTES = 4 * MAXIMUM_LINE_BYTES;
+/**
+ * Unsent bytes one connection may hold before it is closed. What a runner sends is state and stream
+ * frames, never the images a prompt carries the other way, so this stays well under the line cap.
+ */
+const MAXIMUM_BACKLOG_BYTES = 16 * 1024 * 1024;
 
 interface Connection {
   reader: LineReader;
@@ -104,7 +106,7 @@ export async function serveRunner(
   const execute = async (message: Exclude<SidecarToRunner, { type: "hello" }>): Promise<RunnerReply> => {
     switch (message.type) {
       case "prompt":
-        return runner.prompt(message.text);
+        return runner.prompt(message.text, message.images);
       case "answer":
         return runner.answer(message.answers);
       case "decide":
@@ -113,6 +115,8 @@ export async function serveRunner(
         return runner.setMode(message.mode);
       case "interrupt":
         return runner.interrupt();
+      case "rename":
+        return runner.rename(message.title);
       case "stop":
         await runner.stop();
         return { ok: true };

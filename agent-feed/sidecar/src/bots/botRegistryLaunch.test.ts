@@ -54,7 +54,7 @@ test("a launch title brackets as the task after the allocated anchor, and a prom
   }]);
 });
 
-test("a launch can ask for SDK mode, and only for a fresh session", async () => {
+test("a launch can ask for SDK mode, and nothing that is neither mode", async () => {
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
 
@@ -79,12 +79,6 @@ test("a launch can ask for SDK mode, and only for a fresh session", async () => 
     directoryPath: project,
     launch: { claudeMode: "headless" as "sdk" },
   }, { kind: "user" })).rejects.toThrow(/terminal or sdk/);
-  await expect(addBot(registry, {
-    requestId: "request-3",
-    name: "Third",
-    directoryPath: project,
-    launch: { claudeMode: "sdk", from: { source: "claude", sessionId: "started-1" } },
-  }, { kind: "user" })).rejects.toThrow(/fork starts in the terminal/);
   expect(launched).toHaveLength(1);
 });
 

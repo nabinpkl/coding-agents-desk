@@ -108,7 +108,18 @@ which the transcript still supplies, and a message whose start the sidecar misse
   only, so it can keep up with the CLI it drives.
 - Neutral, because a stopped session reopens the way it last ran, read from its newest record's
   `entrypoint` (`lastEntrypoint`), so one switched to the SDK comes back through its runner. A fork
-  is still terminal-only: one asked for in SDK mode is refused.
+  runs the way its source last ran unless asked otherwise; through the SDK a fork from a message is
+  cut there as it starts (`resumeSessionAt` at the message's `parentUuid`), so it has no rewind to
+  fail, and its brief rides as its first turn. Measured: a fork from a session's second prompt
+  remembered only the first.
+- Neutral, because a rename reaches an SDK session through the CLI's `rename_session` control
+  request, which moved the registry name, the title and the agent name together (measured), and
+  does not wait behind a turn the way a `/rename` prompt does. Its `Query` method is not in the
+  SDK's typed interface, so the runner checks for it and refuses loudly without it. Images ride a
+  prompt as image blocks ahead of the text; `/compact` sent as a prompt compacts.
+- Neutral, because the idle sweep needed nothing: it closes an idle pane by `kill-session`, the
+  runner's hangup handler stops cleanly and `claude` writes its exit records, and a runner holding a
+  question or approval reads `waiting` in the registry, one with background work `shell`.
 
 ### Confirmation
 

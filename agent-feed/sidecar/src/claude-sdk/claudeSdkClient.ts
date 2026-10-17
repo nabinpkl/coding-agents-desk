@@ -25,6 +25,7 @@ import {
   type RunnerReply,
   type SidecarToRunner,
 } from "@/claude-sdk/claudeSdkProtocol";
+import { config } from "@/config/config";
 import { privateSocketDirectory } from "@/claude-sdk/claudeSdkRunnerServer";
 import type { ClaudeSdkLiveFeed } from "@/claude-sdk/claudeSdkLiveFeed";
 
@@ -45,6 +46,19 @@ interface Connection {
   opening: Promise<boolean> | null;
   listeners: Set<(state: ClaudeSdkSessionState) => void>;
   replies: Map<string, { resolve: (reply: RunnerReply) => void; timer: ReturnType<typeof setTimeout> }>;
+}
+
+let shared: ClaudeSdkClient | null = null;
+
+/**
+ * The process's one client, which everything that talks to runners shares: the routes, and the
+ * session operations (rename) that reach a session through its runner. One connection per session
+ * however many of them ask. The first caller supplies the live mirror's sink; `server.ts` mounts the
+ * routes, which do, before anything else can ask.
+ */
+export function sharedClaudeSdkClient(sink: Pick<ClaudeSdkLiveFeed, "stream" | "gone"> | null = null): ClaudeSdkClient {
+  shared ??= new ClaudeSdkClient(config.claudeSdkSocketDirectory, undefined, sink);
+  return shared;
 }
 
 export class ClaudeSdkClient {

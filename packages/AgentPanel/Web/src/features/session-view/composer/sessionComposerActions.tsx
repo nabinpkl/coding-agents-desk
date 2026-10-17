@@ -45,15 +45,26 @@ const SEND_IN_FIELD_CLASS =
  * is a delivery to an already-open pty, with no queue to join and nothing to steer. The draft
  * survives a refusal so nothing is lost.
  */
-export async function submitOwnedTransport(m: ComposerModel, text = m.editorValue.trim()): Promise<boolean> {
+export async function submitOwnedTransport(
+  m: ComposerModel,
+  text = m.editorValue.trim(),
+  /** Whether the images held in the band ride this send: yes for the reader's turn, no for a command. */
+  withImages = true,
+): Promise<boolean> {
   if (m.deliveryPending || !text) return false;
   m.setDeliveryPending(true);
   m.setDeliveryError(null);
   try {
     if (m.transport.kind === "sdk-session") {
-      // The runner says why when it refuses (`sdkSession.error`), and the draft stays.
-      const sent = await m.sdkSession.send(text);
-      if (sent) m.setLocalDraft("");
+      // Read at send time rather than held as base64, for the reason the opencode send gives.
+      const images = withImages ? m.sendAttachments.images : [];
+      const files = images.length > 0 ? await m.sendAttachments.toWire(images) : undefined;
+      // The runner says why when it refuses (`sdkSession.error`), and the draft and images stay.
+      const sent = await m.sdkSession.send(text, files);
+      if (sent) {
+        m.setLocalDraft("");
+        if (images.length > 0) m.sendAttachments.clear();
+      }
       return sent;
     }
     if (m.transport.kind === "agent-terminal") {
@@ -109,7 +120,7 @@ export function compactControl(m: ComposerModel): CompactControl | null {
         ? "This session is not running."
         : busy || m.sdkSession.pending ? "The composer is still sending." : null),
       // A slash command is a turn the CLI runs rather than reads, through the SDK as at a keyboard.
-      run: async () => await submitOwnedTransport(m, COMPACT_COMMAND),
+      run: async () => await submitOwnedTransport(m, COMPACT_COMMAND, false),
     };
   }
   if (m.tmuxBand || m.agentTerminalBand) {

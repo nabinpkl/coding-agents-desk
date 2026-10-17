@@ -291,10 +291,10 @@ export function SessionComposer({
   // has been looked for and not found. Not having attached means nobody has asked yet, and
   // saying "no composer" then would be a guess dressed as a fact.
   const fileAccept = useComposerFileDrop({
-    // Images into an SDK session are not built yet; its pane is the runner's, not a composer.
+    // An SDK session's pane is the runner's log, so its images wait for the send instead.
     isClaude: isClaude && !sdkCandidate,
     noPane: tmuxComposer.reason === "no-pane",
-    isOpencode,
+    holdsForSend: isOpencode || sdkCandidate,
     dropToPane: tmuxComposer.drop,
     holdForSend: sendAttachments.attach,
     engage,

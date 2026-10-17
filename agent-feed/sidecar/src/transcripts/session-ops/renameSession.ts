@@ -15,6 +15,7 @@
  * no fallback to writing the record. A half rename that silently leaves the address behind is the
  * outcome this exists to avoid, so it is refused with a reason instead.
  */
+import { sharedClaudeSdkClient, type ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
 import { renameTmuxSession } from "@/input/tmuxComposer";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
@@ -32,21 +33,51 @@ export class SessionRenameUnavailableError extends Error {}
  * Claude only. Codex has no equivalent command and keeps its titles in a database this does not
  * write, so a rename there would be a different mechanism wearing the same name.
  */
+/** What a rename reaches outside itself, injectable so its rules are tested without tmux or a runner. */
+export interface RenameSteps {
+  sdk: Pick<ClaudeSdkClient, "isServing" | "command">;
+  known: (sessionId: string) => boolean;
+  inPane: typeof renameTmuxSession;
+  relabel: (sessionId: string, title: string) => Promise<void>;
+}
+
 export async function renameClaudeSession(
   sessionId: string,
   requestedTitle: string,
+  steps: RenameSteps = {
+    sdk: sharedClaudeSdkClient(),
+    known: (id) => findSession("claude", id) !== undefined,
+    inPane: renameTmuxSession,
+    relabel: relabelTmuxSession,
+  },
 ): Promise<string> {
   const title = requestedTitle.trim();
   const invalid = sessionTitleRefusal(title);
   if (invalid) throw new SessionRenameInvalidError(invalid);
-  if (!findSession("claude", sessionId)) {
+  if (!steps.known(sessionId)) {
     throw new SessionRenameNotFoundError("session not found");
   }
 
-  const outcome = await renameTmuxSession(sessionId, title);
-  if (!outcome.renamed) throw new SessionRenameUnavailableError(refusal(outcome.reason));
-  await relabelTmuxSession(sessionId, title);
+  await renameThroughProcess(sessionId, title, steps);
+  await steps.relabel(sessionId, title);
   return title;
+}
+
+/**
+ * The complete rename, asked of whatever holds the session: its runner when it runs through the SDK
+ * (ADR-0143), whose pane shows the runner's log rather than a composer, and its pane otherwise. A
+ * runner sends the CLI's own `rename_session` control request, which moved the registry name, the
+ * title and the agent name together when measured on 2026-10-17, the way `/rename` does.
+ */
+async function renameThroughProcess(sessionId: string, title: string, steps: RenameSteps): Promise<void> {
+  const { sdk } = steps;
+  if (await sdk.isServing(sessionId)) {
+    const reply = await sdk.command(sessionId, { type: "rename", title });
+    if (!reply.ok) throw new SessionRenameUnavailableError(`this session's runner did not take the rename: ${reply.message}`);
+    return;
+  }
+  const outcome = await steps.inPane(sessionId, title);
+  if (!outcome.renamed) throw new SessionRenameUnavailableError(refusal(outcome.reason));
 }
 
 /**

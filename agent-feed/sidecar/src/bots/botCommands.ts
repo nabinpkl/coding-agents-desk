@@ -216,9 +216,6 @@ function normalizeLaunch(value: unknown): NormalizedLaunch | undefined {
   if (claudeMode !== undefined && claudeMode !== "terminal" && claudeMode !== "sdk") {
     throw new BotInvalidError("launch.claudeMode must be terminal or sdk");
   }
-  if (claudeMode === "sdk" && command.from !== undefined) {
-    throw new BotInvalidError("a fork starts in the terminal; SDK mode is for new sessions for now");
-  }
   return {
     title,
     // Only trimmed, never reshaped: the prompt is the session's first turn and its line breaks

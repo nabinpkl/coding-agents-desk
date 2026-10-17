@@ -171,8 +171,8 @@ export interface BotLaunchCommand {
    */
   worktree?: { branch?: string };
   /**
-   * The terminal UI (the default) or the Agent SDK runner (ADR-0143). A fork is terminal-only for
-   * now, so `from` with `"sdk"` is refused rather than quietly started in the terminal.
+   * The terminal UI (the default) or the Agent SDK runner (ADR-0143), for a fresh session and a
+   * fork alike.
    */
   claudeMode?: ClaudeRunMode;
 }

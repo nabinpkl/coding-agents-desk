@@ -100,7 +100,7 @@ export interface ComposerModel {
   pending: boolean;
   queued: number;
   running: boolean;
-  /** Images held for an opencode send, which has no pane to hold them instead. */
+  /** Images held for the next send where nothing else holds them: opencode, and an SDK session. */
   sendAttachments: ReturnType<typeof useSendAttachments>;
   session: SessionSummary;
   setDeliveryError: (message: string | null) => void;

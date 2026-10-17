@@ -58,8 +58,20 @@ function sdkModel(session: SdkSessionHandle = handle(), overrides: Partial<Compo
     setDeliveryError: vi.fn(),
     setLocalDraft: vi.fn(),
     tmuxComposer: { pending: false, reason: null, permissionMode: null } as never,
+    sendAttachments: attachments(),
     ...overrides,
   } as ComposerModel;
+}
+
+/** A band's held images: none unless a test hands some over. */
+function attachments(images: { id: string }[] = []) {
+  return {
+    images,
+    attach: vi.fn(),
+    remove: vi.fn(),
+    clear: vi.fn(),
+    toWire: vi.fn(async (held: { id: string }[]) => held.map((image) => ({ data: `b64-${image.id}`, mime: "image/png", name: `${image.id}.png` }))),
+  } as unknown as ComposerModel["sendAttachments"];
 }
 
 describe("which surface owns the composer", () => {
@@ -82,8 +94,25 @@ describe("the SDK band's actions", () => {
     const m = sdkModel();
     expect(composerActions(m).find((action) => action.placement === "field")?.key).toBe("send-sdk");
     await submitComposer(m, "next");
-    expect(m.sdkSession.send).toHaveBeenCalledWith("hello");
+    expect(m.sdkSession.send).toHaveBeenCalledWith("hello", undefined);
     expect(m.setLocalDraft).toHaveBeenCalledWith("");
+  });
+
+  it("sends the images held in the band with the turn, and lets go of them once it is taken", async () => {
+    const held = attachments([{ id: "shot" }]);
+    const m = sdkModel(handle(), { sendAttachments: held });
+    await submitComposer(m, "next");
+    expect(m.sdkSession.send).toHaveBeenCalledWith("hello", [{ data: "b64-shot", mime: "image/png", name: "shot.png" }]);
+    expect(held.clear).toHaveBeenCalled();
+    expect(composerEditor(m).onFiles).toBe(held.attach);
+  });
+
+  it("does not put the band's images on /compact", async () => {
+    const held = attachments([{ id: "shot" }]);
+    const m = sdkModel(handle(), { editorValue: "", sendAttachments: held });
+    await compactControl(m)!.run();
+    expect(m.sdkSession.send).toHaveBeenCalledWith("/compact", undefined);
+    expect(held.clear).not.toHaveBeenCalled();
   });
 
   it("keeps the draft when the runner refuses it", async () => {
@@ -115,7 +144,7 @@ describe("the SDK band's actions", () => {
   it("compacts by sending /compact as a turn, and not over a draft or without a runner", async () => {
     const m = sdkModel(handle(), { editorValue: "" });
     await compactControl(m)!.run();
-    expect(m.sdkSession.send).toHaveBeenCalledWith("/compact");
+    expect(m.sdkSession.send).toHaveBeenCalledWith("/compact", undefined);
     expect(compactControl(sdkModel())!.blocked).toBe("Send or clear the draft in the composer first.");
     expect(compactControl(sdkModel(handle({ connected: false }), { editorValue: "" }))!.blocked).toBe("This session is not running.");
   });

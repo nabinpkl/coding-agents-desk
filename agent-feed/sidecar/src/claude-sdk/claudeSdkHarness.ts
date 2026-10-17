@@ -41,6 +41,12 @@ export class FakeQuery implements RunnerQuery {
     this.interrupts += 1;
   }
 
+  readonly renamed: string[] = [];
+
+  async renameSession(title: string, sessionId?: string): Promise<void> {
+    this.renamed.push(`${title} ${sessionId}`);
+  }
+
   async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
     for (;;) {
       const next = this.outbox.shift();

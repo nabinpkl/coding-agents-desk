@@ -18,7 +18,9 @@ import { claudeBinary } from "@/config/configBinaries";
 import { claudeLaunchModDirectories, claudeLaunchPermission } from "@/config/configClaudeLaunch";
 import type { ClaudeRunMode } from "@agentdesk/agent-feed-wire";
 import {
+  claudeForkPaneName,
   claudeSessionPaneName,
+  forkFirstTurn,
   resumeClaudeSessionCommand,
   UNATTENDED_COLUMNS,
   UNATTENDED_ROWS,
@@ -57,7 +59,10 @@ export function claudeSdkRunnerCommand(options: {
   sessionId: string;
   cwd: string;
   title: string;
-  start: "new" | "resume";
+  start: "new" | "resume" | "fork";
+  /** For a fork: the session it branches from, and the record to cut that history at. */
+  forkFrom?: string;
+  resumeAt?: string;
   firstTurnFile?: string;
 }): string[] {
   const claude = claudeBinary();
@@ -74,6 +79,8 @@ export function claudeSdkRunnerCommand(options: {
     ...claudeLaunchModDirectories.flatMap((directory) => ["--plugin-dir", directory]),
     "--claude", claude,
     "--socket-dir", config.claudeSdkSocketDirectory,
+    ...(options.forkFrom ? ["--fork-from", options.forkFrom] : []),
+    ...(options.resumeAt ? ["--resume-at", options.resumeAt] : []),
     ...(options.firstTurnFile ? ["--first-turn-file", options.firstTurnFile] : []),
   ];
 }
@@ -91,24 +98,59 @@ export async function startClaudeSdkSession(options: {
   prompt?: string;
 }): Promise<StartedClaudeSession> {
   const pane = claudeSessionPaneName(options.sessionId);
-  const directory = options.prompt ? await mkdtemp(join(tmpdir(), "agentdesk-first-turn-")) : null;
+  await startRunnerPane(pane, options.cwd, options.prompt, (firstTurnFile) =>
+    claudeSdkRunnerCommand({ ...options, start: "new", ...(firstTurnFile ? { firstTurnFile } : {}) }));
+  const tmuxSession = await adoptTitleName(pane, options.sessionId, options.title);
+  return { sessionId: options.sessionId, title: options.title, tmuxSession };
+}
+
+/**
+ * Forks a session into a new one in SDK mode, in a pane named for the fork.
+ *
+ * Through the SDK a fork from one of its source's messages is cut there as it starts
+ * (`resumeSessionAt`), so its brief rides as the first turn -- behind the same standing note a
+ * terminal fork gets, saying whose context it is holding.
+ */
+export async function startClaudeSdkForkedSession(options: {
+  cwd: string;
+  sessionId: string;
+  forkId: string;
+  title: string;
+  brief?: string;
+  resumeAt?: string;
+}): Promise<StartedClaudeSession> {
+  const pane = claudeForkPaneName(options.forkId);
+  const firstTurn = options.brief ? forkFirstTurn(options.brief) : undefined;
+  await startRunnerPane(pane, options.cwd, firstTurn, (firstTurnFile) => claudeSdkRunnerCommand({
+    sessionId: options.forkId,
+    cwd: options.cwd,
+    title: options.title,
+    start: "fork",
+    forkFrom: options.sessionId,
+    ...(options.resumeAt ? { resumeAt: options.resumeAt } : {}),
+    ...(firstTurnFile ? { firstTurnFile } : {}),
+  }));
+  const tmuxSession = await adoptTitleName(pane, options.forkId, options.title);
+  return { sessionId: options.forkId, title: options.title, tmuxSession };
+}
+
+/** A detached pane running a runner, its first turn handed over through a private file. */
+async function startRunnerPane(
+  pane: string,
+  cwd: string,
+  firstTurn: string | undefined,
+  command: (firstTurnFile: string | undefined) => string[],
+): Promise<void> {
+  const directory = firstTurn ? await mkdtemp(join(tmpdir(), "agentdesk-first-turn-")) : null;
   try {
     const firstTurnFile = directory ? join(directory, "turn.txt") : undefined;
-    if (firstTurnFile) await writeFile(firstTurnFile, options.prompt!, { mode: 0o600 });
-    await createTmuxSession({
-      session: pane,
-      cwd: options.cwd,
-      command: claudeSdkRunnerCommand({ ...options, start: "new", ...(firstTurnFile ? { firstTurnFile } : {}) }),
-      columns: UNATTENDED_COLUMNS,
-      rows: UNATTENDED_ROWS,
-    });
+    if (firstTurnFile) await writeFile(firstTurnFile, firstTurn!, { mode: 0o600 });
+    await createTmuxSession({ session: pane, cwd, command: command(firstTurnFile), columns: UNATTENDED_COLUMNS, rows: UNATTENDED_ROWS });
   } catch (error) {
     // The runner deletes the file once it has read it; when no runner started, nothing else will.
     if (directory) await rm(directory, { recursive: true, force: true });
     throw error;
   }
-  const tmuxSession = await adoptTitleName(pane, options.sessionId, options.title);
-  return { sessionId: options.sessionId, title: options.title, tmuxSession };
 }
 
 /**

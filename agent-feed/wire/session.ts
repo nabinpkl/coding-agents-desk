@@ -165,6 +165,12 @@ export interface ForkSessionCommand {
    * the caller finds out it holds more than it asked for.
    */
   from?: { eventId: string };
+  /**
+   * How the fork's process runs (ADR-0143). Absent forks it the way its source last ran, so a fork
+   * of an SDK session runs through the SDK too. Through the SDK, a fork from a message is cut there
+   * when it starts, so it has no rewind to fail.
+   */
+  claudeMode?: ClaudeRunMode;
 }
 
 /**

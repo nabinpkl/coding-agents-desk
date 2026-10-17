@@ -17,7 +17,8 @@
  * three separate mechanisms not long ago, and only one of the three made all four correctly.
  */
 import type { ClaudeRunMode, ForkSessionCommand, StartedSession } from "@agentdesk/agent-feed-wire";
-import { startClaudeSdkSession } from "@/claude-sdk/claudeSdkLaunch";
+import { lastRunMode, startClaudeSdkForkedSession, startClaudeSdkSession } from "@/claude-sdk/claudeSdkLaunch";
+import { lineAt } from "@/transcripts/transcript-reads/transcriptLines";
 import { branchFromTitle, prepareWorktree, worktreeOf } from "@/git/worktree";
 import {
   endClaudeSession,
@@ -86,13 +87,18 @@ export interface SessionLauncher {
     prompt?: string;
     mode?: ClaudeRunMode;
   }): Promise<{ tmuxSession: string }>;
-  /** A session that starts where `sessionId` is, running in `cwd` under `forkId`. */
+  /**
+   * A session that starts where `sessionId` is, running in `cwd` under `forkId`. Through the SDK it
+   * can start part-way, at `resumeAt`, rather than being rewound once it is up.
+   */
   fork(options: {
     cwd: string;
     sessionId: string;
     forkId: string;
     title: string;
     brief?: string;
+    mode?: ClaudeRunMode;
+    resumeAt?: string;
   }): Promise<{ tmuxSession: string }>;
   /** Ends the pane a session runs in, answering with its name or null when there was none. */
   end(options: { sessionId: string }): Promise<string | null>;
@@ -109,7 +115,9 @@ export interface SessionLauncher {
  */
 export const LIVE_SESSION_LAUNCHER: SessionLauncher = {
   start: ({ mode, ...options }) => mode === "sdk" ? startClaudeSdkSession(options) : startClaudeSession(options),
-  fork: (options) => startForkedClaudeSession(options),
+  fork: ({ mode, resumeAt, ...options }) => mode === "sdk"
+    ? startClaudeSdkForkedSession({ ...options, ...(resumeAt === undefined ? {} : { resumeAt }) })
+    : startForkedClaudeSession(options),
   end: (options) => endClaudeSession(options),
 };
 
@@ -142,7 +150,7 @@ export interface SessionLaunchPlan {
   title: string;
   prompt?: string;
   worktree?: { branch?: string };
-  /** The terminal UI unless this says `"sdk"` (ADR-0143). A fork is terminal-only for now. */
+  /** The terminal UI unless this says `"sdk"` (ADR-0143). */
   claudeMode?: ClaudeRunMode;
 }
 
@@ -160,8 +168,9 @@ export async function launchSession(
   rewinder: ForkRewinder = LIVE_FORK_REWINDER,
 ): Promise<StartedSession> {
   // Refused before a worktree is cut, so a request that cannot be honoured leaves nothing behind.
-  if (plan.from && plan.claudeMode === "sdk") {
-    throw new SessionForkInvalidError("a fork starts in the terminal; SDK mode is for new sessions for now");
+  const sdkFork = Boolean(plan.from) && plan.claudeMode === "sdk";
+  if (sdkFork && plan.anchor && !plan.anchor.forkPoint) {
+    throw new SessionForkInvalidError("that is the conversation's first message, so there is nothing before it to fork from");
   }
   const cwd = plan.worktree
     ? (await prepareWorktree({
@@ -179,8 +188,10 @@ export async function launchSession(
       title: plan.title,
       // Withheld from the command line when there is a rewind coming: the CLI takes a positional
       // prompt as the first turn, and that turn would run against the whole inherited context
-      // before anything had moved. It is typed into the box after the rewind instead.
-      brief: plan.anchor ? undefined : plan.prompt,
+      // before anything had moved. It is typed into the box after the rewind instead. Through the
+      // SDK there is no rewind: the fork starts already cut, so the brief rides as its first turn.
+      brief: plan.anchor && !sdkFork ? undefined : plan.prompt,
+      ...(sdkFork ? { mode: "sdk" as const, ...(plan.anchor?.forkPoint ? { resumeAt: plan.anchor.forkPoint } : {}) } : {}),
     })
     : await launcher.start({
       cwd,
@@ -190,7 +201,7 @@ export async function launchSession(
       ...(plan.claudeMode === undefined ? {} : { mode: plan.claudeMode }),
     });
   const launched = { sessionId, title: plan.title, projectPath: cwd, tmuxSession: started.tmuxSession };
-  if (!plan.from || !plan.anchor) return launched;
+  if (!plan.from || !plan.anchor || sdkFork) return launched;
 
   const moved = await rewinder({
     sessionId,
@@ -257,6 +268,8 @@ export async function forkClaudeSession(
       title,
       ...(brief === undefined ? {} : { prompt: brief }),
       ...(worktree === undefined ? {} : { worktree }),
+      // The way the source last ran, unless the request says otherwise (ADR-0143).
+      claudeMode: command.claudeMode === "terminal" || command.claudeMode === "sdk" ? command.claudeMode : lastRunMode(source),
     },
     launcher,
     newSessionId,
@@ -279,14 +292,24 @@ export async function resolveMessageAnchor(
     throw new SessionForkInvalidError("from.eventId must be a string");
   }
   try {
-    return await anchorAtPosition(
-      sessionId,
-      transcriptPath,
-      positionFromEventId((from as { eventId: string }).eventId, sessionId),
-    );
+    const position = positionFromEventId((from as { eventId: string }).eventId, sessionId);
+    const anchor = await anchorAtPosition(sessionId, transcriptPath, position);
+    const forkPoint = parentOf(await lineAt(transcriptPath, position));
+    return forkPoint ? { ...anchor, forkPoint } : anchor;
   } catch (error) {
     if (error instanceof MessageAnchorError) throw new SessionForkInvalidError(`from: ${error.message}`);
     throw error;
+  }
+}
+
+/** The record a transcript line follows, by its `parentUuid`, or undefined for none. */
+function parentOf(line: string | null): string | undefined {
+  if (!line) return undefined;
+  try {
+    const parent = (JSON.parse(line) as { parentUuid?: unknown }).parentUuid;
+    return typeof parent === "string" && parent ? parent : undefined;
+  } catch {
+    return undefined;
   }
 }
 

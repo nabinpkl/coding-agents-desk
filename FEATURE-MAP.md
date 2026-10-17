@@ -141,7 +141,7 @@ and none of them should be extended without deciding which one you are in.
 | See a web page from the Mac | stream the screen | `chrome-extension` + `dom-bridge` DOM projection | the projection arc is dormant since July |
 | Serve the panel's code | live Vite origin (`panel=live`) | bundled webview (`panel=bundled`) | both supported on purpose; bundled is how it ships |
 | Archive a session | ours, `session-archive.json` beside `bots.json` (ADR-0126) | Codex's own `archived` column, read by `codexCatalog.ts` to leave those threads out | never write Codex's; a session Codex archived is simply absent, not "archived" here |
-| Run a Claude session | the terminal UI in a tmux pane, driven through its screen (`input/tmuxComposer.ts`, `input/question/`) | the Agent SDK runner in that same pane, driven over a socket (`claude-sdk/`, ADR-0143) | both current on purpose (2026-10-17): terminal is the default, SDK is chosen at creation, and one session never has both at once; an idle session can be switched between them, a stopped one reopens the way it last ran, and a fork is terminal-only for now |
+| Run a Claude session | the terminal UI in a tmux pane, driven through its screen (`input/tmuxComposer.ts`, `input/question/`) | the Agent SDK runner in that same pane, driven over a socket (`claude-sdk/`, ADR-0143) | both current on purpose (2026-10-17): terminal is the default, SDK is chosen at creation, and one session never has both at once; an idle session can be switched between them, a stopped one reopens the way it last ran, and a fork runs the way its source last ran |
 
 ## The virtual display tangent, and where it led
 

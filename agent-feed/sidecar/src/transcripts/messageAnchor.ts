@@ -40,6 +40,12 @@ export interface MessageAnchor {
   fromEnd: number;
   /** What that message says, which is what proves the picker landed on the right row. */
   text: string;
+  /**
+   * The record just before that message, which a fork through the SDK is cut at
+   * (`resumeSessionAt`, ADR-0143) instead of being rewound by the picker. Absent for a first
+   * message, which has nothing before it.
+   */
+  forkPoint?: string;
 }
 
 export class MessageAnchorError extends Error {}

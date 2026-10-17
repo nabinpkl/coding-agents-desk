@@ -80,7 +80,10 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
   }, []);
 
   const address = useMemo(() => ({ source, sessionId }), [source, sessionId]);
-  const send = useCallback((text: string) => run(() => feed.promptClaudeSdk(address, text)), [address, feed, run]);
+  const send = useCallback(
+    (text: string, files?: Parameters<SdkFeed["promptClaudeSdk"]>[2]) => run(() => feed.promptClaudeSdk(address, text, files)),
+    [address, feed, run],
+  );
   const interrupt = useCallback(() => run(() => feed.interruptClaudeSdk(address)), [address, feed, run]);
   const decide = useCallback(
     (toolUseId: string, allow: boolean, message?: string) =>

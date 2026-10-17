@@ -67,6 +67,21 @@ describe("the options a plan comes to", () => {
   });
 });
 
+describe("a fork's options", () => {
+  test("open the source's conversation as a new session at the fork's id, cut where it was asked", () => {
+    const options = new ClaudeSdkRunner(
+      { ...PLAN, start: "fork", forkFrom: "source-session", resumeAt: "uuid-before" },
+      () => { throw new Error("unused"); },
+    ).options();
+    expect(options).toMatchObject({
+      resume: "source-session",
+      forkSession: true,
+      sessionId: PLAN.sessionId,
+      resumeSessionAt: "uuid-before",
+    });
+  });
+});
+
 describe("a session's state", () => {
   test("follows the CLI's own messages, in the CLI's names for modes", async () => {
     const { runner, fake, done } = started();
@@ -115,6 +130,18 @@ describe("a session's state", () => {
     expect(frames).toEqual([
       { type: "stream", event: { type: "message_start" }, parentToolUseId: null },
       { type: "stream", event: { type: "content_block_delta" }, parentToolUseId: "toolu_a" },
+    ]);
+    fake().end();
+    await done;
+  });
+
+  test("images go in ahead of the words, as the API reads a picture and then a question about it", async () => {
+    const { runner, fake, done } = started();
+    runner.prompt("what is this?", [{ mediaType: "image/png", data: "iVBORw0K" }]);
+    await Bun.sleep(5);
+    expect(fake().received[0]!.message.content).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0K" } },
+      { type: "text", text: "what is this?" },
     ]);
     fake().end();
     await done;
@@ -247,6 +274,19 @@ describe("the permission mode", () => {
     fake().end();
     await done;
     expect(await runner.setMode("plan")).toMatchObject({ ok: false, reason: "failed" });
+  });
+});
+
+describe("renaming", () => {
+  test("asks the CLI's own rename for this session, and says so when the SDK has none", async () => {
+    const { runner, fake, done } = started();
+    await Bun.sleep(1);
+    expect(await runner.rename("Garden notes")).toEqual({ ok: true });
+    expect(fake().renamed).toEqual([`Garden notes ${PLAN.sessionId}`]);
+    (fake() as { renameSession?: unknown }).renameSession = undefined;
+    expect(await runner.rename("Other")).toMatchObject({ ok: false, reason: "failed" });
+    fake().end();
+    await done;
   });
 });
 

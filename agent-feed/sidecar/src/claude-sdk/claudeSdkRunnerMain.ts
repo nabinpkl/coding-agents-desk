@@ -90,10 +90,13 @@ export async function planFromArguments(argv: string[]): Promise<{ plan: RunnerP
       claude: { type: "string" },
       "socket-dir": { type: "string" },
       "first-turn-file": { type: "string" },
+      "fork-from": { type: "string" },
+      "resume-at": { type: "string" },
     },
   });
   const start = values.start;
-  if (start !== "new" && start !== "resume") throw new Error("--start must be new or resume");
+  if (start !== "new" && start !== "resume" && start !== "fork") throw new Error("--start must be new, resume or fork");
+  if (start === "fork" && !values["fork-from"]) throw new Error("--start fork needs --fork-from");
   const firstTurn = await takeFirstTurn(values["first-turn-file"]);
   return {
     plan: {
@@ -105,6 +108,8 @@ export async function planFromArguments(argv: string[]): Promise<{ plan: RunnerP
       allowBypass: values["allow-bypass"] === true,
       pluginDirectories: values["plugin-dir"] ?? [],
       claudePath: required("claude", values.claude),
+      ...(values["fork-from"] ? { forkFrom: values["fork-from"] } : {}),
+      ...(values["resume-at"] ? { resumeAt: values["resume-at"] } : {}),
       ...(firstTurn === undefined ? {} : { firstTurn }),
     },
     socketDirectory: required("socket-dir", values["socket-dir"]),

@@ -395,9 +395,16 @@ export class SidecarComposers extends SidecarTranscript {
     });
   }
 
-  async promptClaudeSdk(session: SessionAddress, text: string): Promise<ClaudeSdkCommandOutcome> {
+  /** A turn, with the images that ride it in the shape an opencode send takes them. */
+  async promptClaudeSdk(
+    session: SessionAddress,
+    text: string,
+    files?: readonly { data: string; mime: string; name: string }[],
+  ): Promise<ClaudeSdkCommandOutcome> {
     return parse<ClaudeSdkCommandOutcome>(
-      await this.transport.request("POST", claudeSdkPath(session, "prompt"), { body: { text } }),
+      await this.transport.request("POST", claudeSdkPath(session, "prompt"), {
+        body: { text, ...(files && files.length > 0 ? { files } : {}) },
+      }),
     );
   }
 

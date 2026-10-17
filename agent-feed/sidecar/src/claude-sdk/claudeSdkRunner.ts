@@ -27,6 +27,7 @@ import type {
 import {
   cliPermissionMode,
   sdkPermissionMode,
+  type PromptImage,
   type RunnerReply,
   type RunnerState,
   type RunnerStreamFrame,
@@ -38,7 +39,10 @@ export interface RunnerPlan {
   cwd: string;
   /** The session's name: its title and its registry address, the way `-n` sets both. */
   name: string;
-  start: "new" | "resume";
+  start: "new" | "resume" | "fork";
+  /** For a fork: the session it branches from, and the record its history is cut at, if any. */
+  forkFrom?: string;
+  resumeAt?: string;
   permissionMode: ClaudePermissionMode;
   allowBypass: boolean;
   pluginDirectories: string[];
@@ -52,6 +56,12 @@ export interface RunnerPlan {
 export interface RunnerQuery extends AsyncIterable<SDKMessage> {
   setPermissionMode(mode: "default" | Exclude<ClaudePermissionMode, "manual">): Promise<void>;
   interrupt(): Promise<unknown>;
+  /**
+   * The CLI's `rename_session` control request, as a user rename (`source: "host"`). On the SDK's
+   * `Query` though not in its typed interface (0.3.302), so it is checked for at the call rather
+   * than assumed: a later SDK without it is a loud refusal, not a quiet half-rename.
+   */
+  renameSession?(title: string, sessionId?: string): Promise<void>;
 }
 
 export type QueryFactory = (params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => RunnerQuery;
@@ -163,6 +173,28 @@ const SESSION_STATES: Record<string, ClaudeSdkRunStatus> = {
   requires_action: "requires-action",
 };
 
+/** Which conversation the query opens: a new one, this session's own, or a fork of another's. */
+function startOptions(plan: RunnerPlan): Options {
+  switch (plan.start) {
+    case "new":
+      return { sessionId: plan.sessionId };
+    case "resume":
+      return { resume: plan.sessionId };
+    case "fork":
+      if (!plan.forkFrom) throw new Error("a fork needs the session it forks from");
+      return {
+        resume: plan.forkFrom,
+        forkSession: true,
+        sessionId: plan.sessionId,
+        ...(plan.resumeAt ? { resumeSessionAt: plan.resumeAt } : {}),
+      };
+    default: {
+      const unhandled: never = plan.start;
+      throw new Error(`unknown start ${String(unhandled)}`);
+    }
+  }
+}
+
 export class ClaudeSdkRunner {
   private status: ClaudeSdkRunStatus = "starting";
   private permissionMode: ClaudePermissionMode | null = null;
@@ -185,7 +217,7 @@ export class ClaudeSdkRunner {
     const plan = this.plan;
     return {
       cwd: plan.cwd,
-      ...(plan.start === "new" ? { sessionId: plan.sessionId } : { resume: plan.sessionId }),
+      ...startOptions(plan),
       pathToClaudeCodeExecutable: plan.claudePath,
       permissionMode: sdkPermissionMode(plan.permissionMode),
       ...(plan.allowBypass ? { allowDangerouslySkipPermissions: true } : {}),
@@ -243,9 +275,9 @@ export class ClaudeSdkRunner {
     }
   }
 
-  prompt(text: string): RunnerReply {
+  prompt(text: string, images: readonly PromptImage[] = []): RunnerReply {
     if (this.status === "exited") return { ok: false, reason: "failed", message: "the session has ended" };
-    this.prompts.push(this.userMessage(text));
+    this.prompts.push(this.userMessage(text, images));
     this.becomes("running");
     return { ok: true };
   }
@@ -296,6 +328,24 @@ export class ClaudeSdkRunner {
     this.permissionMode = mode;
     this.publish();
     return { ok: true };
+  }
+
+  /**
+   * Renames the session the way `/rename` does -- registry name, title and agent name together
+   * (measured 2026-10-17) -- through a control request rather than a turn, so it does not wait
+   * behind a turn that is running.
+   */
+  async rename(title: string): Promise<RunnerReply> {
+    if (!this.query) return { ok: false, reason: "failed", message: "the session is not running" };
+    if (typeof this.query.renameSession !== "function") {
+      return { ok: false, reason: "failed", message: "this SDK has no rename control request" };
+    }
+    try {
+      await this.query.renameSession(title, this.plan.sessionId);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   async interrupt(): Promise<RunnerReply> {
@@ -412,10 +462,20 @@ export class ClaudeSdkRunner {
     this.publish();
   }
 
-  private userMessage(text: string): SDKUserMessage {
+  private userMessage(text: string, images: readonly PromptImage[] = []): SDKUserMessage {
+    // Images ahead of the words, which is how the API reads a picture followed by a question about it.
+    const content = images.length === 0
+      ? text
+      : [
+        ...images.map((image) => ({
+          type: "image" as const,
+          source: { type: "base64" as const, media_type: image.mediaType, data: image.data },
+        })),
+        { type: "text" as const, text },
+      ];
     // `human` because the panel's composer is somebody at a keyboard; an unstamped message is
     // treated as unattributed and fails the CLI's isHuman() gates closed (the SDK's own note).
-    return { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, origin: { kind: "human" } };
+    return { type: "user", message: { role: "user", content }, parent_tool_use_id: null, origin: { kind: "human" } };
   }
 
   private publish(): void {

@@ -39,12 +39,29 @@ export type RunnerState = Omit<ClaudeSdkSessionState, "connected">;
 
 export type SidecarToRunner =
   | { type: "hello"; version: number }
-  | { type: "prompt"; id: string; text: string }
+  | { type: "prompt"; id: string; text: string; images?: PromptImage[] }
   | { type: "answer"; id: string; answers: TmuxQuestionAnswer[] }
   | { type: "decide"; id: string; toolUseId: string; allow: boolean; message?: string }
   | { type: "set-mode"; id: string; mode: ClaudePermissionMode }
   | { type: "interrupt"; id: string }
+  | { type: "rename"; id: string; title: string }
   | { type: "stop"; id: string };
+
+/** One image riding a prompt, as the Messages API takes it. */
+export interface PromptImage {
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64, no data-URL prefix. */
+  data: string;
+}
+
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** The image types the Messages API takes, which is all a prompt may carry. */
+export function isPromptImageType(mime: string): mime is PromptImage["mediaType"] {
+  return IMAGE_TYPES.has(mime);
+}
+/** As many as the panel's own send takes (`parseMessageAttachments`). */
+const MAXIMUM_PROMPT_IMAGES = 5;
 
 /** Why a command did not happen. An answer's refusals are the terminal dialog's own words. */
 export type RunnerRefusal = "not-pending" | "invalid" | "failed" | TmuxQuestionRefusal;
@@ -68,8 +85,11 @@ export type RunnerToSidecar =
   | RunnerStreamFrame
   | { type: "reply"; id: string; reply: RunnerReply };
 
-/** The longest line either side buffers before giving up on the connection. */
-export const MAXIMUM_LINE_BYTES = 4 * 1024 * 1024;
+/**
+ * The longest line either side buffers before giving up on the connection: a prompt carrying the
+ * five 8 MiB images the panel allows, base64'd, with room to spare.
+ */
+export const MAXIMUM_LINE_BYTES = 64 * 1024 * 1024;
 
 /**
  * Where the runner for one session listens.
@@ -142,6 +162,18 @@ function questionAnswers(value: unknown): TmuxQuestionAnswer[] | null {
   return answers;
 }
 
+function promptImages(value: unknown): PromptImage[] | null {
+  if (!Array.isArray(value) || value.length > MAXIMUM_PROMPT_IMAGES) return null;
+  const images: PromptImage[] = [];
+  for (const entry of value) {
+    if (entry === null || typeof entry !== "object") return null;
+    const { mediaType, data } = entry as Fields;
+    if (!IMAGE_TYPES.has(mediaType as string) || !isString(data) || data.length === 0) return null;
+    images.push({ mediaType: mediaType as PromptImage["mediaType"], data });
+  }
+  return images;
+}
+
 /** A message from the sidecar, or null for anything that is not one. */
 export function parseSidecarMessage(line: string): SidecarToRunner | null {
   const fields = object(line);
@@ -149,10 +181,12 @@ export function parseSidecarMessage(line: string): SidecarToRunner | null {
   switch (fields.type) {
     case "hello":
       return Number.isInteger(fields.version) ? { type: "hello", version: fields.version as number } : null;
-    case "prompt":
-      return isId(fields.id) && isString(fields.text) && fields.text.trim().length > 0
-        ? { type: "prompt", id: fields.id, text: fields.text }
-        : null;
+    case "prompt": {
+      if (!isId(fields.id) || !isString(fields.text) || fields.text.trim().length === 0) return null;
+      if (fields.images === undefined) return { type: "prompt", id: fields.id, text: fields.text };
+      const images = promptImages(fields.images);
+      return images ? { type: "prompt", id: fields.id, text: fields.text, images } : null;
+    }
     case "answer": {
       const answers = questionAnswers(fields.answers);
       return isId(fields.id) && answers ? { type: "answer", id: fields.id, answers } : null;
@@ -171,6 +205,10 @@ export function parseSidecarMessage(line: string): SidecarToRunner | null {
       return isId(fields.id) && isPermissionMode(fields.mode) ? { type: "set-mode", id: fields.id, mode: fields.mode } : null;
     case "interrupt":
       return isId(fields.id) ? { type: "interrupt", id: fields.id } : null;
+    case "rename":
+      return isId(fields.id) && isString(fields.title) && fields.title.trim().length > 0 && !/[\r\n]/.test(fields.title)
+        ? { type: "rename", id: fields.id, title: fields.title }
+        : null;
     case "stop":
       return isId(fields.id) ? { type: "stop", id: fields.id } : null;
     default:

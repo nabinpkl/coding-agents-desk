@@ -12,7 +12,7 @@ function hook(overrides: Partial<Parameters<typeof useComposerFileDrop>[0]> = {}
   const result = renderHook(() => useComposerFileDrop({
     isClaude: false,
     noPane: false,
-    isOpencode: false,
+    holdsForSend: false,
     dropToPane: () => {},
     holdForSend: () => {},
     engage: () => {},
@@ -33,7 +33,7 @@ describe("useComposerFileDrop", () => {
 
   it("holds opencode picks for the send", () => {
     const holdForSend = vi.fn();
-    const { accept } = hook({ isOpencode: true, holdForSend });
+    const { accept } = hook({ holdsForSend: true, holdForSend });
     accept?.([new File(["x"], "a.png", { type: "image/png" })]);
     expect(holdForSend).toHaveBeenCalledTimes(1);
   });

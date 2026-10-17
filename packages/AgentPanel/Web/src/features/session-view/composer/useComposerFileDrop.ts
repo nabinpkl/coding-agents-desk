@@ -14,13 +14,14 @@ import { useCallback, useEffect } from "react";
 export function useComposerFileDrop(options: {
   isClaude: boolean;
   noPane: boolean;
-  isOpencode: boolean;
+  /** Images wait in the band and ride the next send: opencode, and an SDK session's runner. */
+  holdsForSend: boolean;
   dropToPane: (files: readonly File[]) => void;
   holdForSend: (files: readonly File[]) => void;
   engage: () => void;
   onFileDrop: (drop: { accept: (files: readonly File[]) => void } | null) => void;
 }): ((files: readonly File[]) => void) | null {
-  const { isClaude, noPane, isOpencode, dropToPane, holdForSend, engage, onFileDrop } = options;
+  const { isClaude, noPane, holdsForSend, dropToPane, holdForSend, engage, onFileDrop } = options;
 
   // Registered for every Claude session rather than only for an attached band, because a
   // dropped image is intent as much as a keystroke is and there is nothing to drop onto if the
@@ -34,7 +35,7 @@ export function useComposerFileDrop(options: {
 
   const fileAccept = isClaude && !noPane
     ? acceptToPane
-    : isOpencode
+    : holdsForSend
       ? holdForSend
       : null;
   useEffect(() => {

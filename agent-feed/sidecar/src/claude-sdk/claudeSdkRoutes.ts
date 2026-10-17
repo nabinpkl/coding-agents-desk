@@ -19,12 +19,12 @@ import type {
   TmuxQuestionOutcome,
   TmuxQuestionRefusal,
 } from "@agentdesk/agent-feed-wire";
-import { config } from "@/config/config";
-import { ClaudeSdkClient, NO_RUNNER, type RunnerCommand } from "@/claude-sdk/claudeSdkClient";
-import { parseSidecarMessage, type RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
+import { NO_RUNNER, sharedClaudeSdkClient, type ClaudeSdkClient, type RunnerCommand } from "@/claude-sdk/claudeSdkClient";
+import { isPromptImageType, parseSidecarMessage, type RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
 import { ClaudeSdkLiveFeed, type RunnerStreamTarget } from "@/claude-sdk/claudeSdkLiveFeed";
 import { liveSwitchSteps, switchRunMode, type SwitchSteps } from "@/claude-sdk/claudeSdkSwitch";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
+import { parseMessageAttachments } from "@/agents/agentBackend";
 import {
   encodeServerSentEvent,
   errorResponse,
@@ -39,6 +39,8 @@ const SDK_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/sdk\/(stream|promp
 const RETRY = new TextEncoder().encode("retry: 5000\n\n");
 
 const MAXIMUM_BODY_BYTES = 1024 * 1024;
+/** A prompt may carry images: five of 8 MiB, base64'd, which is what `parseMessageAttachments` allows. */
+const MAXIMUM_PROMPT_BODY_BYTES = 60 * 1024 * 1024;
 
 /**
  * Mounted ahead of the session routes, whose catch-all refuses an `/api/sessions/` path it does not
@@ -47,11 +49,7 @@ const MAXIMUM_BODY_BYTES = 1024 * 1024;
  */
 export function createClaudeSdkRoutes(
   live: RunnerStreamTarget | null = null,
-  client: ClaudeSdkClient = new ClaudeSdkClient(
-    config.claudeSdkSocketDirectory,
-    undefined,
-    live ? new ClaudeSdkLiveFeed(live) : null,
-  ),
+  client: ClaudeSdkClient = sharedClaudeSdkClient(live ? new ClaudeSdkLiveFeed(live) : null),
 ): RouteHandler {
   return (request, url, server) => {
     const match = SDK_ROUTE.exec(url.pathname);
@@ -71,9 +69,9 @@ export function createClaudeSdkRoutes(
   };
 }
 
-async function body(request: Request): Promise<Record<string, unknown> | null> {
+async function body(request: Request, limit = MAXIMUM_BODY_BYTES): Promise<Record<string, unknown> | null> {
   const text = await request.text();
-  if (text.length > MAXIMUM_BODY_BYTES) return null;
+  if (text.length > limit) return null;
   if (!text.trim()) return {};
   try {
     const value: unknown = JSON.parse(text);
@@ -96,7 +94,20 @@ function runnerCommand(action: string, fields: Record<string, unknown>): RunnerC
 }
 
 async function command(client: ClaudeSdkClient, request: Request, sessionId: string, action: string): Promise<Response> {
-  const fields = await body(request);
+  const fields = await body(request, action === "prompt" ? MAXIMUM_PROMPT_BODY_BYTES : MAXIMUM_BODY_BYTES);
+  if (fields && action === "prompt" && fields.files !== undefined) {
+    // The panel sends images the way it sends them to opencode; the runner takes them as the API does.
+    let files: ReturnType<typeof parseMessageAttachments>;
+    try {
+      files = parseMessageAttachments(fields.files);
+    } catch (error) {
+      return errorResponse("invalid-request", error instanceof Error ? error.message : String(error), 400);
+    }
+    const unsupported = files.find((file) => !isPromptImageType(file.mime));
+    if (unsupported) return errorResponse("invalid-request", `"${unsupported.name}" is not a PNG, JPEG, GIF or WebP image`, 400);
+    fields.images = files.map((file) => ({ mediaType: file.mime, data: file.data.replace(/\s+/g, "") }));
+    delete fields.files;
+  }
   const parsed = fields ? runnerCommand(action, fields) : null;
   if (action === "answer") {
     if (!parsed || parsed.type !== "answer") return errorResponse("invalid-request", "answers must describe every question", 400);

@@ -103,6 +103,10 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
           : "Message Claude\u2026",
       maxLength: 100_000,
       sendOnEnter: !m.unavailable,
+      // Held in the band and sent with the turn, as opencode's are: the pane is the runner's log.
+      onFiles: m.sendAttachments.attach,
+      images: m.sendAttachments.images,
+      onRemoveImage: m.sendAttachments.remove,
     }
   : m.windowBand
   ? {
