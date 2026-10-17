@@ -49,7 +49,8 @@ function attribute(value) {
  * would otherwise end the message early and have what follows read as this mod's own words.
  */
 function messageText(text) {
-  return String(text).replace(new RegExp(`<(/?)(${MESSAGE_TAG})`, 'gi'), '&lt;$1$2')
+  // Whitespace on either side of the slash too: `< /hub-message>` reads as a closing tag to a model.
+  return String(text).replace(new RegExp(`<(\\s*/?\\s*)(${MESSAGE_TAG})`, 'gi'), '&lt;$1$2')
 }
 
 /** The message, inside its tag, with what the hub knows about it as the tag's attributes. */

@@ -48,7 +48,8 @@ function attribute(value: string | number): string {
  * have what follows read as this framing rather than as the sender's words.
  */
 function insideEnvelope(text: string): string {
-  return text.replace(/<(\/?\s*channel)/gi, "&lt;$1");
+  // Whitespace on either side of the slash too: `< /channel>` reads as a closing tag to a model.
+  return text.replace(/<(\s*\/?\s*channel)/gi, "&lt;$1");
 }
 
 function describeRefs(refs: MessageRef[]): string {
