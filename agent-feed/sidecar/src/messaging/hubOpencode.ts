@@ -37,6 +37,20 @@ const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 /** How long a stream waits before its session list is re-read, so a vanished session closes. */
 const RECHECK_MS = 30_000;
 
+/** A value as a tag attribute: it cannot end the attribute or the tag it sits in. */
+function attribute(value: string | number): string {
+  return String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * The message's own text, unable to open or close the envelope. The hub refuses a body holding a
+ * `<channel` tag, but not refs, and a ref that wrote `</channel>` would end the envelope early and
+ * have what follows read as this framing rather than as the sender's words.
+ */
+function insideEnvelope(text: string): string {
+  return text.replace(/<(\/?\s*channel)/gi, "&lt;$1");
+}
+
 function describeRefs(refs: MessageRef[]): string {
   if (refs.length === 0) return "";
   const lines = refs.map((r) => `- ${r.app} ${r.kind} ${r.id}${r.url ? ` (${r.url})` : ""}`);
@@ -48,8 +62,8 @@ function describeRefs(refs: MessageRef[]): string {
  *
  * The same shape the Claude channel carries in its meta, written into the text because a prompt
  * has no meta channel. A `<channel>` tag here is the hub's own envelope, not a claim by the sender:
- * the hub refuses any body that already contains one, so a message cannot arrive with the tag
- * forged.
+ * every attribute is escaped and the text inside cannot write the tag (`insideEnvelope`), so a
+ * message cannot end the envelope early or arrive with it forged.
  *
  * An opencode prompt is read as the person's own, so what the message is goes outside the tag, in
  * the words a Claude session is given (`hubKindWording.ts`): before it for another agent's message,
@@ -57,16 +71,17 @@ function describeRefs(refs: MessageRef[]): string {
  * owner's, which says how to answer.
  */
 export function messagePrompt(message: Message, fromName: string): string {
-  const meta = [
-    `message_id="${message.id}"`,
-    `thread_id="${message.threadId}"`,
-    `from="${message.from}"`,
-    `from_name="${fromName}"`,
-    `from_kind="${message.fromKind}"`,
-    `kind="${message.kind}"`,
-    `hops="${message.hops}"`,
-  ].join(" ");
-  const envelope = `<channel source="agentdesk-relay" ${meta}>\n${message.body}${describeRefs(message.refs)}\n</channel>`;
+  const fields: [string, string | number][] = [
+    ["message_id", message.id],
+    ["thread_id", message.threadId],
+    ["from", message.from],
+    ["from_name", fromName],
+    ["from_kind", message.fromKind],
+    ["kind", message.kind],
+    ["hops", message.hops],
+  ];
+  const meta = fields.map(([name, value]) => `${name}="${attribute(value)}"`).join(" ");
+  const envelope = `<channel source="agentdesk-relay" ${meta}>\n${insideEnvelope(message.body + describeRefs(message.refs))}\n</channel>`;
   if (message.fromKind === "human") return [envelope, "", ownerKindLine(message)].join("\n");
   return [agentPreamble("channel"), agentKindLine(message), "", envelope].join("\n");
 }
