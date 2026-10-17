@@ -1,7 +1,7 @@
 // The line under a canvas session's title: its task first, the provider as a letter, time last.
 
-import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { SessionCardMeta } from "@/features/bots/cards/SessionCardMeta";
 
 const AT = new Date(2026, 9, 17, 9, 5).getTime();
@@ -24,6 +24,39 @@ describe("SessionCardMeta", () => {
     expect(screen.getByText("dry run first")).toBeInTheDocument();
     fireEvent.click(task);
     expect(screen.queryByText("dry run first")).toBeNull();
+  });
+
+  it("opens on a mouse resting on the task and closes when it leaves, unless a click pinned it", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <SessionCardMeta
+          source="claude"
+          lastEventAt={AT}
+          activity="ready"
+          taskState={{ task: "close idle opencode panes", lines: ["dry run first"], at: AT }}
+        />,
+      );
+      const task = screen.getByRole("button", { name: "close idle opencode panes" });
+      fireEvent.pointerEnter(task, { pointerType: "mouse" });
+      expect(screen.getByText("dry run first")).toBeInTheDocument();
+      fireEvent.pointerLeave(task, { pointerType: "mouse" });
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.queryByText("dry run first")).toBeNull();
+
+      fireEvent.pointerEnter(task, { pointerType: "mouse" });
+      fireEvent.click(task);
+      fireEvent.pointerLeave(task, { pointerType: "mouse" });
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.getByText("dry run first")).toBeInTheDocument();
+
+      // A finger has no hover: touching the task does not open it, a tap does.
+      fireEvent.click(task);
+      fireEvent.pointerEnter(task, { pointerType: "touch" });
+      expect(screen.queryByText("dry run first")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("names the provider by a letter, still in full to a screen reader", () => {

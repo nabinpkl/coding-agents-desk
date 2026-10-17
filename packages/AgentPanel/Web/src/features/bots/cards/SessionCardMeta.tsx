@@ -7,14 +7,18 @@
 // it, "Cold" moves onto the face as sleeping Zs (`SessionAvatar`'s `sleeping`), and the time goes
 // last, where a column of cards lines it up.
 //
-// The task is a control of its own: a tap opens the whole goal and the decisions under it, which is
-// the reason the block exists -- seeing how the session set out without reading its transcript. A
-// tap rather than a tooltip, because the phone has no hover.
+// The task is a control of its own: it opens the whole goal and the decisions under it, which is
+// the reason the block exists -- seeing how the session set out without reading its transcript.
+// A mouse opens it by resting on the task and closes it by leaving; a click pins it open. A finger
+// has no hover, so on the phone a tap opens and closes it.
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Bin, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { WorktreeChip } from "@/features/sidebar/session-list/SessionMeta";
+
+/** How long the details stay open after the mouse leaves, so it can cross to them. */
+const HOVER_GRACE_MS = 150;
 
 export function SessionCardMeta({
   source,
@@ -29,10 +33,28 @@ export function SessionCardMeta({
   worktree?: { path: string; branch: string | null };
   taskState?: SessionSummary["taskState"];
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const detailsId = useId();
+  // Leaving the task for the details under it crosses a gap; a short grace keeps them open across it.
+  const leaving = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stay = (): void => {
+    if (leaving.current !== null) clearTimeout(leaving.current);
+    leaving.current = null;
+  };
+  const enter = (event: React.PointerEvent): void => {
+    if (event.pointerType !== "mouse") return;
+    stay();
+    setHovered(true);
+  };
+  const leave = (event: React.PointerEvent): void => {
+    if (event.pointerType !== "mouse") return;
+    stay();
+    leaving.current = setTimeout(() => setHovered(false), HOVER_GRACE_MS);
+  };
+  useEffect(() => stay, []);
   const time = new Date(lastEventAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const showing = expanded && taskState !== undefined;
+  const showing = (pinned || hovered) && taskState !== undefined;
   return (
     <div className="mt-0.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -42,7 +64,9 @@ export function SessionCardMeta({
           // `pointer-events-auto` because the card's own open/close sits underneath this line.
           <button
             type="button"
-            onClick={() => setExpanded((was) => !was)}
+            onClick={() => setPinned((was) => !was)}
+            onPointerEnter={enter}
+            onPointerLeave={leave}
             aria-expanded={showing}
             aria-controls={detailsId}
             className="pointer-events-auto min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary"
@@ -59,7 +83,12 @@ export function SessionCardMeta({
       </div>
       {showing ? (
         // Selectable and inert to the card underneath: reading it must not open or close the card.
-        <div id={detailsId} className="pointer-events-auto mt-1 cursor-text select-text text-foreground">
+        <div
+          id={detailsId}
+          onPointerEnter={enter}
+          onPointerLeave={leave}
+          className="pointer-events-auto mt-1 cursor-text select-text text-foreground"
+        >
           <p className="text-pretty">{taskState.task}</p>
           {taskState.lines.length > 0 ? (
             <ul className="mt-0.5 list-disc pl-4">
