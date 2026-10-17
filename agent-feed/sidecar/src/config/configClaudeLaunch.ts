@@ -32,9 +32,18 @@ export function claudePermissionArgs(mode: ClaudePermissionMode, allowBypass: bo
   return args;
 }
 
+/**
+ * The two settings themselves, for a launch that does not build a command line: the SDK runner
+ * hands them to `query()` as options (ADR-0143), and must open in the mode a terminal would.
+ */
+export const claudeLaunchPermission = {
+  mode: permissionModeEnvironment("AGENT_FEED_CLAUDE_PERMISSION_MODE", "auto"),
+  allowBypass: booleanEnvironment("AGENT_FEED_CLAUDE_ALLOW_BYPASS", true),
+} as const;
+
 export const claudeLaunchPermissionArgs = claudePermissionArgs(
-  permissionModeEnvironment("AGENT_FEED_CLAUDE_PERMISSION_MODE", "auto"),
-  booleanEnvironment("AGENT_FEED_CLAUDE_ALLOW_BYPASS", true),
+  claudeLaunchPermission.mode,
+  claudeLaunchPermission.allowBypass,
 );
 
 /**
@@ -66,6 +75,9 @@ export function claudeModArgs(modsRoot: string, enabled: boolean): string[] {
 const MODS_ROOT = fileURLToPath(new URL("../../mods/", import.meta.url));
 
 export const claudeLaunchModArgs = claudeModArgs(MODS_ROOT, booleanEnvironment("AGENT_FEED_CLAUDE_MODS", true));
+
+/** The same mods as directories, for the SDK runner's `plugins` option. */
+export const claudeLaunchModDirectories: readonly string[] = claudeLaunchModArgs.filter((arg) => arg !== "--plugin-dir");
 
 /** Everything a launched Claude session's command line carries from this sidecar. */
 export const claudeLaunchArgs: readonly string[] = [...claudeLaunchPermissionArgs, ...claudeLaunchModArgs];

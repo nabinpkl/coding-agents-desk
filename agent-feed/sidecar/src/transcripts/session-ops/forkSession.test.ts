@@ -28,7 +28,7 @@ const SESSION_ID = "55555555-5555-4555-8555-555555555555";
 const FORK_ID = "66666666-6666-4666-8666-666666666666";
 
 type Asked =
-  | { kind: "start"; cwd: string; sessionId: string; title: string; prompt?: string }
+  | { kind: "start"; cwd: string; sessionId: string; title: string; prompt?: string; mode?: string }
   | { kind: "fork"; cwd: string; sessionId: string; forkId: string; title: string; brief?: string };
 
 let asked: Asked[] = [];
@@ -156,6 +156,21 @@ test("a launch with no source starts an empty session in the checkout", async ()
     projectPath: checkout,
     tmuxSession: `pane-${FORK_ID}`,
   });
+});
+
+test("a launch asked for in SDK mode passes the mode to the starter, and a fork asking for it is refused", async () => {
+  const checkout = await directory();
+  await launchSession({ checkout, title: "Fresh", claudeMode: "sdk" }, launcher, newForkId);
+  expect(asked).toEqual([
+    { kind: "start", cwd: checkout, sessionId: FORK_ID, title: "Fresh", prompt: undefined, mode: "sdk" },
+  ]);
+  await expect(launchSession(
+    { checkout, from: SESSION_ID, title: "Branch", claudeMode: "sdk", worktree: {} },
+    launcher,
+    newForkId,
+  )).rejects.toBeInstanceOf(SessionForkInvalidError);
+  // Refused before a worktree is cut or anything is started.
+  expect(asked).toHaveLength(1);
 });
 
 test("a fork runs where its source runs, not where its repository is", async () => {

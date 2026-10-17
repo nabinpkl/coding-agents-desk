@@ -16,7 +16,8 @@
  * or from another session's context, what its first turn is, and which pane it lands in. They were
  * three separate mechanisms not long ago, and only one of the three made all four correctly.
  */
-import type { ForkSessionCommand, StartedSession } from "@agentdesk/agent-feed-wire";
+import type { ClaudeRunMode, ForkSessionCommand, StartedSession } from "@agentdesk/agent-feed-wire";
+import { startClaudeSdkSession } from "@/claude-sdk/claudeSdkLaunch";
 import { branchFromTitle, prepareWorktree, worktreeOf } from "@/git/worktree";
 import {
   endClaudeSession,
@@ -77,12 +78,13 @@ export type ForkRewinder = (options: {
  * destroy something outside its own fixture.
  */
 export interface SessionLauncher {
-  /** A session with no history, in `cwd`. */
+  /** A session with no history, in `cwd`, in the terminal UI or through the SDK runner. */
   start(options: {
     cwd: string;
     sessionId: string;
     title: string;
     prompt?: string;
+    mode?: ClaudeRunMode;
   }): Promise<{ tmuxSession: string }>;
   /** A session that starts where `sessionId` is, running in `cwd` under `forkId`. */
   fork(options: {
@@ -106,7 +108,7 @@ export interface SessionLauncher {
  * of use, which is what every other module here does by simply calling its imports.
  */
 export const LIVE_SESSION_LAUNCHER: SessionLauncher = {
-  start: (options) => startClaudeSession(options),
+  start: ({ mode, ...options }) => mode === "sdk" ? startClaudeSdkSession(options) : startClaudeSession(options),
   fork: (options) => startForkedClaudeSession(options),
   end: (options) => endClaudeSession(options),
 };
@@ -140,6 +142,8 @@ export interface SessionLaunchPlan {
   title: string;
   prompt?: string;
   worktree?: { branch?: string };
+  /** The terminal UI unless this says `"sdk"` (ADR-0143). A fork is terminal-only for now. */
+  claudeMode?: ClaudeRunMode;
 }
 
 /**
@@ -155,6 +159,10 @@ export async function launchSession(
   newSessionId: () => string = () => crypto.randomUUID(),
   rewinder: ForkRewinder = LIVE_FORK_REWINDER,
 ): Promise<StartedSession> {
+  // Refused before a worktree is cut, so a request that cannot be honoured leaves nothing behind.
+  if (plan.from && plan.claudeMode === "sdk") {
+    throw new SessionForkInvalidError("a fork starts in the terminal; SDK mode is for new sessions for now");
+  }
   const cwd = plan.worktree
     ? (await prepareWorktree({
       checkout: plan.checkout,
@@ -174,7 +182,13 @@ export async function launchSession(
       // before anything had moved. It is typed into the box after the rewind instead.
       brief: plan.anchor ? undefined : plan.prompt,
     })
-    : await launcher.start({ cwd, sessionId, title: plan.title, prompt: plan.prompt });
+    : await launcher.start({
+      cwd,
+      sessionId,
+      title: plan.title,
+      prompt: plan.prompt,
+      ...(plan.claudeMode === undefined ? {} : { mode: plan.claudeMode }),
+    });
   const launched = { sessionId, title: plan.title, projectPath: cwd, tmuxSession: started.tmuxSession };
   if (!plan.from || !plan.anchor) return launched;
 

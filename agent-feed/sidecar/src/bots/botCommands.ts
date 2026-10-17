@@ -10,6 +10,7 @@ import type {
   BotLaunchCommand,
   BotMetadata,
   BotSessionRef,
+  ClaudeRunMode,
   RetireBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
 import { disposalRefusal } from "@/git/sessionRetirement";
@@ -57,6 +58,7 @@ export interface NormalizedLaunch {
   /** With the message to start before, when one was named; see `BotLaunchCommand.from`. */
   from?: BotSessionRef & { eventId?: string };
   worktree?: { branch?: string };
+  claudeMode?: ClaudeRunMode;
 }
 
 export interface NormalizedSessionRefCommand {
@@ -210,6 +212,13 @@ function normalizeLaunch(value: unknown): NormalizedLaunch | undefined {
   if (eventId !== undefined && (typeof eventId !== "string" || eventId.length > MAX_EVENT_ID)) {
     throw new BotInvalidError("launch.from.eventId must be a transcript row id");
   }
+  const claudeMode = command.claudeMode;
+  if (claudeMode !== undefined && claudeMode !== "terminal" && claudeMode !== "sdk") {
+    throw new BotInvalidError("launch.claudeMode must be terminal or sdk");
+  }
+  if (claudeMode === "sdk" && command.from !== undefined) {
+    throw new BotInvalidError("a fork starts in the terminal; SDK mode is for new sessions for now");
+  }
   return {
     title,
     // Only trimmed, never reshaped: the prompt is the session's first turn and its line breaks
@@ -219,6 +228,7 @@ function normalizeLaunch(value: unknown): NormalizedLaunch | undefined {
       ? {}
       : { from: { ...normalizeSessionRef(command.from), ...(eventId === undefined ? {} : { eventId }) } }),
     ...(command.worktree === undefined ? {} : { worktree: normalizeWorktree(command.worktree) }),
+    ...(claudeMode === undefined ? {} : { claudeMode }),
   };
 }
 

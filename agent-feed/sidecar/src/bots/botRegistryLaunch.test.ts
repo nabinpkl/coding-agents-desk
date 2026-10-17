@@ -54,6 +54,40 @@ test("a launch title brackets as the task after the allocated anchor, and a prom
   }]);
 });
 
+test("a launch can ask for SDK mode, and only for a fresh session", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, registry } = await fixture(launcher);
+
+  await addBot(registry, {
+    requestId: "request-1",
+    name: "OSS agent",
+    directoryPath: project,
+    launch: { title: "probe", claudeMode: "sdk" },
+  }, { kind: "user" });
+  expect(launched).toEqual([{
+    kind: "start",
+    cwd: project,
+    sessionId: "started-1",
+    title: "Aaron (probe)",
+    prompt: undefined,
+    mode: "sdk",
+  }]);
+
+  await expect(addBot(registry, {
+    requestId: "request-2",
+    name: "Other",
+    directoryPath: project,
+    launch: { claudeMode: "headless" as "sdk" },
+  }, { kind: "user" })).rejects.toThrow(/terminal or sdk/);
+  await expect(addBot(registry, {
+    requestId: "request-3",
+    name: "Third",
+    directoryPath: project,
+    launch: { claudeMode: "sdk", from: { source: "claude", sessionId: "started-1" } },
+  }, { kind: "user" })).rejects.toThrow(/fork starts in the terminal/);
+  expect(launched).toHaveLength(1);
+});
+
 test("replaying a launch request returns the same Bot without starting a second session", async () => {
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);

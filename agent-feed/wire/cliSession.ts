@@ -8,8 +8,12 @@
 // through the agentdesk-hub mod. What remains is the one fact that decides which composer to
 // offer: whether the session is a terminal CLI process at all, and which pane it runs in.
 
-/** How the harness says a live session was launched. `cli` is a terminal session. */
-export type ClaudeSessionEntrypoint = "cli" | "claude-desktop" | "other";
+/**
+ * How the harness says a live session was launched. `cli` is a terminal session; `sdk-cli` is a
+ * session run through the Agent SDK by this sidecar's runner (ADR-0143), typed into through the
+ * runner rather than a pane.
+ */
+export type ClaudeSessionEntrypoint = "cli" | "sdk-cli" | "claude-desktop" | "other";
 
 /** How a live Claude session was launched, and the tmux pane it runs in. */
 export interface CliSessionStatus {

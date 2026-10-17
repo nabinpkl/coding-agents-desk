@@ -1,0 +1,147 @@
+// A Claude session run through the Agent SDK instead of the terminal UI (ADR-0143).
+//
+// The session is the same session either way: one transcript, one id, one registry row while it
+// runs. What differs is who holds the `claude` process. In terminal mode it is the TUI in a tmux
+// pane; in SDK mode it is a small runner in that same pane, holding one long-lived `query()`, and
+// the sidecar reaches it over a unix socket. Questions and approvals arrive there as data rather
+// than as a dialog drawn on a screen, which is the point.
+//
+// The runner, not the sidecar, holds everything that is waiting -- a question, an approval -- so a
+// sidecar restart loses nothing: the next connection is handed the whole state again.
+
+import type { ClaudePermissionMode } from "./tmuxComposer.ts";
+import type { TmuxQuestionAnswer, TmuxQuestionOutcome } from "./tmuxQuestion.ts";
+
+/** How a Claude session's process is run. Terminal is the default; SDK is chosen at creation. */
+export type ClaudeRunMode = "terminal" | "sdk";
+
+/** What the runner says its `claude` is doing, from the SDK's own session-state messages. */
+export type ClaudeSdkRunStatus = "starting" | "idle" | "running" | "requires-action" | "exited";
+
+/** One AskUserQuestion question, as the tool call carries it. */
+export interface ClaudeSdkQuestion {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  options: { label: string; description: string }[];
+}
+
+/** An AskUserQuestion call the runner is holding open until somebody answers it. */
+export interface ClaudeSdkQuestionRequest {
+  kind: "question";
+  toolUseId: string;
+  questions: ClaudeSdkQuestion[];
+  /** Epoch ms the call reached the runner. */
+  openedAt: number;
+}
+
+/**
+ * A tool call the session's permission mode did not settle on its own.
+ *
+ * The descriptive fields are the CLI's own wording for the prompt it would have drawn, passed
+ * through rather than rebuilt here, so the card says what the terminal would have said.
+ */
+export interface ClaudeSdkApprovalRequest {
+  kind: "approval";
+  toolUseId: string;
+  toolName: string;
+  /** The tool's input, as the model sent it. */
+  input: Record<string, unknown>;
+  /** The full prompt sentence, e.g. "Claude wants to read foo.txt". */
+  title?: string;
+  /** A short noun phrase for the action, e.g. "Read file". */
+  displayName?: string;
+  /** A subtitle saying what allowing it grants. */
+  description?: string;
+  /** Why the mode asked rather than deciding. */
+  decisionReason?: string;
+  /** The path outside the allowed directories that triggered it, when that is the reason. */
+  blockedPath?: string;
+  /** The CLI asks that this not be approvable by one stray press. */
+  defaultToNo?: boolean;
+  openedAt: number;
+}
+
+export type ClaudeSdkPendingRequest = ClaudeSdkQuestionRequest | ClaudeSdkApprovalRequest;
+
+/**
+ * Everything the runner knows that the transcript does not, sent whole on every change.
+ *
+ * Whole rather than as deltas because it is small -- a status, a mode and the handful of calls
+ * waiting -- and a reader that missed a delta would hold a pending request that was long gone.
+ */
+export interface ClaudeSdkSessionState {
+  /** False while the sidecar cannot reach a runner for this session; the rest is then empty. */
+  connected: boolean;
+  status: ClaudeSdkRunStatus;
+  /** null until the CLI has said which mode it is in. */
+  permissionMode: ClaudePermissionMode | null;
+  /** Whether bypass permissions may be switched to, as the launch decided. */
+  allowBypass: boolean;
+  pending: ClaudeSdkPendingRequest[];
+  /** Background shells and agents running inside this `claude`, which die with it. */
+  backgroundTasks: number;
+  /** The CLI version the runner's `claude` reported at start, when it has. */
+  claudeCodeVersion: string | null;
+}
+
+/** The state a reader holds before a runner has answered, and after one is gone. */
+export const DISCONNECTED_CLAUDE_SDK_STATE: ClaudeSdkSessionState = {
+  connected: false,
+  status: "exited",
+  permissionMode: null,
+  allowBypass: false,
+  pending: [],
+  backgroundTasks: 0,
+  claudeCodeVersion: null,
+};
+
+/** A turn typed into an SDK session. */
+export interface ClaudeSdkPromptCommand {
+  text: string;
+}
+
+/**
+ * The answers to one open AskUserQuestion call.
+ *
+ * The same shape the terminal's dialog takes, so the panel drafts one answer whichever mode the
+ * session runs in. The runner matches it against the call it is holding by the questions' text.
+ */
+export interface ClaudeSdkAnswerCommand {
+  answers: TmuxQuestionAnswer[];
+}
+
+/** Allow or deny one pending approval, by its tool-use id. */
+export interface ClaudeSdkDecideCommand {
+  toolUseId: string;
+  allow: boolean;
+  /** Said to the model on a deny, so it knows why and does not simply try again. */
+  message?: string;
+}
+
+export interface ClaudeSdkModeCommand {
+  mode: ClaudePermissionMode;
+}
+
+/** Why a command to an SDK session did not happen. */
+export type ClaudeSdkRefusal =
+  /** No runner is answering for this session: it is not in SDK mode, or not running. */
+  | "no-runner"
+  /** The request it names is no longer waiting: answered elsewhere, or the turn moved on. */
+  | "not-pending"
+  /** The body did not describe a command. */
+  | "invalid"
+  /** The runner took the command and the SDK refused it. */
+  | "failed";
+
+export type ClaudeSdkCommandOutcome =
+  | { ok: true }
+  | { ok: false; reason: ClaudeSdkRefusal; message: string };
+
+/**
+ * An answer's outcome, in the terminal dialog's shape so the panel's question band reads both.
+ *
+ * The SDK path cannot half-answer -- the runner resolves the call with every answer or with none --
+ * so `sent` is always false on a refusal, and the typed text always comes back.
+ */
+export type ClaudeSdkAnswerOutcome = TmuxQuestionOutcome;

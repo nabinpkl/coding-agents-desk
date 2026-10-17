@@ -29,6 +29,7 @@ import {
 } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 import { claudeLaunchArgs } from "@/config/configClaudeLaunch";
+import { isClaudeSdkRunnerCommand } from "@/claude-sdk/claudeSdkProtocol";
 
 /**
  * The pane a session started or resumed by this sidecar is BORN in.
@@ -372,7 +373,9 @@ export async function launchedClaudePane(
 > {
   const session = await tmux.stamped(sessionId);
   if (!session) return { kind: "no-pane" };
+  // A runner's pane names the session and "claude" too, and restarting it here would put the TUI
+  // in place of a live SDK session (ADR-0143), so it reads as somebody else's pane.
   const launched = (await tmux.paneStarts(session)).find(({ command }) =>
-    command.includes(sessionId) && /\bclaude\b/.test(command));
+    command.includes(sessionId) && /\bclaude\b/.test(command) && !isClaudeSdkRunnerCommand(command));
   return launched ? { kind: "pane", pane: launched.pane, startCommand: launched.command } : { kind: "not-ours", session };
 }

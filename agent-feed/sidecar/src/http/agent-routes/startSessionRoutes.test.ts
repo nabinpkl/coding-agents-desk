@@ -18,7 +18,7 @@ function harness(options: {
   const calls: string[] = [];
   const launcher: SessionLauncher = {
     async start(start) {
-      calls.push(`claude start ${start.cwd} ${start.title} ${start.prompt ?? "-"}`);
+      calls.push(`claude start ${start.cwd} ${start.title} ${start.prompt ?? "-"}${start.mode ? ` [${start.mode}]` : ""}`);
       return { tmuxSession: `agentdesk-${start.sessionId}` };
     },
     async fork() { throw new Error("a start never forks"); },
@@ -75,6 +75,20 @@ test("a Claude session with no first message starts idle", async () => {
   const { calls, post } = harness();
   expect((await post({ source: "claude", prompt: "   " })).status).toBe(201);
   expect(calls).toEqual([`claude start ${PROJECT} Garden notes -`]);
+});
+
+test("a Claude session asked for in SDK mode is started that way, and the terminal stays the default", async () => {
+  const { calls, post } = harness();
+  expect((await post({ source: "claude", claudeMode: "sdk", prompt: "go" })).status).toBe(201);
+  expect((await post({ source: "claude", claudeMode: "terminal" })).status).toBe(201);
+  expect(calls).toEqual([`claude start ${PROJECT} Garden notes go [sdk]`, `claude start ${PROJECT} Garden notes - [terminal]`]);
+});
+
+test("a run mode is refused for opencode, and an unknown one for anything", async () => {
+  const { calls, post } = harness();
+  expect((await post({ source: "opencode", claudeMode: "sdk" })).status).toBe(400);
+  expect((await post({ source: "claude", claudeMode: "headless" })).status).toBe(400);
+  expect(calls).toEqual([]);
 });
 
 test("an opencode session is created, named, given its pane, then its first message", async () => {

@@ -76,6 +76,12 @@ export const config = {
     "AGENT_FEED_CLAUDE_TASK_ROOT",
     `/tmp/claude-${userInfo().uid}`,
   ),
+  // Where each SDK session's runner listens (ADR-0143), one socket per session id. Under `/tmp`
+  // rather than the runtime root because a unix socket path is capped near 104 bytes.
+  claudeSdkSocketDirectory: directoryEnvironment(
+    "AGENT_FEED_CLAUDE_SDK_SOCKETS",
+    `/tmp/agentdesk-sdk-${userInfo().uid}`,
+  ),
   // The composer's own files, beside each other under the runtime root; see `configComposer.ts`.
   composerImageDirectory,
   composerHandlesPath,

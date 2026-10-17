@@ -16,6 +16,24 @@ export type {
 } from "./cliSession.ts";
 
 export type {
+  ClaudeRunMode,
+  ClaudeSdkAnswerCommand,
+  ClaudeSdkAnswerOutcome,
+  ClaudeSdkApprovalRequest,
+  ClaudeSdkCommandOutcome,
+  ClaudeSdkDecideCommand,
+  ClaudeSdkModeCommand,
+  ClaudeSdkPendingRequest,
+  ClaudeSdkPromptCommand,
+  ClaudeSdkQuestion,
+  ClaudeSdkQuestionRequest,
+  ClaudeSdkRefusal,
+  ClaudeSdkRunStatus,
+  ClaudeSdkSessionState,
+} from "./claudeSdk.ts";
+export { DISCONNECTED_CLAUDE_SDK_STATE } from "./claudeSdk.ts";
+
+export type {
   ComposerCommand,
   ComposerImageDrop,
   ComposerImageRef,

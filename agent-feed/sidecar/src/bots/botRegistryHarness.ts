@@ -29,6 +29,7 @@ export interface LaunchRecord {
   title: string;
   prompt?: string;
   brief?: string;
+  mode?: string;
 }
 
 export function botRegistryHarness() {

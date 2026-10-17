@@ -86,7 +86,7 @@ interface RegistryRecord {
  * must not make a live session read as not running, and nothing downstream needs to name it.
  */
 function readEntrypoint(value: unknown): ClaudeSessionEntrypoint {
-  return value === "cli" || value === "claude-desktop" ? value : "other";
+  return value === "cli" || value === "sdk-cli" || value === "claude-desktop" ? value : "other";
 }
 
 /**

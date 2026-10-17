@@ -1,6 +1,7 @@
 // What the catalog publishes about projects and sessions, and what a session can do.
 
 import type { EventMode, SourceId } from "./activity.ts";
+import type { ClaudeRunMode } from "./claudeSdk.ts";
 
 // How recently a session was active, derived at read time rather than stored:
 // a selected-project probe combines transcript recency with the latest bounded
@@ -182,6 +183,11 @@ export interface StartSessionCommand {
   title: string;
   /** Its first turn. Absent starts it idle, for a reader who will type into its pane. */
   prompt?: string;
+  /**
+   * How a Claude session's process runs: the terminal UI (the default) or the Agent SDK runner
+   * (ADR-0143). Refused for opencode, which has its own serve.
+   */
+  claudeMode?: ClaudeRunMode;
 }
 
 /** What `StartSessionCommand` started: the session, and which harness it is running in. */

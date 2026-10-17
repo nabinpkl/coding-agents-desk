@@ -97,6 +97,13 @@ async function startSession(
     if (typeof body.prompt === "string" && body.prompt.length > MAX_LAUNCH_PROMPT) {
       return errorResponse("invalid-request", `prompt cannot exceed ${MAX_LAUNCH_PROMPT} characters`, 400, requestId);
     }
+    const claudeMode = body.claudeMode;
+    if (claudeMode !== undefined && claudeMode !== "terminal" && claudeMode !== "sdk") {
+      return errorResponse("invalid-request", "claudeMode must be terminal or sdk", 400, requestId);
+    }
+    if (claudeMode !== undefined && source !== "claude") {
+      return errorResponse("invalid-request", "claudeMode is for claude sessions", 400, requestId);
+    }
     // Trimmed at the ends only: the first turn's line breaks are the reader's.
     const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
     const requested = typeof body.projectPath === "string" ? body.projectPath : "";
@@ -105,7 +112,12 @@ async function startSession(
 
     if (source === "claude") {
       const started = await launchSession(
-        { checkout: projectPath, title, ...(prompt === undefined ? {} : { prompt }) },
+        {
+          checkout: projectPath,
+          title,
+          ...(prompt === undefined ? {} : { prompt }),
+          ...(claudeMode === undefined ? {} : { claudeMode }),
+        },
         actions.launch,
       );
       return jsonResponse({ source, ...started } satisfies StartedSourceSession, 201);

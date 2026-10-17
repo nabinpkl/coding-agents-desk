@@ -2,6 +2,7 @@
 // provider sessions from that directory can then be attached to its projection.
 
 import type { SourceId } from "./activity.ts";
+import type { ClaudeRunMode } from "./claudeSdk.ts";
 import type { SessionSummary, StartedSession } from "./session.ts";
 import type { FolderFileRead, FolderGitDiff, FolderGitStatus, FolderTree } from "./workspaceIde.ts";
 
@@ -169,6 +170,11 @@ export interface BotLaunchCommand {
    * having exactly once.
    */
   worktree?: { branch?: string };
+  /**
+   * The terminal UI (the default) or the Agent SDK runner (ADR-0143). A fork is terminal-only for
+   * now, so `from` with `"sdk"` is refused rather than quietly started in the terminal.
+   */
+  claudeMode?: ClaudeRunMode;
 }
 
 export interface AddBotCommand {

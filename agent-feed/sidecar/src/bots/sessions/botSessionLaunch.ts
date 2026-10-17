@@ -115,6 +115,7 @@ export class BotSessionStarter {
           title: launch.title,
           ...(launch.prompt === undefined ? {} : { prompt: launch.prompt }),
           ...(launch.worktree === undefined ? {} : { worktree: launch.worktree }),
+          ...(launch.claudeMode === undefined ? {} : { claudeMode: launch.claudeMode }),
         },
         this.launcher,
         newSessionId,
