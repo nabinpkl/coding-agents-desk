@@ -179,7 +179,7 @@ const OPEN_SESSIONS_KEY = "agent-panel.bot-canvas.open-session";
  *
  * Identity only: a key is an address, and nothing here resolves it. What DOES resolve it is the app,
  * against a roster it has and that holds something -- a key no Bot holds a reference to any more is
- * dropped there (`AgentPanelApp.tsx`), because it opens nothing, is invisible for exactly that
+ * dropped there (`useCanvasRoster.ts`), because it opens nothing, is invisible for exactly that
  * reason, and would otherwise sit in the store for good. It is the emptiness that has to be ruled
  * out rather than the arrival: a snapshot lands before the Bots are in it, and that one is
  * indistinguishable from a reader with no Bots except that pruning against it costs a whole canvas. A key whose Bot still holds it but whose transcript
@@ -211,6 +211,49 @@ export function storeCanvasOpenKeys(keys: ReadonlySet<string>): void {
     else localStorage.setItem(OPEN_SESSIONS_KEY, JSON.stringify([...keys]));
   } catch {
     // The canvas still opens and closes rows; it just forgets which ones by the next visit.
+  }
+}
+
+const OPEN_SESSION_MACHINES_KEY = "agent-panel.bot-canvas.open-session-machines";
+
+/**
+ * Which machine held each open card when the canvas last saw it, by the card's key.
+ *
+ * What lets the prune tell "no Bot holds this any more" from "the machine that holds it is away".
+ * A peer leaves the live index whenever it misses its heartbeat for 15 seconds -- every restart of
+ * its sidecar, every tailnet hiccup -- and while it is gone the roster is complete for the machines
+ * that are left. Measured 2026-10-17: a Bot on the oracle peer had its open session pruned and came
+ * back collapsed, the only Bot on the canvas that did, because the prune judged every key against a
+ * roster that held only this Mac's. A key is judged only against its own machine's roster, so it
+ * needs to know which that is.
+ *
+ * A key with no machine here is one opened before this was recorded, or not yet seen held. The
+ * prune keeps such a key rather than guess, and records the machine the first time a Bot is seen
+ * holding it.
+ */
+export function loadCanvasOpenMachines(): ReadonlyMap<string, string> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const raw = localStorage.getItem(OPEN_SESSION_MACHINES_KEY);
+    if (!raw) return new Map();
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
+    return new Map(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] => entry[0].includes(":") && typeof entry[1] === "string",
+      ),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+export function storeCanvasOpenMachines(machines: ReadonlyMap<string, string>): void {
+  try {
+    if (machines.size === 0) localStorage.removeItem(OPEN_SESSION_MACHINES_KEY);
+    else localStorage.setItem(OPEN_SESSION_MACHINES_KEY, JSON.stringify(Object.fromEntries(machines)));
+  } catch {
+    // Without it the prune keeps every key it cannot place, which is the safe direction.
   }
 }
 

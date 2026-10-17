@@ -38,7 +38,7 @@ import { storeSelection } from "@/features/sidebar/selectionStore";
 import { BotCanvas, type BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import { FatherHome } from "@/app/FatherHome";
 import { botCanvasHues, botCanvasRanks } from "@/features/bots/botSurface";
-import type { BotMachine } from "@/features/bots/botMachines";
+import { machineKey, type BotMachine } from "@/features/bots/botMachines";
 import { useBotMachines } from "@/app/shell-state/useBotMachines";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { ForkedSessionView } from "@/app/ForkedSessionView";
@@ -92,7 +92,13 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
   // roster to drop stored cards against. See `useBotMachines`.
   const roster = useCanvasRoster(
-    { bots: botsState.bots, settled: botsState.settled && shellMachines.known },
+    {
+      bots: botsState.bots,
+      settled: botsState.settled && shellMachines.known,
+      machineOf: shellMachines.keyOfBot,
+      // Absent where the embedder names no machines: then this sidecar is the only one there is.
+      ...(machines === undefined ? {} : { machines: shellMachines.all.map(machineKey) }),
+    },
     shellMachines.feeds,
   );
   const commands = useBotCommands(

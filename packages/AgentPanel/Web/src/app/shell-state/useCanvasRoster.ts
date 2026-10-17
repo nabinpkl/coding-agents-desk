@@ -19,11 +19,13 @@ import {
   botCanvasOrderOf,
   botCanvasPositionOrder,
   loadCanvasOpenKeys,
+  loadCanvasOpenMachines,
   loadCanvasRoom,
   loadHiddenMachines,
   moveInOrder,
   orderBotsForCanvas,
   storeCanvasOpenKeys,
+  storeCanvasOpenMachines,
   storeCanvasRoom,
   storeHiddenMachines,
 } from "@/features/bots/canvas/botCanvasPreferences";
@@ -34,6 +36,13 @@ export function useCanvasRoster(
     bots: BotView[];
     /** Every machine's roster has arrived. See the prune below for why "not failing" is not enough. */
     settled: boolean;
+    /** Which machine a Bot is on, as its machine key. Absent where there is only ever one. */
+    machineOf?: (botId: string) => string | undefined;
+    /**
+     * The machines the roster covers right now, by key, or absent when the embedder names none and
+     * this sidecar is the only one there can be. A peer that misses its heartbeat leaves this list.
+     */
+    machines?: readonly string[];
   },
   /** Which machine's sidecar holds each Bot's record, and so its place on the canvas. */
   feeds: BotFeeds,
@@ -137,18 +146,57 @@ export function useCanvasRoster(
   // `settled` rather than "not loading and not failing", because the roster now comes from several
   // machines: a reader whose remote peer is asleep has a canvas that is entirely healthy about this
   // one, and pruning against it would drop every open card on the peer for good.
+  //
+  // And `settled` is not enough on its own, because it means every machine IN THE LIST has answered,
+  // and a peer leaves the list whenever it misses its heartbeat for 15 seconds -- every restart of
+  // its sidecar, every tailnet hiccup. Measured 2026-10-17: the only Bot on the oracle peer came back
+  // collapsed, pruned against a roster that held nothing but this Mac's Bots. So each open key is
+  // judged only against its own machine (`openMachines`, recorded the first time a Bot is seen
+  // holding it), and only while that machine is in the list. A key from before machines were
+  // recorded is judged against the whole roster only where no peer can exist; elsewhere it is kept
+  // until a Bot is seen holding it, rather than guessed at.
+  const openMachines = useRef<ReadonlyMap<string, string>>(loadCanvasOpenMachines());
+  const machineOf = useRef(botsState.machineOf);
+  machineOf.current = botsState.machineOf;
+  // Joined, so the effects below see a change of machines rather than a new array per render.
+  const machineList = botsState.machines === undefined ? undefined : botsState.machines.join("\n");
+  /** Each session some Bot holds, and the machine that Bot is on. */
+  const holders = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const bot of botsState.bots) {
+      const machine = machineOf.current?.(bot.botId) ?? "";
+      for (const ref of bot.sessionRefs) byKey.set(`${ref.source}:${ref.sessionId}`, machine);
+    }
+    return byKey;
+  }, [botsState.bots]);
   useEffect(() => {
     if (!botsState.settled || botsState.bots.length === 0) return;
-    const held = new Set(
-      botsState.bots.flatMap((bot) => bot.sessionRefs.map((ref) => `${ref.source}:${ref.sessionId}`)),
-    );
+    const present = machineList === undefined ? undefined : new Set(machineList.split("\n"));
     setCanvasOpenKeys((current) => {
-      const kept = new Set([...current].filter((key) => held.has(key)));
+      const kept = new Set([...current].filter((key) => {
+        if (holders.has(key)) return true;
+        const machine = openMachines.current.get(key);
+        if (present === undefined) return false;
+        return machine === undefined || !present.has(machine);
+      }));
       // Identity when nothing goes, so this neither re-renders nor rewrites the store on every
       // snapshot the stream sends.
       return kept.size === current.size ? current : kept;
     });
-  }, [botsState.bots, botsState.settled]);
+  }, [botsState.bots, botsState.settled, holders, machineList]);
+  // Which machine each open card is on, written from one place like the keys themselves: recorded
+  // whenever a Bot is seen holding an open key, and dropped once the key is closed.
+  useEffect(() => {
+    const next = new Map<string, string>();
+    for (const key of canvasOpenKeys) {
+      const machine = holders.get(key) ?? openMachines.current.get(key);
+      if (machine !== undefined) next.set(key, machine);
+    }
+    const before = openMachines.current;
+    if (next.size === before.size && [...next].every(([key, machine]) => before.get(key) === machine)) return;
+    openMachines.current = next;
+    storeCanvasOpenMachines(next);
+  }, [canvasOpenKeys, holders]);
   /**
    * The order the Bots stand in, left to right, and the one every surface that lists them reads.
    *

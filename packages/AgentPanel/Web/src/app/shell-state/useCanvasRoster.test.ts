@@ -142,3 +142,40 @@ describe("what is on the canvas, which the Bot's record holds", () => {
       .toBe("Could not change a on the canvas: bot-store-failed"));
   });
 });
+
+// A peer leaves the machine list whenever it misses its heartbeat for 15 seconds, and a roster that
+// is complete for the machines left is not one to judge the peer's cards against.
+describe("which open cards survive a machine coming and going", () => {
+  const OPEN = "agent-panel.bot-canvas.open-session";
+  const holding = (botId: string, ...sessionIds: string[]) =>
+    ({ ...bot(botId), sessionRefs: sessionIds.map((sessionId) => ({ source: "claude", sessionId })) } as BotView);
+  const machineOf = (botId: string) => (botId === "peer" ? "oracle" : "");
+  const shell = (initial: { bots: BotView[]; machines: string[] }) => renderHook(
+    ({ bots: current, machines }) => useCanvasRoster({ bots: current, settled: true, machineOf, machines }, feeds),
+    { initialProps: initial },
+  );
+  const stored = (): string[] => JSON.parse(localStorage.getItem(OPEN) ?? "[]").sort();
+
+  beforeEach(() => localStorage.clear());
+
+  it("keeps a peer's open card while the peer is away, and drops it once the peer says it is gone", () => {
+    localStorage.setItem(OPEN, JSON.stringify(["claude:home-1", "claude:rags-1"]));
+    const { rerender } = shell({ bots: [holding("home", "home-1"), holding("peer", "rags-1")], machines: ["", "oracle"] });
+    expect(stored()).toEqual(["claude:home-1", "claude:rags-1"]);
+
+    // The peer's sidecar restarts: it leaves the list, and every Bot left is this machine's.
+    rerender({ bots: [holding("home", "home-1")], machines: [""] });
+    expect(stored()).toEqual(["claude:home-1", "claude:rags-1"]);
+
+    // Back, and its Bot no longer holds the session: now the answer is the peer's own.
+    rerender({ bots: [holding("home", "home-1"), holding("peer")], machines: ["", "oracle"] });
+    expect(stored()).toEqual(["claude:home-1"]);
+  });
+
+  it("keeps a card no Bot has been seen holding while any machine could be away", () => {
+    // Opened before machines were recorded, so nothing says whose it is: kept rather than guessed.
+    localStorage.setItem(OPEN, JSON.stringify(["claude:home-1", "claude:unplaced"]));
+    shell({ bots: [holding("home", "home-1")], machines: [""] });
+    expect(stored()).toEqual(["claude:home-1", "claude:unplaced"]);
+  });
+});
