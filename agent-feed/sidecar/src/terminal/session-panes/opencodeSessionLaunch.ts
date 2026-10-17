@@ -9,8 +9,8 @@
 // so the join finds this pane later rather than starting a second TUI beside it.
 
 import { opencodeSessionPaneName } from "@/terminal/agentTerminalIdentity";
-import { UNATTENDED_COLUMNS, UNATTENDED_ROWS } from "@/terminal/claudeSessionLaunch";
-import { opencodeTuiCommand } from "@/terminal/sessionPaneRevival";
+import { UNATTENDED_COLUMNS, UNATTENDED_ROWS } from "@/terminal/session-panes/claudeSessionLaunch";
+import { opencodeTuiCommand } from "@/terminal/session-panes/sessionPaneRevival";
 import { createTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 

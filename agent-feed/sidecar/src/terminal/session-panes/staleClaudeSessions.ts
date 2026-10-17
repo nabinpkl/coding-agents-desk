@@ -24,7 +24,7 @@ import { claudeLaunchPermissionArgs } from "@/config/configClaudeLaunch";
 import { currentProcessTable } from "@/tasks/processProbe";
 import type { ProcessRow } from "@/tasks/processTable";
 import { liveSessionProcesses, type ClaudeSessionProcess } from "@/tasks/sessionRegistry";
-import { launchedClaudePane } from "@/terminal/claudeSessionLaunch";
+import { launchedClaudePane } from "@/terminal/session-panes/claudeSessionLaunch";
 
 /**
  * How many restarts run at once. Each is a `claude --resume` loading its plugins and MCP servers,

@@ -35,7 +35,7 @@ import {
 import { claudeBinary, opencodeBinary } from "@/config/configBinaries";
 import { awaitComposer, submitTmuxComposer, syncTmuxComposer } from "@/input/tmuxComposer";
 import { opencodeSessionPaneName } from "@/terminal/agentTerminalIdentity";
-import { startClaudeSession, UNATTENDED_COLUMNS, UNATTENDED_ROWS } from "@/terminal/claudeSessionLaunch";
+import { startClaudeSession, UNATTENDED_COLUMNS, UNATTENDED_ROWS } from "@/terminal/session-panes/claudeSessionLaunch";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 import { tmux } from "@/terminal/tmux/tmuxCommand";
 import { createTmuxSession, tmuxPaneCommandExited, waitForPaneToSettle } from "@/terminal/tmux/tmuxSessions";

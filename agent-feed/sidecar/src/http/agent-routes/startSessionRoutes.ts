@@ -22,7 +22,7 @@ import {
 } from "@/transcripts/session-ops/forkSession";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import { opencodeBinary } from "@/config/configBinaries";
-import { startOpencodeSessionPane } from "@/terminal/opencodeSessionLaunch";
+import { startOpencodeSessionPane } from "@/terminal/session-panes/opencodeSessionLaunch";
 import { jsonResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 import {

@@ -456,7 +456,9 @@ export function killSessionArgs(session: string): string[] {
  * started it. This is the opposite actor -- the owner asking on purpose, through an endpoint whose
  * entire subject is ending a session -- so the rule is satisfied rather than broken. Do not merge
  * this path with the viewer's, and do not delete it as a violation of a rule it is the exception
- * to; `retireSessions` in `botSessionRemoval.ts` is its only caller.
+ * to. Two callers, both the owner: `retireSessions` in `botSessionRemoval.ts`, asked one session at a
+ * time, and the idle sweep (`session-panes/idleSessionSweep.ts`), the owner's standing request to
+ * close what is off the canvas and quiet, which checks the session is idle before every close.
  *
  * A session that is already gone is not an error. Retiring something that has already stopped is
  * the ordinary case rather than the surprising one.

@@ -30,7 +30,7 @@ import { LIVE_TERMINAL_STEPS } from "@/arena/contestants/terminalContestants";
 import { briefFileName, renderManagerBrief, renderTranscriptFile } from "@/arena/manager/managerBrief";
 import { claudeBinary } from "@/config/configBinaries";
 import { claudeTranscriptPath } from "@/tasks/taskIdentity";
-import { startClaudeSession } from "@/terminal/claudeSessionLaunch";
+import { startClaudeSession } from "@/terminal/session-panes/claudeSessionLaunch";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { renderOpencodeHandover } from "@/transcripts/opencodeHandover";
 import { renderHandover, type RenderedHandover } from "@/transcripts/sessionHandover";

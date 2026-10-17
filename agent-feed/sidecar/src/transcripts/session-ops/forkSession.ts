@@ -22,7 +22,7 @@ import {
   endClaudeSession,
   startClaudeSession,
   startForkedClaudeSession,
-} from "@/terminal/claudeSessionLaunch";
+} from "@/terminal/session-panes/claudeSessionLaunch";
 import { LIVE_FORK_REWINDER } from "@/transcripts/session-ops/forkRewind";
 import {
   anchorAtPosition,

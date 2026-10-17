@@ -21,7 +21,7 @@ import {
   newClaudeSessionCommand,
   restartClaudeSession,
   resumeClaudeSessionCommand,
-} from "@/terminal/claudeSessionLaunch";
+} from "@/terminal/session-panes/claudeSessionLaunch";
 import { newSessionArgs, respawnPaneArgs } from "@/terminal/tmux/tmuxSessions";
 import { claudeLaunchPermissionArgs as permission } from "@/config/configClaudeLaunch";
 

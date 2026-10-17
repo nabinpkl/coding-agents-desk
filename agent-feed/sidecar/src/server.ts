@@ -82,11 +82,12 @@ import { startArenaService } from "@/arena/arenaWiring";
 import { createArenaCodeRoutes } from "@/http/arenaCodeRoutes";
 import { createArenaRoutes } from "@/http/arenaRoutes";
 import { BotStore } from "@/bots/botStore";
+import { startLiveIdleSessionSweep } from "@/terminal/session-panes/idleSessionSweep";
 import { BotRegistry } from "@/bots/botRegistry";
 import type { BotRegistryCatalog } from "@/bots/botTypes";
 import type { BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
 import { BotTitleQueue } from "@/bots/sessions/botTitleQueue";
-import { subscribeSessionPaneStarts } from "@/terminal/sessionPaneStarts";
+import { subscribeSessionPaneStarts } from "@/terminal/session-panes/sessionPaneStarts";
 import { awaitComposer } from "@/input/tmuxComposer";
 import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
@@ -146,6 +147,8 @@ const botCatalog: BotRegistryCatalog = {
   ready: catalogReady,
 };
 const botRegistry = new BotRegistry(botStore, botCatalog);
+// Closes Claude sessions that are off the canvas and have gone quiet; see the module for the rules.
+startLiveIdleSessionSweep(botStore);
 // Asked now rather than at the first launch, which would otherwise wait on the user's ~/.zshrc.
 void userShellPath();
 const agentTerminals = new AgentTerminalService(

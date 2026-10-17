@@ -6,7 +6,7 @@
 // session already runs. The service re-exports it, so the callers that ask "where is this
 // session" never moved.
 
-import { claudeSessionPaneName } from "@/terminal/claudeSessionLaunch";
+import { claudeSessionPaneName } from "@/terminal/session-panes/claudeSessionLaunch";
 import { findTmuxSessionByIdentity } from "@/terminal/tmux/tmuxSessions";
 import { currentProcessTable } from "@/tasks/processProbe";
 import { liveSessionProcesses } from "@/tasks/sessionRegistry";

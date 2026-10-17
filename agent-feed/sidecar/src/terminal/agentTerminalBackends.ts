@@ -11,7 +11,7 @@
 
 import { PtyManagerClient, type PtySessionConnection } from "@/terminal/pty/ptyClient";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
-import { announceSessionPaneStarted } from "@/terminal/sessionPaneStarts";
+import { announceSessionPaneStarted } from "@/terminal/session-panes/sessionPaneStarts";
 import type { PtySessionSummary } from "@/terminal/pty/ptyProtocol";
 import { AgentTerminalConflictError, AgentTerminalUnavailableError } from "@/terminal/agentTerminalErrors";
 import type { TerminalIdentity } from "@/terminal/agentTerminalIdentity";

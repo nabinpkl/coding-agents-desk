@@ -10,7 +10,7 @@ import {
   restartStaleSessions,
   sessionActivity,
   type StaleSessionSources,
-} from "@/terminal/staleClaudeSessions";
+} from "@/terminal/session-panes/staleClaudeSessions";
 
 const FLAGS = ["--permission-mode", "auto", "--allow-dangerously-skip-permissions"];
 const CURRENT = `claude ${FLAGS.join(" ")} --resume`;

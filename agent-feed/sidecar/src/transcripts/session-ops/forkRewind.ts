@@ -18,7 +18,7 @@ import {
   syncTmuxComposer,
 } from "@/input/tmuxComposer";
 import { rewindTmuxSession } from "@/input/rewindPicker";
-import { forkFirstTurn } from "@/terminal/claudeSessionLaunch";
+import { forkFirstTurn } from "@/terminal/session-panes/claudeSessionLaunch";
 import type { RewindRefusal } from "@/input/rewindPicker";
 import type { MessageAnchor } from "@/transcripts/messageAnchor";
 

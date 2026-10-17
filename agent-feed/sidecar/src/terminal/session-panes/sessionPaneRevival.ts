@@ -5,7 +5,7 @@
 // back to life in it, and `reviveExitedPane` says whether the pane in front of it qualifies.
 
 import { opencodeBinary } from "@/config/configBinaries";
-import { resumeClaudeSessionCommand } from "@/terminal/claudeSessionLaunch";
+import { resumeClaudeSessionCommand } from "@/terminal/session-panes/claudeSessionLaunch";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
 
 /**

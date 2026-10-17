@@ -231,9 +231,10 @@ export class TmuxSessionConnection {
    * nothing but a pipe: the session belongs to whoever started it, and ending their work because a
    * browser tab closed would be the worst bug this feature could have.
    *
-   * There IS one caller in this repository that sends `kill-session`, and it is not a violation of
-   * the above: `killTmuxSession` in `tmuxSessionList.ts`, reached only from retiring a Bot session,
-   * where the owner is asking for exactly that. The rule is about the actor, not the command.
+   * There IS one function in this repository that sends `kill-session`, and it is not a violation
+   * of the above: `killTmuxSession` in `tmuxSessionList.ts`, reached from retiring a Bot session and
+   * from the idle sweep, where the owner is asking for exactly that. The rule is about the actor, not
+   * the command.
    */
   detach(): void {
     if (this.closed) return;

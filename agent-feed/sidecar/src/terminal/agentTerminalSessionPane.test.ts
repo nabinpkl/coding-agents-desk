@@ -11,7 +11,7 @@ import {
   liveTmuxSession,
   type AgentTerminalPtyClient,
 } from "@/terminal/agentTerminalService";
-import { claudeSessionRunning } from "@/terminal/tmuxSessionOwner";
+import { claudeSessionRunning } from "@/terminal/session-panes/tmuxSessionOwner";
 import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import {
@@ -19,8 +19,8 @@ import {
   SESSION_ID,
   type SessionTmuxFakes,
 } from "@/terminal/agentTerminalHarness";
-import { subscribeSessionPaneStarts } from "@/terminal/sessionPaneStarts";
-import { resumeClaudeSessionCommand } from "@/terminal/claudeSessionLaunch";
+import { subscribeSessionPaneStarts } from "@/terminal/session-panes/sessionPaneStarts";
+import { resumeClaudeSessionCommand } from "@/terminal/session-panes/claudeSessionLaunch";
 
 const {
   roots,

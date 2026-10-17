@@ -23,8 +23,8 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
-import { claudeSessionPaneName, resumeClaudeSessionCommand } from "@/terminal/claudeSessionLaunch";
-import { opencodeTuiCommand, sessionPaneRevival } from "@/terminal/sessionPaneRevival";
+import { claudeSessionPaneName, resumeClaudeSessionCommand } from "@/terminal/session-panes/claudeSessionLaunch";
+import { opencodeTuiCommand, sessionPaneRevival } from "@/terminal/session-panes/sessionPaneRevival";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,

@@ -47,20 +47,20 @@ import {
   requiredDimension,
   requiredSessionUuid,
 } from "@/terminal/agentTerminalErrors";
-import { restartClaudeSession } from "@/terminal/claudeSessionLaunch";
+import { restartClaudeSession } from "@/terminal/session-panes/claudeSessionLaunch";
 import {
   listStaleSessions,
   liveStaleSessionSources,
   restartStaleSessions,
   type StaleSessionSources,
-} from "@/terminal/staleClaudeSessions";
+} from "@/terminal/session-panes/staleClaudeSessions";
 import {
   identifyTerminal,
   tmuxTargetSession,
   type ResolvedAgentTerminalSession,
   type TerminalIdentity,
 } from "@/terminal/agentTerminalIdentity";
-import { claudeSessionRunning, liveTmuxSession } from "@/terminal/tmuxSessionOwner";
+import { claudeSessionRunning, liveTmuxSession } from "@/terminal/session-panes/tmuxSessionOwner";
 import { streamMessage } from "@/terminal/pty/terminalStreamMessages";
 import {
   connectPtyTerminal,
