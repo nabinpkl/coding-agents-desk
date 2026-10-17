@@ -31,12 +31,20 @@ export interface BotSubscribeOptions {
 /**
  * The parts of a snapshot a subscriber DRAWS, and nothing else.
  *
- * Identity for most of it, and that is the constraint: a token count and an activity bin both move
- * on an ordinary transcript write, so comparing them would put this back to a snapshot per write and
- * reintroduce the flood the store's revision exists to stop. A panel already holds the session
- * catalog stream and the per-session streams, so everything that moves on a write reaches it from
- * there. What this stream owns is which references a Bot holds, which of them resolve, and what each
- * one is called.
+ * Identity for most of it, and that is the constraint: a session's last-event time and its token
+ * counts move on an ordinary transcript write, so comparing them exactly would put this back to a
+ * snapshot per write and reintroduce the flood the store's revision exists to stop. What this stream
+ * owns is which references a Bot holds, which of them resolve, what each one is called, and what a
+ * canvas card draws from it.
+ *
+ * Which includes the time and the activity under each card's title. They were left off on the
+ * assumption that a panel hears them from the session catalog stream, and the canvas card does not:
+ * it draws the session this stream hands it. Measured 2026-10-17 on a session working throughout,
+ * 45 seconds of this stream carried its opening snapshot only, "ready" at 03:26:12, while a fresh
+ * read said "live" at 03:26:54. So both are here, at the grain the card shows them. The activity
+ * bin is compared as it is, because it moves between live, ready, paused and cold a few times an
+ * hour rather than on every write. The time is compared to the MINUTE, because the card prints
+ * hours and minutes: a session writing all minute costs one snapshot a minute, not one per write.
  *
  * `environmentAvailability` is here because it is a `stat` rather than a record, so it can move
  * without a `mutate` too: a Bot's directory deleted underneath it, which is news a card should hear.
@@ -59,13 +67,23 @@ export interface BotSubscribeOptions {
  * signature happened to move, so the card went on showing the task before. Keyed on the block's
  * time, so a block that repeats the last one's words still counts as the session saying it again.
  */
+/** The grain a card prints a session's last activity at, and so the grain a change is noticed at. */
+const MINUTE_MS = 60_000;
+
 export function viewSignature(snapshot: BotSnapshot): string {
   return snapshot.bots
     .map((bot) => [
       bot.botId,
       bot.environmentAvailability,
       bot.sessions
-        .map((one) => `${one.source}:${one.sessionId}:${one.title}:${one.taskState?.at ?? ""}`)
+        .map((one) => [
+          one.source,
+          one.sessionId,
+          one.title,
+          one.taskState?.at ?? "",
+          one.activity,
+          Math.floor(one.lastEventAt / MINUTE_MS),
+        ].join(":"))
         .sort()
         .join(","),
       bot.missingSessionRefs.map((ref) => `${ref.source}:${ref.sessionId}`).sort().join(","),

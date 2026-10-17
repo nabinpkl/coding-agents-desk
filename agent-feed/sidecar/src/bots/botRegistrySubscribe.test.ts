@@ -186,10 +186,10 @@ test("and told when it resolves again, which is the half the bug dropped", async
   stop();
 });
 
-test("a view subscriber is still not woken by a session's counters moving", async () => {
-  // The constraint that keeps this from being the hundred-a-minute flood wearing a new hat, and it
-  // is about what a write really moves: `lastEventAt` and the activity bin change on every one, a
-  // panel already hears those from the session catalog stream, and nothing here compares them.
+test("a view subscriber is not woken by writes inside the minute a card already shows", async () => {
+  // The constraint that keeps this from being the hundred-a-minute flood wearing a new hat. A write
+  // moves `lastEventAt`; the card prints hours and minutes, so a write that leaves the minute where
+  // it was has nothing new to draw.
   const { registry } = await aBotHoldingAResolvableReference();
   const held = sessions.get("pi:session-1")!;
   const woken: number[] = [];
@@ -200,13 +200,39 @@ test("a view subscriber is still not woken by a session's counters moving", asyn
   );
   woken.length = 0;
 
-  sessions.set("pi:session-1", {
-    ...held,
-    summary: { ...held.summary, lastEventAt: held.summary.lastEventAt + 5000, activity: "live" },
-  });
-  notifyCatalog();
+  for (const lastEventAt of [5_000, 30_000, 59_999]) {
+    sessions.set("pi:session-1", { ...held, summary: { ...held.summary, lastEventAt } });
+    notifyCatalog();
+  }
   await settle();
   expect(woken).toEqual([]);
+  stop();
+});
+
+test("a view subscriber IS woken when the minute or the activity a card shows moves", async () => {
+  // Measured 2026-10-17: a card held "ready" and a time 42 seconds old while its session wrote
+  // throughout, because this stream sent its opening snapshot and nothing after.
+  const { registry } = await aBotHoldingAResolvableReference();
+  const held = sessions.get("pi:session-1")!;
+  const drawn: string[] = [];
+  const stop = await registry.subscribe(
+    (snapshot) => {
+      const one = snapshot.bots[0]!.sessions[0]!;
+      drawn.push(`${one.activity}@${one.lastEventAt}`);
+    },
+    undefined,
+    { onChange: "view" },
+  );
+  const before = drawn.length;
+
+  sessions.set("pi:session-1", { ...held, summary: { ...held.summary, lastEventAt: 61_000 } });
+  notifyCatalog();
+  await settle();
+  sessions.set("pi:session-1", { ...held, summary: { ...held.summary, lastEventAt: 61_000, activity: "live" } });
+  notifyCatalog();
+  await settle();
+
+  expect(drawn.slice(before)).toEqual([`${held.summary.activity}@61000`, "live@61000"]);
   stop();
 });
 
