@@ -14,6 +14,7 @@ import type { BotSessionRef, HubStreamEvent, Message, MessageRef, RenamedBracket
 import { opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencode/opencodeClient";
 import { subscribeCatalog } from "@/transcripts/catalog/catalogState";
 import type { HubClient } from "@/messaging/hubClient";
+import { agentKindLine, agentPreamble, ownerKindLine } from "@repo/agent-feed/sidecar/mods/agentdesk-hub/hooks/hubKindWording.ts";
 
 /** One opencode session as the hub stream needs it. */
 export interface OpencodeSessionRef {
@@ -49,6 +50,11 @@ function describeRefs(refs: MessageRef[]): string {
  * has no meta channel. A `<channel>` tag here is the hub's own envelope, not a claim by the sender:
  * the hub refuses any body that already contains one, so a message cannot arrive with the tag
  * forged.
+ *
+ * An opencode prompt is read as the person's own, so what the message is goes outside the tag, in
+ * the words a Claude session is given (`hubKindWording.ts`): before it for another agent's message,
+ * which carries none of the owner's authority and asks only what its kind says; after it for the
+ * owner's, which says how to answer.
  */
 export function messagePrompt(message: Message, fromName: string): string {
   const meta = [
@@ -60,7 +66,9 @@ export function messagePrompt(message: Message, fromName: string): string {
     `kind="${message.kind}"`,
     `hops="${message.hops}"`,
   ].join(" ");
-  return `<channel source="agentdesk-relay" ${meta}>\n${message.body}${describeRefs(message.refs)}\n</channel>`;
+  const envelope = `<channel source="agentdesk-relay" ${meta}>\n${message.body}${describeRefs(message.refs)}\n</channel>`;
+  if (message.fromKind === "human") return [envelope, "", ownerKindLine(message)].join("\n");
+  return [agentPreamble("channel"), agentKindLine(message), "", envelope].join("\n");
 }
 
 export interface HubOpencodeDeps {

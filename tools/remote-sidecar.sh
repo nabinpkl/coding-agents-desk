@@ -120,6 +120,11 @@ sidecar_sources=(
 wire_source="${repo}/agent-feed/wire"
 runtime_paths_source="${repo}/tools/runtime-paths.mjs"
 pty_proto_source="${repo}/terminal/pty-manager/proto/pty.proto"
+# The one file of the hub mod the sidecar imports: what each kind of hub message asks, shared with
+# the opencode adapter. It has to live inside the mod, since Claude Code refuses a mod import from
+# outside its folder. Only this file goes, not the mod: a peer without the mods' plugin.json
+# launches its Claude sessions without them, as it did before (`configClaudeLaunch.ts`).
+hub_wording_source="${repo}/agent-feed/sidecar/mods/agentdesk-hub/hooks/hubKindWording.ts"
 
 # The annotator's deploy closure: everything docker needs to build the server
 # image, plus what the oracle e2e needs to run against it. Same allow-list rule
@@ -143,7 +148,7 @@ annotator_deploy=(
 # What `watch` polls, built from the same variables the rsyncs below use rather than written out a
 # second time. A path added to the closure and forgotten here would be a file that reaches the peer
 # only when somebody ships by hand, which is the exact failure `watch` exists to end.
-closure=("${sidecar_sources[@]}" "${wire_source}" "${runtime_paths_source}" "${pty_proto_source}" "${annotator_sources[@]}" "${annotator_deploy[@]}")
+closure=("${sidecar_sources[@]}" "${wire_source}" "${runtime_paths_source}" "${pty_proto_source}" "${hub_wording_source}" "${annotator_sources[@]}" "${annotator_deploy[@]}")
 # The two files whose change means the peer has to resolve dependencies again. Everything else in
 # the closure is source the peer's supervisor picks up by itself. The annotator's package.json is
 # deliberately NOT here: nothing on the peer installs it, docker runs npm ci at the next deliberate
@@ -151,11 +156,12 @@ closure=("${sidecar_sources[@]}" "${wire_source}" "${runtime_paths_source}" "${p
 manifest=("${repo}/agent-feed/sidecar/package.json" "${repo}/agent-feed/sidecar/bun.lock")
 
 ship_sources() {
-    on_peer "mkdir -p '${remote_repo}/agent-feed/sidecar' '${remote_repo}/tools' '${remote_repo}/terminal/pty-manager/proto' '${remote_repo}/agentdesk-annotator/deploy'"
+    on_peer "mkdir -p '${remote_repo}/agent-feed/sidecar/mods/agentdesk-hub/hooks' '${remote_repo}/tools' '${remote_repo}/terminal/pty-manager/proto' '${remote_repo}/agentdesk-annotator/deploy'"
     rsync -a --delete "${sidecar_sources[@]}" "${peer}:${remote_repo}/agent-feed/sidecar/"
     rsync -a --delete "${wire_source}" "${peer}:${remote_repo}/agent-feed/"
     rsync -a "${runtime_paths_source}" "${peer}:${remote_repo}/tools/"
     rsync -a "${pty_proto_source}" "${peer}:${remote_repo}/terminal/pty-manager/proto/"
+    rsync -a "${hub_wording_source}" "${peer}:${remote_repo}/agent-feed/sidecar/mods/agentdesk-hub/hooks/"
     rsync -a --delete --exclude='/deploy/' "${annotator_sources[@]}" "${peer}:${remote_repo}/agentdesk-annotator/"
     rsync -a --delete --exclude='.env' "${annotator_deploy[@]}" "${peer}:${remote_repo}/agentdesk-annotator/deploy/"
 }

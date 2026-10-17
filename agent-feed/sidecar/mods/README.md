@@ -50,6 +50,10 @@ confirms it to the hub through `src/hubConfirmMain.ts` only once the prompt has 
 Load it beside `prompt-guard`, and the relay MCP server keeps its tools but opens no stream of its
 own when it sees this mod on the session's command line.
 
+What each kind of message asks of the session (`hooks/hubKindWording.ts`) is shared with the
+sidecar, which frames opencode prompts with it. It lives here because Claude Code refuses a mod
+import from outside the mod's folder; a peer sidecar is shipped that one file and not the mod.
+
 ## How sessions get them
 
 Every Claude session the sidecar launches, resumes or forks loads both mods with `--plugin-dir`
