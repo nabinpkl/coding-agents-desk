@@ -102,7 +102,7 @@ export function useTmuxComposer(
   const edited = useRef(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The address is a fresh object on every render of the caller, so it cannot be a dependency.
-  // Held in a ref and keyed by identity, the same way `useCliInput` does it.
+  // Held in a ref and keyed by identity, the same way `useCliSession` does it.
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const key = active ? `${session.source}/${session.sessionId}` : null;

@@ -51,7 +51,7 @@ import { usePanelCommands } from "@/features/session-view/usePanelCommands";
 import { SummaryBand } from "@/features/summary/SummaryBand";
 import { SummaryControl } from "@/features/summary/SummaryControl";
 import { useSummary } from "@/features/summary/useSummary";
-import { cliInputReasonText, useCliInput, type CliInputHandle } from "@/features/cli-input/useCliInput";
+import { useCliSession } from "@/features/cli-input/useCliSession";
 import {
   tmuxComposerReasonText,
   useTmuxComposer,
@@ -266,7 +266,7 @@ function SessionViewContent({
   // Whether this is a Claude Code process in someone's terminal, which is what decides between the
   // window composer and a plain send. Asked only for claude rows; every other source leaves the
   // hook inert and never issues a request.
-  const cliInput = useCliInput(feed, { source, sessionId }, source === "claude");
+  const cliSession = useCliSession(feed, { source, sessionId }, source === "claude");
   const composerPane = useSessionComposerPane(source, sessionId, pane);
 
   const terminalComposer = useMemo<AgentTerminalComposer | null>(() => {
@@ -452,7 +452,7 @@ function SessionViewContent({
         error={commands.commandError ?? externalError}
         question={openQuestion}
         ownerWaiting={backgroundTasks.ownerWaiting}
-        cliInput={cliInput}
+        cliSession={cliSession}
         windowComposerClient={source === "codex" ? windowComposers.codex : windowComposers.claude}
         agentTerminal={terminalComposer}
         terminalComposer={composerPane}

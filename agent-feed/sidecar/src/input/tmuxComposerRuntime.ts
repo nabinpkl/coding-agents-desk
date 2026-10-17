@@ -159,9 +159,8 @@ export interface TmuxComposerListener {
  * have to grow a timer to notice, which is the thing this replaced.
  *
  * A pane that DIES is not noticed here, and deliberately: the pipe simply goes quiet. It is
- * noticed at the next push, whose tmux call fails and drops the held pane -- the same place
- * `useCliInput` corrects a session that died under the composer, and the moment a reader is
- * about to care.
+ * noticed at the next push, whose tmux call fails and drops the held pane -- the moment a reader
+ * is about to care.
  */
 export function observeTmuxComposer(
   sessionId: string,

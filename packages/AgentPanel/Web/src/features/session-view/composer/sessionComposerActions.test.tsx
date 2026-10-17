@@ -214,7 +214,7 @@ describe("the context meter's Compact button", () => {
     session: { source: "claude", sessionId: "c1" } as ComposerModel["session"],
     isClaude: true,
     tmuxBand: true,
-    inboxBand: false,
+    cliSessionBand: false,
     agentTerminalBand: false,
     transport: { kind: "tmux-composer" },
     editorValue: "",
@@ -242,7 +242,7 @@ describe("the context meter's Compact button", () => {
       session: { source: "opencode", sessionId: "o1" } as ComposerModel["session"],
       isClaude: false,
       tmuxBand: false,
-      inboxBand: false,
+      cliSessionBand: false,
       agentTerminalBand: false,
       transport: { kind: "agent-session" },
       editorValue: "",
@@ -253,29 +253,26 @@ describe("the context meter's Compact button", () => {
     expect(onRunSlash).toHaveBeenCalledWith("compact", "");
   });
 
-  it("never goes through the CLI inbox, where Claude reads /compact as a peer's words", async () => {
+  it("a terminal session not yet mirrored attaches the pane and sends nothing", async () => {
     const engage = vi.fn();
-    const send = vi.fn(async () => true);
     const m = tmux({
       tmuxBand: false,
-      inboxBand: true,
-      transport: { kind: "cli-inbox" },
+      cliSessionBand: true,
+      transport: { kind: "cli-session" },
       engage,
-      cliInput: { send } as never,
     });
     const control = compactControl(m)!;
     // It attaches the pane, the way reaching for the field does, and waits for it.
     expect(control.prepare).toBe(engage);
     expect(control.blocked).toBe("Reaching this session's terminal\u2026");
     await expect(control.run()).resolves.toBe(false);
-    expect(send).not.toHaveBeenCalled();
   });
 
   it("says so when the session has no pane to type it into", () => {
     const control = compactControl(tmux({
       tmuxBand: false,
-      inboxBand: true,
-      transport: { kind: "cli-inbox" },
+      cliSessionBand: true,
+      transport: { kind: "cli-session" },
       tmuxComposer: { pending: false, reason: "no-pane" } as never,
     }))!;
     expect(control.blocked).toBe("This session has no terminal the panel can type /compact into.");
@@ -284,7 +281,7 @@ describe("the context meter's Compact button", () => {
   it("is not offered where no door here takes a command", () => {
     expect(compactControl(model({
       tmuxBand: false,
-      inboxBand: false,
+      cliSessionBand: false,
       agentTerminalBand: false,
       transport: { kind: "agent-session" },
     }))).toBeNull();

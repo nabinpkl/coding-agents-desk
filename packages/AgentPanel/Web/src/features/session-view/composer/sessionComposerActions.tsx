@@ -42,8 +42,8 @@ const SEND_IN_FIELD_CLASS =
  * One turn through a transport owned outside the panel's agent-session queue.
  *
  * Separate from `submit` rather than folded into it because the two do different things: this
- * is a delivery to a CLI inbox or an already-open pty, with no queue to join and nothing to
- * steer. The draft survives a refusal so nothing is lost.
+ * is a delivery to an already-open pty, with no queue to join and nothing to steer. The draft
+ * survives a refusal so nothing is lost.
  */
 export async function submitOwnedTransport(m: ComposerModel, text = m.editorValue.trim()): Promise<boolean> {
   if (m.deliveryPending || !text) return false;
@@ -52,10 +52,6 @@ export async function submitOwnedTransport(m: ComposerModel, text = m.editorValu
   try {
     if (m.transport.kind === "agent-terminal") {
       await m.transport.terminal.send(text);
-      m.setLocalDraft("");
-      return true;
-    }
-    if (m.transport.kind === "cli-inbox" && await m.cliInput.send(text)) {
       m.setLocalDraft("");
       return true;
     }
@@ -132,7 +128,10 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
     await m.tmuxComposer.submit();
     return;
   }
-  if (m.inboxBand || m.agentTerminalBand) {
+  // A terminal session whose pane is not mirrored yet has nowhere to send: the draft waits and
+  // moves into the pane's box when the mirror attaches.
+  if (m.cliSessionBand) return;
+  if (m.agentTerminalBand) {
     await submitOwnedTransport(m);
     return;
   }
@@ -281,13 +280,15 @@ if (m.windowBand) {
     placement: "field",
     onClick: () => void m.tmuxComposer.submit(),
   });
-} else if (m.inboxBand || m.agentTerminalBand) {
+} else if (m.cliSessionBand) {
+  // No action: nothing is sent from this band. The pane's mirror, once it attaches, brings its own.
+} else if (m.agentTerminalBand) {
   // One action, deliberately. Steer and Stop act on a queue the panel owns; a terminal session
   // owns its own, and the person at that keyboard is the one who can interrupt it.
   actions.push({
-    key: m.agentTerminalBand ? "send-agent-terminal" : "send-inbox",
-    ariaLabel: m.agentTerminalBand ? "Send through Agent Feed terminal" : "Send to the terminal session",
-    title: m.agentTerminalBand ? "Send through the open Agent Feed terminal" : "Send to the terminal session",
+    key: "send-agent-terminal",
+    ariaLabel: "Send through Agent Feed terminal",
+    title: "Send through the open Agent Feed terminal",
     icon: m.deliveryPending ? (
       <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
     ) : (

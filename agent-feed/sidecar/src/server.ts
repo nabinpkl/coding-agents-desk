@@ -18,7 +18,7 @@ import { createStartSessionRoutes } from "@/http/agent-routes/startSessionRoutes
 import { createHandoverRoutes, LIVE_HANDOVER_ACTIONS } from "@/http/agent-routes/handoverRoutes";
 import { createOpencodeRoutes } from "@/http/agent-routes/opencodeRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
-import { createCliInputRoutes } from "@/http/session-routes/cliInputRoutes";
+import { createCliSessionRoutes } from "@/http/session-routes/cliSessionRoutes";
 import {
   createTmuxComposerRoutes,
   liveTmuxComposerDependencies,
@@ -286,7 +286,7 @@ const routes: RouteHandler[] = [
   // `/api/sessions/` and would otherwise be rejected before they are matched.
   createTaskRoutes(),
   // And again: `/input` is under `/api/sessions/` too.
-  createCliInputRoutes(),
+  createCliSessionRoutes(),
   // And `/agents/<id>/transcript`, which is under `/api/sessions/` for the same reason: a
   // subagent belongs to the session that launched it and is addressed through it.
   createSubagentRoutes(),

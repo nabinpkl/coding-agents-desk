@@ -326,7 +326,7 @@ and goes when it is.
 ## What gets deleted
 
 - **Relay MCP delivery paths:** `claudeSend` (tmux send-keys into the composer) and `claudeNotify` (socket inbox), plus the router cases that pick between them. Messaging has one path.
-- **The panel composer's socket inbox (ADR-0107) stays.** That feature types into a session as the owner's own turn, which is a different trust level from a message.
+- **The panel composer's socket inbox (ADR-0107) is gone too** (ADR-0142, 2026-10-17). A turn on that socket arrives as a peer's message, not the owner's, and sending it read the session's messaging key. The composer types into a session through its tmux pane.
 - **The annotator's uncommitted `docs/dispatch-plan.md` is deleted.** This document replaces it.
 
 ## Alternatives considered

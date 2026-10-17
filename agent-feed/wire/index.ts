@@ -12,10 +12,8 @@ export type {
 
 export type {
   ClaudeSessionEntrypoint,
-  CliInputReceipt,
-  CliInputStatus,
-  CliInputUnavailableReason,
-} from "./cliInput.ts";
+  CliSessionStatus,
+} from "./cliSession.ts";
 
 export type {
   ComposerCommand,

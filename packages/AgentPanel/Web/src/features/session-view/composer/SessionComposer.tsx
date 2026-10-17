@@ -51,7 +51,7 @@ import { useBackgroundTasks } from "@/features/background-tasks/useBackgroundTas
 import { SummaryBand } from "@/features/summary/SummaryBand";
 import { SummaryControl } from "@/features/summary/SummaryControl";
 import { useSummary } from "@/features/summary/useSummary";
-import { cliInputReasonText, useCliInput, type CliInputHandle } from "@/features/cli-input/useCliInput";
+import type { CliSessionHandle } from "@/features/cli-input/useCliSession";
 import {
   tmuxComposerReasonText,
   useTmuxComposer,
@@ -119,7 +119,7 @@ export function SessionComposer({
   error,
   question,
   ownerWaiting,
-  cliInput,
+  cliSession,
   windowComposerClient,
   agentTerminal,
   terminalComposer,
@@ -151,7 +151,7 @@ export function SessionComposer({
    * Whether this session is a Claude Code process in a terminal, and the way to type into it.
    * Resolved by the app, because it is a sidecar read and this component takes only the host.
    */
-  cliInput: CliInputHandle;
+  cliSession: CliSessionHandle;
   /**
    * This session's window composer, bound to its source. Resolved by the app, because it is a
    * sidecar read and this component takes only the host.
@@ -199,8 +199,8 @@ export function SessionComposer({
   const isClaude = source === "claude";
   const isCodex = source === "codex";
   const isOpencode = source === "opencode";
-  const inboxCandidate = isClaude && cliInput.isTerminalSession;
-  const windowCandidate = (isClaude || isCodex) && !inboxCandidate;
+  const terminalCandidate = isClaude && cliSession.isTerminalSession;
+  const windowCandidate = (isClaude || isCodex) && !terminalCandidate;
   const running = state.runState === "running";
   const queued = state.queue.followUp + state.queue.steer;
 
@@ -218,7 +218,7 @@ export function SessionComposer({
 
   // The same session's own prompt box, mirrored while it is running in a tmux pane.
   //
-  // Asked for every Claude session rather than only for `inboxCandidate` ones, and that is not
+  // Asked for every Claude session rather than only for `terminalCandidate` ones, and that is not
   // caution -- it is the difference between this working and never appearing. `entrypoint` says
   // how a session was LAUNCHED, and every live tmux session on this machine reports
   // `claude-desktop` because they were forked from Remote Control: measured, all ten of them.
@@ -268,23 +268,23 @@ export function SessionComposer({
   // It is also the only one of the two that is two-way -- what somebody types in the terminal
   // shows up here, which an AX write cannot give.
   //
-  // A native window owns it next, for a session that has no pane. A Claude CLI inbox after that,
-  // for one running outside tmux, where there is no box to read. Only a KNOWN native refusal or
-  // an unavailable inbox may fall through to the Agent Feed pty, and only while that pty is
-  // already open. Opening a process remains an explicit action in the terminal control.
+  // A native window owns it next, for a session that has no pane. A terminal CLI session whose pane
+  // is not mirrored yet gets a band that sends nothing and hands its draft to the mirror when that
+  // attaches; an already-open Agent Feed pty takes it instead, as it takes a KNOWN native refusal.
+  // Opening a process remains an explicit action in the terminal control. (A turn put into the
+  // session's messaging socket used to sit here, and was removed 2026-10-16: see
+  // `wire/cliSession.ts`.)
   const transport:
     | { kind: "window" }
     | { kind: "tmux-composer" }
-    | { kind: "cli-inbox" }
+    | { kind: "cli-session" }
     | { kind: "agent-terminal"; terminal: AgentTerminalComposer }
     | { kind: "agent-session" } = tmuxComposer.mirrored
       ? { kind: "tmux-composer" }
-      : inboxCandidate
-      ? cliInput.available
-        ? { kind: "cli-inbox" }
-        : agentTerminal
-          ? { kind: "agent-terminal", terminal: agentTerminal }
-          : { kind: "cli-inbox" }
+      : terminalCandidate
+      ? agentTerminal
+        ? { kind: "agent-terminal", terminal: agentTerminal }
+        : { kind: "cli-session" }
       : windowCandidate
         ? windowComposer.statusKnown && !windowComposer.enabled && agentTerminal
           ? { kind: "agent-terminal", terminal: agentTerminal }
@@ -292,7 +292,7 @@ export function SessionComposer({
         : { kind: "agent-session" };
   const windowBand = transport.kind === "window";
   const tmuxBand = transport.kind === "tmux-composer";
-  const inboxBand = transport.kind === "cli-inbox";
+  const cliSessionBand = transport.kind === "cli-session";
   const agentTerminalBand = transport.kind === "agent-terminal";
 
   // Hands the session the function that takes a dropped image, so the card is the target.
@@ -418,10 +418,10 @@ export function SessionComposer({
   const piUnavailable = !isClaude && !isCodex && !capabilities.canSend;
   const unavailable = windowBand || tmuxBand
     ? false
-    : inboxBand
-      // A terminal session that stopped running: the field stays visible with the reason under
-      // it, rather than swapping the whole band out from under someone mid-sentence.
-      ? !cliInput.available
+    : cliSessionBand
+      // Unavailable once the pane has been looked for and not found; until then the field is what
+      // attaches it.
+      ? tmuxComposer.reason === "no-pane"
       : agentTerminalBand
         ? false
         : piUnavailable;
@@ -430,14 +430,13 @@ export function SessionComposer({
     acceptFiles: fileAccept,
     agentTerminalBand,
     capabilities,
-    cliInput,
+    cliSessionBand,
     deliveryError,
     deliveryPending,
     editorValue,
     engage,
     error,
     filePicker,
-    inboxBand,
     isClaude,
     isCodex,
     localDraft,

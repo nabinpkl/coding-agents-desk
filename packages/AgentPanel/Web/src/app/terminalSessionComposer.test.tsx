@@ -37,7 +37,7 @@ vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", async () => {
  * terminal session has none of that: there is one thing to do, which is hand it a turn.
  */
 describe("terminal session composer", () => {
-  const INPUT_PATH = "/api/sessions/claude/sid-claude-01/input";
+  const CLI_PATH = "/api/sessions/claude/sid-claude-01/cli";
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -50,23 +50,26 @@ describe("terminal session composer", () => {
     restoreViewport();
   });
 
-  function setupInput(status: Record<string, unknown>, receipt?: Record<string, unknown>) {
+  function setupInput(status: Record<string, unknown>) {
     const harness = setup();
-    harness.transport.responses.set(`GET ${INPUT_PATH}`, {
-      status: 200,
-      body: JSON.stringify(status),
-    });
-    if (receipt) {
-      harness.transport.responses.set(`POST ${INPUT_PATH}`, {
-        status: 200,
-        body: JSON.stringify(receipt),
-      });
-    }
+    harness.transport.responses.set(`GET ${CLI_PATH}`, { status: 200, body: JSON.stringify(status) });
     return harness;
   }
 
+  /** A reading of the session's pane, on the stream the mirror opens once the field is reached for. */
+  function paneReads(transport: ReturnType<typeof setup>["transport"], reason: string | null, text = "") {
+    act(() => {
+      transport.deliver("/composer/stream", {
+        composer: { text: reason ? null : text, hint: null, reason, exact: true, commands: [] },
+        question: null,
+      });
+    });
+  }
+
+  const TERMINAL = { entrypoint: "cli", tmuxSession: null };
+
   it("replaces the window composer for a session running in a terminal", async () => {
-    const { transport, unmount } = setupInput({ available: true, entrypoint: "cli", reason: null });
+    const { transport, unmount } = setupInput(TERMINAL);
     openClaudeThread(transport);
     expect(await screen.findByLabelText("Message this terminal session")).toBeInTheDocument();
     expect(screen.queryByLabelText("Claude composer text")).toBeNull();
@@ -74,11 +77,7 @@ describe("terminal session composer", () => {
   });
 
   it("keeps the window composer for a Desktop session, which has a field to mirror", async () => {
-    const { transport, unmount } = setupInput({
-      available: true,
-      entrypoint: "claude-desktop",
-      reason: null,
-    });
+    const { transport, unmount } = setupInput({ entrypoint: "claude-desktop", tmuxSession: null });
     openClaudeThread(transport);
     await waitFor(() => {
       expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
@@ -87,79 +86,52 @@ describe("terminal session composer", () => {
     unmount();
   });
 
-  it("posts the turn to the session's inbox and clears the draft", async () => {
-    const { transport, unmount } = setupInput(
-      { available: true, entrypoint: "cli", reason: null },
-      { delivered: true, reason: null },
-    );
+  it("sends nothing from a terminal session's band: the draft waits, and there is no send button", async () => {
+    const { transport, unmount } = setupInput(TERMINAL);
     openClaudeThread(transport);
     const field = await screen.findByLabelText("Message this terminal session");
     fireEvent.change(field, { target: { value: "run the tests" } });
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Send to the terminal session"));
+      fireEvent.keyDown(field, { key: "Enter" });
       await Promise.resolve();
     });
-    expect(transport.requests).toContainEqual({
+    expect((field as HTMLTextAreaElement).value).toBe("run the tests");
+    expect(screen.queryByLabelText("Send to the terminal session")).toBeNull();
+    // Nothing reaches the session's messaging socket, or any route that once wrote to it.
+    expect(transport.requests.some((r) => r.method === "POST" && r.path.startsWith("/api/sessions/claude/"))).toBe(false);
+    unmount();
+  });
+
+  it("hands the draft to the pane's composer once the mirror attaches", async () => {
+    const { transport, unmount } = setupInput(TERMINAL);
+    openClaudeThread(transport);
+    const field = await screen.findByLabelText("Message this terminal session");
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: "keep this" } });
+    paneReads(transport, null);
+    await waitFor(() => expect(screen.queryByLabelText("Message this terminal session")).toBeNull());
+    // The draft typed before the mirror attached is what the pane's box is asked to hold.
+    await waitFor(() => expect(transport.requests).toContainEqual(expect.objectContaining({
       method: "POST",
-      path: INPUT_PATH,
-      body: { text: "run the tests" },
-    });
-    await waitFor(() => {
-      expect((field as HTMLTextAreaElement).value).toBe("");
-    });
+      path: "/api/sessions/claude/sid-claude-01/composer",
+      body: { text: "keep this" },
+    })), { timeout: 3000 });
     unmount();
   });
 
-  it("keeps the draft when the session refused it, and says why", async () => {
-    // The turn is the expensive thing the viewer typed on a phone. Losing it because a terminal
-    // was closed is the failure worth designing against.
-    const { transport, unmount } = setupInput(
-      { available: true, entrypoint: "cli", reason: null },
-      { delivered: false, reason: "unreachable" },
-    );
+  it("says so when the session has no tmux pane to type into", async () => {
+    const { transport, unmount } = setupInput(TERMINAL);
     openClaudeThread(transport);
     const field = await screen.findByLabelText("Message this terminal session");
-    fireEvent.change(field, { target: { value: "still here" } });
-    await act(async () => {
-      fireEvent.click(screen.getByLabelText("Send to the terminal session"));
-      await Promise.resolve();
-    });
-    expect((field as HTMLTextAreaElement).value).toBe("still here");
-    await waitFor(() => {
-      expect(screen.getByText(/stopped listening/)).toBeInTheDocument();
-    });
-    unmount();
-  });
-
-  it("re-asks on focus, so a session started after the panel opened becomes writable", async () => {
-    const { transport, unmount } = setupInput({
-      available: false,
-      entrypoint: "cli",
-      reason: "not-running",
-    });
-    openClaudeThread(transport);
-    const field = await screen.findByLabelText("Message this terminal session");
-    expect(field).toBeDisabled();
-    transport.responses.set(`GET ${INPUT_PATH}`, {
-      status: 200,
-      body: JSON.stringify({ available: true, entrypoint: "cli", reason: null }),
-    });
-    await act(async () => {
-      fireEvent.focus(field);
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(screen.getByLabelText("Message this terminal session")).not.toBeDisabled();
-    });
+    fireEvent.focus(field);
+    paneReads(transport, "no-pane");
+    await waitFor(() => expect(screen.getByLabelText("Message this terminal session")).toBeDisabled());
+    expect(screen.getByText(/outside a tmux pane, so the panel can't type into it/)).toBeInTheDocument();
     unmount();
   });
 
   it("falls through a refused window composer to the already-open Agent Feed terminal", async () => {
-    const { transport, fake, unmount } = setupInput({
-      available: true,
-      entrypoint: "claude-desktop",
-      reason: null,
-    });
+    const { transport, fake, unmount } = setupInput({ entrypoint: "claude-desktop", tmuxSession: null });
     transport.responses.set("POST /api/terminals/terminal-1/input", { status: 204, body: "" });
     openClaudeThread(transport);
     const windowField = await screen.findByLabelText("Claude composer text");
@@ -209,11 +181,7 @@ describe("terminal session composer", () => {
   });
 
   it("keeps an available native window ahead of the Agent Feed terminal", async () => {
-    const { transport, fake, unmount } = setupInput({
-      available: true,
-      entrypoint: "claude-desktop",
-      reason: null,
-    });
+    const { transport, fake, unmount } = setupInput({ entrypoint: "claude-desktop", tmuxSession: null });
     openClaudeThread(transport);
     const windowField = await screen.findByLabelText("Claude composer text");
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
@@ -243,38 +211,10 @@ describe("terminal session composer", () => {
     unmount();
   });
 
-  it("keeps an available CLI inbox ahead of the Agent Feed terminal", async () => {
-    const { transport, unmount } = setupInput(
-      { available: true, entrypoint: "cli", reason: null },
-      { delivered: true, reason: null },
-    );
+  it("an open Agent Feed terminal takes a terminal session the pane mirror has not reached", async () => {
+    const { transport, unmount } = setupInput(TERMINAL);
     openClaudeThread(transport);
-    await screen.findByLabelText("Message this terminal session");
-    fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
-    emitTerminalState({
-      kind: "ready",
-      descriptor: {
-        terminalId: "terminal-1",
-        ptySessionName: "agent-resume-claude-sid-claude-01",
-        pid: 42,
-        columns: 80,
-        rows: 24,
-      },
-    });
-
-    expect(screen.getByLabelText("Message this terminal session")).toBeEnabled();
-    expect(screen.queryByLabelText("Message through Agent Feed terminal")).toBeNull();
-    unmount();
-  });
-
-  it("uses the Agent Feed terminal when the detected CLI inbox is unavailable", async () => {
-    const { transport, unmount } = setupInput({
-      available: false,
-      entrypoint: "cli",
-      reason: "no-inbox",
-    });
-    openClaudeThread(transport);
-    expect(await screen.findByLabelText("Message this terminal session")).toBeDisabled();
+    expect(await screen.findByLabelText("Message this terminal session")).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
     emitTerminalState({
@@ -289,6 +229,7 @@ describe("terminal session composer", () => {
     });
 
     expect(await screen.findByLabelText("Message through Agent Feed terminal")).toBeEnabled();
+    expect(screen.queryByLabelText("Message this terminal session")).toBeNull();
     unmount();
   });
 });

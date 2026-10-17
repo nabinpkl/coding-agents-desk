@@ -9,7 +9,6 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import type { ModifierState } from "@/features/keyboard/modifierLatch";
 import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
-import { cliInputReasonText } from "@/features/cli-input/useCliInput";
 import { tmuxComposerReasonText } from "@/features/cli-input/useTmuxComposer";
 import { harnessName } from "@/features/session-view/SessionView";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
@@ -158,22 +157,19 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
         onChoose: m.tmuxComposer.chooseCommand,
       },
     }
-  : m.inboxBand
+  : m.cliSessionBand
   ? {
+      // A terminal session before its pane is mirrored. Focus is what attaches the mirror
+      // (`noteComposerFocus`), and the draft moves into the pane's box when it does, so the field
+      // stays live until the pane has been looked for and not found.
       value: m.localDraft,
       onChange: m.unavailable ? () => {} : m.setLocalDraft,
-      disabled: m.unavailable || m.deliveryPending,
+      disabled: m.unavailable,
       ariaLabel: "Message this terminal session",
-      placeholder: m.unavailable
-        ? "Session not reachable"
-        : "Send to the terminal m.session\u2026",
-      // The window band's limit, not Pi's: this is the same act, typing into a session someone
-      // else owns, and the sidecar refuses more than the harness's inbox should carry.
+      placeholder: m.unavailable ? "No terminal pane to type into" : "Reaching this session's terminal\u2026",
       maxLength: 100_000,
-      sendOnEnter: !m.unavailable,
-      // The status is re-read here rather than on a timer: focus is the moment someone intends
-      // to type, so it is the moment a stale "not running" is worth correcting.
-      onFocus: m.cliInput.refresh,
+      // Nothing is sent from here, so Enter is a newline rather than a send with nowhere to go.
+      sendOnEnter: false,
     }
   : m.agentTerminalBand
   ? {
@@ -241,11 +237,8 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
       ? tmuxComposerReasonText(m.tmuxComposer.reason)
       : m.tmuxComposer.error;
     captionIsError = m.tmuxComposer.reason != null || m.tmuxComposer.error != null;
-  } else if (m.inboxBand) {
-    // The reason outranks a transport error: "this session is not running" explains the failure,
-    // where the message from a request that never had anywhere to go does not.
-    caption = m.cliInput.reason ? cliInputReasonText(m.cliInput.reason) : m.deliveryError;
-    captionIsError = m.cliInput.reason != null || m.deliveryError != null;
+  } else if (m.cliSessionBand) {
+    if (m.unavailable) caption = "This session runs in a terminal outside a tmux pane, so the panel can't type into it.";
   } else if (m.agentTerminalBand) {
     caption = m.deliveryError ?? "Sending through the open Agent Feed terminal.";
     captionIsError = m.deliveryError != null;
@@ -264,7 +257,7 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
 export function composerSectionLabel(m: ComposerModel): string {
   return m.tmuxBand
     ? "Terminal session composer, mirrored"
-    : m.inboxBand
+    : m.cliSessionBand
     ? "Terminal session composer"
     : m.agentTerminalBand
     ? "Agent Feed terminal composer"

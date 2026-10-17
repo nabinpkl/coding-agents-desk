@@ -8,7 +8,6 @@
 import type { RefObject } from "react";
 import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { CliInputHandle } from "@/features/cli-input/useCliInput";
 import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/useComposerHold";
 import type { OpencodeSlashCommand } from "@/features/session-view/composer/useOpencodeCommands";
@@ -19,14 +18,14 @@ import type { AgentTerminalComposer } from "@/features/session-view/sessionTermi
 export type ComposerTransport =
   | { kind: "window" }
   | { kind: "tmux-composer" }
-  | { kind: "cli-inbox" }
+  /** A terminal CLI session whose tmux pane is not mirrored (yet, or at all). Sends nothing. */
+  | { kind: "cli-session" }
   | { kind: "agent-terminal"; terminal: AgentTerminalComposer }
   | { kind: "agent-session" };
 
 export interface ComposerModel {
   agentTerminalBand: boolean;
   capabilities: SessionSummary["capabilities"];
-  cliInput: CliInputHandle;
   deliveryError: string | null;
   deliveryPending: boolean;
   editorValue: string;
@@ -41,7 +40,7 @@ export interface ComposerModel {
    */
   acceptFiles: ((files: readonly File[]) => void) | null;
   filePicker: RefObject<HTMLInputElement | null>;
-  inboxBand: boolean;
+  cliSessionBand: boolean;
   isClaude: boolean;
   isCodex: boolean;
   localDraft: string;

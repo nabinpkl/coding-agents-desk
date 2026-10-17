@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded by ADR-0142
 date: 2026-08-20
+superseded-by: ADR-0142
 ---
 
 # Address a CLI session by its inbox, not its window

@@ -137,7 +137,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0098 | Rate-match the media path to the link | accepted | 2026-08-13 |
 | ADR-0099 | Observe an agent's background tasks from the OS, and stream their output on demand | proposed | 2026-08-14 |
 | ADR-0100 | A keyframe is a session-start event, not a runtime one | proposed | 2026-08-15 |
-| ADR-0107 | Address a CLI session by its inbox, not its window | accepted | 2026-08-20 |
+| ADR-0107 | Address a CLI session by its inbox, not its window | superseded by ADR-0142 | 2026-08-20 |
 | ADR-0108 | Render agent terminals inside the Agent Feed | proposed | 2026-08-26 |
 | ADR-0109 | Own first-party WebView desktop control in TypeScript | accepted | 2026-08-27 |
 | ADR-0110 | Own the Claude and Codex window composers in TypeScript | accepted | 2026-08-27 |
@@ -172,3 +172,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0139 | Arena contestants run as plain agents, and the arena records what each reached outside its worktree | accepted | 2026-10-13 |
 | ADR-0140 | An arena run may have a judge: a read-only session in a pane, briefed by the sidecar, prompted only by the reader | superseded by ADR-0141 | 2026-10-13 |
 | ADR-0141 | The arena's judge becomes its manager, which plans the lanes and runs them through the arena's own API | accepted | 2026-10-16 |
+| ADR-0142 | The composer stops typing into a CLI session through its messaging socket | accepted | 2026-10-17 |

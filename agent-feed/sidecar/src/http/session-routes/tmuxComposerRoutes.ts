@@ -1,9 +1,8 @@
 // Mirroring the panel's composer into the prompt box of a Claude CLI running in a tmux pane.
 //
-// Sits beside `cliInputRoutes.ts` and addresses sessions the same way, because it is the same act
-// seen from the other end: that one hands the harness a finished turn, this one drives the
-// keyboard of the terminal a person is looking at. Claude-only for the same structural reason, and
-// refused by the route pattern rather than by a runtime check.
+// Addresses sessions the way `cliSessionRoutes.ts` does, by Claude session id, and drives the
+// keyboard of the terminal a person is looking at. Claude-only because the box it reads is Claude's
+// TUI, and refused by the route pattern rather than by a runtime check.
 //
 // The pane is never named by the caller. It is always derived from the session id -- a request
 // that could name a tmux session would be a way to type into any pane on the machine -- and the

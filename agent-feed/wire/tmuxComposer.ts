@@ -1,9 +1,10 @@
 // Typing into the composer of a Claude session that is running inside a tmux pane.
 //
-// The third way to type at a session, and the only one that is a MIRROR rather than a delivery.
-// `cliInput.ts` puts a finished turn in the harness's inbox; `/api/agent-sessions` commands a
-// session the panel owns. This one drives the keyboard of a CLI somebody else is looking at, so
-// what travels is not a turn but the text the composer should be holding right now.
+// The way to type at a CLI session, and a MIRROR rather than a delivery. `/api/agent-sessions`
+// commands a session the panel owns; this one drives the keyboard of a CLI somebody else is looking
+// at, so what travels is not a turn but the text the composer should be holding right now. (A turn
+// handed to the harness's messaging socket was the other way, removed 2026-10-16: see
+// `cliSession.ts`.)
 //
 // Why the panel sends the whole desired text rather than the keystrokes: only the sidecar can see
 // what the composer currently holds, and it can read it in the same breath as it writes. A panel

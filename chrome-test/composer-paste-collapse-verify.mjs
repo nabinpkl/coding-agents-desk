@@ -69,6 +69,10 @@ try {
   started = true;
   const sessionId = stdout.trim();
   const session = { projectPath: REPO, source: 'claude', sessionId };
+  // The CLI writes no transcript until its first prompt (since 2026-10-05), and a session with no
+  // transcript is in no catalog the panel can select it from, so the thread never opens.
+  await run(join(REPO, 'tools/throwaway-session.sh'), ['say', NAME, 'Reply with exactly the word: ready'], { cwd: REPO });
+  await new Promise((resolve) => setTimeout(resolve, 9000));
 
   // More than 800 characters, which is what makes Claude collapse the push.
   const message = 'zebra '.repeat(150).trim();
@@ -86,7 +90,8 @@ try {
 
   // Reaching for the field is what attaches the mirror: opening the stream puts a `tmux pipe-pane`
   // on the pane, so the panel waits for intent rather than doing it to every thread somebody
-  // opens to read. Until then the band is the CLI inbox, which is a different field.
+  // opens to read. Until then the band is a terminal session's stand-in, which sends nothing and
+  // hands its draft to the mirror (ADR-0142).
   const INBOX = '[aria-label="Message this terminal session"]';
   const FIELD = '[aria-label="Type into this session\'s terminal composer"]';
   await page.waitForSelector(INBOX, { timeout: 60000 });

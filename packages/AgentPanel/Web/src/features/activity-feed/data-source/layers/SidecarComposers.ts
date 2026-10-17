@@ -1,15 +1,15 @@
 // Typing at a session that is already running somewhere else.
 //
-// Three ways to reach the same box, which is why they sit together: a Claude Desktop window
-// through the helper, a CLI session's inbox, and the session's own tmux pane. What they have in
+// The ways to reach the same box, which is why they sit together: a Claude Desktop window through
+// the helper, and the session's own tmux pane, with the read that says which kind of session it
+// is. (A CLI session's messaging socket was a third, removed 2026-10-16.) What they have in
 // common is that this panel is never the thing holding the composer -- it asks for a state and is
 // told what the box then holds, rather than tracking a local copy that would be wrong the moment
 // somebody types at the machine itself.
 
 import type {
   ClaudePermissionMode,
-  CliInputReceipt,
-  CliInputStatus,
+  CliSessionStatus,
   ComposerImageDrop,
   ComposerKeyPress,
   RailKey,
@@ -29,12 +29,12 @@ import type {
 import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarTranscript } from "@/features/activity-feed/data-source/layers/SidecarTranscript";
 
-function cliInputPath(session: SessionAddress): string {
-  return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/input`;
+function cliSessionPath(session: SessionAddress): string {
+  return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/cli`;
 }
 
 /**
- * The other way of typing at the same session, so it sits at the same address.
+ * The tmux pane's composer, addressed the same way as the CLI session status above it.
  *
  * Claude-only on the sidecar, which refuses any other source from the route pattern; the source is
  * still interpolated rather than hardcoded so a mistaken call fails as a 404 instead of quietly
@@ -178,29 +178,15 @@ export class SidecarComposers extends SidecarTranscript {
   // ---------------------------------------------------------------------
 
   /**
-   * Whether a Claude session running in someone's terminal can be typed into, and how it was
-   * launched.
+   * Whether a Claude session is running as a terminal CLI process, and in which tmux pane.
    *
    * Read rather than derived from `capabilities`, because it is a fact about a PROCESS and the
    * capabilities describe a session. A CLI session's row looks identical whether its terminal is
    * open or was closed an hour ago; only the harness's live registry knows the difference.
    */
-  async cliInputStatus(session: SessionAddress): Promise<CliInputStatus> {
-    return parse<CliInputStatus>(
-      await this.transport.request("GET", cliInputPath(session)),
-    );
-  }
-
-  /**
-   * Puts one turn in a running CLI session's inbox.
-   *
-   * Resolves with `delivered: false` rather than throwing when the session cannot take it: a
-   * closed terminal is an outcome the composer explains, not an exception. It still throws for a
-   * refused request (an empty or oversized turn), which is the panel's own bug.
-   */
-  async sendCliInput(session: SessionAddress, text: string): Promise<CliInputReceipt> {
-    return parse<CliInputReceipt>(
-      await this.transport.request("POST", cliInputPath(session), { body: { text } }),
+  async cliSessionStatus(session: SessionAddress): Promise<CliSessionStatus> {
+    return parse<CliSessionStatus>(
+      await this.transport.request("GET", cliSessionPath(session)),
     );
   }
 
