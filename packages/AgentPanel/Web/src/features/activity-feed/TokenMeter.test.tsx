@@ -209,6 +209,16 @@ describe("model name", () => {
     expect(screen.getByLabelText("Model: claude-opus-5[1m]").textContent).toBe("opus");
   });
 
+  it("leaves the model out where the composer's own selector already names it", () => {
+    render(
+      <TokenMeter
+        usage={{ current: 150_000, limit: 1_000_000, updatedAt: 1, model: "claude-opus-5[1m]" }}
+        showModel={false}
+      />,
+    );
+    expect(screen.queryByLabelText("Model: claude-opus-5[1m]")).toBeNull();
+  });
+
   it("says nothing for an id that is not shaped like one of Claude's", () => {
     // Codex names no model on an occupancy record, and a Claude line the harness stamped
     // `<synthetic>` names nothing real. A guessed word would read exactly like a measured one.

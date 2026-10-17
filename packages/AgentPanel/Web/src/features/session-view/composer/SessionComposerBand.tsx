@@ -367,6 +367,7 @@ export function SessionComposerBand({
                 feed={isClaude || isCodex || onOpencodeGo ? feed : null}
                 vendor={isCodex ? "codex" : isClaude ? "claude" : onOpencodeGo ? "opencode-go" : null}
                 compact={compactControl(model)}
+                showModel={!footerActions.some((action) => action.key === "switch-model")}
               />
             </div>
           ) : null}

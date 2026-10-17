@@ -235,6 +235,7 @@ export function TokenMeter({
   feed = null,
   vendor = null,
   compact = null,
+  showModel = true,
 }: {
   usage: TokenUsage | null;
   /**
@@ -251,6 +252,11 @@ export function TokenMeter({
   vendor?: QuotaVendorId | null;
   /** The panel's Compact button, or null where this session's composer cannot run one. */
   compact?: CompactControl | null;
+  /**
+   * Whether the row leads with the model. False where the composer's own model selector already
+   * names it, so the footer does not say it twice; the details panel names it either way.
+   */
+  showModel?: boolean;
 }) {
   // Hooks before the early return, because a session whose occupancy has not arrived yet renders
   // nothing and then renders something, and a conditional hook would break on exactly that.
@@ -330,7 +336,7 @@ export function TokenMeter({
         }}
         className="flex min-h-7 shrink-0 cursor-pointer touch-manipulation items-center gap-2 rounded-sm px-1 outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/10"
       >
-        <ModelChip model={usage.model} />
+        {showModel ? <ModelChip model={usage.model} /> : null}
         <CacheCountdown usage={usage} />
         <LimitChips quotas={accountWide(limits)} unavailable={limits.kind === "ready" ? limits.unavailable : undefined} />
         <span className="flex flex-col items-end gap-[2px]">
