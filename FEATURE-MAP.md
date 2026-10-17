@@ -23,7 +23,7 @@ Four pieces, and only four, carry the current path:
 | Panel UI | `packages/AgentPanel/Web/` | TypeScript / React | Vite dev server over the tailnet HTTPS origin. Edit, save, the page reloads. |
 | Sidecar | `agent-feed/sidecar/src/` | TypeScript on Bun | `bun --watch` re-reads in process; measured ~4s to visible, pid unchanged. |
 | Capture helper | `tools/grid-encoder/` | Swift | `just grid-encoder-install`, no app rebuild, no relaunch. |
-| Virtual display | `deskzoom/` | Swift | launchd job, restarted only deliberately. See `AGENTS.md` "The virtual display". |
+| Virtual display | `deskzoom/` | Swift | launchd job, restarted only deliberately. See `docs/agents/desktop-and-display.md`. |
 
 The loop is: edit TypeScript, reload the page. Neither the Mac host app nor the iPhone app needs
 rebuilding for it, which is the entire point of the shape the repo is in.
@@ -34,7 +34,7 @@ grid-encoder` for the one native helper that path spawns. Everything else native
 packages, the Rust PTY manager, the Xcode host suite, and the shell tests of the launch machinery --
 moved behind `just swift-check`, and the dormant voice arc behind `just voice-check`. `just
 check-all` still runs everything. Reach for Swift only when a change needs a native capability
-TypeScript cannot have; `AGENTS.md` ("TypeScript-first WebView glue") states the bar, and run
+TypeScript cannot have; `agent-feed/sidecar/AGENTS.md` ("TypeScript-first glue and logging") states the bar, and run
 `swift-check` when you do.
 
 ## How it got this shape
@@ -124,8 +124,71 @@ When a ledger and `git log` disagree, `git log` wins.
 Sessions run in **Claude** and **opencode**, and a handover runs between those two. Two more
 providers are still wired into the sidecar and still put rows in the session lists, and neither
 is current: **Pi** (dormant since 2026-09-13) and **Codex** (dormant since 2026-10-11). Both on
-the owner's word; `AGENTS.md` has what each still touches. A gap on a Pi or Codex row is not a bug
-to fix, and neither is a provider to extend.
+the owner's word; "Six things this map exists to stop you getting wrong", below, has what each
+still touches. A gap on a Pi or Codex row is not a bug to fix, and neither is a provider to extend.
+
+## Six things this map exists to stop you getting wrong
+
+Moved here from `AGENTS.md` on 2026-10-17, unchanged; the root `AGENTS.md` keeps one line for each.
+They are easy to infer backwards from the shape of the tree.
+
+- **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
+  of them, but the working loop is TypeScript: the Vite-served panel in `packages/AgentPanel/Web/`
+  and the supervised sidecar in `agent-feed/sidecar/src/`, with `tools/grid-encoder` as the
+  native helper behind them. An edit reaches the running system without a rebuild: in place for
+  most panel edits, by a supervised restart for the sidecar ("What an edit costs the open panel" in
+  `packages/AgentPanel/Web/AGENTS.md`).
+  This repo began as a Swift host plus a Swift iOS client and moved off that path because compiling
+  and reinstalling dominated iteration; the Swift that remains is lifecycle, transport, security
+  boundaries, and OS capabilities.
+- **Several approaches to one problem are checked in at once, and the code does not say which is
+  current.** A superseded pipeline still compiles and still passes its tests. Do not extend one
+  because you found it first, and do not merge two in your head across a compaction: check the map,
+  and check `git log` for the directory you are about to edit.
+- **Pi is no longer used as a session provider here** (recorded 2026-09-13, on the owner's word).
+  Sessions run in Claude and opencode (Codex is dormant too, below). The Pi provider is still
+  wired in and still looks current: `PiAgentBackend` registers in `agent-feed/sidecar/src/server.ts`, Pi sessions still show in the
+  sidebar with a PI badge, and `PRD.md` and `SPEC.md` still describe Pi as the directly controlled
+  provider. Do not extend it, and do not treat a gap on a Pi row as a bug to fix -- its tool rows
+  carry no summary, for one. The Pi SDK itself is NOT dead: `summary/summaryRuntime.ts` runs the
+  turn summarizer on `@earendil-works/pi-coding-agent` (the `summaryModel` in `/api/config`), so
+  retiring Pi means removing the provider, not that dependency.
+- **Codex is dormant as a session provider** (recorded 2026-10-11, on the owner's word). Sessions
+  run in Claude and opencode, and a handover runs between those two. Codex is still wired in and
+  still looks current: `CodexLiveBackend` registers in `agent-feed/sidecar/src/server.ts`,
+  `transcripts/catalog/codexCatalog.ts` reads its rollouts and its own `archived` column,
+  `transcripts/codex/` parses them, and Codex sessions still show in the session lists with a Codex
+  badge (`SourceBadge.tsx`). Do not extend it, do not suggest extending it (making it a handover
+  source was proposed once from the code's own comments), and do not treat a gap on a Codex row as
+  a bug to fix.
+- **The sidebar's Bots tab is dormant in favour of Canvas** (recorded 2026-09-15, on the owner's
+  word). Canvas is where Bots are read and acted on. The Bots tab (`AgentSidebarMode` `"bots"` in
+  `features/sidebar/AgentSidebar.tsx`) is still wired in and still looks current: it sits between
+  Sessions and Canvas, lists every Bot, and opens a Bot's session in the main thread view. Do not
+  extend it, and do not treat a gap in it as a bug to fix. The known one is a two-machine gap: that
+  view is handed the shell's `sessionViewContext`, whose `feed` is whichever machine the tab bar's
+  picker points at, so a peer's Bot session opened there sends its transcript, composer and image
+  drops to the wrong sidecar. Canvas cards do not have this gap, because each card's context comes
+  from `shellMachines.contextFor`. One piece is NOT dormant, so retiring the tab does not mean
+  removing it: `BotSidebarPanel` is the Canvas tab's roster too, rendered there with the `canvas`
+  prop. What IS the tab's alone is `thread.openBotSession`: the Canvas roster opens a session with
+  `roster.openSessionOnCanvas` instead.
+- **The current iteration is Canvas and its session cards; the sidebar's Sessions tab is dormant**
+  (recorded 2026-09-15, on the owner's word). Sessions are read, driven and judged on a Canvas
+  session card (`features/bots/cards/BotSessionCard.tsx`), at `?entry=feed&view=canvas`. The
+  Sessions tab (`AgentSidebarMode` `"sessions"`, its `ProjectSidebarItem` list) and the full-width
+  thread view it opens in the main column (`displayedThread` in `app/AgentPanelApp.tsx`) are still
+  wired in and still look current: a selected session renders there with its composer and its
+  whole transcript. Do not extend that view, do not treat a gap in it as a bug to fix, and **do not
+  verify a panel change there**. It is the easy page to reach -- seeding `agent-panel.selection`
+  lands on it -- and it is not what the owner is looking at: a card is a narrow column on the Bot's
+  hue-tinted `--session-view-*` surfaces, where the thread view is a wide one on plain `--card`, so
+  a width, a colour or a scroll judged in one says little about the other. What is NOT dormant is
+  `SessionView` and everything under it (`features/session-view/`, `features/activity-feed/`): the
+  card renders that same component, so a transcript change lands on the card too, and retiring the
+  tab means removing the tab and its main-column arm, not the view. Nor is the tab's project list
+  (`ProjectSessionList`): since 2026-10-05 it is also the Canvas tab's Sessions view, which opens a
+  session in `SessionModal` over the canvas rather than in the main column.
 
 ## Approaches that solve the same problem, side by side
 
@@ -160,7 +223,7 @@ link is a hard constraint on everything else.
    shortcuts work there because nothing is being borrowed.
 5. But a virtual display can only be created by **whichever session holds the console**, and an
    off-console session sees only a frozen copy taken when it was created. That rule, with its
-   measurements, is in `AGENTS.md` under "The virtual display". It is the constraint that decides
+   measurements, is in `docs/agents/desktop-and-display.md`. It is the constraint that decides
    where the display holder must be installed and why changing the agent's desk is a sequence
    rather than a setting.
 
