@@ -4,15 +4,15 @@
 
 import { describe, expect, test } from "bun:test";
 import type { AgentSessionDescriptor, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
-import type { ContestantPlan } from "@/arena/contestantDriver";
-import { ClaudeContestantError } from "@/arena/claudeContestant";
-import type { OpencodeContestantBackend } from "@/arena/opencodeContestant";
+import type { ContestantPlan } from "@/arena/contestants/contestantDriver";
+import { ClaudeContestantError } from "@/arena/contestants/claudeContestant";
+import type { OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
 import {
   claudeTurnClosed,
   runClaudeTerminalContestant,
   runOpencodeTerminalContestant,
   type TerminalContestantSteps,
-} from "@/arena/terminalContestants";
+} from "@/arena/contestants/terminalContestants";
 
 const SESSION = "6a0f3e2c-1b44-4f8e-8c2d-5d9b0a7e3f21";
 

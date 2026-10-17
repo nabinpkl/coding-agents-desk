@@ -55,7 +55,7 @@ import {
   type ContestantDrivers,
   type ContestantPlan,
   type ContestantResume,
-} from "@/arena/contestantDriver";
+} from "@/arena/contestants/contestantDriver";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { homedir } from "node:os";
 import { filesFromEvents, outsideReaches } from "@/arena/arenaFacts";

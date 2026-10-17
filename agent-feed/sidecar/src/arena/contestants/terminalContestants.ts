@@ -17,13 +17,13 @@
 
 import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ContestantPlan, ContestantResult, ContestantTerminal } from "@/arena/contestantDriver";
+import type { ContestantPlan, ContestantResult, ContestantTerminal } from "@/arena/contestants/contestantDriver";
 import {
   ClaudeContestantError,
   claudeContestantArgv,
   factsFromClaudeTranscript,
   readClaudeTranscript,
-} from "@/arena/claudeContestant";
+} from "@/arena/contestants/claudeContestant";
 import {
   driveOpencodeTurn,
   opencodePromptSent,
@@ -31,7 +31,7 @@ import {
   OpencodeContestantError,
   type OpencodeContestantBackend,
   type OpencodeContestantOptions,
-} from "@/arena/opencodeContestant";
+} from "@/arena/contestants/opencodeContestant";
 import { claudeBinary, opencodeBinary } from "@/config/configBinaries";
 import { awaitComposer, submitTmuxComposer, syncTmuxComposer } from "@/input/tmuxComposer";
 import { opencodeSessionPaneName } from "@/terminal/agentTerminalIdentity";

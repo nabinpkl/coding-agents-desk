@@ -15,8 +15,8 @@ import {
 } from "@/arena/arenaService";
 import { ArenaRunRegistry, type ArenaRunRecord } from "@/arena/arenaRun";
 import { ArenaStore } from "@/arena/arenaStore";
-import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/opencodeContestant";
-import type { ContestantDriver, ContestantDrivers } from "@/arena/contestantDriver";
+import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
+import type { ContestantDriver, ContestantDrivers } from "@/arena/contestants/contestantDriver";
 import type { ArenaCreateRunRequest, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 

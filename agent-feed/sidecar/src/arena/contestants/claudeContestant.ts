@@ -29,7 +29,7 @@
 
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import type { ContestantPlan, ContestantResult } from "@/arena/contestantDriver";
+import type { ContestantPlan, ContestantResult } from "@/arena/contestants/contestantDriver";
 import { claudeBinary } from "@/config/configBinaries";
 import { claudeTranscriptPath } from "@/tasks/taskIdentity";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";

@@ -11,7 +11,7 @@ import {
   turnOutcomeOf,
   type OpencodeContestantBackend,
   type OpencodeTurnOutcome,
-} from "@/arena/opencodeContestant";
+} from "@/arena/contestants/opencodeContestant";
 import type { TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 

@@ -11,7 +11,7 @@ import { createArenaRoutes } from "@/http/arenaRoutes";
 import { ArenaRunRegistry, type ArenaRunRecord } from "@/arena/arenaRun";
 import { ArenaService } from "@/arena/arenaService";
 import { ArenaStore } from "@/arena/arenaStore";
-import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/opencodeContestant";
+import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
 import type { TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 
 const roots: string[] = [];

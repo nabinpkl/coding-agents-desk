@@ -10,7 +10,7 @@ import {
   factsFromClaudeTranscript,
   runClaudeContestant,
   type SpawnedClaude,
-} from "@/arena/claudeContestant";
+} from "@/arena/contestants/claudeContestant";
 import { filesFromEvents } from "@/arena/arenaFacts";
 
 const SESSION = "4f1c9a2e-0d55-4c8b-9b3a-7e2a1c0f9d11";

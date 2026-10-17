@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { StartLine } from "@/arena/contestantDriver";
+import { StartLine } from "@/arena/contestants/contestantDriver";
 
 /** Whether a promise has settled, asked without waiting on it. */
 async function settled(promise: Promise<unknown>): Promise<boolean> {

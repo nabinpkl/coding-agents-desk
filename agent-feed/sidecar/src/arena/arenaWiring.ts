@@ -7,9 +7,9 @@ import {
   arenaHome,
   arenaRoot,
 } from "@/arena/arenaConfig";
-import { runClaudeContestant } from "@/arena/claudeContestant";
-import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/opencodeContestant";
-import { runClaudeTerminalContestant, runOpencodeTerminalContestant } from "@/arena/terminalContestants";
+import { runClaudeContestant } from "@/arena/contestants/claudeContestant";
+import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
+import { runClaudeTerminalContestant, runOpencodeTerminalContestant } from "@/arena/contestants/terminalContestants";
 import { config } from "@/config/config";
 
 /**

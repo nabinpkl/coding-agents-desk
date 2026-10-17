@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { ArenaBadRequestError, ArenaService } from "@/arena/arenaService";
 import { ArenaRunRegistry } from "@/arena/arenaRun";
 import { ArenaStore } from "@/arena/arenaStore";
-import type { ContestantDriver, ContestantDrivers, ContestantResume } from "@/arena/contestantDriver";
+import type { ContestantDriver, ContestantDrivers, ContestantResume } from "@/arena/contestants/contestantDriver";
 import type { ArenaContestantSummary, ArenaCreateRunRequest } from "@agentdesk/agent-feed-wire";
 
 const roots: string[] = [];

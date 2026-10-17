@@ -31,7 +31,7 @@ import type {
   AgentSessionDescriptor,
   TimelineEnvelope,
 } from "@agentdesk/agent-feed-wire";
-import type { ContestantPlan, ContestantResult } from "@/arena/contestantDriver";
+import type { ContestantPlan, ContestantResult } from "@/arena/contestants/contestantDriver";
 import { readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 import type { ActivityEvent, TokenUsage } from "@/transcripts/transcriptTypes";
 

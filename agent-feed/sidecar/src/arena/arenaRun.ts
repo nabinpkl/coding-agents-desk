@@ -6,7 +6,7 @@
 // and the change signal: every mutation a run's life makes goes through the registry, which
 // tells its listeners once per change, and the routes stream exactly that signal.
 
-import type { ContestantResume } from "@/arena/contestantDriver";
+import type { ContestantResume } from "@/arena/contestants/contestantDriver";
 import {
   ARENA_LIVE_STATUSES,
   type ArenaContestantDetail,
