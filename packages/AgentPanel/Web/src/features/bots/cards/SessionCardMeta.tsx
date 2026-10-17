@@ -4,8 +4,8 @@
 // in words. A card is narrow, and the most useful thing it can say under the title is what the
 // session said it set out to do -- the `<task-state>` block it opened its last piece of handed-over
 // work with -- so the rest gives up room: the provider shrinks to a letter whose hue still names
-// it, "Cold" moves onto the face as a "zzz" (`SessionAvatar`'s `sleeping`), and the time goes last,
-// where a column of cards lines it up.
+// it, "Cold" moves onto the face as sleeping Zs (`SessionAvatar`'s `sleeping`), and the time goes
+// last, where a column of cards lines it up.
 //
 // The task is a control of its own: a tap opens the whole goal and the decisions under it, which is
 // the reason the block exists -- seeing how the session set out without reading its transcript. A

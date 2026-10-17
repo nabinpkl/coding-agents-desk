@@ -69,14 +69,14 @@ describe("SessionAvatar fold", () => {
   });
 
   // A canvas card no longer says "Cold" in words, so its face does; elsewhere nothing changes.
-  it("marks a cold session zzz only where asked, and only while it is cold", () => {
+  it("draws a cold session's sleeping Zs only where asked, and only while it is cold", () => {
     const asked = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} sleeping />);
-    expect(asked.container.textContent).toContain("zzz");
+    expect(asked.container.querySelector("svg[data-sleeping]")).not.toBeNull();
     const live = render(<SessionAvatar title="First session" activity="live" shaded rank={0} sleeping className="mt-0.5" />);
-    expect(live.container.textContent).not.toContain("zzz");
-    // Its classes still land on the mark when there is no zzz to wrap it in.
+    expect(live.container.querySelector("svg[data-sleeping]")).toBeNull();
+    // Its classes still land on the mark when there are no Zs to wrap it in.
     expect(live.container.firstElementChild?.getAttribute("class")).toContain("mt-0.5");
     const unasked = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} />);
-    expect(unasked.container.textContent).not.toContain("zzz");
+    expect(unasked.container.querySelector("svg[data-sleeping]")).toBeNull();
   });
 });

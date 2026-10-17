@@ -37,7 +37,8 @@ import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
  * closed. A ring needs no such agreement. Cold is left unmarked rather than given a grey ring,
  * because a grey ring would be the row's third neutral shape. Where the row no longer says "Cold"
  * in words -- a canvas card, whose second line now carries the session's task -- the face says it
- * instead, with `sleeping`: a "zzz" beside the head, outside the disc so it needs no ring either.
+ * instead, with `sleeping`: the sleeping Zs of a cartoon, a big one at the top corner of the head
+ * and two smaller ones drifting up and away, mostly off the disc so they need no ring either.
  */
 export function SessionAvatar({
   title,
@@ -96,13 +97,26 @@ export function SessionAvatar({
   return (
     <span className={`relative shrink-0 ${className}`}>
       {mark}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -top-1.5 -right-2 text-[9px] leading-none font-semibold session-muted-ink"
-      >
-        zzz
-      </span>
+      <SleepingZs className="pointer-events-none absolute -top-2.5 -right-3 size-[18px] session-muted-ink" />
     </span>
+  );
+}
+
+/**
+ * Three Zs, big to small, rising up and to the right from where they leave the head.
+ *
+ * Strokes in `currentColor` rather than letters, so they keep their shape at any font and stay
+ * crisp at this size. Round caps and joins, the way a face's own lines are drawn.
+ */
+function SleepingZs({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden data-sleeping className={className}>
+      <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="1.5,10.5 7.5,10.5 1.5,16.5 7.5,16.5" strokeWidth="1.75" />
+        <polyline points="9,5.5 12.5,5.5 9,9 12.5,9" strokeWidth="1.5" />
+        <polyline points="13.75,1.5 16.25,1.5 13.75,4 16.25,4" strokeWidth="1.25" />
+      </g>
+    </svg>
   );
 }
 
