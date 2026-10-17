@@ -17,6 +17,7 @@
 // same rendezvous board the sidecar announces itself on, so the panel can show a held sidecar
 // instead of the reader seeing a feed that has merely gone quiet.
 
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 import {
@@ -47,6 +48,15 @@ const SOURCE = dirname(SERVER);
  * something under `src/` happened to be saved as well.
  */
 const WIRE = join(dirname(dirname(SOURCE)), "wire");
+
+/**
+ * Files outside both trees that the sidecar imports, each watched through its own directory and
+ * nothing else in it. Today one: what each hub message's kind asks, which lives inside the hub mod
+ * because Claude Code refuses a mod import from outside the mod's folder. Without this, an edit to
+ * it alone reached neither this sidecar nor a peer's, and a peer whose tree was held back on it
+ * missing stayed held after it arrived, since nothing watched would change.
+ */
+const IMPORTED_OUTSIDE = [join(dirname(SOURCE), "mods", "agentdesk-hub", "hooks", "hubKindWording.ts")];
 
 /**
  * The files THIS process is built from, which are in that tree too.
@@ -362,7 +372,21 @@ function startWatching(): void {
       onError: (error) => say(`watcher error under ${root}: ${String(error)}`),
     });
   }
-  say(`watching ${SOURCE} and ${WIRE}`);
+  for (const dir of new Set(IMPORTED_OUTSIDE.map((file) => dirname(file)))) {
+    if (!existsSync(dir)) {
+      say(`not watching ${dir}: it is not there`);
+      continue;
+    }
+    watchTree({
+      root: dir,
+      depth: 0,
+      onPath: (path) => {
+        if (IMPORTED_OUTSIDE.includes(path)) noteChange(path);
+      },
+      onError: (error) => say(`watcher error under ${dir}: ${String(error)}`),
+    });
+  }
+  say(`watching ${SOURCE}, ${WIRE} and ${IMPORTED_OUTSIDE.length} file(s) outside them`);
   // A whole tree waiting out the quiet window has no event to wake it when the window ends, so it
   // is asked again on a clock. Only while something is waiting, which is a read of a few bytes.
   setInterval(() => {
