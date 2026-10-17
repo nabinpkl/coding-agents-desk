@@ -12,8 +12,11 @@ import {
 const HOUR = 3_600_000;
 const NOW = 100 * HOUR;
 
-/** The pane's process is 10; a Claude process is 11, under it, unless a test puts it elsewhere. */
-const PARENTS = new Map([[11, 10], [21, 20]]);
+/**
+ * The pane's process is 10; a Claude process is 11, under it, unless a test puts it elsewhere. An
+ * opencode TUI is 12 in that pane, or 22 in another.
+ */
+const PARENTS = new Map([[11, 10], [12, 10], [21, 20], [22, 20]]);
 
 function process(sessionId: string, activity: ClaudeSessionActivity | null = "idle", pid = 11): ClaudeSessionProcess {
   return {
@@ -36,7 +39,11 @@ function pane(session: string, stamp: string, attached = 0): SweepPane {
 }
 
 function live(...processes: ClaudeSessionProcess[]) {
-  return { live: processes, parentOf: PARENTS };
+  return { live: processes, opencodeTuis: [], parentOf: PARENTS };
+}
+
+function tui(pid = 12) {
+  return { live: [], opencodeTuis: [pid], parentOf: PARENTS };
 }
 
 function bot(over: Partial<BotRecord>): BotRecord {
@@ -50,6 +57,7 @@ function candidates(over: Partial<Parameters<typeof idleCandidates>[0]> = {}) {
     processes: live(process("s-dylan")),
     kept: new Set(),
     lastEventAt: () => NOW - 3 * HOUR,
+    activeOpencode: new Set(),
     now: NOW,
     idleAfterMs: 2 * HOUR,
     ...over,
@@ -58,7 +66,7 @@ function candidates(over: Partial<Parameters<typeof idleCandidates>[0]> = {}) {
 
 describe("which sessions the sweep closes", () => {
   test("one off the canvas, idle by its own registry, and quiet past the threshold", () => {
-    expect(candidates()).toEqual([{ session: "dylan", sessionId: "s-dylan", idleMs: 3 * HOUR }]);
+    expect(candidates()).toEqual([{ source: "claude", session: "dylan", sessionId: "s-dylan", idleMs: 3 * HOUR }]);
   });
 
   test("not one quiet for less than the threshold", () => {
@@ -92,6 +100,27 @@ describe("which sessions the sweep closes", () => {
   });
 });
 
+// opencode's TUI is a client of the serve, so closing it never ends a turn; busy is still asked of
+// the serve, and a serve that cannot be asked closes nothing.
+describe("which opencode panes the sweep closes", () => {
+  const opencode = (over: Partial<Parameters<typeof idleCandidates>[0]> = {}) =>
+    candidates({ panes: [pane("diana", "ses_diana")], processes: tui(), ...over });
+
+  test("one off the canvas with its TUI in the pane, quiet, and not running a turn", () => {
+    expect(opencode()).toEqual([{ source: "opencode", session: "diana", sessionId: "ses_diana", idleMs: 3 * HOUR }]);
+  });
+
+  test("not one the serve says is running, nor any when the serve cannot be asked", () => {
+    expect(opencode({ activeOpencode: new Set(["ses_diana"]) })).toEqual([]);
+    expect(opencode({ activeOpencode: null })).toEqual([]);
+  });
+
+  test("not a pane with no TUI in it, or whose TUI is in another pane", () => {
+    expect(opencode({ processes: live() })).toEqual([]);
+    expect(opencode({ processes: tui(22) })).toEqual([]);
+  });
+});
+
 describe("what the canvas keeps", () => {
   test("its Bots' sessions, less the ones taken off it, and every Father session", () => {
     const kept = keptSessions([
@@ -117,6 +146,7 @@ describe("a sweep", () => {
       processes: async () => live(process("s-dylan", activities[Math.min(asked++, activities.length - 1)]!)),
       panes: async () => [pane("dylan", "s-dylan")],
       lastEventAt: () => NOW - 3 * HOUR,
+      activeOpencode: async () => new Set(),
       bots: async () => [],
       close: async (session) => {
         closed.push(session);
@@ -130,7 +160,7 @@ describe("a sweep", () => {
     const io = sources(["idle"]);
     await sweepIdleSessions(io, 2 * HOUR);
     expect(io.closed).toEqual(["dylan"]);
-    expect(io.said).toEqual(['closed idle session s-dylan (tmux "dylan"): off the canvas, quiet for 3.0h']);
+    expect(io.said).toEqual(['closed idle claude session s-dylan (tmux "dylan"): off the canvas, quiet for 3.0h']);
   });
 
   test("leaves a session that started a turn while the sweep was reading", async () => {

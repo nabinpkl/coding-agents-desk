@@ -918,7 +918,10 @@ The work and the wall are separate, and conflating them wastes an evening. Settl
   own registry says `idle`, re-read just before the close. Only a pane the sidecar stamped, with
   nobody attached, nothing else in it, and the idle Claude process inside it. Opening the session
   again resumes it; the transcript is untouched. To keep a session running, keep it on the canvas.
-  Each close is a `[idle-sweep]` line in the sidecar's log.
+  An opencode pane is closed by the same rules, with busy asked of the serve
+  (`GET /api/session/active`) and nothing closed when the serve cannot be asked. Its TUI is only a
+  client, so a close never ends a turn; the gap is a TUI switched to another session in a tab,
+  which the stamp cannot see. Each close is a `[idle-sweep]` line in the sidecar's log.
 - **The agent session is the viewing wall and runs none of the work.** Its Claude Desktop windows
   hold Remote Control *views* of those sessions. Typing a prompt into one of those windows instead
   starts a session inside the `agent` account, which then fails on its own with `Failed to run Look
