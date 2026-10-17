@@ -215,6 +215,7 @@ export function AppDialogs({
         <PanelErrorBoundary key={keyOf(newSession.started)} surface="started session" overlay onDismiss={newSession.clearStarted}>
           <StartedSessionModal
             feed={shellFeed}
+            context={sessionModal.context}
             started={newSession.started}
             projects={projects}
             sessionsByProject={sessionsByProject}

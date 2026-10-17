@@ -21,7 +21,8 @@
 // in it once it is listed.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ArenaContestantDetail, ArenaContestantSource, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { ArenaContestantDetail, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { awaitedSession } from "@/features/session-view/awaitedSession";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -149,36 +150,6 @@ export function SessionLane({
       />
     </section>
   );
-}
-
-/**
- * The session a pane is running -- a contestant's, or the manager's -- before the catalog lists it.
- * It claims nothing the sidecar has not said -- no sends, no terminal beyond the pane, one mode --
- * and the listed summary replaces it the moment there is one.
- */
-export function awaitedSession(
-  source: ArenaContestantSource,
-  sessionId: string,
-  title: string,
-  at: number | null,
-): SessionSummary {
-  return {
-    sessionId,
-    source,
-    title,
-    lastEventAt: at ?? 0,
-    activity: "ready",
-    capabilities: {
-      modes: ["nice"],
-      canSend: false,
-      canSteer: false,
-      canAbort: false,
-      canFetchRaw: false,
-      canOpenTerminal: false,
-      supportsExtensionUi: false,
-      canStreamLive: false,
-    },
-  };
 }
 
 /** What a lane says while its contestant has no session view to show. */

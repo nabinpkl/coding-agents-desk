@@ -1,21 +1,28 @@
 import { render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import type { SessionSummary, StartedSourceSession } from "@agentdesk/agent-feed-wire";
+import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { StartedSessionModal } from "@/features/session-view/StartedSessionModal";
+import { StartedSessionModal, type StartedNewSession } from "@/features/session-view/StartedSessionModal";
+import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 
 vi.mock("@/features/terminal/AgentTerminalPane", () => ({
   AgentTerminalPane: ({ context }: { context: { kind: string; session: string } }) => (
     <section aria-label="terminal">{`${context.kind}:${context.session}`}</section>
   ),
 }));
+vi.mock("@/features/session-view/SessionModal", () => ({
+  SessionModal: ({ session, listed }: { session: SessionSummary; listed: boolean }) => (
+    <section aria-label="session view">{`${session.sessionId} listed:${listed}`}</section>
+  ),
+}));
 
-const STARTED: StartedSourceSession = {
+const STARTED: StartedNewSession = {
   source: "claude",
   sessionId: "11111111-1111-4111-8111-111111111111",
   title: "Garden notes",
   projectPath: "/Users/reader/projects/garden",
   tmuxSession: "garden-notes",
+  sdk: false,
 };
 const LISTED = {
   source: "claude",
@@ -24,11 +31,12 @@ const LISTED = {
   lastEventAt: 5,
 } as SessionSummary;
 
-function modal(sessionsByProject: Map<string, SessionSummary[]>, onListed = vi.fn()) {
+function modal(sessionsByProject: Map<string, SessionSummary[]>, onListed = vi.fn(), started = STARTED) {
   const view = render(
     <StartedSessionModal
       feed={{} as SidecarDataSource}
-      started={STARTED}
+      context={{} as SessionViewContext}
+      started={started}
       projects={[]}
       sessionsByProject={sessionsByProject}
       onListed={onListed}
@@ -51,6 +59,7 @@ it("hands itself over once the catalog lists the session, with a project for a n
   rerender(
     <StartedSessionModal
       feed={{} as SidecarDataSource}
+      context={{} as SessionViewContext}
       started={STARTED}
       projects={[]}
       sessionsByProject={new Map([[STARTED.projectPath, [LISTED]]])}
@@ -62,4 +71,18 @@ it("hands itself over once the catalog lists the session, with a project for a n
     expect.objectContaining({ projectPath: STARTED.projectPath, displayName: "garden" }),
     LISTED,
   );
+});
+
+it("opens an SDK session in its session view, unlisted, and never shows the runner's pane", () => {
+  const sdk = { ...STARTED, sdk: true };
+  const { onListed } = modal(new Map(), vi.fn(), sdk);
+  expect(screen.getByLabelText("session view")).toHaveTextContent(`${STARTED.sessionId} listed:false`);
+  expect(screen.queryByLabelText("terminal")).toBeNull();
+  expect(onListed).not.toHaveBeenCalled();
+});
+
+it("hands an SDK session over the same way once the catalog lists it", () => {
+  const onListed = vi.fn();
+  modal(new Map([[STARTED.projectPath, [LISTED]]]), onListed, { ...STARTED, sdk: true });
+  expect(onListed).toHaveBeenCalledWith(expect.objectContaining({ projectPath: STARTED.projectPath }), LISTED);
 });

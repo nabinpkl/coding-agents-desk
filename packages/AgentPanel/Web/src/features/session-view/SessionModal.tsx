@@ -29,6 +29,7 @@ export function SessionModal({
   onClose,
   onMoveToCanvas,
   botId,
+  listed = true,
 }: {
   context: SessionViewContext;
   project: ProjectSummary;
@@ -44,6 +45,8 @@ export function SessionModal({
    * lands as a card beside this session's, the same as a fork from the card itself.
    */
   botId?: string;
+  /** False for a session the catalog has not listed yet; see `SessionView`'s prop of the name. */
+  listed?: boolean;
 }) {
   const titleId = useId();
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -162,6 +165,7 @@ export function SessionModal({
             controlsHost={controlsHost}
             tasksHost={tasksHost}
             onAcceptFiles={takeAcceptFiles}
+            listed={listed}
           />
           <FileDropOverlay
             dragging={drop.dragging}

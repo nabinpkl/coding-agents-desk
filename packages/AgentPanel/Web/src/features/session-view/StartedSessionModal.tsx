@@ -9,21 +9,44 @@
 // It hands itself over the moment the catalog lists the session, so the reader sees the transcript
 // view replace the terminal in the same box rather than a box closing. An opencode session is
 // listed as soon as the serve creates it, so for one of those this is a moment, not a minute.
+//
+// A Claude session run through the Agent SDK skips the terminal: its pane holds the runner's log,
+// not a prompt box, and the runner answers on the session id from the first second. So it opens in
+// the session view straight away, with the feed empty until the catalog lists the session and the
+// composer sending through the runner, and is handed over the same way.
 
 import { SquareTerminal, X } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectSummary, SessionSummary, StartedSourceSession } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { awaitedSession } from "@/features/session-view/awaitedSession";
+import { SessionModal } from "@/features/session-view/SessionModal";
+import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
+
+/** A session this panel started, and whether it runs through the SDK runner rather than the terminal. */
+export type StartedNewSession = StartedSourceSession & { sdk: boolean };
 
 function folderName(path: string): string {
   return path.split("/").filter(Boolean).at(-1) ?? path;
 }
 
+/** The project it runs in. A directory with no sessions before this one may not be listed yet. */
+function projectOf(started: StartedNewSession, projects: readonly ProjectSummary[], at: number): ProjectSummary {
+  return projects.find((entry) => entry.projectPath === started.projectPath) ?? {
+    projectPath: started.projectPath,
+    displayName: folderName(started.projectPath),
+    sourceCounts: { [started.source]: 1 },
+    sessionCount: 1,
+    lastEventAt: at,
+  };
+}
+
 export function StartedSessionModal({
   feed,
+  context,
   started,
   projects,
   sessionsByProject,
@@ -31,7 +54,9 @@ export function StartedSessionModal({
   onClose,
 }: {
   feed: SidecarDataSource;
-  started: StartedSourceSession;
+  /** What the session view needs, for an SDK session opened in it before it is listed. */
+  context: SessionViewContext;
+  started: StartedNewSession;
   projects: readonly ProjectSummary[];
   sessionsByProject: ReadonlyMap<string, SessionSummary[]>;
   /** The catalog has it: open it as an ordinary session, in place of this. */
@@ -48,15 +73,7 @@ export function StartedSessionModal({
       (entry) => entry.source === started.source && entry.sessionId === started.sessionId,
     );
     if (!session) return;
-    // A directory with no sessions before this one may not be in the project list yet.
-    const project = projects.find((entry) => entry.projectPath === started.projectPath) ?? {
-      projectPath: started.projectPath,
-      displayName: folderName(started.projectPath),
-      sourceCounts: { [started.source]: 1 },
-      sessionCount: 1,
-      lastEventAt: session.lastEventAt,
-    };
-    onListed(project, session);
+    onListed(projectOf(started, projects, session.lastEventAt), session);
   }, [onListed, projects, sessionsByProject, started]);
 
   useEffect(() => {
@@ -64,6 +81,19 @@ export function StartedSessionModal({
     closeButton.current?.focus();
     return () => previous?.focus();
   }, []);
+
+  // Not rebuilt on every render: the view keys its effects on the objects it is handed.
+  const awaited = useMemo(
+    () => ({
+      project: projectOf(started, projects, Date.now()),
+      session: awaitedSession(started.source, started.sessionId, started.title, null),
+    }),
+    [projects, started],
+  );
+
+  if (started.sdk) {
+    return <SessionModal context={context} {...awaited} listed={false} onClose={onClose} />;
+  }
 
   return createPortal(
     <div
