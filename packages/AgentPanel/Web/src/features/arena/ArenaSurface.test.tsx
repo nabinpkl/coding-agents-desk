@@ -350,7 +350,7 @@ describe("ArenaSurface", () => {
     button.click();
     const window = await screen.findByRole("region", { name: "Judge" });
     expect(window.textContent).toContain("Judge · Claude");
-    screen.getByRole("button", { name: "Put the judge away" }).click();
+    screen.getByRole("button", { name: "Close the judge" }).click();
     await waitFor(() => expect(screen.queryByRole("region", { name: "Judge" })).toBeNull());
   });
 

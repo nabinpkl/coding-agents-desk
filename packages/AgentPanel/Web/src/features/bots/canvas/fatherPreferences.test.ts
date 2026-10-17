@@ -5,25 +5,24 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  FATHER_DEFAULT_HEIGHT,
-  FATHER_DEFAULT_WIDTH,
-  FATHER_MAX_HEIGHT,
-  FATHER_MAX_WIDTH,
-  FATHER_MIN_HEIGHT,
-  FATHER_MIN_WIDTH,
-  clampFatherHeight,
-  clampFatherPosition,
-  clampFatherWidth,
-  loadFatherHeight,
-  loadFatherOpen,
-  loadFatherPosition,
-  loadFatherWidth,
-  storeFatherHeight,
-  storeFatherOpen,
-  storeFatherPosition,
-  storeFatherWidth,
-} from "@/features/bots/canvas/fatherPreferences";
+import { FATHER_WINDOW, loadFatherOpen, storeFatherOpen } from "@/features/bots/canvas/fatherPreferences";
+
+const FATHER_DEFAULT_HEIGHT = 480;
+const FATHER_MIN_HEIGHT = 160;
+const FATHER_MAX_HEIGHT = 640;
+const FATHER_DEFAULT_WIDTH = 880;
+const FATHER_MIN_WIDTH = 480;
+const FATHER_MAX_WIDTH = 1200;
+const {
+  clampHeight: clampFatherHeight,
+  clampWidth: clampFatherWidth,
+  loadHeight: loadFatherHeight,
+  loadWidth: loadFatherWidth,
+  loadPosition: loadFatherPosition,
+  storeHeight: storeFatherHeight,
+  storeWidth: storeFatherWidth,
+  storePosition: storeFatherPosition,
+} = FATHER_WINDOW;
 
 describe("whether the Father home is open", () => {
   beforeEach(() => localStorage.clear());
@@ -109,15 +108,4 @@ describe("where the Father drawer stands", () => {
     expect(loadFatherPosition()).toBeNull();
   });
 
-  it("keeps a strip of the drawer on screen whatever the drag or window does", () => {
-    const size = { width: 880, height: 480 };
-    const viewport = { width: 1440, height: 900 };
-    expect(clampFatherPosition({ x: 300, y: 40 }, size, viewport)).toEqual({ x: 300, y: 40 });
-    // Past the right and bottom edges comes back to a grabbable strip.
-    expect(clampFatherPosition({ x: 5000, y: 5000 }, size, viewport)).toEqual({ x: 1320, y: 820 });
-    // Past the left and top edges likewise, and a window narrower than the margin still
-    // leaves the drawer reachable rather than clamping to a negative gutter.
-    expect(clampFatherPosition({ x: -5000, y: -50 }, size, viewport)).toEqual({ x: -760, y: 0 });
-    expect(clampFatherPosition({ x: 0, y: 0 }, size, { width: 80, height: 60 })).toEqual({ x: 0, y: 0 });
-  });
 });

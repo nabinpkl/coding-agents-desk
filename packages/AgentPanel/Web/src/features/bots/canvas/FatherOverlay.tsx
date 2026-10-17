@@ -13,31 +13,17 @@
 // visible and clickable while it is open. It used to drop from the top of the window instead, over
 // the navbar, because the switch left the screen as it opened and there was nothing to cover. It
 // lives in the app shell rather than on one surface, so it is there on every view, not just the
-// canvas.
+// canvas. The window itself -- carried, resized, kept on screen -- is `FloatingWindow`, which an
+// arena run's judge floats in too.
 
-import { Crown, X } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Crown } from "lucide-react";
+import { useCallback, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { useCardResize } from "@/features/bots/cards/useCardResize";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
-import {
-  clampFatherHeight,
-  clampFatherPosition,
-  clampFatherTop,
-  clampFatherWidth,
-  loadFatherHeight,
-  loadFatherPosition,
-  loadFatherWidth,
-  storeFatherHeight,
-  storeFatherPosition,
-  storeFatherWidth,
-  type FatherPosition,
-} from "@/features/bots/canvas/fatherPreferences";
+import { FATHER_WINDOW } from "@/features/bots/canvas/fatherPreferences";
+import { FloatingWindow } from "@/features/floating-window/FloatingWindow";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
-
-/** The gap between the switch and the drawer hanging from it, so the two read as one drawer. */
-const SWITCH_GAP = 4;
 
 export type FatherResolution =
   | { bot: BotView; session: SessionSummary }
@@ -125,43 +111,6 @@ export function FatherOverlay({
   botError: BotCommandError | null;
   onClose: () => void;
 }) {
-  // Owned here rather than in the canvas, so a drag writes storage only on release: the overlay
-  // follows the live values while they move, and the stored ones are the answers they settled on.
-  const [height, setHeight] = useState(loadFatherHeight);
-  const [width, setWidth] = useState(loadFatherWidth);
-  // Null until the reader first carries the drawer: top right is the default and needs
-  // nothing stored. A stored answer survives resizes by being pulled back on screen, never by
-  // being forgotten -- forgetting would reopen centered and strand nothing, but it would also
-  // throw away an arrangement the reader made on purpose.
-  const [position, setPosition] = useState<FatherPosition | null>(loadFatherPosition);
-  const dims = useRef({ width, height });
-  dims.current = { width, height };
-  useEffect(() => {
-    const onResize = (): void =>
-      setPosition((placed) =>
-        placed
-          ? clampFatherPosition(placed, dims.current, { width: window.innerWidth, height: window.innerHeight })
-          : placed
-      );
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  // How far below its switch the drawer hangs, before a hand has carried it anywhere. Measured
-  // rather than a constant because the switch stands in two different bars -- the app header on
-  // most views, a floating pill over the headerless canvas -- and each is sized by its own
-  // content. Null when there is no switch to measure, which falls back to the old top of the
-  // window; a layout effect settles the measurement before the browser paints, so the drawer only
-  // ever appears where it belongs.
-  const [restTop, setRestTop] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const measure = (): void => {
-      const switchBox = document.querySelector('[aria-controls="father-home"]')?.getBoundingClientRect();
-      setRestTop(switchBox ? clampFatherTop(switchBox.bottom + SWITCH_GAP, window.innerHeight) : null);
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
   // Where this session portals its control strip and its background-tasks panel: nodes of its
   // own, the way a card gives it, or two open surfaces would land both in the app's single host.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
@@ -173,175 +122,37 @@ export function FatherOverlay({
     (accept: ((files: readonly File[]) => void) | null) => setAcceptFiles(() => accept),
     [],
   );
-  const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
-  const resize = useCardResize({
-    name: "Father home",
-    noun: "card",
-    size: { width, height },
-    canResizeWidth: true,
-    canResizeHeight: true,
-    // Each dimension judged on its own, so a diagonal drag that crosses one bound still moves
-    // freely on the other.
-    onResize: (next) => {
-      setWidth(clampFatherWidth(next.width));
-      setHeight(clampFatherHeight(next.height));
-    },
-    onResizeCommit: (next) => {
-      const committedWidth = clampFatherWidth(next.width);
-      const committedHeight = clampFatherHeight(next.height);
-      setWidth(committedWidth);
-      setHeight(committedHeight);
-      storeFatherWidth(committedWidth);
-      storeFatherHeight(committedHeight);
-    },
-  });
+  const drop = useFileDropTarget<HTMLElement>(acceptFiles);
   const resolved = resolveFather(bots);
 
-  // Carrying the drawer by its header, the way a Bot card carries by its own: a press is a click
-  // until it has travelled far enough to be a carry, and a press that began on a control belongs
-  // to that control. The first carry captures where the drawer already stands -- top right
-  // included -- so it follows the hand from there instead of jumping to a stored answer.
-  const MOVE_THRESHOLD = 4;
-  const sectionRef = useRef<HTMLElement | null>(null);
-  const carry = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    from: FatherPosition;
-    carrying: boolean;
-  } | null>(null);
-  const viewport = typeof window === "undefined"
-    ? { width: 1440, height: 900 }
-    : { width: window.innerWidth, height: window.innerHeight };
-  const placed = position
-    ? clampFatherPosition(position, { width: resize.width, height: resize.height }, viewport)
-    : null;
-  const grabDrawer = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if ((event.target as HTMLElement).closest("button, a, input, select, textarea, [contenteditable='true']")) return;
-    const at = sectionRef.current?.getBoundingClientRect();
-    carry.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      from: placed ?? (at ? { x: at.left, y: at.top } : { x: 0, y: 0 }),
-      carrying: false,
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
-  const carryDrawer = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const held = carry.current;
-    if (!held || held.pointerId !== event.pointerId) return;
-    if (!held.carrying) {
-      if (Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD && Math.abs(event.clientY - held.startY) < MOVE_THRESHOLD) return;
-      held.carrying = true;
-    }
-    setPosition(clampFatherPosition(
-      { x: held.from.x + event.clientX - held.startX, y: held.from.y + event.clientY - held.startY },
-      { width: resize.width, height: resize.height },
-      { width: window.innerWidth, height: window.innerHeight },
-    ));
-  };
-  const dropDrawer = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const held = carry.current;
-    if (!held || held.pointerId !== event.pointerId) return;
-    carry.current = null;
-    if (held.carrying) {
-      const landed = clampFatherPosition(
-        { x: held.from.x + event.clientX - held.startX, y: held.from.y + event.clientY - held.startY },
-        { width: resize.width, height: resize.height },
-        { width: window.innerWidth, height: window.innerHeight },
-      );
-      setPosition(landed);
-      storeFatherPosition(landed);
-    }
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-  };
-
-  // A drawer closes on Escape, the way a dialog does: it floats over the page rather than living
-  // in it, so the keyboard needs the same way out the X gives the pointer.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  // And on a pointer landing outside it, the way a menu does: the strip beside and below stays
-  // visible and clickable while the home is open, and reaching for any of it puts the home away.
-  // On `pointerdown` rather than `click` so a press that starts outside and ends inside still
-  // closes -- a click would fire only when both land outside, and a drag onto the drawer would
-  // leave it open under the hand. Portal menus the session opens into `document.body` are not
-  // outside: they are the drawer acting at a distance, and picking from one should not dismiss
-  // what opened it. Neither is its own switch, which is the one control that both opens and closes
-  // this: dismissing it on the press and toggling it on the click would shut the home and open it
-  // again in the same gesture.
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent): void => {
-      const target = event.target as Element | null;
-      if (sectionRef.current?.contains(event.target as Node)) return;
-      if (target?.closest?.(
-        '[data-portal-menu], [role="menu"], [role="dialog"], [role="listbox"], [aria-controls="father-home"]',
-      )) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [onClose]);
-
+  // It closes on Escape and on a press outside it (FloatingWindow): the strip beside and below
+  // stays visible and clickable while the home is open, and reaching for any of it puts the home
+  // away.
   return (
-    <section
-      ref={sectionRef}
+    <FloatingWindow
       id="father-home"
-      aria-label="Father home"
-      style={{
-        height: resize.height,
-        width: resize.width,
-        // An explicit stand once carried; hanging from below its switch until then, and the old
-        // top of the window if there is no switch to measure. `right-0` keeps the edge pinned so
-        // the width grip still grows it leftwards; `left-0 top-0` with the numbers stands where
-        // the hand left it.
-        ...(placed ? { left: placed.x, top: placed.y } : restTop === null ? null : { top: restTop }),
-      }}
-      className={`fixed z-50 flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-b-2xl border-x border-b border-border bg-card shadow-2xl ${
-        placed ? "left-0 top-0" : "right-0 top-0"
-      }`}
-      {...drop.dropProps}
+      label="Father home"
+      preferences={FATHER_WINDOW}
+      closeLabel="Close the Father home"
+      onClose={onClose}
+      sectionProps={drop.dropProps}
+      header={
+        <>
+          <Crown className="size-4 shrink-0 text-primary" aria-hidden />
+          <h2 className="shrink-0 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold text-foreground">
+            Father
+          </h2>
+          {resolved && "session" in resolved ? (
+            <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+              {resolved.session.title || resolved.session.sessionId}
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1" />
+          )}
+          {resolved && "session" in resolved ? <span ref={setControlsHost} className="flex shrink-0 items-center gap-1" /> : null}
+        </>
+      }
     >
-      {/* A row rather than the header straight in the column, because the width grip hangs off
-          the border the way a card's does: overlaid on the inside edge it would land on the
-          transcript's scrollbar, and outside it there is nothing to grab. */}
-      <div className="flex min-h-0 flex-1 flex-row">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div
-            onPointerDown={grabDrawer}
-            onPointerMove={carryDrawer}
-            onPointerUp={dropDrawer}
-            onPointerCancel={dropDrawer}
-            className="flex min-h-11 shrink-0 cursor-grab items-center gap-2 border-b border-border px-3 select-none active:cursor-grabbing"
-          >
-        <Crown className="size-4 shrink-0 text-primary" aria-hidden />
-        <h2 className="shrink-0 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold text-foreground">
-          Father
-        </h2>
-        {resolved && "session" in resolved ? (
-          <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-            {resolved.session.title || resolved.session.sessionId}
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1" />
-        )}
-        {resolved && "session" in resolved ? <span ref={setControlsHost} className="flex shrink-0 items-center gap-1" /> : null}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close the Father home"
-          title="Close the Father home"
-          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80"
-        >
-          <X className="size-4" aria-hidden />
-        </button>
-      </div>
       {resolved === null ? (
         <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
           No Bot names a Father session. Put a `fatherSession` on a Bot&apos;s record in
@@ -396,10 +207,6 @@ export function FatherOverlay({
           />
           </div>
         )}
-        </div>
-        {resize.edge}
-      </div>
-      {resize.bottom}
-    </section>
+    </FloatingWindow>
   );
 }

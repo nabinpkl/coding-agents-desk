@@ -241,7 +241,7 @@ try {
   while (Date.now() < planBy && judge?.tmuxSession && !/plan mode on/.test(paneText(judge.tmuxSession))) await page.waitForTimeout(500);
   if (!/plan mode on/.test(paneText(judge?.tmuxSession ?? ''))) problems.push("the judge's pane does not show Claude in plan mode");
   await page.screenshot({ path: join(shots, 'arena-terminals-judge.png') });
-  await page.getByRole('button', { name: 'Put the judge away' }).click();
+  await page.getByRole('button', { name: 'Close the judge' }).click();
 
   const readyBy = Date.now() + 120_000;
   while (Date.now() < readyBy && !(await contestants()).every((c) => c.status === 'ready' || c.status === 'failed')) {
@@ -341,7 +341,7 @@ try {
   if (!LINEUP.every((_, index) => verdict.includes(`c${index + 1}`))) problems.push(`the judge's answer does not name every lane: ${JSON.stringify(verdict.slice(0, 300))}`);
   console.log(`the judge answered: ${verdict.replace(/\s+/g, ' ').slice(0, 200)}`);
   await page.screenshot({ path: join(shots, 'arena-terminals-verdict.png') });
-  await page.getByRole('button', { name: 'Put the judge away' }).click();
+  await page.getByRole('button', { name: 'Close the judge' }).click();
 
   // The second prompt, typed once into the run's header, for every lane, in the pane it has.
   await page.getByLabel('Next prompt for every lane').fill(NEXT_PROMPT);
