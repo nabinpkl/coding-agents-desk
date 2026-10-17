@@ -21,6 +21,60 @@ const HEADER_EDGE_BYTES = 32 * 1024;
  * only a file that needs the scan pays for it, since it stops at the first `cwd` it sees.
  */
 const OPENING_CWD_SCAN_BYTES = 1024 * 1024;
+/**
+ * How far back from the end a session's earlier `cwd`s are looked for, once every one the two
+ * windows carry is gone. Measured on the session that needed it: the newest directory still on
+ * disk was 104 KB back, behind a scratch directory the agent had deleted.
+ */
+const RECENT_CWD_SCAN_BYTES = 1024 * 1024;
+
+/**
+ * Every distinct `cwd` in the transcript, newest first, read backward from the end.
+ *
+ * Lazy, because only a caller that has run out of answers asks for the next one: the project
+ * resolver walks this only once the opening directory and every path the header carried are gone,
+ * and stops at the first that still exists. Bounded, because a session whose every directory was
+ * deleted would otherwise be read whole on every write.
+ */
+export async function* cwdsFromEnd(filePath: string): AsyncGenerator<string> {
+  let fh: Awaited<ReturnType<typeof open>>;
+  try { fh = await open(filePath, 'r'); } catch { return; }
+  try {
+    const size = (await fh.stat()).size;
+    const stop = Math.max(0, size - RECENT_CWD_SCAN_BYTES);
+    const seen = new Set<string>();
+    let position = size;
+    // The front of the chunk read last, which is the tail of a line that started further back.
+    let carry = Buffer.alloc(0);
+    while (position > stop) {
+      const length = Math.min(HEADER_EDGE_BYTES, position - stop);
+      position -= length;
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(buf, 0, length, position);
+      const window = Buffer.concat([buf.subarray(0, bytesRead), carry]);
+      // Everything before the first break may be the end of an earlier line, so it waits for the
+      // next chunk -- unless this chunk starts the file.
+      const first = position > stop ? window.indexOf(0x0a) : -1;
+      // A record longer than a chunk has no break in it yet: all of it waits.
+      if (position > stop && first === -1) {
+        carry = window;
+        continue;
+      }
+      carry = window.subarray(0, first + 1);
+      const lines = window.toString('utf-8', first + 1).split('\n').reverse();
+      for (const line of lines) {
+        if (!line) continue;
+        let cwd: unknown;
+        try { cwd = (JSON.parse(line) as Record<string, unknown> | null)?.cwd; } catch { continue; }
+        if (typeof cwd !== 'string' || seen.has(cwd)) continue;
+        seen.add(cwd);
+        yield cwd;
+      }
+    }
+  } finally {
+    await fh.close();
+  }
+}
 
 export async function readSidecar(sidecarPath: string): Promise<string | null> {
   const abs = resolve(sidecarPath);
@@ -172,6 +226,8 @@ export async function readHeader(filePath: string): Promise<Header | null> {
     // current: `claudeTitles.ts` has why.
     const head: Titles = {};
     const tail: Titles = {};
+    // Every `cwd` in file order, across both windows. Ranked newest first below.
+    const wandered: string[] = [];
     let tailFrom = 0;
     let through = 0;
     for (const [index, range] of ranges.entries()) {
@@ -202,13 +258,13 @@ export async function readHeader(filePath: string): Promise<Header | null> {
           ev = parsed as Record<string, unknown>;
         } catch { continue; }
         // Two different questions, and they had one answer between them until a `cd` proved
-        // otherwise. `cwd` is where the session OPENED, which is its project; `recentCwd` is
+        // otherwise. `cwd` is where the session OPENED, which is its project; `recentCwds` are
         // wherever the agent's shell has wandered to since, which is not.
         // `cwd` from the HEAD only. The tail's is wherever the agent's shell has wandered to,
         // and taking it is how a live session gets filed under one of its own subfolders.
         if (typeof ev.cwd === 'string') {
           if (isHead) out.cwd ??= ev.cwd;
-          out.recentCwd = ev.cwd;
+          wandered.push(ev.cwd);
         }
         if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
         if (typeof ev.entrypoint === 'string') out.entrypoint = ev.entrypoint;
@@ -246,6 +302,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
       through,
     });
     out.title = titles.customTitle ?? titles.aiTitle;
+    if (wandered.length > 0) out.recentCwds = [...new Set(wandered.reverse())];
     return out.cwd ? out : null;
   } finally {
     await fh.close();

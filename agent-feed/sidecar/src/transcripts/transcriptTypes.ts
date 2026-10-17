@@ -54,13 +54,16 @@ export interface Header {
    */
   cwd?: string;
   /**
-   * The most recent `cwd`, which is where the agent's shell is, not where the project is.
+   * Every distinct `cwd` the read windows carry, newest first: where the agent's shell has been,
+   * not where the project is.
    *
    * Carried only so a RENAMED project can still be found: when `cwd` no longer exists on disk,
-   * this is the path to fall back to. That existence test is the whole discriminator -- a rename
-   * leaves the original path gone, a `cd` leaves it exactly where it was.
+   * these are the paths to fall back to. That existence test is the whole discriminator -- a rename
+   * leaves the original path gone, a `cd` leaves it exactly where it was. A list rather than the
+   * newest alone, because the newest can be gone too: an agent that ran its last command in a
+   * scratch directory it then deleted left its session filed nowhere.
    */
-  recentCwd?: string;
+  recentCwds?: string[];
   gitBranch?: string;
   entrypoint?: string;
   title?: string;

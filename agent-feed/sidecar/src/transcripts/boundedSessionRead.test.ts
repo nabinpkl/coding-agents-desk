@@ -13,13 +13,15 @@
 // session with no `cwd` is not listed at all -- and a resumed transcript can open
 // with enough `file-history-snapshot` records to push it past the head window.
 // So `cwd`, and only `cwd`, is looked for forward of the window when the window
-// has none. Titles and prompts stay bounded.
+// has none, and backward of the tail (`cwdsFromEnd`) by a resolver that has run
+// out of directories that exist. Titles and prompts stay bounded.
 
 import { expect, test } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
+import { cwdsFromEnd } from "@/transcripts/claude/claudeProjects";
 import { codexAdapter } from "@/transcripts/codex/codexTranscript";
 
 const CWD = '/tmp/bounded-read-project';
@@ -65,7 +67,26 @@ test('the opening cwd is found past the head window rather than taken from the t
   // under one of its own subfolders, and a Bot -- which holds only sessions in its own checkout
   // -- then showed that row as missing while the session was working.
   expect(header?.cwd).toBe(CWD);
-  expect(header?.recentCwd).toBe(`${CWD}/packages/web`);
+  expect(header?.recentCwds?.[0]).toBe(`${CWD}/packages/web`);
+});
+
+test('earlier directories are read backward past the tail window, newest first, each once', async () => {
+  // The measured case: the tail held only a scratch directory the agent had deleted, and the
+  // directory that still existed was 104 KB back. One record longer than a read chunk sits between
+  // them, so a line split across two chunks has to be put back together.
+  const path = await transcript('c.jsonl', [
+    userLine('opening prompt'),
+    ...GAP,
+    JSON.stringify({ type: 'assistant', cwd: `${CWD}/older` }),
+    JSON.stringify({ type: 'assistant', cwd: `${CWD}/long`, pad: 'x'.repeat(40 * 1024) }),
+    ...GAP,
+    JSON.stringify({ type: 'assistant', cwd: '/gone/scratch' }),
+    JSON.stringify({ type: 'assistant', cwd: '/gone/scratch' }),
+  ]);
+  expect((await claudeAdapter.readHeader(path))?.recentCwds).toEqual(['/gone/scratch', CWD]);
+  const found: string[] = [];
+  for await (const cwd of cwdsFromEnd(path)) found.push(cwd);
+  expect(found).toEqual(['/gone/scratch', `${CWD}/long`, `${CWD}/older`, CWD]);
 });
 
 test('a session still resolves while its last record is larger than the tail window', async () => {

@@ -9,6 +9,7 @@ import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { config } from "@/config/config";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
+import { cwdsFromEnd } from "@/transcripts/claude/claudeProjects";
 import type { Session, SourceId } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
 import {
@@ -58,20 +59,36 @@ async function enumerateClaudeCandidates(): Promise<string[]> {
  * having run `cd`, and honouring it filed one repo's sessions under three phantom projects named
  * after its own subfolders (`chatbot/backend`, `chatbot/frontend`, `chatbot/web`).
  *
- * The fallback is what keeps a RENAMED project findable, which is why the recent path is read at
+ * The fallback is what keeps a RENAMED project findable, which is why the recent paths are read at
  * all. Existence is the discriminator and it is exact: a rename leaves the opening path gone, a
  * `cd` leaves it untouched. So "the first directory, unless it is no longer there" separates the
  * two without guessing, and a session whose directory was deleted outright still resolves to
  * nothing, as before.
+ *
+ * The newest recent path that still EXISTS, not the newest one. Measured 2026-10-13 on a session
+ * opened in a git worktree that was later removed: its last commands ran in a scratch directory it
+ * then deleted, so the newest path was gone as well and the session dropped out of the catalog --
+ * a Bot holding it showed "missing" -- every time its shell went there, and came back every time
+ * it ran something in the repository again, about twenty times in one morning.
+ *
+ * The header's two windows do not always reach one: a deleted scratch directory filled the last
+ * 32 KB of that session's transcript. So past them the transcript is read backward
+ * (`cwdsFromEnd`), lazily, and only by a session that has run out of paths.
+ *
+ * @param recent newest first.
  */
 export async function resolveClaudeProject(
   openedIn: string,
-  recent: string | undefined,
+  recent: Iterable<string> | AsyncIterable<string> = [],
 ): Promise<string | null> {
   const opened = await canonicalDirectory(openedIn);
   if (opened) return opened;
-  if (!recent || recent === openedIn) return null;
-  return canonicalDirectory(recent);
+  for await (const path of recent) {
+    if (path === openedIn) continue;
+    const found = await canonicalDirectory(path);
+    if (found) return found;
+  }
+  return null;
 }
 
 /**
@@ -122,12 +139,20 @@ interface ClaudeCandidate {
   readable: boolean;
 }
 
+/** The header's paths, then the rest of the transcript's, newest first, each once. */
+async function* recentCwds(filePath: string, fromHeader: readonly string[]): AsyncGenerator<string> {
+  yield* fromHeader;
+  for await (const path of cwdsFromEnd(filePath)) {
+    if (!fromHeader.includes(path)) yield path;
+  }
+}
+
 async function readClaudeCandidate(filePath: string): Promise<ClaudeCandidate> {
   const sessionId = claudeAdapter.filePathToSessionId(filePath);
   if (!sessionId || !isClaudeSessionCandidate(filePath)) return { session: null, readable: true };
   const header = await claudeAdapter.readHeader(filePath);
   if (!header?.cwd) return { session: null, readable: false };
-  const project = await resolveClaudeProject(header.cwd, header.recentCwd);
+  const project = await resolveClaudeProject(header.cwd, recentCwds(filePath, header.recentCwds ?? []));
   if (!project) return { session: null, readable: true };
   let metadata: Awaited<ReturnType<typeof stat>>;
   try {

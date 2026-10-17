@@ -226,7 +226,7 @@ describe("transcript catalog identity", () => {
 
     expect(await claudeAdapter.readHeader(transcript)).toMatchObject({
       cwd: opened,
-      recentCwd: wandered,
+      recentCwds: [wandered, opened],
       title: "Renamed project",
     });
   });
@@ -323,13 +323,13 @@ describe("transcript catalog identity", () => {
       const repo = join(root, "chatbot");
       const inside = join(repo, "backend");
       await mkdir(inside, { recursive: true });
-      expect(await resolveClaudeProject(repo, inside)).toBe(await realpath(repo));
+      expect(await resolveClaudeProject(repo, [inside])).toBe(await realpath(repo));
     });
 
     test("a cd to the parent does not move it either", async () => {
       const repo = join(root, "chatbot");
       await mkdir(repo);
-      expect(await resolveClaudeProject(repo, root)).toBe(await realpath(repo));
+      expect(await resolveClaudeProject(repo, [root])).toBe(await realpath(repo));
     });
 
     test("a renamed project is found under its new name", async () => {
@@ -338,20 +338,30 @@ describe("transcript catalog identity", () => {
       const gone = join(root, "old-name");
       const renamed = join(root, "new-name");
       await mkdir(renamed);
-      expect(await resolveClaudeProject(gone, renamed)).toBe(await realpath(renamed));
+      expect(await resolveClaudeProject(gone, [renamed])).toBe(await realpath(renamed));
     });
 
     test("a session that never left its directory resolves to it", async () => {
       const repo = join(root, "repo");
       await mkdir(repo);
-      expect(await resolveClaudeProject(repo, repo)).toBe(await realpath(repo));
+      expect(await resolveClaudeProject(repo, [repo])).toBe(await realpath(repo));
       expect(await resolveClaudeProject(repo, undefined)).toBe(await realpath(repo));
     });
 
     test("a deleted directory resolves to nothing, as before", async () => {
       const gone = join(root, "deleted");
-      expect(await resolveClaudeProject(gone, gone)).toBeNull();
-      expect(await resolveClaudeProject(gone, join(root, "also-deleted"))).toBeNull();
+      expect(await resolveClaudeProject(gone, [gone])).toBeNull();
+      expect(await resolveClaudeProject(gone, [join(root, "also-deleted")])).toBeNull();
+    });
+
+    test("a newest path that is gone too falls back to the newest one still there", async () => {
+      // The measured case: opened in a worktree since removed, last ran in a scratch directory
+      // since deleted, and had worked in the repository before that.
+      const worktree = join(root, "repo", ".worktrees", "arena");
+      const repo = join(root, "repo");
+      const scratch = join(root, "scratch", "probe");
+      await mkdir(repo);
+      expect(await resolveClaudeProject(worktree, [scratch, repo, worktree])).toBe(await realpath(repo));
     });
   });
 
