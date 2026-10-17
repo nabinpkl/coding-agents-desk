@@ -9,6 +9,7 @@ import type { RefObject } from "react";
 import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
+import type { SdkSessionHandle } from "@/features/cli-input/useSdkSession";
 import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/useComposerHold";
 import type { OpencodeSlashCommand } from "@/features/session-view/composer/useOpencodeCommands";
 import type { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
@@ -16,12 +17,50 @@ import type { AgentTerminalComposer } from "@/features/session-view/sessionTermi
 
 /** Which surface owns composition for this session, and what it needs to write. */
 export type ComposerTransport =
+  /** A session run through the Agent SDK, typed into through its runner (ADR-0143). */
+  | { kind: "sdk-session" }
   | { kind: "window" }
   | { kind: "tmux-composer" }
   /** A terminal CLI session whose tmux pane is not mirrored (yet, or at all). Sends nothing. */
   | { kind: "cli-session" }
   | { kind: "agent-terminal"; terminal: AgentTerminalComposer }
   | { kind: "agent-session" };
+
+/**
+ * Which surface owns composition. One explicit state, not several independent availability flags.
+ *
+ * An SDK session's runner owns it before anything else, because nothing else can reach that
+ * session: its pane shows the runner's log, so a mirror would type into the wrong program, and it
+ * has no window.
+ *
+ * Then a live tmux pane, ahead of the native window it may also be visible in. That ordering is
+ * deliberate: where both exist, the pane is where the CLI actually is and the window is a Remote
+ * Control view OF that pane, so writing the window's accessibility field is one indirection further
+ * from the process than typing at its keyboard. It is also the only one of the two that is two-way.
+ *
+ * A native window owns it next, for a session that has no pane. A terminal CLI session whose pane
+ * is not mirrored yet gets a band that sends nothing and hands its draft to the mirror when that
+ * attaches; an already-open Agent Feed pty takes it instead, as it takes a KNOWN native refusal.
+ * Opening a process remains an explicit action in the terminal control. (A turn put into the
+ * session's messaging socket used to sit here, and was removed 2026-10-16: see `wire/cliSession.ts`.)
+ */
+export function composerTransport(options: {
+  sdkCandidate: boolean;
+  mirrored: boolean;
+  terminalCandidate: boolean;
+  windowCandidate: boolean;
+  windowRefused: boolean;
+  agentTerminal: AgentTerminalComposer | null;
+}): ComposerTransport {
+  const { sdkCandidate, mirrored, terminalCandidate, windowCandidate, windowRefused, agentTerminal } = options;
+  if (sdkCandidate) return { kind: "sdk-session" };
+  if (mirrored) return { kind: "tmux-composer" };
+  if (terminalCandidate) return agentTerminal ? { kind: "agent-terminal", terminal: agentTerminal } : { kind: "cli-session" };
+  if (windowCandidate) {
+    return windowRefused && agentTerminal ? { kind: "agent-terminal", terminal: agentTerminal } : { kind: "window" };
+  }
+  return { kind: "agent-session" };
+}
 
 export interface ComposerModel {
   agentTerminalBand: boolean;
@@ -73,6 +112,10 @@ export interface ComposerModel {
   state: AgentSessionControlState;
   tmuxBand: boolean;
   tmuxComposer: ReturnType<typeof useTmuxComposer>;
+  /** The composer is an SDK session's runner (ADR-0143). */
+  sdkBand: boolean;
+  /** That runner's state and commands; inert for every other session. */
+  sdkSession: SdkSessionHandle;
   transport: ComposerTransport;
   unavailable: boolean;
   windowBand: boolean;

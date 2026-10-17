@@ -89,7 +89,8 @@ import {
   composerEditor,
   composerSectionLabel,
 } from "@/features/session-view/composer/sessionComposerEditor";
-import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
+import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
+import { useSdkSession } from "@/features/cli-input/useSdkSession";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
 
 /** One action in the composer, rendered in array order in the place its `placement` names. */
@@ -200,9 +201,19 @@ export function SessionComposer({
   const isCodex = source === "codex";
   const isOpencode = source === "opencode";
   const terminalCandidate = isClaude && cliSession.isTerminalSession;
-  const windowCandidate = (isClaude || isCodex) && !terminalCandidate;
   const running = state.runState === "running";
   const queued = state.queue.followUp + state.queue.steer;
+
+  // The session's address for the hooks below, stable because they key their streams and drafts on
+  // it, and a fresh object every render would restart both on every status the Feed reads.
+  const tmuxComposerSession = useMemo(() => ({ source, sessionId }), [source, sessionId]);
+  // An SDK session's runner (ADR-0143), followed for every Claude session rather than only those the
+  // registry already names: a new one's card opens before its `claude` has registered, and the
+  // registry is read once per selection. The stream says the moment a runner answers -- the sidecar
+  // learns of its socket from a directory watch -- and costs an idle stream where none ever does.
+  const sdkSession = useSdkSession(feed, tmuxComposerSession, isClaude);
+  const sdkCandidate = isClaude && (cliSession.isSdkSession || sdkSession.state.connected);
+  const windowCandidate = (isClaude || isCodex) && !terminalCandidate && !sdkCandidate;
 
   // A Claude or Codex session being shown in a window reaches its prompt through that window's
   // composer. The hook is inert -- and never subscribes -- for every other source AND for a
@@ -226,9 +237,6 @@ export function SessionComposer({
   // looking for the pane. Codex is left out because the box this reads is Claude's TUI's, which
   // is also why the route refuses any other source.
   //
-  // The address is stable because the hook keys its poll and its draft on it, and a fresh object
-  // every render would restart both on every status the Feed reads.
-  const tmuxComposerSession = useMemo(() => ({ source, sessionId }), [source, sessionId]);
   // ...but not until the reader means to use it. Opening this stream puts a `tmux pipe-pane` on
   // the session's pane, and a reader who opened a thread to READ it has asked for nothing: the
   // transcript and everything else on screen come from files the sidecar already watches. So
@@ -251,56 +259,38 @@ export function SessionComposer({
   // Held here rather than in the pane: an opencode session has no pane, so picked images wait
   // for the send instead. Keyed by the session, so a strip never rides into another thread and
   // this thread's own staged images are still there when the reader comes back to it.
-  const sendAttachments = useSendAttachments(`${source}/${sessionId}`);  const tmuxComposer = useTmuxComposer(
+  const sendAttachments = useSendAttachments(`${source}/${sessionId}`);
+  const tmuxComposer = useTmuxComposer(
     feed,
     tmuxComposerSession,
     // A process blocked on its terminal attaches it too: a dialog the feed never reported is
-    // still standing there, and only the pane can say so (`questionFromPane`).
-    isClaude && (engaged || question !== null || ownerWaiting),
+    // still standing there, and only the pane can say so (`questionFromPane`). Never an SDK
+    // session's pane, which holds the runner's log rather than a prompt box.
+    isClaude && !sdkCandidate && (engaged || question !== null || ownerWaiting),
   );
 
-  // Delivery priority is one explicit state, not several independent availability flags.
-  //
-  // A live tmux pane owns composition FIRST, ahead of the native window it may also be visible in.
-  // That ordering is deliberate and it is a change: where both exist, the pane is where the CLI
-  // actually is and the window is a Remote Control view OF that pane, so writing the window's
-  // accessibility field is one indirection further from the process than typing at its keyboard.
-  // It is also the only one of the two that is two-way -- what somebody types in the terminal
-  // shows up here, which an AX write cannot give.
-  //
-  // A native window owns it next, for a session that has no pane. A terminal CLI session whose pane
-  // is not mirrored yet gets a band that sends nothing and hands its draft to the mirror when that
-  // attaches; an already-open Agent Feed pty takes it instead, as it takes a KNOWN native refusal.
-  // Opening a process remains an explicit action in the terminal control. (A turn put into the
-  // session's messaging socket used to sit here, and was removed 2026-10-16: see
-  // `wire/cliSession.ts`.)
-  const transport:
-    | { kind: "window" }
-    | { kind: "tmux-composer" }
-    | { kind: "cli-session" }
-    | { kind: "agent-terminal"; terminal: AgentTerminalComposer }
-    | { kind: "agent-session" } = tmuxComposer.mirrored
-      ? { kind: "tmux-composer" }
-      : terminalCandidate
-      ? agentTerminal
-        ? { kind: "agent-terminal", terminal: agentTerminal }
-        : { kind: "cli-session" }
-      : windowCandidate
-        ? windowComposer.statusKnown && !windowComposer.enabled && agentTerminal
-          ? { kind: "agent-terminal", terminal: agentTerminal }
-          : { kind: "window" }
-        : { kind: "agent-session" };
+  // Delivery priority is one explicit state; `composerTransport` says why it is in this order.
+  const transport = composerTransport({
+    sdkCandidate,
+    mirrored: tmuxComposer.mirrored,
+    terminalCandidate,
+    windowCandidate,
+    windowRefused: windowComposer.statusKnown && !windowComposer.enabled,
+    agentTerminal,
+  });
   const windowBand = transport.kind === "window";
   const tmuxBand = transport.kind === "tmux-composer";
   const cliSessionBand = transport.kind === "cli-session";
   const agentTerminalBand = transport.kind === "agent-terminal";
+  const sdkBand = transport.kind === "sdk-session";
 
   // Hands the session the function that takes a dropped image, so the card is the target.
   // Refused only where the panel KNOWS there is nowhere to put it: a Claude session whose pane
   // has been looked for and not found. Not having attached means nobody has asked yet, and
   // saying "no composer" then would be a guess dressed as a fact.
   const fileAccept = useComposerFileDrop({
-    isClaude,
+    // Images into an SDK session are not built yet; its pane is the runner's, not a composer.
+    isClaude: isClaude && !sdkCandidate,
     noPane: tmuxComposer.reason === "no-pane",
     isOpencode,
     dropToPane: tmuxComposer.drop,
@@ -335,6 +325,7 @@ export function SessionComposer({
     // mirror draws from the tool call either way; this is only what the terminal already holds.
     paneQuestion: tmuxComposer.paneQuestion,
     engage,
+    sdk: sdkCandidate ? sdkSession : null,
   });
 
   // Every non-window transport composes against local state. If native resolution refuses after
@@ -416,7 +407,9 @@ export function SessionComposer({
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   const piUnavailable = !isClaude && !isCodex && !capabilities.canSend;
-  const unavailable = windowBand || tmuxBand
+  const unavailable = sdkBand
+    ? !sdkSession.state.connected
+    : windowBand || tmuxBand
     ? false
     : cliSessionBand
       // Unavailable once the pane has been looked for and not found; until then the field is what
@@ -448,6 +441,8 @@ export function SessionComposer({
     queued,
     running,
     sendAttachments,
+    sdkBand,
+    sdkSession,
     session,
     sessionModel: sessionModel ?? usage?.model ?? null,
     setDeliveryError,

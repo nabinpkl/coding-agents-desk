@@ -22,6 +22,7 @@ import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
+import { SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
 import type { QuestionMirrorModel } from "@/features/session-view/composer/question/useQuestionMirror";
 import { OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import { OpencodeAsideDialog } from "@/features/session-view/OpencodeAsideDialog";
@@ -106,6 +107,7 @@ export function SessionComposerBand({
   const rowActions = actions.filter((action) => action.placement === undefined);
   return (
     <section aria-label={sectionLabel} className={`shrink-0 border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-3`}>
+      {model.sdkBand ? <SdkApprovalRequests session={model.sdkSession} /> : null}
       {question ? <AskUserQuestionMirror key={question.callId} {...question.mirror} /> : null}
       {/* The session's own terminal: beside the field, or instead of it.
 

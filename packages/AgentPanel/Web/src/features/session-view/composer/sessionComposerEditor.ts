@@ -90,7 +90,21 @@ export interface ComposerEditor {
 }
 
 export function composerEditor(m: ComposerModel): ComposerEditor {
-  return ( m.windowBand
+  return ( m.sdkBand
+  ? {
+      value: m.localDraft,
+      onChange: m.unavailable ? () => {} : m.setLocalDraft,
+      disabled: m.unavailable || m.deliveryPending,
+      ariaLabel: "Message this session",
+      placeholder: m.unavailable
+        ? "This session is not running"
+        : m.sdkSession.state.status === "running"
+          ? "Queue the next message\u2026"
+          : "Message Claude\u2026",
+      maxLength: 100_000,
+      sendOnEnter: !m.unavailable,
+    }
+  : m.windowBand
   ? {
       value: m.windowComposer.draft,
       onChange: (value: string) => m.windowComposer.change(value),
@@ -217,7 +231,10 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
 export function composerCaption(m: ComposerModel): { caption: string | null; captionIsError: boolean } {
   let caption: string | null = null;
   let captionIsError = false;
-  if (m.windowBand) {
+  if (m.sdkBand) {
+    caption = m.sdkSession.error ?? (m.unavailable ? "This session is not running." : null);
+    captionIsError = m.sdkSession.error != null;
+  } else if (m.windowBand) {
     caption = m.windowComposer.error ?? m.windowComposer.notice;
     captionIsError = m.windowComposer.error != null;
   } else if (m.tmuxBand) {
@@ -262,7 +279,9 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
 
 
 export function composerSectionLabel(m: ComposerModel): string {
-  return m.tmuxBand
+  return m.sdkBand
+    ? "Claude SDK session composer"
+    : m.tmuxBand
     ? "Terminal session composer, mirrored"
     : m.cliSessionBand
     ? "Terminal session composer"

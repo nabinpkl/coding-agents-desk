@@ -14,6 +14,11 @@ export interface CliSessionHandle {
    * nothing to sync, and the session is typed into through its tmux pane when it has one.
    */
   isTerminalSession: boolean;
+  /**
+   * True when it runs through the Agent SDK's runner instead (ADR-0143): typed into, asked and
+   * answered through the runner, never through its pane, which shows the runner's log.
+   */
+  isSdkSession: boolean;
 }
 
 const IDLE: CliSessionStatus = { entrypoint: null, tmuxSession: null };
@@ -60,5 +65,5 @@ export function useCliSession(
     );
   }, [feed, key]);
 
-  return { isTerminalSession: status.entrypoint === "cli" };
+  return { isTerminalSession: status.entrypoint === "cli", isSdkSession: status.entrypoint === "sdk-cli" };
 }

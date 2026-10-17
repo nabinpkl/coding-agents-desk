@@ -50,6 +50,12 @@ export async function submitOwnedTransport(m: ComposerModel, text = m.editorValu
   m.setDeliveryPending(true);
   m.setDeliveryError(null);
   try {
+    if (m.transport.kind === "sdk-session") {
+      // The runner says why when it refuses (`sdkSession.error`), and the draft stays.
+      const sent = await m.sdkSession.send(text);
+      if (sent) m.setLocalDraft("");
+      return sent;
+    }
     if (m.transport.kind === "agent-terminal") {
       await m.transport.terminal.send(text);
       m.setLocalDraft("");
@@ -97,6 +103,15 @@ export function compactControl(m: ComposerModel): CompactControl | null {
       },
     };
   }
+  if (m.sdkBand) {
+    return {
+      blocked: draft ?? (!m.sdkSession.state.connected
+        ? "This session is not running."
+        : busy || m.sdkSession.pending ? "The composer is still sending." : null),
+      // A slash command is a turn the CLI runs rather than reads, through the SDK as at a keyboard.
+      run: async () => await submitOwnedTransport(m, COMPACT_COMMAND),
+    };
+  }
   if (m.tmuxBand || m.agentTerminalBand) {
     return {
       blocked: draft
@@ -131,6 +146,11 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
   // A terminal session whose pane is not mirrored yet has nowhere to send: the draft waits and
   // moves into the pane's box when the mirror attaches.
   if (m.cliSessionBand) return;
+  // An SDK session's runner queues a turn sent while one runs, as the terminal does.
+  if (m.sdkBand) {
+    await submitOwnedTransport(m);
+    return;
+  }
   if (m.agentTerminalBand) {
     await submitOwnedTransport(m);
     return;
@@ -194,13 +214,16 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
   // pane's stream attaches -- the transcript only rewrites its mode record now and then -- so the
   // first press attaches it and reads the mode rather than cycling one nobody has seen. Gone once
   // the pane has been looked for and not found, since there is then no footer to drive.
-  if (m.isClaude && m.tmuxComposer.reason !== "no-pane") {
-    const mode = m.tmuxComposer.permissionMode;
+  // An SDK session's runner knows its mode from the CLI itself and sets the next one directly.
+  if (m.isClaude && (m.sdkBand || m.tmuxComposer.reason !== "no-pane")) {
+    const mode = m.sdkBand ? m.sdkSession.state.permissionMode : m.tmuxComposer.permissionMode;
     const label = mode === null ? "Mode" : PERMISSION_MODE_LABELS[mode];
     actions.push({
       key: "permission-mode",
       ariaLabel: mode === null ? "Show this session's permission mode" : `Permission mode ${label}, switch to the next`,
-      title: mode === null
+      title: m.sdkBand
+        ? "Switch to the next permission mode"
+        : mode === null
         ? "Read this session's permission mode from its terminal"
         : "Switch to the next permission mode, as Shift+Tab does in the terminal",
       icon: (
@@ -209,12 +232,14 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
           <span className="block max-w-28 truncate">{label}</span>
         </span>
       ),
-      disabled: m.tmuxComposer.pending,
+      disabled: m.sdkBand ? !m.sdkSession.state.connected || m.sdkSession.pending : m.tmuxComposer.pending,
       className: `h-9 min-w-0 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium hover:bg-muted disabled:opacity-40 ${
         mode === "bypassPermissions" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
       }`,
       placement: "footer",
-      onClick: mode === null ? m.engage : m.tmuxComposer.cyclePermissionMode,
+      onClick: m.sdkBand
+        ? () => void m.sdkSession.cycleMode()
+        : mode === null ? m.engage : m.tmuxComposer.cyclePermissionMode,
     });
   }
   // The TUI's `{agent} · {model}` row, minus the agent: the sidecar names the session's model
@@ -280,6 +305,37 @@ if (m.windowBand) {
     placement: "field",
     onClick: () => void m.tmuxComposer.submit(),
   });
+} else if (m.sdkBand) {
+  // Stop while a turn runs, since nothing else can interrupt a session with no screen; Send
+  // otherwise. Return still sends during a turn, which the runner queues behind it.
+  const status = m.sdkSession.state.status;
+  if (status === "running" || status === "requires-action") {
+    actions.push({
+      key: "stop-sdk",
+      ariaLabel: "Stop this turn",
+      title: "Interrupt the turn this session is running",
+      icon: m.sdkSession.pending
+        ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        : <Square className="size-3.5 fill-current" aria-hidden />,
+      disabled: m.sdkSession.pending,
+      className: SEND_IN_FIELD_CLASS,
+      placement: "field",
+      onClick: () => void m.sdkSession.interrupt(),
+    });
+  } else {
+    actions.push({
+      key: "send-sdk",
+      ariaLabel: "Send message",
+      title: "Send to this session",
+      icon: m.deliveryPending
+        ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        : <Send className="size-3.5" aria-hidden />,
+      disabled: m.unavailable || m.deliveryPending || !m.editorValue.trim(),
+      className: SEND_IN_FIELD_CLASS,
+      placement: "field",
+      onClick: () => void submitOwnedTransport(m),
+    });
+  }
 } else if (m.cliSessionBand) {
   // No action: nothing is sent from this band. The pane's mirror, once it attaches, brings its own.
 } else if (m.agentTerminalBand) {

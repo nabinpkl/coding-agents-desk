@@ -101,6 +101,8 @@ export function useTmuxQuestion(
    * thread does not attach the pane, and this arrives with the attachment.
    */
   pane: TmuxQuestionState | null = null,
+  /** How a refusal is said; an SDK session's has no terminal to talk about. */
+  reasonText: (reason: TmuxQuestionRefusal, sent: boolean) => string = tmuxQuestionReasonText,
 ) {
   const questions: AskUserQuestionItem[] = question?.questions ?? [];
   const count = questions.length;
@@ -196,7 +198,7 @@ export function useTmuxQuestion(
     try {
       const outcome = await feed.answerTmuxQuestion(session, answers);
       if (outcome.answered) return;
-      setError(tmuxQuestionReasonText(outcome.reason, outcome.sent));
+      setError(reasonText(outcome.reason, outcome.sent));
       // Nothing typed is dropped by a refusal. The draft already holds it; this writes the
       // sidecar's own copy back over it, so the two cannot quietly disagree about what was sent.
       setDrafts((current) =>
@@ -210,7 +212,7 @@ export function useTmuxQuestion(
     } finally {
       setPending(false);
     }
-  }, [answers, feed, questions, session]);
+  }, [answers, feed, questions, reasonText, session]);
 
   return {
     questions,

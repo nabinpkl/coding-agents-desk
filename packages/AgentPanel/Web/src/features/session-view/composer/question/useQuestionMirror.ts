@@ -28,7 +28,8 @@
 
 import type { SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import type { WindowComposerClient } from "@/features/window-composer/WindowComposerClient";
-import type { TmuxQuestionState } from "@agentdesk/agent-feed-wire";
+import type { ClaudeSdkSessionState, TmuxQuestionRefusal, TmuxQuestionState } from "@agentdesk/agent-feed-wire";
+import type { SdkSessionHandle } from "@/features/cli-input/useSdkSession";
 import type { AskUserQuestionItem, OpenAskUserQuestion } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import {
@@ -91,6 +92,47 @@ export interface QuestionMirrorModel {
   onDismiss?: () => void;
 }
 
+/**
+ * The question an SDK session's runner is holding, in the shape the band draws.
+ *
+ * The only source for those sessions, and a better one than the transcript: it is complete from the
+ * moment the question is asked, and it is gone the moment the call is answered, from anywhere.
+ */
+export function runnerQuestion(state: ClaudeSdkSessionState): OpenAskUserQuestion | null {
+  const asked = state.pending.find((request) => request.kind === "question");
+  if (!asked || asked.kind !== "question") return null;
+  return {
+    callId: asked.toolUseId,
+    questions: asked.questions.map((question) => ({
+      question: question.question,
+      ...(question.header ? { header: question.header } : {}),
+      multiSelect: question.multiSelect,
+      options: question.options.map((option) => ({
+        label: option.label,
+        ...(option.description ? { description: option.description } : {}),
+      })),
+    })),
+  };
+}
+
+/** A refusal from an SDK session's runner, which has no terminal or screen to describe. */
+export function sdkQuestionReasonText(reason: TmuxQuestionRefusal): string {
+  switch (reason) {
+    case "no-pane":
+    case "tmux-unavailable":
+      return "this session is not running, so nothing was sent";
+    case "no-dialog":
+      return "this question is no longer waiting, so nothing was sent";
+    case "wrong-dialog":
+      return "a different question is waiting now, so nothing was sent";
+    case "wrong-option":
+      return "the options waiting do not match the ones here, so nothing was sent";
+    case "pane-stalled":
+    case "still-open":
+      return "the session did not confirm the answer; it may have landed";
+  }
+}
+
 export function useQuestionMirror({
   feed,
   host,
@@ -100,6 +142,7 @@ export function useQuestionMirror({
   question,
   paneQuestion,
   engage,
+  sdk = null,
 }: {
   feed: TmuxQuestionSender;
   host: WindowComposerClient;
@@ -121,13 +164,25 @@ export function useQuestionMirror({
    * panel already knows whether there is a pane to commit it to.
    */
   engage: () => void;
+  /**
+   * The session's runner, when it runs through the Agent SDK (ADR-0143). Then the runner's pending
+   * question is the whole story: drawn from it, answered through it, and never through a pane or a
+   * window, which an SDK session does not have.
+   */
+  sdk?: SdkSessionHandle | null;
 }): QuestionMirrorModel | null {
-  const fromPane = usePaneQuestion(paneQuestion);
-  const shown = question ?? fromPane;
-  const tmuxQuestion = useTmuxQuestion(feed, session, isClaude ? shown : null, paneQuestion);
-  const windowQuestion = useWindowQuestion(host, sessionId, isClaude && shown != null, shown);
+  const fromPane = usePaneQuestion(sdk ? null : paneQuestion);
+  const shown = sdk ? runnerQuestion(sdk.state) : question ?? fromPane;
+  const tmuxQuestion = useTmuxQuestion(
+    sdk ? sdk.questions : feed,
+    session,
+    isClaude ? shown : null,
+    sdk ? null : paneQuestion,
+    sdk ? sdkQuestionReasonText : undefined,
+  );
+  const windowQuestion = useWindowQuestion(host, sessionId, isClaude && !sdk && shown != null, shown);
   if (!isClaude || shown == null) return null;
-  if (!windowQuestion.visible) {
+  if (sdk || !windowQuestion.visible) {
     // Read off the screen with questions it could not see: drawn, never answered, because the
     // dialog takes every question's answer at once and the others cannot be named.
     const unseen = shown.pane?.unseen ?? 0;

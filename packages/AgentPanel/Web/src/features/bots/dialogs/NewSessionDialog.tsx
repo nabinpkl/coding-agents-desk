@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import type { ProjectSummary, StartSessionCommand } from "@agentdesk/agent-feed-wire";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
-import { HARNESSES, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
+import { HARNESSES, harnessStart, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
 const NO_CLAIMS: ReadonlySet<string> = new Set();
 
@@ -70,7 +70,7 @@ export function NewSessionDialog({
     setError(null);
     try {
       await onStart({
-        source: harness,
+        ...harnessStart(harness),
         projectPath: selectedPath,
         title: title.trim(),
         ...(prompt.trim() ? { prompt } : {}),

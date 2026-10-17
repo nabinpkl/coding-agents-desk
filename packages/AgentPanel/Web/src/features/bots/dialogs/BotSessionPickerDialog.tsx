@@ -1,16 +1,25 @@
 import { LoaderCircle, Plus, SquareTerminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, BotView, ClaudeRunMode, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 
-/** The harness a new session runs in. Codex and Pi are not offered: neither is started from here. */
-export type NewSessionHarness = "claude" | "opencode";
+/**
+ * The harness a new session runs in. Codex and Pi are not offered: neither is started from here.
+ * `claude-sdk` is Claude run through the Agent SDK's runner rather than the terminal (ADR-0143).
+ */
+export type NewSessionHarness = "claude" | "claude-sdk" | "opencode";
 
-export const HARNESSES: readonly { value: NewSessionHarness; label: string }[] = [
-  { value: "claude", label: "Claude Code" },
-  { value: "opencode", label: "opencode" },
+export const HARNESSES: readonly { value: NewSessionHarness; label: string; source: "claude" | "opencode" }[] = [
+  { value: "claude", label: "Claude Code", source: "claude" },
+  { value: "claude-sdk", label: "Claude SDK", source: "claude" },
+  { value: "opencode", label: "opencode", source: "opencode" },
 ];
+
+/** What a start sends for a harness: the source, and for Claude, how its process runs. */
+export function harnessStart(harness: NewSessionHarness): { source: "claude" | "opencode"; claudeMode?: ClaudeRunMode } {
+  return harness === "claude-sdk" ? { source: "claude", claudeMode: "sdk" } : { source: harness };
+}
 
 function sessionKey(session: Pick<SessionSummary, "source" | "sessionId">): string {
   return `${session.source}:${session.sessionId}`;
@@ -175,7 +184,7 @@ export function BotSessionPickerDialog({
                   disabled={pending || bot.environmentAvailability === "missing"}
                   className="sr-only"
                 />
-                <SourceBadge source={option.value} />
+                <SourceBadge source={option.source} />
                 {option.label}
               </label>
             ))}
@@ -205,7 +214,7 @@ export function BotSessionPickerDialog({
           </button>
           {/* Said before rather than discovered later: the anchor is the stable half. */}
           <p className="basis-full text-xs text-muted-foreground">
-            Runs {harness === "claude" ? "Claude Code" : "opencode"} in {bot.environment.path} and
+            Runs {HARNESSES.find((option) => option.value === harness)?.label} in {bot.environment.path} and
             opens it on the canvas. The name before the
             brackets never changes; what it is doing goes inside them.
           </p>

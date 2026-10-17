@@ -23,7 +23,7 @@ import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { handoverDestination } from "@/features/bots/sessionHandover";
 import { useBotRecordCommands } from "@/app/shell-state/useBotRecordCommands";
 import { useForkCommands } from "@/app/shell-state/useForkCommands";
-import type { NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
+import { harnessStart, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
 export function useBotCommands(
   /**
@@ -193,7 +193,10 @@ export function useBotCommands(
       return;
     }
     try {
-      const added = await feeds.forBot(bot.botId).addBotSessions(bot.botId, { launch: { title } });
+      const { claudeMode } = harnessStart(harness);
+      const added = await feeds.forBot(bot.botId).addBotSessions(bot.botId, {
+        launch: { title, ...(claudeMode ? { claudeMode } : {}) },
+      });
       if (!added.started) return;
       const started = added.started;
       setNewSessions((current) => [

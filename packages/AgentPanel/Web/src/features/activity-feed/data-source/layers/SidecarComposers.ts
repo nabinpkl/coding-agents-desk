@@ -9,6 +9,9 @@
 
 import type {
   ClaudePermissionMode,
+  ClaudeSdkCommandOutcome,
+  ClaudeSdkDecideCommand,
+  ClaudeSdkSessionState,
   CliSessionStatus,
   ComposerImageDrop,
   ComposerKeyPress,
@@ -28,6 +31,14 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarTranscript } from "@/features/activity-feed/data-source/layers/SidecarTranscript";
+
+/** A session run through the Agent SDK, reached through its runner (ADR-0143). */
+function claudeSdkPath(
+  session: SessionAddress,
+  action: "stream" | "prompt" | "answer" | "decide" | "mode" | "interrupt",
+): string {
+  return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/sdk/${action}`;
+}
 
 function cliSessionPath(session: SessionAddress): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/cli`;
@@ -362,6 +373,57 @@ export class SidecarComposers extends SidecarTranscript {
         `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/question/point`,
         { body: point },
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // A Claude session run through the Agent SDK (ADR-0143)
+
+  /**
+   * The runner's state, whole, on every change: its status, mode, and every question and approval
+   * it is holding. `connected: false` while no runner answers, which is the state before one
+   * starts and after it ends. Returns unsubscribe, and the caller must call it.
+   */
+  subscribeClaudeSdk(session: SessionAddress, onState: (state: ClaudeSdkSessionState) => void): () => void {
+    return this.transport.subscribe(claudeSdkPath(session, "stream"), {
+      onMessage: (payload) => onState(JSON.parse(payload) as ClaudeSdkSessionState),
+      // Silent for the reason the tmux stream is: `EventSource` reconnects on its own, and the
+      // panel already shows a sidecar that has stopped answering.
+      onError: () => {},
+    });
+  }
+
+  async promptClaudeSdk(session: SessionAddress, text: string): Promise<ClaudeSdkCommandOutcome> {
+    return parse<ClaudeSdkCommandOutcome>(
+      await this.transport.request("POST", claudeSdkPath(session, "prompt"), { body: { text } }),
+    );
+  }
+
+  /** Every answer of one call at once, in the terminal dialog's shape and with its outcome. */
+  async answerClaudeSdkQuestion(
+    session: SessionAddress,
+    answers: readonly TmuxQuestionAnswer[],
+  ): Promise<TmuxQuestionOutcome> {
+    return parse<TmuxQuestionOutcome>(
+      await this.transport.request("POST", claudeSdkPath(session, "answer"), { body: { answers } }),
+    );
+  }
+
+  async decideClaudeSdk(session: SessionAddress, decision: ClaudeSdkDecideCommand): Promise<ClaudeSdkCommandOutcome> {
+    return parse<ClaudeSdkCommandOutcome>(
+      await this.transport.request("POST", claudeSdkPath(session, "decide"), { body: decision }),
+    );
+  }
+
+  async setClaudeSdkMode(session: SessionAddress, mode: ClaudePermissionMode): Promise<ClaudeSdkCommandOutcome> {
+    return parse<ClaudeSdkCommandOutcome>(
+      await this.transport.request("POST", claudeSdkPath(session, "mode"), { body: { mode } }),
+    );
+  }
+
+  async interruptClaudeSdk(session: SessionAddress): Promise<ClaudeSdkCommandOutcome> {
+    return parse<ClaudeSdkCommandOutcome>(
+      await this.transport.request("POST", claudeSdkPath(session, "interrupt"), { body: {} }),
     );
   }
 }
