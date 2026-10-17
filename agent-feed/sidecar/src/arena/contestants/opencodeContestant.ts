@@ -66,11 +66,14 @@ export type OpencodeTurnOutcome =
  * holds one prompt, but a marker from before it would describe a turn that is not this one.
  * Read loosely, because these messages arrive off a raw history read, not the client.
  */
-export function turnOutcomeOf(messages: readonly unknown[]): OpencodeTurnOutcome {
+export function turnOutcomeOf(messages: readonly unknown[], after: string | null = null): OpencodeTurnOutcome {
   let start = 0;
   messages.forEach((message, index) => {
     if (typeOf(message) === "user") start = index + 1;
   });
+  // A later prompt's turn is the one opened by a user message other than the latest one before it
+  // was sent: until that message lands, the latest turn is the earlier prompt's, already closed.
+  if (after !== null && lastUserIdOf(messages) === after) return { closed: false };
   const turn = messages.slice(start);
   const marker = turn.find((message) => typeOf(message) === "idle") as
     | { outcome?: unknown }
@@ -91,6 +94,15 @@ function typeOf(message: unknown): unknown {
   return message && typeof message === "object" ? (message as { type?: unknown }).type : undefined;
 }
 
+/** The id of the session's latest user message, or null when it holds none. */
+export function lastUserIdOf(messages: readonly unknown[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as { id?: unknown } | undefined;
+    if (typeOf(message) === "user") return typeof message?.id === "string" ? message.id : null;
+  }
+  return null;
+}
+
 /** Whether the serve holds a prompt in the session: any user message at all. */
 export function promptSentOf(messages: readonly unknown[]): boolean {
   return messages.some((message) => typeOf(message) === "user");
@@ -101,8 +113,12 @@ export async function opencodePromptSent(sessionId: string): Promise<boolean> {
   return promptSentOf(await readOpencodeTail(sessionId));
 }
 
-async function readTurnOutcome(sessionId: string): Promise<OpencodeTurnOutcome> {
-  return turnOutcomeOf(await readOpencodeTail(sessionId));
+async function readTurnOutcome(sessionId: string, after: string | null): Promise<OpencodeTurnOutcome> {
+  return turnOutcomeOf(await readOpencodeTail(sessionId), after);
+}
+
+async function readLastUserId(sessionId: string): Promise<string | null> {
+  return lastUserIdOf(await readOpencodeTail(sessionId));
 }
 
 /**
@@ -116,7 +132,10 @@ const RECHECK_MS = 1000;
 
 /** How an opencode contestant reads its turn's outcome; overridden in tests. */
 export interface OpencodeContestantOptions {
-  turnOutcome?: (sessionId: string) => Promise<OpencodeTurnOutcome>;
+  /** The latest turn's outcome, looking past a turn opened by the user message `after`. */
+  turnOutcome?: (sessionId: string, after: string | null) => Promise<OpencodeTurnOutcome>;
+  /** The session's latest user message before this turn's prompt is sent. */
+  lastUserId?: (sessionId: string) => Promise<string | null>;
   /** Whether a session already holds its prompt, for a contestant picked back up after a restart. */
   promptSent?: (sessionId: string) => Promise<boolean>;
   recheckMs?: number;
@@ -131,7 +150,7 @@ export async function runOpencodeContestant(
   plan: ContestantPlan,
   options: OpencodeContestantOptions = {},
 ): Promise<ContestantResult> {
-  const sessionId = await openOpencodeContestant(backend, plan);
+  const sessionId = plan.continues ?? await openOpencodeContestant(backend, plan);
   plan.onSessionId(sessionId);
   return driveOpencodeTurn(backend, sessionId, plan, options);
 }
@@ -164,6 +183,9 @@ export async function driveOpencodeTurn(
 ): Promise<ContestantResult> {
   const turnOutcome = options.turnOutcome ?? readTurnOutcome;
   const recheckMs = options.recheckMs ?? RECHECK_MS;
+  // Read before the send, so this turn is told apart from an earlier prompt's already-closed one.
+  // A turn picked back up after a restart was sent already and has no "before" to read.
+  const after = options.alreadySent ? null : await (options.lastUserId ?? readLastUserId)(sessionId);
 
   // Ids are the projection's own: a snapshot re-states rows an upsert already delivered, so the
   // collected turn is deduped by id in insertion order rather than appended raw.
@@ -194,7 +216,7 @@ export async function driveOpencodeTurn(
     }
     checking = true;
     try {
-      const outcome = await turnOutcome(sessionId);
+      const outcome = await turnOutcome(sessionId, after);
       if (outcome.closed) {
         settle({ failure: outcome.failure });
         return;

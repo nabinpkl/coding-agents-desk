@@ -154,6 +154,7 @@ function driversOver(
     // every turn the fake backend plays is one the serve has marked done.
     opencode: (plan) =>
       runOpencodeContestant(backend, plan, {
+        lastUserId: async () => null,
         turnOutcome: async () => ({ closed: true, failure: null }),
       }),
     claude: claude ?? (async (plan) => {
@@ -236,6 +237,31 @@ test("a run makes every worktree first, registers, then fans the prompt out", as
   expect(settled?.contestants.every((c) => c.sessionId !== null)).toBe(true);
   expect(settled?.contestants[0]?.filesRead).toEqual(["/repo/README"]);
   expect(settled?.contestants[0]?.gitDiff).toBe("diff --git a/README");
+});
+
+// A headless run's next prompt continues each contestant's session rather than starting another,
+// and the facts are the whole conversation's: the second turn's file joins the first's.
+test("a headless run's next prompt continues each session, and its facts add to the first turn's", async () => {
+  const continued: (string | undefined)[] = [];
+  const requestIds: string[] = [];
+  let turn = 0;
+  const claude: ContestantDriver = async (plan) => {
+    continued.push(plan.continues);
+    requestIds.push(plan.requestId);
+    turn += 1;
+    plan.onSessionId("claude-session");
+    return { sessionId: "claude-session", events: [toolEvent(`claude:${turn}`, "Write", [`/repo/turn${turn}.ts`])], usage: null };
+  };
+  const { arena, registry } = await service({ claude });
+  const summary = await arena.createRun(request({ contestants: [{ source: "claude" }] }));
+  await whenContestantsSettle(registry);
+  expect(arena.sendPrompt(summary.runId, "and now the tests")).toMatchObject({ prompt: "and now the tests", round: 2 });
+  await whenContestantsSettle(registry);
+  expect(continued).toEqual([undefined, "claude-session"]);
+  // A harness deduplicates a send by its request id: one reused for the second prompt was refused,
+  // measured live on the serve, as "reused with another command".
+  expect(new Set(requestIds).size).toBe(2);
+  expect(registry.get(summary.runId)?.contestants[0]?.filesWritten).toEqual(["/repo/turn1.ts", "/repo/turn2.ts"]);
 });
 
 test("one run duels both harnesses, each contestant driven by the driver its source names", async () => {

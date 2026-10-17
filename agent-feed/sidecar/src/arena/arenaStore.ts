@@ -84,7 +84,9 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
       gitDiff: null,
     };
   });
-  return { runId, name, folder, prompt, repoPath, repoCreated, baseRef, mode, createdAt, contestants };
+  // A run stored before rounds existed had been given exactly the prompt it holds, or none yet.
+  const round = typeof record.round === "number" ? record.round : prompt ? 1 : 0;
+  return { runId, name, folder, prompt, round, repoPath, repoCreated, baseRef, mode, createdAt, contestants };
 }
 
 function isContestantStatus(value: unknown): value is ArenaContestantRecord["status"] {

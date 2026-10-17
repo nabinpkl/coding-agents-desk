@@ -25,6 +25,12 @@ export interface ContestantPlan {
    * the session while it duels rather than only after it has closed.
    */
   onSessionId: (sessionId: string) => void;
+  /**
+   * The session a later prompt of the run continues, headless only: the driver sends this turn
+   * into it rather than making a session. A terminals contestant continues through `terminal`'s
+   * resume instead, since its session lives in its pane.
+   */
+  continues?: string;
   /** Present in the terminals mode only, and what makes a run's start one moment for all. */
   terminal?: ContestantTerminal;
 }

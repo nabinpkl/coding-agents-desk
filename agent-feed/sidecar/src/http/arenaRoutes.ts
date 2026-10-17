@@ -1,10 +1,11 @@
 // `/api/arena/*` -- one prompt fanned out to contestants, and the facts each left behind.
 //
 // Seven answers: POST makes a run, GET lists them, GET on a run id answers its facts, DELETE
-// tears a finished one down, `stream` pushes the whole status list whenever any run moves,
+// tears a settled one down, `stream` pushes the whole status list whenever any run moves,
 // `new-run` says what a run asked for with nothing filled in would get here (the modes this
-// machine has, the arena home, the next free name), and POST on a run's `prompt` gives a
-// terminals run whose lanes are already open the prompt they wait for.
+// machine has, the arena home, the next free name), and POST on a run's `prompt` gives it its
+// next prompt: the first, to a terminals run whose lanes wait for it, or the next, to every
+// contestant once the last prompt has settled.
 // The service owns every state change; this module only matches paths, checks shapes and maps
 // the service's errors onto the statuses the panel's own client reads.
 
@@ -96,6 +97,8 @@ async function sendPrompt(service: ArenaService, runId: string, request: Request
   } catch (error) {
     if (error instanceof ArenaRunNotFoundError) return notFound(path);
     if (error instanceof ArenaBadRequestError) return errorResponse("arena-bad-request", error.message, 400);
+    // The lanes are still on the last prompt: a conflict with the run's state, not a bad request.
+    if (error instanceof ArenaRunBusyError) return errorResponse("arena-run-busy", error.message, 409);
     return internal(error);
   }
 }

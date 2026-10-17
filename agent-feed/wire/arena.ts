@@ -68,8 +68,14 @@ export interface ArenaRunSummary {
    * folder in the arena home is named after it, and holds the contestants' worktrees.
    */
   name: string;
-  /** Empty while a terminals run has its lanes open and waits for its prompt. */
+  /**
+   * The latest prompt every lane was given. A run never ends: once every contestant has settled,
+   * the next prompt goes to each of them in the session it already has. Empty while a terminals
+   * run has its lanes open and waits for its first.
+   */
   prompt: string;
+  /** How many prompts the run has been given: 0 while it waits for its first. */
+  round: number;
   repoPath: string;
   /** Whether the arena made `repoPath` for this run, as the run's own folder, rather than the run naming one. */
   repoCreated: boolean;

@@ -93,6 +93,7 @@ export function ArenaRunRail({
                     </span>
                     <span className={`min-w-0 truncate ${TEXT.meta} text-muted-foreground`}>
                       {live ? (run.prompt ? "dueling" : "lanes open") : formatAgo(run.createdAt, now)}
+                      {run.round > 1 ? ` · ${run.round} prompts` : null}
                       {run.repoCreated ? null : ` · ${basename(run.repoPath)}`}
                     </span>
                   </span>

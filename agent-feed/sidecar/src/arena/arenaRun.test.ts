@@ -33,6 +33,7 @@ const run = (over: Partial<ArenaRunRecord> = {}): ArenaRunRecord => ({
   name: "arena run 1",
   folder: "/arena/arena-run-1",
   prompt: "say one word",
+  round: 1,
   repoPath: "/repos/one",
   repoCreated: false,
   mode: "headless",

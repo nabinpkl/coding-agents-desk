@@ -77,7 +77,9 @@ const fakeWorktrees = {
   },
 };
 
-async function start(): Promise<{ at: (path: string, init?: RequestInit) => Promise<Response>; root: string }> {
+async function start(
+  options: { turnOutcome?: () => Promise<{ closed: true; failure: null }> } = {},
+): Promise<{ at: (path: string, init?: RequestInit) => Promise<Response>; root: string }> {
   const created = await mkdtemp(join(tmpdir(), "arena-routes-"));
   roots.push(created);
   const root = await realpath(created);
@@ -88,7 +90,8 @@ async function start(): Promise<{ at: (path: string, init?: RequestInit) => Prom
     drivers: {
       opencode: (plan) =>
         runOpencodeContestant(closingBackend, plan, {
-          turnOutcome: async () => ({ closed: true, failure: null }),
+          lastUserId: async () => null,
+          turnOutcome: options.turnOutcome ?? (async () => ({ closed: true, failure: null })),
         }),
       claude: () => Promise.reject(new Error("no claude in the route tests")),
     },
@@ -214,16 +217,43 @@ test("new-run answers what a run with nothing filled in would get here, and only
   expect((await at("/api/arena/new-run", { method: "POST" })).status).toBe(405);
 });
 
-test("a prompt for a run with no open lanes is refused with the reason, and an unknown run is a 404", async () => {
-  const { at } = await start();
+// A run never ends: once its contestants settle, the next prompt goes to each of them, and a
+// prompt sent while they are still on the last one is a conflict with the run, not a bad request.
+test("a settled run takes its next prompt; one still on its last is a 409; an unknown run is a 404", async () => {
+  // The first turn closes at once; the second is held open until the test lets it go.
+  let turns = 0;
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { at } = await start({
+    turnOutcome: async () => {
+      turns += 1;
+      if (turns > 1) await held;
+      return { closed: true, failure: null };
+    },
+  });
   const created = (await (await at("/api/arena/runs", body())).json()) as { runId: string };
-  // A headless run took its prompt when it was made; it has no lanes waiting for one.
-  const refused = await at(`/api/arena/runs/${created.runId}/prompt`, {
+  const statuses = async () =>
+    ((await (await at(`/api/arena/runs/${created.runId}`)).json()) as { contestants: { status: string }[] })
+      .contestants.map((one) => one.status);
+  const deadline = Date.now() + 2000;
+  while (!(await statuses()).every((status) => status === "closed") && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const next = await at(`/api/arena/runs/${created.runId}/prompt`, {
     method: "POST",
     body: JSON.stringify({ prompt: "again" }),
   });
-  expect(refused.status).toBe(400);
-  expect(((await refused.json()) as { error: { message: string } }).error.message).toContain("already has its prompt");
+  expect(next.status).toBe(200);
+  expect(((await next.json()) as { prompt: string; round: number })).toMatchObject({ prompt: "again", round: 2 });
+  const busy = await at(`/api/arena/runs/${created.runId}/prompt`, {
+    method: "POST",
+    body: JSON.stringify({ prompt: "and again" }),
+  });
+  expect(busy.status).toBe(409);
+  expect(((await busy.json()) as { error: { message: string } }).error.message).toContain("still on the last prompt");
+  release();
   const unknown = await at("/api/arena/runs/22222222-2222-4222-8222-222222222222/prompt", {
     method: "POST",
     body: JSON.stringify({ prompt: "x" }),

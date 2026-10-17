@@ -20,7 +20,6 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import type {
-  ArenaContestantSource,
   ArenaCreateRunRequest,
   ArenaNewRunDefaults,
   ArenaRunDetail,
@@ -58,7 +57,8 @@ import {
 } from "@/arena/contestants/contestantDriver";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { homedir } from "node:os";
-import { filesFromEvents, outsideReaches } from "@/arena/arenaFacts";
+import { ArenaNextPromptError, factsAfterTurn, nextPromptContestants } from "@/arena/arenaTurns";
+import { checkRunRequest, promptProblem } from "@/arena/arenaRequest";
 
 /** The request could not become a run; the route answers it with a 400 naming this reason. */
 export class ArenaBadRequestError extends Error {}
@@ -73,8 +73,6 @@ const MAXIMUM_DIFF_BYTES = 256 * 1024;
 /** How long one contestant's turn may run before the service gives up on it. */
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 
-/** The most contestants one run may fan out to; past this a run stops being watchable. */
-const MAXIMUM_CONTESTANTS = 8;
 
 export class ArenaService {
   private readonly registry: ArenaRunRegistry;
@@ -192,48 +190,20 @@ export class ArenaService {
    * every contestant preparing, none yet running.
    */
   async createRun(request: ArenaCreateRunRequest): Promise<ArenaRunSummary> {
-    const prompt = typeof request.prompt === "string" ? request.prompt.trim() : "";
-    checkPromptLength(prompt);
+    const checked = checkRunRequest(request, {
+      modes: this.modes(),
+      driversFor: (mode) => (mode === "terminals" ? this.terminalDrivers : this.drivers),
+    });
+    if ("problem" in checked) throw new ArenaBadRequestError(checked.problem);
+    const { prompt, namedRepo, baseRef, mode, drivers, sources } = checked;
 
     const naming = runNameFor(request.name, this.arenaHome, this.registry.list().map((run) => run.name));
     if ("problem" in naming) throw new ArenaBadRequestError(naming.problem);
     const { name, folderName } = naming;
-
     // No repository named means the run gets one of its own, made in its folder below.
-    const namedRepo = typeof request.repoPath === "string" ? request.repoPath.trim() : "";
     if (namedRepo) {
       if (!isAbsolute(namedRepo)) throw new ArenaBadRequestError(`repoPath must be absolute: "${namedRepo}"`);
       await this.worktrees.assertRepository(namedRepo);
-    }
-
-    const baseRef = typeof request.baseRef === "string" && request.baseRef.trim()
-      ? request.baseRef.trim()
-      : "HEAD";
-
-    const mode: ArenaRunMode = request.mode ?? this.modes()[0]!;
-    if (mode !== "terminals" && mode !== "headless") {
-      throw new ArenaBadRequestError(`mode must be "terminals" or "headless", not "${String(mode)}"`);
-    }
-    const drivers = mode === "terminals" ? this.terminalDrivers : this.drivers;
-    if (!drivers) {
-      throw new ArenaBadRequestError("this machine has no tmux, so a run here can only be headless");
-    }
-    // A terminals run may open its lanes first and take its prompt once they are up; a headless
-    // run has nothing to open, so its prompt is the run.
-    if (!prompt && mode === "headless") throw new ArenaBadRequestError("a run needs a prompt");
-
-    if (!Array.isArray(request.contestants) || request.contestants.length === 0) {
-      throw new ArenaBadRequestError("a run needs at least one contestant");
-    }
-    if (request.contestants.length > MAXIMUM_CONTESTANTS) {
-      throw new ArenaBadRequestError(`a run fans out to at most ${MAXIMUM_CONTESTANTS} contestants`);
-    }
-    for (const [index, contestant] of request.contestants.entries()) {
-      if (!contestant || !drivers[contestant.source as ArenaContestantSource]) {
-        throw new ArenaBadRequestError(
-          `contestant ${index} names source "${contestant?.source ?? "none"}", which this arena cannot drive`,
-        );
-      }
     }
 
     const runId = this.newRunId();
@@ -251,9 +221,9 @@ export class ArenaService {
     const repoCreated = !namedRepo;
     const repoPath = namedRepo || folder;
 
-    const records: ArenaContestantRecord[] = request.contestants.map((contestant, index) => ({
+    const records: ArenaContestantRecord[] = sources.map((source, index) => ({
       contestantId: `c${index + 1}`,
-      source: contestant.source,
+      source,
       sessionId: null,
       worktreePath: join(folder, `c${index + 1}`),
       tmuxSession: null,
@@ -294,6 +264,7 @@ export class ArenaService {
       name,
       folder,
       prompt,
+      round: prompt ? 1 : 0,
       repoPath,
       repoCreated,
       baseRef,
@@ -313,23 +284,64 @@ export class ArenaService {
   }
 
   /**
-   * Gives a terminals run whose lanes are open the prompt they are waiting for. It goes into every
-   * lane together once all of them are ready, which may already be the case.
+   * Gives a run its next prompt. A terminals run whose lanes are open and waiting gets its first,
+   * typed into every lane together once all of them are ready. Any run whose contestants have all
+   * settled gets the next one in the sessions they already have (`arenaTurns.ts`): a run never
+   * ends, it waits for the reader.
    */
   sendPrompt(runId: string, raw: unknown): ArenaRunSummary {
     const run = this.registry.get(runId);
     if (!run) throw new ArenaRunNotFoundError(`no arena run "${runId}"`);
     const prompt = typeof raw === "string" ? raw.trim() : "";
     if (!prompt) throw new ArenaBadRequestError("a prompt cannot be empty");
-    checkPromptLength(prompt);
+    const tooLong = promptProblem(prompt);
+    if (tooLong) throw new ArenaBadRequestError(tooLong);
     const line = this.lines.get(runId);
-    if (run.prompt || line?.prompted) throw new ArenaBadRequestError("this run already has its prompt");
-    if (!line) throw new ArenaBadRequestError("this run's lanes are no longer open to take a prompt");
-    this.registry.updateRun(runId, (one) => {
-      one.prompt = prompt;
-    });
-    line.give(prompt);
+    if (!run.prompt && line && !line.prompted) {
+      this.registry.updateRun(runId, (one) => {
+        one.prompt = prompt;
+        one.round = 1;
+      });
+      line.give(prompt);
+      return runSummary(run);
+    }
+    if (!run.prompt) throw new ArenaBadRequestError("this run's lanes closed before they were given a prompt");
+    this.startNextRound(run, prompt);
     return runSummary(run);
+  }
+
+  /**
+   * One more prompt for every contestant with a session to continue. A terminals contestant goes
+   * back to a start line in the pane it has, as one picked back up after a restart does, so every
+   * lane is typed the prompt together; a headless one is driven again into its session.
+   */
+  private startNextRound(run: ArenaRunRecord, prompt: string): void {
+    let continuing: ArenaContestantRecord[];
+    try {
+      continuing = nextPromptContestants(run);
+    } catch (error) {
+      if (!(error instanceof ArenaNextPromptError)) throw error;
+      throw error.busy ? new ArenaRunBusyError(error.message) : new ArenaBadRequestError(error.message);
+    }
+    const terminals = run.mode === "terminals";
+    const drivers = terminals ? this.terminalDrivers : this.drivers;
+    if (!drivers) throw new ArenaBadRequestError("this machine has no tmux to drive a terminals run in");
+    this.registry.updateRun(run.runId, (one) => {
+      one.prompt = prompt;
+      one.round += 1;
+      for (const contestant of continuing) {
+        contestant.status = terminals ? "starting" : "preparing";
+        contestant.closedAt = null;
+        contestant.error = null;
+      }
+    });
+    const line = terminals ? new StartLine(continuing.length, prompt) : null;
+    if (line) this.lines.set(run.runId, line);
+    this.drives.set(run.runId, continuing.map((record) =>
+      terminals
+        ? this.driveOne(run, record, drivers, line, { pane: record.tmuxSession!, sessionId: record.sessionId!, prompted: false })
+        : this.driveOne(run, record, drivers, null, undefined, record.sessionId!)
+    ));
   }
 
   /**
@@ -392,6 +404,7 @@ export class ArenaService {
     drivers: ContestantDrivers,
     startLine: StartLine | null,
     resume?: ContestantResume,
+    continues?: string,
   ): Promise<void> {
     const mark = (apply: (contestant: ArenaContestantRecord, now: number) => void): void => {
       this.registry.updateContestant(run.runId, record.contestantId, apply);
@@ -425,9 +438,12 @@ export class ArenaService {
       const plan: ContestantPlan = {
         prompt: run.prompt,
         worktreePath: record.worktreePath,
-        requestId: `${run.runId}:${record.contestantId}`,
+        // One per prompt, not per contestant: a harness deduplicates a send by it, so a later
+        // prompt under the first one's id would be refused as the same command sent again.
+        requestId: `${run.runId}:${record.contestantId}:${run.round}`,
         turnTimeoutMs: this.turnTimeoutMs,
         ...(terminal ? { terminal } : {}),
+        ...(continues ? { continues } : {}),
         onSessionId: (sessionId) => {
           mark((contestant, now) => {
             // The session exists from here, so a reader can open it while it duels; the turn
@@ -440,12 +456,7 @@ export class ArenaService {
       };
       const result = await drive(plan);
 
-      const { filesRead, filesWritten } = filesFromEvents(result.events);
-      const outsideReached = outsideReaches(result.events, {
-        worktreePath: record.worktreePath,
-        rivals: run.contestants.filter((one) => one.contestantId !== record.contestantId),
-        home: homedir(),
-      });
+      const facts = factsAfterTurn(record, result.events, run, homedir());
       const diff = await this.worktrees.captureDiff({
         worktreePath: record.worktreePath,
         ref: run.baseRef,
@@ -459,9 +470,7 @@ export class ArenaService {
         contestant.closedAt = now;
         contestant.contextTokens = result.usage?.current ?? null;
         contestant.costUsd = result.usage?.cost ?? null;
-        contestant.filesRead = filesRead;
-        contestant.filesWritten = filesWritten;
-        contestant.outsideReached = outsideReached;
+        Object.assign(contestant, facts);
         contestant.gitDiff = bounded;
       });
     } catch (error) {
@@ -477,7 +486,3 @@ export class ArenaService {
   }
 }
 
-/** A prompt past this is refused rather than typed into a dozen panes. */
-function checkPromptLength(prompt: string): void {
-  if (prompt.length > 16_000) throw new ArenaBadRequestError("a run's prompt is capped at 16000 characters");
-}

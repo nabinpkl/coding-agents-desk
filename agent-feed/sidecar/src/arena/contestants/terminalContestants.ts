@@ -137,23 +137,30 @@ function terminalOf(plan: ContestantPlan): ContestantTerminal {
  * record that says anything about turn state says it closed (`end_turn`). The same rule the catalog
  * reads a session's liveness by, through the same adapter.
  */
-export function claudeTurnClosed(text: string): boolean {
+export function claudeTurnClosed(text: string, after = 0): boolean {
   const turn = claudeTurnState(text);
-  return turn.opened && turn.closed;
+  return turn.opened > after && turn.closed;
 }
 
-/** Whether the transcript has had a turn opened at all, and whether its latest one has closed. */
-function claudeTurnState(text: string): { opened: boolean; closed: boolean } {
-  let opened = false;
-  let closed = false;
+/**
+ * How many turns the transcript has opened, and whether its latest one has closed.
+ *
+ * Counted rather than merely seen, because a session that has already closed a turn reads as
+ * closed until the next one's first record lands: a second prompt watched for "latest turn
+ * closed" would see the first turn's close and end at once. A turn is one run of records that
+ * say it is open, so a count only moves on the step from closed to open.
+ */
+function claudeTurnState(text: string): { opened: number; closed: boolean } {
+  let opened = 0;
+  let closed = true;
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     const turnClosed = claudeAdapter.processLine(line)?.turnClosed;
     if (turnClosed === undefined) continue;
-    if (!turnClosed) opened = true;
+    if (!turnClosed && closed) opened += 1;
     closed = turnClosed;
   }
-  return { opened, closed };
+  return { opened, closed: opened > 0 && closed };
 }
 
 /**
@@ -182,14 +189,23 @@ export async function runClaudeTerminalContestant(
   const steps = options.steps ?? LIVE_TERMINAL_STEPS;
   const { pane, sessionId } = terminal.resume ?? await startClaudeContestant(plan, terminal, options, steps);
 
-  // The prompt to type, or null when the turn it opens is already under way.
+  // The prompt to type, or null when the turn it opens is already under way; and how many turns
+  // the session had opened before it, so only a turn opened after the prompt can close this one.
   let prompt: string | null;
+  let before: number;
   if (terminal.resume?.prompted) {
     const text = await steps.readTranscript(sessionId).catch(() => "");
-    prompt = claudeTurnState(text).opened ? null : plan.prompt;
+    const turn = claudeTurnState(text);
+    // Picked back up after a restart, a session with any turn is taken to have this prompt's turn
+    // as its latest -- under way, or closed while the sidecar was down -- and is never typed it
+    // twice. The one case that misreads is a restart in the moment between typing a later round's
+    // prompt and its first record landing, which then closes with the earlier turn's facts.
+    prompt = turn.opened > 0 ? null : plan.prompt;
+    before = Math.max(0, turn.opened - 1);
   } else {
     await untilClaudeComposer(pane, sessionId, plan.turnTimeoutMs, steps);
     prompt = await terminal.ready();
+    before = claudeTurnState(await steps.readTranscript(sessionId).catch(() => "")).opened;
   }
 
   // Listening before typing, so a turn that closes fast cannot close unheard. Every write re-reads
@@ -201,7 +217,7 @@ export async function runClaudeTerminalContestant(
   });
   const check = async (): Promise<void> => {
     const text = await steps.readTranscript(sessionId).catch(() => null);
-    if (text !== null && claudeTurnClosed(text)) resolveClosed();
+    if (text !== null && claudeTurnClosed(text, before)) resolveClosed();
   };
   const stop = steps.watchTranscript(sessionId, () => void check());
   let timer: ReturnType<typeof setTimeout> | null = null;

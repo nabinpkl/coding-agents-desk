@@ -51,6 +51,15 @@ describe("claudeTurnClosed", () => {
     expect(claudeTurnClosed([userLine, endTurnLine].join("\n"))).toBe(true);
     expect(claudeTurnClosed([userLine, endTurnLine, userLine].join("\n"))).toBe(false);
   });
+
+  // A later prompt is watched from the turns the session already had: the earlier turn's close
+  // must not close it before its own first record has even landed.
+  test("closes only on a turn opened after the ones it was told to look past", () => {
+    const first = [userLine, endTurnLine].join("\n");
+    expect(claudeTurnClosed(first, 1)).toBe(false);
+    expect(claudeTurnClosed([first, userLine].join("\n"), 1)).toBe(false);
+    expect(claudeTurnClosed([first, userLine, endTurnLine].join("\n"), 1)).toBe(true);
+  });
 });
 
 /** A plan whose terminal hooks write down what happened, in order. */
@@ -213,6 +222,7 @@ describe("runOpencodeTerminalContestant", () => {
     };
     const result = await runOpencodeTerminalContestant(backend, planWith(log), {
       steps,
+      lastUserId: async () => null,
       turnOutcome: async () => ({ closed: true, failure: null }),
     });
     expect(log).toEqual([
@@ -318,6 +328,7 @@ describe("a contestant picked back up after a restart", () => {
     const { steps } = fakeSteps(log);
     await runOpencodeTerminalContestant(idleBackend(log), resumedPlan(log, "arena-c2-old", "ses_old", false), {
       steps,
+      lastUserId: async () => null,
       turnOutcome: async () => ({ closed: true, failure: null }),
     });
     expect(log).toEqual(["ready", "subscribe", "send:say one word"]);
@@ -330,6 +341,7 @@ describe("a contestant picked back up after a restart", () => {
       await runOpencodeTerminalContestant(idleBackend(log), resumedPlan(log, "arena-c2-old", "ses_old", true), {
         steps,
         promptSent: async () => held,
+        lastUserId: async () => null,
         turnOutcome: async () => ({ closed: true, failure: null }),
       });
       expect(log).toEqual([...expected]);

@@ -26,6 +26,9 @@ if (!ORIGIN) throw new Error('set PANEL_ORIGIN to the panel origin');
 const LINEUP = (process.env.ARENA_LINEUP ?? 'opencode,claude').split(',').map((one) => one.trim());
 const LABEL = { opencode: 'OpenCode', claude: 'Claude' };
 const PROMPT = 'Reply with exactly the word alder and nothing else';
+// A run never ends: once the lanes settle, the next prompt goes into every one of them, in the
+// session each already has, from the box under the run's prompt.
+const NEXT_PROMPT = 'Now reply with exactly the word birch and nothing else';
 const TMUX = process.env.AGENT_FEED_TMUX_PATH ?? '/opt/homebrew/bin/tmux';
 
 async function playwrightRoot() {
@@ -254,6 +257,30 @@ try {
     problems.push(`the prompts did not go in together: starts ${starts.join(', ')}`);
   }
   console.log(final.map((c) => `${c.contestantId} ${c.source}: ${c.status} in ${c.durationMs}ms, pane ${c.tmuxSession}, wrote ${c.filesWritten.length} read ${c.filesRead.length}`).join('\n'));
+
+  // The second prompt, typed once into the run's header, for every lane, in the pane it has.
+  await page.getByLabel('Next prompt for every lane').fill(NEXT_PROMPT);
+  await page.getByRole('button', { name: /Send to every lane/ }).click();
+  const nextBy = Date.now() + 240_000;
+  await page.waitForTimeout(1500);
+  while (Date.now() < nextBy && !(await contestants()).every((c) => c.status === 'closed' || c.status === 'failed')) {
+    await page.waitForTimeout(1000);
+  }
+  const second = (await api(`/api/arena/runs/${runId}`)).body;
+  if (second?.round !== 2 || second?.prompt !== NEXT_PROMPT) {
+    problems.push(`the run is not on its second prompt: round ${second?.round}, "${second?.prompt}"`);
+  }
+  for (const c of second?.contestants ?? []) {
+    if (c.status !== 'closed') problems.push(`${c.contestantId} (${c.source}) ended the second prompt ${c.status}: ${c.error ?? ''}`);
+    if (c.tmuxSession !== final.find((one) => one.contestantId === c.contestantId)?.tmuxSession) {
+      problems.push(`${c.contestantId} took the second prompt in another pane than its first`);
+    }
+    const answered = paneText(c.tmuxSession ?? '');
+    if (!/birch/.test(answered)) problems.push(`${c.contestantId}'s pane shows no answer to the second prompt`);
+  }
+  await page.waitForTimeout(2000);
+  await page.screenshot({ path: join(shots, 'arena-terminals-second.png') });
+  console.log((second?.contestants ?? []).map((c) => `${c.contestantId} ${c.source}: second prompt ${c.status} in ${c.durationMs}ms`).join('\n'));
 
   if (problems.length > 0) {
     console.error(problems.join('\n'));

@@ -55,10 +55,12 @@ export function claudeContestantArgv(options: {
    * name (`-n`) so the session reads as a contestant wherever it is listed.
    */
   interactive?: { name: string };
+  /** A later prompt of the run: the session is resumed rather than created under this id. */
+  resume?: boolean;
 }): string[] {
   const argv = options.interactive
     ? [options.binary, "--session-id", options.sessionId, "-n", options.interactive.name]
-    : [options.binary, "--print", "--session-id", options.sessionId];
+    : [options.binary, "--print", options.resume ? "--resume" : "--session-id", options.sessionId];
   if (options.model) argv.push("--model", options.model);
   if (options.effort) argv.push("--effort", options.effort);
   return argv;
@@ -147,7 +149,7 @@ export async function runClaudeContestant(
       "no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH",
     );
   }
-  const sessionId = options.newSessionId?.() ?? randomUUID();
+  const sessionId = plan.continues ?? options.newSessionId?.() ?? randomUUID();
   plan.onSessionId(sessionId);
 
   const argv = claudeContestantArgv({
@@ -155,6 +157,7 @@ export async function runClaudeContestant(
     sessionId,
     model: options.model,
     effort: options.effort,
+    resume: plan.continues !== undefined,
   });
   const spawn = options.spawn ?? spawnClaude;
   const child = await spawn(argv, plan.worktreePath, plan.prompt);

@@ -48,8 +48,10 @@ export interface ArenaRunRecord {
   name: string;
   /** The run's folder in the arena home, holding its worktrees; removed with the run. */
   folder: string;
-  /** Empty while a terminals run has its lanes open and waits for the reader's prompt. */
+  /** The latest prompt; empty while a terminals run has its lanes open and waits for its first. */
   prompt: string;
+  /** How many prompts the run has been given. */
+  round: number;
   repoPath: string;
   /** The arena made `repoPath` as the run's folder, so it goes when the run does. */
   repoCreated: boolean;
@@ -88,6 +90,7 @@ export function runSummary(run: ArenaRunRecord): ArenaRunSummary {
     runId: run.runId,
     name: run.name,
     prompt: run.prompt,
+    round: run.round,
     repoPath: run.repoPath,
     repoCreated: run.repoCreated,
     baseRef: run.baseRef,

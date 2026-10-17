@@ -47,15 +47,25 @@ function controllableDriver(name: string) {
   });
   let promptedAt: number | null = null;
   let prompted: string | null = null;
+  let resumed: ContestantResume | null = null;
   const drive: ContestantDriver = async (plan) => {
     if (!plan.terminal) throw new Error("no terminal on a terminals plan");
-    plan.terminal.onPane(`pane-${name}`, `session-${name}`);
+    resumed = plan.terminal.resume ?? null;
+    // A later prompt continues the pane the contestant already has, as the real drivers do.
+    if (!resumed) plan.terminal.onPane(`pane-${name}`, `session-${name}`);
     if ((await loaded) === "fail") throw new Error(`${name} never showed its composer`);
     prompted = await plan.terminal.ready();
     promptedAt = Date.now();
     return { sessionId: `session-${name}`, events: [], usage: null };
   };
-  return { drive, load, promptedAt: () => promptedAt, prompted: () => prompted, label: () => name };
+  return {
+    drive,
+    load,
+    promptedAt: () => promptedAt,
+    prompted: () => prompted,
+    resumed: () => resumed,
+    label: () => name,
+  };
 }
 
 async function arena(options: { terminalDrivers?: ContestantDrivers | null; killed?: string[]; onKill?: () => void } = {}) {
@@ -220,18 +230,28 @@ describe("lanes opened before the prompt", () => {
     expect(service.listRuns()[0]?.prompt).toBe("say one word");
   });
 
-  test("a prompt is given once, never empty, and only to a run that is waiting for one", async () => {
+  // A run never ends: each prompt after the first waits for every lane to settle, then goes into
+  // every lane together, in the pane and session each already has.
+  test("a run takes prompt after prompt, each once its lanes settle, in the panes they have", async () => {
     const claude = controllableDriver("c1");
     const opencode = controllableDriver("c2");
     const { service } = await arena({ terminalDrivers: { claude: claude.drive, opencode: opencode.drive } });
     const run = await service.createRun(request({ prompt: "" }));
     expect(() => service.sendPrompt(run.runId, "   ")).toThrow(/cannot be empty/);
     service.sendPrompt(run.runId, "first");
-    expect(() => service.sendPrompt(run.runId, "second")).toThrow(/already has its prompt/);
+    expect(() => service.sendPrompt(run.runId, "second")).toThrow(/still on the last prompt/);
     expect(() => service.sendPrompt("33333333-3333-4333-8333-333333333333", "x")).toThrow(/no arena run/);
     claude.load("ready");
     opencode.load("ready");
     await until(() => contestants(service).every((c) => c.status === "closed"), "both to close");
+    expect(claude.prompted()).toBe("first");
+
+    const second = service.sendPrompt(run.runId, "second");
+    expect(second).toMatchObject({ prompt: "second", round: 2 });
+    await until(() => contestants(service).every((c) => c.status === "closed"), "both to close again");
+    expect([claude.prompted(), opencode.prompted()]).toEqual(["second", "second"]);
+    expect(claude.resumed()).toEqual({ pane: "pane-c1", sessionId: "session-c1", prompted: false });
+    expect(service.listRuns()[0]).toMatchObject({ prompt: "second", round: 2 });
   });
 
   test("a headless run still needs its prompt up front: it has no lanes to open first", async () => {

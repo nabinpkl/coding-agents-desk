@@ -28,6 +28,7 @@ const run = (over: Record<string, unknown> = {}) => ({
   runId: "11111111-1111-4111-8111-111111111111",
   name: "arena run 1",
   prompt: "say one word",
+  round: 1,
   repoPath: "/repos/one",
   repoCreated: false,
   baseRef: "HEAD",

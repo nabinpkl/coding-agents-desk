@@ -47,6 +47,7 @@ const run = (over: Record<string, unknown> = {}) => ({
   runId: "11111111-1111-4111-8111-111111111111",
   name: "arena run 1",
   prompt: "say one word",
+  round: 1,
   repoPath: "/repos/one",
   repoCreated: false,
   baseRef: "HEAD",
@@ -324,5 +325,35 @@ describe("ArenaSurface", () => {
 
     await waitFor(() => expect(postedTo).toEqual(["/api/arena/runs/11111111-1111-4111-8111-111111111111/prompt"]));
     expect(posted[0]).toEqual({ prompt: "count to three" });
+  });
+
+  // A run never ends: once its lanes settle, the next prompt goes to every lane from the header,
+  // and while they are still on the last one it can be drafted but not sent.
+  test("a settled run takes its next prompt in the header; one still dueling holds it", async () => {
+    const settled = run({ mode: "terminals", prompt: "first", round: 2 });
+    const { transport, posted, postedTo } = harness({ runs: [settled], detail: settled });
+    mount(transport);
+    await openRun("first");
+    expect(screen.getByText("Prompt 2")).toBeTruthy();
+    expect(screen.getByText("ready for the next prompt")).toBeTruthy();
+    const box = screen.getByLabelText("Next prompt for every lane");
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, "now add tests");
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe("now add tests"));
+    screen.getByRole("button", { name: /Send to every lane/ }).click();
+    await waitFor(() => expect(postedTo).toEqual(["/api/arena/runs/11111111-1111-4111-8111-111111111111/prompt"]));
+    expect(posted[0]).toEqual({ prompt: "now add tests" });
+    await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(""));
+  });
+
+  test("the next prompt cannot be sent while a lane is still on the last one", async () => {
+    const dueling = run({ mode: "terminals", contestants: [contestant({ status: "running", closedAt: null, durationMs: null })] });
+    mount(harness({ runs: [dueling], detail: dueling }).transport);
+    await openRun("say one word");
+    const box = screen.getByLabelText("Next prompt for every lane");
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, "later");
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe("later"));
+    expect((screen.getByRole("button", { name: /Send to every lane/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

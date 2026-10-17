@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import {
   OpencodeContestantError,
   runOpencodeContestant,
+  lastUserIdOf,
   turnOutcomeOf,
   type OpencodeContestantBackend,
   type OpencodeTurnOutcome,
@@ -103,6 +104,7 @@ const plan = {
 function fakeServe(initial: OpencodeTurnOutcome = { closed: false }) {
   const serve = { outcome: initial, reads: 0 };
   const options = {
+    lastUserId: async () => null,
     turnOutcome: async () => {
       serve.reads += 1;
       return serve.outcome;
@@ -240,5 +242,63 @@ describe("runOpencodeContestant", () => {
     // A late envelope from a released subscription asks nothing of a drive that already failed.
     deliver(envelope({ runState: "idle" }));
     expect(serve.reads).toBe(0);
+  });
+});
+
+describe("turnOutcomeOf", () => {
+  // Shapes copied from this machine's serve, oldest first, trimmed to the fields read.
+  const user = { type: "user", text: "say one word" };
+  const succeeded = [
+    user,
+    { type: "assistant", finish: "tool-calls" },
+    { type: "system" },
+    { type: "assistant", finish: "stop" },
+    { type: "idle", outcome: "succeeded" },
+  ];
+  const failed = [
+    user,
+    {
+      type: "assistant",
+      finish: "error",
+      error: { type: "provider.quota", message: "Go usage limit exceeded", status: 429 },
+    },
+    { type: "idle", outcome: "failed" },
+  ];
+
+  test("a turn the serve has not marked is still open", () => {
+    expect(turnOutcomeOf([user, { type: "assistant" }])).toEqual({ closed: false });
+  });
+
+  test("a succeeded marker closes the turn with no failure", () => {
+    expect(turnOutcomeOf(succeeded)).toEqual({ closed: true, failure: null });
+  });
+
+  test("a failed marker closes it with the assistant's own error", () => {
+    expect(turnOutcomeOf(failed)).toEqual({
+      closed: true,
+      failure: "provider.quota: Go usage limit exceeded",
+    });
+  });
+
+  test("a marker from before the last prompt describes another turn", () => {
+    expect(turnOutcomeOf([...succeeded, { type: "user", text: "again" }])).toEqual({ closed: false });
+  });
+
+  test("a failed marker with no error to quote still says the serve failed it", () => {
+    expect(turnOutcomeOf([user, { type: "idle", outcome: "failed" }])).toEqual({
+      closed: true,
+      failure: "the serve reported the turn failed",
+    });
+  });
+
+  // A later prompt of the run, sent into a session whose last turn already closed: until its own
+  // user message lands, the latest turn is the earlier one, and that close is not this turn's.
+  test("looks past the turn opened by the user message it was told came before", () => {
+    const earlier = [{ ...user, id: "msg_1" }, ...succeeded.slice(1)];
+    expect(turnOutcomeOf(earlier, "msg_1")).toEqual({ closed: false });
+    const next = [...earlier, { type: "user", id: "msg_2", text: "again" }, { type: "idle", outcome: "succeeded" }];
+    expect(turnOutcomeOf(next, "msg_1")).toEqual({ closed: true, failure: null });
+    expect(lastUserIdOf(next)).toBe("msg_2");
+    expect(lastUserIdOf([])).toBeNull();
   });
 });

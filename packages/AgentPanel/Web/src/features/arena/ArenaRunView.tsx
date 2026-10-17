@@ -88,11 +88,16 @@ export function ArenaRunView({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             {awaitingPrompt ? (
-              <LanesPrompt onSend={onSendPrompt} />
+              <LanesPrompt onSend={onSendPrompt} next={false} busy={false} />
             ) : (
               <p
                 className={`whitespace-pre-wrap break-words text-lg leading-snug font-medium text-foreground ${long && !promptOpen ? "line-clamp-4" : ""}`}
               >
+                {run.round > 1 ? (
+                  <span className={`mr-2 align-middle ${TEXT.meta} font-normal text-muted-foreground`}>
+                    Prompt {run.round}
+                  </span>
+                ) : null}
                 {run.prompt}
               </p>
             )}
@@ -106,6 +111,9 @@ export function ArenaRunView({
                 {promptOpen ? "Show less" : "Show the whole prompt"}
               </button>
             ) : null}
+            {/* A run never ends: once its lanes settle, the next prompt goes to every one of them,
+                in the session each already has. */}
+            {awaitingPrompt ? null : <LanesPrompt onSend={onSendPrompt} next busy={live} />}
           </div>
           <button
             type="button"
@@ -138,7 +146,7 @@ export function ArenaRunView({
           <span className={live ? "text-arena-running" : ""}>
             {awaitingPrompt
               ? `${ready} of ${run.contestants.length} ready`
-              : live ? `${settled} of ${run.contestants.length} settled` : "settled"}
+              : live ? `${settled} of ${run.contestants.length} settled` : "ready for the next prompt"}
           </span>
         </p>
         {problem ? (
@@ -213,13 +221,27 @@ export function ArenaRunView({
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-/** The one prompt, typed once the lanes are open, and sent to every one of them. */
-function LanesPrompt({ onSend }: { onSend: (prompt: string) => Promise<string | null> }) {
+/**
+ * A prompt for every lane: the first, typed once the lanes are open, or the next, once the last
+ * one has settled in every lane. The next one is a single compact row, since the lanes under it
+ * are what the reader is watching; it can be drafted while the lanes work, and sent once they settle.
+ */
+function LanesPrompt({
+  onSend,
+  next,
+  busy,
+}: {
+  onSend: (prompt: string) => Promise<string | null>;
+  /** The prompt after the first: one row, and cleared once sent. */
+  next: boolean;
+  /** The lanes are still on the last prompt, so this one waits. */
+  busy: boolean;
+}) {
   const id = useId();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const canSend = !sending && text.trim().length > 0;
+  const canSend = !sending && !busy && text.trim().length > 0;
   const send = async () => {
     if (!canSend) return;
     setSending(true);
@@ -227,6 +249,7 @@ function LanesPrompt({ onSend }: { onSend: (prompt: string) => Promise<string | 
     const problem = await onSend(text);
     setSending(false);
     if (problem) setRefusal(problem);
+    else if (next) setText("");
   };
   const sendOnChord = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -234,6 +257,39 @@ function LanesPrompt({ onSend }: { onSend: (prompt: string) => Promise<string | 
       void send();
     }
   };
+  const sendButton = (
+    <button
+      type="button"
+      onClick={() => void send()}
+      disabled={!canSend}
+      title={busy ? "The lanes are still on the last prompt; send this once they settle" : undefined}
+      className={PRIMARY_BUTTON}
+    >
+      {sending ? "Sending" : "Send to every lane"}
+      <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
+        {MAC ? "⌘↵" : "Ctrl↵"}
+      </kbd>
+    </button>
+  );
+  if (next) {
+    return (
+      <div className="mt-3 flex flex-col gap-1.5">
+        <div className="flex items-end gap-2">
+          <textarea
+            aria-label="Next prompt for every lane"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={sendOnChord}
+            placeholder={busy ? "Draft the next prompt; send it once every lane settles" : "Next prompt for every lane"}
+            rows={1}
+            className={`${FIELD} min-h-10 flex-1 resize-y leading-relaxed`}
+          />
+          {sendButton}
+        </div>
+        {refusal ? <p role="alert" className={`${TEXT.meta} text-destructive`}>{refusal}</p> : null}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor={id} className={`${TEXT.meta} font-medium text-muted-foreground`}>
@@ -252,12 +308,7 @@ function LanesPrompt({ onSend }: { onSend: (prompt: string) => Promise<string | 
       />
       <div className="flex flex-wrap items-center justify-end gap-3">
         {refusal ? <p role="alert" className={`mr-auto ${TEXT.meta} text-destructive`}>{refusal}</p> : null}
-        <button type="button" onClick={() => void send()} disabled={!canSend} className={PRIMARY_BUTTON}>
-          {sending ? "Sending" : "Send to every lane"}
-          <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
-            {MAC ? "⌘↵" : "Ctrl↵"}
-          </kbd>
-        </button>
+        {sendButton}
       </div>
     </div>
   );
