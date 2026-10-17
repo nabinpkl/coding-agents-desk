@@ -10,6 +10,7 @@
 // shape `AGENTS.md` asks for under Bun.
 
 import { watch } from "node:fs";
+import { lstat } from "node:fs/promises";
 import type { Socket } from "bun";
 import {
   DISCONNECTED_CLAUDE_SDK_STATE,
@@ -48,6 +49,8 @@ interface Connection {
 export class ClaudeSdkClient {
   private readonly connections = new Map<string, Connection>();
   private watching = false;
+  /** The directory's privacy, checked once and awaited by every connect. */
+  private directoryChecked: Promise<boolean> | null = null;
   private nextId = 0;
 
   constructor(
@@ -125,9 +128,36 @@ export class ClaudeSdkClient {
     return connection.opening;
   }
 
+  /**
+   * Whether the socket directory is this user's alone, asked before the first connect and never
+   * skipped. A runner's socket takes answers and approvals, so one in a directory another user
+   * could write to -- `/tmp` names are predictable -- might be theirs, answering as a runner.
+   */
+  private directoryIsPrivate(): Promise<boolean> {
+    this.directoryChecked ??= privateSocketDirectory(this.socketDirectory).then(
+      () => true,
+      (error: unknown) => {
+        this.log(`refusing every runner: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      },
+    );
+    return this.directoryChecked;
+  }
+
+  /** The socket file is a socket and this user's, so connecting to it reaches a runner of ours. */
+  private async socketIsOurs(path: string): Promise<boolean> {
+    const info = await lstat(path).catch(() => null);
+    if (!info) return false;
+    const ours = info.isSocket() && (typeof process.getuid !== "function" || info.uid === process.getuid());
+    if (!ours) this.log(`refusing ${path}: not a socket of this user's`);
+    return ours;
+  }
+
   private async connect(connection: Connection): Promise<boolean> {
     const path = runnerSocketPath(this.socketDirectory, connection.sessionId);
+    if (!await this.directoryIsPrivate() || !await this.socketIsOurs(path)) return false;
     const reader = new LineReader();
+    let introduced = false;
     let greeted!: (ok: boolean) => void;
     const ready = new Promise<boolean>((resolve) => (greeted = resolve));
     const socket = await Bun.connect({
@@ -143,7 +173,19 @@ export class ClaudeSdkClient {
             _socket.end();
             return;
           }
-          for (const line of lines) this.receive(connection, line, greeted);
+          for (const line of lines) {
+            // Nothing counts until the runner has said which session it serves, in our protocol.
+            if (!introduced) {
+              introduced = this.introduces(connection, line);
+              if (!introduced) {
+                _socket.end();
+                greeted(false);
+                return;
+              }
+              continue;
+            }
+            this.receive(connection, line, greeted);
+          }
         },
         close: (closing) => {
           greeted(false);
@@ -161,6 +203,16 @@ export class ClaudeSdkClient {
     return answered;
   }
 
+  /** Whether a connection's first line is a runner introducing itself for this session. */
+  private introduces(connection: Connection, line: string): boolean {
+    const message = parseRunnerMessage(line);
+    if (message?.type === "hello" && message.version === PROTOCOL_VERSION && message.sessionId === connection.sessionId) {
+      return true;
+    }
+    this.log(`${connection.sessionId}: refused a socket that did not introduce itself as this session's runner`);
+    return false;
+  }
+
   private receive(connection: Connection, line: string, greeted: (ok: boolean) => void): void {
     const message = parseRunnerMessage(line);
     if (!message) {
@@ -169,11 +221,8 @@ export class ClaudeSdkClient {
     }
     switch (message.type) {
       case "hello":
-        if (message.version !== PROTOCOL_VERSION || message.sessionId !== connection.sessionId) {
-          this.log(`${connection.sessionId}: refused a runner speaking protocol ${message.version} for ${message.sessionId}`);
-          connection.socket?.end();
-          greeted(false);
-        }
+        // Only the first line may introduce; a second is not a runner's.
+        this.log(`${connection.sessionId}: dropped a second hello`);
         return;
       case "state":
         connection.state = { ...message.state, connected: true };
@@ -225,8 +274,8 @@ export class ClaudeSdkClient {
   private async watchDirectory(): Promise<void> {
     if (this.watching) return;
     this.watching = true;
+    if (!await this.directoryIsPrivate()) return;
     try {
-      await privateSocketDirectory(this.socketDirectory);
       watch(this.socketDirectory, (_event, file) => {
         const sessionId = typeof file === "string" && file.endsWith(".sock") ? file.slice(0, -".sock".length) : null;
         const connection = sessionId ? this.connections.get(sessionId) : undefined;

@@ -147,6 +147,45 @@ describe("one runner per session", () => {
   });
 });
 
+describe("who the client will believe", () => {
+  test("nothing in a directory other users can read, whatever answers there", async () => {
+    const open = mkdtempSync("/tmp/sdko-");
+    chmodSync(open, 0o755);
+    try {
+      const sessionId = "aaaaaaaa-bbbb-4ccc-8ddd-777777777777";
+      const runner = new ClaudeSdkRunner(
+        { sessionId, cwd: open, name: "x", start: "new", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false" },
+        () => { throw new Error("unused"); },
+      );
+      const server = await serveRunner(runner, { sessionId, socketPath: runnerSocketPath(open, sessionId) }, quiet);
+      expect(await new ClaudeSdkClient(open, quiet).isServing(sessionId)).toBe(false);
+      await server.close();
+    } finally {
+      rmSync(open, { recursive: true, force: true });
+    }
+  });
+
+  test("nothing from a socket that does not introduce itself as this session's runner", async () => {
+    const sessionId = "aaaaaaaa-bbbb-4ccc-8ddd-888888888888";
+    const path = runnerSocketPath(work, sessionId);
+    const impostor = Bun.listen({
+      unix: path,
+      socket: {
+        open(socket) {
+          socket.write(`${JSON.stringify({ type: "state", state: { status: "idle", permissionMode: null, allowBypass: true, pending: [], backgroundTasks: 0, claudeCodeVersion: null } })}\n`);
+        },
+        data() {},
+      },
+    });
+    try {
+      expect(await new ClaudeSdkClient(work, quiet).isServing(sessionId)).toBe(false);
+    } finally {
+      impostor.stop(true);
+      rmSync(path, { force: true });
+    }
+  });
+});
+
 describe("what the panel is told", () => {
   test("no runner is its own refusal, for commands and for answers", async () => {
     const client = new ClaudeSdkClient(work, quiet);
