@@ -130,6 +130,26 @@ describe("terminal session composer", () => {
     unmount();
   });
 
+  it("says why a draft is waiting when the pane shows no composer, and sends it once one appears", async () => {
+    const { transport, unmount } = setupInput(TERMINAL);
+    openClaudeThread(transport);
+    const field = await screen.findByLabelText("Message this terminal session");
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: "do 2" } });
+    paneReads(transport, "no-composer");
+    expect(await screen.findByText(/not showing its composer.*What you have typed is kept here/)).toBeInTheDocument();
+    expect(field).not.toBeDisabled();
+    expect((field as HTMLTextAreaElement).value).toBe("do 2");
+    paneReads(transport, null);
+    await waitFor(() => expect(screen.queryByText(/not showing its composer/)).toBeNull());
+    await waitFor(() => expect(transport.requests).toContainEqual(expect.objectContaining({
+      method: "POST",
+      path: "/api/sessions/claude/sid-claude-01/composer",
+      body: { text: "do 2" },
+    })), { timeout: 3000 });
+    unmount();
+  });
+
   it("falls through a refused window composer to the already-open Agent Feed terminal", async () => {
     const { transport, fake, unmount } = setupInput({ entrypoint: "claude-desktop", tmuxSession: null });
     transport.responses.set("POST /api/terminals/terminal-1/input", { status: 204, body: "" });

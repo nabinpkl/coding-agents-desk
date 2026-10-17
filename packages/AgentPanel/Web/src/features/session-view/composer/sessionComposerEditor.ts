@@ -239,6 +239,13 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
     captionIsError = m.tmuxComposer.reason != null || m.tmuxComposer.error != null;
   } else if (m.cliSessionBand) {
     if (m.unavailable) caption = "This session runs in a terminal outside a tmux pane, so the panel can't type into it.";
+    // A pane that answered but whose box has not been readable yet. This band never latched, so
+    // the tmux band's caption above never ran, and the field sat holding a draft with nothing
+    // saying why it went nowhere (2026-10-17: a title too wide for its pane hid the box).
+    else if (m.tmuxComposer.reason) {
+      caption = tmuxComposerReasonText(m.tmuxComposer.reason);
+      captionIsError = true;
+    }
   } else if (m.agentTerminalBand) {
     caption = m.deliveryError ?? "Sending through the open Agent Feed terminal.";
     captionIsError = m.deliveryError != null;
