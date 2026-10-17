@@ -103,13 +103,17 @@ export function framePrompt({ message, fromName }) {
  * Whether a prompt carrying this message already went into the session, read from the session's own
  * messages. The mod can be reloaded (an edit, which lands as the running turn ends) at the moment a
  * prompt it submitted goes in: the old copy never confirms it, the hub pushes it again, and only the
- * transcript can say it already arrived. Every prompt this mod builds names the message id; the
- * second spelling is the one prompts carried before the <hub-message> tag.
+ * transcript can say it already arrived.
+ *
+ * Only the opening <hub-message> tag counts, matched as a whole line. A body cannot write one (the
+ * tag is escaped inside it, `messageText`), so another message cannot claim this one arrived and
+ * have it confirmed without ever being delivered. Prompts in the format before the tag are not
+ * recognised: their header line could be written by a body.
  */
 export function promptCarriesMessage(messages, messageId) {
-  const escaped = String(messageId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const names = new RegExp(`message_id(="${escaped}"| ${escaped}\\b)`)
-  return Array.isArray(messages) && messages.some((m) => m && m.role === 'user' && typeof m.text === 'string' && m.text.includes('agent hub') && names.test(m.text))
+  const escaped = attribute(messageId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const opening = new RegExp(`^<${MESSAGE_TAG} [^>\\n]* message_id="${escaped}"[^>\\n]*>$`, 'm')
+  return Array.isArray(messages) && messages.some((m) => m && m.role === 'user' && typeof m.text === 'string' && opening.test(m.text))
 }
 
 /**
