@@ -2,7 +2,9 @@
 status: accepted
 date: 2026-10-12
 supersedes: ADR-0130
-superseded-by: ADR-0132
+superseded-by:
+  - ADR-0132
+  - ADR-0139
 ---
 
 # An arena opencode session holds its confining rules from the create request itself

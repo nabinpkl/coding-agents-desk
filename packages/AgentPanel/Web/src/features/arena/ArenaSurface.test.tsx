@@ -38,6 +38,7 @@ const contestant = (over: Record<string, unknown> = {}) => ({
   costUsd: 0.02,
   filesRead: ["/arena/11111111-1111-4111-8111-111111111111/c1/README.md"],
   filesWritten: [],
+  outsideReached: [] as { path: string; how: string; rival: string | null }[],
   gitDiff: null,
   ...over,
 });
@@ -188,8 +189,14 @@ describe("ArenaSurface", () => {
     const labels = (name: string) =>
       [...screen.getByRole("region", { name: `${name} facts` }).querySelectorAll("dt")].map((dt) => dt.textContent);
     expect(labels("c1 OpenCode")).toEqual(labels("c2 Claude"));
-    expect(c1).toEqual(["Time2.0s", "Files read1", "Files written0", "Diffno change", "Context1.2k tokens", "Cost$0.0200"]);
-    expect(c2).toEqual(["Time8.0s", "Files read1", "Files written1", "Diff+1−1in 1 file", "Context1.2k tokens", "Cost$0.0200"]);
+    expect(c1).toEqual([
+      "Time2.0s", "Files read1", "Files written0", "Outside its foldernone", "Diffno change", "Context1.2k tokens",
+      "Cost$0.0200",
+    ]);
+    expect(c2).toEqual([
+      "Time8.0s", "Files read1", "Files written1", "Outside its foldernone", "Diff+1−1in 1 file", "Context1.2k tokens",
+      "Cost$0.0200",
+    ]);
   });
 
   test("a running lane shows what is not known yet as a dash, never as zero", async () => {
@@ -200,7 +207,7 @@ describe("ArenaSurface", () => {
     await openRun("say one word");
     const lane = screen.getByRole("region", { name: "c1 OpenCode facts" });
     const rows = [...lane.querySelectorAll("dl > div")].map((row) => row.textContent ?? "");
-    expect(rows.slice(1)).toEqual(["Files read—", "Files written—", "Diff—", "Context—"]);
+    expect(rows.slice(1)).toEqual(["Files read—", "Files written—", "Outside its folder—", "Diff—", "Context—"]);
     expect(rows[0]).toMatch(/so far$/);
   });
 
@@ -212,6 +219,28 @@ describe("ArenaSurface", () => {
     expect(readme.closest("tr")?.textContent).toBe("README.mdreadread");
     const widget = screen.getByRole("rowheader", { name: "src/widget.ts" });
     expect(widget.closest("tr")?.textContent).toBe("src/widget.ts·wrote");
+  });
+
+  // Contestants run as plain agents, so a look into a rival's worktree is not refused: the lane
+  // says it happened and whose, and the files view says where and how.
+  test("a reach into a rival's worktree is said in the lane and listed in the files view", async () => {
+    const peeked = duel();
+    const rivalFile = "/arena/11111111-1111-4111-8111-111111111111/c1/src/widget.ts";
+    peeked.contestants[1] = {
+      ...peeked.contestants[1]!,
+      outsideReached: [
+        { path: rivalFile, how: "shell", rival: "c1" },
+        { path: "/Users/me/.config/notes.md", how: "read", rival: null },
+      ],
+    };
+    mount(harness({ runs: [peeked], detail: peeked }).transport);
+    await openRun("say one word");
+    const c2 = screen.getByRole("region", { name: "c2 Claude facts" });
+    expect(c2.textContent).toContain("Outside its folder2 places · into c1");
+    screen.getByRole("tab", { name: /Files/ }).click();
+    const reached = await screen.findByRole("region", { name: "Reached outside their folders" });
+    const rows = [...reached.querySelectorAll("tr")].map((row) => row.textContent);
+    expect(rows).toEqual([`c1's · ${rivalFile}·in a command`, "/Users/me/.config/notes.md·read"]);
   });
 
   test("the diffs view gives each lane its own column, saying so when it changed nothing", async () => {

@@ -84,6 +84,7 @@ export function ArenaLaneFacts({
         </Fact>
         <Fact label="Files read">{settled ? contestant.filesRead.length : none}</Fact>
         <Fact label="Files written">{settled ? contestant.filesWritten.length : none}</Fact>
+        <Fact label="Outside its folder">{settled ? <OutsideReach contestant={contestant} /> : none}</Fact>
         <Fact label="Diff">
           {stat.files === 0 ? (
             <span className="text-muted-foreground">{contestant.status === "closed" ? "no change" : "—"}</span>
@@ -129,6 +130,26 @@ export function ArenaLaneFacts({
         ) : null}
       </dl>
     </section>
+  );
+}
+
+/**
+ * How far outside its own worktree the contestant reached, with a rival's worktree said apart:
+ * contestants run as plain agents, so a look at a rival's work is not refused, only recorded.
+ * Every place is in the title; the Files view lists them.
+ */
+function OutsideReach({ contestant }: { contestant: ArenaContestantDetail }) {
+  const reaches = contestant.outsideReached;
+  if (reaches.length === 0) return <span className="text-muted-foreground">none</span>;
+  const rivals = [...new Set(reaches.flatMap((reach) => (reach.rival === null ? [] : [reach.rival])))];
+  const places = new Set(reaches.map((reach) => reach.path)).size;
+  return (
+    <span className="truncate" title={reaches.map((reach) => `${reach.how}: ${reach.path}`).join("\n")}>
+      {places} {places === 1 ? "place" : "places"}
+      {rivals.length > 0 ? (
+        <span className="text-destructive"> · into {rivals.join(", ")}</span>
+      ) : null}
+    </span>
   );
 }
 

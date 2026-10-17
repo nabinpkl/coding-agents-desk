@@ -17,6 +17,7 @@ import {
   type ArenaContestantDetail,
   type ArenaContestantStatus,
   type ArenaNewRunDefaults,
+  type ArenaOutsideReach,
   type ArenaRunDetail,
   type ArenaRunMode,
   type ArenaRunSummary,
@@ -104,11 +105,23 @@ export function parseRunDetail(value: unknown): ArenaRunDetail | null {
       costUsd: typeof c.costUsd === "number" ? c.costUsd : null,
       filesRead: stringArrayOf(c.filesRead),
       filesWritten: stringArrayOf(c.filesWritten),
+      outsideReached: reachesOf(c.outsideReached),
       gitDiff: typeof c.gitDiff === "string" ? c.gitDiff : null,
     };
     return detail;
   });
   return { ...summary, contestants };
+}
+
+const REACH_KINDS = new Set<ArenaOutsideReach["how"]>(["read", "write", "search", "shell"]);
+
+function reachesOf(value: unknown): ArenaOutsideReach[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw) => {
+    const reach = raw as Partial<ArenaOutsideReach> | null;
+    if (typeof reach?.path !== "string" || !REACH_KINDS.has(reach.how as ArenaOutsideReach["how"])) return [];
+    return [{ path: reach.path, how: reach.how!, rival: typeof reach.rival === "string" ? reach.rival : null }];
+  });
 }
 
 function stringArrayOf(value: unknown): string[] {

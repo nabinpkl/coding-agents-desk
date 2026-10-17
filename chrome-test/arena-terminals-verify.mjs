@@ -100,7 +100,7 @@ const composersOnScreen = async (page, problems, when) => {
 // is not. Read from the rows actually in view, because the pane is a peek at a taller screen, and
 // the footer being somewhere in it says nothing about whether a reader can see it -- Claude draws
 // near the top of its pane, and a peek at the bottom showed only the blank rows under its box.
-const HARNESS_FOOTER = { opencode: /ctrl\+p commands/, claude: /don't ask on/ };
+const HARNESS_FOOTER = { opencode: /ctrl\+p commands/, claude: /shift\+tab to cycle/ };
 const harnessInView = async (page, problems, when) => {
   for (const [index, source] of LINEUP.entries()) {
     const shown = await page.getByRole('region', { name: `c${index + 1} ${LABEL[source]} session` }).locator('.xterm').first()

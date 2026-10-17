@@ -10,20 +10,11 @@
 //     and MCP servers -- as a reader's own Claude session does. `--safe-mode`, which drops all of
 //     that, is not passed (ADR-0138). Neither is `--bare`, which also drops keychain auth and
 //     answers "Not logged in".
-//   - Nothing about print mode confines a contestant; the flags below do, and each one was
-//     measured by asking a contestant to read, write, edit and shell into a folder outside its
-//     worktree (2.1.296, 2026-10-12). The machine's permission MODE applies unless named, so a
-//     contestant started on a machine set to `auto` ran in `auto`, and a bare tool name in
-//     `--allowed-tools` allows that tool on every path: with both, all four reached outside.
-//     `--permission-mode dontAsk` refuses whatever no rule allows, with nobody asked;
-//     `--tools` takes every other built-in out of the contestant's hands (it otherwise holds
-//     subagents, web fetch, cross-session messaging and scheduled triggers); and rules scoped
-//     to `./**`, which resolves against the worktree the process starts in, keep Read, Edit
-//     and Write -- and Glob and Grep, which follow the Read rule -- inside it. Write has no rule
-//     of its own: the CLI matches no `Write(path)` rule and warns about one on every start, and
-//     `Edit(path)` covers every file-editing tool (measured: Write inside allowed, outside
-//     refused, 2026-10-13). Bash stays unscoped: a shell reaches wherever this user can, and
-//     only a sandbox would change that.
+//   - Nothing confines a contestant: it runs with this machine's own permission mode and every
+//     tool a reader's own session has (ADR-0139). The worktree-scoped rules ADR-0130 added were
+//     never a wall -- Bash was always unscoped, and Claude's own refusal invites trying another
+//     tool, which a contestant did with `cat` -- so they went, and what a contestant reached
+//     outside its worktree is a fact read off its events instead (`outsideReaches`).
 //   - `--session-id` is accepted and names the transcript that lands at
 //     `~/.claude/projects/<slug>/<id>.jsonl`, so the id is chosen here rather than
 //     discovered, and the session is in the catalog from the moment the file exists. The
@@ -49,15 +40,6 @@ export class ClaudeContestantError extends Error {}
 /** What stderr may contribute to a failure line: enough to name the cause, not the whole log. */
 const STDERR_TAIL_CHARACTERS = 400;
 
-/** The built-ins a contestant holds at all; every other tool is absent, not merely refused. */
-const CONTESTANT_TOOLS = "Read,Grep,Glob,Bash,Edit,Write";
-
-/**
- * What a contestant may do without being asked, under a mode that asks nobody. The file tools
- * are scoped to the worktree; Glob and Grep follow Read's rule, and Write follows Edit's.
- */
-const CONTESTANT_ALLOWED = ["Read(./**)", "Edit(./**)", "Bash"];
-
 /**
  * The argv that drives one contestant, split out because it is pure and the spelling is the
  * part a future CLI release is most likely to move.
@@ -70,8 +52,7 @@ export function claudeContestantArgv(options: {
   effort?: string | null;
   /**
    * The terminals mode's spelling: the interactive CLI in a pane rather than `--print`, under its
-   * name (`-n`) so the session reads as a contestant wherever it is listed. Every confining flag is
-   * the same either way.
+   * name (`-n`) so the session reads as a contestant wherever it is listed.
    */
   interactive?: { name: string };
 }): string[] {
@@ -80,8 +61,6 @@ export function claudeContestantArgv(options: {
     : [options.binary, "--print", "--session-id", options.sessionId];
   if (options.model) argv.push("--model", options.model);
   if (options.effort) argv.push("--effort", options.effort);
-  argv.push("--permission-mode", "dontAsk", "--tools", CONTESTANT_TOOLS);
-  argv.push("--allowed-tools", ...CONTESTANT_ALLOWED);
   return argv;
 }
 

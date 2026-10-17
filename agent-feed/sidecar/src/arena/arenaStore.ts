@@ -9,7 +9,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import { ARENA_LIVE_STATUSES, type ArenaContestantStatus } from "@agentdesk/agent-feed-wire";
+import { ARENA_LIVE_STATUSES, type ArenaContestantStatus, type ArenaOutsideReach } from "@agentdesk/agent-feed-wire";
 import type { ArenaContestantRecord, ArenaRunRecord } from "@/arena/arenaRun";
 
 /** One arena record too many on disk is a broken store, not a quiet truncation. */
@@ -80,6 +80,7 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
       costUsd: typeof c.costUsd === "number" ? c.costUsd : null,
       filesRead: stringArray(c.filesRead),
       filesWritten: stringArray(c.filesWritten),
+      outsideReached: reachArray(c.outsideReached),
       gitDiff: null,
     };
   });
@@ -88,6 +89,18 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
 
 function isContestantStatus(value: unknown): value is ArenaContestantRecord["status"] {
   return value === "closed" || value === "failed" || ARENA_LIVE_STATUSES.includes(value as ArenaContestantStatus);
+}
+
+function reachArray(value: unknown): ArenaOutsideReach[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const reach = entry as Partial<ArenaOutsideReach> | null;
+    const how = reach?.how;
+    if (typeof reach?.path !== "string" || (how !== "read" && how !== "write" && how !== "search" && how !== "shell")) {
+      return [];
+    }
+    return [{ path: reach.path, how, rival: typeof reach.rival === "string" ? reach.rival : null }];
+  });
 }
 
 function stringArray(value: unknown): string[] {

@@ -12,8 +12,8 @@
 // close. The facts are read the same way the headless drivers read them, so a run's facts mean
 // the same thing whichever mode drove it.
 //
-// The confinement is the headless one, unchanged: Claude runs the same argv minus `--print`, and
-// the opencode session is created holding the same rules before any pane exists.
+// Both run as plain sessions, as headless does (ADR-0139): Claude runs the same argv minus
+// `--print`, and the opencode session is created on the serve before any pane exists.
 
 import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -62,7 +62,7 @@ const STILL_THERE_EVERY_MS = 2_000;
 
 /** The tmux acts the two drivers take, injectable so the order can be tested without tmux. */
 export interface TerminalContestantSteps {
-  /** Starts a confined Claude session in its pane and answers the pane's name. */
+  /** Starts a Claude session in its pane and answers the pane's name. */
   startClaude(options: { cwd: string; sessionId: string; title: string; command: string[] }): Promise<string>;
   /** Starts the TUI on an opencode session that already exists and answers the pane's name. */
   startOpencode(options: { cwd: string; sessionId: string; title: string }): Promise<string>;
@@ -224,7 +224,7 @@ export async function runClaudeTerminalContestant(
   return { sessionId, events, usage };
 }
 
-/** Starts a confined Claude session in a new pane and announces it; answers the pane and session. */
+/** Starts a Claude session in a new pane and announces it; answers the pane and session. */
 async function startClaudeContestant(
   plan: ContestantPlan,
   terminal: ContestantTerminal,
@@ -274,9 +274,9 @@ async function untilClaudeComposer(
 /**
  * Drives one opencode contestant with its TUI in a pane, and resolves when its turn has closed.
  *
- * The session is made and confined first, exactly as headless, so no pane ever shows a session
- * without its rules. The prompt then goes through the serve, which is what closes the turn and
- * reports its outcome; the TUI shows it arriving like any message.
+ * The session is made on the serve first, exactly as headless, and the TUI attaches to it. The
+ * prompt then goes through the serve, which is what closes the turn and reports its outcome; the
+ * TUI shows it arriving like any message.
  *
  * Picked back up after a restart, the session and pane are the ones on the record. One already
  * let go is sent its prompt only if the serve holds no prompt in the session yet, then watched.
@@ -303,7 +303,7 @@ export async function runOpencodeTerminalContestant(
   return driveOpencodeTurn(backend, sessionId, { ...plan, prompt }, options);
 }
 
-/** Makes the confined session, starts its TUI in a pane and lets it settle; answers both. */
+/** Makes the session, starts its TUI in a pane and lets it settle; answers both. */
 async function startOpencodeContestant(
   backend: OpencodeContestantBackend,
   plan: ContestantPlan,
@@ -311,7 +311,7 @@ async function startOpencodeContestant(
   options: OpencodeContestantOptions,
   steps: TerminalContestantSteps,
 ): Promise<{ pane: string; sessionId: string }> {
-  const sessionId = await openOpencodeContestant(backend, plan, options);
+  const sessionId = await openOpencodeContestant(backend, plan);
   let pane: string;
   try {
     pane = await steps.startOpencode({ cwd: plan.worktreePath, sessionId, title: terminal.label });

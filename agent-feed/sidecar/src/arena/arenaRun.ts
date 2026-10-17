@@ -13,6 +13,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantStatus,
   type ArenaContestantSummary,
+  type ArenaOutsideReach,
   type ArenaRunDetail,
   type ArenaRunMode,
   type ArenaRunSummary,
@@ -35,6 +36,8 @@ export interface ArenaContestantRecord {
   costUsd: number | null;
   filesRead: string[];
   filesWritten: string[];
+  /** Where outside its worktree its tools reached, read off its events at close. */
+  outsideReached: ArenaOutsideReach[];
   /** In memory while the sidecar runs; on disk in the store once the contestant has closed. */
   gitDiff: string | null;
 }
@@ -111,6 +114,7 @@ export function runDetail(run: ArenaRunRecord, storedDiff: (c: ArenaContestantRe
         costUsd: record.costUsd,
         filesRead: [...record.filesRead],
         filesWritten: [...record.filesWritten],
+        outsideReached: record.outsideReached.map((reach) => ({ ...reach })),
         gitDiff: record.gitDiff ?? storedDiff(record),
       };
       return detail;

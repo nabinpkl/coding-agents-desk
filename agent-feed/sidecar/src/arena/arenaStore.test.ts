@@ -44,6 +44,7 @@ const run = (over: Partial<ArenaRunRecord> = {}): ArenaRunRecord => ({
     costUsd: 0.001,
     filesRead: ["/repos/one/README"],
     filesWritten: [],
+    outsideReached: [{ path: "/nowhere/c2/notes.md", how: "read", rival: "c2" }],
     gitDiff: "diff --git a/README",
   }],
   ...over,

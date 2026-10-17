@@ -4,9 +4,11 @@
 // contestants both read is one row with two marks -- the overlap, and the file only one of them
 // thought to open, are what this view is for. Files a contestant read from outside its checkout
 // (a global config, a plugin's own file) are kept, under their own heading, because what a
-// harness's context made it read is a fact about the run too.
+// harness's context made it read is a fact about the run too. Under the matrix, every place each
+// contestant reached outside its own worktree by any tool -- a shell command's paths included --
+// with a reach into a rival's worktree said as such.
 
-import type { ArenaContestantDetail } from "@agentdesk/agent-feed-wire";
+import type { ArenaContestantDetail, ArenaOutsideReach } from "@agentdesk/agent-feed-wire";
 import { fileMatrix, type FileRow, type FileTouch } from "@/features/arena/arenaFacts";
 import { isLive, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 
@@ -20,11 +22,14 @@ export function ArenaFilesMatrix({ contestants }: { contestants: readonly ArenaC
   const rows = fileMatrix(contestants);
   if (rows.length === 0) {
     return (
-      <p className={`px-5 py-8 ${TEXT.body} text-muted-foreground`}>
-        {contestants.some(isLive)
-          ? "No files yet. They are recorded as each contestant closes."
-          : "No contestant named a file."}
-      </p>
+      <>
+        <p className={`px-5 py-8 ${TEXT.body} text-muted-foreground`}>
+          {contestants.some(isLive)
+            ? "No files yet. They are recorded as each contestant closes."
+            : "No contestant named a file."}
+        </p>
+        <OutsideReaches contestants={contestants} />
+      </>
     );
   }
   const inside = rows.filter((row) => row.inRepository);
@@ -62,7 +67,63 @@ export function ArenaFilesMatrix({ contestants }: { contestants: readonly ArenaC
           </>
         ) : null}
       </table>
+      <OutsideReaches contestants={contestants} />
     </div>
+  );
+}
+
+const HOW: Record<ArenaOutsideReach["how"], string> = {
+  read: "read",
+  write: "wrote",
+  search: "searched",
+  shell: "in a command",
+};
+
+/** Every place outside its own worktree each contestant reached, one row per place. */
+function OutsideReaches({ contestants }: { contestants: readonly ArenaContestantDetail[] }) {
+  const byPath = new Map<string, { rival: string | null; lanes: Map<number, Set<string>> }>();
+  contestants.forEach((contestant, lane) => {
+    for (const reach of contestant.outsideReached) {
+      const row = byPath.get(reach.path) ?? { rival: reach.rival, lanes: new Map() };
+      const hows = row.lanes.get(lane) ?? new Set<string>();
+      hows.add(HOW[reach.how]);
+      row.lanes.set(lane, hows);
+      byPath.set(reach.path, row);
+    }
+  });
+  if (byPath.size === 0) return null;
+  return (
+    <section aria-label="Reached outside their folders" className="pt-6">
+      <h3 className={`pb-1.5 ${TEXT.meta} font-medium text-muted-foreground`}>Reached outside their folders</h3>
+      <table className="w-full min-w-max border-separate border-spacing-0">
+        <tbody className="[&>tr>*]:border-t [&>tr>*]:border-border">
+          {[...byPath].map(([path, row]) => (
+            <tr key={path} className="hover:bg-muted/50">
+              <th
+                scope="row"
+                title={path}
+                className={`sticky left-0 z-10 max-w-[28rem] truncate bg-background py-1.5 pr-6 text-left font-mono ${TEXT.meta} font-normal text-foreground`}
+              >
+                {row.rival ? <span className="font-sans text-destructive">{row.rival}'s · </span> : null}
+                {path}
+              </th>
+              {contestants.map((contestant, lane) => {
+                const hows = row.lanes.get(lane);
+                return (
+                  <td key={contestant.contestantId} className={`min-w-28 py-1.5 pr-4 ${TEXT.meta}`}>
+                    {hows ? (
+                      <span className={row.rival ? "text-destructive" : "text-foreground"}>{[...hows].join(", ")}</span>
+                    ) : (
+                      <span aria-label="not reached" className="text-muted-foreground">·</span>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

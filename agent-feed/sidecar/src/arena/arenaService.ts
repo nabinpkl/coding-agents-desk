@@ -57,7 +57,8 @@ import {
   type ContestantResume,
 } from "@/arena/contestantDriver";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
-import { filesFromEvents } from "@/arena/arenaFacts";
+import { homedir } from "node:os";
+import { filesFromEvents, outsideReaches } from "@/arena/arenaFacts";
 
 /** The request could not become a run; the route answers it with a 400 naming this reason. */
 export class ArenaBadRequestError extends Error {}
@@ -264,6 +265,7 @@ export class ArenaService {
       costUsd: null,
       filesRead: [],
       filesWritten: [],
+      outsideReached: [],
       gitDiff: null,
     }));
 
@@ -439,6 +441,11 @@ export class ArenaService {
       const result = await drive(plan);
 
       const { filesRead, filesWritten } = filesFromEvents(result.events);
+      const outsideReached = outsideReaches(result.events, {
+        worktreePath: record.worktreePath,
+        rivals: run.contestants.filter((one) => one.contestantId !== record.contestantId),
+        home: homedir(),
+      });
       const diff = await this.worktrees.captureDiff({
         worktreePath: record.worktreePath,
         ref: run.baseRef,
@@ -454,6 +461,7 @@ export class ArenaService {
         contestant.costUsd = result.usage?.cost ?? null;
         contestant.filesRead = filesRead;
         contestant.filesWritten = filesWritten;
+        contestant.outsideReached = outsideReached;
         contestant.gitDiff = bounded;
       });
     } catch (error) {

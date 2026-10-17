@@ -169,3 +169,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0136 | A Claude contestant's Write is confined by its Edit rule, with no Write rule of its own | accepted | 2026-10-13 |
 | ADR-0137 | A terminals arena run survives a sidecar restart | accepted | 2026-10-13 |
 | ADR-0138 | A Claude contestant runs with this machine's own setup, without `--safe-mode` | accepted | 2026-10-13 |
+| ADR-0139 | Arena contestants run as plain agents, and the arena records what each reached outside its worktree | accepted | 2026-10-13 |

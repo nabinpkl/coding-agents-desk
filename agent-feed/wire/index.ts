@@ -171,6 +171,7 @@ export type {
   ArenaContestantSummary,
   ArenaCreateRunRequest,
   ArenaNewRunDefaults,
+  ArenaOutsideReach,
   ArenaPromptRequest,
   ArenaRunDetail,
   ArenaRunMode,

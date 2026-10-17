@@ -90,10 +90,31 @@ export interface ArenaContestantDetail extends ArenaContestantSummary {
   filesRead: string[];
   /** Paths the contestant's write-like tools named, in first-mention order, deduplicated. */
   filesWritten: string[];
+  /**
+   * Every place outside its own worktree its tools reached, read off its events at close, in
+   * first-mention order. Contestants run as plain agents, so nothing stops a reach; this is what
+   * says one happened, and whether it was into a rival's worktree.
+   */
+  outsideReached: ArenaOutsideReach[];
   /** `git diff <baseRef>` in the contestant's worktree at close, bounded in size. Null while
    * the contestant runs, and for one that failed before its turn closed. Untracked files a
    * contestant left are not in it; `filesWritten` is where they are still named. */
   gitDiff: string | null;
+}
+
+/**
+ * One place outside its own worktree a contestant's tools reached.
+ *
+ * `how` is the kind of tool that named it: a file tool's read or write, a search tool's path, or a
+ * path written into a shell command. The last is read from the command's text, so it says the
+ * command named the path, not that the shell opened it.
+ */
+export interface ArenaOutsideReach {
+  /** Absolute, as resolved against the contestant's worktree. */
+  path: string;
+  how: "read" | "write" | "search" | "shell";
+  /** The contestant whose worktree the path is in, or null for anywhere else. */
+  rival: string | null;
 }
 
 export interface ArenaRunDetail extends ArenaRunSummary {

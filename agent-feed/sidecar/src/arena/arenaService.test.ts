@@ -155,7 +155,6 @@ function driversOver(
     opencode: (plan) =>
       runOpencodeContestant(backend, plan, {
         turnOutcome: async () => ({ closed: true, failure: null }),
-        permissions: async () => [],
       }),
     claude: claude ?? (async (plan) => {
       plan.onSessionId("claude-session");

@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-10-13
+superseded-by: ADR-0139
 ---
 
 # A Claude contestant's Write is confined by its Edit rule, with no Write rule of its own

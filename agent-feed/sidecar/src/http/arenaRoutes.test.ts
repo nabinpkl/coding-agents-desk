@@ -89,7 +89,6 @@ async function start(): Promise<{ at: (path: string, init?: RequestInit) => Prom
       opencode: (plan) =>
         runOpencodeContestant(closingBackend, plan, {
           turnOutcome: async () => ({ closed: true, failure: null }),
-          permissions: async () => [],
         }),
       claude: () => Promise.reject(new Error("no claude in the route tests")),
     },

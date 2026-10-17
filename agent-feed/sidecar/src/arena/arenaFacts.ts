@@ -1,8 +1,11 @@
-// The facts a contestant's own events say: which files its tools read and which they wrote.
+// The facts a contestant's own events say: which files its tools read and which they wrote, and
+// where outside its own worktree they reached.
 //
 // Read off the events exactly once, here, whichever harness produced them, which is why a run's
 // file facts mean the same thing for an opencode contestant and a Claude one.
 
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import type { ArenaOutsideReach } from "@agentdesk/agent-feed-wire";
 import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
 
 /**
@@ -64,4 +67,123 @@ export function filesFromEvents(events: readonly ActivityEvent[]): {
     }
   }
   return { filesRead: [...read], filesWritten: [...written] };
+}
+
+/** Tools that search a directory, which they name by `path`. */
+const SEARCH_TOOLS = new Set(["grep", "glob", "list", "ls"]);
+/** Claude's `Bash`, and the opencode serve's `shell` (measured on 2.0.27: its shell call is named so). */
+const SHELL_TOOLS = new Set(["bash", "shell"]);
+
+/**
+ * Where a reach is not news: the machine's own directories, which every build and shell names
+ * (`/usr/bin/env`, `2>/dev/null`, a temp file), and each harness's own scratch for long tool
+ * output, which it reads back as part of how it works. Relative to the home where they are in it.
+ */
+const SYSTEM_ROOTS = [
+  "/dev", "/tmp", "/private", "/var", "/usr", "/bin", "/sbin", "/opt", "/etc", "/System", "/Library",
+  "/Applications", "/nix",
+];
+const HARNESS_SCRATCH = [".local/share/opencode/tool-output"];
+/** Claude's own spill of a long tool output: `~/.claude/projects/<project>/<session>/tool-results/`. */
+const CLAUDE_SPILL_SEGMENT = `${sep}tool-results${sep}`;
+
+/** Most a contestant's list holds: past this it has stopped being a few reaches and is a pattern. */
+const MAXIMUM_REACHES = 200;
+
+/**
+ * Every place outside `worktreePath` this contestant's tools named, and whose worktree each one
+ * is in when it is a rival's.
+ *
+ * Contestants run as plain agents (ADR-0139), so a read of a rival's work is not refused; this is
+ * what makes one visible. File tools are read by the same keys `filesFromEvents` reads, a search
+ * tool by the directory it searched, and a shell command by the path-like words in its text --
+ * an absolute path, a `~` path, or one climbing with `..` -- resolved against the worktree. That
+ * last is a reading of the command, not of what the shell did: a `cd` earlier in the same line is
+ * not followed, which is why the climb itself is what gets counted.
+ */
+export function outsideReaches(
+  events: readonly ActivityEvent[],
+  where: {
+    worktreePath: string;
+    rivals: readonly { contestantId: string; worktreePath: string; sessionId: string | null }[];
+    home: string;
+  },
+): ArenaOutsideReach[] {
+  const own = resolve(where.worktreePath);
+  const seen = new Set<string>();
+  const out: ArenaOutsideReach[] = [];
+  const note = (raw: string, how: ArenaOutsideReach["how"]): void => {
+    const path = resolveNamed(raw, own, where.home);
+    if (path === null || within(path, own)) return;
+    // A rival's worktree, or its transcript: a Claude rival's session is a file named for it.
+    const rival = where.rivals.find((one) =>
+      within(path, resolve(one.worktreePath))
+      || (one.sessionId !== null && path.endsWith(`${sep}${one.sessionId}.jsonl`))
+    )?.contestantId ?? null;
+    if (rival === null && expected(path, where.home)) return;
+    const key = `${how}\0${path}`;
+    if (seen.has(key) || out.length >= MAXIMUM_REACHES) return;
+    seen.add(key);
+    out.push({ path, how, rival });
+  };
+  for (const event of events) {
+    for (const block of event.blocks as ActivityBlock[]) {
+      if (block.kind !== "tool_use" || !block.tool) continue;
+      const tool = block.tool.toLowerCase();
+      const input = block.input && typeof block.input === "object" ? block.input as Record<string, unknown> : {};
+      if (SHELL_TOOLS.has(tool)) {
+        if (typeof input.command === "string") for (const word of pathWords(input.command)) note(word, "shell");
+        continue;
+      }
+      if (SEARCH_TOOLS.has(tool)) {
+        if (typeof input.path === "string" && input.path) note(input.path, "search");
+        continue;
+      }
+      const writes = WRITE_TOOLS.has(tool);
+      if (!writes && !READ_TOOLS.has(tool)) continue;
+      const fromInput = fileFromToolInput(block.input);
+      const named = block.files && block.files.length > 0 ? block.files : fromInput === null ? [] : [fromInput];
+      for (const file of named) note(file, writes ? "write" : "read");
+    }
+  }
+  return out;
+}
+
+/** A named path made absolute: `~` against the home, anything relative against the worktree. */
+function resolveNamed(raw: string, own: string, home: string): string | null {
+  const word = raw.trim();
+  if (!word || word.includes("://")) return null;
+  if (word === "~" || word.startsWith("~/")) return resolve(join(home, word.slice(1)));
+  return isAbsolute(word) ? resolve(word) : resolve(own, word);
+}
+
+function within(path: string, root: string): boolean {
+  const rel = relative(root, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function expected(path: string, home: string): boolean {
+  if (HARNESS_SCRATCH.some((scratch) => within(path, join(home, scratch)))) return true;
+  if (within(path, join(home, ".claude", "projects")) && path.includes(CLAUDE_SPILL_SEGMENT)) return true;
+  if (within(path, home)) return false;
+  return SYSTEM_ROOTS.some((root) => within(path, root));
+}
+
+/**
+ * The words of a shell command that name a path outside where it runs: absolute, `~`, or climbing
+ * with `..`. Split on whitespace and the shell's own punctuation, quotes stripped, and an
+ * assignment or option read for its value (`--dir=../c1`, `out=/x`).
+ */
+function pathWords(command: string): string[] {
+  const words: string[] = [];
+  for (const piece of command.split(/[\s|;&()<>`]+/)) {
+    let word = piece.replace(/^['"]+|['"]+$/g, "");
+    const assigned = word.indexOf("=");
+    if (assigned >= 0) word = word.slice(assigned + 1).replace(/^['"]+|['"]+$/g, "");
+    if (word.startsWith("/") || word === "~" || word.startsWith("~/") || word === ".." || word.startsWith("../")
+      || word.includes(`${sep}..${sep}`) || word.endsWith(`${sep}..`)) {
+      words.push(word);
+    }
+  }
+  return words;
 }

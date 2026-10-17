@@ -146,15 +146,14 @@ describe("runClaudeTerminalContestant", () => {
     expect(result.usage).not.toBeNull();
   });
 
-  test("runs the headless confinement, interactively and under the contestant's name", async () => {
+  test("runs the headless command, interactively and under the contestant's name", async () => {
     const log: string[] = [];
     const { steps, command } = fakeSteps(log);
     await runClaudeTerminalContestant(planWith(log), { binary: "/bin/claude", newSessionId: () => SESSION, steps });
     const argv = command();
     expect(argv).not.toContain("--print");
     expect(argv.slice(0, 5)).toEqual(["/bin/claude", "--session-id", SESSION, "-n", "arena c1 run-1"]);
-    expect(argv).toContain("dontAsk");
-    expect(argv.slice(argv.indexOf("--allowed-tools") + 1)).toEqual(["Read(./**)", "Edit(./**)", "Bash"]);
+    expect(argv).toEqual(["/bin/claude", "--session-id", SESSION, "-n", "arena c1 run-1"]);
   });
 
   test("a CLI that exits on its way up fails at once, saying what its pane said", async () => {
@@ -190,12 +189,12 @@ describe("runClaudeTerminalContestant", () => {
 });
 
 describe("runOpencodeTerminalContestant", () => {
-  test("confines the session first, then the pane, the start line, and the prompt through the serve", async () => {
+  test("makes the session first, then the pane, the start line, and the prompt through the serve", async () => {
     const log: string[] = [];
     const { steps } = fakeSteps(log);
     const backend: OpencodeContestantBackend = {
-      async createSession(_requestId, projectPath, { permissions }) {
-        log.push(`create:${projectPath}:${permissions.length}`);
+      async createSession(_requestId, projectPath) {
+        log.push(`create:${projectPath}`);
         return { sessionId: "ses_1", projectPath } as AgentSessionDescriptor;
       },
       async subscribe(_sessionId, _after, listener) {
@@ -214,11 +213,10 @@ describe("runOpencodeTerminalContestant", () => {
     };
     const result = await runOpencodeTerminalContestant(backend, planWith(log), {
       steps,
-      permissions: async () => [{ action: "*", resource: "*", effect: "deny" }],
       turnOutcome: async () => ({ closed: true, failure: null }),
     });
     expect(log).toEqual([
-      "create:/arena/run/c1:1",
+      "create:/arena/run/c1",
       "startOpencode:/arena/run/c1:ses_1",
       "pane:arena-c2-pane:ses_1",
       "settle:arena-c2-pane",
@@ -246,7 +244,7 @@ describe("runOpencodeTerminalContestant", () => {
       },
     };
     await expect(
-      runOpencodeTerminalContestant(backend, planWith(log), { steps, permissions: async () => [] }),
+      runOpencodeTerminalContestant(backend, planWith(log), { steps }),
     ).rejects.toThrow(/TUI exited before the prompt: zsh:1: command not found/);
     expect(log).not.toContain("ready");
     expect(log).not.toContain("send");

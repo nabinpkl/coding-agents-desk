@@ -7,7 +7,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   OpencodeContestantError,
-  contestantPermissions,
   runOpencodeContestant,
   turnOutcomeOf,
   type OpencodeContestantBackend,
@@ -47,11 +46,11 @@ function fakeBackend(options: {
   usage?: { current: number; limit: number | null; updatedAt: number; cost?: number } | null;
 }) {
   const sent: { sessionId: string; text: string; delivery: string }[] = [];
-  const created: { permissions: readonly unknown[] }[] = [];
+  const created: { projectPath: string }[] = [];
   const subscriptions: ((envelope: TimelineEnvelope) => void)[] = [];
   const backend: OpencodeContestantBackend = {
-    async createSession(_requestId, _projectPath, createOptions) {
-      created.push(createOptions);
+    async createSession(_requestId, projectPath) {
+      created.push({ projectPath });
       return {
         sessionId: options.sessionId ?? "ses-arena",
         source: "opencode",
@@ -101,8 +100,6 @@ const plan = {
 };
 
 /** The serve's answer about the turn, as each test sets it; `reads` counts the asks. */
-const CONFINED = [{ action: "*", resource: "*", effect: "deny" as const }];
-
 function fakeServe(initial: OpencodeTurnOutcome = { closed: false }) {
   const serve = { outcome: initial, reads: 0 };
   const options = {
@@ -111,7 +108,6 @@ function fakeServe(initial: OpencodeTurnOutcome = { closed: false }) {
       return serve.outcome;
     },
     recheckMs: 10,
-    permissions: async () => CONFINED,
   };
   return { serve, options };
 }
@@ -231,24 +227,10 @@ describe("runOpencodeContestant", () => {
     await finished;
   });
 
-  test("creates the session holding the confining rules", async () => {
+  test("creates a plain session in the worktree, with no rules of its own", async () => {
     const { backend, created } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
     await runOpencodeContestant(backend, plan, fakeServe(SUCCEEDED).options);
-    expect(created).toEqual([{ permissions: CONFINED }]);
-  });
-
-  test("rules that cannot be read start no session at all", async () => {
-    const { backend, created, sent } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
-    const failing = runOpencodeContestant(backend, plan, {
-      ...fakeServe(SUCCEEDED).options,
-      permissions: async () => {
-        throw new Error("agents: serve answered 500");
-      },
-    });
-    await expect(failing).rejects.toThrow(OpencodeContestantError);
-    await expect(failing).rejects.toThrow("none was started");
-    expect(created).toEqual([]);
-    expect(sent).toEqual([]);
+    expect(created).toEqual([{ projectPath: plan.worktreePath }]);
   });
 
   test("a send that fails surfaces as itself, with the subscription released", async () => {
@@ -258,89 +240,5 @@ describe("runOpencodeContestant", () => {
     // A late envelope from a released subscription asks nothing of a drive that already failed.
     deliver(envelope({ runState: "idle" }));
     expect(serve.reads).toBe(0);
-  });
-});
-
-describe("contestantPermissions", () => {
-  // The build agent's rules as this machine's serve lists them, trimmed.
-  const build = [
-    { action: "*", resource: "*", effect: "allow" },
-    { action: "external_directory", resource: "*", effect: "ask" },
-    { action: "external_directory", resource: "/home/u/.local/share/opencode/tool-output/*", effect: "allow" },
-    { action: "external_directory", resource: "/tmp/opencode/*", effect: "allow" },
-    { action: "question", resource: "*", effect: "allow" },
-    { action: "external_directory", resource: "*", effect: "allow" },
-  ] as const;
-
-  // The serve's own evaluation: of the rules matching both action and resource, the last wins.
-  const decide = (rules: ReturnType<typeof contestantPermissions>, action: string, resource: string) => {
-    const glob = (pattern: string, value: string) =>
-      new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(value);
-    return rules.filter((rule) => glob(rule.action, action) && glob(rule.resource, resource)).at(-1)?.effect;
-  };
-
-  test("denies everything first, then allows Claude's six tools", () => {
-    const rules = contestantPermissions(build);
-    expect(rules[0]).toEqual({ action: "*", resource: "*", effect: "deny" });
-    for (const action of ["read", "edit", "glob", "grep", "list", "bash"]) {
-      expect(decide(rules, action, "/arena/run/c1/src/widget.ts")).toBe("allow");
-    }
-    for (const action of ["webfetch", "websearch", "task", "question", "skill", "agent-hub_hub_send"]) {
-      expect(decide(rules, action, "*")).toBe("deny");
-    }
-  });
-
-  test("keeps the serve's own scratch directories and drops the blanket outside allow", () => {
-    const rules = contestantPermissions(build);
-    expect(decide(rules, "external_directory", "/home/u/.local/share/opencode/tool-output/*")).toBe("allow");
-    expect(decide(rules, "external_directory", "/tmp/opencode/*")).toBe("allow");
-    expect(decide(rules, "external_directory", "/home/u/Documents/*")).toBe("deny");
-  });
-});
-
-describe("turnOutcomeOf", () => {
-  // Shapes copied from this machine's serve, oldest first, trimmed to the fields read.
-  const user = { type: "user", text: "say one word" };
-  const succeeded = [
-    user,
-    { type: "assistant", finish: "tool-calls" },
-    { type: "system" },
-    { type: "assistant", finish: "stop" },
-    { type: "idle", outcome: "succeeded" },
-  ];
-  const failed = [
-    user,
-    {
-      type: "assistant",
-      finish: "error",
-      error: { type: "provider.quota", message: "Go usage limit exceeded", status: 429 },
-    },
-    { type: "idle", outcome: "failed" },
-  ];
-
-  test("a turn the serve has not marked is still open", () => {
-    expect(turnOutcomeOf([user, { type: "assistant" }])).toEqual({ closed: false });
-  });
-
-  test("a succeeded marker closes the turn with no failure", () => {
-    expect(turnOutcomeOf(succeeded)).toEqual({ closed: true, failure: null });
-  });
-
-  test("a failed marker closes it with the assistant's own error", () => {
-    expect(turnOutcomeOf(failed)).toEqual({
-      closed: true,
-      failure: "provider.quota: Go usage limit exceeded",
-    });
-  });
-
-  test("a marker from before the last prompt describes another turn", () => {
-    expect(turnOutcomeOf([...succeeded, { type: "user", text: "again" }])).toEqual({ closed: false });
-  });
-
-  test("a failed marker with no error to quote still says the serve failed it", () => {
-    expect(turnOutcomeOf([user, { type: "idle", outcome: "failed" }])).toEqual({
-      closed: true,
-      failure: "the serve reported the turn failed",
-    });
   });
 });
