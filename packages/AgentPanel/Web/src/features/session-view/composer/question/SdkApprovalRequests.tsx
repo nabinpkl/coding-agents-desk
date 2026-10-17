@@ -14,13 +14,18 @@ import type { SdkSessionHandle } from "@/features/cli-input/useSdkSession";
 /** The fields worth showing for the tools that ask most, in the order a reader decides by. */
 const SHOWN_FIELDS = ["command", "file_path", "path", "url", "pattern", "plan", "description"] as const;
 
-/** What the call would do, as text: its telling field when it has one, else its whole input. */
-export function approvalDetail(input: Record<string, unknown>): string {
-  for (const field of SHOWN_FIELDS) {
-    const value = input[field];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return JSON.stringify(input, null, 2);
+/**
+ * What the call would do: the field a reader decides by, then EVERYTHING else it carries.
+ *
+ * Never the telling field alone. An approval is a grant, and a Write shown by its path alone grants
+ * whatever content it carries unseen -- the same for an Edit's replacement text, or any field past
+ * the first one recognised. So the rest is always shown, under the headline, in full.
+ */
+export function approvalDetail(input: Record<string, unknown>): { headline: string | null; rest: string | null } {
+  const field = SHOWN_FIELDS.find((name) => typeof input[name] === "string" && (input[name] as string).trim());
+  const headline = field ? input[field] as string : null;
+  const remaining = Object.fromEntries(Object.entries(input).filter(([name]) => name !== field));
+  return { headline, rest: Object.keys(remaining).length > 0 ? JSON.stringify(remaining, null, 2) : null };
 }
 
 const BUTTON =
@@ -34,6 +39,7 @@ function ApprovalRequest({ request, session }: { request: ClaudeSdkApprovalReque
   const deny = () => void session.decide(request.toolUseId, false);
   // A call the CLI asks not to be approved by one stray press offers the deny as its main action.
   const allowFirst = !request.defaultToNo;
+  const detail = approvalDetail(request.input);
   return (
     <section aria-label={`Claude asks to use ${name}`} className="mb-3 rounded-xl border border-border bg-background">
       <div className="px-3 pt-2">
@@ -45,9 +51,14 @@ function ApprovalRequest({ request, session }: { request: ClaudeSdkApprovalReque
             {[request.description, request.decisionReason].filter(Boolean).join(" · ")}
           </p>
         ) : null}
-        <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-muted/50 px-2 py-1.5 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) whitespace-pre-wrap break-words text-foreground">
-          {approvalDetail(request.input)}
-        </pre>
+        <div className="mt-2 max-h-60 overflow-auto rounded-lg bg-muted/50 px-2 py-1.5 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) whitespace-pre-wrap break-words text-foreground">
+          {detail.headline !== null ? <pre className="whitespace-pre-wrap break-words">{detail.headline}</pre> : null}
+          {detail.rest !== null ? (
+            <pre className={`whitespace-pre-wrap break-words ${detail.headline !== null ? "mt-2 border-t border-border pt-2" : ""}`}>
+              {detail.rest}
+            </pre>
+          ) : null}
+        </div>
       </div>
       <div className="flex items-center justify-end gap-2 px-3 py-2">
         {session.pending ? <LoaderCircle className="size-4 animate-spin text-muted-foreground" aria-hidden /> : null}

@@ -189,6 +189,17 @@ describe("an approval", () => {
   it("is not drawn when nothing waits, and shows a whole input it has no field for", () => {
     const { container } = render(<SdkApprovalRequests session={handle()} />);
     expect(container.textContent).toBe("");
-    expect(approvalDetail({ todos: [1] })).toBe(JSON.stringify({ todos: [1] }, null, 2));
+    expect(approvalDetail({ todos: [1] })).toEqual({ headline: null, rest: JSON.stringify({ todos: [1] }, null, 2) });
+  });
+
+  it("never shows the telling field alone: a Write's content is shown under its path", () => {
+    const write = { file_path: "/etc/hosts", content: "0.0.0.0 example.com" };
+    expect(approvalDetail(write)).toEqual({
+      headline: "/etc/hosts",
+      rest: JSON.stringify({ content: "0.0.0.0 example.com" }, null, 2),
+    });
+    render(<SdkApprovalRequests session={handle({ pending: [{ ...approval, toolName: "Write", input: write }] })} />);
+    expect(screen.getByText(/0\.0\.0\.0 example\.com/)).toBeTruthy();
+    expect(approvalDetail({ command: "ls" })).toEqual({ headline: "ls", rest: null });
   });
 });
