@@ -1,0 +1,6 @@
+{
+  "name": "agentdesk-prompt-guard",
+  "version": "0.1.0",
+  "description": "Bounds how many turns mods can start by submitting prompts: a few since the person last typed, and an hourly cap per session and per machine.",
+  "author": { "name": "agent-desk" }
+}

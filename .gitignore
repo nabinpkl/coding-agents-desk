@@ -114,3 +114,8 @@ graphify-out/
 
 # taste:frontend-layout-sweep keeps a local record of the last full run here
 .last-layout-sweep.json
+
+# Claude Code writes type declarations, and a tsconfig.json that extends them, into a mod it loads
+# with --plugin-dir, for the version running.
+agent-feed/sidecar/mods/*/.claude-plugin/types/
+agent-feed/sidecar/mods/*/tsconfig.json

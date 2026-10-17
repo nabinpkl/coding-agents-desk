@@ -1,0 +1,4 @@
+{
+  "description": "agentdesk-prompt-guard hooks module",
+  "modules": ["./register.js"]
+}
