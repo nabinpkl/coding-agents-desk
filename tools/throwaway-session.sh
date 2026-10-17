@@ -120,7 +120,14 @@ case "$verb" in
     tmux capture-pane -p -t "$name"
     ;;
   stop)
-    tmux kill-session -t "$name" 2>/dev/null || true
+    # Said out loud rather than ignored: adding a session to a Bot renames its tmux session (to
+    # "<first-name>-<name>", measured 2026-10-16), and a stop that quietly found nothing left a probe
+    # running unnoticed while this exited 0.
+    if ! tmux has-session -t "$name" 2>/dev/null; then
+      echo "throwaway-session: no tmux session named $name; if it joined a Bot it was renamed (tmux ls)" >&2
+      exit 1
+    fi
+    tmux kill-session -t "$name"
     ;;
   *)
     usage
