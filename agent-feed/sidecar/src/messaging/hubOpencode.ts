@@ -43,13 +43,13 @@ function attribute(value: string | number): string {
 }
 
 /**
- * The message's own text, unable to open or close the envelope. The hub refuses a body holding a
- * `<channel` tag, but not refs, and a ref that wrote `</channel>` would end the envelope early and
- * have what follows read as this framing rather than as the sender's words.
+ * The message's own text, unable to open or close any tag: text that ended the envelope early would
+ * have what follows read as this framing rather than as the sender's words. Every "<" goes, and its
+ * fullwidth and small lookalikes with it, rather than the spellings of one tag: a pattern for the
+ * tag let "< /channel>" through (2026-10-17), and with no bracket left there is no spelling to miss.
  */
 function insideEnvelope(text: string): string {
-  // Whitespace on either side of the slash too: `< /channel>` reads as a closing tag to a model.
-  return text.replace(/<(\s*\/?\s*channel)/gi, "&lt;$1");
+  return text.replace(/[<\uFF1C\uFE64]/g, "&lt;");
 }
 
 function describeRefs(refs: MessageRef[]): string {

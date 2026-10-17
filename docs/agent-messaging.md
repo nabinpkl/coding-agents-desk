@@ -209,7 +209,9 @@ body text
     all machines. The email allowlist of exactly one is the whole boundary. The curated-session
     rule still applies: the owner speaks as sessions, but only sessions in a published Bot.
   - **Known limit:** any local process holding a machine's token can claim any session on that machine. This is accepted for one owner and written down.
-- **The envelope cannot be forged:** the hub refuses (400) a body that contains `<channel` or `</channel`. The sender gets the error rather than a silently escaped message.
+- **The envelope cannot be forged:**
+  - The hub refuses (400) a body or a ref that holds a `<channel>` tag in any spelling a model reads as one: whitespace around the slash, a fullwidth or small `<`, a zero-width character inside it. It matches on an NFKC-normalised copy with invisible characters dropped. The sender gets the error rather than a silently escaped message.
+  - Where a message is written into a prompt, every `<` in its text and refs, and each lookalike, is escaped (`&lt;`), so no spelling of any tag survives into the session: the opencode envelope and the Claude mod's `<hub-message>` tag both do this.
 - **Loops are bounded:**
   - `hops` above 6 is refused, with an error telling the agent to ask the human.
   - Each sender may send 20 messages per 10 minutes.

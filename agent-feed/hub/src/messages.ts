@@ -62,12 +62,24 @@ function isSentKind(kind: unknown): kind is SentMessageKind {
   return (SENT_MESSAGE_KINDS as readonly unknown[]).includes(kind);
 }
 
-const FORGED_ENVELOPE = /<\/?\s*channel\b/i;
+/**
+ * A <channel> tag in any spelling a model would read as one, opening or closing. Matched on a
+ * normalised copy, because a pattern over the raw text slips: "< /channel>" got past
+ * `<\/?\s*channel` (2026-10-17), and a fullwidth "＜/channel＞" or a zero-width character inside
+ * the word would get past this one. NFKC folds the lookalike brackets onto "<", the invisible
+ * characters are dropped, and whitespace is allowed on both sides of the slash.
+ */
+const FORGED_ENVELOPE = /<\s*\/?\s*channel\b/i;
+const INVISIBLE = /[\u00AD\u180E\u200B-\u200F\u2060-\u2064\uFEFF]/g;
+
+function holdsEnvelopeTag(text: string): boolean {
+  return FORGED_ENVELOPE.test(text.normalize("NFKC").replace(INVISIBLE, ""));
+}
 
 function checkBody(body: unknown): string {
   if (typeof body !== "string" || body.trim() === "") throw new InvalidMessage("body must be non-empty text");
   if (new TextEncoder().encode(body).length > LIMITS.bodyBytes) throw new InvalidMessage(`body is over ${LIMITS.bodyBytes} bytes`);
-  if (FORGED_ENVELOPE.test(body)) throw new InvalidMessage("body contains a <channel> tag; the hub will not carry a forged envelope");
+  if (holdsEnvelopeTag(body)) throw new InvalidMessage("body contains a <channel> tag; the hub will not carry a forged envelope");
   return body;
 }
 
@@ -78,6 +90,10 @@ function checkRefs(refs: unknown): MessageRef[] {
     const ref = r as Record<string, unknown>;
     if (typeof ref.app !== "string" || typeof ref.kind !== "string" || typeof ref.id !== "string") throw new InvalidMessage("each ref needs app, kind and id strings");
     if (ref.url !== undefined && typeof ref.url !== "string") throw new InvalidMessage("ref url must be a string");
+    // Refs are written into the same envelope as the body, so they are held to the same check.
+    if ([ref.app, ref.kind, ref.id, ref.url ?? ""].some((field) => holdsEnvelopeTag(field as string))) {
+      throw new InvalidMessage("a ref contains a <channel> tag; the hub will not carry a forged envelope");
+    }
     return { app: ref.app, kind: ref.kind, id: ref.id, ...(typeof ref.url === "string" ? { url: ref.url } : {}) };
   });
   if (JSON.stringify(out).length > LIMITS.refsBytes) throw new InvalidMessage(`refs are over ${LIMITS.refsBytes} bytes`);

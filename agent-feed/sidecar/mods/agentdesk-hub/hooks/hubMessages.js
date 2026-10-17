@@ -45,12 +45,14 @@ function attribute(value) {
 }
 
 /**
- * The message's own text, unable to close the tag it sits in: a body that wrote `</hub-message>`
- * would otherwise end the message early and have what follows read as this mod's own words.
+ * The message's own text, unable to open or close the tag it sits in: a body that wrote
+ * `</hub-message>` would otherwise end the message early and have what follows read as this mod's
+ * own words.
  */
 function messageText(text) {
-  // Whitespace on either side of the slash too: `< /hub-message>` reads as a closing tag to a model.
-  return String(text).replace(new RegExp(`<(\\s*/?\\s*)(${MESSAGE_TAG})`, 'gi'), '&lt;$1$2')
+  // Every "<" and its fullwidth and small lookalikes, not the spellings of one tag: a pattern for
+  // the tag let "< /hub-message>" through (2026-10-17); with no bracket left, no spelling slips.
+  return String(text).replace(/[<\uFF1C\uFE64]/g, '&lt;')
 }
 
 /** The message, inside its tag, with what the hub knows about it as the tag's attributes. */
