@@ -78,8 +78,8 @@ export interface IdleSweepSources {
   processes(): Promise<SweepProcesses>;
   /** Every pane tmux has, one entry per pane. */
   panes(): Promise<readonly SweepPane[]>;
-  /** When the session last wrote a timestamped record, or null when the catalog has not read it. */
-  lastEventAt(source: SweepSource, sessionId: string): number | null;
+  /** When the session last moved, or null when nothing can say. */
+  lastEventAt(source: SweepSource, sessionId: string): Promise<number | null>;
   /** The opencode sessions with a turn running, or null when the serve could not be asked. */
   activeOpencode(): Promise<ReadonlySet<string> | null>;
   bots(): Promise<readonly BotRecord[]>;
@@ -177,11 +177,19 @@ export async function sweepIdleSessions(sources: IdleSweepSources, idleAfterMs: 
   if (activeOpencode === null && panes.some((pane) => pane.stamp.startsWith("ses_"))) {
     sources.log("could not ask the opencode serve which sessions are running; leaving its panes");
   }
+  // Read ahead for every stamped pane, so the rules stay a pure function. The source is guessed from
+  // the id here (opencode's start `ses_`) and decided properly by the rules.
+  const last = new Map<string, number | null>();
+  for (const { stamp } of panes) {
+    if (stamp && !last.has(stamp)) {
+      last.set(stamp, await sources.lastEventAt(stamp.startsWith("ses_") ? "opencode" : "claude", stamp));
+    }
+  }
   const candidates = idleCandidates({
     panes,
     processes,
     kept: keptSessions(bots),
-    lastEventAt: (source, sessionId) => sources.lastEventAt(source, sessionId),
+    lastEventAt: (_source, sessionId) => last.get(sessionId) ?? null,
     activeOpencode,
     now: sources.now(),
     idleAfterMs,
@@ -271,6 +279,22 @@ async function activeOpencode(): Promise<ReadonlySet<string> | null> {
   }
 }
 
+/**
+ * When the serve last updated a session, for one the catalog does not hold. The catalog lists only
+ * the serve's first page of sessions (50, newest first), so an opencode session left open in a pane
+ * for days is exactly the one it is missing.
+ */
+async function opencodeUpdatedAt(sessionId: string): Promise<number | null> {
+  try {
+    const answer = await serveGet(`/api/session/${encodeURIComponent(sessionId)}`);
+    if (answer.status !== 200) return null;
+    const updated = (JSON.parse(answer.text) as { data?: { time?: { updated?: unknown } } } | null)?.data?.time?.updated;
+    return typeof updated === "number" ? updated : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The sweep over this machine, as `server.ts` starts it. Logged to the sidecar's own log. */
 export function startLiveIdleSessionSweep(botStore: Pick<BotStore, "snapshot">): () => void {
   return startIdleSessionSweep({
@@ -283,7 +307,8 @@ export function startLiveIdleSessionSweep(botStore: Pick<BotStore, "snapshot">):
       };
     },
     panes: listSweepPanes,
-    lastEventAt: (source, sessionId) => findSession(source, sessionId)?.lastEventAt ?? null,
+    lastEventAt: async (source, sessionId) =>
+      findSession(source, sessionId)?.lastEventAt ?? (source === "opencode" ? opencodeUpdatedAt(sessionId) : null),
     activeOpencode,
     bots: async () => (await botStore.snapshot()).bots,
     close: killTmuxSession,

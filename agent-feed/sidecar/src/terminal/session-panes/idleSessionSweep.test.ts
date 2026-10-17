@@ -145,7 +145,7 @@ describe("a sweep", () => {
       said,
       processes: async () => live(process("s-dylan", activities[Math.min(asked++, activities.length - 1)]!)),
       panes: async () => [pane("dylan", "s-dylan")],
-      lastEventAt: () => NOW - 3 * HOUR,
+      lastEventAt: async () => NOW - 3 * HOUR,
       activeOpencode: async () => new Set(),
       bots: async () => [],
       close: async (session) => {
@@ -161,6 +161,24 @@ describe("a sweep", () => {
     await sweepIdleSessions(io, 2 * HOUR);
     expect(io.closed).toEqual(["dylan"]);
     expect(io.said).toEqual(['closed idle claude session s-dylan (tmux "dylan"): off the canvas, quiet for 3.0h']);
+  });
+
+  // The catalog lists only the serve's newest 50 opencode sessions, so a pane left open for days
+  // holds one it does not know; the live sources ask the serve instead, which needs the source.
+  test("asks after an opencode pane's session as opencode, and closes it", async () => {
+    const asked: string[] = [];
+    const io = {
+      ...sources(["idle"]),
+      processes: async () => tui(),
+      panes: async () => [pane("diana", "ses_diana")],
+      lastEventAt: async (source: string, sessionId: string) => {
+        asked.push(`${source}:${sessionId}`);
+        return NOW - 3 * HOUR;
+      },
+    };
+    const closed = await sweepIdleSessions(io, 2 * HOUR);
+    expect(asked).toEqual(["opencode:ses_diana"]);
+    expect(closed.map((each) => each.session)).toEqual(["diana"]);
   });
 
   test("leaves a session that started a turn while the sweep was reading", async () => {
