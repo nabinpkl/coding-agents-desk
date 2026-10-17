@@ -150,6 +150,18 @@ test('a title only in the middle of a long session is out of reach', async () =>
 
 // --- Claude: the prompt fallback ---
 
+test("a plugin's reload notice is not the session's last activity", async () => {
+  // Claude Code writes one into every running session when a `--plugin-dir` mod's files change,
+  // so taking it as activity moved every idle session's time to the moment of a mod edit.
+  const at = (time: string) => `2026-10-17T${time}.000Z`;
+  const path = await transcript('reload.jsonl', [
+    JSON.stringify({ type: 'user', cwd: CWD, timestamp: at('06:40:00'), message: { role: 'user', content: 'go' } }),
+    JSON.stringify({ type: 'assistant', cwd: CWD, timestamp: at('06:42:07'), message: { role: 'assistant', content: [], stop_reason: 'end_turn' } }),
+    JSON.stringify({ type: 'system', subtype: 'informational', timestamp: at('07:48:20'), content: 'agentdesk-hub: reloaded (2 hooks: session.start, prompt.submit)' }),
+  ]);
+  expect((await claudeAdapter.readHeader(path))?.lastRecordAt).toBe(Date.parse(at('06:42:07')));
+});
+
 test('a titleless session falls back to its opening prompt', async () => {
   const path = await transcript('c.jsonl', [userLine('fix the flaky test'), ...GAP]);
   const header = await claudeAdapter.readHeader(path);

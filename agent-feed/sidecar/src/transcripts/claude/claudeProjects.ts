@@ -208,6 +208,21 @@ async function scanForOpeningCwd(
 }
 
 /**
+ * Whether a record is the session doing something, as opposed to Claude Code noting something
+ * about itself in the session's file.
+ *
+ * A `system` record of subtype `informational` is the dim line the terminal shows when a plugin
+ * loaded with `--plugin-dir` reloads, or warns about its own config ("agentdesk-hub: reloaded (2
+ * hooks: ...)"). It is timestamped like any record, the model never sees it, and every running
+ * session gets one at the same moment whenever a mod's files change -- which is every edit to a mod
+ * the sidecar launches sessions with. Measured 2026-10-17: one such edit at 07:48Z moved five idle
+ * sessions, quiet since 06:42 and earlier, to 07:48 and "ready" on every card at once.
+ */
+function movesLastActivity(ev: Record<string, unknown>): boolean {
+  return !(ev.type === 'system' && ev.subtype === 'informational');
+}
+
+/**
  * What the catalog knows about a session without reading its body: the two 32 KB
  * edges, and everything the session list needs pulled out of them.
  *
@@ -292,7 +307,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         if (isTail) {
           const closed = turnClosedFor(ev);
           if (closed !== undefined) out.lastTurnClosed = closed;
-          const at = typeof ev.timestamp === 'string' ? Date.parse(ev.timestamp) : NaN;
+          const at = typeof ev.timestamp === 'string' && movesLastActivity(ev) ? Date.parse(ev.timestamp) : NaN;
           if (Number.isFinite(at) && at > (out.lastRecordAt ?? -Infinity)) out.lastRecordAt = at;
         }
         if (isHead) out.firstPrompt ??= promptText(ev);
