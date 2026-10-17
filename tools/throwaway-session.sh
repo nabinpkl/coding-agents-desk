@@ -49,6 +49,10 @@ PROXY="${THROWAWAY_PROXY:-on}"
 # This is how a probe tries a mod: it loads without being installed, and nothing is written under
 # ~/.claude. Earlier entries are passed first.
 PLUGIN_DIRS="${THROWAWAY_PLUGIN_DIRS:-}"
+# One MCP config file for this session, passed as `--mcp-config`. The session is started with
+# `--strict-mcp-config`, so without this it has no MCP servers at all, not even the project's own
+# `.mcp.json`: a probe that has to send or answer hub messages names the relay here.
+MCP_CONFIG="${THROWAWAY_MCP_CONFIG:-}"
 
 usage() {
   echo "usage: $(basename "$0") start|say|pane|stop <name> [text]" >&2
@@ -69,6 +73,9 @@ case "$verb" in
     id="$(uuidgen | tr 'A-Z' 'a-z')"
     args=(claude --model "$MODEL" --effort "$EFFORT" --session-id "$id" -n "$name" --strict-mcp-config)
     args+=(--tools "$TOOLS")
+    if [ -n "$MCP_CONFIG" ]; then
+      args+=(--mcp-config "$MCP_CONFIG")
+    fi
     # `--tools ""` does not reach the Claude in Chrome integration: measured 2026-10-16, a probe
     # with no tools answered its first message by calling read_page on the owner's browser.
     args+=(--no-chrome)

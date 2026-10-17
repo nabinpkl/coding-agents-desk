@@ -1424,6 +1424,13 @@ mid-response, and how the question-from-the-pane fallback was verified on 2026-1
 **`THROWAWAY_PLUGIN_DIRS=<dir>:<dir>` loads plugins for that session only**, one `--plugin-dir`
 each, which is how a probe tries a mod without installing it or writing under `~/.claude`.
 
+**`THROWAWAY_MCP_CONFIG=<file>` gives it MCP servers.** The session runs with
+`--strict-mcp-config`, so it has none otherwise, not even the repo's `.mcp.json`; a probe that
+sends or answers hub messages names the relay there. Run two such probes from two directories
+(`THROWAWAY_DIR`): a directory is bound to at most one Bot, and the repo's is the owner's.
+Joining a Bot renames the probe's tmux session to its anchor name (`hubA` became `elias-huba`), so
+`say`, `pane` and `stop` take the new name after that.
+
 **Probe on the cheap model.** The default is Haiku at `--effort low`, and the reason is not
 frugality for its own sake: a probe session exists to produce transcript records and API flows, and
 nothing reads what it says. The run that prompted this script spent Opus on the word "acorn", three
