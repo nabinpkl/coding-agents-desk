@@ -51,9 +51,21 @@ export type RunnerRefusal = "not-pending" | "invalid" | "failed" | TmuxQuestionR
 
 export type RunnerReply = { ok: true } | { ok: false; reason: RunnerRefusal; message: string };
 
+/**
+ * One Anthropic stream event of the session's message, as the SDK hands it over: the same events
+ * the proxy capture decodes, so the live mirror applies either. `parentToolUseId` is a subagent's,
+ * which the mirror leaves to the subagent's own transcript, as it does for the capture.
+ */
+export interface RunnerStreamFrame {
+  type: "stream";
+  event: Record<string, unknown> & { type: string };
+  parentToolUseId: string | null;
+}
+
 export type RunnerToSidecar =
   | { type: "hello"; version: number; sessionId: string; pid: number }
   | { type: "state"; state: RunnerState }
+  | RunnerStreamFrame
   | { type: "reply"; id: string; reply: RunnerReply };
 
 /** The longest line either side buffers before giving up on the connection. */
@@ -216,6 +228,13 @@ export function parseRunnerMessage(line: string): RunnerToSidecar | null {
     case "reply": {
       const reply = runnerReply(fields.reply);
       return isId(fields.id) && reply ? { type: "reply", id: fields.id, reply } : null;
+    }
+    case "stream": {
+      const event = fields.event;
+      const parent = fields.parentToolUseId;
+      if (event === null || typeof event !== "object" || Array.isArray(event)) return null;
+      if (!isString((event as Fields).type) || (parent !== null && !isId(parent))) return null;
+      return { type: "stream", event: event as RunnerStreamFrame["event"], parentToolUseId: parent as string | null };
     }
     default:
       return null;

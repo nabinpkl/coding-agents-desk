@@ -66,6 +66,17 @@ CLI 2.1.302):
   result), because the CLI did not send the documented `session_state_changed` in any run.
 - Prompts carry `origin: { kind: "human" }`, which the SDK says a host relaying keyboard input must.
 
+The runner also forwards every `stream_event` it receives, and the sidecar feeds them to the live
+mirror (`claude-sdk/claudeSdkLiveFeed.ts` into `ClaudeLiveBackend.acceptRunnerStream`), one flow
+per message from `message_start` to `message_stop`. They are the same Anthropic events the proxy
+capture decodes, so the mirror applies them unchanged, and they are the session's own account, so a
+capture that dies mid-turn no longer takes an SDK session's live view with it. Measured with the
+proxy removed from the runner's environment: live rows streamed and finished with the transcript's
+message ids and text. An SDK session's traffic still crosses the proxy, so while a runner feeds a
+session the mirror drops that session's captured flows rather than letting two writers race over
+one row. Not mirrored live: the tool-result row the capture builds from the next request's body,
+which the transcript still supplies, and a message whose start the sidecar missed.
+
 ### Consequences
 
 - Good, because a question is complete and answerable from the moment it is asked: the CLI writes

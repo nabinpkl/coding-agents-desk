@@ -105,6 +105,21 @@ describe("a session's state", () => {
     expect(runner.state().status).toBe("exited");
   });
 
+  test("hands every streamed event on, with the subagent it belongs to when it has one", async () => {
+    const { runner, fake, done } = started();
+    const frames: unknown[] = [];
+    runner.onStream((frame) => frames.push(frame));
+    fake().send({ type: "stream_event", event: { type: "message_start" }, parent_tool_use_id: null });
+    fake().send({ type: "stream_event", event: { type: "content_block_delta" }, parent_tool_use_id: "toolu_a" });
+    await Bun.sleep(2);
+    expect(frames).toEqual([
+      { type: "stream", event: { type: "message_start" }, parentToolUseId: null },
+      { type: "stream", event: { type: "content_block_delta" }, parentToolUseId: "toolu_a" },
+    ]);
+    fake().end();
+    await done;
+  });
+
   test("a first turn and later prompts go in as a person's own words", async () => {
     const { runner, fake, done } = started({ ...PLAN, firstTurn: "begin" });
     expect(runner.prompt("and then this")).toEqual({ ok: true });

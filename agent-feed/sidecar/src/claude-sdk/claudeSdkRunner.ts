@@ -29,6 +29,7 @@ import {
   sdkPermissionMode,
   type RunnerReply,
   type RunnerState,
+  type RunnerStreamFrame,
 } from "@/claude-sdk/claudeSdkProtocol";
 
 /** What the sidecar decided about this session before the runner started. */
@@ -169,6 +170,7 @@ export class ClaudeSdkRunner {
   private backgroundTasks = 0;
   private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Set<(state: RunnerState) => void>();
+  private readonly streamListeners = new Set<(frame: RunnerStreamFrame) => void>();
   private readonly prompts = new PromptQueue();
   private query: RunnerQuery | null = null;
 
@@ -214,6 +216,12 @@ export class ClaudeSdkRunner {
   subscribe(listener: (state: RunnerState) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Every streamed event of the session's messages, as it arrives, for the live mirror. */
+  onStream(listener: (frame: RunnerStreamFrame) => void): () => void {
+    this.streamListeners.add(listener);
+    return () => this.streamListeners.delete(listener);
   }
 
   /** Runs the session until its input closes and `claude` exits. Resolves; never rejects. */
@@ -360,6 +368,14 @@ export class ClaudeSdkRunner {
    * on 2026-10-17 (2.1.302): a turn is running from its first streamed byte to its result.
    */
   private handle(message: SDKMessage): void {
+    if (message.type === "stream_event") {
+      const frame: RunnerStreamFrame = {
+        type: "stream",
+        event: message.event as unknown as RunnerStreamFrame["event"],
+        parentToolUseId: message.parent_tool_use_id,
+      };
+      for (const listener of this.streamListeners) listener(frame);
+    }
     if (message.type === "stream_event" || message.type === "assistant") {
       this.becomes("running");
       return;

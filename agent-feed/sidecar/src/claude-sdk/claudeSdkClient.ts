@@ -26,6 +26,7 @@ import {
   type SidecarToRunner,
 } from "@/claude-sdk/claudeSdkProtocol";
 import { privateSocketDirectory } from "@/claude-sdk/claudeSdkRunnerServer";
+import type { ClaudeSdkLiveFeed } from "@/claude-sdk/claudeSdkLiveFeed";
 
 /** How long a command waits for the runner's reply before it is reported as not established. */
 const REPLY_TIMEOUT_MS = 20_000;
@@ -56,6 +57,8 @@ export class ClaudeSdkClient {
   constructor(
     private readonly socketDirectory: string,
     private readonly log: (line: string) => void = (line) => console.log(`[claude-sdk] ${line}`),
+    /** Where the runners' streamed messages go: the live mirror, through `ClaudeSdkLiveFeed`. */
+    private readonly sink: Pick<ClaudeSdkLiveFeed, "stream" | "gone"> | null = null,
   ) {}
 
   /**
@@ -237,6 +240,9 @@ export class ClaudeSdkClient {
         waiting.resolve(message.reply);
         return;
       }
+      case "stream":
+        this.sink?.stream(connection.sessionId, message);
+        return;
       default: {
         const unhandled: never = message;
         this.log(`${connection.sessionId}: unhandled runner message ${JSON.stringify(unhandled)}`);
@@ -254,7 +260,10 @@ export class ClaudeSdkClient {
     connection.replies.clear();
     const was = connection.state.connected;
     connection.state = DISCONNECTED_CLAUDE_SDK_STATE;
-    if (was) this.publish(connection);
+    if (was) {
+      this.sink?.gone(connection.sessionId);
+      this.publish(connection);
+    }
     this.release(connection);
   }
 

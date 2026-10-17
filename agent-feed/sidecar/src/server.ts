@@ -301,7 +301,7 @@ const routes: RouteHandler[] = [
   // Two drivers behind one path, split by what each may press: `answer` may press the keys that
   // finish the call, `point` only the arrows that move a cursor without committing anything.
   createTmuxQuestionRoutes({ answer: answerTmuxQuestion, point: pointTmuxQuestion }),
-  createClaudeSdkRoutes(), // `/sdk/...`, a session run through the Agent SDK (ADR-0143)
+  createClaudeSdkRoutes(claudeLive), // `/sdk/...`, a session run through the Agent SDK (ADR-0143)
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),
   // And `/events/<n>/blocks/<b>/image`, the picture behind an image block.

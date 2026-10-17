@@ -12,11 +12,31 @@
 
 import { AgentSessionNotFoundError } from "@/agents/agentBackend";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import type { TokenUsage } from "@/transcripts/transcriptTypes";
+import type { AgentTimelinePage } from "@/agents/agentBackend";
+import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 
 interface SessionTrack {
   lastEventAt: number;
   dropTimer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * One page of a live projection, in the shape every timeline route answers with.
+ *
+ * A live stream has no machinery lines, so raw and nice are the same set and the index is insertion
+ * order in both. `otherModeIndex = index` makes a mode toggle a no-op instead of an empty
+ * cross-reference.
+ */
+export function livePage(projection: LiveAgentProjection, offset: number, limit: number, mode: EventMode): AgentTimelinePage {
+  return {
+    events: projection.page(offset, limit).map((event) => ({ ...event, otherModeIndex: event.index })),
+    total: projection.total,
+    mode,
+    sequence: projection.snapshot().sequence,
+    runState: projection.runState,
+    queue: projection.queue,
+    projectionId: projection.projectionId,
+  };
 }
 
 export interface LiveSessionRegistryOptions {

@@ -5,8 +5,21 @@
 // `session_id` that keys the mirror lives in that body. So deltas can arrive with
 // nowhere to put them yet; a flow buffers them, bounded, until the bind lands.
 
+import type { AgentSessionCapabilities } from "@/agents/agentBackend";
 import type { ObserverCaptureHealth, ObserverEvent } from "@/live/claudeNetworkSource";
 import type { LiveMessage } from "@/live/claudeLiveMessages";
+
+/** A live Claude session can be read and streamed, and nothing else: the harness owns it. */
+export const CLAUDE_LIVE_CAPABILITIES: AgentSessionCapabilities = {
+  modes: ["nice"],
+  canSend: false,
+  canSteer: false,
+  canAbort: false,
+  canFetchRaw: false,
+  canOpenTerminal: false,
+  supportsExtensionUi: false,
+  canStreamLive: true,
+};
 
 const MESSAGE_STREAM_AUTHORITIES = new Set(["api.anthropic.com", "a-api.anthropic.com"]);
 const MESSAGE_STREAM_PATH = "/v1/messages";

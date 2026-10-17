@@ -20,6 +20,7 @@ import type {
 import { config } from "@/config/config";
 import { ClaudeSdkClient, NO_RUNNER, type RunnerCommand } from "@/claude-sdk/claudeSdkClient";
 import { parseSidecarMessage, type RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
+import { ClaudeSdkLiveFeed, type RunnerStreamTarget } from "@/claude-sdk/claudeSdkLiveFeed";
 import {
   encodeServerSentEvent,
   errorResponse,
@@ -37,10 +38,16 @@ const MAXIMUM_BODY_BYTES = 1024 * 1024;
 
 /**
  * Mounted ahead of the session routes, whose catch-all refuses an `/api/sessions/` path it does not
- * know. One client for the process: it holds a connection per session somebody is looking at.
+ * know. One client for the process: it holds a connection per session somebody is looking at, and
+ * hands what those runners stream to the live mirror.
  */
 export function createClaudeSdkRoutes(
-  client: ClaudeSdkClient = new ClaudeSdkClient(config.claudeSdkSocketDirectory),
+  live: RunnerStreamTarget | null = null,
+  client: ClaudeSdkClient = new ClaudeSdkClient(
+    config.claudeSdkSocketDirectory,
+    undefined,
+    live ? new ClaudeSdkLiveFeed(live) : null,
+  ),
 ): RouteHandler {
   return (request, url, server) => {
     const match = SDK_ROUTE.exec(url.pathname);

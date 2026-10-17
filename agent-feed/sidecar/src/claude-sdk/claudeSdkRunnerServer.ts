@@ -11,12 +11,16 @@ import type { ClaudeSdkRunner } from "@/claude-sdk/claudeSdkRunner";
 import {
   encodeLine,
   LineReader,
+  MAXIMUM_LINE_BYTES,
   parseSidecarMessage,
   PROTOCOL_VERSION,
   type RunnerReply,
   type RunnerToSidecar,
   type SidecarToRunner,
 } from "@/claude-sdk/claudeSdkProtocol";
+
+/** Unsent bytes one connection may hold before it is closed. */
+const MAXIMUM_BACKLOG_BYTES = 4 * MAXIMUM_LINE_BYTES;
 
 interface Connection {
   reader: LineReader;
@@ -75,6 +79,12 @@ export async function serveRunner(
     const data = socket.data;
     data.backlog = Buffer.concat([data.backlog, Buffer.from(encodeLine(message))]);
     flush(socket);
+    // A sidecar that stopped reading is let go rather than buffered for without bound. It loses
+    // nothing it cannot have back: a connection is handed the whole state again on arrival.
+    if (data.backlog.length > MAXIMUM_BACKLOG_BYTES) {
+      log("closed a connection that stopped reading");
+      socket.end();
+    }
   };
   // Cut by bytes, never by characters: a partial write can stop inside a multi-byte one.
   const flush = (socket: Socket<Connection>): void => {
@@ -86,6 +96,9 @@ export async function serveRunner(
 
   const unsubscribe = runner.subscribe((state) => {
     for (const socket of connections) if (socket.data.greeted) send(socket, { type: "state", state });
+  });
+  const unstream = runner.onStream((frame) => {
+    for (const socket of connections) if (socket.data.greeted) send(socket, frame);
   });
 
   const execute = async (message: Exclude<SidecarToRunner, { type: "hello" }>): Promise<RunnerReply> => {
@@ -175,6 +188,7 @@ export async function serveRunner(
   return {
     async close() {
       unsubscribe();
+      unstream();
       for (const socket of connections) socket.end();
       listener.stop(true);
       await unlink(identity.socketPath).catch(() => {});

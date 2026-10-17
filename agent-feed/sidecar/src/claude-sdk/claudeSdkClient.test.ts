@@ -134,6 +134,24 @@ describe("following a session", () => {
   });
 });
 
+describe("what a runner streams", () => {
+  test("reaches the sink as it arrives, and the sink hears when the runner goes", async () => {
+    const heard: string[] = [];
+    const session = await runnerFor();
+    const client = new ClaudeSdkClient(work, quiet, {
+      stream: (sessionId, frame) => void heard.push(`${sessionId === session.sessionId} ${frame.event.type}`),
+      gone: () => void heard.push("gone"),
+    });
+    const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
+    session.fake().send({ type: "stream_event", event: { type: "message_start" }, parent_tool_use_id: null });
+    for (let tries = 0; heard.length === 0 && tries < 50; tries += 1) await Bun.sleep(10);
+    await session.stop();
+    for (let tries = 0; !heard.includes("gone") && tries < 50; tries += 1) await Bun.sleep(10);
+    expect(heard).toEqual(["true message_start", "gone"]);
+    followed.stop();
+  });
+});
+
 describe("one runner per session", () => {
   test("a second runner for the same session refuses to start", async () => {
     const session = await runnerFor();

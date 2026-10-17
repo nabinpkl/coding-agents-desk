@@ -14,7 +14,6 @@ import type {
   AgentBackend,
   AgentCommandReceipt,
   AgentMessageDelivery,
-  AgentSessionCapabilities,
   AgentSessionDescriptor,
   AgentTimelinePage,
   AgentUiEvent,
@@ -25,7 +24,7 @@ import {
   AgentModeUnsupportedError,
 } from "@/agents/agentBackend";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
-import { LiveSessionRegistry } from "@/live/liveSessionRegistry";
+import { LiveSessionRegistry, livePage } from "@/live/liveSessionRegistry";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 import { fetchRequestMetadata, type ToolResultItem } from "@/live/claudeRequestBody";
@@ -44,6 +43,7 @@ import {
 import { CompactionWatch } from "@/live/claudeCompactionWatch";
 import {
   bufferDelta,
+  CLAUDE_LIVE_CAPABILITIES,
   flowStartedAtMs,
   flowsLostWithCapture,
   isMessageStream,
@@ -52,17 +52,6 @@ import {
   type FlowContext,
 } from "@/live/claudeLiveFlows";
 import { applyStreamEvent, publishMessage, toolResultBlocks } from "@/live/claudeLiveMessages";
-
-export const CLAUDE_LIVE_CAPABILITIES: AgentSessionCapabilities = {
-  modes: ["nice"],
-  canSend: false,
-  canSteer: false,
-  canAbort: false,
-  canFetchRaw: false,
-  canOpenTerminal: false,
-  supportsExtensionUi: false,
-  canStreamLive: true,
-};
 
 export class ClaudeLiveBackend implements AgentBackend {
   readonly id = "claude";
@@ -78,6 +67,8 @@ export class ClaudeLiveBackend implements AgentBackend {
   // which is the cheaper error -- the other way round shows a meter five times too full.
   private readonly longContextSessions = new Set<string>();
   private readonly flowContexts = new Map<string, FlowContext>();
+  /** Sessions an SDK runner is streaming (ADR-0143); captured flows for them are dropped, not raced. */
+  private readonly runnerFed = new Set<string>();
   private readonly compactions = new CompactionWatch();
   private subscription: ObserverSubscription | null = null;
   private abortController: AbortController | null = null;
@@ -153,30 +144,12 @@ export class ClaudeLiveBackend implements AgentBackend {
     throw new AgentModeUnsupportedError("claude live sessions are read-only");
   }
 
-  async page(
-    sessionId: string,
-    offset: number,
-    limit: number,
-    mode: EventMode,
-  ): Promise<AgentTimelinePage> {
+  async page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage> {
     this.assertActive();
     if (mode !== "nice" && mode !== "raw") {
       throw new AgentModeUnsupportedError("claude live supports raw and nice only");
     }
-    const projection = this.sessions.require(sessionId);
-    const sequence = projection.snapshot().sequence;
-    return {
-      // A live stream has no machinery lines, so raw and nice are the same set;
-      // the index is insertion order in both. otherModeIndex = index makes a
-      // mode toggle a no-op instead of an empty cross-reference.
-      events: projection.page(offset, limit).map((event) => ({ ...event, otherModeIndex: event.index })),
-      total: projection.total,
-      mode,
-      sequence,
-      runState: projection.runState,
-      queue: projection.queue,
-      projectionId: projection.projectionId,
-    };
+    return livePage(this.sessions.require(sessionId), offset, limit, mode);
   }
 
   async subscribe(
@@ -227,6 +200,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     this.binds.clear();
     this.longContextSessions.clear();
     this.flowContexts.clear();
+    this.runnerFed.clear();
   }
 
   // --- ingest ---------------------------------------------------------------
@@ -305,7 +279,7 @@ export class ClaudeLiveBackend implements AgentBackend {
         // The harness's own errands go the same way: a composer suggestion and a compaction
         // summariser are not the session speaking. A summariser's text goes to the watch above
         // instead, which keeps it beside the thread rather than on top of its compaction banner.
-        if (!sessionId || subagent || !conversationTurn) {
+        if (!sessionId || subagent || !conversationTurn || this.runnerFed.has(sessionId)) {
           this.scheduleFlowDrop(flowId);
           return;
         }
@@ -320,6 +294,22 @@ export class ClaudeLiveBackend implements AgentBackend {
         if (!this.disposed) this.lastError = error;
         this.scheduleFlowDrop(flowId);
       });
+  }
+
+  /**
+   * One frame of an SDK runner's message (ADR-0143), the session's own account of it; a null
+   * payload ends the message. Released when the runner goes, leaving the capture as the account.
+   */
+  acceptRunnerStream(sessionId: string, flowId: string, payload: string | null, ts: number): void {
+    if (this.disposed) return;
+    this.runnerFed.add(sessionId);
+    if (payload === null) return this.acceptStreamEnded(flowId);
+    if (!this.binds.has(flowId)) this.bindFlow(flowId, sessionId, [], ts, newFlowContext());
+    this.applyPayload(sessionId, flowId, payload, ts);
+  }
+
+  releaseRunnerStream(sessionId: string): void {
+    this.runnerFed.delete(sessionId);
   }
 
   private acceptDelta(delta: { flowId?: unknown; data?: unknown }, ts: number): void {
@@ -357,7 +347,8 @@ export class ClaudeLiveBackend implements AgentBackend {
   }
 
   /** `startedMs` is when the request was sent, not when its flow was announced. */
-  private bindFlow(flowId: string, sessionId: string, toolResults: ToolResultItem[], startedMs: number): void {
+  private bindFlow(flowId: string, sessionId: string, toolResults: ToolResultItem[], startedMs: number, created?: FlowContext): void {
+    if (created) this.flowContexts.set(flowId, created);
     const context = this.flowContexts.get(flowId);
     if (!context) return;
     this.binds.set(flowId, sessionId);
