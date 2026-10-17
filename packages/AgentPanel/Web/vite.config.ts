@@ -19,6 +19,7 @@ import {
   type LiveSidecar,
 } from "./src/app/dev-server/sidecarBoard";
 import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
+import { slimResponses } from "./src/app/dev-server/slimResponses";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createTypeHolds, dependentsOf, resend } from "./src/app/dev-server/typeHolds";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
@@ -409,6 +410,9 @@ function vncBridge(port = 5900, host = "127.0.0.1"): Plugin {
 
 export default defineConfig({
   plugins: [
+    // First, so it wraps each response before anything answers it: moves Vite's inline source maps
+    // out of the modules and compresses what is left, which is most of a cold load on the phone.
+    slimResponses(),
     react(),
     tailwindcss(),
     // Before `panelSessions`, because middleware runs in the order it was added and this one owns

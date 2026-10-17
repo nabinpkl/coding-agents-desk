@@ -852,6 +852,12 @@ So:
 - **`/api` is proxied by the `panelSessions` plugin's middleware, not by `server.proxy`.** Adding a
   `server.proxy` entry silently costs the whole origin its HTTP/2. If you need a new proxied path,
   add it to that middleware.
+- **Compression and source maps are a middleware too**, `app/dev-server/slimResponses.ts`, first in
+  the plugin list. Vite appends every module's source map to the module as base64 and compresses
+  nothing, so a cold load on the phone was 37MB, 26MB of it maps, and took 40.8s (2026-10-17). It
+  moves each map to `/@panel-source-map` (fetched only when developer tools open) and compresses
+  the rest; the same load is now about 2.7MB. It steps aside for `/api`, `/session/` and anything
+  written in pieces, because a compressor holds bytes back and would stall an event stream.
 - **A proxy on an HTTP/2 origin must strip hop-by-hop headers in both directions.** `connection:
   keep-alive` from the sidecar's SSE throws `ERR_HTTP2_INVALID_CONNECTION_HEADERS` on the way out,
   and an HTTP/2 request arrives with its pseudo-headers (`:method`, `:path`, `:scheme`,
