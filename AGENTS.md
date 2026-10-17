@@ -426,8 +426,12 @@ with no rebuild, no reinstall, and no re-pair.
   resolve -- so this arm executes the working tree without a half-saved file, or a caller saved
   before its callee, being what runs (`supervisor/supervisorLinks.ts`: `Bun.build` in a CHILD
   `bun`, ~40ms, killed after 10s; run in-process it froze the supervisor on a native lock on
-  2026-10-14, heartbeat and all, while the sidecar served stale code). Code that resolves and then
-  throws while loading still gets through, and still leaves nothing serving until the next save.
+  2026-10-14, heartbeat and all, while the sidecar served stale code). And only once the tree
+  typechecks with no error the running tree did not already have (`supervisor/typecheck.ts`,
+  TypeScript 7 in a child, a second or two): a call saved before the declaration it names resolves
+  and then dies on `ReferenceError` as it loads, which crash-looped this sidecar on 2026-10-16.
+  Code that typechecks and still throws while loading gets through, and leaves nothing serving
+  until the next save.
   Under `auto` it also waits until the sidecar's tree AND the panel's have been quiet for 3s
   (`AGENT_FEED_SUPERVISOR_QUIET_MS`) and no panel file is half-written, which the panel's dev
   server reports through `supervisor/supervisorBoard.ts` on the registry board (a peer cannot see
@@ -438,8 +442,9 @@ with no rebuild, no reinstall, and no re-pair.
   the shape the catalog moved to when per-file watches went late. It replaced `bun --watch src/server.ts`,
   which re-read on every write: a write is a moment inside an edit, and a reload that threw left the
   process alive with its port free, killing every stream the panel held while nothing noticed for a
-  minute. Parsed rather than typechecked, because neither tree typechecks at runtime and a resident
-  `tsc --watch` cost 844MB at its peak here (`footprint`, 2026-09-15). The Justfile
+  minute. It once dropped typechecking, because a resident `tsc --watch` cost 844MB at its peak
+  here (`footprint`, 2026-09-15); TypeScript 7 checks in a child that exits, a second and a few
+  hundred MB only while it runs, which is what brought it back on 2026-10-16. The Justfile
   resolves `bun` to an absolute path and passes it with the entry (`AGENTDESK_BUN_PATH`,
   `AGENTDESK_AGENT_FEED_SIDECAR_ENTRY`), because the host's child environment is deliberately
   stripped of the PATH that would find a Homebrew install. Every fallback -- no `bun`, unreadable
@@ -477,6 +482,14 @@ Settled 2026-10-15. Most edits reach every open panel without reloading the page
 still reload are a short list. A reload is the expensive outcome: every card's scroll, terminal and
 loaded history goes, and the page fetches its ~490 modules again, which is seconds on the phone.
 
+- **A save reaches the page about a second later, once the code it lands among typechecks**
+  (`app/dev-server/typeHolds.ts`, since 2026-10-16). A whole `.ts`/`.tsx` file waits for a
+  TypeScript 7 check of the page's code (`tsconfig.json`, not the tests'); an error the running
+  page did not already have holds the waiting files it could break -- the file it is in, and any
+  waiting file that file imports -- and the Profile row names the error. Everything else goes out.
+  So save order inside a change stops mattering: a caller saved before its callee waits for the
+  callee, and both arrive together. Under `manual` nothing goes out anyway, and the reader's Reload
+  takes the tree past a type error, though never past a file that will not parse.
 - **Components and hooks update in place** through React Fast Refresh. A `.tsx` file that exports
   anything besides components is not a boundary, so its update passes to every importer, which is
   harmless until the chain reaches `main.tsx`. Keep a plain helper out of a component file, the way

@@ -11,12 +11,12 @@
 // Profile row says what is being held and why, because a page quietly behind the tree is the
 // failure this replaces, not one it accepts.
 //
-// Parsed rather than typechecked, and that is a deliberate downgrade from the first version of this
-// gate. A resident `tsc --watch` per tree cost 844MB at its peak on this machine, measured with
-// `footprint`, which is a lot to pay for a dev-loop convenience on a Mac already 6.5GB into swap.
-// It was also the wrong instrument: neither the panel nor the sidecar typechecks at runtime, both
-// strip types, so a type error cannot take a page down and was never what broke anything. Half a
-// file is. `just check` is still where a type error is caught.
+// A whole file is then typechecked with the code it lands among before it is sent (`typeHolds.ts`),
+// because whole files that disagree broke the page too: on 2026-10-16 a hook saved before its
+// caller blanked the Feed tab with `all.map is not a function`. The first version of this gate ran
+// a resident `tsc --watch` and was dropped at 844MB; TypeScript 7 checks the page's code in about a
+// second in a child that exits, which is what made it affordable again. Only an error the edit
+// introduced holds anything, and only the files it could break.
 //
 // What is deliberately NOT held: stylesheets and assets, which cannot break a render, and a full
 // page load, which still transforms whatever is on disk and still reports its own failure through
@@ -137,10 +137,16 @@ export function createPublishGate(io: PublishGateIO) {
   /** Absolute path to why it will not parse, or null for a whole file waiting on the reader. */
   const held = new Map<string, string | null>();
 
+  /** Whole files held because the code they land among does not typecheck, and why. */
+  let typeHeld = new Map<string, string>();
+
   /** When a panel source last changed, carried on every heartbeat to the supervisor. */
   let changedAt = 0;
 
-  const recordActivity = () => io.recordActivity?.({ changedAt, blocked: firstReason(held) });
+  /** Why the queue cannot go out: a file that will not parse, or failing that one that will not check. */
+  const blocked = () => firstReason(held) ?? firstTypeReason(typeHeld);
+
+  const recordActivity = () => io.recordActivity?.({ changedAt, blocked: blocked() });
 
   /**
    * What the reader last chose, which outlives the server that was asked.
@@ -155,11 +161,12 @@ export function createPublishGate(io: PublishGateIO) {
   const report = (): PublishReport => ({
     build: io.buildId(),
     mode,
-    held: [...held.keys()].map((file) => basename(file)),
+    held: [...new Set([...held.keys(), ...typeHeld.keys()])].map((file) => basename(file)),
     // The first held file that will not parse, which is the one a reader can do something about
-    // and the one that decides whether the queue can be applied at all. Named by file, because the
-    // row is one line wide and the path is the half that does not fit.
-    blocked: firstReason(held),
+    // and the one that decides whether the queue can be applied at all, or failing that the first
+    // waiting on a type error. Named by file, because the row is one line wide and the path is the
+    // half that does not fit.
+    blocked: blocked(),
     // Only the ones with something to say. A machine that is merely running is not news, and the
     // row is built to render nothing at all when there is nothing to render.
     sidecars: io.sidecars().filter((sidecar) => sidecar.held || sidecar.behind),
@@ -175,8 +182,11 @@ export function createPublishGate(io: PublishGateIO) {
    * which file and why, and it is the same sentence either way.
    */
   const release = (): boolean => {
-    if (held.size === 0 || firstReason(held) !== null) return false;
+    if ((held.size === 0 && typeHeld.size === 0) || firstReason(held) !== null) return false;
     held.clear();
+    // A type error does not stop the reader taking the tree: they asked, and a page that does not
+    // typecheck often runs. The reload is the release, so nothing is waiting afterwards.
+    typeHeld = new Map();
     broadcast();
     io.reload();
     return true;
@@ -263,7 +273,21 @@ export function createPublishGate(io: PublishGateIO) {
     announce(): void {
       broadcast();
     },
+
+    /** Which whole files are held on a type error, and why: the type hold's answer, replacing the last. */
+    setTypeHeld(next: Map<string, string>): void {
+      if (next.size === typeHeld.size && [...next].every(([file, why]) => typeHeld.get(file) === why)) return;
+      typeHeld = next;
+      broadcast();
+      recordActivity();
+    },
   };
+}
+
+/** The first file held on a type error, said as the file and what it is waiting on. */
+function firstTypeReason(typeHeld: Map<string, string>): string | null {
+  for (const [file, why] of typeHeld) return `${basename(file)} waits on ${why}`;
+  return null;
 }
 
 /**
@@ -309,6 +333,15 @@ export interface PanelPublishOptions {
   supervisors: () => SupervisorReport[];
   /** Where the panel's tree activity is written for the supervisor. */
   recordActivity?: (activity: { changedAt: number; blocked: string | null }) => void;
+  /**
+   * Builds the type hold (`typeHolds.ts`) around the dev server, whose module graph it walks and
+   * whose updates it resends. Absent, whole files go out on the parse check alone.
+   */
+  holdTypes?: (io: {
+    server: () => ViteDevServer | undefined;
+    publish(held: Map<string, string>): void;
+    log(message: string): void;
+  }) => { prime(): void; wait(file: string): void; clear(): void };
 }
 
 /**
@@ -351,12 +384,21 @@ export function neverLoaded(module: Pick<EnvironmentModuleNode, "importedModules
 export function panelPublish(options: PanelPublishOptions): Plugin {
   let server: ViteDevServer | undefined;
 
+  const types = options.holdTypes?.({
+    server: () => server,
+    publish: (held) => gate.setTypeHeld(held),
+    log: (message) => console.warn(`[panel-publish] ${message}`),
+  });
+
   const gate = createPublishGate({
     recordActivity: options.recordActivity,
     broadcast: (report) => server?.environments.client.hot.send(options.event, report),
     buildId: options.buildId,
     sidecars: options.supervisors,
-    reload: () => server?.environments.client.hot.send({ type: "full-reload" }),
+    reload: () => {
+      types?.clear();
+      server?.environments.client.hot.send({ type: "full-reload" });
+    },
     tell: options.tell,
     remembered: options.remembered,
     remember: options.remember,
@@ -375,12 +417,17 @@ export function panelPublish(options: PanelPublishOptions): Plugin {
         if (modules.every(neverLoaded)) return [];
         if (!HELD_EXTENSIONS.test(file)) return;
         const failure = await parseFailure(file, await read());
-        return gate.hold(file, failure, Date.now()) ? [] : undefined;
+        if (gate.hold(file, failure, Date.now())) return [];
+        if (!types) return;
+        // Whole, and under auto: it goes out once the tree it lands in typechecks.
+        types.wait(file);
+        return [];
       },
     },
 
     configureServer(dev) {
       server = dev;
+      types?.prime();
 
       // Polled rather than pushed: the list is refreshed by another plugin on its own clock, and
       // the state that matters most is a supervisor that STOPPED, which produces no event anywhere.

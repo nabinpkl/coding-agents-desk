@@ -7,7 +7,8 @@
 // behind it, and the host's own port probe only gave up on it a minute later.
 //
 // So this owns the sidecar as a child process, watches the tree itself, and replaces the child only
-// once every file that changed is a whole file and the tree they make links (`supervisorLinks.ts`).
+// once every file that changed is a whole file, the tree they make links (`supervisorLinks.ts`), and
+// it typechecks with no error the running tree did not already have (`typecheck.ts`).
 // `supervisorGate.ts` holds the decisions; this holds the processes, the watcher and the parser.
 //
 // Everything it says goes to stdout, which the host writes to the sidecar's own log file, because
@@ -29,6 +30,7 @@ import { createSupervisorGate, type ParsedChange, type SupervisorState } from "@
 import { declaredPackages, linkFailure } from "@/supervisor/supervisorLinks";
 import { ownSources } from "@/supervisor/supervisorSources";
 import { stopChild } from "@/supervisor/supervisorStop";
+import { createTypeBaseline, describeTypeError } from "@/supervisor/typecheck";
 import { watchTree } from "@/transcripts/catalog/watchTree";
 
 /** The sidecar itself, a sibling of this file: one argument for the host to get wrong, not two. */
@@ -180,6 +182,9 @@ function startSidecar(): void {
  * exactly like the sidecar's does.
  */
 function takeTheTree(reason: string): void {
+  // The tree being taken is the one the last check read, so its errors are the running sidecar's
+  // from here on and hold nothing.
+  acceptTyped?.();
   if (!selfStale) {
     replaceSidecar(reason);
     return;
@@ -269,6 +274,39 @@ async function linked(): Promise<string | null> {
   }
 }
 
+/** The sidecar's tsconfig, which also checks the wire it shares with the panel. */
+const PROJECT = join(dirname(SOURCE), "tsconfig.json");
+
+/**
+ * The tree's type errors, as far as they are new. Errors the running sidecar's tree already had
+ * hold nothing, so a tree that was already failing to check does not freeze; only an error an edit
+ * introduced keeps the running sidecar.
+ */
+const checkTypes = createTypeBaseline(PROJECT);
+/** Accepts the tree the last check read, called when that tree is taken. */
+let acceptTyped: (() => void) | null = null;
+let typecheckFailing = false;
+
+/**
+ * Why the tree as it stands now would start a sidecar its own code does not agree with, or null.
+ *
+ * A check that cannot run lets the tree through on the parse and link checks, and says so once:
+ * a peer without TypeScript installed must still pick up its edits.
+ */
+async function typed(): Promise<string | null> {
+  const result = await checkTypes();
+  if ("failed" in result) {
+    if (!typecheckFailing) say(`${result.failed}; restarting on the parse and link checks alone`);
+    typecheckFailing = true;
+    acceptTyped = null;
+    return null;
+  }
+  typecheckFailing = false;
+  acceptTyped = result.accept;
+  const [first, ...more] = result.fresh;
+  return first ? `type error, ${describeTypeError(first, more.length)}` : null;
+}
+
 /** Collected between decisions, so one burst of writes is judged as one change. */
 const pending = new Set<string>();
 let settle: ReturnType<typeof setTimeout> | undefined;
@@ -276,8 +314,9 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 /**
  * The batch being judged, so the next one waits its turn.
  *
- * Judging takes the link check's 40-130ms, so two batches can overlap, and the later write's verdict
- * must not be overwritten by an earlier tree's: the gate keeps whatever it was told last.
+ * Judging takes the link check's 40-130ms and the typecheck's second or two, so two batches can
+ * overlap, and the later write's verdict must not be overwritten by an earlier tree's: the gate
+ * keeps whatever it was told last.
  */
 let judging: Promise<void> = Promise.resolve();
 
@@ -292,14 +331,15 @@ function noteChange(path: string): void {
   settle = setTimeout(() => {
     const batch = [...pending];
     pending.clear();
-    judging = judging.then(() => Promise.all([Promise.all(batch.map(parsed)), linked()])).then(([changes, unlinked]) => {
+    judging = judging.then(() => Promise.all([Promise.all(batch.map(parsed)), linked(), typed()])).then(([changes, unlinked, mistyped]) => {
       // The standing request is re-read HERE, not just on the timer below, because the timer is a
       // second behind by construction and this is the moment the mode decides something. Measured
       // 2026-09-15: a reader who chose manual and saved a file within the second got the restart
       // they had just asked not to have, because the command was still in flight through the
       // sidecar and onto the board when the batch was judged.
       readRequest();
-      gate.changed(changes, unlinked, Date.now(), panelActivity());
+      // A tree that will not link is the worse news, and the one the row names first.
+      gate.changed(changes, unlinked ?? mistyped, Date.now(), panelActivity());
     }).catch((error: unknown) => {
       // Caught on the chain itself: a rejection left on it would skip every batch after this one,
       // and the supervisor would stop acting on saves with nothing to say it had.
@@ -380,3 +420,5 @@ const requests = setInterval(readRequest, REQUEST_POLL_MS);
 requests.unref?.();
 startSidecar();
 startWatching();
+// The tree the first sidecar is reading, whose errors are where the comparison starts.
+void typed();

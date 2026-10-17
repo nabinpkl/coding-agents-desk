@@ -35,10 +35,13 @@
 // `supervisorBoard.ts` (from `packages/AgentPanel/Web/src/app/dev-server/panelPublish.ts`). Taking
 // the tree on the reader's say-so does not wait for anything.
 //
-// Parsed rather than typechecked. The first version of this ran `tsc --noEmit --watch` as the
-// watcher and the judge, which cost 844MB at its peak here, measured with `footprint`. It was also
-// the wrong instrument: bun strips types and never checks them, so a type error cannot break a
-// running sidecar and was never what broke one. Half a file is. `just check` still catches types.
+// And a tree that links can still not agree with itself: a call saved before the declaration it
+// names resolves every import and then dies on `ReferenceError` as it loads, which is what
+// crash-looped this sidecar on 2026-10-16. So the supervisor typechecks the tree as well
+// (`typecheck.ts`), and an error the running tree did not already have is handed to this gate as a
+// reason the tree will not start, exactly like a failed link. The first version of this gate ran a
+// resident `tsc --noEmit --watch` and was dropped at 844MB; TypeScript 7 checks the tree in a
+// second or two in a child that exits, which is what made a typecheck affordable again.
 
 import type { SupervisorMode } from "@agentdesk/agent-feed-wire";
 import type { PanelActivity } from "@/supervisor/supervisorBoard";

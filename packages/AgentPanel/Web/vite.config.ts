@@ -20,9 +20,11 @@ import {
 } from "./src/app/dev-server/sidecarBoard";
 import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
+import { createTypeHolds, dependentsOf, resend } from "./src/app/dev-server/typeHolds";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
 import { sourceSignature, sourceVersion } from "../../../agent-feed/sidecar/src/sourceVersion";
 import { writePanelActivity } from "../../../agent-feed/sidecar/src/supervisor/supervisorBoard";
+import { createTypeBaseline, describeTypeError } from "../../../agent-feed/sidecar/src/supervisor/typecheck";
 import { readPublishMode, writePublishMode } from "./src/app/dev-server/publishMode";
 import {
   PANEL_BUILD_ROUTE,
@@ -68,6 +70,11 @@ const agentFeedWire = fileURLToPath(
   new URL("../../../agent-feed/wire/index.ts", import.meta.url),
 );
 const panelSource = fileURLToPath(new URL("./src/", import.meta.url));
+/**
+ * The page's code typechecked with TypeScript 7, reporting only errors the running page did not
+ * already have. Its own project rather than the tests', which is what reaches an open page.
+ */
+const checkPageTypes = createTypeBaseline(fileURLToPath(new URL("./tsconfig.json", import.meta.url)));
 const agentFeedRoot = fileURLToPath(new URL("../../../agent-feed/", import.meta.url));
 
 /**
@@ -437,6 +444,19 @@ export default defineConfig({
       // runs normally rather than staying frozen on the word of a process that is not there.
       remembered: () => readPublishMode(runtimePaths().panelPublishMode),
       remember: (mode) => writePublishMode(runtimePaths().panelPublishMode, mode),
+      // A whole file goes out once the code it lands among typechecks (`typeHolds.ts`).
+      holdTypes: ({ server, publish, log }) => createTypeHolds({
+        check: async () => {
+          const result = await checkPageTypes();
+          if ("failed" in result) return result;
+          const fresh = result.fresh.map((error) => ({ file: error.file, reason: describeTypeError(error) }));
+          return { fresh, accept: result.accept };
+        },
+        dependents: (file) => dependentsOf(server(), file),
+        send: (files) => resend(server(), files),
+        publish,
+        log,
+      }),
     }),
     panelSessions(),
     vncBridge(),

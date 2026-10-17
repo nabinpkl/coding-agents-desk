@@ -47,6 +47,20 @@ function gateWith(sidecars: SupervisorReport[] = [], remembered: UpdateMode = "a
 }
 
 describe("the publish gate", () => {
+  // A whole file held on a type error is shown like one that will not parse, but it does not stop
+  // the reader taking the tree: they asked, and code that does not typecheck often still runs.
+  it("shows a file held on a type error, and lets the reader reload past it", () => {
+    const { gate, reloaded } = gateWith();
+    gate.setTypeHeld(new Map([[`${PANEL}/features/profile/useStaleSessions.ts`, "AgentPanelApp.tsx:105: Argument is wrong."]]));
+    expect(gate.report().held).toEqual(["useStaleSessions.ts"]);
+    expect(gate.report().blocked).toBe("useStaleSessions.ts waits on AgentPanelApp.tsx:105: Argument is wrong.");
+
+    expect(gate.apply()).toBe(true);
+    expect(reloaded()).toBe(1);
+    expect(gate.report().held).toEqual([]);
+    expect(gate.report().blocked).toBeNull();
+  });
+
   it("holds a file that will not parse and lets a whole one through", () => {
     const { gate } = gateWith();
     expect(gate.hold(MAIN, "Unexpected end of file")).toBe(true);
