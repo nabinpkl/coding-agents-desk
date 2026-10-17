@@ -257,6 +257,33 @@ export function AgentTerminalPane(
   }, [echo, contentHeight, height, lastDrawnRow, mountRef]);
 
   /**
+   * Opens an echo at the height its drawn rows need, rather than at the floor.
+   *
+   * The floor showed six rows of a screen whose box and footer alone are more than that, so every
+   * pane opened needing a drag. The rows that need room are the drawn ones -- the screen's blank
+   * tail is not worth height -- measured off the rendered rows, since the fit sets their size. It
+   * only grows: a program redrawing its frame blanks rows for a moment, and a pane that shrank with
+   * each redraw would jump. Capped at the same ceiling a drag is, so a screen that needs the room
+   * gets it and the transcript keeps the rest; a reader who wants the transcript back drags it down,
+   * and that height is remembered. Never over a drag.
+   */
+  useEffect(() => {
+    if (!echo || sized.current || lastDrawnRow === null) return;
+    const pane = paneRef.current;
+    const mount = mountRef.current;
+    const screen = mount?.querySelector<HTMLElement>(".xterm");
+    const row = mount?.querySelector(".xterm-rows")?.children[lastDrawnRow];
+    if (!pane || !mount || !screen || !row) return;
+    const style = getComputedStyle(mount);
+    const below = Number.parseFloat(getComputedStyle(screen).paddingBottom) || 0;
+    const drawn = row.getBoundingClientRect().bottom - screen.getBoundingClientRect().top + below;
+    const frame = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+    const chrome = pane.offsetHeight - mount.clientHeight;
+    const wanted = Math.ceil(drawn + frame + chrome);
+    setHeight((current) => Math.max(current ?? MINIMUM_TERMINAL_HEIGHT, Math.min(ceiling(), wanted)));
+  }, [echo, lastDrawnRow, contentHeight, basis, mountRef]);
+
+  /**
    * The one place a reader-chosen height is set, which is why the report goes out from here.
    *
    * The drag and the keyboard both arrive through it, so there is no second call site to forget.
