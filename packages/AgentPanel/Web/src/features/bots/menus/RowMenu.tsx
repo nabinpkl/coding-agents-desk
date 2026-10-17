@@ -1,78 +1,12 @@
 import { EllipsisVertical, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-
-/** The gap this menu keeps between itself and the edge of the window. */
-const MARGIN = 8;
-/** The gap between the trigger and the menu, matching the `mt-1` this used to carry. */
-const GAP = 4;
+import { placePopup, triggerIsVisible, type Placement } from "@/features/bots/menus/anchoredPlacement";
 
 export interface RowMenuItem {
   label: string;
   icon: LucideIcon;
   onSelect: () => void;
-}
-
-/** Where an open menu sits, in viewport coordinates, because it is positioned `fixed`. */
-interface Placement {
-  top: number;
-  left: number;
-}
-
-/** The overflow values that clip a child, named rather than everything-but-`visible`. */
-function clips(overflow: string): boolean {
-  return overflow === "auto" || overflow === "scroll" || overflow === "hidden";
-}
-
-/**
- * Whether the trigger is still inside every ancestor that clips it.
- *
- * The one thing portalling takes away and has to be given back. A menu inside the card was cut off
- * with the card, which was the bug -- but it also disappeared with it. One in `document.body` has
- * no such relationship, so scrolling the trigger under a card header or off the strip leaves the
- * menu floating over content it has nothing to do with. This is the cheap version of what a
- * floating-element library calls `hide`: a rect test per clipping ancestor, run only while a menu
- * is open, on a list that is a handful of nodes deep.
- */
-function triggerIsVisible(button: HTMLElement): boolean {
-  const rect = button.getBoundingClientRect();
-  for (let node = button.parentElement; node; node = node.parentElement) {
-    const style = getComputedStyle(node);
-    // `getComputedStyle` answers with an empty string for a property nothing has set in some
-    // engines, so this asks for the clipping values by name: treating the empty string as a
-    // clipper would make the nearest wrapper a boundary and close every menu on sight.
-    if (!clips(style.overflowY) && !clips(style.overflowX)) continue;
-    // Strictly outside, so a row resting exactly on a boundary counts as visible. Touching edges
-    // are what degenerate rects produce -- a hidden tab, a row mid-measure -- and closing a menu
-    // because two zeroes compared equal would be this check inventing its own failure.
-    const box = node.getBoundingClientRect();
-    if (rect.bottom < box.top || rect.top > box.bottom) return false;
-    if (rect.right < box.left || rect.left > box.right) return false;
-  }
-  return true;
-}
-
-/**
- * Where to put an open menu, measured against the WINDOW rather than against anything it is in.
- *
- * Below the trigger and right-aligned to it by default, which is where it has always appeared.
- * Upward when the window has no room below and more above, and clamped on both axes so a trigger
- * at any edge still gets a menu that is entirely on screen.
- */
-function placeMenu(trigger: DOMRect, menu: DOMRect): Placement {
-  const viewportHeight = globalThis.innerHeight || 0;
-  const viewportWidth = globalThis.innerWidth || 0;
-  const below = viewportHeight - trigger.bottom - MARGIN;
-  const above = trigger.top - MARGIN;
-  const upward = menu.height > below && above > below;
-  const top = upward ? trigger.top - GAP - menu.height : trigger.bottom + GAP;
-  // The clamps are what make "neither side fits" a menu with its top edge on screen rather than a
-  // menu with nothing on screen. `Math.max` last, so a menu taller than the window starts at the
-  // top instead of being pushed off it.
-  return {
-    top: Math.max(MARGIN, Math.min(top, viewportHeight - MARGIN - menu.height)),
-    left: Math.max(MARGIN, Math.min(trigger.right - menu.width, viewportWidth - MARGIN - menu.width)),
-  };
 }
 
 /**
@@ -131,7 +65,7 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
       setOpen(false);
       return;
     }
-    setPlacement(placeMenu(button.getBoundingClientRect(), popup.getBoundingClientRect()));
+    setPlacement(placePopup(button.getBoundingClientRect(), popup.getBoundingClientRect()));
   }, []);
 
   // Before paint, so the menu is measured and placed in the same commit that opens it rather than

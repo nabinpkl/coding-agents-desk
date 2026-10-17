@@ -59,6 +59,26 @@ describe("SessionCardMeta", () => {
     }
   });
 
+  it("opens over the page rather than inside the card, and closes on a press elsewhere or Escape", () => {
+    const { container } = render(
+      <SessionCardMeta
+        source="claude"
+        lastEventAt={AT}
+        activity="ready"
+        taskState={{ task: "close idle opencode panes", lines: ["dry run first"], at: AT }}
+      />,
+    );
+    const task = screen.getByRole("button", { name: "close idle opencode panes" });
+    fireEvent.click(task);
+    const popover = screen.getByRole("dialog");
+    expect(container.contains(popover)).toBe(false);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(task);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("names the provider by a letter, still in full to a screen reader", () => {
     render(<SessionCardMeta source="claude" lastEventAt={AT} activity="ready" />);
     expect(screen.getByLabelText("Source: Claude").textContent).toBe("C");
