@@ -106,25 +106,18 @@ export function DesktopKeyboardChrome({
       />, document.body)}
 
       {!shown ? (
-        <div className="pointer-events-auto flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-[11px] text-white/75">
-            <input
-              type="checkbox"
-              checked={autoKeyboard}
-              onChange={(event) => onAutoChange(event.currentTarget.checked)}
-              className="accent-white"
-            />
-            Auto
-          </label>
-          <button
-            type="button"
-            disabled={!available}
-            onClick={onShow}
-            className="rounded-md bg-white px-2.5 py-1.5 text-[11px] text-black disabled:opacity-40"
-          >
-            Keyboard
-          </button>
-        </div>
+        // Auto keyboard is set from the viewer's settings popover while this is down, and from
+        // the accessory's own Auto button while it is up.
+        <button
+          type="button"
+          disabled={!available}
+          onClick={onShow}
+          className="pointer-events-auto shrink-0 rounded-md bg-white px-2.5 py-1.5 text-[11px] text-black transition-colors
+            hover:bg-white/90 active:bg-white/80 focus-visible:outline-2 focus-visible:outline-offset-2
+            focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
+        >
+          Keyboard
+        </button>
       ) : createPortal(
         <section
           ref={accessoryRef}

@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { PanelsTopLeft, Settings2 } from "lucide-react";
+import { PanelsTopLeft } from "lucide-react";
 import type { DesktopDisplay } from "@agentdesk/agent-feed-wire";
 import { navigationGeometry, NAVIGATION_TUNING, type NavigationModel } from "@/features/desktop-viewer/navigation/desktopNavigationModel";
+import { useMacSwipeDirection } from "@/features/desktop-viewer/navigation/macSwipeDirection";
 
 const buttonStyle = "touch-none rounded-md text-white enabled:hover:bg-white/15 enabled:active:bg-white/25 focus-visible:outline-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:text-white/35";
 function preference(key: string, fallback: boolean): { value: boolean; failed: boolean } {
@@ -27,12 +28,13 @@ export function DesktopNavigationChrome({
   onCancel: () => void;
   onRefresh: () => void;
 }) {
-  const [saved] = useState(() => ({ expanded: preference("agentdesk.desktop-rail-expanded", true),
-    direction: preference("agentdesk.desktop-mac-direction", false) }));
-  const [expanded, setExpanded] = useState(saved.expanded.value);
-  const [macDirection, setMacDirection] = useState(saved.direction.value);
-  const [storageFailed, setStorageFailed] = useState(saved.expanded.failed || saved.direction.failed);
-  const [settings, setSettings] = useState(false);
+  const [saved] = useState(() => preference("agentdesk.desktop-rail-expanded", true));
+  const [expanded, setExpanded] = useState(saved.value);
+  // Set from the viewer's settings popover, read here per gesture.
+  const macDirection = useMacSwipeDirection((state) => state.macDirection);
+  const directionUnsaved = useMacSwipeDirection((state) => state.storageFailed);
+  const [expandedUnsaved, setExpandedUnsaved] = useState(saved.failed);
+  const storageFailed = expandedUnsaved || directionUnsaved;
   const [width, setWidth] = useState(1);
   const root = useRef<HTMLDivElement>(null);
   const row = useRef<HTMLDivElement>(null);
@@ -73,7 +75,7 @@ export function DesktopNavigationChrome({
 
   const remember = (key: string, value: boolean) => {
     try { localStorage.setItem(key, String(value)); }
-    catch { setStorageFailed(true); }
+    catch { setExpandedUnsaved(true); }
   };
   const down = (event: PointerEvent<HTMLDivElement>) => {
     if (disabled || event.button !== 0) return;
@@ -162,21 +164,8 @@ export function DesktopNavigationChrome({
                 style={{ left: geometry.indicatorLeft, "--nav-duration": `${duration}ms` } as CSSProperties} /> : null}
             </div>
           ) : null}
-          <button type="button" aria-label="Desktop navigation settings" aria-expanded={settings}
-            onClick={() => { cancel(); setSettings(!settings); }}
-            className={`${buttonStyle} w-6 shrink-0`}>
-            <Settings2 className="mx-auto size-3.5" aria-hidden />
-          </button>
         </div>
       ) : null}
-      {settings ? <div className="absolute inset-x-2 bottom-full mb-1 flex justify-end">
-        <label className="flex min-h-9 items-center gap-2 rounded bg-neutral-900 px-3 text-[11px]">
-          <input type="checkbox" checked={macDirection} onChange={(event) => {
-            cancel(); setMacDirection(event.target.checked);
-            remember("agentdesk.desktop-mac-direction", event.target.checked);
-          }} /> Mac swipe direction
-        </label>
-      </div> : null}
       {(model.error || storageFailed) && !switching ? <div role="status" className="bg-black/90 px-2 text-[10px] text-white/80">
         {model.error || "Navigation preferences cannot be saved"}
       </div> : null}

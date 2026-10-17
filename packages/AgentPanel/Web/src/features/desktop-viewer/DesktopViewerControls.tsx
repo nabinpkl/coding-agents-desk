@@ -1,7 +1,7 @@
 "use client";
 
-// The two controls in the viewer's dock that are not the picture: the mode buttons and
-// the resolution slider, with the readout of what the knob actually asks for.
+// The picture-mode buttons in the viewer's bar, and the resolution slider in its settings popover,
+// with the readout of what the knob actually asks for.
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -43,7 +43,9 @@ export function ModeButton({
         ${active ? "bg-white text-black" : "text-white/75 hover:bg-white/10 active:bg-white/15"}`}
     >
       {icon}
-      {label}
+      {/* Below a phone's width the bar keeps one row by dropping the words, never by wrapping;
+          the label stays as the button's name. */}
+      <span className="sr-only @min-[22rem]:not-sr-only">{label}</span>
     </button>
   );
 }
@@ -85,10 +87,10 @@ export function ResolutionSlider({
     // the control, so pressing the word or the readout dispatched a click on the range -- and the
     // readout sits at the right end, so it landed on the maximum every time.
     <div
-      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-white/75"
+      className="flex items-center gap-2 px-2 text-[11px] text-white/75"
       title={encoded ? `Capture resolution ${encoded} (${draft.toFixed(2)}×)` : "Capture resolution"}
     >
-      <span aria-hidden className="text-white/60">Res</span>
+      <span aria-hidden className="w-16 shrink-0 text-white/60">Resolution</span>
       <input
         type="range"
         min={CAPTURE_SCALE_MIN}
@@ -100,7 +102,7 @@ export function ResolutionSlider({
         aria-valuetext={encoded ? `${encoded}, ${draft.toFixed(2)} times` : `${draft.toFixed(2)} times`}
         // `appearance-none` also removes the thumb, so it is drawn back explicitly -- without it
         // there is no grab target and the only way to change the value is to click the track.
-        className="h-1 w-32 cursor-pointer appearance-none rounded-full bg-white/25 outline-none
+        className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-white/25 outline-none
           focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white
           [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none
           [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white

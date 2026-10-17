@@ -90,7 +90,12 @@ describe("DesktopViewer", () => {
     const dock = await screen.findByTestId("desktop-bottom-chrome");
     expect(within(dock).getByRole("button", { name: "Desktop 8" })).toBeInTheDocument();
     expect(within(dock).getByRole("group", { name: "Desktop input controls" })).toBeInTheDocument();
+    // One settings button for the bar and the desktops row both.
+    expect(within(dock).getAllByRole("button", { name: /settings/i })).toHaveLength(1);
+    fireEvent.click(within(dock).getByRole("button", { name: "Viewer settings" }));
     expect(within(dock).getByLabelText("Desktop stream status")).toHaveTextContent("1800×1169");
+    expect(within(dock).getByLabelText("Mac swipe direction")).not.toBeChecked();
+    fireEvent.click(within(dock).getByRole("button", { name: "Done" }));
     const rect = vi.spyOn(dock, "getBoundingClientRect").mockReturnValue({ height: 120 } as DOMRect);
     act(() => observed.get(dock)!());
     expect(container.firstElementChild).toHaveStyle({ "--desktop-chrome-clearance": "128px" });
@@ -362,7 +367,10 @@ describe("DesktopViewer", () => {
     render(<DesktopViewer transport={transport()} />);
 
     expect(await screen.findByTestId("desktop-video")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Input connecting" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pointer" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Viewer settings" }));
+    expect(within(screen.getByRole("dialog", { name: "Viewer settings" })).getByRole("status"))
+      .toHaveTextContent("Input connecting");
   });
 
   it("keeps video visible and disables control loudly on a capability mismatch", async () => {
@@ -371,7 +379,13 @@ describe("DesktopViewer", () => {
     render(<DesktopViewer transport={transport()} />);
 
     expect(await screen.findByTestId("desktop-video")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Control v1 unsupported" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pointer" })).toBeDisabled();
+    // Said on the settings button, which carries a mark while it holds a message, and inside it.
+    const settings = screen.getByRole("button", { name: "Viewer settings" });
+    expect(settings).toHaveAttribute("title", "Control v1 unsupported");
+    fireEvent.click(settings);
+    expect(within(screen.getByRole("dialog", { name: "Viewer settings" })).getByRole("status"))
+      .toHaveTextContent("Control v1 unsupported");
   });
 
   it("ends the video where the keyboard accessory begins", async () => {

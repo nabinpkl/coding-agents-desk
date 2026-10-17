@@ -7,7 +7,7 @@ import type {
   WebrtcCursorEvent,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
-import { Crop, Crosshair, Hand, Layers, MousePointer2, Touchpad } from "lucide-react";
+import { Crosshair, Hand, MousePointer2, Touchpad } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 import {
@@ -18,7 +18,8 @@ import {
   type DesktopControlTransport,
 } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import { useCaptureScale } from "@/features/desktop-viewer/zoom/captureScale";
-import { ModeButton, ResolutionSlider } from "@/features/desktop-viewer/DesktopViewerControls";
+import { ModeButton } from "@/features/desktop-viewer/DesktopViewerControls";
+import { DesktopViewerSettings } from "@/features/desktop-viewer/DesktopViewerSettings";
 import { DesktopStream, DetailStream, OverviewStream } from "@/features/desktop-viewer/DesktopViewerStreams";
 import {
   captureCropApplied,
@@ -27,8 +28,8 @@ import {
   setCaptureCrop,
   useCaptureCrop,
 } from "@/features/desktop-viewer/zoom/captureCrop";
-import { setZoomMode, useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
-import { setOverviewLayer, useOverviewLayer } from "@/features/desktop-viewer/zoom/overviewLayer";
+import { useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
+import { useOverviewLayer } from "@/features/desktop-viewer/zoom/overviewLayer";
 
 /** The coarse stream only has to fill gaps and be panned over; it is not what is read. */
 const OVERVIEW_FPS = 8;
@@ -324,7 +325,7 @@ export function DesktopViewerSurface({
         {navigation}
         <div role="group" aria-label="Desktop input controls"
           style={interactive && !keyboard.keyboardPresented ? undefined : { display: "none" }}
-          className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-1 gap-y-1 rounded-lg bg-black/60 p-1">
+          className="@container pointer-events-auto flex flex-nowrap items-center justify-between gap-1 rounded-lg bg-black/60 p-1">
           <DesktopKeyboardChrome
             captureRef={keyboard.captureRef}
             accessoryRef={keyboard.accessoryRef}
@@ -356,70 +357,56 @@ export function DesktopViewerSurface({
           />
           {!keyboard.keyboardPresented ? (
             <>
-              <ResolutionSlider sourceWidth={source?.width} sourceHeight={source?.height} />
-              {/* The two zoom models side by side, so they can be compared on the same desk:
-                  CSS magnifies the whole-display picture, Crop re-aims the capture at what is
-                  being looked at. */}
-              <ModeButton
-                active={zoomMode === "crop"}
-                label={zoomMode === "crop" ? "Crop zoom" : "CSS zoom"}
-                icon={<Crop className="size-3.5" aria-hidden />}
-                onClick={() => setZoomMode(zoomMode === "crop" ? "css" : "crop")}
-              />
-              {zoomMode === "crop" ? (
-                // The coarse layer under the crop, switchable so its second stream's cost can be
-                // measured against the bare edge it removes.
+              {/* What a finger on the picture does: one choice, so one segmented group. */}
+              <div role="group" aria-label="Picture mode" className="flex min-w-0 items-center gap-0.5">
                 <ModeButton
-                  active={overviewLayer}
-                  label={overviewLayer ? "Overview on" : "Overview off"}
-                  icon={<Layers className="size-3.5" aria-hidden />}
-                  onClick={() => setOverviewLayer(!overviewLayer)}
+                  active={pictureMode === "view"}
+                  label="View"
+                  icon={<Hand className="size-3.5" aria-hidden />}
+                  onClick={() => choosePictureMode("view")}
                 />
-              ) : null}
-              <ModeButton
-                active={pictureMode === "view"}
-                label="View"
-                icon={<Hand className="size-3.5" aria-hidden />}
-                onClick={() => choosePictureMode("view")}
-              />
-              {touchDevice ? (
-                // Follow decides what a MOUSE does, which a finger never reaches; on a touch
-                // device this slot is the trackpad mode instead.
+                {touchDevice ? (
+                  // Follow decides what a MOUSE does, which a finger never reaches; on a touch
+                  // device this slot is the trackpad mode instead.
+                  <ModeButton
+                    active={pictureMode === "trackpad"}
+                    disabled={!pointerReady}
+                    label="Trackpad"
+                    icon={<Touchpad className="size-3.5" aria-hidden />}
+                    onClick={() => choosePictureMode("trackpad")}
+                  />
+                ) : (
+                  <ModeButton
+                    active={absolutePointer}
+                    disabled={!pointerReady}
+                    label={absolutePointer ? "Follow" : "Trackpad"}
+                    icon={<Crosshair className="size-3.5" aria-hidden />}
+                    onClick={toggleAbsolutePointer}
+                  />
+                )}
                 <ModeButton
-                  active={pictureMode === "trackpad"}
+                  active={pointerMode}
                   disabled={!pointerReady}
-                  label="Trackpad"
-                  icon={<Touchpad className="size-3.5" aria-hidden />}
-                  onClick={() => choosePictureMode("trackpad")}
+                  label="Pointer"
+                  icon={<MousePointer2 className="size-3.5" aria-hidden />}
+                  onClick={() => choosePictureMode("pointer")}
                 />
-              ) : (
-                <ModeButton
-                  active={absolutePointer}
-                  disabled={!pointerReady}
-                  label={absolutePointer ? "Follow" : "Trackpad"}
-                  icon={<Crosshair className="size-3.5" aria-hidden />}
-                  onClick={toggleAbsolutePointer}
-                />
-              )}
-              <ModeButton
-                active={pointerMode}
-                disabled={!pointerReady}
-                label={controlMismatch
+              </div>
+              <DesktopViewerSettings
+                status={tile.kind === "playing" && source ? `${source.width}×${source.height} · ${tile.codec}` : tile.kind}
+                attention={controlMismatch
                   ? `Control v${source.desktopControlVersion || "unknown"} unsupported`
-                  : pointerReady ? "Pointer" : "Input connecting"}
-                icon={<MousePointer2 className="size-3.5" aria-hidden />}
-                onClick={() => choosePictureMode("pointer")}
+                  : pointerReady ? null : "Input connecting"}
+                sourceWidth={source?.width}
+                sourceHeight={source?.height}
+                autoKeyboard={keyboard.autoKeyboard}
+                onAutoKeyboardChange={keyboard.setAutoKeyboard}
+                navigation={navigation != null}
+                hidden={!interactive || keyboard.keyboardPresented}
               />
             </>
           ) : null}
         </div>
-        <p aria-label="Desktop stream status"
-          style={interactive && !keyboard.keyboardPresented ? undefined : { display: "none" }}
-          className="truncate px-1 font-mono text-[10px] leading-3 text-white/70">
-          {tile.kind === "playing" && source
-            ? `${source.width}×${source.height} · ${tile.codec}`
-            : tile.kind}
-        </p>
       </div>
     </main>
   );
