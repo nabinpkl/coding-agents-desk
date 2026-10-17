@@ -145,7 +145,8 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
         onPointerLeave={leave}
         aria-expanded={showing}
         aria-controls={showing ? popupId : undefined}
-        className="pointer-events-auto min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary"
+        // At the title's size rather than the caption's: it is the line a reader came to read.
+        className="pointer-events-auto min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary"
       >
         {taskState.task}
       </button>
