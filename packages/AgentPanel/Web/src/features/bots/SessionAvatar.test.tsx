@@ -72,8 +72,10 @@ describe("SessionAvatar fold", () => {
   it("marks a cold session zzz only where asked, and only while it is cold", () => {
     const asked = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} sleeping />);
     expect(asked.container.textContent).toContain("zzz");
-    const live = render(<SessionAvatar title="First session" activity="live" shaded rank={0} sleeping />);
+    const live = render(<SessionAvatar title="First session" activity="live" shaded rank={0} sleeping className="mt-0.5" />);
     expect(live.container.textContent).not.toContain("zzz");
+    // Its classes still land on the mark when there is no zzz to wrap it in.
+    expect(live.container.firstElementChild?.getAttribute("class")).toContain("mt-0.5");
     const unasked = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} />);
     expect(unasked.container.textContent).not.toContain("zzz");
   });

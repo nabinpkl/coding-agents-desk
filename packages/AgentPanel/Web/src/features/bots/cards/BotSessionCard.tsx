@@ -16,7 +16,7 @@ import type { HandoverDestination } from "@/features/bots/sessionHandover";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
-import { botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
+import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
 import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
 
 /** How far a press has to travel before it stops being a click and becomes a carry. */
@@ -182,7 +182,7 @@ export function BotSessionCard({
   // Both or neither, decided in one place so the class and the properties cannot disagree: a card
   // wearing `bot-session-fill` with no `--bot-hue` would resolve the hue it inherited from the Bot
   // card around it and paint step zero of a ladder it is not on.
-  const shaded = botSessionStyle(hue, slot);
+  const shaded = botSessionStyle(hue, slot === undefined ? undefined : slot % BOT_SESSION_SHADES);
   // The rail says which Bot a card belongs to, among the Bot's several. With one session there is
   // no "among", and a rail down the only thing in a container draws a line between a group and
   // itself. The card keeps its shade either way, so it still reads as a card sitting on its Bot.
@@ -318,19 +318,26 @@ export function BotSessionCard({
               open ? "session-view-header" : ""
             }`}
           >
-            <button
-              type="button"
-              onClick={openUnlessCarried}
-              onPointerDown={grabCard}
-              onPointerMove={carryCard}
-              onPointerUp={dropCard}
-              onPointerCancel={dropCard}
-              aria-expanded={open}
-              // `cursor-pointer` rather than the header's `cursor-grab`, because unlike that header
-              // this element's first job is opening the session; the grabbing cursor appears once a
-              // press is actually being held, which is when it says something true.
-              className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 py-2 pr-2 pl-1 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 active:cursor-grabbing"
-            >
+            {/* The face, the title and the line under it sit OVER the button that opens the card
+                rather than inside it, because that line holds a control of its own -- the task,
+                which opens what the session set out to do -- and a button cannot contain a button.
+                The content takes no pointer events, so a press anywhere on it still lands on the
+                button beneath, which stays the whole row's target for opening and for carrying. */}
+            <div className="relative flex min-h-11 min-w-0 flex-1 items-start gap-2 py-2 pr-2 pl-1 text-left">
+              <button
+                type="button"
+                onClick={openUnlessCarried}
+                onPointerDown={grabCard}
+                onPointerMove={carryCard}
+                onPointerUp={dropCard}
+                onPointerCancel={dropCard}
+                aria-expanded={open}
+                aria-label={title}
+                // `cursor-pointer` rather than the header's `cursor-grab`, because unlike that header
+                // this element's first job is opening the session; the grabbing cursor appears once a
+                // press is actually being held, which is when it says something true.
+                className="absolute inset-0 cursor-pointer outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 active:cursor-grabbing"
+              />
               {/* The face, not a dot. A dot said live or not live and nothing about WHICH session
                   this was, so a Bot's roster opened with a column of identical marks. */}
               <SessionAvatar
@@ -343,9 +350,9 @@ export function BotSessionCard({
                 // reason the row and the card share a mark at all.
                 shut={!open}
                 sleeping
-                className="mt-0.5"
+                className="pointer-events-none relative mt-0.5"
               />
-              <span className="min-w-0 flex-1">
+              <div className="pointer-events-none relative min-w-0 flex-1">
                 <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
                   {title}
                 </span>
@@ -356,14 +363,14 @@ export function BotSessionCard({
                   worktree={session.worktree}
                   taskState={session.taskState}
                 />
-              </span>
+              </div>
               <ChevronDown
                 // Same ink as the caption under the title, for the same reason: it sits on the
                 // card's fill, and the fill moves.
-                className={`mt-0.5 size-4 shrink-0 session-muted-ink transition-transform ${open ? "rotate-180" : ""}`}
+                className={`pointer-events-none relative mt-0.5 size-4 shrink-0 session-muted-ink transition-transform ${open ? "rotate-180" : ""}`}
                 aria-hidden
               />
-            </button>
+            </div>
             {/* Its own line in a narrow row, inline once there is room. A session's controls are
                 five icons wide, which in a narrow card leaves the title about one character: the
                 name of the thing is worth more than keeping this to one line. `order-last` rather

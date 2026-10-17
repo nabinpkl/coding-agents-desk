@@ -90,8 +90,9 @@ export function SessionAvatar({
   className?: string;
 }) {
   const faces = useBotFaces();
-  const mark = sessionMark({ faces, title, activity, shaded, rank, shut, className: sleeping ? "" : className });
-  if (!sleeping || activity !== "cold") return mark;
+  const asleep = sleeping && activity === "cold";
+  const mark = sessionMark({ faces, title, activity, shaded, rank, shut, className: asleep ? "" : className });
+  if (!asleep) return mark;
   return (
     <span className={`relative shrink-0 ${className}`}>
       {mark}

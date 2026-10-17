@@ -1,13 +1,13 @@
 // The line under a canvas session's title: its task first, the provider as a letter, time last.
 
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { SessionCardMeta } from "@/features/bots/cards/SessionCardMeta";
 
 const AT = new Date(2026, 9, 17, 9, 5).getTime();
 
 describe("SessionCardMeta", () => {
-  it("shows what the session set out to do, with its decisions on hover", () => {
+  it("shows what the session set out to do, and opens its decisions on a tap", () => {
     render(
       <SessionCardMeta
         source="claude"
@@ -16,8 +16,14 @@ describe("SessionCardMeta", () => {
         taskState={{ task: "close idle opencode panes", lines: ["dry run first"], at: AT }}
       />,
     );
-    const task = screen.getByText("close idle opencode panes");
-    expect(task.getAttribute("title")).toBe("close idle opencode panes\n- dry run first");
+    const task = screen.getByRole("button", { name: "close idle opencode panes" });
+    expect(task).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("dry run first")).toBeNull();
+    fireEvent.click(task);
+    expect(task).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("dry run first")).toBeInTheDocument();
+    fireEvent.click(task);
+    expect(screen.queryByText("dry run first")).toBeNull();
   });
 
   it("names the provider by a letter, still in full to a screen reader", () => {

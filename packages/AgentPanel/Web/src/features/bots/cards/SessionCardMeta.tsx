@@ -6,7 +6,12 @@
 // work with -- so the rest gives up room: the provider shrinks to a letter whose hue still names
 // it, "Cold" moves onto the face as a "zzz" (`SessionAvatar`'s `sleeping`), and the time goes last,
 // where a column of cards lines it up.
+//
+// The task is a control of its own: a tap opens the whole goal and the decisions under it, which is
+// the reason the block exists -- seeing how the session set out without reading its transcript. A
+// tap rather than a tooltip, because the phone has no hover.
 
+import { useId, useState } from "react";
 import type { Bin, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { WorktreeChip } from "@/features/sidebar/session-list/SessionMeta";
@@ -24,26 +29,45 @@ export function SessionCardMeta({
   worktree?: { path: string; branch: string | null };
   taskState?: SessionSummary["taskState"];
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
   const time = new Date(lastEventAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const showing = expanded && taskState !== undefined;
   return (
-    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
-      <SourceBadge source={source} short />
-      {taskState ? (
-        // Content rather than a caption, so the title's ink rather than the muted one. The
-        // decisions under it ride along as the tooltip until the card has a place to open them.
-        <span
-          className="min-w-0 flex-1 truncate text-foreground"
-          title={[taskState.task, ...taskState.lines.map((line) => `- ${line}`)].join("\n")}
-        >
-          {taskState.task}
-        </span>
-      ) : (
-        <span className="flex-1" />
-      )}
-      {worktree ? <WorktreeChip worktree={worktree} /> : null}
-      {/* Cold is on the face; a screen reader still hears it here, where it used to be said. */}
-      {activity === "cold" ? <span className="sr-only">Cold</span> : <span className="capitalize">{activity}</span>}
-      <span className="shrink-0 tabular-nums">{time}</span>
-    </span>
+    <div className="mt-0.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <SourceBadge source={source} short />
+        {taskState ? (
+          // Content rather than a caption, so the title's ink rather than the muted one.
+          // `pointer-events-auto` because the card's own open/close sits underneath this line.
+          <button
+            type="button"
+            onClick={() => setExpanded((was) => !was)}
+            aria-expanded={showing}
+            aria-controls={detailsId}
+            className="pointer-events-auto min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            {taskState.task}
+          </button>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {worktree ? <WorktreeChip worktree={worktree} /> : null}
+        {/* Cold is on the face; a screen reader still hears it here, where it used to be said. */}
+        {activity === "cold" ? <span className="sr-only">Cold</span> : <span className="capitalize">{activity}</span>}
+        <span className="shrink-0 tabular-nums">{time}</span>
+      </div>
+      {showing ? (
+        // Selectable and inert to the card underneath: reading it must not open or close the card.
+        <div id={detailsId} className="pointer-events-auto mt-1 cursor-text select-text text-foreground">
+          <p className="text-pretty">{taskState.task}</p>
+          {taskState.lines.length > 0 ? (
+            <ul className="mt-0.5 list-disc pl-4">
+              {taskState.lines.map((line, index) => <li key={index}>{line}</li>)}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
