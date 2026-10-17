@@ -34,8 +34,6 @@ export interface OpencodeServePort {
 }
 
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
-/** How long a stream waits before its session list is re-read, so a vanished session closes. */
-const RECHECK_MS = 30_000;
 
 /** A value as a tag attribute: it cannot end the attribute or the tag it sits in. */
 function attribute(value: string | number): string {
@@ -257,7 +255,7 @@ export class HubOpencodeAdapter {
 }
 
 /** The real serve: the client for listing, the raw POST for the prompt, and the serve event stream. */
-export function liveOpencodeServePort(listChanged: () => void): OpencodeServePort {
+export function liveOpencodeServePort(): OpencodeServePort {
   return {
     async sessions() {
       const client = opencodeClient();

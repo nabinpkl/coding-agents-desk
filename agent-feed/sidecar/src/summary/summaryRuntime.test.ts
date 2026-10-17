@@ -71,7 +71,7 @@ function fakeSession(overrides: Partial<SummarySession> & { reply?: string | nul
       aborted += 1;
     },
     lastAssistantText: () => (overrides.reply === undefined ? goodReply : overrides.reply),
-    ...(({ reply, ...rest }) => rest)(overrides),
+    ...(({ reply: _reply, ...rest }) => rest)(overrides),
   };
   return {
     session,

@@ -6,7 +6,6 @@ import {
   pane,
   press,
   Probe,
-  SESSION,
   settle,
   type,
 } from "@/features/cli-input/useTmuxComposerHarness";

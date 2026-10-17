@@ -1,7 +1,7 @@
 // Getting text in: the clipboard button, pastes and dictation, composition, local echo,
 // and the control keys that must not arrive twice.
 
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DESKTOP_CONTROL_MAX_TEXT_UNITS } from "@agentdesk/agent-feed-wire";
 import {

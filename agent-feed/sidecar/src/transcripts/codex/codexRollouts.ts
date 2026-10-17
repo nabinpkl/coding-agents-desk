@@ -1,7 +1,7 @@
 // Where Codex keeps its rollouts and its state database, and how to ask a rollout
 // whether its last turn finished without reading the whole thing.
 
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { config } from "@/config/config";

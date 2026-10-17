@@ -6,7 +6,7 @@
 
 import { basename } from 'node:path';
 import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type LineResult } from "@/transcripts/transcriptTypes";
-import { metadataBlock, metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
+import { metadataBlock, metadataText } from "@/transcripts/plainActivity";
 import { joinTextContent } from "@/transcripts/codex/codexReasoning";
 import {
   ITEMS_NAMED,

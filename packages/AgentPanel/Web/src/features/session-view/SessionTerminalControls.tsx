@@ -3,11 +3,13 @@
 // The terminal's own affordances in the session band: the header icon that opens it, the
 // one row of notice a viewer has to read, and why a composer field is unavailable.
 
-import { Terminal as TerminalIcon, X } from "lucide-react";
+import { Terminal as TerminalIcon } from "lucide-react";
 import { LoaderCircle } from "lucide-react";
-import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import type { TerminalState } from "@/features/session-view/sessionTerminalTypes";
-import { harnessName } from "@/features/session-view/SessionView";
+
+function harnessName(source: "claude" | "codex" | "opencode"): string {
+  return source === "claude" ? "Claude" : source === "codex" ? "Codex" : "Opencode";
+}
 
 /**
  * The terminal's open/close affordance, as one icon in the header.

@@ -5,8 +5,7 @@
 // `extractBlockRaw` both read this, which is what keeps a block's index the same in
 // the feed and in the Raw drawer.
 
-import { isHarnessUserText } from "@/transcripts/humanTurns";
-import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/transcriptTypes";
+import type { LineResult, ParsedLine } from "@/transcripts/transcriptTypes";
 import { isHumanTurnStart } from "@/transcripts/humanTurns";
 import {
   metadataBlock,
@@ -31,7 +30,7 @@ import {
   type NormalizedCodexLine,
   type ResponseItemPayload,
 } from "@/transcripts/codex/codexPayloads";
-import { extractReasoningText, joinTextContent } from "@/transcripts/codex/codexReasoning";
+import { extractReasoningText } from "@/transcripts/codex/codexReasoning";
 import { classifyCodexLine } from "@/transcripts/lineClass";
 
 export function normalizeMessageContent(content: unknown): NormalizedCodexBlock[] {

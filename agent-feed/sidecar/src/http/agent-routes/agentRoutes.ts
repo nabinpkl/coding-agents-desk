@@ -1,7 +1,7 @@
-import { backendPage, parseMessageAttachments, stampSessionModel, type AgentBackend, type AgentCommandReceipt, type AgentMessageDelivery } from "@/agents/agentBackend";
+import { backendPage, parseMessageAttachments, stampSessionModel, type AgentBackend, type AgentMessageDelivery } from "@/agents/agentBackend";
 import { eventsPageAtFromQuery } from "@agentdesk/agent-feed-wire";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
-import { canonicalProjectPath, findSession, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
+import { canonicalProjectPath, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";

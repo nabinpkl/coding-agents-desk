@@ -24,7 +24,6 @@ import type { RouteHandler } from "@/http/protocol/route";
 import { answer } from "@/http/tile/tile-peer/webrtcTileAnswer";
 import { recordClientTelemetry, type TileTelemetry } from "@/http/tile/tile-diagnostics/webrtcConnectionDiagnostics";
 import { closeWebrtcSessions, webrtcSessionsSnapshot } from "@/http/tile/tile-peer/webrtcSessions";
-import { drainEncoderTeardowns } from "@/http/tile/tile-encoder/webrtcEncoderPool";
 import { ATTEMPT_PATTERN, type TileOffer } from "@/http/tile/tile-peer/webrtcTileOffer";
 import { diag } from "@/http/tile/tile-diagnostics/webrtcDiagnosticsLog";
 import type { WebrtcSessionsClose } from "@/http/tile/tile-peer/webrtcSessions";

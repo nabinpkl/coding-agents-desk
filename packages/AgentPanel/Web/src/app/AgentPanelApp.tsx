@@ -1,23 +1,14 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { PanelLeft } from "lucide-react";
-import type {
-  AddBotCommand,
-  BotSessionRef,
-  BotView,
-  ProjectSummary,
-  SessionSummary,
-} from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type {
   HostActionsClient,
 } from "@/features/activity-feed/data-source/HostActionsClient";
-import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { FontSizeRoot } from "@/features/activity-feed/reading-preferences/fontStore";
 import {
   AgentSidebar,
   AgentSidebarDialog,
-  type AgentSidebarMode,
 } from "@/features/sidebar/AgentSidebar";
 import {
   HoverSidebarPreview,
@@ -34,13 +25,11 @@ import { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import { AppDialogs } from "@/app/AppDialogs";
 import { buildSessionViewContext } from "@/app/shell-state/sessionViewContext";
 import { sidebarProps } from "@/app/shell-state/sidebar/sidebarProps";
-import { storeSelection } from "@/features/sidebar/selectionStore";
-import { BotCanvas, type BotCommandError } from "@/features/bots/canvas/BotCanvas";
+import { BotCanvas } from "@/features/bots/canvas/BotCanvas";
 import { FatherHome } from "@/app/FatherHome";
 import { botCanvasHues, botCanvasRanks } from "@/features/bots/botSurface";
 import { machineKey, type BotMachine } from "@/features/bots/botMachines";
 import { useBotMachines } from "@/app/shell-state/useBotMachines";
-import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { ForkedSessionView } from "@/app/ForkedSessionView";
 import { SessionView } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";

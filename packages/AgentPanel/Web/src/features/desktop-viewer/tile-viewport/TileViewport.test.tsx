@@ -3,18 +3,15 @@
 
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
-import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-viewer/tile-viewport/TileViewport";
+import type { DesktopPointerInput } from "@agentdesk/agent-feed-wire";
+import { TileViewport } from "@/features/desktop-viewer/tile-viewport/TileViewport";
 import { tileViewportHarness } from "@/features/desktop-viewer/tile-viewport/tileViewportHarness";
 
 describe("TileViewport pointer mode", () => {
   const {
-    activatePuckWithKeyboard,
     animationFrames,
-    frameObservers,
     pointer,
     renderPointerSurface,
-    scaleOf,
   } = tileViewportHarness();
 
   it("moves the existing pointer relatively and does not turn a drag into a click", () => {

@@ -37,7 +37,7 @@ import {
 } from "@/terminal/tmux/tmuxSessions";
 import { TmuxAttachments, type TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
-import type { PtyEnvelope, PtySessionSummary } from "@/terminal/pty/ptyProtocol";
+import type { PtyEnvelope } from "@/terminal/pty/ptyProtocol";
 import {
   AgentTerminalConflictError,
   AgentTerminalInvalidError,

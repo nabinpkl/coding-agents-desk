@@ -4,22 +4,13 @@
 
 import { expect, test } from "bun:test";
 import {
-  ABOVE_PROMPT,
-  BACKSPACE,
-  BOX_COLUMN,
   CLOSE,
-  clearPressesFor,
   END,
-  held,
   KILL,
   OPEN,
-  paneShowing,
-  RULE,
   runtime,
   screenWith,
-  settle,
   typed,
-  watchable,
 } from "@/input/tmuxComposerHarness";
 import {
   acceptTmuxComposerHint,
@@ -29,9 +20,8 @@ import {
   renameTmuxSession,
   submitTmuxComposer,
   syncTmuxComposer,
-  type TmuxComposerRuntime,
 } from "@/input/tmuxComposer";
-import { TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
+import { TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 
 test("reports tmux itself being gone as its own reason, rather than as an empty composer", async () => {
   const tmux = runtime({

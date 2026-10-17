@@ -4,7 +4,6 @@
 // pinch, and none of that is known at the press. Everything here is that decision and what
 // it does once made.
 
-import type { ViewportPoint } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
 import type { ViewportRuntime } from "@/features/desktop-viewer/tile-viewport/tileViewportRuntime";
 
 export function createPointerHandlers(ctx: ViewportRuntime) {

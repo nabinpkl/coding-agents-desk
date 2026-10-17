@@ -38,7 +38,7 @@ import type {
   UsageStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
-import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
+import { parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarBots } from "@/features/activity-feed/data-source/layers/SidecarBots";
 import { SidecarHub, type HubHandle } from "@/features/activity-feed/data-source/layers/SidecarHub";
 

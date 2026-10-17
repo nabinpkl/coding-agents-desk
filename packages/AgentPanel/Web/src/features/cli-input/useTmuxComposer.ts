@@ -5,11 +5,9 @@ import {
   MAXIMUM_COMPOSER_IMAGE_BYTES,
   type ClaudePermissionMode,
   type ComposerCommand,
-  type ComposerPaste,
   type RailKey,
   type RailModifier,
   type TmuxComposerState,
-  type TmuxComposerUnavailableReason,
   type TmuxQuestionState,
 } from "@agentdesk/agent-feed-wire";
 import {
@@ -17,7 +15,6 @@ import {
   heldModifiers,
   RAIL_MODIFIERS_OFF,
   releaseArmed,
-  type ModifierState,
 } from "@/features/keyboard/modifierLatch";
 import type {
   SessionAddress,
@@ -27,9 +24,7 @@ import type {
 /** How long after the last keystroke the pane is brought up to date. */
 const PUSH_DEBOUNCE_MS = 90;
 import {
-  composerImageIds,
   holdsFreshPaste,
-  type ComposerImage,
   type TmuxComposerHandle,
 } from "@/features/cli-input/tmuxComposerHandle";
 import { useComposerAttachments } from "@/features/cli-input/useComposerAttachments";

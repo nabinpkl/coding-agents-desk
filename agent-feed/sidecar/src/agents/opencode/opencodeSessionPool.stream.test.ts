@@ -146,7 +146,7 @@ describe("the opencode pool, streaming a turn", () => {
     // The serve re-read is a macrotask away; give the event loop a turn.
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const page = await h.pool.page("s1", 0, 10, "nice");
+    const page = await h.pool.page("s1", 0, 10);
     expect(page.events).toHaveLength(1);
     expect(page.events[0]?.id).toBe("opencode:msg-1");
     expect(page.events[0]?.phase).toBe("streaming");
@@ -164,7 +164,7 @@ describe("the opencode pool, streaming a turn", () => {
     h.push({ type: "session.reasoning.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
     h.push({ type: "session.reasoning.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "thinking" } });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const streamed = await h.pool.page("s1", 0, 10, "nice");
+    const streamed = await h.pool.page("s1", 0, 10);
     expect(streamed.events[0]?.blocks).toEqual([{ kind: "reasoning", text: "thinking" }]);
 
     // The step ends, so the serve answers the read with the message it wrote, tool part and all.
@@ -182,7 +182,7 @@ describe("the opencode pool, streaming a turn", () => {
     h.push({ type: "session.step.ended", data: { sessionID: "s1", assistantMessageID: "msg-1", finish: "stop" } });
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const settled = await h.pool.page("s1", 0, 10, "nice");
+    const settled = await h.pool.page("s1", 0, 10);
     expect(settled.total).toBe(1);
     expect(settled.events[0]?.id).toBe("opencode:msg-1");
     expect(settled.events[0]?.phase).toBe("complete");
@@ -213,13 +213,13 @@ describe("the opencode pool, streaming a turn", () => {
     } as unknown as SessionMessage]);
     h.push({ type: "session.step.started", data: { sessionID: "s1", assistantMessageID: "msg-1" } });
     await new Promise((resolve) => setTimeout(resolve, 400));
-    const drawn = await h.pool.page("s1", 0, 10, "nice");
+    const drawn = await h.pool.page("s1", 0, 10);
     expect(drawn.events[0]?.blocks).toEqual([{ kind: "reasoning", text: "" }]);
 
     h.push({ type: "session.text.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
     h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "the answer" } });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const streamed = await h.pool.page("s1", 0, 10, "nice");
+    const streamed = await h.pool.page("s1", 0, 10);
     // The thinking line is still there, and the text joined it rather than replacing the row.
     expect(streamed.events[0]?.blocks).toEqual([
       { kind: "reasoning", text: "" },
@@ -242,7 +242,7 @@ describe("the opencode pool, streaming a turn", () => {
     // A delta that arrives after the read, for a message the serve already wrote whole.
     h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "stale" } });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const page = await h.pool.page("s1", 0, 10, "nice");
+    const page = await h.pool.page("s1", 0, 10);
     expect(page.events[0]?.blocks).toEqual([{ kind: "text", text: "the whole answer" }]);
     expect(page.events[0]?.phase).toBe("complete");
     await stop();

@@ -1,20 +1,16 @@
 // The cursor the viewer sees: the overlay drawn at the predicted point, the images the host
 // sends for it, and correcting a prediction from the newest applied move.
 
-import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
-import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-viewer/tile-viewport/TileViewport";
 import { tileViewportHarness } from "@/features/desktop-viewer/tile-viewport/tileViewportHarness";
 
 describe("TileViewport cursor mirror", () => {
   const {
-    activatePuckWithKeyboard,
     animationFrames,
-    frameObservers,
     pointer,
     renderPointerSurface,
-    scaleOf,
   } = tileViewportHarness();
 
   it("draws a fixed client cursor overlay at the predicted source point", () => {

@@ -1,10 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronRight, GitBranch } from "lucide-react";
-import { DiffBlock } from "@/features/activity-feed/blocks/diff/DiffBlock";
-import { Markdown } from "@/features/activity-feed/markdown/Markdown";
-import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
-import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
+import { RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
 import {
   type DisplayRole,
   clusterLabel,
@@ -14,7 +11,6 @@ import {
   eventPreview,
   isFlowBlock,
   messageText,
-  shellCommand,
   toolIntent,
 } from "@/features/activity-feed/rows/activityEventText";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
@@ -24,11 +20,10 @@ import {
   partitionEventBlocks,
   withoutPairedToolResults,
 } from "@/features/activity-feed/rows/activityFeedLayout";
-import type { ActivityBlock, ActivityEvent, EventCacheHit } from "@/features/activity-feed/useSessionEventsStream";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 import { Block } from "@/features/activity-feed/blocks/ActivityBlockViews";
 import {
-  CacheBadge,
   EventHeading,
   COLUMN_GUTTER_CLASS,
   isFoldableRole,

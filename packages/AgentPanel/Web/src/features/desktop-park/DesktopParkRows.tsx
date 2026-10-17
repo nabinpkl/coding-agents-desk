@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftToLine, ArrowRightToLine, Eye, Loader2 } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine } from "lucide-react";
 import type { ParkMove, ParkWindow } from "@agentdesk/agent-feed-wire";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 

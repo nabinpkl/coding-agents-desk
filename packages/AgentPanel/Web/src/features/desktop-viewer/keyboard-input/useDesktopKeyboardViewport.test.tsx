@@ -1,13 +1,10 @@
 // Knowing whether the keyboard is up, and how much of the screen it and its accessory
 // are covering between them.
 
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { DESKTOP_CONTROL_MAX_TEXT_UNITS } from "@agentdesk/agent-feed-wire";
 import {
   beforeInput,
-  editableFocus,
-  paste,
   setup,
   stubAccessoryObserver,
 } from "@/features/desktop-viewer/keyboard-input/useDesktopKeyboardHarness";

@@ -1,4 +1,4 @@
-import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { Gap } from "@/features/activity-feed/data-source/eventPaging";
 
 export type DisplayItem =

@@ -9,7 +9,6 @@ import {
   formatRawJson,
   RAW_JSON_FORMAT_MAX_CHARS,
 } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
-import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 
 function source(fetchRawEvent: AgentDataSource["fetchRawEvent"]): AgentDataSource {

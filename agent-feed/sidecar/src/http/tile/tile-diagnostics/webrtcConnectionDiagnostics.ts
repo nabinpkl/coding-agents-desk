@@ -7,7 +7,6 @@
 // Bounded and pruned throughout: a failing phone must leave evidence without becoming a leak.
 
 import type { RTCRtpHistoryRepairStats } from "werift";
-import { diag } from "@/http/tile/tile-diagnostics/webrtcDiagnosticsLog";
 import { jsonResponse } from "@/http/protocol/httpResponses";
 import type { SharedEncoder } from "@/http/tile/tile-encoder/webrtcEncoderPool";
 import { bounded } from "@/http/tile/tile-peer/webrtcTileOffer";

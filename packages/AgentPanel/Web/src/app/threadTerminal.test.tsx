@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, fireEvent, act, within } from "@testing-library/react";
+import { screen, fireEvent, act } from "@testing-library/react";
 import {
   createPiSession,
   deliverProjects,
@@ -194,7 +194,7 @@ describe("App shell", () => {
   });
 
   it("creates a Pi session, sends through the composer, and answers extension UI", async () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
 
@@ -255,7 +255,7 @@ describe("App shell", () => {
   });
 
   it("renders the message composer as a roomy, padded field rather than a single cramped row", async () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
 
@@ -291,7 +291,7 @@ describe("App shell", () => {
     }
 
     try {
-      const { transport, fake, unmount } = setup();
+      const { transport, unmount } = setup();
       deliverProjects(transport);
       deliverSessions(transport);
 

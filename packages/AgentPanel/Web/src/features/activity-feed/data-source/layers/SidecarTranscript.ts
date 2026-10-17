@@ -9,7 +9,6 @@
 import {
   eventsPageAtQuery,
   TIMELINE_HEARTBEAT_MS,
-  type ActivityEvent,
   type AgentUiEvent,
   type BackgroundTaskSnapshot,
   type EventsPage as WireEventsPage,

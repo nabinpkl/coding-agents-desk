@@ -5,15 +5,12 @@
 // own cleanup. Call it once at the top of a file.
 
 import { afterEach } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AgentTerminalService,
-  liveTmuxSession,
-  type AgentTerminalPtyClient,
 } from "@/terminal/agentTerminalService";
-import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
 

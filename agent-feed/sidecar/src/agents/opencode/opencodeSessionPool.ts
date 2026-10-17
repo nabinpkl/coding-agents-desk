@@ -34,7 +34,7 @@ import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/op
 import { latestCompletedCompactionId, readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 import { isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
 import { notifyOpencodeSessionChanged } from "@/transcripts/catalog/opencodeCatalog";
-import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
+import type { TokenUsage } from "@/transcripts/transcriptTypes";
 
 export interface OpencodeSessionLocation {
   sessionId: string;
@@ -221,7 +221,7 @@ export class OpencodeSessionPool {
     return this.compactions.onSummary(listener);
   }
 
-  async page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage> {
+  async page(sessionId: string, offset: number, limit: number): Promise<AgentTimelinePage> {
     const owned = await this.open(sessionId);
     owned.lastTouchedAt = this.now();
     const snapshot = owned.projection.snapshot(offset, limit);

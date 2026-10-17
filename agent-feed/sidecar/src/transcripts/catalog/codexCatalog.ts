@@ -18,7 +18,6 @@ import {
   ROLLOUT_PATTERN,
   scheduleBroadcast,
   sessionKey,
-  SUMMARY_TITLE_CHARACTERS,
 } from "@/transcripts/catalog/catalogState";
 import { canonicalDirectory, makeSession } from "@/transcripts/catalog/catalogRecords";
 

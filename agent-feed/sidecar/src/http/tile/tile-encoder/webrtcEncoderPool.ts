@@ -14,11 +14,8 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { basename } from "node:path";
 import { config } from "@/config/config";
-import { controlHelper } from "@/desktop/controlHelper";
 import { acquireEncoderSlot } from "@/desktop/encoderSlots";
-import { helperBinary } from "@/desktop/helperBinary";
 import { frames, KIND_META } from "@/http/tile/tile-encoder/encoderFrames";
-import { desktopControlLine } from "@/http/tile/tile-control/webrtcDesktopControl";
 import { WebrtcDesktopControlEvents } from "@/http/tile/tile-control/webrtcDesktopControlEvents";
 import { DesktopControlOwnership } from "@/http/tile/tile-control/webrtcDesktopControlOwnership";
 import { gridEncoderSourceMetadata } from "@/http/tile/tile-encoder/webrtcTileMetadata";
@@ -114,7 +111,6 @@ function encoderSlotOccupied(path: string): boolean {
 }
 // Input affects the whole Mac, even when two peers capture different monitors.
 const controlOwnership = new DesktopControlOwnership<symbol>();
-const controlOwners = new Map<symbol, { encoder: SharedEncoder; revoke: (epoch: number) => void }>();
 const FIRST_ACCESS_UNIT_TIMEOUT_MS = 12_000;
 const ENCODER_METADATA_TIMEOUT_MS = 5_000;
 const ENCODER_LINGER_MS = 3_000;

@@ -7,14 +7,11 @@ import type {
   AgentTerminalContext,
   AgentTerminalDescriptor,
   SessionSummary,
-  SessionTmuxTerminalContext,
 } from "@agentdesk/agent-feed-wire";
-import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { WindowComposerClient } from "@/features/window-composer/WindowComposerClient";
-import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 
 export type TerminalState =
   | { kind: "idle" }

@@ -1,13 +1,11 @@
 // Arming the keyboard: what a tap does before the Mac has answered, what replaces a tap
 // still waiting, and which cursor shapes open a keyboard at all.
 
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { DESKTOP_CONTROL_MAX_TEXT_UNITS } from "@agentdesk/agent-feed-wire";
 import {
   beforeInput,
   editableFocus,
-  paste,
   setup,
   stubAccessoryObserver,
 } from "@/features/desktop-viewer/keyboard-input/useDesktopKeyboardHarness";

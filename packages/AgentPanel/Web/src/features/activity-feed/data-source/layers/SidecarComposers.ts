@@ -33,7 +33,7 @@ import type {
   WindowQuestionAction,
   WindowQuestionStatus,
 } from "@agentdesk/agent-feed-wire";
-import { expectEmpty, parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
+import { parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarTranscript } from "@/features/activity-feed/data-source/layers/SidecarTranscript";
 
 /** A session run through the Agent SDK, reached through its runner (ADR-0143). */

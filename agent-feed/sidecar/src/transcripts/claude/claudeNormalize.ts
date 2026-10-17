@@ -4,7 +4,6 @@
 // and whatever it says about the turn. `processLine` and `extractBlockRaw` both read
 // this, which is what keeps a block's index the same in the feed and in the Raw drawer.
 
-import { isHarnessUserText } from "@/transcripts/humanTurns";
 import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/transcriptTypes";
 import { isHumanTurnStart } from "@/transcripts/humanTurns";
 import {
@@ -24,7 +23,6 @@ import {
   declaredModelIn,
   normalizeBlocks,
   timestampMs,
-  truncate,
   turnClosedFor,
   type NormalizedClaudeBlock,
 } from "@/transcripts/claude/claudePayloads";

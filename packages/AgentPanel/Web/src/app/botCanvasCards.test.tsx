@@ -4,7 +4,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, act, waitFor, within } from "@testing-library/react";
-import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import {
   BOT_WITH_ONE_SESSION,
   deliverRunningTask,

@@ -1,0 +1,33 @@
+{
+  "$schema": "./packages/AgentPanel/Web/node_modules/oxlint/configuration_schema.json",
+  // The lint gate for the two live TypeScript trees, run as check 8 of tools/agent-feed-fitness.sh.
+  // Every rule here is an error and the tree holds none of them, so a finding is always new.
+  // Only rules that were already at zero, or were cleared in the change that gated them: a rule
+  // that warns on a backlog teaches everyone to ignore the output.
+  "plugins": ["eslint", "typescript", "react", "import"],
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "rules": {
+    // Splitting a file under the 500-line cap leaves imports and helpers behind in the half that
+    // stopped using them; 287 unused imports had built up that way by 2026-10-17. Not
+    // `noUnusedLocals` in tsconfig: the dev server and the sidecar supervisor hold a save on a new
+    // type error, and an unused import mid-edit is not a reason to hold one.
+    "eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }
+    ],
+    "react-hooks/rules-of-hooks": "error",
+    // A cycle is how a plain helper exported from a component file shows up: the eight cleared
+    // with this gate were all `harnessName` living in SessionView.tsx.
+    "import/no-cycle": "error",
+    // A rethrow without `cause` loses the error that explains it.
+    "eslint/preserve-caught-error": "error"
+  }
+}

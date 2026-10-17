@@ -11,22 +11,16 @@ import { Crosshair, Hand, MousePointer2, Touchpad } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 import {
-  CAPTURE_SCALE_MAX,
-  CAPTURE_SCALE_MIN,
   postTileTelemetry,
-  TileStreamRtc,
   type DesktopControlTransport,
 } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
-import { useCaptureScale } from "@/features/desktop-viewer/zoom/captureScale";
 import { ModeButton } from "@/features/desktop-viewer/DesktopViewerControls";
 import { DesktopViewerSettings } from "@/features/desktop-viewer/DesktopViewerSettings";
 import { DesktopStream, DetailStream, OverviewStream } from "@/features/desktop-viewer/DesktopViewerStreams";
 import {
-  captureCropApplied,
   clearOverviewReady,
   markOverviewReady,
   setCaptureCrop,
-  useCaptureCrop,
 } from "@/features/desktop-viewer/zoom/captureCrop";
 import { useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
 import { useOverviewLayer } from "@/features/desktop-viewer/zoom/overviewLayer";

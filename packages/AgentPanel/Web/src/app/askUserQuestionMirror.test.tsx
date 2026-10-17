@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { screen, fireEvent, act } from "@testing-library/react";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import {
   COMPOSER_STREAM,
@@ -171,7 +171,7 @@ describe("AskUserQuestion mirror", () => {
   }
 
   it("renders the panel from the feed JSON: question, options, Other, and every action", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openWindowQuestion(transport, QUESTION);
 
@@ -201,7 +201,7 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("posts a select action on choice and adopts the post-action read-back", async () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openWindowQuestion(transport, QUESTION);
 
@@ -219,7 +219,7 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("renders multi-select as checkboxes and un-checks by pressing with the desired state", async () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openWindowQuestion(transport, MULTI_QUESTION);
 
@@ -248,7 +248,7 @@ describe("AskUserQuestion mirror", () => {
 
   it("debounces Other typing into an other action, and other-empty is a real intent", async () => {
     vi.useFakeTimers();
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openWindowQuestion(transport, QUESTION);
     answerQuestion(transport, { ot: "Deploy a different release", sb: true });
@@ -274,7 +274,7 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("posts submit, skip, and dismiss with no payload", async () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openWindowQuestion(transport, QUESTION);
     deliverQuestionStatus(transport, { sel: [0], sb: true });
@@ -308,7 +308,7 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("adopts pre-checked selection from the window's live state", async () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openQuestion(MULTI_QUESTION);
     deliverQuestionStatus(transport, { sel: [0, 2], sb: true });
@@ -320,7 +320,7 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("hands the question back to the reader's own draft when the panel is gone", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openWindowQuestion(transport, QUESTION);
     deliverQuestionStatus(transport, { pr: false });
@@ -338,7 +338,7 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("unwatches when the question closes in the feed", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openQuestion(QUESTION);
     expect(questionStreamOpen(transport)).toBe(true);
@@ -349,7 +349,7 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("answers a terminal session itself rather than explaining that it is a terminal session", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     openWindowQuestion(transport, QUESTION);
     deliverQuestionStatus(transport, { en: false, r: "terminal-only", pr: null });

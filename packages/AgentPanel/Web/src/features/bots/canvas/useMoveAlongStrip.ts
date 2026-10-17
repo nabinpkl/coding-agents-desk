@@ -4,7 +4,7 @@
 // laid-out boxes, and the only thing it knows about what is in them is that they must not be
 // re-parented. That constraint is the reason the whole thing exists as transforms; see below.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { STRIP_GAP } from "@/features/bots/cards/botCanvasCards";
 import { effectiveScale } from "@/features/bots/canvas/useCanvasZoom";
 

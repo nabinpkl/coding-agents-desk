@@ -5,11 +5,6 @@
 // does. Bits follow pixels via the scale-squared bitrate, so the cost lands
 // only where the density exists.
 const CAPTURE_PIXEL_RATIO_CAP = 3;
-/** How long a replaced session's picture is kept when nothing comes along to replace it. */
-const RETIRE_TIMEOUT_MS = 4_000;
-const MAX_SOURCE_EXTENT = 100_000;
-const CONTROL_CHANNEL_LABEL = "agentdesk-control-v2";
-const CONTROL_BUFFER_LIMIT = 64 * 1024;
 
 /** The slider's range: a multiplier on the auto-chosen capture scale, capped at source-native. */
 export const CAPTURE_SCALE_MIN = 0.5;

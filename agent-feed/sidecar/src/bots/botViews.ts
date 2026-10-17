@@ -132,7 +132,7 @@ export class BotViewer {
       // moved to 3 and this stays 2.
       version: 2,
       revision: snapshot.revision,
-      bots: resolved.map(({ outcomes, view }) => view),
+      bots: resolved.map(({ view }) => view),
     };
   }
 

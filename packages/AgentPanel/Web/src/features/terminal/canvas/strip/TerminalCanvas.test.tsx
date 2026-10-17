@@ -6,7 +6,6 @@ import { TerminalCanvas } from "@/features/terminal/canvas/strip/TerminalCanvas"
 import { groupTerminalsByDirectory } from "@/features/terminal/canvas/terminalGroups";
 import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
 
-let terminal: FakeTerminal;
 
 class FakeTerminal {
   readonly dimensions = { css: { cell: { width: 8, height: 16 } } };
@@ -18,7 +17,6 @@ class FakeTerminal {
   wheel: ((event: WheelEvent) => boolean) | null = null;
   constructor(options: Record<string, unknown>) {
     this.options = options;
-    terminal = this;
   }
   open(element: HTMLElement) {
     this.element = element;

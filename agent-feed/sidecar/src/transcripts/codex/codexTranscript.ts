@@ -12,7 +12,6 @@
 // reads its tail, `codexPayloads.ts` says what a line's payload is, `codexNormalize.ts`
 // turns one into blocks, and this assembles the `SourceAdapter` from them.
 import type { LineResult, ParsedLine, SourceAdapter } from "@/transcripts/transcriptTypes";
-import { plainEvent } from "@/transcripts/plainActivity";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
 import { truncate } from "@/transcripts/codex/codexPayloads";
 import { readTail } from "@/transcripts/codex/codexRollouts";

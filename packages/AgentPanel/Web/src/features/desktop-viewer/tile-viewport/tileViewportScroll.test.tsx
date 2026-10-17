@@ -3,15 +3,14 @@
 
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
-import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-viewer/tile-viewport/TileViewport";
+import type { DesktopPointerInput } from "@agentdesk/agent-feed-wire";
+import { TileViewport } from "@/features/desktop-viewer/tile-viewport/TileViewport";
 import { tileViewportHarness } from "@/features/desktop-viewer/tile-viewport/tileViewportHarness";
 
 describe("TileViewport scroll clutch", () => {
   const {
     activatePuckWithKeyboard,
     animationFrames,
-    frameObservers,
     pointer,
     renderPointerSurface,
     scaleOf,

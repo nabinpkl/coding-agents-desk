@@ -91,7 +91,7 @@ describe("useStickToBottom", () => {
   });
 
   it("keeps pinning as measured height grows (no estimate dependence)", () => {
-    const { view, scrollEl } = setup();
+    const { scrollEl } = setup();
     act(() => roCallback!());
     expect(scrollEl.scrollTop).toBe(1000);
     scrollEl.scrollHeight = 2500; // rows remeasured taller

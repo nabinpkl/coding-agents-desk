@@ -151,7 +151,7 @@ describe("terminal session composer", () => {
   });
 
   it("falls through a refused window composer to the already-open Agent Feed terminal", async () => {
-    const { transport, fake, unmount } = setupInput({ entrypoint: "claude-desktop", tmuxSession: null });
+    const { transport, unmount } = setupInput({ entrypoint: "claude-desktop", tmuxSession: null });
     transport.responses.set("POST /api/terminals/terminal-1/input", { status: 204, body: "" });
     openClaudeThread(transport);
     const windowField = await screen.findByLabelText("Claude composer text");
@@ -201,7 +201,7 @@ describe("terminal session composer", () => {
   });
 
   it("keeps an available native window ahead of the Agent Feed terminal", async () => {
-    const { transport, fake, unmount } = setupInput({ entrypoint: "claude-desktop", tmuxSession: null });
+    const { transport, unmount } = setupInput({ entrypoint: "claude-desktop", tmuxSession: null });
     openClaudeThread(transport);
     const windowField = await screen.findByLabelText("Claude composer text");
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));

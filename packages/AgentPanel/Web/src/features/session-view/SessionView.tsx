@@ -2,46 +2,21 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
-  type ClipboardEvent,
-  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import {
-  CornerDownLeft,
-  List,
-  LoaderCircle,
-  Paperclip,
-  Send,
-  Square,
-  Terminal as TerminalIcon,
-  X,
-} from "lucide-react";
 import type {
   AgentSessionDescriptor,
   AgentTerminalContext,
-  AgentTerminalDescriptor,
   AgentUiRequest,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
-import {
-  type QuestionPanelStatus,
-  WindowComposerError,
-  type WindowComposerClient,
-  type WindowComposerStatus,
-  WindowQuestionError,
-} from "@/features/window-composer/WindowComposerClient";
 import type {
   AgentSessionControlState,
-  EventMode,
 } from "@/features/activity-feed/data-source/AgentDataSource";
 import { ActivityFeed, EmptyFeed } from "@/features/activity-feed/ActivityFeed";
 import { SESSION_MEASURE_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
-import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { BackgroundTasksPanel } from "@/features/background-tasks/BackgroundTasksPanel";
 import { RunningTasksChip } from "@/features/background-tasks/RunningTasksChip";
@@ -52,17 +27,6 @@ import { SummaryBand } from "@/features/summary/SummaryBand";
 import { SummaryControl } from "@/features/summary/SummaryControl";
 import { useSummary } from "@/features/summary/useSummary";
 import { useCliSession } from "@/features/cli-input/useCliSession";
-import {
-  tmuxComposerReasonText,
-  useTmuxComposer,
-  type ComposerImage,
-} from "@/features/cli-input/useTmuxComposer";
-import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
-import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
-import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
-import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
-import type { ModifierState } from "@/features/keyboard/modifierLatch";
-import type { ComposerCommand, RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
 import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
@@ -112,7 +76,6 @@ export type { SessionViewContext } from "@/features/session-view/sessionTerminal
  */
 function SessionViewContent({
   feed,
-  host,
   projectPath,
   session,
   eventMode,
@@ -442,7 +405,6 @@ function SessionViewContent({
           reaches its harness. The context meter lives here, below the action row, instead of in
           the header. */}
       <SessionComposer
-        host={host}
         feed={feed}
         session={session}
         state={sessionState}
@@ -475,10 +437,6 @@ function SessionViewContent({
 
 export function isTerminalSource(source: string): source is "claude" | "codex" | "opencode" {
   return source === "claude" || source === "codex" || source === "opencode";
-}
-
-export function harnessName(source: "claude" | "codex" | "opencode"): string {
-  return source === "claude" ? "Claude" : source === "codex" ? "Codex" : "Opencode";
 }
 
 /**

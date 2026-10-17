@@ -9,80 +9,34 @@ import {
   useMemo,
   useRef,
   useState,
-  type ClipboardEvent,
 } from "react";
-import { createPortal } from "react-dom";
-import {
-  CornerDownLeft,
-  List,
-  LoaderCircle,
-  Paperclip,
-  Send,
-  Square,
-  Terminal as TerminalIcon,
-  X,
-} from "lucide-react";
 import type {
-  AgentTerminalContext,
-  AgentTerminalDescriptor,
-  AgentUiRequest,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import {
-  type QuestionPanelStatus,
-  WindowComposerError,
   type WindowComposerClient,
-  type WindowComposerStatus,
-  WindowQuestionError,
 } from "@/features/window-composer/WindowComposerClient";
 import type {
   AgentSessionControlState,
-  EventMode,
 } from "@/features/activity-feed/data-source/AgentDataSource";
-import { ActivityFeed } from "@/features/activity-feed/ActivityFeed";
-import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
-import { BackgroundTasksPanel } from "@/features/background-tasks/BackgroundTasksPanel";
-import { RunningTasksChip } from "@/features/background-tasks/RunningTasksChip";
-import { useBackgroundTasks } from "@/features/background-tasks/useBackgroundTasks";
-import { SummaryBand } from "@/features/summary/SummaryBand";
-import { SummaryControl } from "@/features/summary/SummaryControl";
-import { useSummary } from "@/features/summary/useSummary";
 import type { CliSessionHandle } from "@/features/cli-input/useCliSession";
 import {
-  tmuxComposerReasonText,
   useTmuxComposer,
-  type ComposerImage,
 } from "@/features/cli-input/useTmuxComposer";
-import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
-import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
-import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
-import type { ModifierState } from "@/features/keyboard/modifierLatch";
-import type { ComposerCommand, RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
 import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
-import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
-import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
-import { terminalContextKey } from "@/features/terminal/terminalContext";
 import { type ComposerPaneContext, composerTerminalPane } from "@/features/session-view/composer/terminalArrangement";
 import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
 import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
-import { ExtensionUISurface } from "@/features/session-view/SessionExtensionUI";
-import {
-  composerReasonText,
-  TerminalControl,
-  TerminalNotice,
-} from "@/features/session-view/SessionTerminalControls";
-import type { AgentTerminalComposer, TerminalState } from "@/features/session-view/sessionTerminalTypes";
+import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
 import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
 import { useComposerFileDrop } from "@/features/session-view/composer/useComposerFileDrop";
 import { useOpencodeCommands } from "@/features/session-view/composer/useOpencodeCommands";
 import { useComposerDraft, useSendAttachments, type SendAttachment } from "@/features/session-view/composer/useComposerHold";
 import { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
-import { harnessName } from "@/features/session-view/SessionView";
-import { composerActions, submitComposer, submitOwnedTransport } from "@/features/session-view/composer/sessionComposerActions";
+import { composerActions } from "@/features/session-view/composer/sessionComposerActions";
 import {
   composerCaption,
   composerEditor,
@@ -94,7 +48,6 @@ import { useRunModeSwitch } from "@/features/cli-input/useRunModeSwitch";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
 
 export function SessionComposer({
-  host,
   feed,
   session,
   state,
@@ -115,7 +68,6 @@ export function SessionComposer({
   surfaces,
   onAbort,
 }: {
-  host: HostActionsClient;
   feed: SidecarDataSource;
   session: SessionSummary;
   state: AgentSessionControlState;
@@ -134,12 +86,12 @@ export function SessionComposer({
   ownerWaiting: boolean;
   /**
    * Whether this session is a Claude Code process in a terminal, and the way to type into it.
-   * Resolved by the app, because it is a sidecar read and this component takes only the host.
+   * Resolved by the app, because it is a sidecar read.
    */
   cliSession: CliSessionHandle;
   /**
    * This session's window composer, bound to its source. Resolved by the app, because it is a
-   * sidecar read and this component takes only the host.
+   * sidecar read.
    */
   windowComposerClient: WindowComposerClient;
   /** The already-open Agent Feed pty, or null while no owned terminal is ready. */

@@ -8,12 +8,9 @@ import {
   SPACE_PAN_SLOP_PX,
   deckKeyId,
   deckKeyLabel,
-  deckKeyName,
   deckRows,
   handleDeckKey,
   handleShiftTap,
-  isSpecialKey,
-  keyWidthWeight,
   type DeckKey,
   type KeyboardDeckState,
 } from "@/features/desktop-viewer/keyboard-deck/keyboardDeckModel";

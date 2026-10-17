@@ -2,8 +2,7 @@
 
 // A prompt an agent's extension asked for, rendered inside the session band.
 
-import { useEffect, useState } from "react";
-import { LoaderCircle } from "lucide-react";
+import { useState } from "react";
 import type { AgentUiRequest } from "@agentdesk/agent-feed-wire";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeftToLine, ArrowRightToLine, MousePointer2, RotateCcw, X } from "lucide-react";
-import type { ParkMove, ParkStateResponse, ParkWindow } from "@agentdesk/agent-feed-wire";
+import { MousePointer2, RotateCcw, X } from "lucide-react";
+import type { ParkMove } from "@agentdesk/agent-feed-wire";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 import { TileStreamRtc, type DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import { TileViewport } from "@/features/desktop-viewer/tile-viewport/TileViewport";

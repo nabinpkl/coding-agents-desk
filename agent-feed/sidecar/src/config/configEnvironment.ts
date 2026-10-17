@@ -39,7 +39,7 @@ export function urlEnvironment(name: string, fallback: string): URL {
   let parsed: URL;
   try {
     parsed = new URL(value);
-  } catch (error) {
+  } catch {
     throw new Error(`${name} must be a valid http(s) URL: ${value}`);
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {

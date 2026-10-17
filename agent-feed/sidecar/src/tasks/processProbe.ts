@@ -22,7 +22,6 @@ import { realpathSync } from "node:fs";
 import { config } from "@/config/config";
 import { LSOF_BINARY, type CommandRunner } from "@/tasks/commandRunner";
 import {
-  busiestDescendant,
   currentProcessTable,
   descendantsOf,
   type ProcessRow,

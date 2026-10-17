@@ -36,17 +36,6 @@ export type AgentTerminalStatus =
   | (AgentTerminalRequest & { kind: "error"; code: string })
   | (AgentTerminalRequest & { kind: "ended"; ptySessionName: string; exitStatus?: number });
 
-interface Watch<T> {
-  sessionId: string;
-  listener: (status: T) => void;
-}
-
-interface Waiter<T> {
-  resolve: (value: T) => void;
-  reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
 export interface HostActionsClientOptions {
   /** How long a composer or question action may take before it is abandoned. */
   actionTimeoutMs?: number;

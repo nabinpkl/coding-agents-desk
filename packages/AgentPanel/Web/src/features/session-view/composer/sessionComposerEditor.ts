@@ -10,7 +10,6 @@ import type {
 import type { ModifierState } from "@/features/keyboard/modifierLatch";
 import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
 import { tmuxComposerReasonText } from "@/features/cli-input/useTmuxComposer";
-import { harnessName } from "@/features/session-view/SessionView";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { opencodeCommandRows } from "@/features/session-view/composer/useOpencodeCommands";
 

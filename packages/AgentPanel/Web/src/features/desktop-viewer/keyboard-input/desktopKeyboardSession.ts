@@ -2,7 +2,6 @@
 // reducer was told, and everything that has to be forgotten when it goes away.
 
 import {
-  INITIAL_KEYBOARD_PRESENTATION,
   keyboardPresentationReducer,
   type KeyboardPresentationAction,
 } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardModel";

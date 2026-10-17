@@ -6,9 +6,7 @@ import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useS
 import {
   buildActivityDisplayItems,
   compactionSummary,
-  displayRole,
   isCompactionEvent,
-  isSkillActivation,
   type DisplayItemOptions,
   type FeedItem,
 } from "@/features/activity-feed/rows/activityDisplayItems";

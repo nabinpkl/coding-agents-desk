@@ -1,29 +1,22 @@
 // Opening a terminal for an agent session by resuming its CLI.
 
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AgentTerminalInvalidError,
   AgentTerminalService,
-  liveTmuxSession,
   type AgentTerminalPtyClient,
 } from "@/terminal/agentTerminalService";
 import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
-import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import {
   agentTerminalHarness,
   SESSION_ID,
-  type SessionTmuxFakes,
 } from "@/terminal/agentTerminalHarness";
 
 const {
   roots,
-  serviceWithTmux,
-  sessionTmuxFixture,
-  sessionTmuxService,
-  tmuxConnection,
 } = agentTerminalHarness();
 
 test("opens a UUIDv7 Codex session with the deterministic resume command", async () => {

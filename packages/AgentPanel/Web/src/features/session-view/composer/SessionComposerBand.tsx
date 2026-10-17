@@ -13,9 +13,6 @@ import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { ComposerPaneContext } from "@/features/session-view/composer/terminalArrangement";
 import { COMPOSER_FOOTER_BUTTON_CLASS, compactControl, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
-import type { AskUserQuestionItem } from "@/app/askUserQuestion";
-import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
-import { List, Paperclip } from "lucide-react";
 import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
 import { ComposerPasteStrip } from "@/features/cli-input/ComposerPasteStrip";
 import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";

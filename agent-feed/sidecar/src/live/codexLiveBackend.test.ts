@@ -78,7 +78,6 @@ describe("CodexLiveBackend fixture ingest", () => {
     expect(page.total).toBeGreaterThan(5);
     const events = page.events;
     const userRows = events.filter((event) => event.type === "user");
-    const assistantRows = events.filter((event) => event.type === "assistant");
 
     // The turn's user prompt rides in response.create input.
     const promptRow = userRows.find((event) =>

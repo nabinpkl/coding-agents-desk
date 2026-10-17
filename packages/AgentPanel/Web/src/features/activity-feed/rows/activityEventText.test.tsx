@@ -6,7 +6,6 @@ import {
   stripInlineMarkdown,
   toolIntent,
 } from "@/features/activity-feed/rows/activityEventText";
-import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 describe("event preview", () => {
   it("strips the markers a one-line preview cannot render", () => {

@@ -10,7 +10,6 @@
 // next door answers all of them, because its dialog was measured.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { List, LoaderCircle, X } from "lucide-react";
 import {
   type QuestionPanelStatus,
   type WindowComposerClient,

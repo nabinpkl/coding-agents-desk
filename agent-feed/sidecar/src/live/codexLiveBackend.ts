@@ -18,7 +18,6 @@ import type {
   AgentSessionCapabilities,
   AgentSessionDescriptor,
   AgentTimelinePage,
-  AgentUiEvent,
   AgentUiResponseResult,
 } from "@/agents/agentBackend";
 import {
@@ -35,7 +34,6 @@ import {
   extractCodexSessionId,
   mapCodexMessage,
   type CodexMessageEvent,
-  type ObservedRequestHeader,
 } from "@/live/codexNetworkSource";
 import { isCodexStream, observedAtMs, type FlowContext } from "@/live/codexLiveFlows";
 import { CodexItemStore } from "@/live/codexLiveItems";

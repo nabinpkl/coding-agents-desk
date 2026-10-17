@@ -3,7 +3,6 @@ import { expect, it, vi } from "vitest";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TerminalCanvasShell } from "@/features/terminal/canvas/TerminalCanvasShell";
 
-let terminal: FakeTerminal;
 
 class FakeTerminal {
   readonly dimensions = { css: { cell: { width: 8, height: 16 } } };
@@ -14,7 +13,6 @@ class FakeTerminal {
   wheel: ((event: WheelEvent) => boolean) | null = null;
   constructor(options: Record<string, unknown>) {
     this.options = options;
-    terminal = this;
   }
   open(element: HTMLElement) {
     this.element = element;

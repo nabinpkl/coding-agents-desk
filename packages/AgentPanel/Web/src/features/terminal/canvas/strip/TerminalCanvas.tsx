@@ -15,7 +15,6 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 import { TerminalParentCard } from "@/features/terminal/canvas/strip/TerminalParentCard";
 import {
-  parseTerminalChildKey,
   suggestTerminalSessionName,
   type TerminalGrouping,
   type TerminalParentGroup,

@@ -191,7 +191,7 @@ describe("App shell", () => {
   });
 
   it("expands the newest project and streams its session preview", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     deliverProjects(transport);
 
     expect(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ })).toHaveAttribute("aria-expanded", "true");
@@ -207,7 +207,7 @@ describe("App shell", () => {
   });
 
   it("keeps several projects expanded with independent subscriptions", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
 

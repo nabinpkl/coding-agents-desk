@@ -6,10 +6,10 @@
 // Split from the rows because the float, the clearance and the chip's own leading are a
 // typographic argument with measurements in it, and nothing about which rows exist.
 
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { ActivityEvent, EventCacheHit } from "@/features/activity-feed/useSessionEventsStream";
-import { displayRole, type DisplayRole } from "@/features/activity-feed/rows/activityDisplayItems";
-import { eventPreview, toolIntent } from "@/features/activity-feed/rows/activityEventText";
+import { type DisplayRole } from "@/features/activity-feed/rows/activityDisplayItems";
+import { toolIntent } from "@/features/activity-feed/rows/activityEventText";
 import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 
 /**

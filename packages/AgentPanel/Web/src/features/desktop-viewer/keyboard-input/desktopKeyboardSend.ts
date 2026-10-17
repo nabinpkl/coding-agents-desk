@@ -21,8 +21,7 @@ import {
   remoteKeyForCharacter,
   remoteKeysForText,
 } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardModel";
-import { OFF_MODIFIERS } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardPreferences";
-import { clearLocalState, focusCapture, resetCapture } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSession";
+import { clearLocalState, focusCapture } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSession";
 import type { KeyboardContext } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardContext";
 
 export function sendControl(ctx: KeyboardContext, input: DesktopControlInput): boolean {

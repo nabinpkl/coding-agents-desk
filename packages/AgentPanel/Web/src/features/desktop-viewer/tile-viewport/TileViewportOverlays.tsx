@@ -11,7 +11,6 @@ import {
   DEFAULT_POINTER_SCROLL_PUCK_OFFSET,
   DRAG_PRIMING_CIRCUMFERENCE,
   DRAG_PRIMING_RADIUS,
-  POINTER_SCROLL_PUCK_SIDE,
 } from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
 
 export function PointerScrollPuck({

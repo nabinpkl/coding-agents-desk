@@ -5,24 +5,20 @@
 // is resolved by reading the file rather than by decoding the directory name.
 
 import { existsSync } from "node:fs";
-import { readdir, realpath, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { config } from "@/config/config";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 import { cwdsFromEnd } from "@/transcripts/claude/claudeProjects";
-import type { Session, SourceId } from "@/transcripts/transcriptTypes";
+import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
 import {
   CLAUDE_SESSION_PATTERN,
-  PROMPT_TITLE_CHARACTERS,
   scheduleBroadcast,
   sessionKey,
-  SUMMARY_TITLE_CHARACTERS,
 } from "@/transcripts/catalog/catalogState";
 import {
   canonicalDirectory,
-  canonicalProjectPath,
-  compactTitle,
   isClaudeSessionCandidate,
   makeSession,
 } from "@/transcripts/catalog/catalogRecords";

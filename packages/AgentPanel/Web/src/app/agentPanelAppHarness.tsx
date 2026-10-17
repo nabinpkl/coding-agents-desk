@@ -21,7 +21,7 @@ import { HostActionsClient } from "@/features/activity-feed/data-source/HostActi
 import { FakeHostBridge } from "@/features/activity-feed/data-source/HostBridge";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import { App } from "@/app/AgentPanelApp";
-import { feedMock, terminalPaneMock } from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 // ---------------------------------------------------------------------------
 // Fixture project data

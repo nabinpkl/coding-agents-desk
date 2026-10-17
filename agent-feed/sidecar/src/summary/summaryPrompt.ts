@@ -167,7 +167,7 @@ export function parseSummaryPayload(reply: string): SummaryPayload {
   try {
     parsed = JSON.parse(json);
   } catch (error) {
-    throw new Error(`summarizer reply was not valid JSON: ${String(error)}`);
+    throw new Error(`summarizer reply was not valid JSON: ${String(error)}`, { cause: error });
   }
   if (typeof parsed !== "object" || parsed === null) {
     throw new Error("summarizer reply was not a JSON object");

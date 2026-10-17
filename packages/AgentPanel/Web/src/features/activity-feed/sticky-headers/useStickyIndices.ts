@@ -11,7 +11,6 @@ import { useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
-import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import {
   isEventItem,
   leadEvent,
@@ -103,7 +102,6 @@ function sameAnswer(left: StickyAnswer, right: StickyAnswer): boolean {
  */
 export function useStickyIndices({
   items,
-  mode,
   oldestStart,
   remote,
   rowItems,
@@ -113,7 +111,6 @@ export function useStickyIndices({
   virtualItems,
 }: {
   items: FeedItem[];
-  mode: EventMode;
   /** Where the oldest held range starts, or null for a source the sidecar cannot be asked about. */
   oldestStart: number | null;
   /** The sidecar's answer for the bar, when it has been asked. */

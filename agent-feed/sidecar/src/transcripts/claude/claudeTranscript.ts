@@ -11,9 +11,8 @@
 // turns one into blocks, and this assembles the `SourceAdapter` from them.
 
 import type { Header, LineResult, ParsedLine, SourceAdapter } from "@/transcripts/transcriptTypes";
-import { plainEvent } from "@/transcripts/plainActivity";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
-import { arrowToolUse, persistedOutputPath, truncate } from "@/transcripts/claude/claudePayloads";
+import { arrowToolUse, truncate } from "@/transcripts/claude/claudePayloads";
 import { normalizedLine } from "@/transcripts/claude/claudeNormalize";
 import { filePathToSessionId, readHeader, readSidecar } from "@/transcripts/claude/claudeProjects";
 

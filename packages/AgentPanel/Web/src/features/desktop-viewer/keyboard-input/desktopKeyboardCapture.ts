@@ -17,7 +17,6 @@ import {
   remoteKeyForCharacter,
   shouldPrimeKeyboard,
 } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardModel";
-import { CAPTURE_SENTINEL } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardPreferences";
 import {
   clearFocusTimer,
   clearLocalState,
@@ -29,8 +28,6 @@ import {
 import {
   acceptEncodedKeys,
   acceptText,
-  appendToDraft,
-  backspaceDraft,
   sendControl,
   sendText,
 } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSend";

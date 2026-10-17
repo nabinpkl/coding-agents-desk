@@ -8,7 +8,7 @@
 import { sessionArchivedAt } from "@/transcripts/session-ops/sessionArchive";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
-import { basename, relative } from "node:path";
+import { basename } from "node:path";
 import type {
   AgentSessionCapabilities,
   AgentSessionDescriptor,
@@ -22,8 +22,6 @@ import type { Bin, Session, SourceId } from "@/transcripts/transcriptTypes";
 import {
   memoizedProjectSummaries,
   rememberProjectSummaries,
-  sessionKey,
-  SUMMARY_TITLE_CHARACTERS,
   TRANSCRIPT_CAPABILITIES,
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/catalogState";

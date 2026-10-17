@@ -21,7 +21,6 @@ import { RECEIVER_STATS_INTERVAL_MS } from "@/features/desktop-viewer/tile-strea
 import {
   parseWebrtcTileAnswer,
   postTileTelemetry,
-  postWebrtcClose,
   type DesktopControlTransport,
 } from "@/features/desktop-viewer/tile-stream/webrtcTileWire";
 
@@ -111,12 +110,10 @@ export const runTileSession = (
     const sampleReceiverStats = createReceiverStatsSampler({
       attempt,
       element: deps.element,
-      httpTransport: deps.httpTransport,
       isFinished: () => finished,
       peer,
       presentation: deps.presentation,
       report,
-      windowID: deps.windowID,
     });
     let setupTimer = 0;
     let statsTimer = 0;

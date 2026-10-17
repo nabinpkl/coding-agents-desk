@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
+import type { AgentBackend } from "@/agents/agentBackend";
 import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
 
 function fakeBackend(): AgentBackend {

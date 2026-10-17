@@ -167,4 +167,14 @@ if [ -n "$oversized_dirs" ]; then
     exit 1
 fi
 
+# 8. The lint rules in `.oxlintrc.json`, over both live trees and the wire they share. Here rather
+#    than in a leg of its own because this gate runs on every `just check`, whatever the diff
+#    touched, and a lint finding is the same kind of fact about the tree as checks 5 to 7. oxlint is
+#    the panel's dev dependency, so the panel's dependencies are brought up to date first.
+node tools/build-system/ensure-js-dependencies.mjs agent-panel packages/AgentPanel/Web .build/js-dependencies
+if ! packages/AgentPanel/Web/node_modules/.bin/oxlint -c .oxlintrc.json \
+    packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/wire; then
+    fail "lint failed (rules and the reason for each are in .oxlintrc.json)"
+fi
+
 echo "agent-feed-fitness: OK"

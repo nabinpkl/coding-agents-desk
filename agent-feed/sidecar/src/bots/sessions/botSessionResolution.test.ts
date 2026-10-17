@@ -36,7 +36,6 @@ const BOT: BotRecord = {
 
 const REF: BotSessionRef = { source: "claude", sessionId: "sid-1" };
 const OTHER_REF: BotSessionRef = { source: "codex", sessionId: "sid-2" };
-const OTHER_BOT: BotRecord = { ...BOT, botId: "bot-2", name: "harbor bot" };
 
 type Resolve = (ref: BotSessionRef) => { projectPath: string; summary: SessionSummary } | undefined;
 type Split = { sessions: SessionSummary[]; missingSessionRefs: BotSessionRef[] };

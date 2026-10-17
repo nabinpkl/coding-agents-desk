@@ -5,10 +5,9 @@ import type { DesktopControlEvent } from "@agentdesk/agent-feed-wire";
 import {
   appendLocalEcho,
   MAX_RECEIPT_EVENTS,
-  receiptToken,
 } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardModel";
-import { clearFocusTimer, clearLocalState, focusCapture, updatePresentation } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSession";
-import { acceptEncodedKeys, sendBatch } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSend";
+import { clearFocusTimer, clearLocalState, updatePresentation } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSession";
+import { sendBatch } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSend";
 import type { KeyboardContext } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardContext";
 
 export function handleControlEvent(ctx: KeyboardContext, event: DesktopControlEvent) {

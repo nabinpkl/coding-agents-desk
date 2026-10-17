@@ -11,7 +11,6 @@ import {
   matchShellsByCommand,
   parseCpuTime,
   parseProcessTable,
-  type ProcessRow,
   resetProcessTableCache,
   shellDetailFrom,
   unwrapShellCommand,

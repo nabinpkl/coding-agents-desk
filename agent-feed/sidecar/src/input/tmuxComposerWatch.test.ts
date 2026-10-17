@@ -7,17 +7,9 @@
 import { expect, test } from "bun:test";
 import type { TmuxComposerEnvelope } from "@agentdesk/agent-feed-wire";
 import {
-  ABOVE_PROMPT,
-  BACKSPACE,
-  BOX_COLUMN,
   CLOSE,
-  clearPressesFor,
   END,
-  held,
-  KILL,
   OPEN,
-  paneShowing,
-  RULE,
   runtime,
   screenWith,
   settle,
@@ -29,9 +21,8 @@ import {
   observeTmuxComposer,
   submitTmuxComposer,
   syncTmuxComposer,
-  type TmuxComposerWatchRuntime,
 } from "@/input/tmuxComposer";
-import { TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
+import { TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 
 test("reports what the composer holds without waiting for the pane to write", async () => {
   // An idle pane writes nothing at all, so a watcher that only ever spoke on output would say

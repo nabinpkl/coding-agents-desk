@@ -4,7 +4,7 @@
 // to, `Probe` renders the hook's own controls, and the typing helpers exist because
 // every push is debounced behind fake timers.
 
-import { act, fireEvent, screen, render } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { vi } from "vitest";
 import type { ClaudePermissionMode, RailKey, RailModifiers, TmuxComposerState, TmuxPermissionModeOutcome } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";

@@ -4,7 +4,7 @@
 // two acts every anchor-shaped title goes through: spend the name, then rename the session through
 // whatever mechanism its source needs. `botTitleQueue.ts` keeps every title in that shape.
 
-import type { BotRecord, BotSessionRef, RenamedBracket } from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, RenamedBracket } from "@agentdesk/agent-feed-wire";
 import {
   formatBotSessionTitle,
   refuseTaskText,

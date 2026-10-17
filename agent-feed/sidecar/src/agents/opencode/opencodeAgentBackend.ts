@@ -23,7 +23,7 @@
 // called: a 200 text/html where JSON was expected is what a wrong family looks
 // like, and it was measured before this comment existed.
 
-import { isServeUnauthorized, opencodeClient, resetOpencodeClient, serveRequest, type OpencodeClient } from "@/agents/opencode/opencodeClient";
+import { opencodeClient, resetOpencodeClient, serveRequest, type OpencodeClient } from "@/agents/opencode/opencodeClient";
 import { stageOpencodeAttachments, listOpencodeServeCommands, listOpencodeModels, switchOpencodeModel, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, redoOpencodeSession, renameOpencodeSession, forkOpencodeSession, askOpencodeAside, exportOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand, type OpencodeModel } from "@/agents/opencode/opencodeServeCalls";
 import type {
   AgentBackend,
@@ -44,7 +44,7 @@ import {
 } from "@/agents/agentBackend";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import type { TokenUsage, EventMode } from "@/transcripts/transcriptTypes";
-import { OpencodeSessionPool, type OpencodePoolOptions, type OpencodeSessionLocation, type OwnedSession } from "@/agents/opencode/opencodeSessionPool";
+import { OpencodeSessionPool, type OpencodePoolOptions, type OwnedSession } from "@/agents/opencode/opencodeSessionPool";
 
 export type { OpencodeSessionLocation } from "@/agents/opencode/opencodeSessionPool";
 
@@ -55,11 +55,6 @@ export interface OpencodePermissionRule {
   action: string;
   resource: string;
   effect: "allow" | "deny" | "ask";
-}
-
-interface CommandEntry {
-  signature: string;
-  promise: Promise<AgentCommandReceipt>;
 }
 
 export const OPENCODE_AGENT_CAPABILITIES: AgentSessionCapabilities = {
@@ -199,7 +194,7 @@ export class OpencodeAgentBackend implements AgentBackend {
 
   async page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage> {
     if (mode !== "nice") throw new AgentModeUnsupportedError("opencode sessions serve nice mode only");
-    return this.pool.page(sessionId, offset, limit, mode);
+    return this.pool.page(sessionId, offset, limit);
   }
 
   async subscribe(

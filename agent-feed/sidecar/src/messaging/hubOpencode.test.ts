@@ -183,7 +183,7 @@ describe("HubOpencodeAdapter", () => {
   });
 
   test("a session the serve drops has its stream closed", async () => {
-    const { hub, streams } = fakeHub();
+    const { hub } = fakeHub();
     let listed: OpencodeSessionRef[] = [{ sessionId: "ses_1", cwd: "/work/site", title: "" }];
     const adapter = new HubOpencodeAdapter({
       hub,

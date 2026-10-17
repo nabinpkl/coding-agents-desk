@@ -1,10 +1,8 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
-import type { Terminal as XtermTerminal } from "@xterm/xterm";
+import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import type {
   AgentTerminalContext,
   AgentTerminalDescriptor,
-  AgentTerminalStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import {
@@ -16,25 +14,16 @@ import {
 } from "@/features/keyboard/modifierLatch";
 import { isTmuxAttach, terminalContextKey } from "@/features/terminal/terminalContext";
 import {
-  FONT_SIZE_STEP,
-  fittedFontSize,
-  floorToStep,
-  preferredScreenHeight,
-  surfaceInset,
   viewerSetsGrid,
 } from "@/features/terminal/mounted-terminal/terminalTypeFit";
 import {
   applyModifiers,
   bytesForRailKey,
-  type RailKey,
   type RailModifier,
-  type RailModifiers,
 } from "@agentdesk/agent-feed-wire";
 import type {
   AgentTerminal,
   AgentTerminalState,
-  Dimensions,
-  TerminalLabels,
   TerminalSizing,
 } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
 import { createTerminalFit } from "@/features/terminal/mounted-terminal/agentTerminalFit";
@@ -58,16 +47,11 @@ import {
   DEFAULT_GRID,
   HISTORY_LINES,
   loadXterm,
-  MAXIMUM_FONT_SIZE,
-  MINIMUM_FONT_SIZE,
-  paddingOf,
   proposedDimensions,
   sizingKey,
-  TERMINAL_ZOOM,
   terminalTheme,
   WHEEL_LINES,
 } from "@/features/terminal/mounted-terminal/agentTerminalLayout";
-import { clampTileGrid } from "@/features/terminal/terminalTileSize";
 
 // Re-exported: the panes that mount a terminal import the hook, and these are what they
 // hand it or read from it.

@@ -2,18 +2,15 @@
 // of the same pane is owed.
 
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AgentTerminalInvalidError,
   AgentTerminalService,
-  liveTmuxSession,
-  type AgentTerminalPtyClient,
 } from "@/terminal/agentTerminalService";
 import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
 import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
-import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import {
   agentTerminalHarness,
   SESSION_ID,
@@ -24,7 +21,6 @@ const {
   roots,
   serviceWithTmux,
   sessionTmuxFixture,
-  sessionTmuxService,
   tmuxConnection,
 } = agentTerminalHarness();
 

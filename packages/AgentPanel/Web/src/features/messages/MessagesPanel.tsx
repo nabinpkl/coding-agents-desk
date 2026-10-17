@@ -1,5 +1,5 @@
 import { CornerUpLeft, SendHorizontal, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { hubOf, useMessages, type MessagesHandle } from "@/features/messages/useMessages";

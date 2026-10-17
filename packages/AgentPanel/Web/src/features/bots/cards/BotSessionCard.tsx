@@ -4,7 +4,7 @@
 // `SessionView` the app's thread view renders, with its streams, its terminal and its composer --
 // and that is a different thing from the Bot card that holds it.
 
-import { Bot, ChevronDown, Maximize2 } from "lucide-react";
+import { ChevronDown, Maximize2 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";

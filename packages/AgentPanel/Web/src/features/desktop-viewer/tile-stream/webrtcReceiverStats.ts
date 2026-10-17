@@ -6,11 +6,6 @@
 
 // occur between ticks; the sidecar coalesces them onto the same one-second timeline.
 export const RECEIVER_STATS_INTERVAL_MS = 1_000;
-const VIDEO_PRESENTATION_INTERVAL_MS = 5_000;
-const PRESENTATION_WATCHDOG_INTERVAL_MS = 250;
-const PRESENTATION_GAP_THRESHOLD_MS = 750;
-const PRESENTATION_GAP_REPORT_INTERVAL_MS = 1_000;
-// Fast Refresh preserves mounted effects when their dependency values do not
 
 export type ReceiverVideoStats = RTCInboundRtpStreamStats & {
   bytesReceived?: number;

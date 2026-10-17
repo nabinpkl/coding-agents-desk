@@ -4,7 +4,7 @@
 // plus the coalesced broadcast, which every source's reconciliation calls once it has
 // finished changing `state.sessions`.
 
-import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { ProjectSummary } from "@agentdesk/agent-feed-wire";
 import type {
   AgentSessionCapabilities,
   AgentSessionDescriptor,

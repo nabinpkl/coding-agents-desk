@@ -4,7 +4,7 @@
 // when the box already reads that way, an append when it is a prefix, and a clear by row
 // count and a retype for everything else.
 
-import { hexSend, type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
+import { type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 import { ATTACHMENT, composerBox, composerText, type ComposerBox } from "@/input/composer/composerBox";
 import { meaning } from "@/input/composer/composerPastes";
 import type { TmuxComposerRuntime } from "@/input/tmuxComposerRuntime";

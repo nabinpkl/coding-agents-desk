@@ -1,10 +1,8 @@
-import { stat } from "node:fs/promises";
 import type {
   AddBotCommand,
   AddBotSessionsCommand,
   BotCreatedBy,
   BotDeleted,
-  BotMetadata,
   BotRecord,
   BotSessionRef,
   BotSessionPlaced,
@@ -12,7 +10,6 @@ import type {
   BotSessionsRetired,
   BotSnapshot,
   BotView,
-  StartedSession,
   DetachBotSessionsCommand,
   PlaceBotSessionCommand,
   ReorderBotSessionsCommand,
@@ -31,9 +28,7 @@ import {
   normalizeLaunchFor,
   normalizePlaceSession,
   normalizeRetire,
-  normalizeSessionRef,
   normalizeSessionRefCommand,
-  type NormalizedLaunch,
 } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
 import { BotSessionStarter } from "@/bots/sessions/botSessionLaunch";
@@ -71,14 +66,6 @@ export {
   type BotSessionLauncher,
   type ResolvedBotSession,
 };
-
-async function directoryAvailability(path: string): Promise<"available" | "missing"> {
-  try {
-    return (await stat(path)).isDirectory() ? "available" : "missing";
-  } catch {
-    return "missing";
-  }
-}
 
 export class BotRegistry {
   /** Bringing a session into existence, which is its own act. See `botSessionLaunch.ts`. */

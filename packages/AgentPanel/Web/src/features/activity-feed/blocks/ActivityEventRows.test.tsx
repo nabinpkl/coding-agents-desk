@@ -456,7 +456,7 @@ describe("reasoning", () => {
 
 describe("block flow", () => {
   it("lets prose flow beside the heading", () => {
-    const { container } = renderRow(
+    renderRow(
       <SegmentEventRow
         ev={event({ type: "user", blocks: [{ kind: "text", text: "prose" }] })}
         ctx={CTX}

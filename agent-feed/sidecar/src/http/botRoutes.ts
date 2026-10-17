@@ -14,7 +14,6 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import {
   BotConflictError,
-  BotInvalidError,
   BotNotFoundError,
   type BotRegistry,
 } from "@/bots/botRegistry";

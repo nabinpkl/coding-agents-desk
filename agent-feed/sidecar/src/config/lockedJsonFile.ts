@@ -55,7 +55,7 @@ export async function acquireFileLock(path: string): Promise<() => Promise<void>
       }
 
       if (Date.now() >= deadline) {
-        throw new Error(`timed out waiting for ${name} lock at ${lockPath}`);
+        throw new Error(`timed out waiting for ${name} lock at ${lockPath}`, { cause: error });
       }
       await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_MS));
     }
@@ -81,7 +81,9 @@ export async function writeJsonAtomically(path: string, value: unknown): Promise
     try {
       await rm(temporary, { force: true });
     } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], `failed to write and clean up ${basename(path)} at ${path}`);
+      throw new AggregateError([error, cleanupError], `failed to write and clean up ${basename(path)} at ${path}`, {
+        cause: cleanupError,
+      });
     }
     throw error;
   }

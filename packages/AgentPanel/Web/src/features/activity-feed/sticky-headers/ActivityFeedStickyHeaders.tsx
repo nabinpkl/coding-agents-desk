@@ -3,7 +3,6 @@
 // The two bars pinned over the top of the transcript: the user message the reader
 // scrolled past, and the event they are inside now.
 
-import type { RefObject } from "react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { eventPreview } from "@/features/activity-feed/rows/activityEventText";

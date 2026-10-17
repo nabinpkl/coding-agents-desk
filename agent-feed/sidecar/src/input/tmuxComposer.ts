@@ -83,7 +83,7 @@ import {
   type RailModifiers,
   type TmuxComposerState,
 } from "@agentdesk/agent-feed-wire";
-import { hexSend, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
+import { TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { composerBox, composerText, type ComposerBox } from "@/input/composer/composerBox";
 import {
   bindNewImage,
@@ -96,11 +96,10 @@ import {
   TAB,
 } from "@/input/composer/composerKeystrokes";
 import { pasteTokens } from "@/input/composer/composerPastes";
-import { composerPanes, inTurn, settle } from "@/input/tmuxComposerPanes";
+import { inTurn, settle } from "@/input/tmuxComposerPanes";
 import {
   COALESCE_MS,
   LIVE,
-  observeTmuxComposer,
   readComposerAt,
   unavailable,
   type TmuxComposerRuntime,

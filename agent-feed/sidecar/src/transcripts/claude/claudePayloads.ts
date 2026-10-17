@@ -8,7 +8,7 @@ import { cacheTtlFromUsage } from "@/cacheTtl";
 import { toolFilePaths } from "@/transcripts/claude/claudeFiles";
 import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type DeclaredModel, type EventCacheHit, type TokenUsage } from "@/transcripts/transcriptTypes";
 import { basename } from 'node:path';
-import { metadataText, plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
+import { plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
 
 /**
  * The turn-boundary signal a line carries, or undefined when it carries none.

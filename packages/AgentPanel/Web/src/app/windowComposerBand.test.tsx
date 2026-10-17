@@ -78,31 +78,8 @@ describe("Claude window composer field", () => {
     return transport.requests.filter((request) => request.path === `/api/window/composer/${kind}`);
   }
 
-  /** The body of the last composer command of one kind, for a `toMatchObject` on what was sent. */
-  function lastComposerCall(transport: FakeHttpTransport, kind: "sync" | "submit" | "read") {
-    return composerCalls(transport, kind).at(-1)?.body;
-  }
-
-  /**
-   * Pre-seeds what a composer command answers.
-   *
-   * Seeded BEFORE the action rather than delivered after it, because a POST resolves its own
-   * promise: there is no correlation id to answer late against, which is most of why this path is
-   * simpler than the lane it replaced.
-   */
-  function answerComposer(
-    transport: FakeHttpTransport,
-    kind: "sync" | "submit" | "read",
-    body: unknown,
-    status = 200,
-  ) {
-    transport.responses.set(`POST /api/window/composer/${kind}`, {
-      status,
-      body: JSON.stringify(body),
-    });
-  }
   it("renders the shared band for Codex through the window composer", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
     fireEvent.click(screen.getByText("Session Codex 01"));
@@ -134,7 +111,7 @@ describe("Claude window composer field", () => {
   });
 
   it("does not send Codex on the off-Desktop round trip: its reads are always free", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
     fireEvent.click(screen.getByText("Session Codex 01"));
@@ -164,7 +141,7 @@ describe("Claude window composer field", () => {
   });
 
   it("renders the composer as a roomy, padded field rather than a single cramped row", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     focusComposer(transport);
 
@@ -207,7 +184,7 @@ describe("Claude window composer field", () => {
   });
 
   it("shows the context meter in the Pi composer band as well", async () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
 

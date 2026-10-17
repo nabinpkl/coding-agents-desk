@@ -442,7 +442,7 @@ void startCatalog()
       // writes each push as a queued prompt.
       const opencodeHub = new HubOpencodeAdapter({
         hub,
-        serve: liveOpencodeServePort(() => void opencodeHub.sync()),
+        serve: liveOpencodeServePort(),
         log: (line) => console.error(`[hub-opencode] ${line}`),
         rename: (ref, task) => botRegistry.renameBracket(ref, task, renameSession),
       });

@@ -5,7 +5,6 @@ import {
   TIMELINE_HEARTBEAT_MS,
   type ActivityEvent,
   type EventMode,
-  type SourceId,
   type TimelineMessage,
 } from "@agentdesk/agent-feed-wire";
 import {

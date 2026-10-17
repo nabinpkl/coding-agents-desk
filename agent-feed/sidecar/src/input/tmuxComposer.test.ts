@@ -3,29 +3,21 @@
 
 import { expect, test } from "bun:test";
 import {
-  ABOVE_PROMPT,
-  BACKSPACE,
   BOX_COLUMN,
   CLOSE,
   clearPressesFor,
   END,
-  held,
   KILL,
   OPEN,
   paneShowing,
   RULE,
-  runtime,
   screenWith,
-  settle,
   typed,
-  watchable,
 } from "@/input/tmuxComposerHarness";
 import {
   composerBox,
-  type ComposerBox,
   composerText,
   keystrokesFor,
-  readComposerAt,
 } from "@/input/tmuxComposer";
 import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 

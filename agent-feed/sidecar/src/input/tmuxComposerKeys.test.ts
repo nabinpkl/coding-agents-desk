@@ -6,22 +6,12 @@
 
 import { expect, test } from "bun:test";
 import {
-  ABOVE_PROMPT,
   BACKSPACE,
-  BOX_COLUMN,
   CLOSE,
-  clearPressesFor,
   END,
   held,
   KILL,
   OPEN,
-  paneShowing,
-  RULE,
-  runtime,
-  screenWith,
-  settle,
-  typed,
-  watchable,
 } from "@/input/tmuxComposerHarness";
 import { composerPastes, keystrokesFor } from "@/input/tmuxComposer";
 

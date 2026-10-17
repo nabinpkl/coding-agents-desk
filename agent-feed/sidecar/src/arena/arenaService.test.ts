@@ -2,7 +2,7 @@
 // run is registered, contestants fanned out together, facts landing on the records -- not git's
 // or the serve's behavior, which their own modules pin against the real things.
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

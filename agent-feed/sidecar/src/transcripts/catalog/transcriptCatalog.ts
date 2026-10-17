@@ -7,7 +7,6 @@
 
 import chokidar from "chokidar";
 import { watchTree, watchTreeEntries } from "@/transcripts/catalog/watchTree";
-import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { config } from "@/config/config";
 import { state } from "@/transcripts/transcriptState";
@@ -16,7 +15,6 @@ import {
   broadcast,
   resetCatalogBroadcast,
   ROLLOUT_PATTERN,
-  scheduleBroadcast,
 } from "@/transcripts/catalog/catalogState";
 import { projectSummaries } from "@/transcripts/catalog/catalogViews";
 import { publishTranscriptWrite } from "@/transcripts/catalog/transcriptWrites";

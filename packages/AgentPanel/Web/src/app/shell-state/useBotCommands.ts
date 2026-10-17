@@ -11,12 +11,11 @@
 
 import { useCallback, useState } from "react";
 import type {
-  AddBotCommand,
   BotSessionRef,
   BotView,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import type { BotFeeds, BotMachine } from "@/features/bots/botMachines";
+import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";

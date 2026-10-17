@@ -5,11 +5,9 @@
 
 import { stat } from "node:fs/promises";
 import { piLocation, scanPiSessions } from "@/agents/piSessionCatalog";
-import { PI_AGENT_CAPABILITIES, type PiSessionLocation } from "@/agents/piAgentBackend";
-import type { Session } from "@/transcripts/transcriptTypes";
+import { type PiSessionLocation } from "@/agents/piAgentBackend";
 import { state } from "@/transcripts/transcriptState";
 import { broadcast, findSession, scheduleBroadcast, sessionKey } from "@/transcripts/catalog/catalogState";
-import { makeSession } from "@/transcripts/catalog/catalogRecords";
 
 export async function reconcilePi(): Promise<void> {
   const startedAt = performance.now();

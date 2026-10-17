@@ -99,7 +99,7 @@ describe("Claude window composer field", () => {
     });
   }
   it("is focusable before the first status, then disabled with the host's reason", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
 
     // Focusable before any status: the watch is focus-gated, so a field disabled "until a status
@@ -142,7 +142,7 @@ describe("Claude window composer field", () => {
     // The host used to resolve this by picking the lowest-pid instance, which wrote into whichever
     // Claude launched first. Now it refuses and says so, and the viewer's fix -- close the session in
     // one of them -- has to be readable from the notice alone.
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     focusComposer(transport);
 
@@ -157,7 +157,7 @@ describe("Claude window composer field", () => {
 
   it("prefills from the window on focus and auto-syncs every edit after a debounce", async () => {
     vi.useFakeTimers();
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
 
@@ -187,7 +187,7 @@ describe("Claude window composer field", () => {
 
   it("clearing the field is an edit, so deletions sync as the empty value", async () => {
     vi.useFakeTimers();
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
     deliverStatus(transport, { tx: "text to delete" });
@@ -205,7 +205,7 @@ describe("Claude window composer field", () => {
 
   it("retries a draft when the leased Claude window becomes active", async () => {
     vi.useFakeTimers();
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
 
@@ -234,7 +234,7 @@ describe("Claude window composer field", () => {
   });
 
   it("blur flushes an unsynced edit and unwatches, stopping the host's poll", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
     deliverStatus(transport, { tx: "" });
@@ -253,7 +253,7 @@ describe("Claude window composer field", () => {
   });
 
   it("an echo of our own write marks the field in sync; an independent edit then lands", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
     deliverStatus(transport, { tx: "" });
@@ -269,7 +269,7 @@ describe("Claude window composer field", () => {
   });
 
   it("does not overwrite an in-flight edit with a status that arrives while typing", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
     deliverStatus(transport, { tx: "" });
@@ -286,7 +286,7 @@ describe("Claude window composer field", () => {
 
   it("does not overwrite newer typing with a stale sync result that resolves late", async () => {
     vi.useFakeTimers();
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
     deliverStatus(transport, { tx: "" });
@@ -309,7 +309,7 @@ describe("Claude window composer field", () => {
   });
 
   it("the Enter button actually sends by filling and pressing Return", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
     deliverStatus(transport, { tx: "" });
@@ -329,7 +329,7 @@ describe("Claude window composer field", () => {
   });
 
   it("an off-Desktop window is prefilled by one automatic round trip", async () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
 
@@ -347,7 +347,7 @@ describe("Claude window composer field", () => {
   });
 
   it("keeps the field editable while an off-Desktop prefill is in flight", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
 
@@ -362,7 +362,7 @@ describe("Claude window composer field", () => {
 
   it("keeps off-Desktop typing local until Send performs one submit", async () => {
     vi.useFakeTimers();
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     const { field } = focusComposer(transport);
 
@@ -393,7 +393,7 @@ describe("Claude window composer field", () => {
     // Moving another application's window between Desktops uses a private native operation. If the
     // current macOS no longer exposes it, the automatic round trip fails once and the caption reports
     // an unavailable capability rather than inviting an endless retry.
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     focusComposer(transport);
 

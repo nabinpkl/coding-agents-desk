@@ -2,18 +2,14 @@
 // when tmux cannot be asked at all.
 
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AgentTerminalInvalidError,
-  AgentTerminalService,
   liveTmuxSession,
-  type AgentTerminalPtyClient,
 } from "@/terminal/agentTerminalService";
 import { claudeSessionRunning } from "@/terminal/session-panes/tmuxSessionOwner";
-import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
-import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import {
   agentTerminalHarness,
   SESSION_ID,
@@ -24,10 +20,7 @@ import { resumeClaudeSessionCommand } from "@/terminal/session-panes/claudeSessi
 
 const {
   roots,
-  serviceWithTmux,
-  sessionTmuxFixture,
   sessionTmuxService,
-  tmuxConnection,
 } = agentTerminalHarness();
 
 test("joins the tmux session a live agent session is already running in", async () => {

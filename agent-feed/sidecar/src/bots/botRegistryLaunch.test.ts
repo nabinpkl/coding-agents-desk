@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { BotForbiddenError, BotLaunchError, type BotSessionLauncher } from "@/bots/botRegistry";
 import { botRegistryHarness, type LaunchRecord } from "@/bots/botRegistryHarness";
 
-const { addBot, addSessions, fixture, projects, recordingLauncher, sessions, summary, temporaryDirectories } = botRegistryHarness();
+const { addBot, addSessions, fixture, recordingLauncher } = botRegistryHarness();
 
 test("creating a Bot with launch starts a session in its directory and attaches it", async () => {
   const { launched, launcher } = recordingLauncher();

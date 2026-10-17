@@ -120,8 +120,6 @@ export function useDesktopKeyboard({
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
-  const resetCapture = useCallback(() => session.resetCapture(ctxRef.current), []);
-  const focusCapture = useCallback(() => session.focusCapture(ctxRef.current), []);
   const setKeyboardMode = useCallback((mode: KeyboardMode) => session.setKeyboardMode(ctxRef.current, mode), []);
   const updatePresentation = useCallback((action: KeyboardPresentationAction) => session.updatePresentation(ctxRef.current, action), []);
   const clearFocusTimer = useCallback(() => session.clearFocusTimer(ctxRef.current), []);
@@ -129,22 +127,14 @@ export function useDesktopKeyboard({
   const hide = useCallback(() => session.hide(ctxRef.current), []);
   const setAutoKeyboard = useCallback((enabled: boolean) => session.setAutoKeyboard(ctxRef.current, enabled), []);
   const sendControl = useCallback((input: DesktopControlInput) => send.sendControl(ctxRef.current, input), []);
-  const sendBatch = useCallback((keys: RemoteKeyEvent[], secure: boolean) => send.sendBatch(ctxRef.current, keys, secure), []);
-  const sendText = useCallback((text: string) => send.sendText(ctxRef.current, text), []);
   const pasteFromClipboard = useCallback(() => send.pasteFromClipboard(ctxRef.current), []);
-  const appendToDraft = useCallback((character: string) => send.appendToDraft(ctxRef.current, character), []);
-  const backspaceDraft = useCallback(() => send.backspaceDraft(ctxRef.current), []);
   const cancelDraft = useCallback(() => send.cancelDraft(ctxRef.current), []);
   const sendDraft = useCallback(() => send.sendDraft(ctxRef.current), []);
-  const decorateWithStickyModifiers = useCallback((keys: RemoteKeyEvent[]) => send.decorateWithStickyModifiers(ctxRef.current, keys), []);
-  const acceptEncodedKeys = useCallback((keys: RemoteKeyEvent[]) => send.acceptEncodedKeys(ctxRef.current, keys), []);
-  const acceptText = useCallback((text: string) => send.acceptText(ctxRef.current, text), []);
   const sendDeckCharacter = useCallback((character: string) => send.sendDeckCharacter(ctxRef.current, character), []);
   const sendDeckCursorDelta = useCallback((delta: number) => send.sendDeckCursorDelta(ctxRef.current, delta), []);
   const sendChromeKey = useCallback((code: RemoteKeyCode) => send.sendChromeKey(ctxRef.current, code), []);
   const deckBackspace = useCallback(() => send.deckBackspace(ctxRef.current), []);
   const tapModifier = useCallback((modifier: RemoteModifier) => send.tapModifier(ctxRef.current, modifier), []);
-  const prepareCapture = useCallback(() => capture.prepareCapture(ctxRef.current), []);
   const beforeRemoteClick = useCallback(() => capture.beforeRemoteClick(ctxRef.current), []);
   const consumePointerGesture = useCallback(() => capture.consumePointerGesture(ctxRef.current), []);
   const showManually = useCallback(() => capture.showManually(ctxRef.current), []);

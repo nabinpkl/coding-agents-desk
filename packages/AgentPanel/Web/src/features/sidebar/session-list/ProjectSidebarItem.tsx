@@ -1,7 +1,7 @@
 "use client";
 
 import { Archive, ChevronDown, LayoutDashboard, LoaderCircle, Plus } from "lucide-react";
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
 import {

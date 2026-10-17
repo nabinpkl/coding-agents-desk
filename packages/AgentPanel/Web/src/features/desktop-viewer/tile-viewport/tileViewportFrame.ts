@@ -8,7 +8,6 @@ import {
   VIEW_REAIM_INTERVAL_MS,
   VIEW_SETTLE_MS,
 } from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
-import { setCaptureCrop } from "@/features/desktop-viewer/zoom/captureCrop";
 import type { DesktopPointerInput } from "@agentdesk/agent-feed-wire";
 import type { ViewportRuntime } from "@/features/desktop-viewer/tile-viewport/tileViewportRuntime";
 

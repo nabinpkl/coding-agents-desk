@@ -7,7 +7,7 @@ import {
 } from "@/bots/botRegistry";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
-const { addBot, addSessions, fixture, projects, recordingLauncher, sessions, summary, temporaryDirectories } = botRegistryHarness();
+const { addBot, addSessions, fixture, sessions, summary } = botRegistryHarness();
 
 test("adds a user-facing Bot for an existing project directory with no sessions", async () => {
   const { project, registry } = await fixture();

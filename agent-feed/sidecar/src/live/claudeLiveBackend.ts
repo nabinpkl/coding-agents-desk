@@ -13,10 +13,8 @@ import { config } from "@/config/config";
 import type {
   AgentBackend,
   AgentCommandReceipt,
-  AgentMessageDelivery,
   AgentSessionDescriptor,
   AgentTimelinePage,
-  AgentUiEvent,
   AgentUiResponseResult,
 } from "@/agents/agentBackend";
 import {

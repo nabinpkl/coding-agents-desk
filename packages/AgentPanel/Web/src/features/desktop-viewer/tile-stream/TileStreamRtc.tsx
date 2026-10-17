@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
 import type {
   DesktopControlEvent,
-  WebrtcTileAnswer,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
@@ -19,8 +17,6 @@ import {
 import { createVideoPresentationWatch } from "@/features/desktop-viewer/tile-stream/tileVideoPresentation";
 import { tileCaptureSize } from "@/features/desktop-viewer/tile-stream/webrtcTileCapture";
 import {
-  parseWebrtcTileAnswer,
-  postTileTelemetry,
   postWebrtcClose,
   type DesktopControlTransport,
 } from "@/features/desktop-viewer/tile-stream/webrtcTileWire";

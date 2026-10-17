@@ -7,7 +7,6 @@
 // the control channel, and the diagnostics record for this attempt.
 
 import type {
-  DesktopControlEvent,
   WebrtcTileAnswer,
   WebrtcTileSourceMetadata,
 } from "@agentdesk/agent-feed-wire";

@@ -5,7 +5,6 @@ import {
   SessionManager,
   type AgentSession,
   type AgentSessionEvent,
-  type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";

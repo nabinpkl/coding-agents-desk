@@ -16,7 +16,6 @@ import {
   FONT_SIZE_STEP,
   preferredScreenHeight,
   surfaceInset,
-  viewerSetsGrid,
 } from "@/features/terminal/mounted-terminal/terminalTypeFit";
 import type { TerminalRuntime } from "@/features/terminal/mounted-terminal/agentTerminalRuntime";
 

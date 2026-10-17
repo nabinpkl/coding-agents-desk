@@ -3,7 +3,6 @@
 // The picture-mode buttons in the viewer's bar, and the resolution slider in its settings popover,
 // with the readout of what the knob actually asks for.
 
-import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import { getCaptureScale, setCaptureScale } from "@/features/desktop-viewer/zoom/captureScale";

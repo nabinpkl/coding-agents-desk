@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 import {
   useSessionEventsStream,
-  type ActivityEvent,
   type TokenUsage,
 } from "@/features/activity-feed/useSessionEventsStream";
 import { liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
@@ -14,33 +12,14 @@ import { CompactingNotice } from "@/features/activity-feed/blocks/CompactingNoti
 import { ReconnectingNotice } from "@/features/activity-feed/ReconnectingNotice";
 import { useStickToBottom } from "@/features/activity-feed/scroll-position/useStickToBottom";
 import {
-  type DisplayItem,
-  type DisplayRole,
-  displayRole,
   isEventItem,
   itemKey,
   leadEvent,
 } from "@/features/activity-feed/rows/activityDisplayItems";
-import { eventPreview } from "@/features/activity-feed/rows/activityEventText";
-import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
 import {
   jumpScrollTop,
-  selectStickyCurrentIndex,
 } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
 import {
-  forgetTranscriptAnchor,
-  loadTranscriptAnchor,
-  rememberTranscriptAnchor,
-} from "@/features/activity-feed/scroll-position/transcriptScrollStore";
-import {
-  ClusterRow,
-  CompactionRow,
-  LiveTailRow,
-  ROLE_BORDER,
-  ROLE_STYLES,
-  SegmentEventRow,
-  showEventRoleLabel,
-  UserRow,
   type EventRowContext,
 } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
@@ -286,7 +265,6 @@ export function ActivityFeed({
     changesAt,
   } = useStickyIndices({
     items,
-    mode,
     oldestStart: source === "claude" ? windowStart : null,
     remote: remoteBar.remote,
     rowItems,

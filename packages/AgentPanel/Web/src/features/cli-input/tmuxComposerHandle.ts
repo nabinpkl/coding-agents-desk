@@ -10,7 +10,6 @@ import type {
   ComposerPaste,
   RailKey,
   RailModifier,
-  TmuxComposerState,
   TmuxComposerUnavailableReason,
   TmuxQuestionState,
 } from "@agentdesk/agent-feed-wire";
