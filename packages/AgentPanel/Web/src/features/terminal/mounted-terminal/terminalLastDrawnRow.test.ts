@@ -1,15 +1,19 @@
 import { expect, test } from "vitest";
 import { lastDrawnRow, watchLastDrawnRow } from "@/features/terminal/mounted-terminal/terminalLastDrawnRow";
 
-/** A screen of `rows` rows over `scrolled` rows of history, drawn from `lines`, the cursor at `cursorY`. */
-function screen(lines: string[], { rows = 8, cursorY = 0, scrolled = 0 } = {}) {
+/**
+ * A screen of `rows` rows over `history` rows of history, drawn from `lines`, the cursor at
+ * `cursorY`, with the reader scrolled `back` rows up into that history.
+ */
+function screen(lines: string[], { rows = 8, cursorY = 0, history = 0, back = 0 } = {}) {
   let render: (() => void) | null = null;
   const fake = {
     rows,
     buffer: {
       active: {
         cursorY,
-        viewportY: scrolled,
+        baseY: history,
+        viewportY: history - back,
         getLine: (index: number) => {
           const text = lines[index];
           return text === undefined ? undefined : { translateToString: () => text };
@@ -41,9 +45,19 @@ test("the cursor counts as drawn, so a fresh prompt on a blank line is still sho
   expect(lastDrawnRow(fake)).toBe(2);
 });
 
-test("rows are counted from the top of what is shown, past any history above it", () => {
-  const { fake } = screen(["old", "old", "top", "drawn", "", "", "", "", "", ""], { scrolled: 2 });
+test("rows are counted from the top of the live screen, past any history above it", () => {
+  const { fake } = screen(["old", "old", "top", "drawn", "", "", "", "", "", ""], { history: 2 });
   expect(lastDrawnRow(fake)).toBe(1);
+});
+
+test("scrolling back through history leaves it where the live screen has it", () => {
+  // Every history row is full, so a read of what is shown would answer the screen's last row.
+  const history = Array.from({ length: 20 }, (_, index) => `history ${index}`);
+  const live = ["top", "drawn", "", "", "", "", "", ""];
+  const atLive = screen([...history, ...live], { history: 20 });
+  const scrolledBack = screen([...history, ...live], { history: 20, back: 12 });
+  expect(lastDrawnRow(scrolledBack.fake)).toBe(lastDrawnRow(atLive.fake));
+  expect(lastDrawnRow(scrolledBack.fake)).toBe(1);
 });
 
 test("the watch reports a move, and stays quiet while the same frame is redrawn", () => {

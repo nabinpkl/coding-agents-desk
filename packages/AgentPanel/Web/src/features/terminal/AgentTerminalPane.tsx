@@ -201,8 +201,21 @@ export function AgentTerminalPane(
     };
   }, [band, heightBasis]);
 
+  /**
+   * The tallest a band pane is any use at: its whole screen at the width it has, plus the pane's
+   * own chrome. A band never reshapes the session, so past this a drag only adds blank, and on a
+   * phone that blank was most of a tall pane with the screen small at its foot (2026-10-17).
+   * Measured after layout rather than during render; the chrome moves with the key rail.
+   */
+  const [wholeScreen, setWholeScreen] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const pane = paneRef.current;
+    const mount = mountRef.current;
+    const known = band && contentHeight !== null && contentHeight > 0 && pane && mount;
+    setWholeScreen(known ? contentHeight + pane.offsetHeight - mount.clientHeight : null);
+  }, [band, contentHeight, showsKeyRail, mountRef]);
   const share = (available: number): number =>
-    Math.max(MINIMUM_TERMINAL_HEIGHT, available * MAXIMUM_TERMINAL_SHARE);
+    Math.max(MINIMUM_TERMINAL_HEIGHT, Math.min(available * MAXIMUM_TERMINAL_SHARE, wholeScreen ?? Infinity));
   const ceiling = (): number =>
     share(band ? basis : (paneRef.current?.parentElement?.clientHeight ?? 0));
   /** The most a band pane may take sizing itself: the ceiling, short of crowding the transcript. */

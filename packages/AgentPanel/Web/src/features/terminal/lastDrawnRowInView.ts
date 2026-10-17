@@ -8,26 +8,17 @@
  * the bottom, and well above it for Claude Code, whose box sits near the top of a tall pane over
  * blank rows.
  *
- * A pane taller than the drawn rows cannot scroll below zero, so there the screen is LOWERED
- * instead, by a top margin. Without that its top stuck to the pane's, and dragging the pane's
- * handle up carried the text up with it and opened blank rows beneath, which reads as the pane
- * growing the wrong way (measured 2026-10-17: a 120px drag moved the last line 33px up).
+ * Scrolling stops at zero, so a pane taller than the drawn rows shows the blank rows under them.
+ * It never grows past the whole screen (`wholeScreen` in `AgentTerminalPane`), so that is a few
+ * rows at most. Lowering the screen with a margin instead was tried and dropped: the margin went
+ * stale whenever the screen reflowed without this re-running, and once left it below the pane.
  */
 export function keepLastDrawnRowInView(mount: HTMLElement, lastDrawnRow: number | null): void {
-  const screen = mount.querySelector<HTMLElement>(".xterm");
-  // Measured from where the screen sits on its own, so an earlier lowering is not counted twice.
-  if (screen) screen.style.marginTop = "";
   const row = lastDrawnRow === null ? null : mount.querySelector(".xterm-rows")?.children[lastDrawnRow];
   if (!row) {
     mount.scrollTop = mount.scrollHeight;
     return;
   }
   const bottom = row.getBoundingClientRect().bottom - mount.getBoundingClientRect().top + mount.scrollTop;
-  const overshoot = bottom - mount.clientHeight;
-  if (overshoot >= 0 || !screen) {
-    mount.scrollTop = Math.max(0, overshoot);
-    return;
-  }
-  screen.style.marginTop = `${(parseFloat(getComputedStyle(screen).marginTop) || 0) - overshoot}px`;
-  mount.scrollTop = 0;
+  mount.scrollTop = Math.max(0, bottom - mount.clientHeight);
 }
