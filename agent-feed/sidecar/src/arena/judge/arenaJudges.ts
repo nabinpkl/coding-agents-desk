@@ -256,19 +256,14 @@ export class ArenaJudges {
   }
 
   private async writeContestant(folder: string, contestant: ArenaContestantRecord, nonce: string): Promise<void> {
-    let transcript: string;
+    let rendered: string | { problem: string };
     try {
-      transcript = renderTranscriptFile(
-        contestant,
-        await this.steps.renderTranscript(contestant.source, contestant.sessionId!),
-        nonce,
-      );
+      rendered = await this.steps.renderTranscript(contestant.source, contestant.sessionId!);
     } catch (error) {
       // Said in the file the judge would read, so a missing transcript is a fact it can report.
-      transcript = `# ${contestant.contestantId} (${contestant.source})\n\nNo transcript could be rendered: ${
-        error instanceof Error ? error.message : String(error)
-      }\n`;
+      rendered = { problem: error instanceof Error ? error.message : String(error) };
     }
+    const transcript = renderTranscriptFile(contestant, rendered, nonce);
     await mkdir(folder, { recursive: true });
     await writeWhole(join(folder, `${contestant.contestantId}.md`), transcript);
     await writeWhole(join(folder, `${contestant.contestantId}.diff`), contestant.gitDiff ?? "");
