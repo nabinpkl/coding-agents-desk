@@ -177,39 +177,49 @@ describe("ArenaSurface", () => {
     await waitFor(() => expect(window.location.search).toBe("?entry=arena"));
   });
 
-  test("each lane carries the same fact rows, in the same order, over its own contestant", async () => {
+  test("a lane's head says only the facts that say something, in one order across lanes", async () => {
     mount(harness({ runs: [duel()], detail: duel() }).transport);
     await openRun("say one word");
+    // Each fact as the name a screen reader hears, then what the eye reads.
     const facts = (name: string) => {
       const lane = screen.getByRole("region", { name: `${name} facts` });
-      return [...lane.querySelectorAll("dl > div")].map((row) => row.textContent ?? "");
+      return [...lane.querySelectorAll("dl > div")].map((row) =>
+        `${row.querySelector("dt")?.textContent}: ${row.querySelector("dd")?.textContent}`
+      );
     };
-    const c1 = facts("c1 OpenCode");
-    const c2 = facts("c2 Claude");
-    // Same labels in the same order is what lets the rows read across lanes.
-    const labels = (name: string) =>
-      [...screen.getByRole("region", { name: `${name} facts` }).querySelectorAll("dt")].map((dt) => dt.textContent);
-    expect(labels("c1 OpenCode")).toEqual(labels("c2 Claude"));
-    expect(c1).toEqual([
-      "Time2.0s", "Files read1", "Files written0", "Outside its foldernone", "Diffno change", "Context1.2k tokens",
-      "Cost$0.0200",
+    // Reaching nowhere and changing nothing are not said at all, where a row of "none" had to be read.
+    expect(facts("c1 OpenCode")).toEqual([
+      "Time: 2.0s", "Files read: 1 read", "Files written: 0 written", "Context: 1.2k context", "Cost: $0.0200",
     ]);
-    expect(c2).toEqual([
-      "Time8.0s", "Files read1", "Files written1", "Outside its foldernone", "Diff+1−1in 1 file", "Context1.2k tokens",
-      "Cost$0.0200",
+    expect(facts("c2 Claude")).toEqual([
+      "Time: 8.0s", "Files read: 1 read", "Files written: 1 written", "Diff: +1 −1 in 1 file",
+      "Context: 1.2k context", "Cost: $0.0200",
     ]);
   });
 
-  test("a running lane shows what is not known yet as a dash, never as zero", async () => {
+  test("the runs step aside on the reader's say, and this browser remembers it", async () => {
+    window.localStorage.removeItem("agentdesk.arena.railOpen");
+    mount(harness({ runs: [duel()], detail: duel() }).transport);
+    await openRun("say one word");
+    // jsdom lays nothing out, so the surface reads as narrow: the rail starts put away over a run.
+    const nav = () => screen.getByRole("navigation", { name: "Arena runs", hidden: true }).closest("aside")!;
+    expect(nav().className).toMatch(/(^| )hidden( |$)/);
+    screen.getByRole("button", { name: "Show the runs" }).click();
+    await screen.findByRole("button", { name: "Hide the runs" });
+    expect(nav().className).not.toMatch(/(^| )hidden( |$)/);
+    expect(window.localStorage.getItem("agentdesk.arena.railOpen")).toBe("true");
+  });
+
+  test("a running lane leaves out what is not known yet, rather than counting it as zero", async () => {
     const running = run({
       contestants: [contestant({ status: "running", closedAt: null, durationMs: null, contextTokens: null, costUsd: null })],
     });
     mount(harness({ runs: [running], detail: running }).transport);
     await openRun("say one word");
     const lane = screen.getByRole("region", { name: "c1 OpenCode facts" });
-    const rows = [...lane.querySelectorAll("dl > div")].map((row) => row.textContent ?? "");
-    expect(rows.slice(1)).toEqual(["Files read—", "Files written—", "Outside its folder—", "Diff—", "Context—"]);
-    expect(rows[0]).toMatch(/so far$/);
+    const rows = [...lane.querySelectorAll("dl > div")].map((row) => row.querySelector("dt")?.textContent);
+    expect(rows).toEqual(["Time"]);
+    expect(lane.querySelector("dd")?.textContent).toMatch(/so far$/);
   });
 
   test("the files view puts a file both lanes read on one row, by its repository path", async () => {
@@ -237,7 +247,7 @@ describe("ArenaSurface", () => {
     mount(harness({ runs: [peeked], detail: peeked }).transport);
     await openRun("say one word");
     const c2 = screen.getByRole("region", { name: "c2 Claude facts" });
-    expect(c2.textContent).toContain("Outside its folder2 places · into c1");
+    expect(c2.textContent).toContain("Outside its folder2 places outside · into c1");
     screen.getByRole("tab", { name: /Files/ }).click();
     const reached = await screen.findByRole("region", { name: "Reached outside their folders" });
     const rows = [...reached.querySelectorAll("tr")].map((row) => row.textContent);

@@ -1,14 +1,18 @@
-// One run, read side by side: what was asked, then one lane per contestant -- its facts on top,
-// and under them its session or its diff -- or the matrix of files every contestant touched.
+// One run, read side by side: what was asked, then one lane per contestant -- its head on top,
+// and under it its session or its diff -- or the matrix of files every contestant touched.
 //
-// A lane is one contestant from top to bottom. Its facts sit directly over its own session, so a
-// reader never matches a number in one table to a transcript in another; and since every lane
-// carries the same fact rows at the same height, the facts still read across as rows. The lanes
-// share one horizontal scroll, so on a narrow screen they move together and stay aligned.
+// The lanes are the content, so the frame around them is one band, in three steps of weight: the
+// prompt (what every lane was asked) at full ink, then a caption line of what the run is and where
+// it stands, then the box the next prompt is typed into, quiet until it holds something to send.
+// The switch between sessions, files and diffs and the run's own actions share the prompt's line,
+// at its end, rather than a row of their own.
 //
-// The switch between sessions, files and diffs stays put above the lanes, on the line under the
-// prompt: a reader flicks between views of one run, and a switch that moved with its view would
-// move out from under the finger.
+// A lane is one contestant from top to bottom. Its head sits directly over its own session, so a
+// reader never matches a number in one table to a transcript in another. The lanes share one
+// horizontal scroll, so on a narrow screen they move together and stay aligned.
+//
+// The switch stays put: the header holds nothing that changes with the view, so a reader flicking
+// between views of one run never has it move out from under the finger.
 //
 // A run with a judge has its switch beside Remove; the judge's window floats over the lanes' corner
 // only while it is open (`judge/ArenaJudgeWindow.tsx`).
@@ -18,13 +22,13 @@
 // all of them are ready -- sending it early is fine, it waits at the same line.
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Trash2 } from "lucide-react";
+import { ArrowUp, LoaderCircle, PanelLeftClose, PanelLeftOpen, Trash2 } from "lucide-react";
 import type { ArenaRunDetail, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { DiffLane } from "@/features/arena/ArenaDiffs";
 import { ArenaFilesMatrix } from "@/features/arena/ArenaFilesMatrix";
-import { ArenaLaneFacts, factRowsFor } from "@/features/arena/ArenaLaneFacts";
+import { ArenaLaneFacts } from "@/features/arena/ArenaLaneFacts";
 import { SessionLane, useRunSessions } from "@/features/arena/ArenaSessionLanes";
 import { ArenaJudgeWindow, JudgeSwitch } from "@/features/arena/judge/ArenaJudgeWindow";
 import { lineupKind } from "@/features/arena/ArenaNewRun";
@@ -43,6 +47,8 @@ export function ArenaRunView({
   context,
   deleting,
   problem,
+  railOpen,
+  onToggleRail,
   onDelete,
   onSendPrompt,
 }: {
@@ -56,6 +62,9 @@ export function ArenaRunView({
   context: SessionViewContext;
   deleting: boolean;
   problem: string | null;
+  /** Whether the list of runs is beside this one; the header holds its switch. */
+  railOpen: boolean;
+  onToggleRail: () => void;
   onDelete: () => void;
   /** Gives a run whose lanes are open its prompt; answers the sidecar's refusal, or null. */
   onSendPrompt: (prompt: string) => Promise<string | null>;
@@ -69,11 +78,14 @@ export function ArenaRunView({
   const contestants = detail?.contestants ?? [];
   const fileCount = fileMatrix(contestants).filter((row) => row.inRepository).length;
   const changed = contestants.filter((c) => diffStat(c.gitDiff).files > 0).length;
-  const long = run.prompt.length > 280 || run.prompt.split("\n").length > 4;
+  const long = run.prompt.length > 160 || run.prompt.split("\n").length > 2;
   const slowestMs = Math.max(1, ...contestants.map((c) => elapsedMs(c, now) ?? 0));
-  const rows = factRowsFor(contestants);
   const directories = [run.repoPath, ...run.contestants.map((c) => c.worktreePath), ...(run.judge ? [run.judge.folder] : [])];
   const { sessions, error: catalogError } = useRunSessions(feed, directories);
+  const controlsHosts = useControlsHosts();
+  // Where the run works is worth a word only when the reader chose it: a repository the arena
+  // made, at its HEAD, is every run's default and says nothing.
+  const where = run.repoCreated && run.baseRef === "HEAD" ? null : `${run.repoCreated ? "own repository" : basename(run.repoPath)} @ ${run.baseRef}`;
 
   const views: { name: ArenaView; label: string; count: number | null }[] = [
     { name: "sessions", label: "Sessions", count: null },
@@ -87,37 +99,88 @@ export function ArenaRunView({
     // height where a lane would be too short to work in, the column scrolls instead.
     <article
       aria-label="Arena run"
-      className={`flex flex-col ${view === "sessions" ? "h-full min-h-[44rem]" : "min-h-full"}`}
+      className={`flex flex-col ${view === "sessions" ? "h-full min-h-[32rem]" : "min-h-full"}`}
     >
-      <header className="flex flex-col gap-3 border-b border-border px-5 pt-5 pb-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
+      <header
+        className={`flex shrink-0 flex-col gap-3 border-b border-border bg-background px-4 py-3 ${view === "sessions" ? "" : "sticky top-0 z-20"}`}
+      >
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <button
+            type="button"
+            onClick={onToggleRail}
+            aria-expanded={railOpen}
+            aria-controls="arena-runs"
+            aria-label={railOpen ? "Hide the runs" : "Show the runs"}
+            title={railOpen ? "Hide the runs" : "Show the runs"}
+            className={`${ICON_BUTTON} -ml-1.5`}
+          >
+            {railOpen ? <PanelLeftClose aria-hidden className="size-4" /> : <PanelLeftOpen aria-hidden className="size-4" />}
+          </button>
+          <div className="min-w-[min(100%,16rem)] flex-1 pt-1.5">
             {awaitingPrompt ? (
-              <LanesPrompt onSend={onSendPrompt} next={false} busy={false} />
+              <h2 className={`${TEXT.title} font-semibold text-foreground`}>{run.name}</h2>
             ) : (
-              <p
-                className={`whitespace-pre-wrap break-words text-lg leading-snug font-medium text-foreground ${long && !promptOpen ? "line-clamp-4" : ""}`}
+              <h2
+                className={`max-w-[80ch] whitespace-pre-wrap break-words text-pretty ${TEXT.title} leading-snug font-semibold text-foreground ${long && !promptOpen ? "line-clamp-2" : ""}`}
               >
                 {run.round > 1 ? (
-                  <span className={`mr-2 align-middle ${TEXT.meta} font-normal text-muted-foreground`}>
-                    Prompt {run.round}
-                  </span>
+                  <span className={`mr-2 ${TEXT.meta} font-medium text-muted-foreground`}>Prompt {run.round}</span>
                 ) : null}
                 {run.prompt}
-              </p>
+              </h2>
             )}
-            {long ? (
+            {long && !awaitingPrompt ? (
               <button
                 type="button"
                 onClick={() => setPromptOpen((open) => !open)}
                 aria-expanded={promptOpen}
-                className={`mt-1 rounded ${TEXT.meta} text-muted-foreground underline-offset-2 hover:text-foreground hover:underline ${FOCUS}`}
+                className={`rounded ${TEXT.meta} text-muted-foreground underline-offset-2 hover:text-foreground hover:underline ${FOCUS}`}
               >
                 {promptOpen ? "Show less" : "Show the whole prompt"}
               </button>
             ) : null}
+            <p className={`mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 ${TEXT.meta} text-muted-foreground`}>
+              {awaitingPrompt ? null : (
+                <>
+                  <span className="text-foreground">{run.name}</span>
+                  <span aria-hidden>·</span>
+                </>
+              )}
+              <span>{lineupKind(run.contestants.map((c) => c.source))}</span>
+              {where ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="font-mono" title={run.repoPath}>{where}</span>
+                </>
+              ) : null}
+              <span aria-hidden>·</span>
+              <span>{formatAgo(run.createdAt, now)}</span>
+              <span aria-hidden>·</span>
+              <span className={live ? "text-arena-running" : ""}>
+                {awaitingPrompt
+                  ? `${ready} of ${run.contestants.length} ready`
+                  : live ? `${settled} of ${run.contestants.length} settled` : "ready for the next prompt"}
+              </span>
+            </p>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          {/* Wraps on the narrowest phones, where the switch and the run's actions are wider than
+              the screen: the actions drop under the switch, which stays where it was. */}
+          <div className="flex flex-wrap items-center gap-1">
+            <div role="tablist" aria-label="Compare by" className="mr-1 inline-flex rounded-lg bg-muted p-0.5">
+              {views.map((one) => (
+                <button
+                  key={one.name}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === one.name}
+                  onClick={() => onView(one.name)}
+                  className={`inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm ${FOCUS}`}
+                >
+                  {one.label}
+                  {one.count !== null && detail ? <span className="tabular-nums">{one.count}</span> : null}
+                </button>
+              ))}
+            </div>
             {run.judge ? <JudgeSwitch judge={run.judge} open={judgeOpen} onToggle={() => setJudgeOpen((open) => !open)} /> : null}
             <button
               type="button"
@@ -136,62 +199,20 @@ export function ArenaRunView({
           </div>
         </div>
         {/* A run never ends: once its lanes settle, the next prompt goes to every one of them, in
-            the session each already has. Under the header's controls rather than beside them, so
-            it has the header's whole width. */}
-        {awaitingPrompt ? null : <LanesPrompt onSend={onSendPrompt} next busy={live} />}
-        <p className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${TEXT.meta} text-muted-foreground`}>
-          <span className="font-medium text-foreground">{run.name}</span>
-          <span aria-hidden>·</span>
-          <span>{lineupKind(run.contestants.map((c) => c.source))}</span>
-          <span aria-hidden>·</span>
-          <span className="font-mono" title={run.repoPath}>
-            {run.repoCreated ? "own repository" : basename(run.repoPath)}
-          </span>
-          <span aria-hidden>@</span>
-          <span className="font-mono">{run.baseRef}</span>
-          <span aria-hidden>·</span>
-          <span>{formatAgo(run.createdAt, now)}</span>
-          <span aria-hidden>·</span>
-          <span className={live ? "text-arena-running" : ""}>
-            {awaitingPrompt
-              ? `${ready} of ${run.contestants.length} ready`
-              : live ? `${settled} of ${run.contestants.length} settled` : "ready for the next prompt"}
-          </span>
-        </p>
+            the session each already has. */}
+        <LanesPrompt onSend={onSendPrompt} next={!awaitingPrompt} busy={live && !awaitingPrompt} />
         {problem ? (
           <p role="alert" className={`${TEXT.meta} text-destructive`}>{problem}</p>
         ) : null}
       </header>
 
-      <div className="sticky top-0 z-20 flex shrink-0 items-center border-b border-border bg-background px-5">
-        <div role="tablist" aria-label="Compare by" className="-mb-px flex gap-4">
-          {views.map((one) => (
-            <button
-              key={one.name}
-              type="button"
-              role="tab"
-              aria-selected={view === one.name}
-              onClick={() => onView(one.name)}
-              className={`flex min-h-10 items-center gap-1.5 border-b-2 border-transparent px-0.5 ${TEXT.body} text-muted-foreground transition-colors duration-150 hover:text-foreground aria-selected:border-foreground aria-selected:text-foreground ${FOCUS}`}
-            >
-              {one.label}
-              {one.count !== null && detail ? (
-                <span className={`rounded bg-muted px-1.5 ${TEXT.meta} tabular-nums text-foreground`}>
-                  {one.count}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      </div>
-
       <div role="tabpanel" aria-label={views.find((one) => one.name === view)?.label} className="flex min-h-0 flex-1 flex-col">
         {!detail ? (
-          <p className={`px-5 py-6 ${TEXT.meta} text-muted-foreground`}>Reading the facts.</p>
+          <p className={`px-4 py-6 ${TEXT.meta} text-muted-foreground`}>Reading the facts.</p>
         ) : (
           <>
             {catalogError && view === "sessions" ? (
-              <p role="alert" className={`px-5 py-2 ${TEXT.meta} text-destructive`}>
+              <p role="alert" className={`px-4 py-2 ${TEXT.meta} text-destructive`}>
                 The session catalog did not answer: {catalogError}
               </p>
             ) : null}
@@ -201,8 +222,8 @@ export function ArenaRunView({
                   key={`facts-${contestant.contestantId}`}
                   contestant={contestant}
                   slowestMs={slowestMs}
-                  rows={rows}
                   now={now}
+                  controlsRef={view === "sessions" ? controlsHosts.refFor(contestant.contestantId) : undefined}
                 />
               ))}
               {view === "sessions"
@@ -212,6 +233,7 @@ export function ArenaRunView({
                       contestant={contestant}
                       listed={contestant.sessionId ? sessions.get(contestant.sessionId) ?? null : null}
                       context={context}
+                      controlsHost={controlsHosts.hosts[contestant.contestantId] ?? null}
                     />
                   ))
                 : view === "diffs"
@@ -236,12 +258,39 @@ export function ArenaRunView({
   );
 }
 
+/**
+ * Each lane head's slot for its session's controls, by contestant. The refs are made once per
+ * contestant: a fresh callback each render would be called with null and then the element again,
+ * and each call is a state change.
+ */
+function useControlsHosts(): {
+  hosts: Readonly<Record<string, HTMLElement | null>>;
+  refFor: (contestantId: string) => (host: HTMLElement | null) => void;
+} {
+  const [hosts, setHosts] = useState<Record<string, HTMLElement | null>>({});
+  const refs = useRef(new Map<string, (host: HTMLElement | null) => void>());
+  const refFor = (contestantId: string) => {
+    let ref = refs.current.get(contestantId);
+    if (!ref) {
+      ref = (host) => setHosts((previous) => (previous[contestantId] === host ? previous : { ...previous, [contestantId]: host }));
+      refs.current.set(contestantId, ref);
+    }
+    return ref;
+  };
+  return { hosts, refFor };
+}
+
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const SEND_CHORD = MAC ? "⌘↵" : "Ctrl↵";
 
 /**
  * A prompt for every lane: the first, typed once the lanes are open, or the next, once the last
- * one has settled in every lane. The next one is a single compact row, since the lanes under it
- * are what the reader is watching; it can be drafted while the lanes work, and sent once they settle.
+ * one has settled in every lane.
+ *
+ * The first is the view's one action, so it is a full box with a filled button. The next shares
+ * the header with the lanes the reader is watching, so it is one quiet row that grows with what is
+ * typed, its send button inside it the way every session composer has one, filled only once there
+ * is something to send. It can be drafted while the lanes work, and sent once they settle.
  */
 function LanesPrompt({
   onSend,
@@ -274,41 +323,41 @@ function LanesPrompt({
       void send();
     }
   };
-  const sendButton = (
-    <button
-      type="button"
-      onClick={() => void send()}
-      disabled={!canSend}
-      title={busy ? "The lanes are still on the last prompt; send this once they settle" : undefined}
-      className={`${PRIMARY_BUTTON} whitespace-nowrap`}
-    >
-      {sending ? "Sending" : "Send to every lane"}
-      <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
-        {MAC ? "⌘↵" : "Ctrl↵"}
-      </kbd>
-    </button>
-  );
+  const refusalLine = refusal ? <p role="alert" className={`${TEXT.meta} text-destructive`}>{refusal}</p> : null;
   if (next) {
     return (
-      <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-end justify-end gap-2">
+      <div className="flex max-w-3xl flex-col gap-1.5">
+        {/* The border is the row's, around the field and its button side by side, the way a
+            session composer draws one: the button sits in the box without lying over the text. */}
+        <div
+          className="flex items-end gap-2 rounded-md border border-input bg-background py-1.5 pr-1.5 pl-3 transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50"
+        >
           <textarea
             aria-label="Next prompt for every lane"
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={sendOnChord}
-            placeholder={busy ? "Draft the next prompt; send it once every lane settles" : "Next prompt for every lane"}
+            placeholder={busy ? "Draft the next prompt; it sends once every lane settles" : "Next prompt for every lane"}
             rows={1}
-            className={`${FIELD} min-h-10 min-w-48 flex-1 resize-y leading-relaxed`}
+            className={`block max-h-40 min-h-7 flex-1 resize-none bg-transparent py-0.5 ${TEXT.body} leading-relaxed text-foreground outline-none field-sizing-content placeholder:text-muted-foreground`}
           />
-          {sendButton}
+          <button
+            type="button"
+            onClick={() => void send()}
+            disabled={!canSend}
+            aria-label="Send to every lane"
+            title={busy ? "The lanes are still on the last prompt; send this once they settle" : `Send to every lane (${SEND_CHORD})`}
+            className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors duration-150 hover:bg-primary/90 active:bg-primary/80 disabled:pointer-events-none disabled:bg-muted disabled:text-muted-foreground ${FOCUS}`}
+          >
+            {sending ? <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" /> : <ArrowUp aria-hidden className="size-4" />}
+          </button>
         </div>
-        {refusal ? <p role="alert" className={`${TEXT.meta} text-destructive`}>{refusal}</p> : null}
+        {refusalLine}
       </div>
     );
   }
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex max-w-3xl flex-col gap-2">
       <label htmlFor={id} className={`${TEXT.meta} font-medium text-muted-foreground`}>
         Prompt
       </label>
@@ -325,7 +374,12 @@ function LanesPrompt({
       />
       <div className="flex flex-wrap items-center justify-end gap-3">
         {refusal ? <p role="alert" className={`mr-auto ${TEXT.meta} text-destructive`}>{refusal}</p> : null}
-        {sendButton}
+        <button type="button" onClick={() => void send()} disabled={!canSend} className={`${PRIMARY_BUTTON} whitespace-nowrap`}>
+          {sending ? "Sending" : "Send to every lane"}
+          <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
+            {SEND_CHORD}
+          </kbd>
+        </button>
       </div>
     </div>
   );

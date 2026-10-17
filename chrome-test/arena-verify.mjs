@@ -117,7 +117,7 @@ try {
     if (!/\d+(\.\d+)?s/.test(time)) problems.push(`${name}: no duration in the Time row: "${time}"`);
 
     if (end === 'failed') {
-      const failure = await facts.locator('dl > div', { hasText: 'Failure' }).innerText().catch(() => '');
+      const failure = await facts.locator('p', { hasText: 'Failure' }).innerText().catch(() => '');
       if (!failure.replace('Failure', '').trim() || failure.includes('—')) {
         problems.push(`${name} failed with no reason in its facts`);
       }

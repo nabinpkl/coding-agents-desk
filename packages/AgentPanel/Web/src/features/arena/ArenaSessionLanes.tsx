@@ -73,19 +73,21 @@ export function useRunSessions(feed: SidecarDataSource, directories: readonly st
 }
 
 /**
- * One contestant's session, filling its lane under its facts. The lane's name and status sit in
- * the facts above it, so this row carries only the session's own controls.
+ * One contestant's session, filling its lane under its head. The session's own controls (mode,
+ * terminal, cache hits) portal into `controlsHost`, on the head's first line beside the
+ * contestant's name, so a lane has one band of frame rather than two.
  */
 export function SessionLane({
   contestant,
   listed,
   context,
+  controlsHost,
 }: {
   contestant: ArenaContestantDetail;
   listed: ListedSession | null;
   context: SessionViewContext;
+  controlsHost: HTMLElement | null;
 }) {
-  const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
   const [tasksHost, setTasksHost] = useState<HTMLElement | null>(null);
   const [acceptFiles, setAcceptFiles] = useState<((files: readonly File[]) => void) | null>(null);
   // Stable by construction, as `SessionView` requires: a fresh function here would republish on
@@ -116,13 +118,8 @@ export function SessionLane({
       className="relative flex min-h-0 min-w-0 flex-col bg-background"
       {...drop.dropProps}
     >
-      {/* The session's own controls (mode, terminal, cache hits) portal into this row. */}
-      <div
-        ref={setControlsHost}
-        className="flex min-h-9 shrink-0 flex-wrap items-center gap-1 border-y border-border bg-muted/40 px-2"
-      />
       {shown ? (
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 border-t border-border">
           <SessionView
             // Keyed by the contestant's session, which it has before the catalog lists it, so the
             // listing swaps the feed in without remounting the composer or its pane.

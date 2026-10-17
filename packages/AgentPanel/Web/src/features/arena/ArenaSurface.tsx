@@ -80,6 +80,18 @@ export function ArenaSurface({
   // Null until the sidecar has said: the switch offers both modes meanwhile rather than greying
   // out one the machine may well have, and the sidecar refuses one it does not.
   const [defaults, setDefaults] = useState<ArenaNewRunDefaults | null>(null);
+  // Whether the list of runs stands beside a run. Until the reader says, it does where there is
+  // room beside the run, and not where it would stack above it, since there it only repeats the
+  // prompt the run's header already shows. What the reader says, this browser remembers. The form
+  // for a new run always has it: there is nowhere else to go from there.
+  const surface = useRef<HTMLDivElement | null>(null);
+  const wide = useWide(surface);
+  const [railChosen, setRailChosen] = useState(readRailOpen);
+  const railOpen = (railChosen ?? wide) || composing;
+  const toggleRail = useCallback(() => {
+    writeRailOpen(!railOpen);
+    setRailChosen(!railOpen);
+  }, [railOpen]);
 
   // The stream, from the first paint: a run that closes while the tab sits open says so without
   // the reader asking, which is the difference between a duel and a list somebody has to check.
@@ -241,11 +253,14 @@ export function ArenaSurface({
   }, []);
 
   return (
-    <div data-arena-surface className="@container flex h-full min-h-0 bg-background text-foreground">
+    <div ref={surface} data-arena-surface className="@container flex h-full min-h-0 bg-background text-foreground">
       <div className="flex min-h-0 w-full flex-col @3xl:flex-row">
         {/* Stacked above the run, the rail steps aside while a keyboard is up: what is left of a
             phone's screen goes to the field being typed into. */}
-        <aside className="flex max-h-56 shrink-0 flex-col border-b border-border @max-3xl:[html[data-keyboard-up]_&]:hidden @3xl:max-h-none @3xl:w-72 @3xl:border-r @3xl:border-b-0">
+        <aside
+          id="arena-runs"
+          className={`${railOpen ? "flex" : "hidden"} max-h-56 shrink-0 flex-col border-b border-border @max-3xl:[html[data-keyboard-up]_&]:hidden @3xl:max-h-none @3xl:w-64 @3xl:border-r @3xl:border-b-0`}
+        >
           <ArenaRunRail
             runs={runs}
             selectedRunId={selectedRunId}
@@ -280,6 +295,8 @@ export function ArenaSurface({
               context={context}
               deleting={deleting}
               problem={problem}
+              railOpen={railOpen}
+              onToggleRail={toggleRail}
               onDelete={() => void tearDown()}
               onSendPrompt={sendPrompt}
             />
@@ -292,4 +309,42 @@ export function ArenaSurface({
       </div>
     </div>
   );
+}
+
+const RAIL_KEY = "agentdesk.arena.railOpen";
+
+/** What this browser was told, or null if nothing; storage that throws (a private window) is null. */
+function readRailOpen(): boolean | null {
+  try {
+    const held = window.localStorage.getItem(RAIL_KEY);
+    return held === null ? null : held === "true";
+  } catch {
+    return null;
+  }
+}
+
+function writeRailOpen(open: boolean): void {
+  try {
+    window.localStorage.setItem(RAIL_KEY, String(open));
+  } catch {
+    // Remembering is a convenience; the rail still opens and closes for this visit.
+  }
+}
+
+/** Whether the surface is at least `@3xl` wide, where the rail stands beside the run. */
+function useWide(surface: React.RefObject<HTMLDivElement | null>): boolean {
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    const node = surface.current;
+    if (!node) return;
+    const measure = () => {
+      const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      setWide(node.clientWidth >= 48 * rem);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [surface]);
+  return wide;
 }

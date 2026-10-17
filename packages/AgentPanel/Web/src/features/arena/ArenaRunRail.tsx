@@ -1,7 +1,7 @@
 // The list of runs down the arena's left edge, and the way into a new one.
 //
 // A row is read for its prompt first -- that is what tells two runs apart -- so the prompt is the
-// row's content at full ink, and its lineup is a strip of lane chips: one per contestant, the
+// row's content at full ink, its name a caption after the lineup, and its lineup a strip of lane chips: one per contestant, the
 // harness's initial inside, the lane's status as its ink and border. A row's hover and selected
 // fills are half of `--muted`: the full fill takes the row's muted caption under 4.5:1. A glance down the rail says
 // which runs are still dueling and which lanes failed, without opening any of them.
@@ -75,7 +75,6 @@ export function ArenaRunRail({
                   {selected ? (
                     <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-foreground" />
                   ) : null}
-                  <span className={`truncate ${TEXT.body} font-medium leading-snug text-foreground`}>{run.name}</span>
                   <span className={`line-clamp-2 ${TEXT.body} leading-snug ${run.prompt ? "text-foreground" : "text-muted-foreground"}`}>
                     {run.prompt || "Waiting for a prompt"}
                   </span>
@@ -92,7 +91,7 @@ export function ArenaRunRail({
                       ))}
                     </span>
                     <span className={`min-w-0 truncate ${TEXT.meta} text-muted-foreground`}>
-                      {live ? (run.prompt ? "dueling" : "lanes open") : formatAgo(run.createdAt, now)}
+                      {run.name} · {live ? (run.prompt ? "dueling" : "lanes open") : formatAgo(run.createdAt, now)}
                       {run.round > 1 ? ` · ${run.round} prompts` : null}
                       {run.repoCreated ? null : ` · ${basename(run.repoPath)}`}
                     </span>
