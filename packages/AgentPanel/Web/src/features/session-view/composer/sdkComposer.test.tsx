@@ -10,7 +10,7 @@ import { DISCONNECTED_CLAUDE_SDK_STATE, type ClaudeSdkSessionState } from "@agen
 import { compactControl, composerActions, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import { composerCaption, composerEditor } from "@/features/session-view/composer/sessionComposerEditor";
 import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
-import { currentSdkModel, nextPermissionMode, sdkModelRows, type SdkSessionHandle } from "@/features/cli-input/useSdkSession";
+import { currentSdkModel, sdkModelRows, type SdkSessionHandle } from "@/features/cli-input/useSdkSession";
 import { runnerQuestion, sdkQuestionReasonText } from "@/features/session-view/composer/question/useQuestionMirror";
 import { approvalDetail, SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
 
@@ -38,7 +38,7 @@ function handle(state: Partial<ClaudeSdkSessionState> = {}, overrides: Partial<S
     send: vi.fn(async () => true),
     interrupt: vi.fn(async () => true),
     decide: vi.fn(async () => true),
-    cycleMode: vi.fn(async () => true),
+    choosePermissionMode: vi.fn(async () => true),
     setModel: vi.fn(async () => {}),
     questions: { answerTmuxQuestion: vi.fn(), pointTmuxQuestion: vi.fn() },
     ...overrides,
@@ -133,17 +133,20 @@ describe("the SDK band's actions", () => {
       const m = sdkModel(handle({ status }));
       const stop = composerActions(m).find((action) => action.placement === "field")!;
       expect(stop.key).toBe("stop-sdk");
-      stop.onClick();
+      stop.onClick!();
       expect(m.sdkSession.interrupt).toHaveBeenCalled();
     }
   });
 
-  it("shows the runner's mode and steps it, and cannot while no runner answers", () => {
+  it("shows the runner's mode and sets the one chosen from its menu, and cannot while no runner answers", () => {
     const m = sdkModel(handle({ permissionMode: "plan" }));
     const chip = composerActions(m).find((action) => action.key === "permission-mode")!;
-    expect(chip.ariaLabel).toBe("Permission mode Plan, switch to the next");
-    chip.onClick();
-    expect(m.sdkSession.cycleMode).toHaveBeenCalled();
+    expect(chip.ariaLabel).toBe("Permission mode Plan, choose another");
+    expect(chip.menu?.value).toBe("plan");
+    expect(chip.menu?.choices.map((choice) => choice.value))
+      .toEqual(["plan", "manual", "acceptEdits", "auto", "bypassPermissions"]);
+    chip.menu!.onChoose("acceptEdits");
+    expect(m.sdkSession.choosePermissionMode).toHaveBeenCalledWith("acceptEdits");
     const gone = sdkModel(handle({ ...DISCONNECTED_CLAUDE_SDK_STATE }));
     expect(composerActions(gone).find((action) => action.key === "permission-mode")?.disabled).toBe(true);
   });
@@ -170,10 +173,10 @@ describe("moving a session between the terminal and the SDK", () => {
 
   it("offers the SDK to a terminal session and the terminal to a live SDK one", () => {
     const toSdk = sdkModel(handle(), { sdkBand: false, runMode: "terminal", runModeSwitch: switcher() });
-    composerActions(toSdk).find((action) => action.key === "switch-run-mode")!.onClick();
+    composerActions(toSdk).find((action) => action.key === "switch-run-mode")!.onClick!();
     expect(toSdk.runModeSwitch.switchTo).toHaveBeenCalledWith("sdk");
     const toTerminal = sdkModel(handle(), { runMode: "sdk", runModeSwitch: switcher() });
-    composerActions(toTerminal).find((action) => action.key === "switch-run-mode")!.onClick();
+    composerActions(toTerminal).find((action) => action.key === "switch-run-mode")!.onClick!();
     expect(toTerminal.runModeSwitch.switchTo).toHaveBeenCalledWith("terminal");
   });
 
@@ -199,7 +202,7 @@ describe("the model", () => {
     const m = sdkModel(handle(), { onRunSlash });
     const chip = composerActions(m).find((action) => action.key === "switch-model")!;
     expect(chip.ariaLabel).toBe("Switch model, currently Opus");
-    chip.onClick();
+    chip.onClick!();
     expect(onRunSlash).toHaveBeenCalledWith("model", "");
   });
 
@@ -216,13 +219,13 @@ describe("the model", () => {
   });
 });
 
-describe("the mode cycle", () => {
-  it("follows the terminal's order, and skips bypass where the launch did not allow it", () => {
-    expect(nextPermissionMode("auto", true)).toBe("acceptEdits");
-    expect(nextPermissionMode("plan", true)).toBe("bypassPermissions");
-    expect(nextPermissionMode("plan", false)).toBe("manual");
-    expect(nextPermissionMode("manual", false)).toBe("auto");
-    expect(nextPermissionMode(null, false)).toBe("auto");
+describe("the mode menu", () => {
+  it("offers bypass only to a runner started allowing it, and says why otherwise", () => {
+    const bypass = (allowBypass: boolean) => composerActions(sdkModel(handle({ allowBypass })))
+      .find((action) => action.key === "permission-mode")!.menu!.choices
+      .find((choice) => choice.value === "bypassPermissions")!;
+    expect(bypass(true).unavailable).toBeUndefined();
+    expect(bypass(false).unavailable).toBe("This session was started without bypass.");
   });
 });
 

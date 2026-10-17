@@ -6,11 +6,13 @@
 // steered, the other hands a whole turn to a transport the panel does not own.
 
 import { ArrowLeftRight, ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldAlert, Square } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
-import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
+import type { ChoiceMenuProps } from "@/features/bots/menus/ChoiceMenu";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { parseOpencodeCommand } from "@/features/session-view/composer/useOpencodeCommands";
 import { currentSdkModel } from "@/features/cli-input/useSdkSession";
+import { PERMISSION_MODE_LABELS, permissionModeChoices } from "@/features/cli-input/permissionModes";
 import type { CompactControl } from "@/features/activity-feed/TokenMeter";
 
 /**
@@ -26,15 +28,24 @@ import type { CompactControl } from "@/features/activity-feed/TokenMeter";
 export const COMPOSER_FOOTER_BUTTON_CLASS =
   "flex size-7 shrink-0 touch-manipulation items-center justify-center rounded-md outline-none transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/15 disabled:cursor-not-allowed disabled:opacity-40";
 
-/** What the chip says for each mode: the words Claude's own footer uses, shortened. */
-const PERMISSION_MODE_LABELS: Record<ClaudePermissionMode, string> = {
-  auto: "Auto",
-  acceptEdits: "Accept edits",
-  plan: "Plan",
-  bypassPermissions: "Bypass",
-  manual: "Manual",
-  dontAsk: "Don't ask",
-};
+/** One action in the composer, rendered in array order in the place its `placement` names. */
+export type ComposerAction = {
+  key: string;
+  ariaLabel: string;
+  title: string;
+  icon: ReactNode;
+  disabled: boolean;
+  className: string;
+  /**
+   * Where it is drawn. Omitted is the row beside the field; `field` is inside it at its trailing
+   * edge (the send); `footer` is the small line under it, beside the context meter.
+   */
+  placement?: "field" | "footer";
+} & (
+  | { onClick: () => void; menu?: undefined }
+  /** Opens a pick-one menu (`ChoiceMenu`) instead of doing anything itself. */
+  | { menu: Omit<ChoiceMenuProps<string>, "trigger">; onClick?: undefined }
+);
 
 const SEND_IN_FIELD_CLASS =
   "mb-2 mr-2 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40";
@@ -241,37 +252,57 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       onClick: () => void m.runModeSwitch.switchTo(target),
     });
   }
-  // The mode line under Claude's box, pressed the way Shift+Tab is pressed there. Unknown until the
-  // pane's stream attaches -- the transcript only rewrites its mode record now and then -- so the
-  // first press attaches it and reads the mode rather than cycling one nobody has seen. Gone once
-  // the pane has been looked for and not found, since there is then no footer to drive.
-  // An SDK session's runner knows its mode from the CLI itself and sets the next one directly.
+  // The permission mode: a chip naming it, which opens the list to choose another. An SDK
+  // session's runner sets the choice directly; a terminal's gets there by Shift+Tab, which the
+  // sidecar presses until the footer names it. A terminal's mode is unknown until the pane's stream
+  // attaches -- the transcript only rewrites its mode record now and then -- so until then the chip
+  // attaches it and reads the mode. Gone once the pane has been looked for and not found.
   if (m.isClaude && (m.sdkBand || m.tmuxComposer.reason !== "no-pane")) {
     const mode = m.sdkBand ? m.sdkSession.state.permissionMode : m.tmuxComposer.permissionMode;
     const label = mode === null ? "Mode" : PERMISSION_MODE_LABELS[mode];
-    actions.push({
+    const chip = {
       key: "permission-mode",
-      ariaLabel: mode === null ? "Show this session's permission mode" : `Permission mode ${label}, switch to the next`,
-      title: m.sdkBand
-        ? "Switch to the next permission mode"
-        : mode === null
-        ? "Read this session's permission mode from its terminal"
-        : "Switch to the next permission mode, as Shift+Tab does in the terminal",
       icon: (
-        <span className="flex min-w-0 items-center gap-1">
+        <span className="flex items-center gap-1 whitespace-nowrap">
           {mode === "bypassPermissions" && <ShieldAlert className="size-3.5 shrink-0" aria-hidden />}
-          <span className="block max-w-28 truncate">{label}</span>
+          {label}
+          {m.sdkBand || mode !== null ? <ChevronsUpDown className="size-3 shrink-0 opacity-60" aria-hidden /> : null}
         </span>
       ),
-      disabled: m.sdkBand ? !m.sdkSession.state.connected || m.sdkSession.pending : m.tmuxComposer.pending,
-      className: `h-9 min-w-0 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium hover:bg-muted disabled:opacity-40 ${
+      // Not squeezed by a narrow footer: the longest label is two words, and a mode cut to "B…"
+      // hides the one fact the chip is there to show.
+      className: `h-9 shrink-0 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium hover:bg-muted disabled:opacity-40 ${
         mode === "bypassPermissions" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
       }`,
-      placement: "footer",
-      onClick: m.sdkBand
-        ? () => void m.sdkSession.cycleMode()
-        : mode === null ? m.engage : m.tmuxComposer.cyclePermissionMode,
-    });
+      placement: "footer" as const,
+    };
+    if (!m.sdkBand && mode === null) {
+      actions.push({
+        ...chip,
+        ariaLabel: "Show this session's permission mode",
+        title: "Read this session's permission mode from its terminal",
+        disabled: m.tmuxComposer.pending,
+        onClick: m.engage,
+      });
+    } else {
+      actions.push({
+        ...chip,
+        ariaLabel: `Permission mode ${label}, choose another`,
+        title: "Choose this session's permission mode",
+        disabled: m.sdkBand ? !m.sdkSession.state.connected || m.sdkSession.pending : m.tmuxComposer.pending,
+        menu: {
+          label: "Permission mode",
+          value: mode,
+          // Bypass is refused only where that is known: an SDK runner says whether it was started
+          // allowing it, a terminal says so by its Shift+Tab never reaching it.
+          choices: permissionModeChoices(m.sdkBand ? m.sdkSession.state.allowBypass : true),
+          onChoose: (value) => {
+            const next = value as ClaudePermissionMode;
+            void (m.sdkBand ? m.sdkSession.choosePermissionMode(next) : m.tmuxComposer.choosePermissionMode(next));
+          },
+        },
+      });
+    }
   }
   // An SDK session's model, from its runner: what the CLI says it answers with, switched through the
   // same picker opencode's uses, from the models that `claude` offers.

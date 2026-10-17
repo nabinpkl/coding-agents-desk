@@ -84,7 +84,7 @@ import {
   type TmuxComposerState,
 } from "@agentdesk/agent-feed-wire";
 import { hexSend, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
-import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
+import { composerBox, composerText, type ComposerBox } from "@/input/composer/composerBox";
 import {
   bindNewImage,
   CARRIAGE_RETURN,
@@ -94,8 +94,8 @@ import {
   paste,
   sendEdit,
   TAB,
-} from "@/input/composerKeystrokes";
-import { pasteTokens } from "@/input/composerPastes";
+} from "@/input/composer/composerKeystrokes";
+import { pasteTokens } from "@/input/composer/composerPastes";
 import { composerPanes, inTurn, settle } from "@/input/tmuxComposerPanes";
 import {
   COALESCE_MS,
@@ -108,14 +108,14 @@ import {
 
 // Re-exported because this is the address the routes and the tests already have, and the
 // parts below are how the composer is built rather than what it offers.
-export { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
-export { keystrokesFor, MAXIMUM_COMPOSER_BYTES } from "@/input/composerKeystrokes";
+export { composerBox, composerText, type ComposerBox } from "@/input/composer/composerBox";
+export { keystrokesFor, MAXIMUM_COMPOSER_BYTES } from "@/input/composer/composerKeystrokes";
 export {
   composerPastes,
   meaning,
   pasteTokens,
   type ComposerPasteStore,
-} from "@/input/composerPastes";
+} from "@/input/composer/composerPastes";
 export { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 export {
   liveTmuxComposerRuntime,
@@ -432,7 +432,7 @@ export async function awaitComposer(
  * exists to skip, and the tmux call about to be made is a better check than any preflight: it
  * either lands or it fails, and `failed` turns the failure into an answer.
  */
-async function paneFor(sessionId: string, runtime: TmuxComposerRuntime): Promise<string | null> {
+export async function paneFor(sessionId: string, runtime: TmuxComposerRuntime): Promise<string | null> {
   return runtime.panes.get(sessionId) ?? await runtime.pane(sessionId);
 }
 

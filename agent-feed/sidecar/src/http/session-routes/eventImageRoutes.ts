@@ -23,7 +23,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute } from "node:path";
 import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
-import { imageMediaType } from "@/input/composerImages";
+import { imageMediaType } from "@/input/composer/composerImages";
 import { isPictureName } from "@/transcripts/claude/claudeFiles";
 import { LineTooLargeError } from "@/transcripts/transcript-reads/transcriptLines";
 import { readEventRaw } from "@/transcripts/transcript-reads/transcriptPages";

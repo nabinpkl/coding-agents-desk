@@ -49,6 +49,8 @@ export type {
   TmuxComposerEnvelope,
   TmuxComposerState,
   TmuxComposerUnavailableReason,
+  TmuxPermissionModeOutcome,
+  TmuxPermissionModeRequest,
 } from "./tmuxComposer.ts";
 
 export {

@@ -28,16 +28,6 @@ type SdkFeed = Pick<
   | "interruptClaudeSdk"
 >;
 
-/**
- * The modes the mode chip steps through, in the order the terminal's Shift+Tab does, so a reader
- * moving between the two kinds of session meets one cycle. Bypass only where the launch allowed it.
- */
-export function nextPermissionMode(current: ClaudePermissionMode | null, allowBypass: boolean): ClaudePermissionMode {
-  const cycle: ClaudePermissionMode[] = ["auto", "acceptEdits", "plan", ...(allowBypass ? ["bypassPermissions" as const] : []), "manual"];
-  const at = current === null ? -1 : cycle.indexOf(current);
-  return cycle[(at + 1) % cycle.length]!;
-}
-
 /** A refusal, said the way the reader's situation reads. */
 export function sdkRefusalText(outcome: Exclude<ClaudeSdkCommandOutcome, { ok: true }>): string {
   switch (outcome.reason) {
@@ -99,9 +89,10 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
     const outcome = await feed.setClaudeSdkModel(address, model);
     if (!outcome.ok) throw new Error(sdkRefusalText(outcome));
   }, [address, feed]);
-  const cycleMode = useCallback(
-    () => run(() => feed.setClaudeSdkMode(address, nextPermissionMode(state.permissionMode, state.allowBypass))),
-    [address, feed, run, state.allowBypass, state.permissionMode],
+  /** Puts the session in one mode, which its runner sets directly; the new state arrives on the stream. */
+  const choosePermissionMode = useCallback(
+    (mode: ClaudePermissionMode) => run(() => feed.setClaudeSdkMode(address, mode)),
+    [address, feed, run],
   );
 
   /**
@@ -113,7 +104,7 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
     pointTmuxQuestion: async () => ({ pointed: true }),
   }), [feed]);
 
-  return { state, pending, error, send, interrupt, decide, cycleMode, setModel, questions };
+  return { state, pending, error, send, interrupt, decide, choosePermissionMode, setModel, questions };
 }
 
 export type SdkSessionHandle = ReturnType<typeof useSdkSession>;

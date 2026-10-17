@@ -18,6 +18,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const dropped: { bytes: number; mediaType: string }[] = [];
   const pressed: { key: string; modifiers: RailModifiers }[] = [];
   const previewed: string[] = [];
+  const modes: string[] = [];
   const composer: TmuxComposerDependencies = {
     observe: (sessionId, listener) => {
       watched.push(sessionId);
@@ -48,6 +49,10 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
       previewed.push(token);
       return token === "[Pasted text #1]" ? "the words behind it" : null;
     },
+    mode: async (_sessionId, mode) => {
+      modes.push(mode);
+      return { ok: true, mode };
+    },
     ...overrides,
   };
   return {
@@ -59,6 +64,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
     accepted,
     dropped,
     pressed,
+    modes,
   };
 }
 
@@ -269,4 +275,16 @@ test("every key the route accepts maps to bytes, so the two sets cannot drift ap
   for (const key of ["escape", "tab", "up", "down", "left", "right"] as const) {
     expect(bytesForRailKey(key, NO_MODIFIERS).length).toBeGreaterThan(0);
   }
+});
+
+test("sets a named permission mode, and refuses a name the CLI does not have", async () => {
+  const feed = routeWith();
+  const path = `/api/sessions/claude/${SESSION}/composer/mode`;
+  const response = await call(feed.route, "POST", path, { mode: "plan" });
+  expect(response!.status).toBe(200);
+  expect(await response!.json()).toEqual({ ok: true, mode: "plan" });
+  expect((await call(feed.route, "POST", path, { mode: "yolo" }))!.status).toBe(400);
+  expect((await call(feed.route, "POST", path, {}))!.status).toBe(400);
+  expect(await call(feed.route, "GET", path)).toBeUndefined();
+  expect(feed.modes).toEqual(["plan"]);
 });

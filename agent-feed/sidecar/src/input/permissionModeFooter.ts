@@ -5,7 +5,7 @@
 // the session it describes.
 
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
-import { plainText } from "@/input/composerBox";
+import { plainText } from "@/input/composer/composerBox";
 
 /**
  * What each mode says in the footer, measured 2026-10-09 across the running panes on CLI 2.1.295:

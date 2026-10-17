@@ -26,9 +26,10 @@ import { SdkApprovalRequests } from "@/features/session-view/composer/question/S
 import type { QuestionMirrorModel } from "@/features/session-view/composer/question/useQuestionMirror";
 import { OpencodeModelsDialog, OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
 import { currentSdkModel, sdkModelRows } from "@/features/cli-input/useSdkSession";
+import { ChoiceMenu } from "@/features/bots/menus/ChoiceMenu";
 import { OpencodeAsideDialog } from "@/features/session-view/OpencodeAsideDialog";
 import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
-import type { ComposerAction } from "@/features/session-view/composer/SessionComposer";
+import type { ComposerAction } from "@/features/session-view/composer/sessionComposerActions";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
@@ -388,6 +389,21 @@ export function SessionComposerBand({
 }
 
 function actionButton(action: ComposerAction) {
+  if (action.menu) {
+    return (
+      <ChoiceMenu
+        key={action.key}
+        {...action.menu}
+        trigger={{
+          ariaLabel: action.ariaLabel,
+          title: action.title,
+          className: action.className,
+          disabled: action.disabled,
+          content: action.icon,
+        }}
+      />
+    );
+  }
   return (
     <button
       key={action.key}

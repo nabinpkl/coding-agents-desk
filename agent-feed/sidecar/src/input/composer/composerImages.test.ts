@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, readdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { imageMediaType, writeComposerImage } from "@/input/composerImages";
+import { imageMediaType, writeComposerImage } from "@/input/composer/composerImages";
 
 /** A file's first bytes, which is all the sniff ever looks at. */
 function bytes(...values: number[]): Uint8Array {

@@ -15,14 +15,18 @@
 // of them answering "the same as last time". The stream reports only differences.
 
 import {
+  CLAUDE_PERMISSION_MODES,
   MAXIMUM_COMPOSER_IMAGE_BYTES,
+  type ClaudePermissionMode,
   type ComposerImageMediaType,
   type RailKey,
   type RailModifier,
   type RailModifiers,
   type TmuxComposerState,
+  type TmuxPermissionModeOutcome,
 } from "@agentdesk/agent-feed-wire";
-import { imageMediaType, writeComposerImage } from "@/input/composerImages";
+import { imageMediaType, writeComposerImage } from "@/input/composer/composerImages";
+import { setTmuxPermissionMode } from "@/input/permissionModeSwitch";
 import {
   acceptTmuxComposerHint,
   dropTmuxComposerImage,
@@ -62,7 +66,7 @@ function isRailKey(value: unknown): value is RailKey {
 }
 
 const COMPOSER_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/image|\/key|\/stream|\/paste\/[^/]+)?$/i;
+  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/image|\/key|\/mode|\/stream|\/paste\/[^/]+)?$/i;
 
 /** The composer, injected, so the route's address shape can be pinned without a tmux server. */
 export interface TmuxComposerDependencies {
@@ -107,6 +111,8 @@ export interface TmuxComposerDependencies {
    * empty preview, because "nothing here" and "not ours to show" are different facts.
    */
   paste: (sessionId: string, token: string) => Promise<string | null>;
+  /** Presses Shift+Tab until the footer names the mode asked for (`permissionModeSwitch.ts`). */
+  mode: (sessionId: string, mode: ClaudePermissionMode) => Promise<TmuxPermissionModeOutcome>;
 }
 
 /**
@@ -128,6 +134,7 @@ export function liveTmuxComposerDependencies(
     drop: async (sessionId, image, mediaType) =>
       dropTmuxComposerImage(sessionId, await writeComposerImage(image, mediaType), runtime),
     key: (sessionId, key, held) => pressTmuxComposerKey(sessionId, key, held, runtime),
+    mode: (sessionId, mode) => setTmuxPermissionMode(sessionId, mode, runtime),
     paste: async (sessionId, token) => {
       // Resolved through the same held pane the pushes use, so a fetch never costs the session
       // lookup a live watch has already paid for.
@@ -158,6 +165,10 @@ export function createTmuxComposerRoutes(composer: TmuxComposerDependencies): Ro
     if (action === "/key") {
       if (request.method !== "POST") return undefined;
       return pressKey(composer, request, sessionId);
+    }
+    if (action === "/mode") {
+      if (request.method !== "POST") return undefined;
+      return setMode(composer, request, sessionId);
     }
     if (action === "/stream") {
       if (request.method !== "GET") return undefined;
@@ -239,6 +250,28 @@ async function pressKey(
     shift: heldFlag(held, "shift"),
   };
   return jsonResponse(await composer.key(sessionId, body.key, modifiers));
+}
+
+/**
+ * Moves the session to one permission mode. A refusal is a 200 carrying the reason, like the SDK's
+ * commands: the request was understood, and the session simply could not be put there.
+ */
+async function setMode(
+  composer: TmuxComposerDependencies,
+  request: Request,
+  sessionId: string,
+): Promise<Response> {
+  let body: { mode?: unknown };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return errorResponse("body-unreadable", "a mode change must carry a JSON body", 400);
+  }
+  const mode = body.mode;
+  if (typeof mode !== "string" || !(CLAUDE_PERMISSION_MODES as readonly string[]).includes(mode)) {
+    return errorResponse("mode-unknown", `a mode must be one of ${CLAUDE_PERMISSION_MODES.join(", ")}`, 400);
+  }
+  return jsonResponse(await composer.mode(sessionId, mode as ClaudePermissionMode));
 }
 
 /** One modifier out of whatever arrived, true only when it is actually the boolean true. */

@@ -130,7 +130,7 @@ describe("the model switcher", () => {
     }));
     const button = actions.find((action) => action.key === "switch-model");
     expect(button?.placement).toBe("footer");
-    button?.onClick();
+    button?.onClick?.();
     expect(onRunSlash).toHaveBeenCalledWith("model", "");
   });
 
@@ -285,5 +285,34 @@ describe("the context meter's Compact button", () => {
       agentTerminalBand: false,
       transport: { kind: "agent-session" },
     }))).toBeNull();
+  });
+});
+
+describe("a terminal session's permission mode", () => {
+  const terminal = (permissionMode: string | null, engage = vi.fn()) => model({
+    isClaude: true,
+    sdkBand: false,
+    engage,
+    session: { source: "claude", sessionId: "c1" } as ComposerModel["session"],
+    tmuxComposer: { pending: false, reason: null, permissionMode, choosePermissionMode: vi.fn(async () => {}) } as never,
+  });
+
+  it("opens the same menu as an SDK session's, bypass included, and sets the mode chosen", () => {
+    const m = terminal("auto");
+    const chip = composerActions(m).find((action) => action.key === "permission-mode")!;
+    expect(chip.ariaLabel).toBe("Permission mode Auto, choose another");
+    expect(chip.menu?.value).toBe("auto");
+    // A terminal cannot say ahead of time whether its cycle reaches bypass, so it is offered.
+    expect(chip.menu?.choices.every((choice) => choice.unavailable === undefined)).toBe(true);
+    chip.menu!.onChoose("plan");
+    expect(m.tmuxComposer.choosePermissionMode).toHaveBeenCalledWith("plan");
+  });
+
+  it("attaches the pane to read the mode before it offers to change one nobody has seen", () => {
+    const engage = vi.fn();
+    const chip = composerActions(terminal(null, engage)).find((action) => action.key === "permission-mode")!;
+    expect(chip.menu).toBeUndefined();
+    chip.onClick!();
+    expect(engage).toHaveBeenCalled();
   });
 });

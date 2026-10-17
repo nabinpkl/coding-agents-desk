@@ -199,8 +199,8 @@ export interface TmuxComposerHandle {
    * Kept across readings that could not see the footer, because those say nothing about the mode.
    */
   permissionMode: ClaudePermissionMode | null;
-  /** Presses Shift+Tab in the pane, which moves the session to its next mode. */
-  cyclePermissionMode: () => void;
+  /** Puts the session in one mode, by Shift+Tab in its pane until the footer names it. */
+  choosePermissionMode: (mode: ClaudePermissionMode) => Promise<void>;
   /**
    * The command menu the pane is showing, which is open only while a `/` is being typed.
    *

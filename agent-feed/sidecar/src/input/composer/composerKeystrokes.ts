@@ -5,8 +5,8 @@
 // count and a retype for everything else.
 
 import { hexSend, type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
-import { ATTACHMENT, composerBox, composerText, type ComposerBox } from "@/input/composerBox";
-import { meaning } from "@/input/composerPastes";
+import { ATTACHMENT, composerBox, composerText, type ComposerBox } from "@/input/composer/composerBox";
+import { meaning } from "@/input/composer/composerPastes";
 import type { TmuxComposerRuntime } from "@/input/tmuxComposerRuntime";
 
 /** Kill to the start of the visual row. One per row is what empties the box. */

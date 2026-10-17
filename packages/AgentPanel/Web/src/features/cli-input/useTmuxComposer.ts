@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MAXIMUM_COMPOSER_IMAGE_BYTES,
-  NO_MODIFIERS,
   type ClaudePermissionMode,
   type ComposerCommand,
   type ComposerPaste,
@@ -79,6 +78,7 @@ export function useTmuxComposer(
     | "dropTmuxComposerImage"
     | "pressTmuxComposerKey"
     | "readTmuxComposerPaste"
+    | "setTmuxPermissionMode"
   >,
   session: SessionAddress,
   active: boolean,
@@ -416,11 +416,22 @@ export function useTmuxComposer(
       .catch((failure) => setError(String((failure as Error).message ?? failure)));
   }, [feed]);
 
-  // Shift+Tab, outside the rail's latch: the mode control is one fixed key, and it must not spend a
-  // modifier the reader armed for something else. The new mode arrives on the stream.
-  const cyclePermissionMode = useCallback(() => {
-    void feed.pressTmuxComposerKey(sessionRef.current, "tab", { ...NO_MODIFIERS, shift: true })
-      .catch((failure) => setError(String((failure as Error).message ?? failure)));
+  // The sidecar presses Shift+Tab until the footer names the mode, outside the rail's latch: it
+  // must not spend a modifier the reader armed for something else. Pending while it presses, so a
+  // send cannot land between two presses, and the footer's answer is adopted at once rather than
+  // waiting for the stream to repeat it.
+  const choosePermissionMode = useCallback(async (mode: ClaudePermissionMode) => {
+    setPending(true);
+    setError(null);
+    try {
+      const outcome = await feed.setTmuxPermissionMode(sessionRef.current, mode);
+      if (outcome.mode !== null) setPermissionMode(outcome.mode);
+      if (!outcome.ok) setError(`Not switched: ${outcome.message}.`);
+    } catch (failure) {
+      setError(String((failure as Error).message ?? failure));
+    } finally {
+      setPending(false);
+    }
   }, [feed]);
 
   const toggleModifier = useCallback((modifier: RailModifier) => {
@@ -453,7 +464,7 @@ export function useTmuxComposer(
     toggleModifier,
     pressKey,
     permissionMode,
-    cyclePermissionMode,
+    choosePermissionMode,
     commands,
     chooseCommand,
     pastes: attachments.pastes,

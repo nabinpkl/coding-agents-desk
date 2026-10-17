@@ -21,6 +21,8 @@ import type {
   RailModifiers,
   TmuxComposerEnvelope,
   TmuxComposerState,
+  TmuxPermissionModeOutcome,
+  TmuxPermissionModeRequest,
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
   TmuxQuestionPoint,
@@ -55,7 +57,7 @@ function cliSessionPath(session: SessionAddress): string {
  */
 function tmuxComposerPath(
   session: SessionAddress,
-  action: "" | "/submit" | "/accept" | "/image" | "/key" | "/stream" | `/paste/${string}` = "",
+  action: "" | "/submit" | "/accept" | "/image" | "/key" | "/mode" | "/stream" | `/paste/${string}` = "",
 ): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/composer${action}`;
 }
@@ -291,6 +293,18 @@ export class SidecarComposers extends SidecarTranscript {
     return parse<TmuxComposerState>(
       await this.transport.request("POST", tmuxComposerPath(session, "/key"), {
         body: { key, modifiers } satisfies ComposerKeyPress,
+      }),
+    );
+  }
+
+  /**
+   * Moves a terminal session to one permission mode: the sidecar presses Shift+Tab until the pane's
+   * footer names it, and answers where the footer says it ended up.
+   */
+  async setTmuxPermissionMode(session: SessionAddress, mode: ClaudePermissionMode): Promise<TmuxPermissionModeOutcome> {
+    return parse<TmuxPermissionModeOutcome>(
+      await this.transport.request("POST", tmuxComposerPath(session, "/mode"), {
+        body: { mode } satisfies TmuxPermissionModeRequest,
       }),
     );
   }

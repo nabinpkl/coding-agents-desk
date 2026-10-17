@@ -6,7 +6,7 @@
 
 import { act, fireEvent, screen, render } from "@testing-library/react";
 import { vi } from "vitest";
-import type { ClaudePermissionMode, RailKey, RailModifiers, TmuxComposerState } from "@agentdesk/agent-feed-wire";
+import type { ClaudePermissionMode, RailKey, RailModifiers, TmuxComposerState, TmuxPermissionModeOutcome } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 
@@ -93,6 +93,16 @@ export function pane(initial = "", opening?: TmuxComposerState) {
       feed.keys.push({ key, modifiers });
       return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     },
+    /** Every mode asked for, and what the sidecar answers: set `modeAnswer` to make it refuse. */
+    modes: [] as ClaudePermissionMode[],
+    modeAnswer: null as TmuxPermissionModeOutcome | null,
+    setTmuxPermissionMode: async (
+      _session: SessionAddress,
+      mode: ClaudePermissionMode,
+    ): Promise<TmuxPermissionModeOutcome> => {
+      feed.modes.push(mode);
+      return feed.modeAnswer ?? { ok: true, mode };
+    },
     /**
      * What the sidecar is holding for each handle, so a test can make a chip openable or not.
      *
@@ -146,7 +156,8 @@ export function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; 
       <button type="button" onClick={() => composer.pressKey("left")}>left</button>
       <button type="button" onClick={() => composer.remove(7)}>remove</button>
       <span data-testid="mode">{composer.permissionMode ?? "-"}</span>
-      <button type="button" onClick={composer.cyclePermissionMode}>cycle-mode</button>
+      <span data-testid="error">{composer.error ?? ""}</span>
+      <button type="button" onClick={() => void composer.choosePermissionMode("plan")}>choose-plan</button>
       <span data-testid="pastes">
         {composer.pastes.map((p) => `${p.token}:${p.held ? `${p.held.lines}L${p.held.chars}C` : "unheld"}`).join(" ")}
       </span>

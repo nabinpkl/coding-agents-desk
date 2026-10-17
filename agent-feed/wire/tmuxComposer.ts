@@ -249,6 +249,33 @@ export const CLAUDE_PERMISSION_MODES = [
 export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
 
 /**
+ * Moving a terminal session to one permission mode, by pressing Shift+Tab until its footer names it.
+ *
+ * The terminal has no "set the mode" key, only the cycle, so the sidecar presses and reads the
+ * footer back after each press. `mode` is where the footer says the session ended up, which on a
+ * refusal is where it started: a cycle that comes round without the mode it was asked for has
+ * pressed its way back to the beginning.
+ */
+export type TmuxPermissionModeOutcome =
+  | { ok: true; mode: ClaudePermissionMode }
+  | {
+    ok: false;
+    /**
+     * `no-pane`: no pane to press in. `no-footer`: nothing on screen names a mode, as when a dialog
+     * covers it. `no-response`: a press did not move the footer. `unreachable`: this session's
+     * Shift+Tab never stops at that mode, as bypass does not unless the session was started with it.
+     */
+    reason: "no-pane" | "tmux-unavailable" | "no-footer" | "no-response" | "unreachable";
+    message: string;
+    mode: ClaudePermissionMode | null;
+  };
+
+/** The request that asks for it. */
+export interface TmuxPermissionModeRequest {
+  mode: ClaudePermissionMode;
+}
+
+/**
  * One key rail press, on its way to a session's prompt box.
  *
  * The key is NAMED, and the sidecar turns it into bytes with `bytesForRailKey`. A shape carrying

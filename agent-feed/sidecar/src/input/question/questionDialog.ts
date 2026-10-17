@@ -78,7 +78,7 @@
  * being trusted once here.
  */
 import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
-import { plainText } from "@/input/composerBox";
+import { plainText } from "@/input/composer/composerBox";
 
 /** What the free-text row says before anybody types in it, in each of the two shapes. */
 export const PLACEHOLDERS = ["Type something.", "Type something"] as const;

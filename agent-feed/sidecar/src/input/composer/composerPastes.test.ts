@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { composerPastes, meaning, pasteTokens } from "@/input/composerPastes";
+import { composerPastes, meaning, pasteTokens } from "@/input/composer/composerPastes";
 
 const look = (store: ReturnType<typeof composerPastes>, pane: string) =>
   (token: string) => store.textFor(pane, token);

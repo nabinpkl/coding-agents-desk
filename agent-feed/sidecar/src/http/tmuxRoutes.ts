@@ -29,8 +29,8 @@ import type {
 import { MAXIMUM_COMPOSER_IMAGE_BYTES } from "@agentdesk/agent-feed-wire";
 import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
-import { imageMediaType, writeComposerImage } from "@/input/composerImages";
-import { paste } from "@/input/composerKeystrokes";
+import { imageMediaType, writeComposerImage } from "@/input/composer/composerImages";
+import { paste } from "@/input/composer/composerKeystrokes";
 import { hexKeyArguments } from "@/terminal/tmux/tmuxAttachment";
 import {
   killTmuxSession,

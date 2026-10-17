@@ -6,8 +6,8 @@
 
 import { captureTmuxPaneView, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
-import { composerBox, composerText } from "@/input/composerBox";
-import { waitFor } from "@/input/composerKeystrokes";
+import { composerBox, composerText } from "@/input/composer/composerBox";
+import { waitFor } from "@/input/composer/composerKeystrokes";
 import type { TmuxComposerRuntime } from "@/input/tmuxComposerRuntime";
 
 /**

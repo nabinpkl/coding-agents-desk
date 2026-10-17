@@ -17,13 +17,13 @@ import {
 } from "@/terminal/tmux/tmuxSessions";
 import { config } from "@/config/config";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
-import { composerBox, composerText, type ComposerBox } from "@/input/composerBox";
-import { imageTokens } from "@/input/composerKeystrokes";
+import { composerBox, composerText, type ComposerBox } from "@/input/composer/composerBox";
+import { imageTokens } from "@/input/composer/composerKeystrokes";
 import {
   composerPastes,
   pasteTokens,
   type ComposerPasteStore,
-} from "@/input/composerPastes";
+} from "@/input/composer/composerPastes";
 import { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 import { questionDialog } from "@/input/question/questionDialog";
 import { questionStateFrom } from "@/input/question/questionMirrorState";

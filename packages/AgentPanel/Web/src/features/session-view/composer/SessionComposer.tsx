@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
-  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -93,22 +92,6 @@ import { composerTransport, type ComposerModel } from "@/features/session-view/c
 import { useSdkSession } from "@/features/cli-input/useSdkSession";
 import { useRunModeSwitch } from "@/features/cli-input/useRunModeSwitch";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
-
-/** One action in the composer, rendered in array order in the place its `placement` names. */
-export type ComposerAction = {
-  key: string;
-  ariaLabel: string;
-  title: string;
-  icon: ReactNode;
-  disabled: boolean;
-  className: string;
-  onClick: () => void;
-  /**
-   * Where it is drawn. Omitted is the row beside the field; `field` is inside it at its trailing
-   * edge (the send); `footer` is the small line under it, beside the context meter.
-   */
-  placement?: "field" | "footer";
-};
 
 export function SessionComposer({
   host,

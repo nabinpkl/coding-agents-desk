@@ -17,7 +17,7 @@ import {
   keystrokesFor,
   syncTmuxComposer,
 } from "@/input/tmuxComposer";
-import { insertedText } from "@/input/composerKeystrokes";
+import { insertedText } from "@/input/composer/composerKeystrokes";
 
 // A real file: the store will not re-drop a path whose file has been swept.
 const PNG = join(mkdtempSync(join(tmpdir(), "composer-redrop-")), "a.png");

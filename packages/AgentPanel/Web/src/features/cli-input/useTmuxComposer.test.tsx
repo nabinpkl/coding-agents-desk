@@ -319,7 +319,7 @@ describe("tmux composer", () => {
     expect(draft()).toBe("stop adding the three suggestions");
   });
 
-  it("shows the footer's mode and moves it with Shift+Tab, keeping the rail's latch", async () => {
+  it("shows the footer's mode and asks the sidecar for a chosen one, keeping the rail's latch", async () => {
     const feed = pane("");
     render(<Probe feed={feed} />);
     await settle();
@@ -328,13 +328,28 @@ describe("tmux composer", () => {
 
     // An armed Ctrl is the reader's, for their next rail key, and the mode control must not spend it.
     await act(async () => { screen.getByText("ctrl").click(); });
-    await press("cycle-mode");
-    expect(feed.keys).toEqual([{ key: "tab", modifiers: { ctrl: false, alt: false, shift: true } }]);
+    await press("choose-plan");
+    expect(feed.modes).toEqual(["plan"]);
+    expect(feed.keys).toEqual([]);
     expect(screen.getByTestId("modifiers").textContent).toContain("ctrl:armed");
+    // The sidecar's answer is where the footer ended up, taken without waiting for the stream.
+    expect(screen.getByTestId("mode").textContent).toBe("plan");
+  });
 
-    // The pane says where that landed; nothing here guesses at the cycle's order.
-    await act(async () => { feed.announceMode("bypassPermissions"); });
-    expect(screen.getByTestId("mode").textContent).toBe("bypassPermissions");
+  it("says why a mode could not be reached, and shows where the footer is", async () => {
+    const feed = pane("");
+    render(<Probe feed={feed} />);
+    await settle();
+    await act(async () => { feed.announceMode("auto"); });
+    feed.modeAnswer = {
+      ok: false,
+      reason: "unreachable",
+      message: "this session's Shift+Tab goes auto, plan and never reaches plan",
+      mode: "acceptEdits",
+    };
+    await press("choose-plan");
+    expect(screen.getByTestId("mode").textContent).toBe("acceptEdits");
+    expect(screen.getByTestId("error").textContent).toContain("never reaches plan");
   });
 
   it("sends the draft before the images, so typed text never lands after them", async () => {

@@ -77,9 +77,9 @@ import {
   type TmuxPaneView,
 } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
-import { keystrokesFor } from "@/input/composerKeystrokes";
+import { keystrokesFor } from "@/input/composer/composerKeystrokes";
 import { inTurn } from "@/input/tmuxComposerPanes";
-import { composerBox, composerText, plainText } from "@/input/composerBox";
+import { composerBox, composerText, plainText } from "@/input/composer/composerBox";
 
 /** The glyph Claude puts on the selected row of a list. */
 const MARKER = "\u276f";
