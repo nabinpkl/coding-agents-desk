@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { keyboardInset, typesText } from "@/app/page/keyboardInset";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { keepTypingInSight, keyboardInset, typesText } from "@/app/page/keyboardInset";
 
 describe("keyboardInset", () => {
   it("gives back the strip a keyboard covers", () => {
@@ -49,5 +49,50 @@ describe("typesText", () => {
     expect(typesText(document.createElement("input"))).toBe(true);
     expect(typesText(document.createElement("div"))).toBe(false);
     expect(typesText(null)).toBe(false);
+  });
+});
+
+describe("keepTypingInSight", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.replaceChildren();
+  });
+
+  /** A scroller with a field in it, and a hand on the observer the helper installs. */
+  function setUp() {
+    let resized = (): void => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resized = callback; }
+      observe() {}
+      disconnect() { resized = () => {}; }
+    });
+    const scroller = document.createElement("main");
+    const field = document.createElement("textarea");
+    scroller.append(field);
+    const outside = document.createElement("input");
+    document.body.append(scroller, outside);
+    for (const one of [field, outside]) one.scrollIntoView = vi.fn();
+    return { scroller, field, outside, resize: () => resized() };
+  }
+
+  it("scrolls the focused field back into sight when its scroller shrinks", () => {
+    // A lane's composer sits at the foot of a column taller than a phone with its keyboard up.
+    const { scroller, field, resize } = setUp();
+    keepTypingInSight(scroller);
+    field.focus();
+    resize();
+    expect(field.scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+  });
+
+  it("leaves a field outside the scroller, and stops once removed", () => {
+    const { scroller, field, outside, resize } = setUp();
+    const keeping = keepTypingInSight(scroller);
+    outside.focus();
+    resize();
+    expect(outside.scrollIntoView).not.toHaveBeenCalled();
+    keeping.remove();
+    field.focus();
+    resize();
+    expect(field.scrollIntoView).not.toHaveBeenCalled();
   });
 });

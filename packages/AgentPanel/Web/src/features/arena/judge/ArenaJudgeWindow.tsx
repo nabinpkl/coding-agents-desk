@@ -99,10 +99,12 @@ function OpenJudge({
   const shown = listed ?? awaited;
 
   return (
+    // Fixed, so it is placed against the layout viewport, which a phone keyboard does not shorten:
+    // it rises by the keyboard's inset itself, as the document does.
     <section
       id="arena-judge"
       aria-label="Judge"
-      className="fixed right-4 bottom-4 z-40 flex h-[min(40rem,calc(100dvh-6rem))] w-[min(40rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+      className="fixed right-4 bottom-[calc(1rem+var(--agent-panel-keyboard-inset,0px))] z-40 flex h-[min(40rem,calc(100dvh-6rem-var(--agent-panel-keyboard-inset,0px)))] w-[min(40rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
       {...drop.dropProps}
     >
       {/* Wraps rather than clips: on a phone the session's controls take a second row. */}

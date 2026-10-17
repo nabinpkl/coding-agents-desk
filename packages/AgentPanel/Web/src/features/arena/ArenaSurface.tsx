@@ -12,7 +12,7 @@
 // facts, never a second transcript reader. A run's judge is one more such session, which the
 // reader asks for a verdict; the verdict is its answer in its session, not a score the tab keeps.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createArenaRun,
   deleteArenaRun,
@@ -29,6 +29,7 @@ import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSo
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
+import { keepTypingInSight } from "@/app/page/keyboardInset";
 import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
 import { ArenaNewRun, EMPTY_DRAFT, type ArenaDraft } from "@/features/arena/ArenaNewRun";
 import { ArenaRunRail } from "@/features/arena/ArenaRunRail";
@@ -230,10 +231,21 @@ export function ArenaSurface({
     setProblem(null);
   }, [showRun]);
 
+  // A lane's composer sits at the foot of a column taller than a phone with its keyboard up, so
+  // shortening the page does not lift it: the column has to scroll to it.
+  const main = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!main.current) return;
+    const keeping = keepTypingInSight(main.current);
+    return () => keeping.remove();
+  }, []);
+
   return (
     <div data-arena-surface className="@container flex h-full min-h-0 bg-background text-foreground">
       <div className="flex min-h-0 w-full flex-col @3xl:flex-row">
-        <aside className="flex max-h-56 shrink-0 flex-col border-b border-border @3xl:max-h-none @3xl:w-72 @3xl:border-r @3xl:border-b-0">
+        {/* Stacked above the run, the rail steps aside while a keyboard is up: what is left of a
+            phone's screen goes to the field being typed into. */}
+        <aside className="flex max-h-56 shrink-0 flex-col border-b border-border @max-3xl:[html[data-keyboard-up]_&]:hidden @3xl:max-h-none @3xl:w-72 @3xl:border-r @3xl:border-b-0">
           <ArenaRunRail
             runs={runs}
             selectedRunId={selectedRunId}
@@ -246,7 +258,7 @@ export function ArenaSurface({
             }}
           />
         </aside>
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <main ref={main} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {selectedRunId === null ? (
             <ArenaNewRun
               draft={draft}

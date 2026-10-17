@@ -3,8 +3,11 @@ const MINIMUM_KEYBOARD_INSET = 60;
 
 const INSET_PROPERTY = "--agent-panel-keyboard-inset";
 
+/** On the document element while a keyboard is up, for what should step aside while typing. */
+const RAISED_ATTRIBUTE = "data-keyboard-up";
+
 /** Whether this element is the kind a phone raises its keyboard for. */
-export function typesText(element: Element | null): boolean {
+export function typesText(element: Element | null): element is HTMLElement {
   if (!(element instanceof HTMLElement)) return false;
   if (element.isContentEditable) return true;
   return element.tagName === "INPUT" || element.tagName === "TEXTAREA";
@@ -38,7 +41,8 @@ export function keyboardInset(reading: {
 
 /**
  * Publish the keyboard inset as a CSS variable, which `styles.css` subtracts from the document's
- * height. One writer, and the layout reads it -- rather than every surface that has something near
+ * height, and whether there is one as an attribute, which a selector can test where a length
+ * cannot. One writer, and the layout reads it -- rather than every surface that has something near
  * the bottom of the screen growing its own viewport listener.
  */
 export function installKeyboardInset(): { remove(): void } {
@@ -51,6 +55,7 @@ export function installKeyboardInset(): { remove(): void } {
       typing: typesText(document.activeElement),
     });
     document.documentElement.style.setProperty(INSET_PROPERTY, `${inset}px`);
+    document.documentElement.toggleAttribute(RAISED_ATTRIBUTE, inset > 0);
   };
   // `scroll` as well as `resize`: iOS pans the visual viewport to keep the caret in sight, which
   // moves the covered strip without changing its size.
@@ -70,6 +75,26 @@ export function installKeyboardInset(): { remove(): void } {
       document.removeEventListener("focusin", apply);
       document.removeEventListener("focusout", apply);
       document.documentElement.style.removeProperty(INSET_PROPERTY);
+      document.documentElement.removeAttribute(RAISED_ATTRIBUTE);
     },
   };
+}
+
+/**
+ * Keep the field being typed into in sight whenever `scroller` gets shorter.
+ *
+ * Shortening the document lifts whatever sits at the bottom of a scroller that fits it, but not a
+ * field partway down a scroller with more under it -- a column with a floor under its height
+ * leaves its lower fields beneath the keyboard. The browser scrolled the field into view on focus,
+ * before the keyboard said how much it covers, so this does it again once the scroller has shrunk:
+ * a resize of the box itself rather than another viewport listener, so it runs after the inset has
+ * been laid out. Only a field inside `scroller`, and only as far as it takes.
+ */
+export function keepTypingInSight(scroller: HTMLElement): { remove(): void } {
+  const observer = new ResizeObserver(() => {
+    const active = document.activeElement;
+    if (typesText(active) && scroller.contains(active)) active.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+  observer.observe(scroller);
+  return { remove: () => observer.disconnect() };
 }
