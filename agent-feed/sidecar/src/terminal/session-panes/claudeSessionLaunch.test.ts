@@ -147,14 +147,22 @@ test("a reopened session resumes in the mode, model and effort it last ran with"
   expect(command.slice(-6)).toEqual(["--resume", "abc", "--model", "haiku", "--effort", "max"]);
 });
 
-test("what a session resumes with is checked, a runner's newer choice wins, and bypass needs allowing", () => {
+test("what a session resumes with is checked, and a runner's newer choice wins", () => {
   const last = { model: "claude-opus-5-5[1m]", effort: "high", permissionMode: "default" };
-  expect(resumeSelection(last)).toEqual({ model: "claude-opus-5-5[1m]", effort: "high", permissionMode: "manual" });
-  expect(resumeSelection(last, { model: "haiku", effort: "max" })).toEqual({ model: "haiku", effort: "max", permissionMode: "manual" });
-  expect(resumeSelection({ model: "opus; rm -rf /", effort: "ultra", permissionMode: "sideways" })).toEqual({});
-  expect(resumeSelection({ permissionMode: "bypassPermissions" }, {}, true)).toEqual({ permissionMode: "bypassPermissions" });
-  expect(resumeSelection({ permissionMode: "bypassPermissions" }, {}, false)).toEqual({});
-  expect(resumeSelection(undefined)).toEqual({});
+  expect(resumeSelection(last, {}, "auto")).toEqual({ model: "claude-opus-5-5[1m]", effort: "high", permissionMode: "manual" });
+  expect(resumeSelection(last, { model: "haiku", effort: "max" }, "auto")).toEqual({ model: "haiku", effort: "max", permissionMode: "manual" });
+  expect(resumeSelection({ model: "opus; rm -rf /", effort: "ultra", permissionMode: "sideways" }, {}, "auto")).toEqual({});
+  expect(resumeSelection(undefined, {}, "auto")).toEqual({});
+});
+
+test("a mode read from the transcript never gives a session more than a fresh launch would", () => {
+  // The transcript is writable by the session's own agent, so a line claiming bypass is not a choice.
+  expect(resumeSelection({ permissionMode: "bypassPermissions" }, {}, "auto")).toEqual({});
+  expect(resumeSelection({ permissionMode: "auto" }, {}, "manual")).toEqual({});
+  for (const mode of ["plan", "dontAsk", "default", "acceptEdits", "auto"]) {
+    expect(resumeSelection({ permissionMode: mode }, {}, "auto").permissionMode).toBeDefined();
+  }
+  expect(resumeSelection({ permissionMode: "bypassPermissions" }, {}, "bypassPermissions")).toEqual({ permissionMode: "bypassPermissions" });
 });
 
 test("a fork's pane is named after the fork, so two forks of one session do not collide", () => {

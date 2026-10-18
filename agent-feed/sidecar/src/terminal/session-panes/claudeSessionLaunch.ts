@@ -103,20 +103,38 @@ export interface ResumeSelection {
 }
 
 /**
+ * How much each mode lets a session do without asking, least first. `dontAsk` never asks and denies
+ * what is not pre-approved, so it grants nothing more than plan does.
+ */
+const PERMISSION_RANK: Record<ClaudePermissionMode, number> = {
+  plan: 0,
+  dontAsk: 0,
+  manual: 1,
+  acceptEdits: 2,
+  auto: 3,
+  bypassPermissions: 4,
+};
+
+/**
  * What a session resumes with: the model, effort and permission mode it last ran with, from its own
  * transcript, under any choice its SDK runner made since that no turn has recorded yet. Each is
- * checked before it reaches a command line, and bypass only where launches allow it -- a session
- * last in bypass otherwise opens in the launch default, as any would.
+ * checked before it reaches a command line.
+ *
+ * The mode is restored only up to the launch default (`ceiling`). The transcript is a file the
+ * session's own agent can write to as this user, so a mode read from it must never give the session
+ * more than a fresh launch would: a line claiming bypass would otherwise raise an agent to bypass on
+ * its next resume without anyone choosing it. A session last in a mode above the ceiling opens in
+ * the launch default, and its reader chooses the higher mode again from the chip.
  */
 export function resumeSelection(
   last: LastSelection | undefined,
   choices: RunnerChoices = {},
-  allowBypass: boolean = claudeLaunchPermission.allowBypass,
+  ceiling: ClaudePermissionMode = claudeLaunchPermission.mode,
 ): ResumeSelection {
   const model = choices.model ?? (isModelName(last?.model) ? last.model : undefined);
   const effort = choices.effort ?? (isEffortLevel(last?.effort) ? last.effort : undefined);
   const mode = cliPermissionMode(last?.permissionMode);
-  const permissionMode = mode === "bypassPermissions" && !allowBypass ? undefined : mode ?? undefined;
+  const permissionMode = mode !== null && PERMISSION_RANK[mode] <= PERMISSION_RANK[ceiling] ? mode : undefined;
   return {
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),

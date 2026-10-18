@@ -46,8 +46,12 @@ reaches a command line.
 - Neutral, because a launch default now only opens a new session. A changed default mode no longer
   reaches an existing session through a restart, so the stale-session check no longer counts a
   different `--permission-mode` value as behind the launch, and counts `--model` and `--effort` as
-  the panel's own flags. A session last in bypass opens in the launch default where bypass is not
-  allowed.
+  the panel's own flags.
+- Bad, because a mode above the launch default is not restored: bypass, under the default launch.
+  The transcript is a file the session's own agent can write to as this user, so a mode read from
+  it is capped at what a fresh launch would give; otherwise an agent could append a line claiming
+  bypass and come back in it on its next resume. Its reader chooses the higher mode again from the
+  chip. Model and effort grant no permission and are restored as read.
 
 ### Confirmation
 
