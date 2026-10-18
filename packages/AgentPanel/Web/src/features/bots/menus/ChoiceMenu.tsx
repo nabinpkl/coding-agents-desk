@@ -1,4 +1,4 @@
-import { Check, ShieldAlert } from "lucide-react";
+import { Check, ShieldAlert, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { placePopup, triggerIsVisible, type Placement } from "@/features/bots/menus/anchoredPlacement";
@@ -7,6 +7,8 @@ export interface MenuChoice<T extends string> {
   value: T;
   label: string;
   description: string;
+  /** Drawn before the label; a warning choice without one gets a shield. */
+  icon?: LucideIcon;
   /** Why it cannot be chosen; shown in place of the description, and the row is disabled. */
   unavailable?: string;
   /** Drawn in the warning colour with a shield, for a choice that removes a safeguard. */
@@ -146,6 +148,7 @@ export function ChoiceMenu<T extends string>({ label, value, choices, onChoose, 
         >
           {choices.map((choice) => {
             const checked = choice.value === value;
+            const Icon = choice.icon ?? (choice.warning ? ShieldAlert : null);
             return (
               <button
                 key={choice.value}
@@ -168,7 +171,7 @@ export function ChoiceMenu<T extends string>({ label, value, choices, onChoose, 
                       choice.warning ? "text-amber-600 dark:text-amber-400" : "text-foreground"
                     }`}
                   >
-                    {choice.warning ? <ShieldAlert className="size-3.5 shrink-0" aria-hidden /> : null}
+                    {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden /> : null}
                     {choice.label}
                   </span>
                   <span className="text-xs leading-4 text-muted-foreground">

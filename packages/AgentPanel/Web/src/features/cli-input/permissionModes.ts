@@ -4,6 +4,7 @@
 // one by Shift+Tab until its footer names it. `dontAsk` is a mode the CLI accepts and its cycle was
 // never seen to visit, so it is named (a session started in it still says so) but not offered.
 
+import { BellOff, ClipboardList, FilePen, Hand, ShieldAlert, Zap, type LucideIcon } from "lucide-react";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 
 /** What the chip says for each mode: the words Claude's own footer uses, shortened. */
@@ -14,6 +15,16 @@ export const PERMISSION_MODE_LABELS: Record<ClaudePermissionMode, string> = {
   bypassPermissions: "Bypass",
   manual: "Manual",
   dontAsk: "Don't ask",
+};
+
+/** Each mode's glyph: the chip shows only this on a narrow footer, and the menu teaches it. */
+export const PERMISSION_MODE_ICONS: Record<ClaudePermissionMode, LucideIcon> = {
+  plan: ClipboardList,
+  manual: Hand,
+  acceptEdits: FilePen,
+  auto: Zap,
+  bypassPermissions: ShieldAlert,
+  dontAsk: BellOff,
 };
 
 /** One line each, for a menu row on a narrow card. */
@@ -32,6 +43,7 @@ export interface PermissionModeChoice {
   value: ClaudePermissionMode;
   label: string;
   description: string;
+  icon: LucideIcon;
   /** Set when the mode cannot be chosen, saying why, in place of the description. */
   unavailable?: string;
   warning?: boolean;
@@ -47,6 +59,7 @@ export function permissionModeChoices(bypassAllowed: boolean): PermissionModeCho
     value,
     label: PERMISSION_MODE_LABELS[value],
     description: DESCRIPTIONS[value],
+    icon: PERMISSION_MODE_ICONS[value],
     ...(value === "bypassPermissions"
       ? { warning: true, ...(bypassAllowed ? {} : { unavailable: "This session was started without bypass." }) }
       : {}),

@@ -151,6 +151,16 @@ describe("the SDK band's actions", () => {
     expect(composerActions(gone).find((action) => action.key === "permission-mode")?.disabled).toBe(true);
   });
 
+  it("draws the mode's icon always, and its name only where the footer is wide enough", () => {
+    const chip = composerActions(sdkModel(handle({ permissionMode: "bypassPermissions" })))
+      .find((action) => action.key === "permission-mode")!;
+    const { container } = render(<>{chip.icon}</>);
+    expect(container.querySelector("svg")).toBeTruthy();
+    const name = screen.getByText("Bypass");
+    expect(name.className).toContain("hidden");
+    expect(name.className).toContain("@[420px]:inline");
+  });
+
   it("compacts by sending /compact as a turn, and not over a draft or without a runner", async () => {
     const m = sdkModel(handle(), { editorValue: "" });
     await compactControl(m)!.run();

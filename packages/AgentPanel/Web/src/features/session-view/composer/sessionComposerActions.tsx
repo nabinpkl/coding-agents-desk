@@ -5,14 +5,14 @@
 // The two submit paths are separate on purpose: one joins the panel's own queue and can be
 // steered, the other hands a whole turn to a transport the panel does not own.
 
-import { Braces, ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldAlert, Square } from "lucide-react";
+import { Braces, ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldQuestion, Square } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import type { ChoiceMenuProps } from "@/features/bots/menus/ChoiceMenu";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { parseOpencodeCommand } from "@/features/session-view/composer/useOpencodeCommands";
 import { currentSdkModel } from "@/features/cli-input/useSdkSession";
-import { PERMISSION_MODE_LABELS, permissionModeChoices } from "@/features/cli-input/permissionModes";
+import { PERMISSION_MODE_ICONS, PERMISSION_MODE_LABELS, permissionModeChoices } from "@/features/cli-input/permissionModes";
 import type { CompactControl } from "@/features/activity-feed/TokenMeter";
 
 /**
@@ -265,17 +265,19 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
   if (m.isClaude && (m.sdkBand || m.tmuxComposer.reason !== "no-pane")) {
     const mode = m.sdkBand ? m.sdkSession.state.permissionMode : m.tmuxComposer.permissionMode;
     const label = mode === null ? "Mode" : PERMISSION_MODE_LABELS[mode];
+    const Icon = mode === null ? ShieldQuestion : PERMISSION_MODE_ICONS[mode];
     const chip = {
       key: "permission-mode",
+      // Below the footer's `@[420px]` width only the mode's icon shows; the label and the chooser's
+      // chevron come back where there is room. The aria-label and title name the mode either way.
       icon: (
         <span className="flex items-center gap-1 whitespace-nowrap">
-          {mode === "bypassPermissions" && <ShieldAlert className="size-3.5 shrink-0" aria-hidden />}
-          {label}
-          {m.sdkBand || mode !== null ? <ChevronsUpDown className="size-3 shrink-0 opacity-60" aria-hidden /> : null}
+          <Icon className="size-3.5 shrink-0" aria-hidden />
+          <span className="hidden @[420px]:inline">{label}</span>
+          {m.sdkBand || mode !== null ? <ChevronsUpDown className="hidden size-3 shrink-0 opacity-60 @[420px]:block" aria-hidden /> : null}
         </span>
       ),
-      // Not squeezed by a narrow footer: the longest label is two words, and a mode cut to "B…"
-      // hides the one fact the chip is there to show.
+      // Not squeezed: a mode cut to "B…" hides the one fact the chip is there to show.
       className: `h-9 shrink-0 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium hover:bg-muted disabled:opacity-40 ${
         mode === "bypassPermissions" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
       }`,

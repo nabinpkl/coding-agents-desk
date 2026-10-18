@@ -327,47 +327,51 @@ export function SessionComposerBand({
               onClose={surfaces.onCloseAside}
             />
           ) : null}
-          {footerActions.filter((action) => !TRAILING_FOOTER_KEYS.has(action.key)).map(actionButton)}
-          {/* Before the model switcher and the permission mode, not after them: the icon and the
-              chooser read as one control, icon first, and the mode chip sits at the cluster's end
-              beside the meter. Splitting on those keys leaves a band without them as it was. */}
-          {terminalComposer ? (
-            <button
-              type="button"
-              onClick={terminalComposer.toggle}
-              aria-pressed={terminalComposer.shown}
-              aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
-              title={terminalComposer.shown
-                ? "Hide this session's screen and keep only the composer."
-                : "Show this session's screen above the composer, so text typed here can be watched"
-                  + " arriving in the agent's own composer line."}
-              className={`${COMPOSER_FOOTER_BUTTON_CLASS} ${
-                terminalComposer.shown
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {/* The thing it opens: a terminal. The pressed state is what says whether it is open. */}
-              <TerminalIcon className="size-3.5" aria-hidden />
-            </button>
-          ) : null}
-          {footerActions.filter((action) => TRAILING_FOOTER_KEYS.has(action.key)).map(actionButton)}
-          {usage ? (
-            <div className="ml-auto">
-              <TokenMeter
-                usage={usage}
-                // Opencode answers spend, not windows: Claude's 5h/7d chips are another
-                // vendor's answer about to stop you, and opencode's own limits live in
-                // its console rather than any feed this meter could read.
-                // The exception is a session running on the OpenCode Go plan, whose meter the
-                // sidecar reads from the plan's own usage endpoint.
-                feed={isClaude || isCodex || onOpencodeGo ? feed : null}
-                vendor={isCodex ? "codex" : isClaude ? "claude" : onOpencodeGo ? "opencode-go" : null}
-                compact={compactControl(model)}
-                showModel={!footerActions.some((action) => action.key === "switch-model")}
-              />
-            </div>
-          ) : null}
+          {/* The query container the mode chip sizes itself by. Around the controls only, not the
+              footer: a container contains layout, and the menus above are positioned in the footer. */}
+          <div className="@container flex min-w-0 flex-1 items-center gap-0.5">
+            {footerActions.filter((action) => !TRAILING_FOOTER_KEYS.has(action.key)).map(actionButton)}
+            {/* Before the model switcher and the permission mode, not after them: the icon and the
+                chooser read as one control, icon first, and the mode chip sits at the cluster's end
+                beside the meter. Splitting on those keys leaves a band without them as it was. */}
+            {terminalComposer ? (
+              <button
+                type="button"
+                onClick={terminalComposer.toggle}
+                aria-pressed={terminalComposer.shown}
+                aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
+                title={terminalComposer.shown
+                  ? "Hide this session's screen and keep only the composer."
+                  : "Show this session's screen above the composer, so text typed here can be watched"
+                    + " arriving in the agent's own composer line."}
+                className={`${COMPOSER_FOOTER_BUTTON_CLASS} ${
+                  terminalComposer.shown
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {/* The thing it opens: a terminal. The pressed state is what says whether it is open. */}
+                <TerminalIcon className="size-3.5" aria-hidden />
+              </button>
+            ) : null}
+            {footerActions.filter((action) => TRAILING_FOOTER_KEYS.has(action.key)).map(actionButton)}
+            {usage ? (
+              <div className="ml-auto">
+                <TokenMeter
+                  usage={usage}
+                  // Opencode answers spend, not windows: Claude's 5h/7d chips are another
+                  // vendor's answer about to stop you, and opencode's own limits live in
+                  // its console rather than any feed this meter could read.
+                  // The exception is a session running on the OpenCode Go plan, whose meter the
+                  // sidecar reads from the plan's own usage endpoint.
+                  feed={isClaude || isCodex || onOpencodeGo ? feed : null}
+                  vendor={isCodex ? "codex" : isClaude ? "claude" : onOpencodeGo ? "opencode-go" : null}
+                  compact={compactControl(model)}
+                  showModel={!footerActions.some((action) => action.key === "switch-model")}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
       {caption ? (
