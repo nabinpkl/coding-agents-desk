@@ -252,3 +252,20 @@ loaded history goes, and the page fetches its ~490 modules again, which is secon
 - **A new module `main.tsx` creates or installs goes on its accept list in the same change.**
   Otherwise every edit to it reloads every open panel, and nothing reports it: the page simply
   reloads, which reads as normal.
+
+## What the page loads before it paints
+
+Settled 2026-10-18, from the iPhone's load telemetry: a cold load of the canvas feed spent 9.3s
+before first paint fetching 2.85MB over a link moving about 285KB/s, and a large share of it was
+code for screens the page was not showing and a highlighter only an expanded diff uses.
+
+**A screen that is not the one the page opens on, and a heavy library only some rows or dialogs
+use, are loaded when they are first shown, not imported by what renders the feed.** The split
+points are `app/page/surfacesOnDemand.tsx` (the Desktop, Screen, IDE and Arena tabs, and the native
+`desktop` and `ide` entries), `DiffBlockOnDemand` (an edit's diff and its highlighter), the park
+modal in `ProfileRow` and the folder viewer in `BotCodeDialog`. Import those, never the module
+behind them: one plain `import` of `DesktopViewer` or `DiffBlock` from anything the feed renders
+puts the whole tree back in the main bundle, and nothing fails to say so. A production build
+(`vite build`, 1.4s) shows it: the main `index-*.js` was 1.05MB gzipped before the split and 236KB
+after. Split at whole screens and libraries, not at components: each split point is a round trip
+and a moment of "Loading…" the first time it opens.

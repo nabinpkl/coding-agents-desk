@@ -7,7 +7,7 @@
 // routes those into the event's Raw drawer before this is reached.
 
 import { ChevronRight } from "lucide-react";
-import { DiffBlock } from "@/features/activity-feed/blocks/diff/DiffBlock";
+import { DiffBlockOnDemand } from "@/features/activity-feed/blocks/diff/DiffBlockOnDemand";
 import { describeEditChange } from "@/features/activity-feed/blocks/diff/describeEditChange";
 import { SearchResultBody, parseSearchResult } from "@/features/activity-feed/blocks/SearchResultBody";
 import { WebResultBody, parseWebResult } from "@/features/activity-feed/blocks/WebResultBody";
@@ -292,7 +292,9 @@ export function Block({
                 holds the whole line. Wrapped: this is one command, not source, so it has no
                 indentation to read and nothing is gained by a horizontal scroll. */}
             {command !== null ? <CodeBlock code={command} lang="bash" wrap /> : null}
-            {isEditDiff ? <DiffBlock filePath={editPath} oldString={editOld ?? ""} newString={editNew ?? ""} /> : null}
+            {isEditDiff ? (
+              <DiffBlockOnDemand filePath={editPath} oldString={editOld ?? ""} newString={editNew ?? ""} />
+            ) : null}
             {isMarkdownWrite ? <Markdown content={writeContent} /> : null}
             {isCodeWrite ? <CodeBlock code={writeContent} lang={writePath} /> : null}
             {isMarkdownRead ? <Markdown content={stripReadLineNumbers(readText)} /> : null}

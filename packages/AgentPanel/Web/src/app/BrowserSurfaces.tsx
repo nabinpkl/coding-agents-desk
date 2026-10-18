@@ -3,15 +3,17 @@ import { useCallback, useMemo, useState } from "react";
 import { App } from "@/app/AgentPanelApp";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { FatherScope } from "@/features/bots/father/FatherScope";
-import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { TypeSettings } from "@/features/appearance/TypeSettings";
 import { FatherButton } from "@/features/bots/canvas/FatherOverlay";
 import { loadFatherOpen, storeFatherOpen } from "@/features/bots/canvas/fatherPreferences";
-import { ScreenViewer } from "@/features/screen-viewer/ScreenViewer";
 import { TerminalCanvasShell } from "@/features/terminal/canvas/TerminalCanvasShell";
 import { MachineTerminalDialog, type MachineTerminalTarget } from "@/features/terminal/MachineTerminalDialog";
-import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
-import { ArenaSurface } from "@/features/arena/ArenaSurface";
+import {
+  ArenaOnDemand,
+  DesktopViewerOnDemand,
+  ScreenViewerOnDemand,
+  WorkspaceIdeOnDemand,
+} from "@/app/page/surfacesOnDemand";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
@@ -323,17 +325,17 @@ export function BrowserSurfaces({
             // Keyed by session so a switch tears the old viewer down. Its WebRTC track, its encoder
             // and its display selection all belong to the session that answered, and none of them
             // survive a move to another desktop.
-            <DesktopViewer
+            <DesktopViewerOnDemand
               key={sessionId ?? "default"}
               scope={sessionId ?? "default"}
               transport={sessionTransport(transport, sessionId)}
             />
           ) : surface === "screen" ? (
-            <ScreenViewer />
+            <ScreenViewerOnDemand />
           ) : surface === "ide" ? (
             // Keyed by session for the same reason the others are: the workspace roster, the shared
             // open-tab state and every file it can reach belong to the sidecar that answered.
-            <WorkspaceIdeSurface
+            <WorkspaceIdeOnDemand
               key={sessionId ?? "default"}
               transport={sessionTransport(transport, sessionId)}
               feed={sessionFeed}
@@ -349,7 +351,7 @@ export function BrowserSurfaces({
             // Keyed by session for the same reason the others are: the runs, and the sessions each
             // contestant is, belong to the sidecar that answered -- a run started on one machine is
             // not a run on another, and the tab is not a view of a peer the picker left behind.
-            <ArenaSurface
+            <ArenaOnDemand
               key={sessionId ?? "default"}
               transport={sessionTransport(transport, sessionId)}
               feed={sessionFeed}

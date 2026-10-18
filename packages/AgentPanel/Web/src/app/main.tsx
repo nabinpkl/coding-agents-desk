@@ -17,9 +17,8 @@ import { installKeyboardInset } from "@/app/page/keyboardInset";
 import { installPagehideLifecycle } from "@/app/page/pageLifecycle";
 import { installWindowDrag } from "@/app/page/windowDrag";
 import { installPanelTelemetry, panelRootOptions } from "@/features/telemetry/panelTelemetry";
-import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 import { BrowserSurfaces } from "@/app/BrowserSurfaces";
-import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
+import { DesktopViewerOnDemand, WorkspaceIdeOnDemand } from "@/app/page/surfacesOnDemand";
 
 declare global {
   interface Window {
@@ -72,7 +71,7 @@ if (entry === "ide") {
   createRoot(root, panelRootOptions).render(
     <StrictMode>
       <PanelErrorBoundary surface="IDE">
-        <WorkspaceIdeSurface transport={transport} feed={new SidecarDataSource(transport)} />
+        <WorkspaceIdeOnDemand transport={transport} feed={new SidecarDataSource(transport)} />
       </PanelErrorBoundary>
     </StrictMode>,
   );
@@ -84,7 +83,7 @@ if (entry === "ide") {
   createRoot(root, panelRootOptions).render(
     <StrictMode>
       <PanelErrorBoundary surface="desktop viewer">
-        <DesktopViewer transport={transport} />
+        <DesktopViewerOnDemand transport={transport} />
       </PanelErrorBoundary>
     </StrictMode>,
   );

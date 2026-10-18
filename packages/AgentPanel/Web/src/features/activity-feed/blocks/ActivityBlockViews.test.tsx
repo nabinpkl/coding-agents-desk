@@ -68,13 +68,14 @@ describe("opencode file shapes", () => {
   // Opencode's tools speak camelCase under lowercase names (`edit` with `path`/`oldString`/
   // `newString`); the row draws them through the same diff, preview and shell bodies as
   // Claude's snake_case calls rather than as generic tool cards.
-  it("draws an opencode edit through the diff body with the basename header", () => {
-    const { container, unmount } = fileRow("edit", {
+  it("draws an opencode edit through the diff body with the basename header", async () => {
+    const { unmount } = fileRow("edit", {
       path: "/repo/src/a.ts",
       oldString: "const x = 1;",
       newString: "const x = 2;",
     });
-    expect(container.querySelector('[data-testid="diff-block"]')).not.toBeNull();
+    // Awaited: the diff's code is loaded when a row first shows one (`DiffBlockOnDemand`).
+    expect(await screen.findByTestId("diff-block")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /a\.ts/ })).toBeInTheDocument();
     unmount();
   });

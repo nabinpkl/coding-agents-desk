@@ -1,14 +1,19 @@
 // A quick look into a Bot's directory: the folder viewer (`FolderCodeDialog`) over the Bot's own
 // routes. The code button opens it on the files and the git button on the changes.
 
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { FilePathTarget } from "@/features/activity-feed/markdown/filePathLinks";
 import type { BotGitState } from "@/features/bots/git/useBotGitStatus";
-import { FolderCodeDialog } from "@/features/folder-code/FolderCodeDialog";
 import type { FolderSource } from "@/features/folder-code/folderSource";
 import type { SidebarSection } from "@/features/workspace-ide/sidebar/SidebarSections";
+
+// Loaded when a Bot's code is first opened rather than with the canvas: the folder viewer is the
+// IDE's tree, editor and file previews, and a canvas that never opens one has no use for them.
+const FolderCodeDialog = lazy(() =>
+  import("@/features/folder-code/FolderCodeDialog").then((module) => ({ default: module.FolderCodeDialog })),
+);
 
 export function BotCodeDialog({
   bot,
@@ -39,16 +44,18 @@ export function BotCodeDialog({
     [feed, botId],
   );
   return (
-    <FolderCodeDialog
-      titleId="bot-code-title"
-      title={bot.name}
-      path={bot.environment.path}
-      sectionsLabel="Bot sections"
-      source={source}
-      git={git}
-      initialSection={initialSection}
-      initialFile={initialFile}
-      onClose={onClose}
-    />
+    <Suspense fallback={null}>
+      <FolderCodeDialog
+        titleId="bot-code-title"
+        title={bot.name}
+        path={bot.environment.path}
+        sectionsLabel="Bot sections"
+        source={source}
+        git={git}
+        initialSection={initialSection}
+        initialFile={initialFile}
+        onClose={onClose}
+      />
+    </Suspense>
   );
 }

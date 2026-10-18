@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useId, useMemo, useRef, useState } from "react";
 import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw, RotateCcw } from "lucide-react";
-import { DesktopParkModal } from "@/features/desktop-park/DesktopParkModal";
 import { useDesktopPark, type DesktopParkHandle, type ParkDataSource } from "@/features/desktop-park/useDesktopPark";
 import type { UsageQuota } from "@agentdesk/agent-feed-wire";
 import { UsageModal } from "@/features/usage/UsageModal";
@@ -24,6 +23,12 @@ import {
 import { useDismissOnOutsidePress } from "@/hooks/dom/overlays";
 import { useDomSync } from "@/hooks/dom/useDomSync";
 import { useNow } from "@/hooks/useNow";
+
+// Loaded when it is opened rather than with the sidebar: the park plays each window live, so it
+// carries the desktop viewer's stream and viewport code, which nothing else in the sidebar needs.
+const DesktopParkModal = lazy(() =>
+  import("@/features/desktop-park/DesktopParkModal").then((module) => ({ default: module.DesktopParkModal })),
+);
 
 // Read here, once, rather than as the default below: React Compiler cannot reorder a default that
 // reads `import.meta`, and skips the component. Each module's `import.meta.hot` is its own.
@@ -295,7 +300,11 @@ export function ProfileRow({
 
       <PanelBuildStatus build={build} />
 
-      <DesktopParkModal open={parkOpen} park={park} onClose={() => setParkOpen(false)} />
+      {parkOpen ? (
+        <Suspense fallback={null}>
+          <DesktopParkModal open park={park} onClose={() => setParkOpen(false)} />
+        </Suspense>
+      ) : null}
 
       <StaleSessionsModal open={restartsOpen} restarts={restarts} onClose={() => setRestartsOpen(false)} />
 
