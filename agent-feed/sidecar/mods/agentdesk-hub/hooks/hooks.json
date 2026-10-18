@@ -1,0 +1,4 @@
+{
+  "description": "agentdesk-hub hooks module",
+  "modules": ["./register.js"]
+}

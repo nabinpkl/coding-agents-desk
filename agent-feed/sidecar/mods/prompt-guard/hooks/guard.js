@@ -23,18 +23,26 @@ export const LIMITS = {
   forgetSessionMs: 7 * 24 * 60 * 60 * 1000,
 }
 
+/** The mod that delivers hub messages; its `asUser` prompts are the person writing through the hub. */
+export const HUB_MOD = 'agentdesk-hub'
+
 /**
  * Whether a prompt event is the person's own. Measured on 2.1.301: a typed prompt, and one pasted
  * into the pane (which is how the panel's composer sends), carries `origin: { kind: 'composer' }`;
  * one sent from the phone or claude.ai through Remote Control carries `{ kind: 'bridge' }`; a mod's
- * carries `{ kind: 'plugin', name }`.
+ * carries `{ kind: 'plugin', name, asUser? }`, the name stamped by Claude Code, so no other mod can
+ * claim to be the hub's. The hub stamps who sent a message and `agentdesk-hub` submits only the
+ * person's with `asUser`, so those count as the person writing, from wherever they sent it.
  */
 export function isUsersOwn(origin) {
-  return origin === undefined || origin === null || origin.kind === 'composer' || origin.kind === 'bridge'
+  if (origin === undefined || origin === null) return true
+  if (origin.kind === 'composer' || origin.kind === 'bridge') return true
+  return origin.kind === 'plugin' && origin.name === HUB_MOD && origin.asUser === true
 }
 
-/** The mod that submitted a prompt, or null when no mod did. */
+/** The mod that submitted a prompt, or null when no mod did or the person did through one. */
 export function submittingMod(origin) {
+  if (isUsersOwn(origin)) return null
   return origin && origin.kind === 'plugin' && typeof origin.name === 'string' ? origin.name : null
 }
 

@@ -216,9 +216,11 @@ body text
 ## Delivering into a Claude session through a mod (proposed, not built)
 
 Proposed 2026-10-16 in place of launching every Claude session with the development-channel flag.
-Built so far: the prompt guard it relies on (`agent-feed/sidecar/mods/prompt-guard/`), and the
-reader and the confirm helper, tested against the live hub without a mod (2026-10-16). The mod
-itself is not built. Every measurement below is Claude Code 2.1.301.
+Built (2026-10-16): the prompt guard (`agent-feed/sidecar/mods/prompt-guard/`), the reader and
+the confirm helper, and the `agentdesk-hub` mod (`agent-feed/sidecar/mods/agentdesk-hub/`), verified
+end to end on a throwaway Bot with agent messages. Not built: the launcher passing the two mods to
+Bot sessions, and an owner message end to end (the sidecar's machine token may not send as the
+owner). Every measurement below is Claude Code 2.1.301.
 
 **Why replace the flag.** The channel path needs `--dangerously-load-development-channels` and its
 warning on every start, cannot reach a Claude Desktop session, is a research preview that can change
@@ -297,6 +299,20 @@ of who sent a message is only as good as the machine that delivers it: keep the 
 ones that have been read, and check each with `bun mods/checkModPrompts.ts` and
 `claude plugin validate` before loading it.
 
+**Measured with the mod in place** (2026-10-16, Haiku, a throwaway Bot):
+- An agent request went in as a prompt with the wording in `hubMessages.js`; Haiku answered it with
+  `hub_reply` rather than declining it, and the hub marked it `answered`.
+- Three notices in quick succession: two went in and were confirmed, the third was held by the
+  prompt guard and stayed `pushed`, unconfirmed.
+- Claude Code refuses a `$.prompt.submit` made inside a `prompt.submit` hook ("it would wait on the
+  turn this hook is holding"), so anything the mod does because a prompt arrived waits until the
+  hook has returned.
+- A reload of the mod, and a reader killed while the session lived, each gave a new reader within
+  a second; the hub pushed the held message to it again on a new stream, and nothing was submitted
+  twice.
+- With the mod on the session's command line, the relay child opened no stream: the reader
+  connected once and stayed connected.
+
 **Open before building.**
 - Whether the reader confirms per message or the hub should pause pushing to a stream while one
   message is held, so a long hold does not pile messages up in the reader.
@@ -355,7 +371,8 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
    reader and stays `pushed` until the helper confirms it; a reader stopped before confirming leaves
    it `queued`, and the next reader gets it on a new stream. An owner message could not be sent in
    that test: the sidecar's machine token "may not send as human", so owner messages wait on a
-   surface token (the panel inbox). Next: the `agentdesk-hub` mod itself.
+   surface token (the panel inbox). The `agentdesk-hub` mod is built and verified with agent
+   messages. Next: `terminal/claudeSessionLaunch.ts` passing both mods to Bot sessions.
 
 ## Decisions for the owner
 

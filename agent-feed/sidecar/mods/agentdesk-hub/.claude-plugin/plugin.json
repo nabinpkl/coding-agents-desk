@@ -1,0 +1,6 @@
+{
+  "name": "agentdesk-hub",
+  "version": "0.1.0",
+  "description": "Delivers agent-hub messages into this Claude session as prompts, and confirms each to the hub once it has entered. Load beside prompt-guard.",
+  "author": { "name": "agent-desk" }
+}

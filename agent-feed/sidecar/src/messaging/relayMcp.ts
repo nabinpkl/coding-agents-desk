@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { DirectoryEntry, Message, MessageAddress, SessionAddress } from "@agentdesk/agent-feed-wire";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
 import { channelNotification, confirmDelivery, runChannelLoop } from "@/messaging/relayChannel";
-import { readRelaySession, RELAY_SERVER_NAME, type RelaySession } from "@/messaging/relaySession";
+import { HUB_MOD_NAME, readRelaySession, RELAY_SERVER_NAME, type RelaySession } from "@/messaging/relaySession";
 
 const TOOL = (name: string) => `mcp__${RELAY_SERVER_NAME}__${name}`;
 
@@ -176,6 +176,11 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
   server.server.oninitialized = () => {
     if (!hub) {
       console.error(`[${RELAY_SERVER_NAME}] ${settings as string}; channel off`);
+      return;
+    }
+    const session = readSession();
+    if (typeof session !== "string" && session.hubMod) {
+      console.error(`[${RELAY_SERVER_NAME}] the ${HUB_MOD_NAME} mod holds this session's hub stream; tools only`);
       return;
     }
     void runChannelLoop(

@@ -15,6 +15,12 @@ describe("whose prompt it is", () => {
   test("a typed, pasted or Remote Control prompt is the person's, a mod's names the mod", () => {
     expect(isUsersOwn({ kind: "composer" })).toBe(true);
     expect(isUsersOwn({ kind: "bridge" })).toBe(true);
+    // The person writing through the hub, and only through the hub's own mod.
+    expect(isUsersOwn({ kind: "plugin", name: "agentdesk-hub", asUser: true })).toBe(true);
+    expect(submittingMod({ kind: "plugin", name: "agentdesk-hub", asUser: true })).toBeNull();
+    expect(isUsersOwn({ kind: "plugin", name: "agentdesk-hub" })).toBe(false);
+    expect(submittingMod({ kind: "plugin", name: "agentdesk-hub" })).toBe("agentdesk-hub");
+    expect(isUsersOwn({ kind: "plugin", name: "ad-probe", asUser: true })).toBe(false);
     expect(isUsersOwn(undefined)).toBe(true);
     expect(isUsersOwn({ kind: "plugin", name: "ad-loop" })).toBe(false);
     expect(submittingMod({ kind: "plugin", name: "ad-loop" })).toBe("ad-loop");

@@ -29,6 +29,25 @@ the mod that sent it, and drops the ones past its limits (`hooks/guard.js`):
 It fails closed for mods and never stands between the person and their own prompt. Peer messages
 and task notices are not mod prompts and are left to Claude Code's own guards.
 
+## agentdesk-hub
+
+Delivers agent-hub messages into a Claude session as prompts, in place of the development-channel
+flag (`docs/agent-messaging.md`, "Delivering into a Claude session through a mod"). It starts the
+hub reader (`src/hubReaderMain.ts`) with the session, submits each message one at a time, and
+confirms it to the hub through `src/hubConfirmMain.ts` only once the prompt has entered:
+
+- the owner's messages go in as their own words (`asUser`), which `prompt-guard` counts as the
+  owner typing; another agent's go in as a plain prompt that says who sent it and how to answer
+- a prompt the guard or Claude Code drops stays here, unconfirmed, and is tried again when the
+  person next types; the hub requeues anything unconfirmed if the reader's stream drops
+- a message whose prompt already went in is only confirmed if it arrives again, never submitted
+  twice
+- the reader is started again if it stops while the session lives, and moved to the new id when
+  the session id changes
+
+Load it beside `prompt-guard`, and the relay MCP server keeps its tools but opens no stream of its
+own when it sees this mod on the session's command line. Nothing launches sessions with it yet.
+
 ## The check
 
 `bun mods/checkModPrompts.ts` (from `agent-feed/sidecar`) runs `claude plugin validate` on each mod

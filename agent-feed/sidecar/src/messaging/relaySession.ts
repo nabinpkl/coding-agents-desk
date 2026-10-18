@@ -14,6 +14,9 @@ import { parseRegistryProcStart, startTimesAgree, parseProcessLstart } from "@/t
 
 export const RELAY_SERVER_NAME = "agentdesk-relay";
 export const CHANNEL_FLAG = "--dangerously-load-development-channels";
+/** The mod that holds a session's hub stream itself (`agent-feed/sidecar/mods/agentdesk-hub`). */
+export const HUB_MOD_NAME = "agentdesk-hub";
+const PLUGIN_DIR_FLAG = "--plugin-dir";
 
 export interface RelaySession {
   pid: number;
@@ -22,6 +25,12 @@ export interface RelaySession {
   title: string;
   /** Whether the session was started with this server as a channel. */
   channel: boolean;
+  /**
+   * Whether the session loaded the `agentdesk-hub` mod, whose reader holds the session's hub
+   * stream. The hub keeps one stream per session, so a relay child that opened its own would
+   * replace the reader's and the two would knock each other off; it keeps its tools and no stream.
+   */
+  hubMod?: boolean;
 }
 
 /**
@@ -44,10 +53,20 @@ export function argvLoadsChannel(argv: readonly string[], name: string = RELAY_S
   return false;
 }
 
+/** Whether an argv loads a plugin directory named `agentdesk-hub`, the way `--plugin-dir` takes one. */
+export function argvLoadsHubMod(argv: readonly string[]): boolean {
+  const named = (path: string | undefined) => path !== undefined && path.replace(/\/+$/, "").split("/").pop() === HUB_MOD_NAME;
+  return argv.some((arg, i) => (arg === PLUGIN_DIR_FLAG && named(argv[i + 1])) || (arg.startsWith(`${PLUGIN_DIR_FLAG}=`) && named(arg.slice(PLUGIN_DIR_FLAG.length + 1))));
+}
+
 /** The argv of a process, split on whitespace (`ps` joins it; entries here never contain spaces). */
 function processArgv(pid: number): string[] {
   const text = execFileSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8" });
   return text.trim().split(/\s+/);
+}
+
+function argvFlags(argv: readonly string[]): { channel: boolean; hubMod: boolean } {
+  return { channel: argvLoadsChannel(argv), hubMod: argvLoadsHubMod(argv) };
 }
 
 function processLstart(pid: number): number | null {
@@ -84,6 +103,6 @@ export function readRelaySession(
     sessionId: record.sessionId,
     cwd: typeof record.cwd === "string" ? record.cwd : "",
     title: typeof record.name === "string" ? record.name : "",
-    channel: argvLoadsChannel(processArgv(pid)),
+    ...argvFlags(processArgv(pid)),
   };
 }
