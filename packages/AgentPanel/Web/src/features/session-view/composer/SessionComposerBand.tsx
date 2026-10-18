@@ -408,6 +408,7 @@ function actionButton(action: ComposerAction) {
       type="button"
       onClick={action.onClick}
       disabled={action.disabled}
+      aria-pressed={action.pressed}
       aria-label={action.ariaLabel}
       title={action.title}
       className={action.className}

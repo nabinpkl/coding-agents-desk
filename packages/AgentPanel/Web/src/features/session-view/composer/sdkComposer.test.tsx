@@ -180,6 +180,16 @@ describe("moving a session between the terminal and the SDK", () => {
     expect(toTerminal.runModeSwitch.switchTo).toHaveBeenCalledWith("terminal");
   });
 
+  it("shows the SDK toggle on, in the active colour, only while the session runs through the SDK", () => {
+    const toggle = (runMode: "sdk" | "terminal") =>
+      composerActions(sdkModel(handle(), { sdkBand: runMode === "sdk", runMode, runModeSwitch: switcher() }))
+        .find((action) => action.key === "switch-run-mode")!;
+    expect(toggle("sdk").pressed).toBe(true);
+    expect(toggle("sdk").className).toContain("text-primary");
+    expect(toggle("terminal").pressed).toBe(false);
+    expect(toggle("terminal").className).not.toContain("text-primary");
+  });
+
   it("offers nothing where neither mode is running", () => {
     expect(composerActions(sdkModel(handle(), { runMode: null, runModeSwitch: switcher() }))
       .some((action) => action.key === "switch-run-mode")).toBe(false);

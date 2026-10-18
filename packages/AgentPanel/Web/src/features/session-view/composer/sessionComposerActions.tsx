@@ -5,7 +5,7 @@
 // The two submit paths are separate on purpose: one joins the panel's own queue and can be
 // steered, the other hands a whole turn to a transport the panel does not own.
 
-import { ArrowLeftRight, ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldAlert, Square } from "lucide-react";
+import { Braces, ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldAlert, Square } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import type { ChoiceMenuProps } from "@/features/bots/menus/ChoiceMenu";
@@ -41,6 +41,8 @@ export type ComposerAction = {
    * edge (the send); `footer` is the small line under it, beside the context meter.
    */
   placement?: "field" | "footer";
+  /** Set on a toggle: drawn in the active colour while on, and announced as pressed. */
+  pressed?: boolean;
 } & (
   | { onClick: () => void; menu?: undefined }
   /** Opens a pick-one menu (`ChoiceMenu`) instead of doing anything itself. */
@@ -233,21 +235,24 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       onClick: () => m.filePicker.current?.click(),
     });
   }
-  // Moving the session between the terminal and the SDK runner, in its own pane. Offered wherever it
-  // runs one of the two ways; whether it is idle enough is the sidecar's to say, and it says why not.
+  // The SDK toggle: braces, drawn in the active colour while the session runs through the SDK
+  // runner and muted while it runs in the terminal; pressing it moves the session to the other way,
+  // in its own pane. Whether it is idle enough is the sidecar's to say, and it says why not.
   if (m.runMode === "terminal" || (m.runMode === "sdk" && m.sdkSession.state.connected)) {
-    const target = m.runMode === "sdk" ? "terminal" : "sdk";
+    const onSdk = m.runMode === "sdk";
+    const target = onSdk ? "terminal" : "sdk";
     actions.push({
       key: "switch-run-mode",
-      ariaLabel: target === "sdk" ? "Run this session through the SDK" : "Run this session in the terminal",
-      title: target === "sdk"
-        ? "Move this idle session to the SDK runner, in the same pane"
-        : "Move this idle session back to the terminal, in the same pane",
+      ariaLabel: onSdk ? "Running through the SDK, move to the terminal" : "Running in the terminal, move to the SDK",
+      title: onSdk
+        ? "Running through the SDK. Move this idle session back to the terminal, in the same pane"
+        : "Running in the terminal. Move this idle session to the SDK runner, in the same pane",
+      pressed: onSdk,
       icon: m.runModeSwitch.pending
         ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-        : <ArrowLeftRight className="size-3.5" aria-hidden />,
+        : <Braces className="size-3.5" aria-hidden />,
       disabled: m.runModeSwitch.pending,
-      className: `${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`,
+      className: `${COMPOSER_FOOTER_BUTTON_CLASS} ${onSdk ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`,
       placement: "footer",
       onClick: () => void m.runModeSwitch.switchTo(target),
     });
