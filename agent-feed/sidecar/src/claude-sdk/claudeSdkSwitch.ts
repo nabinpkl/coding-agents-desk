@@ -81,6 +81,23 @@ const NOT_IDLE: Record<string, string> = {
   shell: "a background shell is running, and it would end with the process",
 };
 
+/**
+ * Why a runner that answers says its session is not idle, or null when it has no reason to.
+ *
+ * Only what the runner knows and the registry row may not yet say: a turn it has just been sent, a
+ * question waiting on the reader, a background task. `starting` is no reason. A runner stays
+ * `starting` until its CLI sends `init`, and the CLI sends that only with the first message, so a
+ * runner nothing has been sent since it launched would otherwise read as busy until someone typed
+ * into it -- which made every switch back out of a fresh runner refuse (2026-10-18). Whether a turn
+ * is running is the registry row's to say, as it is for a terminal.
+ */
+function runnerNotIdle(state: ClaudeSdkSessionState): string | null {
+  if (state.status === "running" || state.status === "requires-action") return "a turn is running";
+  if (state.pending.length > 0) return "a question or approval is waiting";
+  if (state.backgroundTasks > 0) return "a background shell or agent is running, and it would end with the process";
+  return null;
+}
+
 export async function switchRunMode(
   session: { sessionId: string; cwd: string; title: string },
   mode: ClaudeRunMode,
@@ -131,22 +148,12 @@ async function moveInPane(
   steps: SwitchSteps,
 ): Promise<SwitchOutcome> {
   const { sessionId } = session;
-  // Idle, asked of whoever knows: the runner for an SDK session, the registry row for a terminal
-  // one -- and for an SDK session whose runner does not answer, such as one still speaking an older
-  // protocol, the registry row too, which the CLI keeps whoever holds it.
+  // Idle is the registry row's to say, in either mode: the CLI keeps it whoever holds the session,
+  // and it reads `idle` the moment a turn ends. An SDK runner that answers can only add reasons.
   const state = current === "sdk" ? await steps.runnerState(sessionId) : null;
-  if (state?.connected) {
-    const busy = state.status !== "idle"
-      ? "a turn is running"
-      : state.pending.length > 0
-        ? "a question or approval is waiting"
-        : state.backgroundTasks > 0
-          ? "a background shell or agent is running, and it would end with the process"
-          : null;
-    if (busy) return { ok: false, reason: "busy", message: `not switched: ${busy}` };
-  } else if (process.activity !== "idle") {
-    return { ok: false, reason: "busy", message: `not switched: ${NOT_IDLE[process.activity ?? ""] ?? "it is not known to be idle"}` };
-  }
+  const busy = (state?.connected ? runnerNotIdle(state) : null)
+    ?? (process.activity === "idle" ? null : NOT_IDLE[process.activity ?? ""] ?? "it is not known to be idle");
+  if (busy) return { ok: false, reason: "busy", message: `not switched: ${busy}` };
 
   // Only a pane this sidecar started for this session, in the mode it is running now.
   const tmuxSession = await steps.stamped(sessionId);
@@ -208,11 +215,9 @@ export function relaunchStaleRunner(
   now: () => number = Date.now,
   log: (line: string) => void = (line) => console.log(`[claude-sdk] ${line}`),
 ): Promise<SwitchOutcome | null> {
-  // A runner that answers is judged by its state, here and again by the restart; one that does not
-  // (an older protocol) is judged by its registry row inside the restart, which refuses while busy.
-  if (state.connected && (state.status !== "idle" || state.pending.length > 0 || state.backgroundTasks > 0)) {
-    return Promise.resolve(null);
-  }
+  // What a runner that answers knows is checked here; whether a turn is running is the registry
+  // row's, asked inside the restart for every runner, which refuses while it is not idle.
+  if (state.connected && runnerNotIdle(state) !== null) return Promise.resolve(null);
   const last = relaunching.get(sessionId);
   if (last !== undefined && now() - last < RELAUNCH_RETRY_MS) return Promise.resolve(null);
   relaunching.set(sessionId, now());
