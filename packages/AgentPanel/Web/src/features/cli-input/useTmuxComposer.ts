@@ -37,6 +37,11 @@ export {
   type ComposerImage,
   type TmuxComposerHandle,
 } from "@/features/cli-input/tmuxComposerHandle";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { useLeaveEffect } from "@/hooks/useMountEffect";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 /**
  * The panel's composer, mirrored into the prompt box of the CLI this session is running in.
@@ -78,34 +83,38 @@ export function useTmuxComposer(
   session: SessionAddress,
   active: boolean,
 ): TmuxComposerHandle {
-  const [state, setState] = useState<TmuxComposerState | null>(null);
-  /** The dialog standing in the pane, off the same reading as the box. See the handle. */
-  const [paneQuestion, setPaneQuestion] = useState<TmuxQuestionState | null>(null);
-  /** Off the same reading too: the mode the pane's footer names. See the handle. */
-  const [permissionMode, setPermissionMode] = useState<ClaudePermissionMode | null>(null);
-  /** Latched by the first reading that found a composer box; see `mirrored` on the handle. */
-  const [mirrored, setMirrored] = useState(false);
-  /** Latched by the first reading that found a PANE, box or not; see `paned` on the handle. */
-  const [paned, setPaned] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [commands, setCommands] = useState<readonly ComposerCommand[]>([]);
-  const draftRef = useRef("");
-  /** An edit that has not been seen in the pane yet. Guards the read from overwriting it. */
-  const edited = useRef(false);
-  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The address is a fresh object on every render of the caller, so it cannot be a dependency.
   // Held in a ref and keyed by identity, the same way `useCliSession` does it.
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const key = active ? `${session.source}/${session.sessionId}` : null;
 
+  // Everything resets on the session, including the draft: a draft belongs to the thread it was
+  // written for, and carrying it across would type it into a different session's pane.
+  const [state, setState] = useStateFor<TmuxComposerState | null>(key, () => null);
+  /** The dialog standing in the pane, off the same reading as the box. See the handle. */
+  const [paneQuestion, setPaneQuestion] = useStateFor<TmuxQuestionState | null>(key, () => null);
+  /** Off the same reading too: the mode the pane's footer names. See the handle. */
+  const [permissionMode, setPermissionMode] = useStateFor<ClaudePermissionMode | null>(key, () => null);
+  /** Latched by the first reading that found a composer box; see `mirrored` on the handle. */
+  const [mirrored, setMirrored] = useStateFor(key, () => false);
+  /** Latched by the first reading that found a PANE, box or not; see `paned` on the handle. */
+  const [paned, setPaned] = useStateFor(key, () => false);
+  const [draft, setDraft] = useStateFor(key, () => "");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useStateFor<string | null>(key, () => null);
+
+  const [commands, setCommands] = useStateFor<readonly ComposerCommand[]>(key, () => []);
+  const draftRef = useRef("");
+  /** An edit that has not been seen in the pane yet. Guards the read from overwriting it. */
+  const edited = useRef(false);
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const setBoth = useCallback((text: string) => {
     draftRef.current = text;
     setDraft(text);
-  }, []);
+    followDraft.current(text);
+  }, [setDraft]);
 
   const change = useCallback((value: string) => {
     edited.current = true;
@@ -122,11 +131,11 @@ export function useTmuxComposer(
   const attachments = useComposerAttachments({
     feed,
     session: sessionRef,
-    draft,
     draftRef,
     edit: change,
     report: setError,
   });
+  const followDraft = useLatestRef(attachments.follow);
 
   /**
    * One push at a time, with whatever was typed during it folded into the next one.
@@ -211,20 +220,14 @@ export function useTmuxComposer(
     setBoth(next.text);
   }, [observePastes, setBoth]);
 
-  // Everything resets on the session, including the draft: a draft belongs to the thread it was
-  // written for, and carrying it across would type it into a different session's pane.
-  useEffect(() => {
-    setState(null);
-    setPaneQuestion(null);
-    setPermissionMode(null);
-    setError(null);
+  // The state above starts over for the next session in the render that sees it; what is held
+  // outside render belongs to the session being left, and goes with it.
+  useLeaveEffect(key, () => {
     edited.current = false;
     pushAgain.current = false;
-    setMirrored(false);
-    setPaned(false);
-    setCommands([]);
-    setBoth("");
-  }, [key, setBoth]);
+    draftRef.current = "";
+    followDraft.current("");
+  });
 
   // One subscription per session, for as long as this band is the input surface.
   //
@@ -232,14 +235,12 @@ export function useTmuxComposer(
   // pane writes and says nothing otherwise, so an idle session costs nothing whether or not
   // anyone is looking at it. The gate that used to stand in for that is gone with it -- it made a
   // backgrounded tab report a session as having no pane at all, which is a different claim.
-  useEffect(() => {
-    if (!key) return;
-    return feed.subscribeTmuxComposer(sessionRef.current, {
+  useSubscription(key === null ? null : `${sourceKey(feed)}:${key}`, () =>
+    feed.subscribeTmuxComposer(sessionRef.current, {
       onComposer: receive,
       onQuestion: setPaneQuestion,
       onPermissionMode: setPermissionMode,
-    });
-  }, [feed, key, receive]);
+    }));
 
   /**
    * Whether the last reading found a box that can be written to.

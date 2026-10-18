@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { FileText, X } from "lucide-react";
 import type { ComposerPaste } from "@agentdesk/agent-feed-wire";
+import { modalWhileMounted } from "@/hooks/dom/refCallbacks";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 
 /**
  * The pastes a terminal composer is holding, above the field and beside the images.
@@ -39,9 +41,7 @@ export function ComposerPasteStrip({
   // A paste can leave the composer while its preview is open -- removed from the strip behind it,
   // or taken by a turn somebody submitted in the pane. Close rather than hold a window onto
   // something the composer is no longer carrying.
-  useEffect(() => {
-    if (opened !== null && shown === null) setOpened(null);
-  }, [opened, shown]);
+  if (opened !== null && shown === null) setOpened(null);
 
   if (pastes.length === 0) return null;
 
@@ -152,32 +152,18 @@ function PastePreview({
   onExpand: (() => void) | null;
   onRemove: (() => void) | null;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const [text, setText] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, []);
-
-  useEffect(() => {
-    let live = true;
-    void read(paste.token).then((found) => {
-      if (!live) return;
-      setText(found);
-      setFailed(found === null);
-    });
-    return () => { live = false; };
-  }, [paste.token, read]);
+  const words = usePanelQuery({
+    queryKey: ["composer-paste", sourceKey(read), paste.token],
+    queryFn: () => read(paste.token),
+  });
+  const text = words.data ?? null;
+  const failed = words.isSuccess && words.data === null;
 
   return (
     <dialog
-      ref={dialogRef}
+      ref={modalWhileMounted}
       onClose={onClose}
-      onClick={(event) => { if (event.target === dialogRef.current) onClose(); }}
+      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
       aria-label={`Pasted text #${paste.id}`}
       className="m-auto max-h-[85dvh] w-[min(46rem,92vw)] rounded-xl border border-border bg-card p-0 text-foreground backdrop:bg-black/60"
     >

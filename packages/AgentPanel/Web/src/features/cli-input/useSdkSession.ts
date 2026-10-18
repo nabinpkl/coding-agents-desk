@@ -7,7 +7,7 @@
 // state, and a sidecar that restarted is current again with its first message: nothing the reader
 // was looking at depended on the connection that went away.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   DISCONNECTED_CLAUDE_SDK_STATE,
   type ClaudeEffortLevel,
@@ -17,6 +17,9 @@ import {
 } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress, SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { TmuxQuestionSender } from "@/features/session-view/composer/question/useTmuxQuestion";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 type SdkFeed = Pick<
   SidecarDataSource,
@@ -44,17 +47,14 @@ export function sdkRefusalText(outcome: Exclude<ClaudeSdkCommandOutcome, { ok: t
 }
 
 export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: boolean) {
-  const [state, setState] = useState<ClaudeSdkSessionState>(DISCONNECTED_CLAUDE_SDK_STATE);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const { source, sessionId } = session;
+  // Both start over whenever the session, or whether this is its input surface, changes.
+  const scope = `${sourceKey(feed)}:${source}/${sessionId}:${active}`;
+  const [state, setState] = useStateFor<ClaudeSdkSessionState>(scope, () => DISCONNECTED_CLAUDE_SDK_STATE);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useStateFor<string | null>(scope, () => null);
 
-  useEffect(() => {
-    setState(DISCONNECTED_CLAUDE_SDK_STATE);
-    setError(null);
-    if (!active) return undefined;
-    return feed.subscribeClaudeSdk({ source, sessionId }, setState);
-  }, [active, feed, source, sessionId]);
+  useSubscription(active ? scope : null, () => feed.subscribeClaudeSdk({ source, sessionId }, setState));
 
   /** Runs one command, answering whether it happened; a refusal or a failure becomes `error`. */
   const run = useCallback(async (command: () => Promise<ClaudeSdkCommandOutcome>): Promise<boolean> => {

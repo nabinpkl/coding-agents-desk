@@ -7,9 +7,11 @@
 // after it starts, and the composer chooses its band from that registration, so it is read again a
 // few times over the next seconds rather than once, too early.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ClaudeRunMode } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress, SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useLeaveEffect } from "@/hooks/useMountEffect";
 
 /** When to read the registry again after a switch, in ms: bounded, and covering a slow start. */
 const REREADS = [1_500, 4_000, 8_000] as const;
@@ -28,18 +30,15 @@ export function useRunModeSwitch(
   refresh: () => void,
 ) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const { source, sessionId } = session;
 
   // A different session starts clean, and nothing scheduled for the last one reads into it.
-  useEffect(() => {
-    setError(null);
-    return () => {
-      for (const timer of timers.current) clearTimeout(timer);
-      timers.current = [];
-    };
-  }, [source, sessionId]);
+  const [error, setError] = useStateFor<string | null>(`${source}/${sessionId}`, () => null);
+  useLeaveEffect(`${source}/${sessionId}`, () => {
+    for (const timer of timers.current) clearTimeout(timer);
+    timers.current = [];
+  });
 
   const switchTo = useCallback(async (mode: ClaudeRunMode) => {
     setPending(true);

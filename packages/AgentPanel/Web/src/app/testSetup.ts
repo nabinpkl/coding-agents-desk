@@ -1,6 +1,12 @@
 import "@testing-library/jest-dom";
 import { afterEach } from "vitest";
+import { notifyManager } from "@tanstack/react-query";
 import { panelQueryClient } from "@/query/panelQuery";
+
+// TanStack Query tells components about an answer on a timer by default, which puts every answer
+// a task behind the promise that produced it. A suite flushes promises, not timers, so the answer
+// is delivered on a microtask instead: the same order, without the timer.
+notifyManager.setScheduler(queueMicrotask);
 
 // The page's one query cache outlives a test the way it outlives a component. Most suites build a
 // fresh fake data source, whose key no other test can share, but one that reuses a module-level

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { CliSessionStatus } from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
   SidecarDataSource,
 } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 
 export interface CliSessionHandle {
   /**
@@ -50,41 +51,26 @@ export function useCliSession(
   session: SessionAddress | null,
   active: boolean,
 ): CliSessionHandle {
-  const [status, setStatus] = useState<CliSessionStatus>(IDLE);
-  // Bumped by `refresh`, so the read below runs again for the same session.
+  // Bumped by `refresh`, so the read runs again for the same session.
   const [reads, setReads] = useState(0);
-
   const refresh = useCallback(() => setReads((count) => count + 1), []);
-  // Which session the in-flight read was issued for, so an answer that lands after the viewer
-  // moved on cannot switch the composer for a different thread.
-  const readFor = useRef<string | null>(null);
-  // The address is a fresh object on every render of the caller, so it cannot be a dependency.
+  // The address is a fresh object on every render of the caller, so it cannot be part of a key.
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
   const key = session && active ? `${session.source}/${session.sessionId}` : null;
 
-  // Which session the shown status belongs to: a new one starts blank, a refresh of the same one
-  // keeps showing the old answer until the new one lands.
-  const shownFor = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (shownFor.current !== key) {
-      shownFor.current = key;
-      setStatus(IDLE);
-    }
-    readFor.current = key;
-    const address = sessionRef.current;
-    if (!key || !address) return;
-    void feed.cliSessionStatus(address).then(
-      (next) => {
-        if (readFor.current === key) setStatus(next);
-      },
-      // A failed read means the sidecar is not answering, which the panel already surfaces through
-      // its own connection state.
-      () => {},
-    );
-  }, [feed, key, reads]);
+  // A new session starts blank; a refresh of the same one keeps showing the old answer until the
+  // new one lands. An answer for a session the viewer has left belongs to that session's key, so
+  // it can never switch the composer for a different thread. A failed read means the sidecar is
+  // not answering, which the panel already surfaces through its own connection state.
+  const read = usePanelQuery({
+    queryKey: ["cli-session-status", sourceKey(feed), key, reads],
+    queryFn: () => feed.cliSessionStatus(sessionRef.current!),
+    enabled: key !== null,
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === key ? previous : undefined),
+  });
+  const status = key === null ? IDLE : (read.data ?? IDLE);
 
   return {
     isTerminalSession: status.entrypoint === "cli",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useRef, useState, type RefObject } from "react";
 import type { ComposerPaste, TmuxComposerState } from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
@@ -11,6 +11,7 @@ import {
   composerPasteTokens,
   type ComposerImage,
 } from "@/features/cli-input/tmuxComposerHandle";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
 
 /**
  * What a mirrored composer is holding that is NOT editable text.
@@ -35,7 +36,6 @@ import {
 export function useComposerAttachments({
   feed,
   session,
-  draft,
   draftRef,
   edit,
   report,
@@ -43,7 +43,6 @@ export function useComposerAttachments({
   feed: Pick<SidecarDataSource, "readTmuxComposerPaste">;
   /** The address, held by the caller, because it is a fresh object on every render. */
   session: RefObject<SessionAddress>;
-  draft: string;
   draftRef: RefObject<string>;
   /** Replaces the field's text and marks it as an edit the pane has not seen. */
   edit: (text: string) => void;
@@ -83,8 +82,11 @@ export function useComposerAttachments({
    */
   const imageFiles = useRef(new Map<number, string>());
 
-  /** Keeps the image strip agreeing with the tokens in the field. */
-  useEffect(() => {
+  /**
+   * Keeps both strips agreeing with the tokens in the field. Called by the one setter every new
+   * draft goes through, as it sets it, so the strips move in the same render as the text.
+   */
+  const follow = useCallback((draft: string) => {
     const ids = composerImageIds(draft);
     for (const id of ids) {
       if (previews.current.has(id)) continue;
@@ -113,10 +115,10 @@ export function useComposerAttachments({
     // Only when it actually moved. This runs on every keystroke, and a fresh array each time
     // would re-render the strip for each letter typed beside it.
     const signature = next.map((image) => `${image.id}:${image.url}`).join(" ");
-    if (signature === shown.current) return;
-    shown.current = signature;
-    setImages(next);
-  }, [draft]);
+    if (signature !== shown.current) {
+      shown.current = signature;
+      setImages(next);
+    }
 
   /**
    * Keeps the paste chips agreeing with the handles in the field.
@@ -125,24 +127,22 @@ export function useComposerAttachments({
    * are not held, which is the honest answer until a reading says otherwise: the alternative is
    * offering a preview that then cannot be produced.
    */
-  useEffect(() => {
-    const next = composerPasteTokens(draft).map((token) => reported.current.get(token)
+    const pasted = composerPasteTokens(draft).map((token) => reported.current.get(token)
       ?? { token, id: Number(/#(\d+)/.exec(token)?.[1] ?? 0), held: null });
     setPastes((was) => (
-      was.length === next.length
-        && was.every((had, at) => had.token === next[at]?.token
-          && had.held?.chars === next[at]?.held?.chars)
+      was.length === pasted.length
+        && was.every((had, at) => had.token === pasted[at]?.token
+          && had.held?.chars === pasted[at]?.held?.chars)
         ? was
-        : next
+        : pasted
     ));
-  }, [draft]);
+  }, []);
 
   // Every preview is an object URL, which the document holds until it is told otherwise.
-  const forget = previews.current;
-  useEffect(() => () => {
-    for (const url of forget.values()) URL.revokeObjectURL(url);
-    forget.clear();
-  }, [forget]);
+  useUnmountEffect(() => {
+    for (const url of previews.current.values()) URL.revokeObjectURL(url);
+    previews.current.clear();
+  });
 
   /**
    * Takes what a reading says about the handles in the box.
@@ -240,6 +240,7 @@ export function useComposerAttachments({
   }, [removeToken]);
 
   return {
+    follow,
     images,
     removeImage,
     queue,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
 import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
 import { ImageLightbox } from "@/features/image-viewer/ImageLightbox";
@@ -33,9 +33,7 @@ export function ComposerImageStrip({
   // An image can leave the composer while its enlargement is open -- removed from the strip
   // behind it, or taken by a turn somebody submitted in the pane. Close rather than hold a
   // picture of something the composer is no longer carrying.
-  useEffect(() => {
-    if (opened !== null && shown === null) setOpened(null);
-  }, [opened, shown]);
+  if (opened !== null && shown === null) setOpened(null);
 
   if (images.length === 0) return null;
 

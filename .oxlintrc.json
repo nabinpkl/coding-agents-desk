@@ -59,7 +59,10 @@
       // stops objects that keep working until they are cancelled or destroyed.
       "files": [
         // pdf.js documents, render tasks and text layers.
-        "**/AgentPanel/Web/src/features/workspace-ide/editor/usePdfJs.ts"
+        "**/AgentPanel/Web/src/features/workspace-ide/editor/usePdfJs.ts",
+        // A tmux pane's composer box: the debounced push of the draft into the pane, which a
+        // submit cancels by hand.
+        "**/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts"
       ],
       "rules": { "eslint/no-restricted-imports": "off" }
     },
@@ -113,12 +116,6 @@
         "**/AgentPanel/Web/src/features/bots/useBots.ts",
         "**/AgentPanel/Web/src/features/bots/useMachineInventory.ts",
         "**/AgentPanel/Web/src/features/bots/useMissingSessionLog.ts",
-        "**/AgentPanel/Web/src/features/cli-input/ComposerImageStrip.tsx",
-        "**/AgentPanel/Web/src/features/cli-input/ComposerPasteStrip.tsx",
-        "**/AgentPanel/Web/src/features/cli-input/useCliSession.ts",
-        "**/AgentPanel/Web/src/features/cli-input/useComposerAttachments.ts",
-        "**/AgentPanel/Web/src/features/cli-input/useRunModeSwitch.ts",
-        "**/AgentPanel/Web/src/features/cli-input/useSdkSession.ts",
         "**/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewer.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerControls.tsx",
