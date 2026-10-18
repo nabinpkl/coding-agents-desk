@@ -1,10 +1,11 @@
 import { ChevronsUpDown, GitBranch, GitFork, LoaderCircle, Send, X } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { ChoiceMenu, type MenuChoice } from "@/features/bots/menus/ChoiceMenu";
 import { HARNESSES, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
 import { COMPOSER_FOOTER_BUTTON_CLASS } from "@/features/session-view/composer/sessionComposerActions";
 import { DEFAULT_CARD_SIZE } from "@/features/bots/canvas/botCanvasPreferences";
 import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
+import { useMountEffect } from "@/hooks/useMountEffect";
 
 /**
  * A fork onto a Bot that has not started: a card beside its source holding what the dialog used
@@ -71,9 +72,9 @@ export function BotForkDraftCard({
   const [error, setError] = useState<string | null>(null);
   const card = useRef<HTMLLIElement>(null);
   // Brought into view as it appears: beside its source, which can be at the edge of the canvas.
-  useEffect(() => {
+  useMountEffect(() => {
     card.current?.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
-  }, []);
+  });
 
   const choices: MenuChoice<NewSessionHarness>[] = HARNESSES.map((option) => ({
     value: option.value,

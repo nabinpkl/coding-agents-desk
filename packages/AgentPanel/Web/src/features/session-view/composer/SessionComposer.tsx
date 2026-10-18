@@ -43,6 +43,7 @@ import { useRunModeSwitch } from "@/features/cli-input/useRunModeSwitch";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
+import { useNotify } from "@/hooks/useNotify";
 
 export function SessionComposer({
   feed,
@@ -153,9 +154,7 @@ export function SessionComposer({
   const sdkSession = useSdkSession(feed, tmuxComposerSession, isClaude);
   const sdkCandidate = isClaude && (cliSession.isSdkSession || sdkSession.state.connected);
   const queuedPrompts = sdkSession.state.queued;
-  useEffect(() => {
-    onQueuedPrompts?.(queuedPrompts);
-  }, [onQueuedPrompts, queuedPrompts]);
+  useNotify(queuedPrompts, (prompts) => onQueuedPrompts?.(prompts));
   const runModeSwitch = useRunModeSwitch(feed, tmuxComposerSession, cliSession.refresh);
   const windowCandidate = (isClaude || isCodex) && !terminalCandidate && !sdkCandidate;
 
