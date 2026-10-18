@@ -14,7 +14,7 @@ export function useDesktopNavigation({
 }: { transport: DesktopControlTransport | null; displayId?: string; report: NavigationReport }) {
   const [model, setModel] = useState(initialNavigationModel);
   const modelRef = useRef(model);
-  const current = useLatestRef({ transport, displayId, report });
+  const contextRef = useLatestRef({ transport, displayId, report });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAt = useRef(0);
   const frame = useRef(0);
@@ -31,15 +31,15 @@ export function useDesktopNavigation({
   }, []);
 
   const send = useCallback((input: DesktopControlInput) => {
-    const result = current.current.transport?.send(input) ?? "channel-closed";
+    const result = contextRef.current.transport?.send(input) ?? "channel-closed";
     if (result !== "sent") {
-      if (input.type === "space-gesture") current.current.transport?.abort?.();
-      current.current.report("navigation-rejected", { reason: result, type: input.type });
+      if (input.type === "space-gesture") contextRef.current.transport?.abort?.();
+      contextRef.current.report("navigation-rejected", { reason: result, type: input.type });
       update({ type: "failure", reason: result });
       return false;
     }
     return true;
-  }, [update]);
+  }, [update, contextRef]);
 
   const clearFrame = useCallback(() => {
     if (frame.current) cancelAnimationFrame(frame.current);
@@ -50,23 +50,23 @@ export function useDesktopNavigation({
   const cancel = useCallback(() => {
     clearFrame();
     const motion = modelRef.current.motion;
-    if (motion.kind === "dragging" && current.current.displayId) {
-      send({ type: "space-gesture", gestureId: motion.id, displayId: current.current.displayId,
+    if (motion.kind === "dragging" && contextRef.current.displayId) {
+      send({ type: "space-gesture", gestureId: motion.id, displayId: contextRef.current.displayId,
         phase: "cancelled", progress: 0, velocityX: 0 });
-      current.current.report("navigation-gesture", { id: motion.id, phase: "cancelled" });
+      contextRef.current.report("navigation-gesture", { id: motion.id, phase: "cancelled" });
     }
     update({ type: "cancel" });
-  }, [clearFrame, send, update]);
+  }, [clearFrame, send, update, contextRef]);
 
   const waitForTarget = useCallback((id: string, target: string, steps: number) => {
     if (timer.current !== null) clearTimeout(timer.current);
     update({ type: "pending", id, target, steps });
     timer.current = setTimeout(() => {
-      current.current.report("navigation-rejected", { id, reason: "timeout" });
+      contextRef.current.report("navigation-rejected", { id, reason: "timeout" });
       update({ type: "failure", id, reason: "Desktop switch timed out" });
       send({ type: "desktop-refresh" });
     }, NAVIGATION_TUNING.timeoutMs);
-  }, [send, update]);
+  }, [send, update, contextRef]);
 
   const handleEvent = useCallback((event: DesktopControlEvent) => {
     if (event.type === "control-revoked") {
@@ -78,13 +78,13 @@ export function useDesktopNavigation({
     const navigation = desktopNavigationEvent(event);
     if (!navigation) return;
     if (navigation.type === "desktop-state") {
-      if (current.current.displayId && navigation.captureDisplayId !== current.current.displayId) return;
+      if (contextRef.current.displayId && navigation.captureDisplayId !== contextRef.current.displayId) return;
       const previous = modelRef.current;
       const next = navigationReducer(previous, { type: "snapshot", snapshot: navigation });
       if (previous.motion.kind === "dragging" && next.motion.kind === "idle") cancel();
       if (previous.motion.kind === "pending" && next.motion.kind === "idle") {
         const active = selectedNavigationDisplay(navigation)?.activeSpaceId;
-        current.current.report("navigation-settled", { id: previous.motion.id,
+        contextRef.current.report("navigation-settled", { id: previous.motion.id,
           reached: active === previous.motion.target, elapsedMs: Math.round(performance.now() - startedAt.current) });
       }
       update({ type: "snapshot", snapshot: navigation });
@@ -97,7 +97,7 @@ export function useDesktopNavigation({
       clearFrame();
       update({ type: "failure", id: navigation.requestId, reason: navigation.reason! });
     }
-  }, [cancel, clearFrame, update]);
+  }, [cancel, clearFrame, update, contextRef]);
 
   // One session with the far desktop per transport and display: reset, ask for its state, and on
   // leaving cancel a swipe still in the hand.
@@ -125,7 +125,7 @@ export function useDesktopNavigation({
 
   const select = useCallback((spaceId: string) => {
     const display = selectedNavigationDisplay(modelRef.current.snapshot);
-    if (!display || display.id !== current.current.displayId || display.activeSpaceId === spaceId) return;
+    if (!display || display.id !== contextRef.current.displayId || display.activeSpaceId === spaceId) return;
     cancel();
     const id = crypto.randomUUID();
     const from = display.spaces.findIndex((space) => space.id === display.activeSpaceId);
@@ -134,28 +134,28 @@ export function useDesktopNavigation({
     startedAt.current = performance.now();
     if (send({ type: "space-select", requestId: id, displayId: display.id, spaceId })) {
       waitForTarget(id, spaceId, Math.abs(to - from));
-      current.current.report("navigation-select", { id, displayId: display.id, spaceId });
+      contextRef.current.report("navigation-select", { id, displayId: display.id, spaceId });
     }
-  }, [cancel, send, waitForTarget]);
+  }, [cancel, send, waitForTarget, contextRef]);
 
   const begin = useCallback((): string | null => {
-    if (!current.current.displayId || !current.current.transport
-        || selectedNavigationDisplay(modelRef.current.snapshot)?.id !== current.current.displayId) return null;
+    if (!contextRef.current.displayId || !contextRef.current.transport
+        || selectedNavigationDisplay(modelRef.current.snapshot)?.id !== contextRef.current.displayId) return null;
     cancel();
     const id = crypto.randomUUID();
     startedAt.current = performance.now();
-    if (!send({ type: "space-gesture", gestureId: id, displayId: current.current.displayId,
+    if (!send({ type: "space-gesture", gestureId: id, displayId: contextRef.current.displayId,
       phase: "began", progress: 0, velocityX: 0 })) return null;
     update({ type: "drag", id, translation: 0 });
-    current.current.report("navigation-gesture", { id, phase: "began" });
+    contextRef.current.report("navigation-gesture", { id, phase: "began" });
     return id;
-  }, [cancel, send, update]);
+  }, [cancel, send, update, contextRef]);
 
   const move = useCallback((translation: number, velocity: number, width: number, macDirection: boolean) => {
     const motion = modelRef.current.motion;
-    if (motion.kind !== "dragging" || !current.current.displayId) return;
+    if (motion.kind !== "dragging" || !contextRef.current.displayId) return;
     update({ type: "drag", id: motion.id, translation });
-    queued.current = { type: "space-gesture", gestureId: motion.id, displayId: current.current.displayId,
+    queued.current = { type: "space-gesture", gestureId: motion.id, displayId: contextRef.current.displayId,
       phase: "changed", progress: Math.max(-1, Math.min(1, translation / Math.max(1, width))) * (macDirection ? 1 : -1),
       velocityX: velocity * (macDirection ? 1 : -1) };
     if (!frame.current) frame.current = requestAnimationFrame(() => {
@@ -164,7 +164,7 @@ export function useDesktopNavigation({
       queued.current = null;
       if (input && !send(input)) cancel();
     });
-  }, [cancel, send, update]);
+  }, [cancel, send, update, contextRef]);
 
   const end = useCallback((translation: number, velocity: number, width: number, macDirection: boolean) => {
     clearFrame();
@@ -178,9 +178,9 @@ export function useDesktopNavigation({
     if (send({ type: "space-gesture", gestureId: motion.id, displayId: display.id,
       phase: "ended", progress: step, velocityX: velocity * (macDirection ? 1 : -1) })) {
       waitForTarget(motion.id, target.id, 1);
-      current.current.report("navigation-gesture", { id: motion.id, phase: "ended", step });
+      contextRef.current.report("navigation-gesture", { id: motion.id, phase: "ended", step });
     }
-  }, [cancel, clearFrame, send, waitForTarget]);
+  }, [cancel, clearFrame, send, waitForTarget, contextRef]);
 
   return { model, handleEvent, select, begin, move, end, cancel, refresh: () => send({ type: "desktop-refresh" }) };
 }

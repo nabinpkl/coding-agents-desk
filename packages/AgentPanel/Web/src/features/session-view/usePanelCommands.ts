@@ -127,7 +127,7 @@ export function usePanelCommands(input: {
       }
       await runSlashCommand(name, args);
     },
-    [askAside, createOpencodeSession, feed, place, runSlashCommand, sessionId],
+    [askAside, createOpencodeSession, feed, place, projectPath, runSlashCommand, sessionId],
   );
 
   return {

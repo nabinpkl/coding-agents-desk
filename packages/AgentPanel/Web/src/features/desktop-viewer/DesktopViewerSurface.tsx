@@ -147,13 +147,16 @@ export function DesktopViewerSurface({
     cursorKind,
     report: reportKeyboardTelemetry,
   });
+  // Taken out by name: a call through `keyboard.` reads to React Compiler as depending on all of
+  // `keyboard`, a fresh object each render, where each function alone is stable.
+  const { sendControl, handleControlEvent } = keyboard;
   useNotify(keyboard.keyboardPresented, (presented) => onKeyboard?.(presented));
   useNotify(controlTransport, (transport) => onTransport?.(transport));
   const sendPointerInput = useCallback(
     (input: Parameters<DesktopControlTransport["send"]>[0]) => (
-      interactive && source !== null && keyboard.sendControl(input)
+      interactive && source !== null && sendControl(input)
     ),
-    [interactive, keyboard.sendControl, source],
+    [interactive, sendControl, source],
   );
   // One pointer for the whole viewer: the picture and the trackpad deck both drive it.
   const pointerInput = usePointerInputSession(sendPointerInput);
@@ -175,9 +178,9 @@ export function DesktopViewerSurface({
       if (event.type !== "cursor-applied") latestCursorEvents.current.set(event.type, event);
       for (const listener of cursorListeners.current) listener(event);
     }
-    keyboard.handleControlEvent(event);
+    handleControlEvent(event);
     onEvent?.(event);
-  }, [keyboard.handleControlEvent, onEvent]);
+  }, [handleControlEvent, onEvent]);
   const subscribeCursorEvents = useCallback((listener: (event: WebrtcCursorEvent) => void) => {
     cursorListeners.current.add(listener);
     for (const event of latestCursorEvents.current.values()) listener(event);

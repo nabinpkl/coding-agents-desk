@@ -102,12 +102,12 @@ export function useCanvasRoster(
       });
       return false;
     }
-  }, [feeds]);
+  }, [feeds, currentBots]);
   /** Puts a Bot back if it was off. What starting a session in it does, so the new card shows. */
   const putBotOnCanvas = useCallback((botId: string) => {
     const bot = currentBots.current.find((each) => each.botId === botId);
     if (bot?.offCanvas) void setBotCanvas(botId, { onCanvas: true });
-  }, [setBotCanvas]);
+  }, [setBotCanvas, currentBots]);
   const removeSessionFromCanvas = useCallback((session: BotSessionRef) => {
     const key = `${session.source}:${session.sessionId}`;
     const change = { source: session.source, sessionId: session.sessionId, onCanvas: false };
@@ -117,7 +117,7 @@ export function useCanvasRoster(
         void setBotCanvas(bot.botId, { sessions: [change] }, key);
       }
     }
-  }, [setBotCanvas]);
+  }, [setBotCanvas, currentBots]);
   // Which sessions the canvas has open, as `source:sessionId`. Held here rather than inside the
   // canvas because the sidebar's roster opens cards too, and a picker cannot drive state that lives
   // inside the thing it is driving.
@@ -129,7 +129,7 @@ export function useCanvasRoster(
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  }, []);
+  }, [setCanvasOpenKeys]);
   // One write for every way the open cards change -- a row's own toggle, the sidebar roster opening
   // one, a Bot leaving the canvas -- from the setter, rather than a call beside each of them, which
   // is how one of them ends up forgotten.
@@ -176,12 +176,12 @@ export function useCanvasRoster(
   // A card whose session no Bot holds any more closes, once the Bots have settled. Checked during
   // render against each new set of Bots, and written only when something goes, so a snapshot that
   // changed nothing neither re-renders nor rewrites the store.
-  const pruneOn = useMemo(
-    () => ({ holders, machineList, settled: botsState.settled, bots: botsState.bots }),
-    [holders, machineList, botsState.settled, botsState.bots],
-  );
+  //
+  // Compared input by input, never as one memoized object: React Compiler drops a `useMemo` whose
+  // result is neither returned nor drawn, so the object was new every render and this looped.
+  const pruneOn = [holders, machineList, botsState.settled, botsState.bots] as const;
   const [prunedFor, setPrunedFor] = useState<typeof pruneOn | null>(null);
-  if (prunedFor !== pruneOn) {
+  if (!prunedFor || pruneOn.some((input, index) => !Object.is(input, prunedFor[index]))) {
     setPrunedFor(pruneOn);
     if (botsState.settled && botsState.bots.length > 0) {
     const present = machineList === undefined ? undefined : new Set(machineList.split("\n"));
@@ -265,7 +265,7 @@ export function useCanvasRoster(
     void Promise.all(writes).then((landed) => {
       if (!landed.every(Boolean)) setPendingOrder(null);
     });
-  }, [setBotCanvas]);
+  }, [setBotCanvas, arranged]);
   const canvasBots = orderedBots.filter((bot) => !detachedBotIds.has(bot.botId));
   // Opens one of a Bot's sessions on the canvas rather than in place of it. Puts the Bot back on
   // the canvas first if it was off: the alternative is a click that appears to do nothing, because
@@ -293,7 +293,7 @@ export function useCanvasRoster(
       if (current.has(key)) return current;
       return new Set(current).add(key);
     });
-  }, [setBotCanvas]);
+  }, [setBotCanvas, setCanvasOpenKeys]);
 
   /**
    * Binds a session one of a Bot's own sessions just made -- `/new` and `/fork` -- to that Bot,
@@ -378,7 +378,7 @@ export function useCanvasRoster(
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  }, []);
+  }, [setHiddenMachines]);
   /**
    * Whether the canvas is drawn small enough to see all of at once.
    *
@@ -388,7 +388,7 @@ export function useCanvasRoster(
    * it, and it is kept beside the gesture in `useCanvasZoom`.
    */
   const [canvasZoomMode, setCanvasZoomMode] = usePersistentState<boolean>(loadCanvasZoomMode, storeCanvasZoomMode);
-  const toggleCanvasZoom = useCallback(() => setCanvasZoomMode((on) => !on), []);
+  const toggleCanvasZoom = useCallback(() => setCanvasZoomMode((on) => !on), [setCanvasZoomMode]);
   // How much room the fitted canvas is given to be moved around in, which is the same kind of fact
   // and kept the same way: the control for it sits beside the mode's, in the sidebar.
   const [canvasRoom, setCanvasRoom] = usePersistentState<number>(loadCanvasRoom, storeCanvasRoom);

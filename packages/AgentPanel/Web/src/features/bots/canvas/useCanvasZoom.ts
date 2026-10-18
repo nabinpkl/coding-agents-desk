@@ -283,7 +283,7 @@ export function useCanvasZoom({
 
   // A gesture reads the scale and the floor it is continuing, and must not wait for a render to
   // find out where the last event left them.
-  const drawn = useLatestRef(scale);
+  const drawnRef = useLatestRef(scale);
   const floor = useLatestRef(fit);
 
   // The gutter the canvas is scrolled around in. The reader's own number rather than anything
@@ -348,7 +348,7 @@ export function useCanvasZoom({
   const zoomTo = useCallback((next: number, clientX?: number, clientY?: number) => {
     const box = scrollerRef.current;
     if (!box) return;
-    const from = drawn.current;
+    const from = drawnRef.current;
     const to = clampZoom(next, floor.current);
     if (to === from) return;
     const rect = box.getBoundingClientRect();
@@ -361,7 +361,7 @@ export function useCanvasZoom({
       padTop: gap.current.top,
     }, from, to);
     setWanted(to);
-  }, [scrollerRef]);
+  }, [scrollerRef, drawnRef, floor, gap, setWanted]);
 
   // A trackpad pinch arrives as a wheel with ctrlKey set, and that is the only wheel this takes. A
   // plain wheel goes on scrolling the canvas, because panning is what a scroller's wheel means and
@@ -374,7 +374,7 @@ export function useCanvasZoom({
       // Wheels do not all speak pixels: a line-mode wheel reports about 3 and a page-mode one
       // about 1, and reading either as pixels makes the gesture do nothing at all.
       const lines = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? box.clientHeight : 1;
-      zoomTo(drawn.current * Math.exp(-event.deltaY * lines * TRACKPAD_RATE), event.clientX, event.clientY);
+      zoomTo(drawnRef.current * Math.exp(-event.deltaY * lines * TRACKPAD_RATE), event.clientX, event.clientY);
   }, { passive: false });
 
   // Two fingers are the pinch, and the gesture is taken from the browser only while two are down.
@@ -382,7 +382,7 @@ export function useCanvasZoom({
   // rather than reimplementing both badly.
   const pinch = useRef({ began: 0, from: 1 });
   useEventListener<TouchEvent>(surface, "touchstart", (event) => {
-    pinch.current = { began: event.touches.length === 2 ? spread(event.touches) : 0, from: drawn.current };
+    pinch.current = { began: event.touches.length === 2 ? spread(event.touches) : 0, from: drawnRef.current };
   }, { passive: true });
   useEventListener<TouchEvent>(surface, "touchmove", (event) => {
       const { began, from } = pinch.current;
@@ -416,7 +416,7 @@ export function useCanvasZoom({
       const rect = box.getBoundingClientRect();
       // Already at its own size, so there is nothing left to zoom into and the press means the
       // other direction. This is the way back out on a surface that carries no chrome of its own.
-      if (drawn.current >= 1) {
+      if (drawnRef.current >= 1) {
         zoomTo(floor.current, event.clientX, event.clientY);
         return;
       }
@@ -431,9 +431,9 @@ export function useCanvasZoom({
       // middle of the screen. The target scale is 1, so a content coordinate is a scroll offset
       // once the room around the canvas is added back to it.
       landing.current = {
-        left: Math.max(0, (box.scrollLeft + card.left - rect.left - gap.current.left) / drawn.current
+        left: Math.max(0, (box.scrollLeft + card.left - rect.left - gap.current.left) / drawnRef.current
           + gap.current.left - CARD_INSET),
-        top: Math.max(0, (box.scrollTop + card.top - rect.top - gap.current.top) / drawn.current
+        top: Math.max(0, (box.scrollTop + card.top - rect.top - gap.current.top) / drawnRef.current
           + gap.current.top - CARD_INSET),
       };
       setWanted(1);

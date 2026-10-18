@@ -70,7 +70,7 @@ export function useWindowQuestion(
         ? composerReasonText(failure.reason)
         : String((failure as Error).message ?? failure),
     );
-  }, []);
+  }, [setError]);
 
   /** Adopts a status update, respecting an in-flight Other edit. */
   const adoptFromStatus = useCallback((next: QuestionPanelStatus) => {
@@ -80,7 +80,7 @@ export function useWindowQuestion(
     if (!otherEdited.current) {
       setOtherText(next.otherText ?? "");
     }
-  }, []);
+  }, [setStatus, setSelected, setOtherText]);
 
   /** Adopts our own action's post-action state unconditionally. */
   const adoptFromResult = useCallback((next: QuestionPanelStatus) => {
@@ -89,7 +89,7 @@ export function useWindowQuestion(
     setSelected(next.selected);
     otherEdited.current = false;
     setOtherText(next.otherText ?? "");
-  }, []);
+  }, [setStatus, setSelected, setOtherText]);
 
   const run = useCallback(
     async (operation: () => Promise<QuestionPanelStatus>) => {
@@ -103,7 +103,7 @@ export function useWindowQuestion(
         setPending(false);
       }
     },
-    [adoptFromResult, reportFailure],
+    [adoptFromResult, reportFailure, setError],
   );
 
   const adopt = useLatestRef(adoptFromStatus);
@@ -124,7 +124,7 @@ export function useWindowQuestion(
         void run(() => host.selectQuestionOption(sessionId, index, true));
       }
     },
-    [host, asked?.multiSelect, run, sessionId],
+    [host, asked?.multiSelect, run, sessionId, selectedRef, setSelected],
   );
 
   // The automatic push behind every Other keystroke, debounced like the composer's
@@ -144,7 +144,7 @@ export function useWindowQuestion(
     } catch (failure) {
       reportFailure(failure);
     }
-  }, [adoptFromResult, host, reportFailure, sessionId]);
+  }, [adoptFromResult, host, reportFailure, sessionId, otherTextRef, setStatus]);
 
   const changeOther = useCallback(
     (text: string) => {
@@ -156,7 +156,7 @@ export function useWindowQuestion(
         void pushOther();
       }, 500);
     },
-    [pushOther],
+    [pushOther, setOtherText],
   );
 
   const submit = useCallback(

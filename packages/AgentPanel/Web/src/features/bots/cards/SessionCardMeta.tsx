@@ -99,7 +99,7 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
       return;
     }
     setPlacement(placePopup(button.getBoundingClientRect(), box.getBoundingClientRect(), "start"));
-  }, [close]);
+  }, [close, setPlacement]);
 
   // Before paint, so the popover is placed in the commit that opens it rather than a frame later.
   useOverlayPlacement(showing, () => reposition(), [reposition]);

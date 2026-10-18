@@ -220,7 +220,7 @@ export function useTmuxComposer(
     // is the last copy of those words, so it keeps them. See `holdsFreshPaste`.
     if (draftRef.current.length > 0 && holdsFreshPaste(next.text, draftRef.current)) return;
     setBoth(next.text);
-  }, [observePastes, setBoth]);
+  }, [observePastes, setBoth, setState, setCommands, setPaned, setMirrored]);
 
   // The state above starts over for the next session in the render that sees it; what is held
   // outside render belongs to the session being left, and goes with it.
@@ -308,7 +308,7 @@ export function useTmuxComposer(
     } finally {
       setPending(false);
     }
-  }, [feed, setBoth]);
+  }, [feed, setBoth, setError, sessionRef, setState]);
 
   /**
    * Takes the suggestion, and then says nothing about the result.
@@ -323,7 +323,7 @@ export function useTmuxComposer(
     } catch (failure) {
       setError(String((failure as Error).message ?? failure));
     }
-  }, [feed]);
+  }, [feed, setError, sessionRef, setState]);
 
   /**
    * Sends each image, then hands the field back to the pane.
@@ -375,7 +375,7 @@ export function useTmuxComposer(
     } finally {
       setPending(false);
     }
-  }, [feed, queue]);
+  }, [feed, queue, setError, sessionRef, setState]);
 
   const onBlur = useCallback(() => {
     if (pushTimer.current) {
@@ -411,7 +411,7 @@ export function useTmuxComposer(
     void feed.pressTmuxComposerKey(sessionRef.current, key, held)
       .then((next) => setState(next))
       .catch((failure) => setError(String((failure as Error).message ?? failure)));
-  }, [feed]);
+  }, [feed, modifiersRef, sessionRef, setState, setError]);
 
   // The sidecar presses Shift+Tab until the footer names the mode, outside the rail's latch: it
   // must not spend a modifier the reader armed for something else. Pending while it presses, so a
@@ -429,7 +429,7 @@ export function useTmuxComposer(
     } finally {
       setPending(false);
     }
-  }, [feed]);
+  }, [feed, setError, sessionRef, setPermissionMode]);
 
   const toggleModifier = useCallback((modifier: RailModifier) => {
     setModifiers((current) => ({ ...current, [modifier]: cycleModifier(current[modifier]) }));

@@ -83,7 +83,7 @@ export function WorkspaceIdeStatusBar({
   const closeHistory = useCallback(() => {
     setHistoryOpen(false);
     historyTrigger.current?.focus();
-  }, []);
+  }, [setHistoryOpen]);
 
   // Escape, and a pointer landing anywhere that is neither this bar nor the editor.
   //

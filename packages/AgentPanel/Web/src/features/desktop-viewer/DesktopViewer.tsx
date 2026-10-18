@@ -104,7 +104,7 @@ export function DesktopViewer({ transport, scope = "default" }: {
     if (id === current.active) navigationRef.current.handleEvent(value);
     const decoded = desktopNavigationEvent(value);
     if (decoded?.type === "desktop-state") patchSlot(id, { snapshot: decoded });
-  }, [patchSlot]);
+  }, [patchSlot, viewerRef, navigationRef]);
   const selectDisplay = useCallback((displayId?: string, notice: string | null = null) => {
     const current = viewerRef.current;
     const old = current.slots.find((slot) => slot.id === current.active);
@@ -121,7 +121,7 @@ export function DesktopViewer({ transport, scope = "default" }: {
     report("navigation-display", { phase: "requested", displayId: displayId ?? "main", generation: id });
     setViewer({ active: current.active, pending: id,
       slots: [...current.slots.filter((slot) => slot.id === current.active), { id, displayId }], notice });
-  }, [report, scope]);
+  }, [report, scope, viewerRef, navigationRef]);
   const displaySnapshot = active.snapshot ?? navigation.model.snapshot;
   const displays = displaySnapshot?.displays ?? [];
   const missingDisplay = !!activeDisplayId && !!displaySnapshot
@@ -131,7 +131,7 @@ export function DesktopViewer({ transport, scope = "default" }: {
     const current = viewerRef.current;
     if (id !== (current.pending ?? current.active)) return;
     selectDisplay(replacement, "Monitor disconnected. Now viewing the remaining main monitor.");
-  }, [selectDisplay]);
+  }, [selectDisplay, viewerRef]);
   // A monitor that disconnects under the viewer hands it to the main one, once per disconnection.
   const lostDisplay = missingDisplay && viewer.pending === null ? activeDisplayId : null;
   useNotify(lostDisplay, (lost) => {

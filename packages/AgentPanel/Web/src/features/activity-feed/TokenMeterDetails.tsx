@@ -59,7 +59,8 @@ export function TokenMeterDetails({
   limits,
   costlyNote,
   compact,
-  trigger,
+  // Named for what it is: React Compiler reads a `.current` off a name ending in `Ref` as a ref.
+  trigger: triggerRef,
   focusOnOpen,
   hover,
   onDismiss,
@@ -82,11 +83,11 @@ export function TokenMeterDetails({
   const [placement, setPlacement] = useState<Placement | null>(null);
 
   const reposition = useCallback(() => {
-    const anchor = trigger.current;
+    const anchor = triggerRef.current;
     const popup = panel.current;
     if (!anchor || !popup) return;
     setPlacement(place(anchor.getBoundingClientRect(), popup.getBoundingClientRect()));
-  }, [trigger]);
+  }, [triggerRef]);
 
   // Before paint, so the panel is placed in the same commit that opens it rather than appearing
   // in the corner of the window for a frame.
@@ -101,7 +102,7 @@ export function TokenMeterDetails({
     (popup?.querySelector<HTMLElement>("button:not(:disabled)") ?? popup)?.focus();
   }, [focusOnOpen]);
 
-  useDismissOnOutsidePress(true, [panel, trigger], onDismiss);
+  useDismissOnOutsidePress(true, [panel, triggerRef], onDismiss);
 
   return createPortal(
     <div
@@ -118,7 +119,7 @@ export function TokenMeterDetails({
         if (event.key !== "Escape") return;
         event.preventDefault();
         onDismiss();
-        trigger.current?.focus();
+        triggerRef.current?.focus();
       }}
       style={{
         top: placement?.top ?? 0,

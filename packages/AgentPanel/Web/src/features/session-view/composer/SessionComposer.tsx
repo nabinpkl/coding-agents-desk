@@ -197,7 +197,7 @@ export function SessionComposer({
   // Bounded, which is what makes it affordable: a question is open for part of a turn rather than
   // for the life of a session, and only the session this band is rendered for has one watched.
   const [engaged, setEngaged] = useStateFor(`${source}/${sessionId}`, () => false);
-  const engage = useCallback(() => setEngaged(true), []);
+  const engage = useCallback(() => setEngaged(true), [setEngaged]);
   // Held here rather than in the pane: an opencode session has no pane, so picked images wait
   // for the send instead. Keyed by the session, so a strip never rides into another thread and
   // this thread's own staged images are still there when the reader comes back to it.

@@ -55,7 +55,7 @@ export function useRunModeSwitch(
     } finally {
       setPending(false);
     }
-  }, [feed, refresh, sessionId, source]);
+  }, [feed, refresh, sessionId, source, setError]);
 
   return { pending, error, switchTo };
 }

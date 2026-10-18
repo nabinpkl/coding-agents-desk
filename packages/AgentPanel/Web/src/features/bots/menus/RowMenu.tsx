@@ -61,7 +61,7 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
       return;
     }
     setPlacement(placePopup(button.getBoundingClientRect(), popup.getBoundingClientRect()));
-  }, []);
+  }, [setPlacement]);
 
   // Before paint, so the menu is measured and placed in the same commit that opens it rather than
   // appearing at the top-left corner for a frame.

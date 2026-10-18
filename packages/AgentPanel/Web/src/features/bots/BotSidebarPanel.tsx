@@ -110,9 +110,15 @@ export function BotSidebarPanel({
   const ranks = useMemo(() => botCanvasRanks(bots), [bots]);
   // Colours and ranks come from the WHOLE roster and its own order, which is why they are derived
   // from `bots` and not from this: where a row sits must not change what colour it wears.
+  // Keyed on its two sets rather than on `canvas`, so a rebuilt `canvas` holding the same sets keeps it.
+  const detachedBotIds = canvas?.detachedBotIds;
+  const machineHiddenBotIds = canvas?.machineHiddenBotIds;
   const ordered = useMemo(
-    () => withOffCanvasLast(bots, canvas),
-    [bots, canvas?.detachedBotIds, canvas?.machineHiddenBotIds],
+    () => withOffCanvasLast(
+      bots,
+      detachedBotIds && machineHiddenBotIds ? { detachedBotIds, machineHiddenBotIds } : undefined,
+    ),
+    [bots, detachedBotIds, machineHiddenBotIds],
   );
   const faces = useBotFaces();
   return (

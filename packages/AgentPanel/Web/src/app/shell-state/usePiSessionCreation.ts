@@ -46,7 +46,7 @@ export function usePiSessionCreation(
     } finally {
       setCreatingProjectPath(null);
     }
-  }, [feed, creatingProjectPath, openSession]);
+  }, [feed, creatingProjectPath, openSession, setSelectedBotId]);
 
   return { creatingProjectPath, creationErrors, createPiSession };
 }

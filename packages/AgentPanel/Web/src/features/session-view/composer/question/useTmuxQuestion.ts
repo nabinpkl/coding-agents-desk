@@ -171,7 +171,7 @@ export function useTmuxQuestion(
     // there is no row click to carry it. A pick made BY a click points twice, and the second walk
     // is free: `moveCursor` returns without pressing anything when the cursor is already there.
     point(at, index);
-  }, [count, point, questions]);
+  }, [count, point, questions, setError, setTouched, setDrafts]);
 
   const write = useCallback((at: number, text: string) => {
     setError(null);
@@ -179,7 +179,7 @@ export function useTmuxQuestion(
     setDrafts((current) =>
       writeOther(alignDrafts(current, count), at, text, questions[at]?.multiSelect === true)
     );
-  }, [count, questions]);
+  }, [count, questions, setError, setTouched, setDrafts]);
 
   const aligned = alignDrafts(drafts, count);
   const answers = toAnswers(questions, aligned);

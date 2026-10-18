@@ -91,7 +91,7 @@ export function useBotRecordCommands(
         });
       }
     })();
-  }, [feeds]);
+  }, [feeds, setBotCommandError]);
 
   /**
    * The Bot being renamed, if any. Held as the Bot rather than its fields so the dialog opens
@@ -129,7 +129,7 @@ export function useBotRecordCommands(
           }`,
         });
       });
-  }, [feeds]);
+  }, [feeds, setBotCommandError]);
 
   return {
     botCreatorOpen,

@@ -218,7 +218,7 @@ export function useBotCommands(
         }`,
       });
     }
-  }, [feeds, putBotOnCanvas, startOpencodeSession]);
+  }, [feeds, putBotOnCanvas, startOpencodeSession, setCanvasOpenKeys]);
 
   /** Takes a started session off the canvas. Its tmux session keeps running; see the card. */
   const closeNewSession = useCallback((sessionId: string) => {
@@ -242,7 +242,7 @@ export function useBotCommands(
   const openBotSessionPicker = useCallback((bot: BotView) => {
     setBotSessionPickerId(bot.botId);
     setHoverPreviewOpen(false);
-  }, []);
+  }, [setHoverPreviewOpen]);
 
   const attachBotSessions = useCallback(async (bot: BotView, sessionRefs: BotSessionRef[]) => {
     await feeds.forBot(bot.botId).addBotSessions(bot.botId, { sessionRefs });

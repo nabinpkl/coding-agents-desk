@@ -144,7 +144,7 @@ export function useWorkspaceIdeWriting({
       if (!file || file.saveState !== "dirty") return;
       writeNowRef.current(path, file.revision, file.text);
     }, AUTOSAVE_DELAY_MS));
-  }, [cancelTimer]);
+  }, [cancelTimer, openFilesRef]);
 
   const writeNow = useCallback(async (path: string, revision: string, text: string) => {
     if (!workspaceId) return;
@@ -235,7 +235,7 @@ export function useWorkspaceIdeWriting({
     keepDraft(path);
     if (openFilesRef.current[path]?.saveState === "conflict") return;
     scheduleSave(path);
-  }, [keepDraft, openFilesRef, scheduleSave]);
+  }, [keepDraft, openFilesRef, scheduleSave, setOpenFiles]);
 
   const useHostVersion = useCallback((path: string) => {
     cancelTimer(path);
@@ -244,7 +244,7 @@ export function useWorkspaceIdeWriting({
     // in place would be restored over it by the very reload that is meant to discard it.
     forgetDraft(path);
     void reload(path);
-  }, [cancelTimer, forgetDraft, reload]);
+  }, [cancelTimer, forgetDraft, reload, pendingCloseRef]);
 
   /**
    * Keep the local text, re-based on whatever is on disk now.
@@ -274,7 +274,7 @@ export function useWorkspaceIdeWriting({
     } catch (cause) {
       setError(describe(cause, "Could not fetch the latest revision."));
     }
-  }, [cancelTimer, client, workspaceId]);
+  }, [cancelTimer, client, workspaceId, openFilesRef, setOpenFiles, setError]);
 
   /**
    * Close a tab, but never before its text is on disk.
@@ -304,7 +304,7 @@ export function useWorkspaceIdeWriting({
     cancelTimer(path);
     pendingCloseRef.current.add(path);
     if (file.saveState === "dirty") writeNowRef.current(path, file.revision, file.text);
-  }, [applyOperation, cancelTimer, forgetDraft, openFilesRef, setError]);
+  }, [applyOperation, cancelTimer, forgetDraft, openFilesRef, setError, setOpenFiles, pendingCloseRef]);
 
 
   return {

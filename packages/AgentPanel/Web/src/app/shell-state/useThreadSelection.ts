@@ -97,7 +97,7 @@ export function useThreadSelection({
       setHoverPreviewOpen(false);
       if (usesModalSidebar) setSidebarOpen(false);
     },
-    [setSidebarOpen, usesModalSidebar],
+    [setSidebarOpen, usesModalSidebar, setBotCommandError, setHoverPreviewOpen],
   );
 
   const openCatalogSession = useCallback((project: ProjectSummary, session: SessionSummary) => {

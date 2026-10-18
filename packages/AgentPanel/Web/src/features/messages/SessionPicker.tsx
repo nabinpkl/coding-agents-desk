@@ -201,7 +201,7 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
       return;
     }
     setPlacement(placePanel(button.getBoundingClientRect(), popup.getBoundingClientRect()));
-  }, []);
+  }, [setPlacement]);
 
   useOverlayPlacement(open, (cause) => reposition(cause !== "resize"), [groups]);
 

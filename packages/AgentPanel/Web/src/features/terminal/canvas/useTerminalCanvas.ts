@@ -301,7 +301,7 @@ export function useTerminalCanvas(
         });
       }
     })();
-  }, [all, feedFor, grouping, refresh, reload]);
+  }, [all, feedFor, grouping, refresh, reload, setOpenChildren]);
 
   /**
    * Picks a child from the roster, the way the Bot sidebar opens a session on its canvas.
@@ -335,7 +335,7 @@ export function useTerminalCanvas(
       storeOpenTerminalChildren(next);
       return next;
     });
-  }, [hiddenParents, offStripChildren]);
+  }, [hiddenParents, offStripChildren, setHiddenParents, setOffStripChildren, setOpenChildren]);
 
   const onKillChild = useCallback((key: string) => {
     const parsed = parseTerminalChildKey(key);

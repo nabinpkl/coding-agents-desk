@@ -131,7 +131,7 @@ export function useImageZoom(resetKey: string): ImageZoom {
         y: pointY - (pointY - current.y) * ratio,
       });
     });
-  }, [clamp]);
+  }, [clamp, setView]);
 
   // A wheel over the picture zooms rather than scrolling, so the listener has to be able to
   // preventDefault -- which React's own onWheel, attached passively at the root, cannot do.
@@ -174,7 +174,7 @@ export function useImageZoom(resetKey: string): ImageZoom {
       drag.current = null;
       setMoving(false);
     }
-  }, []);
+  }, [latest, setMoving]);
 
   const frameHandlers = {
     onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {

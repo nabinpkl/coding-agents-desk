@@ -163,7 +163,10 @@ ahead of the render through `useCommitToRef`, the time through `useNow`, and a r
 is split off the rest of what it returns. A store's hook renders from its `useSyncExternalStore`
 snapshot and never from module variables beside it: the compiler takes a module variable to be
 constant and caches the first answer (the Shiki highlighter stayed `null` that way), and no lint
-rule says so.
+rule says so. A check during render for "did this change" compares the inputs themselves, never a
+`useMemo`'s identity: the compiler drops a memo whose result is neither returned nor drawn, and the
+canvas roster's prune looped on that. A hand-written `useCallback` or `useMemo` lists every setter and
+ref it uses, because the compiler skips the whole component otherwise.
 
 ## Transient states take no space
 

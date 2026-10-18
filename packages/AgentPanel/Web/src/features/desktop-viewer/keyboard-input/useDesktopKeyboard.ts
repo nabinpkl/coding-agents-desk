@@ -114,32 +114,32 @@ export function useDesktopKeyboard({
   // always see this render's props.
   const ctxRef = useLatestRef(ctx);
 
-  const setKeyboardMode = useCallback((mode: KeyboardMode) => session.setKeyboardMode(ctxRef.current, mode), []);
-  const updatePresentation = useCallback((action: KeyboardPresentationAction) => session.updatePresentation(ctxRef.current, action), []);
-  const clearFocusTimer = useCallback(() => session.clearFocusTimer(ctxRef.current), []);
-  const clearLocalState = useCallback((action: "hide" | "transport-close", reason?: string) => session.clearLocalState(ctxRef.current, action, reason ?? action), []);
-  const hide = useCallback(() => session.hide(ctxRef.current), []);
-  const setAutoKeyboard = useCallback((enabled: boolean) => session.setAutoKeyboard(ctxRef.current, enabled), []);
-  const sendControl = useCallback((input: DesktopControlInput) => send.sendControl(ctxRef.current, input), []);
-  const pasteFromClipboard = useCallback(() => send.pasteFromClipboard(ctxRef.current), []);
-  const cancelDraft = useCallback(() => send.cancelDraft(ctxRef.current), []);
-  const sendDraft = useCallback(() => send.sendDraft(ctxRef.current), []);
-  const sendDeckCharacter = useCallback((character: string) => send.sendDeckCharacter(ctxRef.current, character), []);
-  const sendDeckCursorDelta = useCallback((delta: number) => send.sendDeckCursorDelta(ctxRef.current, delta), []);
-  const sendChromeKey = useCallback((code: RemoteKeyCode) => send.sendChromeKey(ctxRef.current, code), []);
-  const deckBackspace = useCallback(() => send.deckBackspace(ctxRef.current), []);
-  const tapModifier = useCallback((modifier: RemoteModifier) => send.tapModifier(ctxRef.current, modifier), []);
-  const beforeRemoteClick = useCallback(() => capture.beforeRemoteClick(ctxRef.current), []);
-  const consumePointerGesture = useCallback(() => capture.consumePointerGesture(ctxRef.current), []);
-  const showManually = useCallback(() => capture.showManually(ctxRef.current), []);
-  const onBeforeInput = useCallback((input: InputEvent) => capture.onBeforeInput(ctxRef.current, input), []);
-  const onInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => capture.onInput(ctxRef.current, event), []);
-  const onPaste = useCallback((event: ReactClipboardEvent<HTMLTextAreaElement>) => capture.onPaste(ctxRef.current, event), []);
-  const onCompositionStart = useCallback(() => capture.onCompositionStart(ctxRef.current), []);
-  const onCompositionEnd = useCallback((event: ReactCompositionEvent<HTMLTextAreaElement>) => capture.onCompositionEnd(ctxRef.current, event), []);
-  const onKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => capture.onKeyDown(ctxRef.current, event), []);
-  const onBlur = useCallback(() => capture.onBlur(ctxRef.current), []);
-  const handleControlEvent = useCallback((event: DesktopControlEvent) => control.handleControlEvent(ctxRef.current, event), []);
+  const setKeyboardMode = useCallback((mode: KeyboardMode) => session.setKeyboardMode(ctxRef.current, mode), [ctxRef]);
+  const updatePresentation = useCallback((action: KeyboardPresentationAction) => session.updatePresentation(ctxRef.current, action), [ctxRef]);
+  const clearFocusTimer = useCallback(() => session.clearFocusTimer(ctxRef.current), [ctxRef]);
+  const clearLocalState = useCallback((action: "hide" | "transport-close", reason?: string) => session.clearLocalState(ctxRef.current, action, reason ?? action), [ctxRef]);
+  const hide = useCallback(() => session.hide(ctxRef.current), [ctxRef]);
+  const setAutoKeyboard = useCallback((enabled: boolean) => session.setAutoKeyboard(ctxRef.current, enabled), [ctxRef]);
+  const sendControl = useCallback((input: DesktopControlInput) => send.sendControl(ctxRef.current, input), [ctxRef]);
+  const pasteFromClipboard = useCallback(() => send.pasteFromClipboard(ctxRef.current), [ctxRef]);
+  const cancelDraft = useCallback(() => send.cancelDraft(ctxRef.current), [ctxRef]);
+  const sendDraft = useCallback(() => send.sendDraft(ctxRef.current), [ctxRef]);
+  const sendDeckCharacter = useCallback((character: string) => send.sendDeckCharacter(ctxRef.current, character), [ctxRef]);
+  const sendDeckCursorDelta = useCallback((delta: number) => send.sendDeckCursorDelta(ctxRef.current, delta), [ctxRef]);
+  const sendChromeKey = useCallback((code: RemoteKeyCode) => send.sendChromeKey(ctxRef.current, code), [ctxRef]);
+  const deckBackspace = useCallback(() => send.deckBackspace(ctxRef.current), [ctxRef]);
+  const tapModifier = useCallback((modifier: RemoteModifier) => send.tapModifier(ctxRef.current, modifier), [ctxRef]);
+  const beforeRemoteClick = useCallback(() => capture.beforeRemoteClick(ctxRef.current), [ctxRef]);
+  const consumePointerGesture = useCallback(() => capture.consumePointerGesture(ctxRef.current), [ctxRef]);
+  const showManually = useCallback(() => capture.showManually(ctxRef.current), [ctxRef]);
+  const onBeforeInput = useCallback((input: InputEvent) => capture.onBeforeInput(ctxRef.current, input), [ctxRef]);
+  const onInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => capture.onInput(ctxRef.current, event), [ctxRef]);
+  const onPaste = useCallback((event: ReactClipboardEvent<HTMLTextAreaElement>) => capture.onPaste(ctxRef.current, event), [ctxRef]);
+  const onCompositionStart = useCallback(() => capture.onCompositionStart(ctxRef.current), [ctxRef]);
+  const onCompositionEnd = useCallback((event: ReactCompositionEvent<HTMLTextAreaElement>) => capture.onCompositionEnd(ctxRef.current, event), [ctxRef]);
+  const onKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => capture.onKeyDown(ctxRef.current, event), [ctxRef]);
+  const onBlur = useCallback(() => capture.onBlur(ctxRef.current), [ctxRef]);
+  const handleControlEvent = useCallback((event: DesktopControlEvent) => control.handleControlEvent(ctxRef.current, event), [ctxRef]);
 
   // The keyboard follows its transport: open, it may present; closed, everything local goes.
   useNotify(transport, (next) => {

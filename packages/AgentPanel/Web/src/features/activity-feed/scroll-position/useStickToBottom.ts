@@ -231,7 +231,7 @@ export function useStickToBottom(
         || performance.now() - downwardIntentAtRef.current <= DOWNWARD_INTENT_WINDOW_MS;
       if (pushedDown) setFollowing(true);
     }
-  }, [scrollRef, setFollowing]);
+  }, [scrollRef, setFollowing, snapToBottom]);
 
   return { following, onScroll, scrollToBottom, pause };
 }

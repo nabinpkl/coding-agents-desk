@@ -136,7 +136,7 @@ export function KeyboardDeck({
     if (active.key.kind === "delete") stopRepeat();
     setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
     setPreview((current) => (current?.pointerId === active.pointerId ? null : current));
-  }, [stopRepeat]);
+  }, [stopRepeat, setPreview]);
 
   const showPreview = useCallback((press: ActivePress) => {
     const deck = deckRef.current;
@@ -151,7 +151,7 @@ export function KeyboardDeck({
         deckRect.width,
       ),
     });
-  }, []);
+  }, [stateRef, setPreview]);
 
   const commit = useCallback((key: DeckKey) => {
     if (key.kind === "shift") {
@@ -176,7 +176,7 @@ export function KeyboardDeck({
     const result = handleDeckKey(stateRef.current, key);
     setState(result.state);
     if (result.output !== null) onCharacter(result.output);
-  }, [onCharacter, onSwitchToNative]);
+  }, [onCharacter, onSwitchToNative, stateRef]);
 
   /**
    * The tiling, measured once and kept until the deck changes shape. Rebuilding it per move would
@@ -222,7 +222,7 @@ export function KeyboardDeck({
     const key = rowsRef.current[cell.row]?.[cell.key];
     if (!element || !key) return null;
     return { cell, element, key, deckOrigin: built.origin };
-  }, [geometry]);
+  }, [geometry, rowsRef]);
 
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     // Nothing on this deck may take focus: a focused editable is what summons WebKit's keyboard
@@ -320,7 +320,7 @@ export function KeyboardDeck({
     } else {
       setPreview((current) => (current?.pointerId === active.pointerId ? null : current));
     }
-  }, [metrics, onCursorDelta, releasePress, resolve, showPreview]);
+  }, [metrics, onCursorDelta, releasePress, resolve, showPreview, setPreview]);
 
   const onPointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const active = presses.current.get(event.pointerId);

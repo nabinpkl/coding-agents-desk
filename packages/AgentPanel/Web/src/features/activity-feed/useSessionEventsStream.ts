@@ -360,7 +360,7 @@ onEvent: (event) => {
     } finally {
       loadingOlderRef.current = false;
     }
-  }, [readInto]);
+  }, [readInto, windowStartRef]);
 
   /**
    * A page into a gap, from the side the reader is approaching it from: from `below`, the page

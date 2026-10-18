@@ -133,7 +133,7 @@ export function useForkCommands(
         }`,
       });
     }
-  }, [askFork, feeds]);
+  }, [askFork, feeds, setBotCommandError]);
 
   /**
    * The same dialog again, anchored at the last compaction rather than the last message.
@@ -165,7 +165,7 @@ export function useForkCommands(
         }`,
       });
     }
-  }, [askFork, feeds]);
+  }, [askFork, feeds, setBotCommandError]);
 
   /** Starts a fork with no Bot, named in the dialog: it takes over `main` as `forkedSession`. */
   const startFork = useCallback(
@@ -205,7 +205,7 @@ export function useForkCommands(
         });
       }
     },
-    [feeds],
+    [feeds, setBotCommandError],
   );
 
   /**

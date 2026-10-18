@@ -152,7 +152,7 @@ export function useSendAttachments(sessionKey: string) {
     }
     for (const image of staged) minted.current.add(image.url);
     setStrip((current) => ({ key, images: [...current.images, ...staged] }));
-  }, []);
+  }, [keyRef]);
 
   const remove = useCallback((id: number) => {
     // Both effects live here rather than inside the state updater: an updater is meant to be
@@ -168,7 +168,7 @@ export function useSendAttachments(sessionKey: string) {
         (error: unknown) => reportStorageRefusal("forgetting a staged image", error),
       );
     }
-  }, []);
+  }, [held, keyRef]);
 
   /** Forgets the whole strip, in memory and in the store: a send, or a discarded draft. */
   const clear = useCallback(() => {
@@ -177,7 +177,7 @@ export function useSendAttachments(sessionKey: string) {
     void clearHeldImages(keyRef.current).catch(
       (error: unknown) => reportStorageRefusal("forgetting staged images", error),
     );
-  }, []);
+  }, [held, keyRef]);
 
   /**
    * The wire form, read at send time rather than held: base64 inflates a photo by a third, and
@@ -264,6 +264,6 @@ export function useComposerDraft(
     draftRef.current = next;
     setHeld((current) => ({ key: current.key, draft: next }));
     writeStoredDraft(keyRef.current, next);
-  }, []);
+  }, [keyRef]);
   return [held.draft, setDraft];
 }

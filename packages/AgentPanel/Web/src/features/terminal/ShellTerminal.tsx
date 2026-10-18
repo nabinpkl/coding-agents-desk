@@ -44,7 +44,7 @@ export function ShellTerminal({ feed, context, label, where, onState: reportStat
     else if (state.kind === "ended") setProblem("The shell exited");
     else setProblem(null);
     report.current?.(state);
-  }, []);
+  }, [report]);
   const { mountRef, labels, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
     feed,
     context,

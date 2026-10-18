@@ -69,7 +69,7 @@ export function ChoiceMenu<T extends string>({ label, value, choices, onChoose, 
       return;
     }
     setPlacement(placePopup(anchor.getBoundingClientRect(), popup.getBoundingClientRect(), "start"));
-  }, []);
+  }, [setPlacement]);
 
   useOverlayPlacement(open, () => reposition(), [reposition]);
 

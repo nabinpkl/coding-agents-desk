@@ -70,7 +70,7 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
     } finally {
       setPending(false);
     }
-  }, []);
+  }, [setError]);
 
   const address = useMemo(() => ({ source, sessionId }), [source, sessionId]);
   const send = useCallback(

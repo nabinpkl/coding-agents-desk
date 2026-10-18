@@ -121,7 +121,7 @@ export function OpencodeModelsDialog({
         return a.localeCompare(b);
       })
       .map(([provider, entries]) => ({ provider, entries }));
-  }, [shown, current]);
+  }, [shown, currentProvider]);
 
   if (!models) return null;
 

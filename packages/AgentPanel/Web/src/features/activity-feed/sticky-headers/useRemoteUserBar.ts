@@ -109,5 +109,5 @@ export function useJumpToMessage({
         setSeeking(null);
       },
     );
-  }, [loadAround, pause]);
+  }, [loadAround, pause, itemsRef]);
 }

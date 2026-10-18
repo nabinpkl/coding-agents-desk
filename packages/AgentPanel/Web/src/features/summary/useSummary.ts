@@ -98,12 +98,12 @@ export function useSummary(
         setState({ kind: "error", message: reason });
       },
     });
-  }, [close, feed, session]);
+  }, [close, feed, session, setState]);
 
   const dismiss = useCallback(() => {
     close();
     setState({ kind: "idle" });
-  }, [close]);
+  }, [close, setState]);
 
   return { available, model, state, summarize, dismiss };
 }

@@ -143,7 +143,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
 
   const update = useCallback((change: Partial<WorkspaceIdePreferences>) => {
     setPreferences((current) => ({ ...current, ...change }));
-  }, []);
+  }, [setPreferences]);
 
   /**
    * The workspace this reader is in.
@@ -213,7 +213,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
       if (generation !== generationRef.current) return;
       setError(describe(cause, `Could not open ${path.split("/").pop() ?? path}.`));
     }
-  }, [client, workspaceId]);
+  }, [client, workspaceId, generationRef, setOpenFiles]);
 
   // Follow the workspace. Its state above has already started empty for it.
   useSubscription(workspaceId ? scope : null, () => {
@@ -327,7 +327,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
       }
       setError(describe(cause, "That change could not be applied."));
     }
-  }, [client, workspaceId]);
+  }, [client, workspaceId, sharedRef, setShared, setTree]);
 
   const setActivePath = useCallback((path: string) => {
     if (!workspaceId) return;
@@ -337,7 +337,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
       ...current,
       activePathByWorkspace: { ...current.activePathByWorkspace, [workspaceId]: path },
     }));
-  }, [workspaceId]);
+  }, [workspaceId, setPreferences]);
 
   // Everything between a keystroke and the bytes landing on disk. Its own file because that is
   // what it was in the Swift too (`WorkspaceIDEControllerEditing`), and because it is the half with
@@ -355,7 +355,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
 
   const revealLine = useCallback((path: string, line: number, start: number, end: number) => {
     setReveal((current) => ({ path, line, start, end, nonce: (current?.nonce ?? 0) + 1 }));
-  }, []);
+  }, [setReveal]);
 
   const openPath = useCallback((path: string, line?: number) => {
     setActivePath(path);
@@ -379,14 +379,14 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
       };
     });
     void applyOperation({ type: "preview", path });
-  }, [applyOperation, setActivePath, revealLine, workspaceId]);
+  }, [applyOperation, setActivePath, revealLine, workspaceId, setPreferences]);
 
   /** Typing into the preview keeps it, the way VS Code does: an edited file is not a glance. */
   const writingEdit = writing.edit;
   const edit = useCallback((path: string, text: string) => {
     if (sharedRef.current?.previewPath === path) void applyOperation({ type: "open", path });
     writingEdit(path, text);
-  }, [applyOperation, writingEdit]);
+  }, [applyOperation, writingEdit, sharedRef]);
 
   const isPreview = useCallback((path: string) => {
     if (!workspaceId) return false;
@@ -419,7 +419,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
         },
       };
     });
-  }, [workspaceId]);
+  }, [workspaceId, openFilesRef, setPreferences]);
 
   return {
     client,
