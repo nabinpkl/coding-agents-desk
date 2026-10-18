@@ -1,7 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { panelReact } from "./src/app/dev-server/panelReact";
 
 const xtermPackage = fileURLToPath(
   new URL("../../../terminal/vendor/xterm/package", import.meta.url),
@@ -13,7 +13,7 @@ const panelSource = fileURLToPath(new URL("./src/", import.meta.url));
 const repositoryRootDir = fileURLToPath(new URL("../../../", import.meta.url));
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [panelReact(), tailwindcss()],
   resolve: {
     alias: {
       // Keyed with the trailing slash on purpose: a bare "@" would also match

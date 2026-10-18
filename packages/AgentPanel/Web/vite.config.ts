@@ -7,7 +7,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 import { runtimePaths } from "../../../tools/runtime-paths.mjs";
 import {
@@ -21,6 +20,7 @@ import {
 import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { slimResponses } from "./src/app/dev-server/slimResponses";
 import { hookRefresh } from "./src/app/dev-server/hookRefresh";
+import { panelReact } from "./src/app/dev-server/panelReact";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createTypeHolds, dependentsOf, resend } from "./src/app/dev-server/typeHolds";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
@@ -417,7 +417,7 @@ export default defineConfig({
     // Puts modules of hooks alone under Fast Refresh, which Vite leaves out; without it a save that
     // adds or removes a hook inside one fails its callers with "Should have a queue".
     hookRefresh(),
-    react(),
+    panelReact(),
     tailwindcss(),
     // Before `panelSessions`, because middleware runs in the order it was added and this one owns
     // the `/@panel-build` route the other used to answer.

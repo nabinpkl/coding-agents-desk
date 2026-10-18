@@ -10,9 +10,9 @@
  */
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import react from "@vitejs/plugin-react";
 import { createServer, type Plugin } from "vite";
 import { hookRefresh, needsHookRefresh, needsSignature } from "@/app/dev-server/hookRefresh";
+import { panelReact } from "@/app/dev-server/panelReact";
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 /** Real hook modules of the panel's: one in a `.ts` file, and one in a `.tsx` that has no component. */
@@ -31,7 +31,8 @@ async function served(plugins: Plugin[], module: string): Promise<string> {
     appType: "custom",
     // The module under test imports through the panel's alias, and import analysis resolves it.
     resolve: { alias: { "@/": `${ROOT}src/` } },
-    plugins: [...plugins, react()],
+    // The panel's own React plugin: with the compiler on, its transform is what signs hooks.
+    plugins: [...plugins, panelReact()],
     server: { middlewareMode: true, ws: false, watch: null },
   });
   try {

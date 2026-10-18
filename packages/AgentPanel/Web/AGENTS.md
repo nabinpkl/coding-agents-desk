@@ -157,9 +157,13 @@ files `.oxlintrc.json` names, one per outside system (ADR-0146). Reach for, in o
 with `sourceKey`), `useSubscription` or a store for a stream, then the `src/hooks/` hook named for
 the thing. `useDomSync` is DOM work only; `useNotify` is a parent that should be holding the state.
 
-Nor a ref read or written while rendering (React Compiler's rules, also lint errors): a latest value
-goes through `useLatestRef`, one a handler writes ahead of the render through `useCommitToRef`, the
-time through `useNow`, and a ref a hook returns is split off the rest of what it returns.
+Nor a ref read or written while rendering. The panel builds with React Compiler (`panelReact.ts`)
+and its rules are lint errors: a latest value goes through `useLatestRef`, one a handler writes
+ahead of the render through `useCommitToRef`, the time through `useNow`, and a ref a hook returns
+is split off the rest of what it returns. A store's hook renders from its `useSyncExternalStore`
+snapshot and never from module variables beside it: the compiler takes a module variable to be
+constant and caches the first answer (the Shiki highlighter stayed `null` that way), and no lint
+rule says so.
 
 ## Transient states take no space
 

@@ -30,10 +30,11 @@
     // React Compiler's own checks, run as lint. Each is something the compiler cannot keep correct
     // and so leaves the component uncompiled: a ref read or written while rendering, a value it
     // treats as frozen being changed, a clock read in render, an outside variable reassigned from
-    // one, a state set synchronously in an effect. Cleared on 2026-10-18 (90 findings), which is
-    // what lets the compiler be tried at all. Two quirks of how it decides what a ref is: a name
-    // ending in `Ref` is one, and an object holding a ref makes every read off that object look
-    // like a read of the ref, so a hook's ref goes apart from the rest of what it returns.
+    // one, a state set synchronously in an effect. Cleared on 2026-10-18 (90 findings); the panel
+    // builds with the compiler (`panelReact.ts`), so a finding here is a component it would skip.
+    // Two quirks of how it decides what a ref is: a name ending in `Ref` is one, and an object
+    // holding a ref makes every read off that object look like a read of the ref, so a hook's ref
+    // goes apart from the rest of what it returns.
     "react/refs": "error",
     "react/immutability": "error",
     "react/purity": "error",

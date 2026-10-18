@@ -3,8 +3,9 @@
  *
  * Once at the transform: Vite 8 runs the refresh transform only on a module whose name ends in
  * `x` or whose code names `react/jsx-runtime` (`vite/dist/node/chunks/node.js`, the oxc plugin's
- * `transform`), and that test is hard-coded, so plugin-react's `include` cannot widen it. A hook in
- * a `.ts` file gets no signature at all.
+ * `transform`), and that test is hard-coded, so plugin-react's `include` cannot widen it. With React
+ * Compiler on (`panelReact.ts`) the compiler's transform signs instead, and plugin-react gives it the
+ * same test. A hook in a `.ts` file gets no signature at all.
  *
  * And once at the wrapper: a module the transform did sign is given a real `$RefreshSig$` only
  * when it also registers a component. A module of hooks alone -- `useCardResize.tsx` as much as any
