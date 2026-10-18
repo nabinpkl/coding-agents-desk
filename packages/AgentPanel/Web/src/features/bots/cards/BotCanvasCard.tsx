@@ -20,6 +20,7 @@ import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { canRenameSession } from "@/features/bots/sessionRename";
 import { handoverMenuProp } from "@/features/bots/sessionHandover";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
+import { BotForkDraftCard, type ForkDraftControls } from "@/features/bots/cards/BotForkDraftCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
 import { SESSION_GAP, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
@@ -66,6 +67,7 @@ export function BotCanvasCard({
   scroller,
   newSessions,
   onCloseNewSession,
+  forkDrafts,
   machineLabel,
 }: {
   bot: BotView;
@@ -131,6 +133,8 @@ export function BotCanvasCard({
   /** This Bot's share of the sessions the panel has started, already filtered to it. */
   newSessions: readonly NewBotSession[];
   onCloseNewSession: (sessionId: string) => void;
+  /** Every fork waiting on the canvas; this card draws its own Bot's. */
+  forkDrafts: ForkDraftControls;
   /**
    * The machine this Bot's directory is on, or absent when the canvas is showing only one.
    *
@@ -410,6 +414,17 @@ export function BotCanvasCard({
                   onResize={(next) => onResizeSession(`claude:${each.sessionId}`, next, false)}
                   onResizeCommit={(next) => onResizeSession(`claude:${each.sessionId}`, next, true)}
                   onClose={() => onCloseNewSession(each.sessionId)}
+                />
+              ))}
+              {/* Beside the starting cards, where the fork will land once it starts: sending turns
+                  this card into one of those without moving it. */}
+              {forkDrafts.drafts.filter((draft) => draft.request.botId === bot.botId).map((draft) => (
+                <BotForkDraftCard
+                  key={draft.key}
+                  draft={draft}
+                  anchor={bot.nextAnchor}
+                  onStart={(choices) => forkDrafts.start(draft.key, choices)}
+                  onClose={() => forkDrafts.close(draft.key)}
                 />
               ))}
               {/* Shown rather than hidden: a curated reference whose transcript the catalog has

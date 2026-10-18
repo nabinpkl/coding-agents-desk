@@ -114,14 +114,6 @@ export function AppDialogs({
 }) {
   const keyOf = (session: Pick<SessionSummary, "source" | "sessionId">): string =>
     `${session.source}:${session.sessionId}`;
-  // The anchor a fork onto a Bot will most likely start under: the name that Bot's own machine
-  // hands out next, which the sidecar puts on its view because only it knows its pool. A race
-  // still belongs to the sidecar, which spends the real one at launch. Absent for a fork that
-  // belongs to nobody, which keeps counting past its project's titles instead.
-  const forkBotAnchor = useMemo(
-    () => (forkRequest?.botId ? bots.find((bot) => bot.botId === forkRequest.botId)?.nextAnchor : undefined),
-    [forkRequest?.botId, bots],
-  );
   // The anchor a rename must leave alone, when exactly one Bot holds the session with one stored.
   // Held twice over, or held with none yet, and the dialog edits the whole title the way it
   // always has.
@@ -178,7 +170,6 @@ export function AppDialogs({
             // already there. Read from the same list the sidebar renders, which is what the reader
             // is looking at when they press Fork.
             takenTitles={forkTitlesInProject}
-            botAnchor={forkBotAnchor}
             onClose={() => setForkRequest(null)}
             onFork={startFork}
           />

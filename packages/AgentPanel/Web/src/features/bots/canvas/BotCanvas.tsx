@@ -1,6 +1,7 @@
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
+import type { ForkDraftControls } from "@/features/bots/cards/BotForkDraftCard";
 import { CanvasPlaceholder } from "@/features/bots/cards/canvasNotices";
 import { type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { BotCanvasList } from "@/features/bots/cards/BotCanvasList";
@@ -78,6 +79,7 @@ function CanvasContent({
   onAddBot,
   newSessions,
   onCloseNewSession,
+  forkDrafts,
   canvasZoom,
 }: {
   bots: BotView[];
@@ -233,6 +235,8 @@ function CanvasContent({
   newSessions: readonly NewBotSession[];
   /** Takes the card away. The tmux session keeps running; nothing was attached to detach. */
   onCloseNewSession: (sessionId: string) => void;
+  /** Forks onto a Bot waiting to be started from their own cards (`BotForkDraftCard`). */
+  forkDrafts: ForkDraftControls;
   /**
    * Draw the whole canvas at once, small enough to see the arrangement, and pinch to move around it.
    *
@@ -292,6 +296,7 @@ function CanvasContent({
         onToggleSession={onToggleSession}
         newSessions={newSessions}
         onCloseNewSession={onCloseNewSession}
+        forkDrafts={forkDrafts}
         canvasZoom={canvasZoom}
       />
     </div>

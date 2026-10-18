@@ -1,5 +1,6 @@
 /**
- * Forking a session from its card: the fork lands on the card's Bot as a card of its own.
+ * Forking a session from its card: a draft card on the card's Bot, holding the name, first turn and
+ * harness until it is sent, which starts the fork as a card of its own.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -82,27 +83,34 @@ describe("App shell", () => {
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
 
-    // The anchor first, and nothing started yet. `-n` sets the session's address as well as
-    // its title, so this is the only moment it is free -- afterwards the fork has already been
-    // listed under whatever it was called. A fork onto a Bot starts under the next free anchor
-    // with whatever task is typed, not as a `(fork n)` of its source: Aaron is spent, so the
-    // field seeds empty under Adam.
-    const field = screen.getByLabelText("Task") as HTMLInputElement;
+    // A draft card on the canvas, not a dialog, and nothing started yet. `-n` sets the session's
+    // address as well as its title, so this is the only moment it is free -- afterwards the fork
+    // has already been listed under whatever it was called. A fork onto a Bot starts under the
+    // next free anchor with whatever task is typed, not as a `(fork n)` of its source: Aaron is
+    // spent, so the task seeds empty under Adam.
+    const draft = within(canvas().getByRole("region", { name: "Fork of Session Claude 01" }));
+    expect(draft.getByText("Adam")).toBeInTheDocument();
+    const field = draft.getByLabelText("Task, bracketed after the name") as HTMLInputElement;
     expect(field.value).toBe("");
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(terminalPaneMock.context).toBeNull();
 
     fireEvent.change(field, { target: { value: "Retry the flaky gate" } });
-    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
+    fireEvent.change(draft.getByLabelText("The fork's first message"), { target: { value: "Run it again" } });
+    fireEvent.click(draft.getByRole("button", { name: "Start the fork" }));
 
     // Creating a session is the Bot's business: the terminal resource attaches to panes and does
-    // not make them. The unticked worktree box sends nothing rather than sending false. The panel
-    // sends the task as typed; the sidecar spends the anchor and brackets it.
+    // not make them. The worktree left off sends nothing rather than sending false. The panel
+    // sends the task as typed; the sidecar spends the anchor and brackets it. Claude through the
+    // SDK unless another harness is chosen on the card.
     await waitFor(() => {
       expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
         .toEqual({
           requestId: expect.any(String),
           launch: {
             title: "Retry the flaky gate",
+            prompt: "Run it again",
+            claudeMode: "sdk",
             from: { source: "claude", sessionId: "sid-claude-01" },
           },
         });
@@ -154,7 +162,10 @@ describe("App shell", () => {
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork from last message" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Fork" }));
+    // The message the fork starts before, put back in its composer to be sent again or edited.
+    const composer = await screen.findByLabelText("The fork's first message");
+    expect(composer).toHaveValue("Try the other way");
+    fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
 
     // The Bot endpoint, with the message: the one that attaches a session before it has spoken.
     await waitFor(() => {
@@ -205,7 +216,8 @@ describe("App shell", () => {
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
-    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
+    fireEvent.change(screen.getByLabelText("The fork's first message"), { target: { value: "Run it again" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
     await waitFor(() => {
       expect(terminalPaneMock.context).toEqual({ kind: "tmux", session: "agentdesk-fork-fork-1" });
     });
@@ -227,8 +239,45 @@ describe("App shell", () => {
       .toHaveLength(1);
     unmount();
   });
-  it("starts nothing when the fork dialog is cancelled", async () => {
-    // The dialog is the whole commitment point. Backing out of it must leave no pane, no tmux
+  it("forks into opencode as a handover, attached to the Bot under its anchor", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
+    });
+    transport.responses.set("POST /api/agent-sessions/opencode/handover", {
+      status: 200,
+      body: JSON.stringify({
+        session: { source: "opencode", sessionId: "oc-1", title: "opencode", project: FIXTURE_PROJECT_A.projectPath },
+        handover: { turnCount: 3, chars: 900, lossy: false },
+      }),
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions", { status: 200, body: JSON.stringify({ bot: BOT_WITH_ONE_SESSION }) });
+    transport.responses.set("POST /api/sessions/opencode/oc-1/bracket", { status: 200, body: "{}" });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+    fireEvent.change(screen.getByLabelText("The fork's first message"), { target: { value: "carry on in opencode" } });
+    fireEvent.click(screen.getByRole("button", { name: /Runs in Claude SDK/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /opencode/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
+
+    await waitFor(() => {
+      expect(transport.requests.find((request) => request.path === "/api/sessions/opencode/oc-1/bracket")?.body)
+        .toEqual({ task: "" });
+    });
+    expect(transport.requests.find((request) => request.path === "/api/agent-sessions/opencode/handover")?.body)
+      .toMatchObject({ sessionId: "sid-claude-01", message: "carry on in opencode" });
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
+      .toMatchObject({ sessionRefs: [{ source: "opencode", sessionId: "oc-1" }] });
+    // Started, so its draft is gone; the attached session arrives on the Bot's stream as any does.
+    await waitFor(() => expect(screen.queryByRole("region", { name: /Fork of/ })).toBeNull());
+    unmount();
+  });
+
+  it("starts nothing when a fork's draft is discarded", async () => {
+    // Sending is the whole commitment point. Discarding the draft must leave no pane, no tmux
     // session and no `claude --fork-session`, because a fork that exists is already listed under
     // its name to every other agent and cannot be taken back.
     const { transport, unmount } = setup();
@@ -256,10 +305,11 @@ describe("App shell", () => {
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard this fork" }));
 
     expect(terminalPaneMock.context).toBeNull();
-    expect(screen.queryByLabelText("Name")).toBeNull();
+    expect(screen.queryByRole("region", { name: /Fork of/ })).toBeNull();
+    expect(transport.requests.some((request) => request.path === "/api/bots/bot-1/sessions")).toBe(false);
     // Still the canvas, with no fork view over it. The canvas draws no bar of its own beside a
     // pinned sidebar, so the selected tab is what names the view.
     expect(screen.queryByRole("banner")).toBeNull();

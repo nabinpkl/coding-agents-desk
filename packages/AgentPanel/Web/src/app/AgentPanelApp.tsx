@@ -138,6 +138,10 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   const botHues = useMemo(() => botCanvasHues(botsState.bots), [botsState.bots]);
   const botRanks = useMemo(() => botCanvasRanks(botsState.bots), [botsState.bots]);
   // Sessions started here that the catalog has not listed yet: a Bot's, and one on no Bot.
+  const forkDrafts = useMemo(
+    () => ({ drafts: commands.forkDrafts, start: commands.startForkDraft, close: commands.closeForkDraft }),
+    [commands.forkDrafts, commands.startForkDraft, commands.closeForkDraft],
+  );
   const startedSessions = useMemo(() => [...commands.newSessions, ...newSession.watched], [commands.newSessions, newSession.watched]);
   // Which directories are watched, and which machine answers for each: see `useShellInventory`.
   const { inventory, dialogSessionsByProject, rememberedSelection } = useShellInventory({
@@ -444,6 +448,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
                 onAddBot={() => commands.setBotCreatorOpen(true)}
                 newSessions={commands.newSessions}
                 onCloseNewSession={commands.closeNewSession}
+                forkDrafts={forkDrafts}
                 canvasZoom={{ mode: roster.canvasZoomMode, room: roster.canvasRoom }}
               />
             ) : sidebarEmptyText(chrome.sidebarMode) ? <EmptyThread text={sidebarEmptyText(chrome.sidebarMode)!} /> : null}
