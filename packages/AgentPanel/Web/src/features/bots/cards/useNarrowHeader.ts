@@ -40,8 +40,8 @@ export function useNarrowHeader(
   at: number = NARROW_HEADER_PX,
 ): boolean {
   const [narrow, setNarrow] = useState(false);
-  // A layout effect, not an effect: the first measurement lands before the paint that would show
-  // the crowded row, so a narrow card never appears to have a one-character name for a frame.
+  // Measured before paint: the first measurement lands before the frame that would show the
+  // crowded row, so a narrow card never appears to have a one-character name for a frame.
   const measure = (): void => {
     const width = header.current?.getBoundingClientRect().width ?? 0;
     setNarrow(width > 0 && width < at);

@@ -51,9 +51,9 @@ const ProseBlock = memo(function ProseBlock({
   const ref = useRef<HTMLDivElement>(null);
   // The empty divs `peelNestedFences` left in the HTML, which the fences below are mounted into.
   // Held in state rather than read during render because they do not exist until this element has
-  // its HTML: the effect writes the HTML and then hands the nodes back, and being a LAYOUT effect
-  // is what keeps that second pass inside the same paint, so a fence never flashes at zero height
-  // in a feed that measures its rows.
+  // its HTML: the DOM sync below writes the HTML and then hands the nodes back, and running before
+  // paint is what keeps that second pass inside the same frame, so a fence never flashes at zero
+  // height in a feed that measures its rows.
   const [slots, setSlots] = useState<readonly Element[]>([]);
   const opener = useContext(FilePathOpenerContext);
   const root = opener?.root ?? null;

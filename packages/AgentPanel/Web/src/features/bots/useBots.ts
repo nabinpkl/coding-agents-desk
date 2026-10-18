@@ -85,8 +85,8 @@ function withoutAbsent<T>(
 export function useBots(machines: readonly BotMachine[]): BotRosterState {
   const [snapshots, setSnapshots] = useState<ReadonlyMap<string, readonly BotView[]>>(new Map());
   const [errors, setErrors] = useState<ReadonlyMap<string, string>>(new Map());
-  // Read inside the effect rather than depended on, so the subscriptions survive a re-render that
-  // only rebuilt the array.
+  // Read as the subscriptions open rather than keyed on, so they survive a re-render that only
+  // rebuilt the array.
   const machinesRef = useRef(machines);
   machinesRef.current = machines;
   const signature = machines.map(machineFeedKey).join("\0");

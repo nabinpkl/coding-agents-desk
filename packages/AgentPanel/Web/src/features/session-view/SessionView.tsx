@@ -112,7 +112,7 @@ function SessionViewContent({
    * the browser's business instead of the panel's.
    *
    * MUST be stable across renders -- a state setter, or a `useCallback` with no changing
-   * dependency. It is a dependency of the effect that publishes, so a fresh function each render
+   * dependency. Its identity is part of the registration's key, so a fresh function each render
    * would republish on every keystroke in the composer, and the null on its cleanup would blink
    * the surface's overlay to a refusal mid-drag.
    */

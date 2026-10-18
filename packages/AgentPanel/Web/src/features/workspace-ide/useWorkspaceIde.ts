@@ -332,8 +332,8 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
 
   const setActivePath = useCallback((path: string) => {
     if (!workspaceId) return;
-    // Through the functional setter, not by re-reading storage: the stored value lags the value in
-    // hand by one effect, so reading it back here would drop whichever change had not landed yet.
+    // Through the functional setter, not by re-reading storage: an update still queued is in the
+    // updater's `current` and not yet in storage, so reading it back here would drop it.
     setPreferences((current) => ({
       ...current,
       activePathByWorkspace: { ...current.activePathByWorkspace, [workspaceId]: path },

@@ -360,8 +360,8 @@ export function useCanvasRoster(
    * Machines the canvas is not showing, and the chip that changes that.
    *
    * Here rather than inside the canvas for the same reason the open keys are: this is the one
-   * place that writes this browser's canvas arrangement, from one effect on the value rather than
-   * from a call beside each of the things that change it. Unlike the off-canvas sets it stays in
+   * place that writes this browser's canvas arrangement, from the setter rather than from a call
+   * beside each of the things that change it. Unlike the off-canvas sets it stays in
    * the browser, because it is about which machines this reader wants to see, not about a Bot.
    *
    * Not applied to `canvasBots` below, deliberately. Hiding a machine is a question about what this

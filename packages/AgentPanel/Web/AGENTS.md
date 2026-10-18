@@ -97,9 +97,9 @@ of truth that nothing refreshes.
 `features/sidebar/selectionStore.ts`) rather than starting a new one. Validate every field on the
 way in rather than casting -- a stale or hand-edited shape must fall back to the default, not become
 a lookup for something that cannot exist -- and wrap every read and write in `try`/`catch`, because
-a private window and a container with storage disabled both throw. Write from ONE place, an effect
-on the value, rather than beside each of the calls that change it; that is how one of them ends up
-forgotten.
+a private window and a container with storage disabled both throw. Write from ONE place, the setter
+`usePersistentState` returns (`@/hooks/state/usePersistentState`), rather than beside each of the
+calls that change it; that is how one of them ends up forgotten.
 
 **Where this is going.** There are currently three mechanisms doing this one job -- hand-rolled
 `load*`/`store*` pairs, `useSyncExternalStore` singletons, and one `zustand` store -- and none of
@@ -148,6 +148,14 @@ so a test file that reuses one source across tests resets it in `afterEach`
 Still in `App`: `usePiSessionCreation`, for the dormant Pi provider. It backs the Sessions tab's
 New Pi session button and the harness's `createPiSession`, which several thread tests use to open a
 live session, so it goes when Pi leaves the panel rather than moving.
+
+## No effects outside the named hooks
+
+`useEffect` and `useLayoutEffect` are lint errors in `src` except in `src/hooks/`, tests, and the
+files `.oxlintrc.json` names, one per outside system (ADR-0146). Reach for, in order: render (and
+`useStateFor` for state scoped to one value), the event handler, `usePanelQuery` for a read (key it
+with `sourceKey`), `useSubscription` or a store for a stream, then the `src/hooks/` hook named for
+the thing. `useDomSync` is DOM work only; `useNotify` is a parent that should be holding the state.
 
 ## Transient states take no space
 
@@ -206,9 +214,10 @@ loaded history goes, and the page fetches its ~490 modules again, which is secon
   and its boundary shows "Should have a queue". Try again clears it; nothing is broken.
 - **The data source, its layers, the transport and the wire are swapped in place.** `main.tsx`
   accepts them, builds a fresh `FetchHttpTransport` and `SidecarDataSource`, and re-renders the
-  root it already has. Every effect keyed on the feed reopens its stream with the new code, so the
-  reader sees what a sidecar restart looks like. A subscription keyed on anything less than the
-  feed's identity stays on the replaced one; `useBots` keys on each machine's feed for that reason.
+  root it already has. Every subscription and query keyed on the feed's identity (`sourceKey`, or
+  `machineFeedKey` for a machine) reopens with the new code, so the reader sees what a sidecar
+  restart looks like. One keyed on anything less than the feed's identity stays on the replaced
+  one; `useBots` keys on each machine's feed for that reason.
 - **The page-level listeners are reinstalled** (`keyboardInset.ts`, `pageLifecycle.ts`,
   `windowDrag.ts`): `main.tsx` keeps the `remove()` each returns and installs from the new module.
 - **A sidecar edit restarts the sidecar and reloads nothing.** Each list and card keeps what it had

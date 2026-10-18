@@ -35,8 +35,8 @@ export type MissingSessionSurface = "canvas-card" | "roster-row";
  */
 export function useMissingSessionLog(bot: BotView, surface: MissingSessionSurface): void {
   const held = useRef<Set<string>>(new Set());
-  // Read inside the effect without being a dependency. The array is rebuilt on every snapshot, and
-  // depending on its identity would run this on every write even when the missing set is unchanged
+  // Read when the log runs rather than watched. The array is rebuilt on every snapshot, and
+  // following its identity would run this on every write even when the missing set is unchanged
   // -- which is the flood the edge trigger exists to prevent. `signature` carries the contents.
   const latest = useRef(bot.missingSessionRefs);
   latest.current = bot.missingSessionRefs;

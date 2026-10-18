@@ -96,7 +96,7 @@ export function useProjectInventory(
   //
   // Only ever increments. The consecutive-failure count that sets the delay lives
   // in a ref instead, because resetting it on success would be a state change in
-  // this effect's own dependencies -- which tears down the subscription that just
+  // the subscription's own key -- which tears down the subscription that just
   // succeeded and re-subscribes, leaving the viewer back on "Loading".
   const [retryNonce, setRetryNonce] = useState(0);
   const [retrying, setRetrying] = useState(false);

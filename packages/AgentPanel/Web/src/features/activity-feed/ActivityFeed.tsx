@@ -285,9 +285,10 @@ export function ActivityFeed({
     virtualItems,
   });
   changesAtRef.current = changesAt;
-  // The bar above asks about the position the sticky header below has just worked out, so it is
-  // carried into the next render -- which happens at once, before anything is drawn.
-  if (askBefore !== userBarBefore) setAskBefore(userBarBefore);
+  // The bar above asks about the position the sticky header below has just worked out. Carried
+  // over after the commit rather than during the render: the answer feeds back into the position,
+  // and two positions that point at each other would chase without ever drawing a frame.
+  useNotify(userBarBefore, setAskBefore);
   const hasRows = rowItems.length > 0;
   useMountEffect(() => expectMilestone("first-rows"));
   useNotify(hasRows, (some) => {

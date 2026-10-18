@@ -92,7 +92,7 @@ export function useSendAttachments(sessionKey: string) {
   // and counting down, because a stored id is allocated from the stored ones and is always
   // positive: an image held only in memory can never collide with one that was remembered.
   const unstored = useRef(0);
-  // The key in a ref as well as the effect's dependency, so a write that lands after the reader
+  // The key in a ref as well as the subscription's key, so a write that lands after the reader
   // has moved to another session stores against the session it was picked for.
   const keyRef = useRef(sessionKey);
   keyRef.current = sessionKey;

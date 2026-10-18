@@ -75,9 +75,9 @@ export function useTerminalCanvas(
   /**
    * One load of every machine's listing, settling the states it writes.
    *
-   * A callback rather than only an effect body, because the add and kill flows await the listing
-   * that follows their command: opening the newborn key only once the grouping holds it means the
-   * prune below can never close what was just opened before it stands on the strip.
+   * A callback rather than only the subscription's body, because the add and kill flows await the
+   * listing that follows their command: opening the newborn key only once the grouping holds it
+   * means the prune below can never close what was just opened before it stands on the strip.
    */
   const reload = useCallback(async (current: readonly BotMachine[], live: { on: boolean }): Promise<void> => {
     // A `for` loop rather than `current.map(async ...)`: the map form never invoked its
