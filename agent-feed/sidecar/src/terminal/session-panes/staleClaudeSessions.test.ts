@@ -73,6 +73,14 @@ test("a command carries the launch flags in any order, a flag's value beside it"
   expect(launchedWithFlags("claude --permission-mode plan --allow-dangerously-skip-permissions", FLAGS)).toBe(false);
 });
 
+test("a session started before the mods joined the launch is behind it", () => {
+  const withMods = [...FLAGS, "--plugin-dir", "/m/prompt-guard", "--plugin-dir", "/m/agentdesk-hub"];
+  expect(launchedWithFlags(`${CURRENT} abc`, withMods)).toBe(false);
+  expect(launchedWithFlags(`${CURRENT} --plugin-dir /m/prompt-guard --plugin-dir /m/agentdesk-hub --resume abc`, withMods)).toBe(true);
+  // One of the two mods is not the launch either.
+  expect(launchedWithFlags(`${CURRENT} --plugin-dir /m/prompt-guard --resume abc`, withMods)).toBe(false);
+});
+
 // Start commands as `tmux list-panes -F '#{pane_start_command}'` printed them on 2026-10-16.
 const PANEL_FIRST_TURN = String.raw`"/bin/zsh -l -c ''\\''/bin/sh'\\'' '\\''-c'\\'' '\\''f=$1; shift'\\'' '\\''agentdesk-first-turn'\\'' '\\''/T/turn.txt'\\'' '\\''claude'\\'' '\\''--permission-mode'\\'' '\\''auto'\\'' '\\''--allow-dangerously-skip-permissions'\\'' '\\''--session-id'\\'' '\\''00f3'\\'' '\\''-n'\\'' '\\''Dean (handover)'\\''; exec /bin/zsh -l'"`;
 const ARENA = String.raw`"/bin/zsh -l -c 'export PATH=/x; '\\''/u/.local/bin/claude'\\'' '\\''--session-id'\\'' '\\''f697'\\'' '\\''-n'\\'' '\\''arena manager dc525436'\\'' '\\''--disallowedTools'\\'' '\\''Edit,Write'\\''; exec /bin/zsh -l'"`;

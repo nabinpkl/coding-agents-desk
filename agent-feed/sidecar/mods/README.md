@@ -46,7 +46,15 @@ confirms it to the hub through `src/hubConfirmMain.ts` only once the prompt has 
   the session id changes
 
 Load it beside `prompt-guard`, and the relay MCP server keeps its tools but opens no stream of its
-own when it sees this mod on the session's command line. Nothing launches sessions with it yet.
+own when it sees this mod on the session's command line.
+
+## How sessions get them
+
+Every Claude session the sidecar launches, resumes or forks loads both mods with `--plugin-dir`
+from this directory (`config/configClaudeLaunch.ts`; `AGENT_FEED_CLAUDE_MODS=0` turns it off). They
+are not installed, so an edit here reloads live in every session holding them. A session started
+before a change to that launch is listed as behind it (`launch-flags`), and the Profile menu's
+restart brings it onto the current one.
 
 ## The check
 

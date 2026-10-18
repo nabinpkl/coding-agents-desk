@@ -23,7 +23,7 @@ import {
   resumeClaudeSessionCommand,
 } from "@/terminal/session-panes/claudeSessionLaunch";
 import { newSessionArgs, respawnPaneArgs } from "@/terminal/tmux/tmuxSessions";
-import { claudeLaunchPermissionArgs as permission } from "@/config/configClaudeLaunch";
+import { claudeLaunchArgs as permission } from "@/config/configClaudeLaunch";
 
 const directories: string[] = [];
 

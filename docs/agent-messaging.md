@@ -218,9 +218,9 @@ body text
 Proposed 2026-10-16 in place of launching every Claude session with the development-channel flag.
 Built (2026-10-16): the prompt guard (`agent-feed/sidecar/mods/prompt-guard/`), the reader and
 the confirm helper, and the `agentdesk-hub` mod (`agent-feed/sidecar/mods/agentdesk-hub/`), verified
-end to end on a throwaway Bot with agent messages. Not built: the launcher passing the two mods to
-Bot sessions, and an owner message end to end (the sidecar's machine token may not send as the
-owner). Every measurement below is Claude Code 2.1.301.
+end to end on a throwaway Bot with agent messages. The sidecar's launcher passes both mods to every
+Claude session it starts. Not built: an owner message end to end (the sidecar's machine token may
+not send as the owner). Every measurement below is Claude Code 2.1.301.
 
 **Why replace the flag.** The channel path needs `--dangerously-load-development-channels` and its
 warning on every start, cannot reach a Claude Desktop session, is a research preview that can change
@@ -372,7 +372,9 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
    it `queued`, and the next reader gets it on a new stream. An owner message could not be sent in
    that test: the sidecar's machine token "may not send as human", so owner messages wait on a
    surface token (the panel inbox). The `agentdesk-hub` mod is built and verified with agent
-   messages. Next: `terminal/claudeSessionLaunch.ts` passing both mods to Bot sessions.
+   messages. Every session the sidecar launches, resumes or forks now loads both mods with
+   `--plugin-dir` (`config/configClaudeLaunch.ts`), and a session started before that is listed as
+   behind its launch flags for the Profile menu's restart.
 
 ## Decisions for the owner
 

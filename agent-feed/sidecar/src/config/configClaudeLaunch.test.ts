@@ -1,5 +1,15 @@
 import { expect, test } from "bun:test";
-import { claudeLaunchPermissionArgs, claudePermissionArgs } from "@/config/configClaudeLaunch";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  LAUNCH_MODS,
+  claudeLaunchArgs,
+  claudeLaunchModArgs,
+  claudeLaunchPermissionArgs,
+  claudeModArgs,
+  claudePermissionArgs,
+} from "@/config/configClaudeLaunch";
 
 test("bypass is offered in the Shift+Tab cycle without being the mode a session starts in", () => {
   expect(claudePermissionArgs("auto", true))
@@ -14,4 +24,28 @@ test("with nothing set, sessions start in auto with bypass offered", () => {
   if (process.env.AGENT_FEED_CLAUDE_PERMISSION_MODE || process.env.AGENT_FEED_CLAUDE_ALLOW_BYPASS) return;
   expect(claudeLaunchPermissionArgs)
     .toEqual(["--permission-mode", "auto", "--allow-dangerously-skip-permissions"]);
+});
+
+test("each mod on disk becomes one --plugin-dir, in the guard-first order, and none when off", () => {
+  const root = mkdtempSync(join(tmpdir(), "agentdesk-launch-mods-"));
+  try {
+    for (const name of LAUNCH_MODS) {
+      mkdirSync(join(root, name, ".claude-plugin"), { recursive: true });
+      writeFileSync(join(root, name, ".claude-plugin", "plugin.json"), "{}");
+    }
+    expect(claudeModArgs(root, true))
+      .toEqual(["--plugin-dir", join(root, "prompt-guard"), "--plugin-dir", join(root, "agentdesk-hub")]);
+    expect(claudeModArgs(root, false)).toEqual([]);
+    // A tree without the mods, as the bundled sidecar is, launches without the flags.
+    expect(claudeModArgs(join(root, "nowhere"), true)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("run from this source tree, launches load both mods beside the permission flags", () => {
+  if (process.env.AGENT_FEED_CLAUDE_MODS) return;
+  expect(claudeLaunchModArgs.filter((arg) => arg !== "--plugin-dir").map((dir) => dir.split("/").slice(-3).join("/")))
+    .toEqual(["sidecar/mods/prompt-guard", "sidecar/mods/agentdesk-hub"]);
+  expect(claudeLaunchArgs).toEqual([...claudeLaunchPermissionArgs, ...claudeLaunchModArgs]);
 });

@@ -1,7 +1,8 @@
 // Which running Claude sessions are behind what a fresh launch would give them, and restarting them.
 //
-// A session keeps two things from the moment its process started: the permission flags it was
-// launched with (`configClaudeLaunch.ts`) and the CLI version that was installed then. Both move on
+// A session keeps two things from the moment its process started: the launch flags it was started
+// with (`configClaudeLaunch.ts`: permission flags and the mods it loads) and the CLI version that
+// was installed then. Both move on
 // without it -- the flags when the sidecar's launch changes, the version every time the CLI updates
 // itself, which its own footer reports as "Restart to update". Restarting one session at a time is
 // `restartClaudeSession`; this is the same restart for every session that needs it.
@@ -20,7 +21,7 @@ import type {
   StaleSessionRestartResult,
 } from "@agentdesk/agent-feed-wire";
 import { installedClaudeVersion } from "@/config/configBinaries";
-import { claudeLaunchPermissionArgs } from "@/config/configClaudeLaunch";
+import { claudeLaunchArgs } from "@/config/configClaudeLaunch";
 import { currentProcessTable } from "@/tasks/processProbe";
 import type { ProcessRow } from "@/tasks/processTable";
 import { liveSessionProcesses, type ClaudeSessionProcess } from "@/tasks/sessionRegistry";
@@ -50,7 +51,7 @@ export const liveStaleSessionSources: StaleSessionSources = {
     return { table, live: await liveSessionProcesses(table) };
   },
   installedVersion: installedClaudeVersion,
-  launchArgs: claudeLaunchPermissionArgs,
+  launchArgs: claudeLaunchArgs,
   async launchedPane(sessionId) {
     const pane = await launchedClaudePane(sessionId);
     return pane.kind === "pane" ? pane.startCommand : null;
