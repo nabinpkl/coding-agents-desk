@@ -27,6 +27,7 @@ import {
   PROTOCOL_VERSION,
   runnerBuild,
   runnerSocketPath,
+  type RunnerChoices,
   type RunnerReply,
   type SidecarToRunner,
 } from "@/claude-sdk/claudeSdkProtocol";
@@ -119,6 +120,18 @@ export class ClaudeSdkClient {
     const state = connection.state;
     this.release(connection);
     return state;
+  }
+
+  /**
+   * The model and effort the session has chosen, to launch its next runner with; empty when none
+   * were chosen, or when no runner of this protocol answers to say.
+   */
+  async choices(sessionId: string): Promise<RunnerChoices> {
+    const connection = this.connection(sessionId);
+    await this.open(connection);
+    const choices = connection.session?.choices() ?? {};
+    this.release(connection);
+    return choices;
   }
 
   /** Whether a runner is serving this session, connecting to find out. */
@@ -269,7 +282,7 @@ export class ClaudeSdkClient {
   private introduces(connection: Connection, line: string): boolean {
     const message = parseRunnerMessage(line);
     if (message?.type === "hello" && message.version === PROTOCOL_VERSION && message.sessionId === connection.sessionId) {
-      connection.session = new SdkSession(connection.sessionId, message.allowBypass);
+      connection.session = new SdkSession(connection.sessionId, message.allowBypass, message.choices);
       connection.stale = message.build !== this.currentBuild();
       if (connection.stale) this.log(`${connection.sessionId}: its runner is build ${message.build}, older than this code`);
       return true;

@@ -15,7 +15,7 @@ import { parseArgs } from "node:util";
 import { query, type PermissionMode, type SpawnedProcess, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeSdkRunner, type RunnerPlan, type RunnerQuery } from "@/claude-sdk/claudeSdkRunner";
 import { privateSocketDirectory, serveRunner } from "@/claude-sdk/claudeSdkRunnerServer";
-import { runnerBuild, runnerSocketPath } from "@/claude-sdk/claudeSdkProtocol";
+import { EFFORT_LEVELS, isEffortLevel, isModelName, runnerBuild, runnerSocketPath } from "@/claude-sdk/claudeSdkProtocol";
 
 /** How long a stop waits for `claude` to write its exit records before the runner leaves anyway. */
 const STOP_GRACE_MS = 15_000;
@@ -94,8 +94,14 @@ export async function planFromArguments(argv: string[]): Promise<{ plan: RunnerP
       "first-turn-file": { type: "string" },
       "fork-from": { type: "string" },
       "resume-at": { type: "string" },
+      model: { type: "string" },
+      effort: { type: "string" },
     },
   });
+  const model = values.model;
+  const effort = values.effort;
+  if (model !== undefined && !isModelName(model)) throw new Error("--model must be a model alias or id");
+  if (effort !== undefined && !isEffortLevel(effort)) throw new Error(`--effort must be one of ${EFFORT_LEVELS.join(", ")}`);
   const start = values.start;
   if (start !== "new" && start !== "resume" && start !== "fork") throw new Error("--start must be new, resume or fork");
   if (start === "fork" && !values["fork-from"]) throw new Error("--start fork needs --fork-from");
@@ -113,6 +119,7 @@ export async function planFromArguments(argv: string[]): Promise<{ plan: RunnerP
       ...(values["fork-from"] ? { forkFrom: values["fork-from"] } : {}),
       ...(values["resume-at"] ? { resumeAt: values["resume-at"] } : {}),
       ...(firstTurn === undefined ? {} : { firstTurn }),
+      choices: { ...(model ? { model } : {}), ...(effort ? { effort } : {}) },
     },
     socketDirectory: required("socket-dir", values["socket-dir"]),
   };
@@ -147,7 +154,8 @@ async function main(): Promise<number> {
   for (const signal of ["SIGHUP", "SIGTERM", "SIGINT"] as const) process.on(signal, () => stop(signal));
 
   log(`${plan.start === "new" ? "starting" : "resuming"} ${plan.sessionId} "${plan.name}" in ${plan.cwd}`);
-  log(`claude ${plan.claudePath}, ${plan.permissionMode} mode, build ${build}, listening at ${socketPath}`);
+  const chosen = [plan.choices.model, plan.choices.effort && `${plan.choices.effort} effort`].filter(Boolean).join(", ");
+  log(`claude ${plan.claudePath}, ${plan.permissionMode} mode${chosen ? `, ${chosen}` : ""}, build ${build}, listening at ${socketPath}`);
   await runner.run(log);
   log(`session ${plan.sessionId} has ended`);
   return 0;

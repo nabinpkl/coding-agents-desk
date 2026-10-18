@@ -75,6 +75,24 @@ describe("a session's state", () => {
   });
 });
 
+describe("the choices a relaunch carries", () => {
+  test("start as what the runner was launched with, and follow what is chosen since", () => {
+    const session = new SdkSession(SESSION, true, { model: "haiku", effort: "high" });
+    expect(session.state()).toMatchObject({ model: "haiku", effort: "high" });
+    expect(session.choices()).toEqual({ model: "haiku", effort: "high" });
+    session.fold(called("setModel", "opus"));
+    session.fold(called("applyFlagSettings", { effortLevel: null }));
+    expect(session.choices()).toEqual({ model: "opus" });
+  });
+
+  test("never take what the CLI reports as a choice, so a default is not pinned", () => {
+    const session = new SdkSession(SESSION, true);
+    session.fold(message({ type: "system", subtype: "init", permissionMode: "auto", model: "claude-opus-5-5", effort: "high" }));
+    expect(session.state()).toMatchObject({ model: "claude-opus-5-5", effort: "high" });
+    expect(session.choices()).toEqual({});
+  });
+});
+
 describe("the models and the effort", () => {
   test("a model choice reads as the full id its alias stands for, until the CLI names it", () => {
     const session = new SdkSession(SESSION, true);

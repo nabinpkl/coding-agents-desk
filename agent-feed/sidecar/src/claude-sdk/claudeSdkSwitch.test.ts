@@ -57,6 +57,10 @@ function steps(options: {
       return looks > (options.leavesAfter ?? 1) ? [] : options.rows;
     },
     runnerState: async () => ({ ...IDLE_RUNNER, ...options.runner }),
+    runnerChoices: async () => {
+      done.push("read choices");
+      return { model: "haiku", effort: "max" };
+    },
     stopRunner: async () => {
       stopped = true;
       done.push("stop runner");
@@ -73,7 +77,12 @@ function steps(options: {
       if (options.respawnFails) throw new Error("tmux said no");
       done.push(`respawn ${pane} ${cwd} ${command.join(" ")}`);
     },
-    resumeCommand: (mode, { sessionId }) => [mode === "sdk" ? "runner" : "claude", sessionId],
+    resumeCommand: (mode, { sessionId, choices }) => [
+      mode === "sdk" ? "runner" : "claude",
+      sessionId,
+      ...(choices?.model ? [choices.model] : []),
+      ...(choices?.effort ? [choices.effort] : []),
+    ],
     sleep: async () => {},
   };
   return { done, steps: fake };
@@ -165,7 +174,8 @@ describe("restarting a runner on the code on disk", () => {
   test("stops it while idle and resumes the session through the SDK in the same pane", async () => {
     const { done, steps: s } = steps({ rows: [row({ entrypoint: "sdk-cli" })], pane: RUNNER_PANE });
     expect(await restartRunner(SESSION, s)).toEqual({ ok: true });
-    expect(done).toEqual(["stop runner", `respawn %7 /repo runner ${ID}`]);
+    // The model and effort the session chose are read while the runner answers, and launched with.
+    expect(done).toEqual(["read choices", "stop runner", `respawn %7 /repo runner ${ID} haiku max`]);
   });
 
   test("refuses a busy one, a terminal session, and one nothing runs, touching nothing", async () => {
@@ -196,7 +206,7 @@ describe("relaunching a stale runner", () => {
     const lines: string[] = [];
     const outcome = await relaunchStaleRunner({} as ClaudeSdkClient, `${ID}`, IDLE_RUNNER, s, () => 0, (line) => void lines.push(line));
     expect(outcome).toEqual({ ok: true });
-    expect(done).toEqual(["stop runner", `respawn %7 /elsewhere runner ${ID}`]);
+    expect(done).toEqual(["read choices", "stop runner", `respawn %7 /elsewhere runner ${ID} haiku max`]);
     expect(lines).toEqual([`${ID}: relaunching its stale runner while it is idle`]);
   });
 });

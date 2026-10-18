@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { FakeQuery } from "@/claude-sdk/claudeSdkHarness";
 import { ClaudeSdkRunner, type RunnerEvent, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";
+import { planFromArguments } from "@/claude-sdk/claudeSdkRunnerMain";
 import { RUNNER_SOURCE_FILES, runnerBuild } from "@/claude-sdk/claudeSdkProtocol";
 
 const PLAN: RunnerPlan = {
@@ -16,6 +17,7 @@ const PLAN: RunnerPlan = {
   allowBypass: true,
   pluginDirectories: ["/mods/prompt-guard"],
   claudePath: "/usr/local/bin/claude",
+  choices: {},
 };
 
 function started(plan: RunnerPlan = PLAN) {
@@ -57,6 +59,24 @@ describe("the options a plan comes to", () => {
     expect(options.permissionMode).toBe("default");
     expect(options.allowDangerouslySkipPermissions).toBeUndefined();
     expect(options.extraArgs).toEqual({ name: "Probe session" });
+  });
+});
+
+describe("the choices a launch carries", () => {
+  test("start the query on the model and effort the session had chosen, and nothing when none", () => {
+    const options = new ClaudeSdkRunner({ ...PLAN, choices: { model: "haiku", effort: "max" } }, () => { throw new Error("unused"); }).options();
+    expect(options).toMatchObject({ model: "haiku", effort: "max" });
+    const plain = new ClaudeSdkRunner(PLAN, () => { throw new Error("unused"); }).options();
+    expect(plain.model).toBeUndefined();
+    expect(plain.effort).toBeUndefined();
+  });
+
+  test("are read off the command line, and refused when malformed", async () => {
+    const base = ["--session", PLAN.sessionId, "--cwd", "/tmp", "--name", "n", "--start", "resume", "--permission-mode", "default", "--claude", "/c", "--socket-dir", "/s"];
+    expect((await planFromArguments([...base, "--model", "haiku", "--effort", "xhigh"])).plan.choices).toEqual({ model: "haiku", effort: "xhigh" });
+    expect((await planFromArguments(base)).plan.choices).toEqual({});
+    expect(planFromArguments([...base, "--effort", "ultra"])).rejects.toThrow("--effort");
+    expect(planFromArguments([...base, "--model", "opus; rm -rf"])).rejects.toThrow("--model");
   });
 });
 

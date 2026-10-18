@@ -53,6 +53,11 @@ under live callback closures is the fragile kind of clever.
 - Good, because a stale runner, including one on an older protocol, is relaunched without anyone
   acting. One whose protocol the sidecar cannot read is judged idle by its registry row, and its
   `claude` is hung up the way a terminal session's is.
+- Good, because a relaunch keeps the model and effort the session chose. They are read from the old
+  runner before it stops and passed to the new one as launch options (`--model`, `--effort`), and
+  each runner reports what it was launched with when a sidecar connects, so the next relaunch
+  carries them again. Only explicit choices carry: what the CLI reports as its own default is never
+  pinned. A runner on an older protocol cannot be read, so its relaunch starts from the defaults.
 - Bad, because the runner's socket now accepts any `Query` method rather than a list. It refuses
   `close`, `streamInput` and the iterator's own methods by name; the socket is this user's alone in a
   private directory, as before.

@@ -167,6 +167,7 @@ export async function serveRunner(
           pid: process.pid,
           build: identity.build,
           allowBypass: runner.allowBypass,
+          choices: runner.choices,
         });
       },
       data(socket, chunk) {

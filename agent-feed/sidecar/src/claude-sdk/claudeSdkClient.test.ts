@@ -18,7 +18,7 @@ let sessionCounter = 0;
 const quiet = () => {};
 const BUILD = runnerBuild();
 
-async function runnerFor(build = BUILD) {
+async function runnerFor(build = BUILD, choices: RunnerPlan["choices"] = {}) {
   const sessionId = `aaaaaaaa-bbbb-4ccc-8ddd-${String(++sessionCounter).padStart(12, "0")}`;
   const plan: RunnerPlan = {
     sessionId,
@@ -29,6 +29,7 @@ async function runnerFor(build = BUILD) {
     allowBypass: false,
     pluginDirectories: [],
     claudePath: "/bin/false",
+    choices,
   };
   let fake!: FakeQuery;
   const runner = new ClaudeSdkRunner(plan, ({ prompt, options }) => (fake = new FakeQuery(options, prompt)));
@@ -153,6 +154,21 @@ describe("what a runner streams", () => {
   });
 });
 
+describe("the choices a runner was launched with", () => {
+  test("show as the session's model and effort, and come back for the next launch with any made since", async () => {
+    const session = await runnerFor(BUILD, { model: "haiku", effort: "max" });
+    const client = new ClaudeSdkClient(work, quiet);
+    const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
+    expect(followed.state).toMatchObject({ model: "haiku", effort: "max" });
+    expect(await client.choices(session.sessionId)).toEqual({ model: "haiku", effort: "max" });
+    expect(await client.command(session.sessionId, { type: "set-model", model: "opus" })).toEqual({ ok: true });
+    for (let tries = 0; (await client.choices(session.sessionId)).model !== "opus" && tries < 50; tries += 1) await Bun.sleep(10);
+    expect(await client.choices(session.sessionId)).toEqual({ model: "opus", effort: "max" });
+    followed.stop();
+    await session.stop();
+  });
+});
+
 describe("a runner on older code", () => {
   test("is said to be stale on every state, and is read as usual meanwhile", async () => {
     const session = await runnerFor("0.0.1+older");
@@ -196,7 +212,7 @@ describe("one runner per session", () => {
   test("a second runner for the same session refuses to start", async () => {
     const session = await runnerFor();
     const second = new ClaudeSdkRunner(
-      { sessionId: session.sessionId, cwd: work, name: "x", start: "resume", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false" },
+      { sessionId: session.sessionId, cwd: work, name: "x", start: "resume", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false", choices: {} },
       () => { throw new Error("must not start"); },
     );
     expect(serveRunner(second, { sessionId: session.sessionId, socketPath: runnerSocketPath(work, session.sessionId), build: BUILD }, quiet))
@@ -212,7 +228,7 @@ describe("who the client will believe", () => {
     try {
       const sessionId = "aaaaaaaa-bbbb-4ccc-8ddd-777777777777";
       const runner = new ClaudeSdkRunner(
-        { sessionId, cwd: open, name: "x", start: "new", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false" },
+        { sessionId, cwd: open, name: "x", start: "new", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false", choices: {} },
         () => { throw new Error("unused"); },
       );
       const server = await serveRunner(runner, { sessionId, socketPath: runnerSocketPath(open, sessionId), build: BUILD }, quiet);

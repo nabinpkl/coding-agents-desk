@@ -26,7 +26,7 @@ import {
   UNATTENDED_ROWS,
   type StartedClaudeSession,
 } from "@/terminal/session-panes/claudeSessionLaunch";
-import { RUNNER_ENTRY_FILE } from "@/claude-sdk/claudeSdkProtocol";
+import { RUNNER_ENTRY_FILE, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
 import { sdkPermissionMode } from "@/claude-sdk/claudeSdkSession";
 import { createTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
@@ -65,6 +65,8 @@ export function claudeSdkRunnerCommand(options: {
   forkFrom?: string;
   resumeAt?: string;
   firstTurnFile?: string;
+  /** The model and effort the session had chosen, which a relaunch keeps. */
+  choices?: RunnerChoices;
 }): string[] {
   const claude = claudeBinary();
   if (!claude) throw new ClaudeSdkUnavailableError("claude is not installed on this machine");
@@ -83,6 +85,8 @@ export function claudeSdkRunnerCommand(options: {
     ...(options.forkFrom ? ["--fork-from", options.forkFrom] : []),
     ...(options.resumeAt ? ["--resume-at", options.resumeAt] : []),
     ...(options.firstTurnFile ? ["--first-turn-file", options.firstTurnFile] : []),
+    ...(options.choices?.model ? ["--model", options.choices.model] : []),
+    ...(options.choices?.effort ? ["--effort", options.choices.effort] : []),
   ];
 }
 
@@ -162,10 +166,10 @@ export function lastRunMode(session: { lastEntrypoint?: string }): ClaudeRunMode
   return session.lastEntrypoint === "sdk-cli" ? "sdk" : "terminal";
 }
 
-/** The argv that resumes a session in one mode or the other. */
+/** The argv that resumes a session in one mode or the other; a runner keeps the choices it is given. */
 export function resumeCommandFor(
   mode: ClaudeRunMode,
-  options: { sessionId: string; cwd: string; title: string },
+  options: { sessionId: string; cwd: string; title: string; choices?: RunnerChoices },
 ): string[] {
   return mode === "sdk"
     ? claudeSdkRunnerCommand({ ...options, start: "resume" })

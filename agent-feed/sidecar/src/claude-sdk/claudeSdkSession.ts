@@ -19,7 +19,9 @@ import { CLAUDE_EFFORT_LEVELS, CLAUDE_PERMISSION_MODES } from "@agentdesk/agent-
 import { askedQuestions, sdkAnswers, type AnswersFit } from "@/claude-sdk/claudeSdkAnswers";
 import {
   isId,
+  isModelName,
   type PromptImageType,
+  type RunnerChoices,
   type RunnerCallback,
   type RunnerRecord,
   type RunnerState,
@@ -134,7 +136,7 @@ export function parseSessionCommand(fields: Fields): SessionCommand | null {
       return (CLAUDE_PERMISSION_MODES as readonly unknown[]).includes(mode) ? { type: "set-mode", mode: mode as ClaudePermissionMode } : null;
     }
     case "set-model":
-      return isString(fields.model) && /^[A-Za-z0-9._:\[\]-]{1,128}$/.test(fields.model) ? { type: "set-model", model: fields.model } : null;
+      return isModelName(fields.model) ? { type: "set-model", model: fields.model } : null;
     case "set-effort":
       return isEffortLevel(fields.effort) ? { type: "set-effort", effort: fields.effort } : null;
     case "interrupt":
@@ -198,10 +200,29 @@ export class SdkSession {
   /** The callbacks the runner holds, by its id for each, as the panel shows them. */
   private readonly pending = new Map<string, ClaudeSdkPendingRequest>();
 
+  /** What the session has chosen, as distinct from what the CLI reports it runs with. */
+  private chosenModel: string | undefined;
+  private chosenEffort: ClaudeEffortLevel | undefined;
+
   constructor(
     readonly sessionId: string,
     private readonly allowBypass: boolean,
-  ) {}
+    /** What its runner was launched with: a choice carried over from the runner before it. */
+    launched: RunnerChoices = {},
+  ) {
+    this.chosenModel = launched.model;
+    this.chosenEffort = launched.effort;
+    this.model = launched.model ?? null;
+    this.effort = launched.effort ?? null;
+  }
+
+  /** The model and effort to launch the next runner with: the session's own choices, never a default. */
+  choices(): RunnerChoices {
+    return {
+      ...(this.chosenModel ? { model: this.chosenModel } : {}),
+      ...(this.chosenEffort ? { effort: this.chosenEffort } : {}),
+    };
+  }
 
   state(): RunnerState {
     return {
@@ -350,11 +371,18 @@ export class SdkSession {
       case "setModel":
         // The CLI names the model it now answers with on the next turn's init; until then the choice
         // is the best account, resolved to its full id where the list says what an alias stands for.
-        if (isString(first)) this.model = this.models.find((entry) => entry.value === first)?.resolvedModel ?? first;
+        if (isString(first)) {
+          this.chosenModel = first;
+          this.model = this.models.find((entry) => entry.value === first)?.resolvedModel ?? first;
+        }
         return;
       case "applyFlagSettings": {
         const level = (first as Fields | undefined)?.effortLevel;
-        if (level === null || isEffortLevel(level)) this.effort = level;
+        if (level === null || isEffortLevel(level)) {
+          this.effort = level;
+          // Cleared goes back to the model's default, which is no choice to carry.
+          this.chosenEffort = level ?? undefined;
+        }
         return;
       }
       default:

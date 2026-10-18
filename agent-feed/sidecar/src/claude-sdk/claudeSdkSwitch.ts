@@ -27,7 +27,7 @@ import {
 } from "@/terminal/tmux/tmuxSessions";
 import type { ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
 import { resumeCommandFor } from "@/claude-sdk/claudeSdkLaunch";
-import { isClaudeSdkRunnerCommand } from "@/claude-sdk/claudeSdkProtocol";
+import { isClaudeSdkRunnerCommand, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
 import type { SessionReply } from "@/claude-sdk/claudeSdkSession";
 
 export type SwitchRefusal =
@@ -59,8 +59,10 @@ export interface SwitchSteps {
   /** Whether what the pane was started to run has exited, leaving its shell. */
   exited(pane: string): Promise<boolean>;
   respawn(pane: string, cwd: string, command: readonly string[]): Promise<void>;
-  /** The command that resumes the session in a mode. */
-  resumeCommand(mode: ClaudeRunMode, options: { sessionId: string; cwd: string; title: string }): string[];
+  /** The model and effort an SDK session has chosen, read from its runner while it still answers. */
+  runnerChoices(sessionId: string): Promise<RunnerChoices>;
+  /** The command that resumes the session in a mode, with the choices a runner should keep. */
+  resumeCommand(mode: ClaudeRunMode, options: { sessionId: string; cwd: string; title: string; choices?: RunnerChoices }): string[];
   sleep(ms: number): Promise<void>;
 }
 
@@ -156,6 +158,9 @@ async function moveInPane(
     return { ok: false, reason: "not-ours", message: "this session's pane was not started by this panel, so switching would end someone's shell" };
   }
 
+  // Read before the runner stops, and only for a runner relaunched as one: what a session chose for
+  // its model and effort it keeps, as it would have kept them had nothing restarted.
+  const choices = current === "sdk" && mode === "sdk" && state?.connected ? await steps.runnerChoices(sessionId) : {};
   if (state?.connected) {
     const stopped = await steps.stopRunner(sessionId);
     if (!stopped.ok) return { ok: false, reason: "failed", message: `the runner would not stop: ${stopped.message}` };
@@ -175,7 +180,7 @@ async function moveInPane(
     await steps.sleep(STOP_POLL_MS);
   }
   try {
-    await steps.respawn(pane.pane, session.cwd, steps.resumeCommand(mode, session));
+    await steps.respawn(pane.pane, session.cwd, steps.resumeCommand(mode, { ...session, choices }));
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     return { ok: false, reason: "failed", message: `the session stopped, but starting it again failed (${why}); open it to resume it` };
@@ -257,6 +262,7 @@ export function liveSwitchSteps(client: ClaudeSdkClient): SwitchSteps {
     processes: async (sessionId) =>
       (await liveSessionProcesses(await currentProcessTable())).filter((entry) => entry.sessionId === sessionId),
     runnerState: (sessionId) => client.state(sessionId),
+    runnerChoices: (sessionId) => client.choices(sessionId),
     stopRunner: (sessionId) => client.command(sessionId, { type: "stop" }),
     hangUp: (pid) => {
       // The registry vouched for this pid against the kernel's start time a moment ago.

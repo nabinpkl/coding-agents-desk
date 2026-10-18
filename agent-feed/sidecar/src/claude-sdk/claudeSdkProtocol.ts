@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSdkSessionState } from "@agentdesk/agent-feed-wire";
 
 export const PROTOCOL_VERSION = 2;
@@ -61,6 +62,27 @@ export function isClaudeSdkRunnerCommand(command: string): boolean {
   return command.includes(RUNNER_ENTRY_FILE);
 }
 
+/**
+ * The model and effort a runner was launched with, where the session had chosen them: what a
+ * relaunch carries over, and what the runner reports so the next relaunch carries them again.
+ * Absent means the CLI's own default, which is never pinned.
+ */
+export interface RunnerChoices {
+  model?: string;
+  effort?: EffortLevel;
+}
+
+export const EFFORT_LEVELS: readonly EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
+
+/** A model a launch or a `setModel` may name: an alias or a full id, and nothing a shell would read. */
+export function isModelName(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9._:\[\]-]{1,128}$/.test(value);
+}
+
+export function isEffortLevel(value: unknown): value is EffortLevel {
+  return (EFFORT_LEVELS as readonly unknown[]).includes(value);
+}
+
 /** Everything in `ClaudeSdkSessionState` the session itself says; `connected` is the client's. */
 export type RunnerState = Omit<ClaudeSdkSessionState, "connected">;
 
@@ -97,7 +119,7 @@ export type SidecarToRunner =
 export type RunnerReply = { ok: true; value: unknown } | { ok: false; message: string };
 
 export type RunnerToSidecar =
-  | { type: "hello"; version: number; sessionId: string; pid: number; build: string; allowBypass: boolean }
+  | { type: "hello"; version: number; sessionId: string; pid: number; build: string; allowBypass: boolean; choices: RunnerChoices }
   /** `replay` is true for what a connection is handed on arrival rather than as it happens. */
   | { type: "record"; record: RunnerRecord; replay: boolean }
   | { type: "callback"; callback: RunnerCallback }
@@ -251,6 +273,18 @@ function callback(value: unknown): RunnerCallback | null {
   };
 }
 
+/**
+ * The choices a hello reports, keeping only what is well formed. Absent from a runner started before
+ * they were reported, which carries nothing over: a runner outlives the sidecar's reloads.
+ */
+function runnerChoices(value: unknown): RunnerChoices {
+  const fields = object(value);
+  return {
+    ...(isModelName(fields?.model) ? { model: fields.model } : {}),
+    ...(isEffortLevel(fields?.effort) ? { effort: fields.effort } : {}),
+  };
+}
+
 /** A message from a runner, or null for anything that is not one. */
 export function parseRunnerMessage(text: string): RunnerToSidecar | null {
   const fields = line(text);
@@ -266,6 +300,7 @@ export function parseRunnerMessage(text: string): RunnerToSidecar | null {
           pid: fields.pid as number,
           build: fields.build,
           allowBypass: fields.allowBypass,
+          choices: runnerChoices(fields.choices),
         }
         : null;
     case "record": {

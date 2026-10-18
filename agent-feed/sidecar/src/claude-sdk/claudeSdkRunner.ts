@@ -12,7 +12,7 @@
 // Pure of I/O beyond the injected query, so its tests drive it with a fake SDK and no CLI.
 
 import type { CanUseTool, Options, PermissionMode, PermissionResult, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { RunnerCallback, RunnerRecord, RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
+import type { RunnerCallback, RunnerChoices, RunnerRecord, RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
 
 /** What the sidecar decided about this session before the runner started. */
 export interface RunnerPlan {
@@ -32,6 +32,8 @@ export interface RunnerPlan {
   claudePath: string;
   /** A first turn to send as soon as the query is open. */
   firstTurn?: string;
+  /** The model and effort the session had chosen, which this launch starts with. */
+  choices: RunnerChoices;
 }
 
 /** The SDK's `Query`, as far as the runner relies on it: messages out, and methods by name. */
@@ -148,6 +150,8 @@ export class ClaudeSdkRunner {
       ...startOptions(plan),
       pathToClaudeCodeExecutable: plan.claudePath,
       permissionMode: plan.permissionMode,
+      ...(plan.choices.model ? { model: plan.choices.model } : {}),
+      ...(plan.choices.effort ? { effort: plan.choices.effort } : {}),
       ...(plan.allowBypass ? { allowDangerouslySkipPermissions: true } : {}),
       plugins: plan.pluginDirectories.map((path) => ({ type: "local" as const, path })),
       // Without it Opus streams and stores its thinking empty, and the grey lines a terminal
@@ -163,6 +167,10 @@ export class ClaudeSdkRunner {
 
   get allowBypass(): boolean {
     return this.plan.allowBypass;
+  }
+
+  get choices(): RunnerChoices {
+    return this.plan.choices;
   }
 
   /** Everything a connection arriving now is handed: the kept records, then the open callbacks. */
