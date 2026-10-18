@@ -479,8 +479,8 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Left unbundled rather than pre-bundled, so the same top-level await is handled by the browser
-    // that already supports it instead of by esbuild, which would have to be retargeted for every
-    // dependency to accommodate one.
+    // that already supports it instead of by the dependency pre-bundler, which would have to be
+    // retargeted for every dependency to accommodate one.
     exclude: ["@novnc/novnc"],
   },
   resolve: {

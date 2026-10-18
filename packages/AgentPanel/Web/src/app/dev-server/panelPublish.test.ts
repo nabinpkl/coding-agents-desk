@@ -1,10 +1,9 @@
 /**
  * @vitest-environment node
  *
- * Node rather than this project's jsdom default, because the parser under test is esbuild and
- * jsdom's `TextEncoder` is not the one esbuild requires: it refuses to load at all under it, which
- * reads as the whole suite failing to collect rather than as an environment mismatch. This module
- * runs in the dev server and never touches a DOM, so there was nothing to gain from jsdom anyway.
+ * Node rather than this project's jsdom default: this module runs in the dev server and never
+ * touches a DOM, and the parser under test is the one the dev server runs, so it is tested in the
+ * runtime the dev server has.
  *
  * When the dev server hands a change to the page, and when it sits on it.
  *

@@ -38,7 +38,7 @@
 
 import { basename } from "node:path";
 import {
-  transformWithEsbuild,
+  transformWithOxc,
   type EnvironmentModuleNode,
   type HotUpdateOptions,
   type Plugin,
@@ -347,19 +347,27 @@ export interface PanelPublishOptions {
 /**
  * Why this source will not parse, or null when it is whole.
  *
- * esbuild through Vite's own export, so the question asked is the one Vite would ask a moment later
- * when the browser requests the module, rather than a second opinion that can disagree with it. It
- * costs about a millisecond and no resident memory, which is the whole reason this replaced a
- * typechecker.
+ * Oxc through Vite's own export -- the parser Vite 8 itself compiles with -- so the question asked
+ * is the one Vite would ask a moment later when the browser requests the module, rather than a
+ * second opinion that can disagree with it. It costs about a millisecond and no resident memory,
+ * which is the whole reason this replaced a typechecker. It was esbuild until 2026-10-18, which
+ * Vite 8 no longer ships: that worked only where an old install had left esbuild in `node_modules`.
  */
 export async function parseFailure(file: string, source: string): Promise<string | null> {
   try {
-    await transformWithEsbuild(source, file);
+    await transformWithOxc(source, file);
     return null;
   } catch (error) {
-    const first = (error as { errors?: { text?: string; location?: { line?: number } }[] }).errors?.[0];
-    if (!first?.text) return (error as Error).message.split("\n")[0] ?? "will not parse";
-    return first.location?.line ? `${first.text} (line ${first.location.line})` : first.text;
+    const first = (error as { errors?: { message?: string; loc?: { line?: number } }[] }).errors?.[0];
+    // Oxc's message is a coloured code frame. Its first line, without the colour and without the
+    // `[PARSE_ERROR]` tag, is the sentence the Profile row has room for.
+    const text = first?.message
+      ?.replace(/\u001b\[[0-9;]*m/g, "")
+      .split("\n")[0]
+      ?.replace(/^\[[A-Z_]+\]\s*/, "")
+      .trim();
+    if (!text) return (error as Error).message.split("\n")[0] ?? "will not parse";
+    return first?.loc?.line ? `${text} (line ${first.loc.line})` : text;
   }
 }
 

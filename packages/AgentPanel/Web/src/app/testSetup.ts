@@ -64,9 +64,9 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
 }
 
 // Everything below patches the browser a suite is running IN, and a few suites deliberately run
-// under `node` instead: the dev-server modules never touch a DOM, and one of them loads esbuild,
-// which refuses to start under jsdom's `TextEncoder`. Without this guard those suites fail while
-// collecting, on a line about `scrollIntoView`, which says nothing about the real mismatch.
+// under `node` instead, because the dev-server modules never touch a DOM. Without this guard those
+// suites fail while collecting, on a line about `scrollIntoView`, which says nothing about the real
+// mismatch.
 if (typeof Element !== "undefined") {
   // jsdom implements no scrolling at all, so `scrollIntoView` is simply absent and a component that
   // brings its own element into view throws rather than doing nothing. A no-op keeps that call
