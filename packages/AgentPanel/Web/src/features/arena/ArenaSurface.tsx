@@ -13,7 +13,7 @@
 // reader asks to plan the lanes or for a verdict; a verdict is its answer in its session, not a
 // score the tab keeps.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   createArenaRun,
   deleteArenaRun,
@@ -24,13 +24,13 @@ import {
   sendArenaPrompt,
   STREAM_PATH,
 } from "@/features/arena/arenaRunsSource";
-import type { ArenaNewRunDefaults, ArenaRunDetail, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
+import type { ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
-import { keepTypingInSight } from "@/app/page/keyboardInset";
+import { keepTypingInSightWhileMounted } from "@/app/page/keyboardInset";
 import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
 import { ArenaNewRun, EMPTY_DRAFT, type ArenaDraft } from "@/features/arena/ArenaNewRun";
 import { ArenaRunRail } from "@/features/arena/ArenaRunRail";
@@ -38,6 +38,11 @@ import { ArenaCodeButton } from "@/features/arena/code/ArenaCodeButton";
 import { ArenaRunView, type ArenaView } from "@/features/arena/ArenaRunView";
 import { isLive, useNow } from "@/features/arena/arenaVocabulary";
 import { addressWithRun, runInAddress } from "@/features/arena/arenaAddress";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 export function ArenaSurface({
   transport,
@@ -63,15 +68,10 @@ export function ArenaSurface({
     if (replace) window.history.replaceState(null, "", next);
     else window.history.pushState(null, "", next);
   }, []);
-  useEffect(() => {
-    const follow = () => setSelectedRunId(runInAddress(window.location.search));
-    window.addEventListener("popstate", follow);
-    return () => window.removeEventListener("popstate", follow);
-  }, []);
+  useEventListener(window, "popstate", () => setSelectedRunId(runInAddress(window.location.search)));
   // Whether the sidecar has said which runs there are yet: until then a run named by the address
   // is not missing, only not read.
   const [runsRead, setRunsRead] = useState(false);
-  const [detail, setDetail] = useState<ArenaRunDetail | null>(null);
   const [view, setView] = useState<ArenaView>("sessions");
   // Held here rather than in the composer, so moving to a run and back keeps what was typed;
   // cleared only once the sidecar has taken it as a run.
@@ -81,7 +81,6 @@ export function ArenaSurface({
   const [problem, setProblem] = useState<string | null>(null);
   // Null until the sidecar has said: the switch offers both modes meanwhile rather than greying
   // out one the machine may well have, and the sidecar refuses one it does not.
-  const [defaults, setDefaults] = useState<ArenaNewRunDefaults | null>(null);
   // Whether the list of runs stands beside a run. Until the reader says, it does where there is
   // room beside the run, and not where it would stack above it, since there it only repeats the
   // prompt the run's header already shows. What the reader says, this browser remembers. The form
@@ -97,8 +96,8 @@ export function ArenaSurface({
 
   // The stream, from the first paint: a run that closes while the tab sits open says so without
   // the reader asking, which is the difference between a duel and a list somebody has to check.
-  useEffect(() => {
-    const off = transport.subscribe(STREAM_PATH, {
+  useSubscription(`arena-runs:${sourceKey(transport)}`, () =>
+    transport.subscribe(STREAM_PATH, {
       onMessage: (payload) => {
         const frame = parseRunsStreamFrame(payload);
         if (frame) {
@@ -109,33 +108,34 @@ export function ArenaSurface({
       // A dropped stream is EventSource's to reconnect, and the one-shot fetch below re-reads
       // the list on any later remount -- so there is nothing here to say to a reader.
       onError: () => {},
-    });
-    return off;
-  }, [transport]);
+    }));
 
   // What a run with nothing filled in gets, re-read whenever a run is made or removed (here or
   // anywhere), since the next free name moves with them. A draft still on a mode this machine
   // cannot run moves to its default, so the composer never offers a start the sidecar would refuse.
   const runIds = runs.map((run) => run.runId).join(" ");
-  useEffect(() => {
-    let live = true;
-    void fetchArenaNewRunDefaults(transport).then((next) => {
-      if (!live || !next) return;
-      setDefaults(next);
-      setDraft((current) => (next.modes.includes(current.mode) ? current : { ...current, mode: next.modes[0]! }));
-    });
-    return () => {
-      live = false;
-    };
-  }, [transport, runIds]);
+  const defaultsRead = usePanelQuery({
+    queryKey: ["arena-new-run-defaults", sourceKey(transport), runIds],
+    queryFn: () => fetchArenaNewRunDefaults(transport),
+    // The previous answer stands while the next free name is read, rather than the form blanking.
+    placeholderData: (previous) => previous,
+  });
+  const defaults = defaultsRead.data ?? null;
+  if (defaults && !defaults.modes.includes(draft.mode)) setDraft({ ...draft, mode: defaults.modes[0]! });
 
-  // The one-shot fetch covers a sidecar that restarted mid-stream or a reader who reloaded.
-  useEffect(() => {
-    void fetchArenaRuns(transport).then((held) => {
-      setRuns((current) => (current.length > 0 ? current : held));
-      setRunsRead(true);
-    });
-  }, [transport]);
+  // The one-shot fetch covers a sidecar that restarted mid-stream or a reader who reloaded. Its
+  // answer seeds the list only if the stream has not already filled it.
+  const listed = usePanelQuery({
+    queryKey: ["arena-runs", sourceKey(transport)],
+    queryFn: () => fetchArenaRuns(transport),
+  });
+  const [seededFrom, setSeededFrom] = useState<ArenaRunSummary[] | null>(null);
+  if (listed.data && seededFrom !== listed.data) {
+    const held = listed.data;
+    setSeededFrom(held);
+    setRuns((current) => (current.length > 0 ? current : held));
+    setRunsRead(true);
+  }
 
   // The selected run's facts, re-read whenever any of its contestants moved. The stream carries
   // status only -- files and diffs ride the detail route -- so this is where the facts arrive.
@@ -144,19 +144,14 @@ export function ArenaSurface({
     () => JSON.stringify(selected?.contestants.map((c) => [c.contestantId, c.status, c.sessionId]) ?? null),
     [selected],
   );
-  useEffect(() => {
-    if (!selectedRunId) {
-      setDetail(null);
-      return;
-    }
-    let live = true;
-    void fetchArenaRunDetail(transport, selectedRunId).then((next) => {
-      if (live) setDetail(next);
-    });
-    return () => {
-      live = false;
-    };
-  }, [transport, selectedRunId, statusKey]);
+  // Read again whenever a contestant's status moves, keeping the last answer for this run meanwhile.
+  const detailRead = usePanelQuery({
+    queryKey: ["arena-run", sourceKey(transport), selectedRunId, statusKey],
+    queryFn: () => fetchArenaRunDetail(transport, selectedRunId!),
+    enabled: selectedRunId !== null,
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === selectedRunId ? previous : undefined),
+  });
+  const detail = selectedRunId ? (detailRead.data ?? null) : null;
   // A detail read for the run the reader just left is not this run's.
   const shownDetail = detail && detail.runId === selectedRunId ? detail : null;
 
@@ -247,12 +242,7 @@ export function ArenaSurface({
 
   // A lane's composer sits at the foot of a column taller than a phone with its keyboard up, so
   // shortening the page does not lift it: the column has to scroll to it.
-  const main = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!main.current) return;
-    const keeping = keepTypingInSight(main.current);
-    return () => keeping.remove();
-  }, []);
+
 
   return (
     <div ref={surface} data-arena-surface className="@container flex h-full min-h-0 bg-background text-foreground">
@@ -284,7 +274,7 @@ export function ArenaSurface({
             }}
           />
         </aside>
-        <main ref={main} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <main ref={keepTypingInSightWhileMounted} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {selectedRunId === null ? (
             <ArenaNewRun
               feed={feed}
@@ -347,17 +337,14 @@ function writeRailOpen(open: boolean): void {
 /** Whether the surface is at least `@3xl` wide, where the rail stands beside the run. */
 function useWide(surface: React.RefObject<HTMLDivElement | null>): boolean {
   const [wide, setWide] = useState(true);
-  useEffect(() => {
-    const node = surface.current;
-    if (!node) return;
-    const measure = () => {
-      const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-      setWide(node.clientWidth >= 48 * rem);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
+  const measure = (node: Element) => {
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    setWide(node.clientWidth >= 48 * rem);
+  };
+  // Once before the first paint, so a narrow surface never draws a frame laid out wide.
+  useDomSync(() => {
+    if (surface.current) measure(surface.current);
   }, [surface]);
+  useResizeObserver(surface, (entry) => measure(entry.target));
   return wide;
 }

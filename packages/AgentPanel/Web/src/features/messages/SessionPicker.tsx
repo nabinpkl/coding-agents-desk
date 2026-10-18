@@ -1,9 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import {
   useCallback,
-  useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,6 +11,9 @@ import { createPortal } from "react-dom";
 import type { DirectoryEntry } from "@agentdesk/agent-feed-wire";
 import { BOTS_SECTION, recipientGroups, runtimesOf, SESSIONS_SECTION, type RecipientGroup } from "@/features/messages/hubRuntime";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /** The gap this panel keeps between itself and the edge of the window. */
 const MARGIN = 8;
@@ -131,9 +132,10 @@ interface SessionPickerProps {
  */
 export function SessionPicker({ entries, value, onChange }: SessionPickerProps) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const [placement, setPlacement] = useState<Placement | null>(null);
+  // The filter, the highlighted row and the placement belong to one opening of the list.
+  const [query, setQuery] = useStateFor(open, () => "");
+  const [active, setActive] = useStateFor(open, () => 0);
+  const [placement, setPlacement] = useStateFor<Placement | null>(open, () => null);
   const panel = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const filter = useRef<HTMLInputElement>(null);
@@ -158,23 +160,9 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
   const chosen = entries.find((entry) => entry.address === value) ?? null;
   const chosenRuntimes = chosen ? runtimesOf(chosen) : [];
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (panel.current?.contains(target) || trigger.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
-
-  useEffect(() => {
+  useDismissOnOutsidePress(open, [panel, trigger], () => setOpen(false));
+  useDomSync(() => {
     if (open) filter.current?.focus();
-    else {
-      setQuery("");
-      setActive(0);
-    }
   }, [open]);
 
   /**
@@ -215,26 +203,11 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
     setPlacement(placePanel(button.getBoundingClientRect(), popup.getBoundingClientRect()));
   }, []);
 
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    const onScroll = () => reposition(true);
-    const onResize = () => reposition(false);
-    reposition(true);
-    globalThis.addEventListener?.("scroll", onScroll, true);
-    globalThis.addEventListener?.("resize", onResize);
-    return () => {
-      globalThis.removeEventListener?.("scroll", onScroll, true);
-      globalThis.removeEventListener?.("resize", onResize);
-    };
-  }, [open, reposition, groups]);
-
-  useEffect(() => {
-    if (!open) setPlacement(null);
-  }, [open]);
+  useOverlayPlacement(open, (cause) => reposition(cause !== "resize"), [groups]);
 
   // The active row is kept in view as the arrow keys move it, which is the half of a listbox the
   // browser does not do for a filtered set it never sees.
-  useEffect(() => {
+  useDomSync(() => {
     if (!open) return;
     const node = list.current?.querySelector<HTMLElement>(`#${CSS.escape(`${listId}-opt-${active}`)}`);
     node?.scrollIntoView({ block: "nearest" });

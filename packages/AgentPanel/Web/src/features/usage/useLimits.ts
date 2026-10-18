@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type {
   LimitsStreamMessage,
   QuotaReport,
@@ -124,15 +124,35 @@ export function useLimits(
   const go = vendor === "opencode-go";
   const entry = feed ? entryFor(feed, go) : null;
 
+  // A reader is counted in by its subscription. The stream is opened by the first card and closed
+  // by the last; the reading itself outlives it, so a card reopening shows the last known meters
+  // at once and then corrects.
   const subscribe = useCallback(
     (onChange: () => void) => {
-      if (!entry) return () => {};
+      // No sidecar to ask. The surface that has one always passes it; this keeps a readout
+      // rendered without one from throwing rather than from quietly inventing a meter.
+      if (!entry || !feed) return () => {};
       entry.listeners.add(onChange);
+      entry.live += 1;
+      if (entry.live === 1 && !entry.unsubscribe) {
+        if (entry.reading.kind === "idle") publish(entry, { kind: "loading" });
+        entry.unsubscribe = feed.subscribeLimits(
+          {
+            onMessage: (message) => receive(entry, message),
+            onError: (reason) => publish(entry, { kind: "error", message: reason }),
+          },
+          go ? "opencode-go" : null,
+        );
+      }
       return () => {
         entry.listeners.delete(onChange);
+        entry.live -= 1;
+        if (entry.live > 0) return;
+        entry.unsubscribe?.();
+        entry.unsubscribe = null;
       };
     },
-    [entry],
+    [entry, feed, go],
   );
   // The store's own object, unchanged between reads, because `useSyncExternalStore` compares
   // snapshots by identity and a fresh one per render is an infinite loop rather than a re-render.
@@ -141,31 +161,6 @@ export function useLimits(
     () => entry?.reading ?? IDLE,
     () => IDLE,
   );
-
-  useEffect(() => {
-    // No sidecar to ask. The surface that has one always passes it; this keeps a readout rendered
-    // without one from throwing rather than from quietly inventing a meter.
-    if (!feed || !entry) return;
-    entry.live += 1;
-    // Opened by the first card and closed by the last. The reading itself outlives the
-    // subscription, so a card reopening shows the last known meters at once and then corrects.
-    if (entry.live === 1 && !entry.unsubscribe) {
-      if (entry.reading.kind === "idle") publish(entry, { kind: "loading" });
-      entry.unsubscribe = feed.subscribeLimits(
-        {
-          onMessage: (message) => receive(entry, message),
-          onError: (reason) => publish(entry, { kind: "error", message: reason }),
-        },
-        go ? "opencode-go" : null,
-      );
-    }
-    return () => {
-      entry.live -= 1;
-      if (entry.live > 0) return;
-      entry.unsubscribe?.();
-      entry.unsubscribe = null;
-    };
-  }, [entry, feed, go]);
 
   return useMemo<LimitsState>(() => {
     if (reading.kind !== "ready") return reading;

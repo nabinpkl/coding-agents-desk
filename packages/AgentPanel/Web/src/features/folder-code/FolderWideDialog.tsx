@@ -6,8 +6,9 @@
 // IDE's panes without the frame as well.
 
 import { X } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { modalWhileMounted } from "@/hooks/dom/refCallbacks";
 
 /** Stops an event at the dialog, for the reason given where it is attached. */
 const stop = (event: React.SyntheticEvent): void => event.stopPropagation();
@@ -31,18 +32,9 @@ export function FolderWideDialog({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const node = dialog.current;
-    if (!node || node.open) return;
-    if (typeof node.showModal === "function") node.showModal();
-    else node.setAttribute("open", "");
-  }, []);
-
   return createPortal(
     <dialog
-      ref={dialog}
+      ref={modalWhileMounted}
       aria-labelledby={titleId}
       className="fixed inset-0 z-60 m-0 h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-transparent p-2 text-foreground backdrop:bg-black/45 open:flex sm:p-4"
       onCancel={(event) => {

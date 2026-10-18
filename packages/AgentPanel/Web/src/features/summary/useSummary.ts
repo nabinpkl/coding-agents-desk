@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import type { SummaryResult } from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
   SidecarDataSource,
 } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useLeaveEffect } from "@/hooks/useMountEffect";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useSidecarConfig } from "@/query/sidecarConfig";
 
 export type SummaryState =
   | { kind: "idle" }
@@ -38,29 +41,15 @@ export function useSummary(
   feed: Pick<SidecarDataSource, "summarizeTurn" | "fetchConfig">,
   session: SessionAddress | null,
 ): SummaryHandle {
-  const [available, setAvailable] = useState(false);
-  const [model, setModel] = useState<string | null>(null);
-  const [state, setState] = useState<SummaryState>({ kind: "idle" });
+  // A config read that fails means the sidecar is not answering; the button stays hidden and the
+  // panel's own connection errors are what the viewer sees.
+  const config = useSidecarConfig(feed).data;
+  const available = config?.summaryEnabled ?? false;
+  const model = config?.summaryModel ?? null;
   // The open stream, so a terminal message can close it and a thread switch can abandon it.
   // Held in a ref rather than state because closing it is not a render.
   const stream = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void feed.fetchConfig().then(
-      (config) => {
-        if (cancelled) return;
-        setAvailable(config.summaryEnabled);
-        setModel(config.summaryModel);
-      },
-      // A config read that fails means the sidecar is not answering; the button stays hidden and
-      // the panel's own connection errors are what the viewer sees.
-      () => {},
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [feed]);
 
   const close = useCallback(() => {
     stream.current?.();
@@ -68,14 +57,10 @@ export function useSummary(
   }, []);
 
   const key = session ? `${session.source}/${session.sessionId}` : null;
-  useEffect(() => {
-    close();
-    setState({ kind: "idle" });
-  }, [close, key]);
-
-  // A viewer who navigates away mid-run should not leave a stream open behind them. The run
-  // itself continues on the sidecar and is joinable; only this reader goes.
-  useEffect(() => close, [close]);
+  const [state, setState] = useStateFor<SummaryState>(key, () => ({ kind: "idle" }));
+  // A switch of thread, or a viewer who navigates away mid-run, should not leave a stream open
+  // behind them. The run itself continues on the sidecar and is joinable; only this reader goes.
+  useLeaveEffect(key, close);
 
   const summarize = useCallback(() => {
     if (!session || stream.current) return;

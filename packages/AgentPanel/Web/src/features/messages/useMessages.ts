@@ -38,8 +38,10 @@ function describe(error: unknown): string {
 /** Each hub's poll, so the last reader leaving can stop it. */
 const timers = new WeakMap<HubHandle, ReturnType<typeof setInterval>>();
 
+// The first inbox to open loads the threads and starts the poll; the last one to close stops it.
 const store = createSourceStore<HubHandle, MessagesState>({
   initial: () => ({ kind: "idle" }),
+  opened: (hub) => load(hub),
   closed: stop,
 });
 

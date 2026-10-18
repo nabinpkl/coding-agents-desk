@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
 import type { SubagentForkOrigin } from "@agentdesk/agent-feed-wire";
 import type {
   AgentDataSource,
   SessionReference,
 } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 export interface SubagentTranscriptView {
   events: ActivityEvent[];
@@ -38,15 +40,12 @@ export function useSubagentTranscript(
   session: SessionReference | null,
   agentId: string | null,
 ): SubagentTranscriptView {
-  const [view, setView] = useState<SubagentTranscriptView>(INITIAL);
   const sessionId = session?.sessionId ?? null;
+  const key = session && agentId ? `${sourceKey(source)}:${session.source}:${sessionId}:${agentId}` : null;
+  const [view, setView] = useStateFor<SubagentTranscriptView>(key, () => INITIAL);
 
-  useEffect(() => {
-    if (!session || !agentId) {
-      setView(INITIAL);
-      return;
-    }
-    setView(INITIAL);
+  useSubscription(key, () => {
+    if (!session || !agentId) return;
     return source.subscribeSubagentTranscript(session, agentId, {
       onMessage: (message) => {
         setView((current) => {
@@ -73,8 +72,7 @@ export function useSubagentTranscript(
       },
       onError: (reason) => setView((current) => ({ ...current, unavailable: reason })),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, sessionId, agentId]);
+  });
 
   return view;
 }

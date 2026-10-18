@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
 import {
@@ -9,6 +9,11 @@ import {
   TYPE_WEIGHTS,
   type TypePreference,
 } from "@/features/appearance/typePreferences";
+import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useMountEffect } from "@/hooks/useMountEffect";
+import { usePersistentState } from "@/hooks/state/usePersistentState";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /** The gap this menu keeps between itself and the edge of the window. */
 const MARGIN = 8;
@@ -23,35 +28,30 @@ const GAP = 4;
  * scroller. The phone gets its own wheel picker for free, and keyboard and screen-reader
  * behaviour arrives correct rather than reimplemented.
  *
- * The write happens in one effect on the value rather than beside each change, which is what
- * keeps a later third caller from being the one that forgets to persist.
+ * The write happens in the setter rather than beside each change, which is what keeps a later
+ * third caller from being the one that forgets to persist.
  */
+/** Puts a face on the page and remembers it: what choosing one in this dialog means. */
+function keepTypePreference(type: TypePreference): void {
+  applyTypePreference(document.documentElement, type);
+  storeTypePreference(type);
+}
+
 export function TypeSettings(): React.ReactElement {
-  const [type, setType] = useState<TypePreference>(loadTypePreference);
+  const [type, setType] = usePersistentState<TypePreference>(loadTypePreference, keepTypePreference);
   const [open, setOpen] = useState(false);
   /** Null until the layout pass has measured; the dialog stays invisible until then. */
-  const [placement, setPlacement] = useState<{ top: number; left: number } | null>(null);
+  const [placement, setPlacement] = useStateFor<{ top: number; left: number } | null>(open, () => null);
   const dialog = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    applyTypePreference(document.documentElement, type);
-    storeTypePreference(type);
-  }, [type]);
+  // The stored face, on the page, from the first mount: this button is always in the bar.
+  useMountEffect(() => applyTypePreference(document.documentElement, type));
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (dialog.current?.contains(target) || trigger.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open ]);
+  useDismissOnOutsidePress(open, [dialog, trigger], () => setOpen(false));
 
   // The first select, so the keyboard lands on a control without tabbing past the page.
-  useEffect(() => {
+  useDomSync(() => {
     if (!open) return;
     dialog.current?.querySelector<HTMLElement>("select")?.focus();
   }, [open]);
@@ -59,9 +59,8 @@ export function TypeSettings(): React.ReactElement {
   // Before paint, so the dialog is measured and placed in the same commit that opens it rather
   // than appearing at the top-left corner for a frame. Below the trigger and right-aligned to
   // it, clamped on both axes so a trigger at any edge still gets a dialog entirely on screen.
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    const place = () => {
+  useOverlayPlacement(open, () => {
+    {
       const button = trigger.current;
       const popup = dialog.current;
       if (!button || !popup) return;
@@ -77,15 +76,8 @@ export function TypeSettings(): React.ReactElement {
         top,
         left: Math.max(MARGIN, Math.min(anchor.right - box.width, viewportWidth - MARGIN - box.width)),
       });
-    };
-    place();
-    globalThis.addEventListener?.("resize", place);
-    return () => globalThis.removeEventListener?.("resize", place);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) setPlacement(null);
-  }, [open]);
+    }
+  }, [], { scroll: false });
 
   const close = (restoreFocus = true) => {
     setOpen(false);

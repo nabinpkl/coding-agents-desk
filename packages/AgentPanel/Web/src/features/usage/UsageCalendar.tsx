@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { UsageDay } from "@agentdesk/agent-feed-wire";
 import {
   buildUsageGrid,
@@ -8,6 +8,7 @@ import {
   type UsageCell,
   type UsageLevel,
 } from "@/features/usage/usageGrid";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 /**
  * How dark a cell is, as a monochrome ramp.
@@ -105,7 +106,7 @@ export function UsageCalendar({
   // scroller node, so a one-shot ref callback would leave it parked at the left edge -- opening
   // the wider view on the OLDEST weeks, which is the opposite of what asking for more history
   // means. The rightmost column is always "this week", and that is what the grid should show.
-  useEffect(() => {
+  useDomSync(() => {
     const node = scroller.current;
     if (node) node.scrollLeft = node.scrollWidth;
   }, [weeks, grid.weeks.length]);

@@ -11,10 +11,12 @@
 // which the caller ties to the folder's pushed git status: that moves after every change git could
 // report, which is every change to a file a reader here could be looking at.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
 import type { FolderSource } from "@/features/folder-code/folderSource";
 import type { ViewedFile } from "@/features/workspace-ide/editor/FilePreview";
+import { useChangeCount } from "@/hooks/state/useChangeCount";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 
 export interface FolderCode {
   /** Null until the first answer. */
@@ -39,58 +41,38 @@ export function useFolderCode(
   initialPath: string | null = null,
 ): FolderCode {
   const [expanded, setExpanded] = useState<string[]>(() => (initialPath === null ? [] : ancestors(initialPath)));
-  const [tree, setTree] = useState<WorkspaceTreeNode[] | null>(null);
   const [openPath, setOpenPath] = useState<string | null>(initialPath);
-  const [file, setFile] = useState<ViewedFile | null>(null);
-  const [treeError, setTreeError] = useState<string | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const refreshes = useChangeCount(refresh);
+  const folder = sourceKey(source);
 
   // The tree stays on screen while the next one is read, so an expansion or a pushed change never
   // blanks the list the reader is pointing at.
-  useEffect(() => {
-    let current = true;
-    source.tree(expanded)
-      .then((answer) => {
-        if (!current) return;
-        setTree(answer.tree);
-        setTreeError(null);
-      })
-      .catch((cause: unknown) => {
-        if (current) setTreeError(describe(cause, "Could not list the files."));
-      });
-    return () => {
-      current = false;
-    };
-  }, [source, expanded, refresh]);
-
+  const treeRead = usePanelQuery({
+    queryKey: ["folder-tree", folder, expanded, refreshes],
+    queryFn: () => source.tree(expanded).then((answer) => answer.tree),
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[1] === folder ? previous : undefined),
+  });
   // A different file clears the pane; the same file read again after a change does not.
-  useEffect(() => {
-    setFile((held) => (held?.path === openPath ? held : null));
-    setFileError(null);
-  }, [openPath]);
-
-  useEffect(() => {
-    if (openPath === null) return;
-    let current = true;
-    source.file(openPath)
-      .then((answer) => {
-        if (!current) return;
-        setFile({
-          path: answer.path,
-          kind: answer.kind,
-          text: answer.text ?? "",
-          revision: answer.revision,
-          contentUrl: source.contentUrl(answer.path),
-        });
-        setFileError(null);
-      })
-      .catch((cause: unknown) => {
-        if (current) setFileError(describe(cause, `Could not open ${openPath}.`));
-      });
-    return () => {
-      current = false;
-    };
-  }, [source, openPath, refresh]);
+  const fileRead = usePanelQuery({
+    queryKey: ["folder-file", folder, openPath, refreshes],
+    queryFn: async (): Promise<ViewedFile> => {
+      const answer = await source.file(openPath!);
+      return {
+        path: answer.path,
+        kind: answer.kind,
+        text: answer.text ?? "",
+        revision: answer.revision,
+        contentUrl: source.contentUrl(answer.path),
+      };
+    },
+    enabled: openPath !== null,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === folder && previousQuery.queryKey[2] === openPath ? previous : undefined,
+  });
+  const tree = treeRead.data ?? null;
+  const file = fileRead.data ?? null;
+  const treeError = treeRead.error ? describe(treeRead.error, "Could not list the files.") : null;
+  const fileError = fileRead.error ? describe(fileRead.error, `Could not open ${openPath}.`) : null;
 
   return {
     tree,

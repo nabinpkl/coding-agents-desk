@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { SidecarConfig, SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useSummary } from "@/features/summary/useSummary";
@@ -96,8 +96,8 @@ describe("useSummary", () => {
   it("reports the configured model so the band can name it", async () => {
     const feed = { fetchConfig: vi.fn().mockResolvedValue(enabled), summarizeTurn: vi.fn() };
     render(<Probe feed={feed} session={S1} />);
-    await flush();
-    expect(screen.getByTestId("available").textContent).toBe("true");
+    // The config arrives through the page's query cache, which delivers on a later task.
+    await waitFor(() => expect(screen.getByTestId("available").textContent).toBe("true"));
     expect(screen.getByTestId("model").textContent).toBe("opencode-go/deepseek-v4-flash");
   });
 

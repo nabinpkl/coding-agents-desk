@@ -23,7 +23,7 @@
 // the commit it was open on either.
 
 import { useId, useState } from "react";
-import { focusOnMount } from "@/hooks/refCallbacks";
+import { focusOnMount } from "@/hooks/dom/refCallbacks";
 import { ChevronDown, ChevronRight, GitCommitHorizontal, Loader2, X } from "lucide-react";
 import type {
   WorkspaceCommit,

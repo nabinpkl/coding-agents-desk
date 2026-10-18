@@ -27,7 +27,7 @@ import {
   useSettledWidth,
 } from "@/features/workspace-ide/editor/usePdfJs";
 import "@/features/workspace-ide/editor/pdfTextLayer.css";
-import { useIntersecting } from "@/hooks/useIntersecting";
+import { useIntersecting } from "@/hooks/dom/useIntersecting";
 import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 
 /** How much of the scroller's height ahead of and behind the visible part has its pages drawn. */

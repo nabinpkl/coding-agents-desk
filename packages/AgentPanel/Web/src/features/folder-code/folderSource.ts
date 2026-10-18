@@ -8,8 +8,11 @@
 // dropped while the page is hidden, because a subscription is what makes the sidecar run git, and
 // nobody is looking; coming back subscribes again and gets the status at once.
 
-import { useEffect, useState } from "react";
 import type { FolderFileRead, FolderGitDiff, FolderGitStatus, FolderTree } from "@agentdesk/agent-feed-wire";
+import { usePageVisible } from "@/hooks/dom/usePageVisible";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 export interface FolderSource {
   /** Names the folder among every other, so a diff read for one is never shown for another. */
@@ -43,35 +46,18 @@ export interface FolderGitState<Status extends FolderGitStatus = FolderGitStatus
 export function useFolderGitStatus<Status extends FolderGitStatus>(
   subscribe: FolderGitSubscribe<Status> | null,
 ): FolderGitState<Status> {
-  const [status, setStatus] = useState<Status | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useStateFor<Status | null>(subscribe, () => null);
+  const [error, setError] = useStateFor<string | null>(subscribe, () => null);
   const visible = usePageVisible();
 
-  useEffect(() => {
-    setStatus(null);
-    setError(null);
-  }, [subscribe]);
-
-  useEffect(() => {
-    if (!subscribe || !visible) return;
-    return subscribe(
+  useSubscription(subscribe && visible ? `folder-git:${sourceKey(subscribe)}` : null, () =>
+    subscribe?.(
       (answer) => {
         setStatus(answer);
         setError(null);
       },
       setError,
-    );
-  }, [subscribe, visible]);
+    ));
 
   return { status, error };
-}
-
-function usePageVisible(): boolean {
-  const [visible, setVisible] = useState(() => !document.hidden);
-  useEffect(() => {
-    const onChange = (): void => setVisible(!document.hidden);
-    document.addEventListener("visibilitychange", onChange);
-    return () => document.removeEventListener("visibilitychange", onChange);
-  }, []);
-  return visible;
 }

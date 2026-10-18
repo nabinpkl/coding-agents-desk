@@ -10,8 +10,8 @@
 // distinction is not visible from a button, so the confirm says which it is.
 
 import { useState } from "react";
-import { selectOnMount } from "@/hooks/refCallbacks";
-import { useStateFor } from "@/hooks/useStateFor";
+import { selectOnMount } from "@/hooks/dom/refCallbacks";
+import { useStateFor } from "@/hooks/state/useStateFor";
 import { ChevronDown, ChevronUp, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import type { WorkspaceSummary } from "@agentdesk/agent-feed-wire";
 

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import type { SummaryResult } from "@agentdesk/agent-feed-wire";
 import type { SummaryState } from "@/features/summary/useSummary";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 /**
  * The digest, above the composer.
@@ -31,7 +32,7 @@ export function SummaryBand({
   // Follows the run while it is running, and only then. The band is short and the newest line is
   // the one being written, so a viewer watching it should not have to chase it downward; once
   // the digest lands, the top of it is what they want to read, so this stops.
-  useEffect(() => {
+  useDomSync(() => {
     if (pendingLength === 0 || !band.current) return;
     band.current.scrollTop = band.current.scrollHeight;
   }, [pendingLength]);

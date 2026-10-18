@@ -20,13 +20,16 @@
 // session view all along, with the empty feed every session starts from, and the transcript opens
 // in it once it is listed.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ArenaContestantDetail, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { awaitedSession } from "@/features/session-view/awaitedSession";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 /** A catalog session and the directory it is listed under, which its terminal is named by. */
 export interface ListedSession {
@@ -40,12 +43,12 @@ export function useRunSessions(feed: SidecarDataSource, directories: readonly st
   error: string | null;
 } {
   const key = useMemo(() => [...new Set(directories)].sort().join("\0"), [directories]);
-  const [byDirectory, setByDirectory] = useState<ReadonlyMap<string, SessionSummary[]>>(new Map());
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  // Everything listed belongs to one feed and one set of directories, and starts empty for the next.
+  const scope = `${sourceKey(feed)}:${key}`;
+  const [byDirectory, setByDirectory] = useStateFor<ReadonlyMap<string, SessionSummary[]>>(scope, () => new Map());
+  const [error, setError] = useStateFor<string | null>(scope, () => null);
+  useSubscription(scope, () => {
     let live = true;
-    setByDirectory(new Map());
-    setError(null);
     const stop = feed.subscribeInventory(
       key === "" ? [] : key.split("\0"),
       {
@@ -62,7 +65,7 @@ export function useRunSessions(feed: SidecarDataSource, directories: readonly st
       live = false;
       stop();
     };
-  }, [feed, key]);
+  });
   const sessions = useMemo(() => {
     const out = new Map<string, ListedSession>();
     for (const [projectPath, list] of byDirectory) {

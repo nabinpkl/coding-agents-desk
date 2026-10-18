@@ -7,8 +7,8 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePersistentState } from "@/hooks/usePersistentState";
-import { useStateFor } from "@/hooks/useStateFor";
+import { usePersistentState } from "@/hooks/state/usePersistentState";
+import { useStateFor } from "@/hooks/state/useStateFor";
 import { useSubscription } from "@/hooks/useSubscription";
 import { panelQueryClient, sourceKey, usePanelQuery } from "@/query/panelQuery";
 import type {

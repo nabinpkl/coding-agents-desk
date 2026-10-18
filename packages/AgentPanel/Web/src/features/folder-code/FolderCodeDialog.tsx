@@ -12,7 +12,7 @@
 // from the file.
 
 import { ArrowLeft, FileCode2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { WorkspaceGitEntry } from "@agentdesk/agent-feed-wire";
 import type { FilePathTarget } from "@/features/activity-feed/markdown/filePathLinks";
 import type { FolderGitState, FolderSource } from "@/features/folder-code/folderSource";
@@ -86,9 +86,7 @@ export function FolderCodeDialog({
   // it would answer a 404 about a row the reader can see is gone from the list.
   const changeGone = showing?.kind === "change"
     && !entries.some((entry) => entry.relativePath === showing.path);
-  useEffect(() => {
-    if (changeGone) setShowing(null);
-  }, [changeGone]);
+  if (changeGone) setShowing(null);
 
   const openFile = (path: string): void => {
     code.open(path);

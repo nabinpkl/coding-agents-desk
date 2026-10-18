@@ -13,7 +13,7 @@
 // empty right end is the reminder of that rather than space waiting to be used.
 
 import { useCallback, useId, useRef, useState, type RefObject } from "react";
-import { useEventListener } from "@/hooks/useEventListener";
+import { useEventListener } from "@/hooks/dom/useEventListener";
 import { GitBranch, History, SquareTerminal } from "lucide-react";
 import type { WorkspaceCommit, WorkspaceCommitFile, WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
 import type { CommitDiffTarget } from "@/features/workspace-ide/history/CommitDiff";

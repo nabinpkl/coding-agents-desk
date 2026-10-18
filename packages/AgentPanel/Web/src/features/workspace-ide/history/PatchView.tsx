@@ -7,6 +7,7 @@
 
 import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { useChangeCount } from "@/hooks/state/useChangeCount";
 import { queryFailure, usePanelQuery } from "@/query/panelQuery";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 // The rule that reads Shiki's per-token variables, for the reason the editor imports it too: a
@@ -152,10 +153,8 @@ export function ReadPatchView({
   /** Changes when the patch may have moved. Pass something constant for one that cannot. */
   refresh: unknown;
 }) {
-  const [refreshes, setRefreshes] = useState({ refresh, count: 0 });
-  if (!Object.is(refreshes.refresh, refresh)) setRefreshes({ refresh, count: refreshes.count + 1 });
-
-  const query = usePanelQuery({ queryKey: ["patch", subject, refreshes.count], queryFn: read });
+  const refreshes = useChangeCount(refresh);
+  const query = usePanelQuery({ queryKey: ["patch", subject, refreshes], queryFn: read });
 
   // The last patch this subject answered with, so a re-read in flight or one that failed draws over
   // it instead of blanking it.

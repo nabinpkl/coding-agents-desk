@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type {
   AgentRunDetail,
   BackgroundTask,
@@ -16,6 +16,7 @@ import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { useElapsedNow } from "@/features/background-tasks/useBackgroundTasks";
 import { SubagentTranscript } from "@/features/background-tasks/SubagentTranscript";
 import { useTaskOutputStream } from "@/features/background-tasks/useTaskOutputStream";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 function formatDuration(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
@@ -131,7 +132,7 @@ function TaskOutput({
 
   // Follow the tail, but stop following the moment the viewer scrolls up. Someone reading an
   // error forty lines back should not be yanked to the bottom two seconds later.
-  useEffect(() => {
+  useDomSync(() => {
     const node = scroller.current;
     if (!node || !pinned.current) return;
     node.scrollTop = node.scrollHeight;

@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { RotateCcw, X } from "lucide-react";
 import type { StaleClaudeSession } from "@agentdesk/agent-feed-wire";
 import type { MachineStaleSessions, StaleSessionsHandle } from "@/features/profile/useStaleSessions";
+import { useModal } from "@/hooks/dom/overlays";
+import { useTimeout } from "@/hooks/useInterval";
 
 /** How long the armed Restart waits for its second press, as the terminal footer's does. */
 const CONFIRM_WINDOW_MS = 4_000;
@@ -30,12 +32,7 @@ export function StaleSessionsModal({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
 
-  useEffect(() => {
-    const node = dialog.current;
-    if (!node) return;
-    if (open && !node.open) node.showModal?.();
-    else if (!open && node.open) node.close?.();
-  }, [open]);
+  useModal(dialog, open);
 
   return (
     <dialog
@@ -94,11 +91,7 @@ export function StaleSessionsPanel({
   const running = restarting > 0;
   const lone = machines.length === 1 && machines[0]!.view.kind === "ready" ? machines[0]!.view.stale : null;
 
-  useEffect(() => {
-    if (!armed) return;
-    const timer = setTimeout(() => setArmed(false), CONFIRM_WINDOW_MS);
-    return () => clearTimeout(timer);
-  }, [armed]);
+  useTimeout(() => setArmed(false), armed ? CONFIRM_WINDOW_MS : null);
 
   const press = (): void => {
     if (!armed) {

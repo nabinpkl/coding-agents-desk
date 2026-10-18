@@ -2,13 +2,14 @@
 // looks like, and the clock a running lane counts on. One home, so the rail, the facts table and
 // the lanes say "running" the same way.
 
-import { useEffect, useState } from "react";
 import {
   ARENA_LIVE_STATUSES,
   type ArenaContestantSource,
   type ArenaContestantStatus,
   type ArenaRunMode,
 } from "@agentdesk/agent-feed-wire";
+import { useInterval } from "@/hooks/useInterval";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 export const SOURCE_LABEL: Record<ArenaContestantSource, string> = {
   opencode: "OpenCode",
@@ -115,12 +116,8 @@ export function StatusGlyph({ status }: { status: ArenaContestantStatus }) {
  * standing still otherwise, so a page of settled runs schedules nothing.
  */
 export function useNow(live: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    setNow(Date.now());
-    if (!live) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [live]);
+  // Read afresh whenever `live` flips, then ticked while it holds.
+  const [now, setNow] = useStateFor(live, () => Date.now());
+  useInterval(() => setNow(Date.now()), live ? 1000 : null);
   return now;
 }

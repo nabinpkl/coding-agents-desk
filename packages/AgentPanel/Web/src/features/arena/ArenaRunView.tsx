@@ -23,7 +23,7 @@
 // header holds the box the prompt is typed into instead. It goes to every lane at once, as soon as
 // all of them are ready -- sending it early is fine, it waits at the same line.
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowUp, LoaderCircle, PanelLeftClose, PanelLeftOpen, Trash2 } from "lucide-react";
 import type { ArenaRunDetail, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -38,6 +38,8 @@ import { ArenaManagerWindow, ManagerSwitch } from "@/features/arena/manager/Aren
 import { lineupKind } from "@/features/arena/ArenaNewRun";
 import { basename, diffStat, elapsedMs, fileMatrix, formatAgo } from "@/features/arena/arenaFacts";
 import { FIELD, FOCUS, ICON_BUTTON, isLive, PRIMARY_BUTTON, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 
 export type ArenaView = "sessions" | "files" | "diffs";
 
@@ -419,27 +421,19 @@ function LanesPrompt({
 function LaneGrid({ lanes, tall, children }: { lanes: number; tall: boolean; children: ReactNode }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
-  useEffect(() => {
+  const measure = () => {
     const node = scroller.current;
     if (!node) return;
-    const measure = () => {
-      setEdges({
-        left: node.scrollLeft > 1,
-        right: node.scrollLeft + node.clientWidth < node.scrollWidth - 1,
-      });
-    };
-    measure();
-    node.addEventListener("scroll", measure, { passive: true });
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => {
-      node.removeEventListener("scroll", measure);
-      observer.disconnect();
-    };
-  }, [lanes]);
+    const left = node.scrollLeft > 1;
+    const right = node.scrollLeft + node.clientWidth < node.scrollWidth - 1;
+    setEdges((current) => (current.left === left && current.right === right ? current : { left, right }));
+  };
+  // Measured again when the lanes change, since that changes how far there is to scroll.
+  useDomSync(measure, [lanes]);
+  useResizeObserver(scroller, measure);
   return (
     <div className={`relative ${tall ? "min-h-0 flex-1" : ""}`}>
-      <div ref={scroller} className={`overflow-x-auto ${tall ? "h-full" : ""}`}>
+      <div ref={scroller} onScroll={measure} className={`overflow-x-auto ${tall ? "h-full" : ""}`}>
         <div
           className={`grid min-w-full gap-x-px bg-border ${tall ? "h-full" : ""}`}
           style={{

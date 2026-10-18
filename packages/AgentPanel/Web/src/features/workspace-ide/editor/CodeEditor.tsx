@@ -24,7 +24,7 @@
 // `CommitDiff` scrolls its patch for the same reason.
 
 import { useMemo, useRef } from "react";
-import { useDomSync } from "@/hooks/useDomSync";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 // The colours the painted layer wears. Imported here rather than relied on from a neighbour,
 // because the rule that reads Shiki's per-token variables is what makes this surface coloured at

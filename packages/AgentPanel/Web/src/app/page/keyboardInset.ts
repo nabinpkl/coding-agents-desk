@@ -100,6 +100,13 @@ export const KEEP_IN_SIGHT_ATTRIBUTE = "data-keep-in-sight";
  * laid out. Only a field inside `scroller`, and only as far as it takes; the region around it
  * when one is marked (`KEEP_IN_SIGHT_ATTRIBUTE`).
  */
+/** `keepTypingInSight` for as long as `scroller` is mounted, as a ref callback. */
+export function keepTypingInSightWhileMounted(scroller: HTMLElement | null): (() => void) | undefined {
+  if (!scroller) return undefined;
+  const keeping = keepTypingInSight(scroller);
+  return () => keeping.remove();
+}
+
 export function keepTypingInSight(scroller: HTMLElement): { remove(): void } {
   const observer = new ResizeObserver(() => {
     const active = document.activeElement;

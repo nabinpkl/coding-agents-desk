@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
 import type { BackgroundTaskProgress, BackgroundTaskState } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource, SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 export interface TaskOutputView {
   label: string;
@@ -48,15 +50,12 @@ export function useTaskOutputStream(
   session: SessionReference | null,
   taskId: string | null,
 ): TaskOutputView {
-  const [view, setView] = useState<TaskOutputView>(INITIAL);
   const sessionId = session?.sessionId ?? null;
+  const key = session && taskId ? `${sourceKey(source)}:${session.source}:${sessionId}:${taskId}` : null;
+  const [view, setView] = useStateFor<TaskOutputView>(key, () => INITIAL);
 
-  useEffect(() => {
-    if (!session || !taskId) {
-      setView(INITIAL);
-      return;
-    }
-    setView(INITIAL);
+  useSubscription(key, () => {
+    if (!session || !taskId) return;
     return source.subscribeTaskOutput(session, taskId, {
       onMessage: (message) => {
         setView((current) => {
@@ -84,8 +83,7 @@ export function useTaskOutputStream(
       },
       onError: (reason) => setView((current) => ({ ...current, unavailable: reason })),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, sessionId, taskId]);
+  });
 
   return view;
 }

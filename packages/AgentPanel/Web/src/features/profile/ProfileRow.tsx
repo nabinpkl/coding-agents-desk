@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw, RotateCcw } from "lucide-react";
 import { DesktopParkModal } from "@/features/desktop-park/DesktopParkModal";
 import { useDesktopPark, type DesktopParkHandle, type ParkDataSource } from "@/features/desktop-park/useDesktopPark";
@@ -21,6 +21,8 @@ import {
   type StaleSessionsHandle,
   type StaleSessionsMachine,
 } from "@/features/profile/useStaleSessions";
+import { useDismissOnOutsidePress } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
@@ -61,20 +63,11 @@ export function ProfileRow({
     if (restoreFocus) trigger.current?.focus();
   }, []);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (menu.current?.contains(target) || trigger.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
+  useDismissOnOutsidePress(open, [menu, trigger], () => setOpen(false));
 
   // Focus moves into the menu on open so the keyboard can reach it without tabbing past the
   // whole project tree.
-  useEffect(() => {
+  useDomSync(() => {
     if (!open) return;
     menu.current?.querySelector<HTMLElement>(`${MENU_ITEMS}:not([aria-disabled='true'])`)?.focus();
   }, [open]);

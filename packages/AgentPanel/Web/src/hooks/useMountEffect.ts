@@ -19,3 +19,13 @@ export function useUnmountEffect(teardown: () => void): void {
   const run = useEffectEvent(teardown);
   useEffect(() => () => run(), []);
 }
+
+/**
+ * Runs `leave` when `key` changes and when the component unmounts: for something started by an
+ * event -- a stream a button opened, a timer a press started -- that belongs to one value of `key`
+ * and must not outlive it.
+ */
+export function useLeaveEffect(key: unknown, leave: () => void): void {
+  const run = useEffectEvent(leave);
+  useEffect(() => () => run(), [key]);
+}

@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { BackgroundTaskSnapshot } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource, SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
+import { useInterval } from "@/hooks/useInterval";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 const EMPTY: BackgroundTaskSnapshot = { running: [], finished: [], ownerAlive: false, ownerWaiting: false };
 
@@ -15,27 +19,23 @@ export function useBackgroundTasks(
   source: AgentDataSource,
   session: SessionReference | null,
 ): BackgroundTaskSnapshot {
-  const [snapshot, setSnapshot] = useState<BackgroundTaskSnapshot>(EMPTY);
   const sessionId = session?.sessionId ?? null;
   const sessionSource = session?.source ?? null;
+  // Keyed by identity, not by object: the session reference is rebuilt on every render of the
+  // shell, and following the object would tear the stream down twice a second.
+  const key = session && sessionId && sessionSource ? `${sourceKey(source)}:${sessionSource}:${sessionId}` : null;
+  // Cleared on switch rather than carrying the previous session's tasks into this one's chip.
+  const [snapshot, setSnapshot] = useStateFor<BackgroundTaskSnapshot>(key, () => EMPTY);
 
-  useEffect(() => {
-    if (!session || !sessionId || !sessionSource) {
-      setSnapshot(EMPTY);
-      return;
-    }
-    // Clear on switch rather than carrying the previous session's tasks into this one's chip.
-    setSnapshot(EMPTY);
+  useSubscription(key, () => {
+    if (!session) return;
     return source.subscribeBackgroundTasks(session, {
       onSnapshot: setSnapshot,
       // A stream that dropped tells us nothing new, and showing the last known list forever
       // would be worse than showing none: the count would be a claim we can no longer support.
       onError: () => setSnapshot(EMPTY),
     });
-    // Keyed by identity, not by object: the session reference is rebuilt on every render of the
-    // shell, and depending on it directly would tear the stream down twice a second.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, sessionId, sessionSource]);
+  });
 
   return snapshot;
 }
@@ -49,10 +49,6 @@ export function useBackgroundTasks(
  */
 export function useElapsedNow(active: boolean, intervalMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [active, intervalMs]);
+  useInterval(() => setNow(Date.now()), active ? intervalMs : null);
   return now;
 }

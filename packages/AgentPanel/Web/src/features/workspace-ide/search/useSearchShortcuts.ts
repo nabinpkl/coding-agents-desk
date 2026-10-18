@@ -7,7 +7,7 @@
 // Shift there is not a shortcut.
 
 import { useState } from "react";
-import { useEventListener } from "@/hooks/useEventListener";
+import { useEventListener } from "@/hooks/dom/useEventListener";
 
 /** Two Shift presses closer together than this are a double Shift, as JetBrains times it. */
 export const DOUBLE_SHIFT_MS = 350;

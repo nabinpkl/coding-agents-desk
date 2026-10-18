@@ -5,7 +5,7 @@
 // session. A lane that changed nothing says so in its column rather than leaving it blank, since
 // "this contestant wrote nothing" is a result, not a gap.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { DiffFile } from "@git-diff-view/file";
 import { DiffModeEnum, DiffView } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
@@ -38,10 +38,7 @@ export function DiffLane({ contestant }: { contestant: ArenaContestantDetail }) 
 function FileDiff({ part }: { part: DiffFilePart }) {
   const isDark = usePrefersDark();
   const fontPx = useFontStore((state) => state.tokens.tile_diff);
-  const [file, setFile] = useState<DiffFile | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  useEffect(() => {
+  const { file, failure } = useMemo((): { file: DiffFile | null; failure: string | null } => {
     try {
       const lang = languageFromPath(part.path);
       const made = DiffFile.createInstance({
@@ -52,11 +49,9 @@ function FileDiff({ part }: { part: DiffFilePart }) {
       made.initTheme(isDark ? "dark" : "light");
       made.init();
       made.buildUnifiedDiffLines();
-      setFile(made);
-      setFailure(null);
+      return { file: made, failure: null };
     } catch (error) {
-      setFile(null);
-      setFailure(error instanceof Error ? error.message : String(error));
+      return { file: null, failure: error instanceof Error ? error.message : String(error) };
     }
   }, [part.path, part.text, isDark]);
 

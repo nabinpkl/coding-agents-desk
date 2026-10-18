@@ -17,7 +17,7 @@
 import { useCallback, useRef } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
-import { useStateFor } from "@/hooks/useStateFor";
+import { useStateFor } from "@/hooks/state/useStateFor";
 import type { WorkspaceOperation } from "@agentdesk/agent-feed-wire";
 import type { OpenFile } from "@/features/workspace-ide/useWorkspaceIde";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";

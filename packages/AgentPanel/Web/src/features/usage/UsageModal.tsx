@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { UsageVendorId, VendorUsage } from "@agentdesk/agent-feed-wire";
 import { VendorPanel } from "@/features/usage/UsageVendorPanel";
 import { weekBounds } from "@/features/usage/usageGrid";
 import type { UsageState } from "@/features/usage/useUsage";
+import { useModal } from "@/hooks/dom/overlays";
 
 const RANGES = [
   { label: "12w", weeks: 12 },
@@ -28,12 +29,7 @@ export function UsageModal({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
 
-  useEffect(() => {
-    const node = dialog.current;
-    if (!node) return;
-    if (open && !node.open) node.showModal?.();
-    else if (!open && node.open) node.close?.();
-  }, [open]);
+  useModal(dialog, open);
 
   return (
     <dialog

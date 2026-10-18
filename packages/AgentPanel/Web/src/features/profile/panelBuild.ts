@@ -36,7 +36,7 @@
 // the server's answer and sends the reader's, which is why the only two functions here are commands
 // rather than state.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   PANEL_BUILD_ROUTE,
   PANEL_COMMAND_PARAM,
@@ -46,6 +46,8 @@ import {
   type PanelUpdateMode,
   type SidecarSupervisorReport,
 } from "@/features/profile/panelBuildRoute";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 /**
  * The build id baked in at compile time, `+`-suffixed when that tree was not exactly a commit.
@@ -185,10 +187,10 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
   const [build, setBuild] = useState<PanelBuildState>(NOT_SERVED);
   // Derived rather than stored: it is a fact about this page's own wiring, known before the first
   // fetch, and a state that starts false would flicker the control off on every mount.
-  const live = devServerHooks(devServer) !== undefined;
+  const hot = devServerHooks(devServer);
+  const live = hot !== undefined;
 
-  useEffect(() => {
-    const hot = devServerHooks(devServer);
+  useSubscription(hot ? `panel-build:${sourceKey(hot)}` : null, () => {
     if (!hot) return undefined;
 
     const aborter = new AbortController();
@@ -236,7 +238,7 @@ export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild 
       hot.off("vite:afterUpdate", reread);
       hot.off(PANEL_PUBLISH_EVENT, published);
     };
-  }, [devServer]);
+  });
 
   const command = useCallback(
     (action: PanelBuildCommand) => {
