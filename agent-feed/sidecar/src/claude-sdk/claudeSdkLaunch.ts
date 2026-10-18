@@ -25,6 +25,7 @@ import {
   UNATTENDED_COLUMNS,
   UNATTENDED_ROWS,
   lastResumeSelection,
+  type ResumeSelection,
   type StartedClaudeSession,
 } from "@/terminal/session-panes/claudeSessionLaunch";
 import { isEffortLevel, RUNNER_ENTRY_FILE, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
@@ -129,12 +130,16 @@ export async function startClaudeSdkForkedSession(options: {
 }): Promise<StartedClaudeSession> {
   const pane = claudeForkPaneName(options.forkId);
   const firstTurn = options.brief ? forkFirstTurn(options.brief) : undefined;
+  // Opened the way its source last ran, as a terminal fork is (`forkClaudeSessionCommand`).
+  const selection = lastResumeSelection(options.sessionId);
   await startRunnerPane(pane, options.cwd, firstTurn, (firstTurnFile) => claudeSdkRunnerCommand({
     sessionId: options.forkId,
     cwd: options.cwd,
     title: options.title,
     start: "fork",
     forkFrom: options.sessionId,
+    choices: runnerChoicesOf(selection),
+    ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
     ...(options.resumeAt ? { resumeAt: options.resumeAt } : {}),
     ...(firstTurnFile ? { firstTurnFile } : {}),
   }));
@@ -169,6 +174,14 @@ export function lastRunMode(session: { lastEntrypoint?: string }): ClaudeRunMode
   return session.lastEntrypoint === "sdk-cli" ? "sdk" : "terminal";
 }
 
+/** A selection's model and effort as a runner takes them at launch. */
+function runnerChoicesOf(selection: ResumeSelection): RunnerChoices {
+  return {
+    ...(selection.model ? { model: selection.model } : {}),
+    ...(isEffortLevel(selection.effort) ? { effort: selection.effort } : {}),
+  };
+}
+
 /**
  * The argv that resumes a session in one mode or the other, with what it last ran with: so a model,
  * effort or mode chosen for a session stays the session's, whichever way it runs and however often
@@ -183,10 +196,7 @@ export function resumeCommandFor(
     ? claudeSdkRunnerCommand({
       ...options,
       start: "resume",
-      choices: {
-        ...(selection.model ? { model: selection.model } : {}),
-        ...(isEffortLevel(selection.effort) ? { effort: selection.effort } : {}),
-      },
+      choices: runnerChoicesOf(selection),
       ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
     })
     : resumeClaudeSessionCommand(options.sessionId, selection);

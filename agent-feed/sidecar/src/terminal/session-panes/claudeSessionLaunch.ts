@@ -153,11 +153,20 @@ export function lastResumeSelection(sessionId: string, choices: RunnerChoices = 
  * otherwise as a fresh one opens.
  */
 export function resumeClaudeSessionCommand(sessionId: string, selection: ResumeSelection = lastResumeSelection(sessionId)): string[] {
+  return ["claude", ...launchFlags(selection), "--resume", sessionId, ...selectionFlags(selection)];
+}
+
+/** The launch's flags, in the selection's permission mode where it has one. */
+function launchFlags(selection: ResumeSelection): string[] {
   return [
-    "claude",
     ...claudePermissionArgs(selection.permissionMode ?? claudeLaunchPermission.mode, claudeLaunchPermission.allowBypass),
     ...claudeLaunchModArgs,
-    "--resume", sessionId,
+  ];
+}
+
+/** The selection's model and effort, as the CLI takes them. */
+function selectionFlags(selection: ResumeSelection): string[] {
+  return [
     ...(selection.model ? ["--model", selection.model] : []),
     ...(selection.effort ? ["--effort", selection.effort] : []),
   ];
@@ -324,10 +333,13 @@ export function forkFirstTurn(brief: string): string {
  */
 export function forkClaudeSessionCommand(
   options: { sessionId: string; forkId: string; title: string; brief?: string },
+  // A fork carries on its source's conversation, so it opens the way its source last ran: the same
+  // model, effort and mode, read and capped as a resume of the source would be (`resumeSelection`).
+  selection: ResumeSelection = lastResumeSelection(options.sessionId),
 ): string[] {
   const command = [
     "claude",
-    ...claudeLaunchArgs,
+    ...launchFlags(selection),
     "--resume",
     options.sessionId,
     "--fork-session",
@@ -335,6 +347,7 @@ export function forkClaudeSessionCommand(
     options.forkId,
     "-n",
     options.title,
+    ...selectionFlags(selection),
   ];
   if (options.brief) command.push(forkFirstTurn(options.brief));
   return command;

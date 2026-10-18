@@ -141,6 +141,17 @@ test("a reopened session the catalog does not know gets the same permission flag
   expect(resumeClaudeSessionCommand("abc")).toEqual(["claude", ...permission, "--resume", "abc"]);
 });
 
+test("a fork opens the way its source last ran, its brief still the last word", () => {
+  const command = forkClaudeSessionCommand(
+    { sessionId: "src", forkId: "fork", title: "Bot colours", brief: "try teal" },
+    { model: "haiku", effort: "low", permissionMode: "plan" },
+  );
+  expect(command.slice(0, 3)).toEqual(["claude", "--permission-mode", "plan"]);
+  expect(command.slice(command.indexOf("--fork-session"), -1))
+    .toEqual(["--fork-session", "--session-id", "fork", "-n", "Bot colours", "--model", "haiku", "--effort", "low"]);
+  expect(command.at(-1)).toContain("try teal");
+});
+
 test("a reopened session resumes in the mode, model and effort it last ran with", () => {
   const command = resumeClaudeSessionCommand("abc", { model: "haiku", effort: "max", permissionMode: "plan" });
   expect(command.slice(0, 3)).toEqual(["claude", "--permission-mode", "plan"]);
