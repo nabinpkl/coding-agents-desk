@@ -71,6 +71,9 @@ export interface ActivityEvent {
    *  a cache-hit badge can render next to the output it belongs to. Absent
    *  means the harness reported no cache data for that turn. */
   cacheHit?: EventCacheHit;
+  /** Set only by the panel, on an SDK session's prompt sent mid-turn that the session has not
+   *  taken in yet, drawn at the feed's end until the transcript holds it (`queuedTails`). */
+  pending?: "queued";
 }
 
 /**

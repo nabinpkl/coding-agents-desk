@@ -164,6 +164,15 @@ function LiveDot() {
   );
 }
 
+/** Marks a prompt sent mid-turn that the session has not taken in yet. */
+function QueuedChip() {
+  return (
+    <span className={CHIP_CLASS + "bg-muted text-muted-foreground"} title="Waiting for the turn in progress">
+      queued
+    </span>
+  );
+}
+
 /**
  * An event's role chip and collapse toggle, floated so the first line of the
  * body sits beside it.
@@ -201,6 +210,8 @@ export function EventHeading({
   const intent = role === "tool" ? toolIntent(ev) : null;
   const showIntent = !isCollapsed && intent !== null;
   const showCacheBadge = showCacheHits && ev.cacheHit !== undefined;
+  // A prompt the session has not taken in yet says so where a streaming row shows its dot.
+  const queued = ev.pending === "queued";
   /*
    * A tool call draws its own chevron on its own header, one line under this one, and to the eye
    * the two open the same thing. So an expanded tool row keeps ONE of them: this heading drops
@@ -214,7 +225,7 @@ export function EventHeading({
   // And with the chevron gone there is often nothing left at all: a bare tool call in nice mode
   // has no chip and no intent. An empty heading is not free -- it is a focus stop, a hover target
   // and a float the first block has to clear -- so it is not drawn.
-  if (!showChevron && !showRole && !isLive && !showCacheBadge && !showIntent) return null;
+  if (!showChevron && !showRole && !isLive && !queued && !showCacheBadge && !showIntent) return null;
   // Nothing to open or close, so what is left is a label and not a control.
   if (!isFoldableRole(role)) {
     return (
@@ -227,6 +238,7 @@ export function EventHeading({
       >
         {showRole ? <span className={CHIP_CLASS + ROLE_STYLES[role]}>{role}</span> : null}
         {isLive ? <LiveDot /> : null}
+        {queued ? <QueuedChip /> : null}
         {showCacheBadge ? <CacheBadge cacheHit={ev.cacheHit!} /> : null}
       </div>
     );
@@ -272,6 +284,7 @@ export function EventHeading({
           solid: an infinite pulse kept the compositor drawing every frame for as long
           as the row was live, and a row whose message never finishes is live for good. */}
       {isLive ? <LiveDot /> : null}
+      {queued ? <QueuedChip /> : null}
       {showCacheBadge ? <CacheBadge cacheHit={ev.cacheHit!} /> : null}
       {/* Why the tool ran, above the call that ran it. Only when expanded: a collapsed
           row already spends this space on its gist, and the heading is otherwise blank here. */}

@@ -53,6 +53,24 @@ function renderLanded(ev: ActivityEvent) {
   );
 }
 
+describe("a queued prompt's row", () => {
+  it("is the person's message, marked queued rather than streaming, its edge dashed", () => {
+    const { container } = renderLive({
+      id: "queued:q1",
+      index: -1,
+      ts: 100,
+      type: "user",
+      phase: "complete",
+      blocks: [{ kind: "text", text: "also this" }],
+      pending: "queued",
+    });
+    expect(screen.getByText("queued")).toBeDefined();
+    expect(screen.getByText(/also this/)).toBeDefined();
+    expect(screen.queryByLabelText(/streaming/)).toBeNull();
+    expect(container.querySelector("[data-feed-card]")?.className).toContain("border-dashed");
+  });
+});
+
 describe("LiveTailRow", () => {
   it("reveals streaming assistant prose progressively", () => {
     vi.useFakeTimers();

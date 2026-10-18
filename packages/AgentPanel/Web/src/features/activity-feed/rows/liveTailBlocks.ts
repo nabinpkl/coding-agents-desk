@@ -1,5 +1,6 @@
 // The live tail in the shape the transcript will give it: one row per block.
 
+import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
 import {
   type ActivityBlock,
   type ActivityEvent,
@@ -188,3 +189,40 @@ export function splitLiveTails(
   }
   return rows;
 }
+
+/** The words of a person's message, as a queued prompt is compared against it. */
+function messageWords(event: ActivityEvent): string {
+  return event.blocks
+    .flatMap((block) => (block.kind === "text" && typeof block.text === "string" ? [block.text] : []))
+    .join("\n")
+    .trim();
+}
+
+/**
+ * An SDK session's queued prompts as rows at the feed's end, each until its own message is in the
+ * transcript: as a folded `queued_command` or the next turn's `user` line, both of which read as the
+ * person's message. Matched by its words and by arriving after it was sent, because nothing else
+ * names it; a moment's allowance covers the sidecar's clock and the line's being written apart.
+ */
+export function queuedTails(
+  queued: readonly ClaudeSdkQueuedPrompt[],
+  events: readonly ActivityEvent[],
+): ActivityEvent[] {
+  if (queued.length === 0) return [];
+  const landed = events.filter((event) => event.type === "user");
+  return queued
+    .filter((prompt) => !landed.some((event) =>
+      (event.ts ?? 0) >= prompt.sentAt - QUEUED_CLOCK_ALLOWANCE_MS && messageWords(event) === prompt.text.trim()))
+    .map((prompt) => ({
+      id: `queued:${prompt.id}`,
+      index: -1,
+      revision: 0,
+      phase: "complete" as const,
+      ts: prompt.sentAt,
+      type: "user",
+      blocks: [{ kind: "text" as const, text: prompt.text }],
+      pending: "queued" as const,
+    }));
+}
+
+const QUEUED_CLOCK_ALLOWANCE_MS = 2_000;

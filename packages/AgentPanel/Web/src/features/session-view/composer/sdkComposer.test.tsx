@@ -28,6 +28,7 @@ const LIVE: ClaudeSdkSessionState = {
     { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "", effortLevels: ["low", "medium", "high", "max"] },
     { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku", description: "" },
   ],
+  queued: [],
   effort: null,
 };
 

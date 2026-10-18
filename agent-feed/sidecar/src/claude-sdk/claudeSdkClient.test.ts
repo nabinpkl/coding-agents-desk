@@ -170,6 +170,20 @@ describe("the choices a runner was launched with", () => {
   });
 });
 
+describe("a prompt sent while a turn runs", () => {
+  test("shows as queued, and one sent while idle does not", async () => {
+    const session = await runnerFor();
+    const client = new ClaudeSdkClient(work, quiet);
+    const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
+    expect(await client.command(session.sessionId, { type: "prompt", text: "first" })).toEqual({ ok: true });
+    expect((await client.state(session.sessionId)).queued).toEqual([]);
+    expect(await client.command(session.sessionId, { type: "prompt", text: "second" })).toEqual({ ok: true });
+    expect((await client.state(session.sessionId)).queued.map((entry) => entry.text)).toEqual(["second"]);
+    followed.stop();
+    await session.stop();
+  });
+});
+
 describe("the effort a session runs at", () => {
   test("is the CLI's own word before any turn, until a level is chosen, which then wins", async () => {
     const session = await runnerFor();

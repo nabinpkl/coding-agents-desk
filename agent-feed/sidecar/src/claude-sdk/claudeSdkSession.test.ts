@@ -93,6 +93,23 @@ describe("the choices a relaunch carries", () => {
   });
 });
 
+describe("a prompt sent while a turn runs", () => {
+  test("is held as queued until that turn's result, by when the CLI has taken it in", () => {
+    const session = new SdkSession(SESSION, true);
+    session.fold(message({ type: "system", subtype: "init", permissionMode: "auto" }));
+    expect(session.busy()).toBe(false);
+    session.fold({ kind: "input" });
+    expect(session.busy()).toBe(true);
+    session.queue("also this", 1, 5000);
+    expect(session.state().queued).toEqual([{ id: "q1", text: "also this", images: 1, sentAt: 5000 }]);
+    session.fold(message({ type: "result", subtype: "success" }));
+    expect(session.state().queued).toEqual([]);
+    session.queue("late", 0, 6000);
+    session.fold({ kind: "ended" });
+    expect(session.state().queued).toEqual([]);
+  });
+});
+
 describe("before the first turn", () => {
   test("the mode is the one the runner launched in, until the CLI names its own", () => {
     const session = new SdkSession(SESSION, true, {}, "default");

@@ -149,6 +149,15 @@ export function normalizedRecord(
     };
   }
 
+  // A message the person sent while a turn was running, which the CLI folded into that turn. It is
+  // written only as this attachment -- no `user` record follows -- so it renders as the person's own
+  // message rather than as a "Queued Command" row of fields. The CLI's own task notifications ride
+  // the same subtype and stay metadata.
+  const queued = queuedHumanPrompt(ev);
+  if (queued !== null) {
+    return normalizedRecord(line, { ...ev, type: 'user', message: { role: 'user', content: queued } });
+  }
+
   if (typeof t === 'string' && t !== 'user' && t !== 'assistant') {
     if (t === 'system' && ev.subtype === 'compact_boundary') {
       const rawBlocks = appendCommon([{ block: { kind: 'compaction' }, raw: null }]);
@@ -257,6 +266,19 @@ export function normalizedRecord(
   }
   if (cwd) result.cwd = cwd;
   return { result, rawBlocks };
+}
+
+/**
+ * The prompt of a `queued_command` attachment a person sent, or null for anything else. Measured
+ * 2026-10-18: a person's carries `commandMode: "prompt"` and `origin.kind: "human"`; the CLI's
+ * task notifications carry `commandMode: "task-notification"`.
+ */
+function queuedHumanPrompt(ev: Record<string, unknown>): string | null {
+  if (ev.type !== 'attachment') return null;
+  const attachment = ev.attachment as Record<string, unknown> | undefined;
+  if (attachment?.type !== 'queued_command' || attachment.commandMode !== 'prompt') return null;
+  const origin = attachment.origin as Record<string, unknown> | undefined;
+  return origin?.kind === 'human' && typeof attachment.prompt === 'string' && attachment.prompt.trim() ? attachment.prompt : null;
 }
 
 /** Strips SGR colour codes, which is all the CLI's own output ever carries. */

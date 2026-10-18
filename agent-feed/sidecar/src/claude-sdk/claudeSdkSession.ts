@@ -11,6 +11,7 @@ import type {
   ClaudePermissionMode,
   ClaudeSdkModel,
   ClaudeSdkPendingRequest,
+  ClaudeSdkQueuedPrompt,
   ClaudeSdkRunStatus,
   TmuxQuestionAnswer,
   TmuxQuestionRefusal,
@@ -199,6 +200,9 @@ export class SdkSession {
   /** What `getSettings()` says the CLI would send its next request with; below anything said since. */
   private applied: { model?: string; effort?: ClaudeEffortLevel } = {};
   private backgroundTasks = 0;
+  /** Prompts sent while a turn ran, held until that turn ends (`queue`). */
+  private queued: ClaudeSdkQueuedPrompt[] = [];
+  private nextQueued = 0;
   /** The callbacks the runner holds, by its id for each, as the panel shows them. */
   private readonly pending = new Map<string, ClaudeSdkPendingRequest>();
 
@@ -244,6 +248,7 @@ export class SdkSession {
       // Before init names them, and with nothing chosen, the CLI's own word on what it would send.
       model: this.model ?? this.applied.model ?? null,
       models: this.models,
+      queued: this.queued,
       effort: this.effort ?? this.applied.effort ?? null,
     };
   }
@@ -279,6 +284,7 @@ export class SdkSession {
         return null;
       case "ended":
         this.status = "exited";
+        this.queued = [];
         return null;
       case "called":
         this.called(record.method, record.args);
@@ -318,6 +324,20 @@ export class SdkSession {
       ...(options.defaultToNo === true ? { defaultToNo: true } : {}),
     });
     return null;
+  }
+
+  /** Whether a prompt sent now would wait behind a turn already running. */
+  busy(): boolean {
+    return this.status === "running" || this.status === "requires-action" || this.pending.size > 0;
+  }
+
+  /**
+   * A prompt the runner took while a turn was running. The CLI either folds it into that turn or
+   * starts the next with it, and says nothing either way, so it is held until the turn's result:
+   * by then it has been taken in, whichever it was.
+   */
+  queue(text: string, images: number, sentAt: number): void {
+    this.queued = [...this.queued, { id: `q${++this.nextQueued}`, text, images, sentAt }];
   }
 
   settled(callback: string): void {
@@ -421,6 +441,7 @@ export class SdkSession {
     }
     if (message.type === "result") {
       this.becomes("idle");
+      this.queued = [];
       return null;
     }
     if (message.type !== "system") return null;

@@ -146,15 +146,24 @@ export class ClaudeSdkClient {
       this.release(connection);
       return NO_RUNNER;
     }
-    const plan = connection.session.plan(command);
+    const session = connection.session;
+    const plan = session.plan(command);
     if ("refuse" in plan) {
       this.release(connection);
       return plan.refuse;
     }
+    // Asked before the send: a prompt the runner takes while a turn runs waits behind it.
+    const waits = command.type === "prompt" && session.busy();
     const reply = await this.send(connection, plan.send);
     this.release(connection);
     if (reply === NO_RUNNER_REPLY) return NO_RUNNER;
-    if (reply.ok) return { ok: true };
+    if (reply.ok) {
+      if (waits && command.type === "prompt" && connection.session === session) {
+        session.queue(command.text, command.images?.length ?? 0, Date.now());
+        this.update(connection);
+      }
+      return { ok: true };
+    }
     // A callback the runner no longer holds was settled elsewhere, or the turn moved on.
     return { ok: false, reason: plan.send.type === "settle" ? "not-pending" : "failed", message: reply.message };
   }

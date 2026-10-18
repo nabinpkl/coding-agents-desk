@@ -19,6 +19,7 @@ const IDLE_RUNNER: ClaudeSdkSessionState = {
   claudeCodeVersion: "2.1.302",
   model: null,
   models: [],
+  queued: [],
   effort: null,
 };
 

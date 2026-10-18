@@ -92,10 +92,27 @@ export interface ClaudeSdkSessionState {
   /** The models this `claude` offers, from the SDK's `supportedModels()`; empty until it answers. */
   models: ClaudeSdkModel[];
   /**
-   * The effort the session sends on its next request: from the CLI's init where it says, else the
-   * level last chosen here; null while neither has (the model's own default).
+   * Prompts the person sent while a turn was running, oldest first, that the session has not been
+   * seen to take in yet. The CLI says nothing when it folds one into the running turn or starts the
+   * next turn with it, so each is held until that turn ends; the panel also drops one the moment
+   * the transcript shows it.
+   */
+  queued: ClaudeSdkQueuedPrompt[];
+  /**
+   * The effort the session sends on its next request: the level chosen here, or the CLI's own word
+   * on it (`getSettings().applied`, or its init where it names one); null while nothing has said.
    */
   effort: ClaudeEffortLevel | null;
+}
+
+/** A prompt sent to an SDK session while it was busy, as the feed shows it until it is taken in. */
+export interface ClaudeSdkQueuedPrompt {
+  id: string;
+  text: string;
+  /** How many images rode with it. */
+  images: number;
+  /** Epoch ms the sidecar sent it. */
+  sentAt: number;
 }
 
 /** One model the session can be switched to. */
@@ -131,6 +148,7 @@ export const DISCONNECTED_CLAUDE_SDK_STATE: ClaudeSdkSessionState = {
   claudeCodeVersion: null,
   model: null,
   models: [],
+  queued: [],
   effort: null,
 };
 

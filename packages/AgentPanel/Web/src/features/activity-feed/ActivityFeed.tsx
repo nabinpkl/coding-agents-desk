@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import {
   useSessionEventsStream,
   type TokenUsage,
 } from "@/features/activity-feed/useSessionEventsStream";
-import { liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
+import { liveRowKey, queuedTails } from "@/features/activity-feed/rows/liveTailBlocks";
 import { CompactingNotice } from "@/features/activity-feed/blocks/CompactingNotice";
 import { ReconnectingNotice } from "@/features/activity-feed/ReconnectingNotice";
 import { useStickToBottom } from "@/features/activity-feed/scroll-position/useStickToBottom";
@@ -64,6 +65,7 @@ export function ActivityFeed({
   onSessionModel,
   onOpenQuestion,
   onForkFromMessage,
+  queuedPrompts = NO_QUEUED_PROMPTS,
 }: {
   source: AgentSource;
   sessionId: string;
@@ -118,6 +120,8 @@ export function ActivityFeed({
    * a fork.
    */
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
+  /** An SDK session's prompts sent mid-turn, drawn after everything else until the transcript holds them. */
+  queuedPrompts?: readonly ClaudeSdkQueuedPrompt[];
 }) {
   const {
     events, loadOlder, fillGap, loadAround, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary, reconnecting,
@@ -140,6 +144,12 @@ export function ActivityFeed({
   useEffect(() => {
     onOpenQuestion?.(openQuestion);
   }, [onOpenQuestion, openQuestion]);
+  // The queued prompts the transcript does not hold yet, after the live tails: the feed's end is
+  // where they will land, and each goes the moment its own message arrives, ahead of the turn's end.
+  const tails = useMemo(
+    () => [...liveTails, ...queuedTails(queuedPrompts, events)],
+    [liveTails, queuedPrompts, events],
+  );
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);
@@ -155,7 +165,7 @@ export function ActivityFeed({
     // Follow the bottom when there is durable content OR a streaming live tail
     // to pin to. A fresh session that only has the live mirror would otherwise
     // never arm the follower, so its growing tail wouldn't auto-scroll.
-    events.length > 0 || liveTails.length > 0,
+    events.length > 0 || tails.length > 0,
   );
 
   // Scroll offset the sticky bars are computed from, read from a ref at every render. A scroll
@@ -188,7 +198,7 @@ export function ActivityFeed({
     toggleEvent,
     toggleLiveTail,
     toggleTool,
-  } = useFeedRows({ events, liveTails, mode, pause, source });
+  } = useFeedRows({ events, liveTails: tails, mode, pause, source });
 
 
   // Without the paired results, which go to each row on their own so a new pairing re-renders only
@@ -471,3 +481,5 @@ export function ActivityFeed({
     </div>
   );
 }
+
+const NO_QUEUED_PROMPTS: readonly ClaudeSdkQueuedPrompt[] = [];

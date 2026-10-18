@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { retireLiveRows, splitLiveTails } from "@/features/activity-feed/rows/liveTailBlocks";
+import { queuedTails, retireLiveRows, splitLiveTails } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { ActivityBlock, ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 function message(phase: ActivityEvent["phase"], blocks: ActivityBlock[]): ActivityEvent {
@@ -121,5 +121,28 @@ describe("retireLiveRows", () => {
     const earlier: ActivityEvent = { ...message("complete", [listCall]), id: "claude-live:msg_0", index: 3, messageId: "msg_0" };
     const stalled = message("streaming", [firstThought]);
     expect(retireLiveRows(rows(earlier, stalled), [line(1, firstThought)]).size).toBe(0);
+  });
+});
+
+describe("an SDK session's queued prompts", () => {
+  const user = (text: string, ts: number): ActivityEvent => ({ index: ts, ts, type: "user", blocks: [{ kind: "text", text }] });
+  const queued = [
+    { id: "q1", text: "also this", images: 0, sentAt: 10_000 },
+    { id: "q2", text: "and that", images: 0, sentAt: 11_000 },
+  ];
+
+  it("are rows after everything else, marked queued, keyed by their own id", () => {
+    const tails = queuedTails(queued, []);
+    expect(tails.map((tail) => [tail.id, tail.pending, tail.type, tail.blocks[0]])).toEqual([
+      ["queued:q1", "queued", "user", { kind: "text", text: "also this" }],
+      ["queued:q2", "queued", "user", { kind: "text", text: "and that" }],
+    ]);
+  });
+
+  it("go the moment the transcript holds the same words, sent after them, and not before", () => {
+    // An older message with the same words is not this one landing.
+    expect(queuedTails(queued, [user("also this", 1_000)]).map((tail) => tail.id)).toEqual(["queued:q1", "queued:q2"]);
+    expect(queuedTails(queued, [user(" also this ", 10_500)]).map((tail) => tail.id)).toEqual(["queued:q2"]);
+    expect(queuedTails([], [user("x", 1)])).toEqual([]);
   });
 });

@@ -24,6 +24,7 @@ export type {
   ClaudeSdkDecideCommand,
   ClaudeSdkModeCommand,
   ClaudeSdkModel,
+  ClaudeSdkQueuedPrompt,
   ClaudeSdkModelCommand,
   ClaudeSdkPendingRequest,
   ClaudeSdkPromptCommand,

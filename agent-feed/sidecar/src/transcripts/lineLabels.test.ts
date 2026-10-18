@@ -25,6 +25,28 @@ test('attachment rows are labelled by subtype, not all "Attachment"', () => {
   expect(claudeAttachment({ type: 'queued_command' })?.label).toBe('Queued Command');
 });
 
+test('a prompt a person sent mid-turn reads as their message; the CLI\'s own notifications do not', () => {
+  // The CLI folds a message sent while a turn runs into that turn and writes only this attachment,
+  // never a `user` record, so as a "Queued Command" row the person's own words were not in the feed.
+  const event = (attachment: Record<string, unknown>) => claudeAdapter.processLine(JSON.stringify({
+    type: 'attachment',
+    timestamp: '2026-10-18T06:35:36.924Z',
+    attachment,
+  }))?.event;
+  const person = event({ type: 'queued_command', prompt: 'also show queued messages', commandMode: 'prompt', origin: { kind: 'human' } });
+  expect(person?.type).toBe('user');
+  expect(person?.humanTurn).toBe(true);
+  expect(person?.blocks[0]).toMatchObject({ kind: 'text', text: 'also show queued messages' });
+  const notification = event({
+    type: 'queued_command',
+    prompt: '<task-notification>done</task-notification>',
+    commandMode: 'task-notification',
+    origin: { kind: 'task-notification' },
+  });
+  expect(notification?.type).toBe('system');
+  expect(notification?.blocks[0]?.label).toBe('Queued Command');
+});
+
 test('an unmapped attachment subtype keeps the subtype rather than going generic', () => {
   // A name we have not seen is still more use than none, and it should read as
   // unfamiliar rather than as the same thing as everything else.

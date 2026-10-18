@@ -10,6 +10,7 @@ import type {
   AgentSessionDescriptor,
   AgentTerminalContext,
   AgentUiRequest,
+  ClaudeSdkQueuedPrompt,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
 import type {
@@ -189,6 +190,8 @@ function SessionViewContent({
   // a post-compaction gap while the model survives it.
   const [sessionModel, setSessionModel] = useState<string | null>(null);
   const [openQuestion, setOpenQuestion] = useState<OpenAskUserQuestion | null>(null);
+  /** An SDK session's prompts sent mid-turn, which the feed draws at its end until they land. */
+  const [queuedPrompts, setQueuedPrompts] = useState<readonly ClaudeSdkQueuedPrompt[]>([]);
   const [extensionUI, setExtensionUI] = useState<AgentUiRequest[]>([]);
   const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
   // Held in state, not a ref, because the feed has to re-render once the node exists.
@@ -379,6 +382,7 @@ function SessionViewContent({
           onUsage={setSessionUsage}
           onSessionModel={setSessionModel}
           onOpenQuestion={setOpenQuestion}
+          queuedPrompts={queuedPrompts}
           {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
         /> : <EmptyFeed />}
       </div>
@@ -424,6 +428,7 @@ function SessionViewContent({
         onRunSlash={panelCommands.run}
         surfaces={panelCommands.surfaces}
         onAbort={commands.abortRun}
+        onQueuedPrompts={setQueuedPrompts}
       />
       {isTerminalSource(source) ? <TerminalNotice source={source} state={terminal} /> : null}
       {terminal.kind === "loading" || terminal.kind === "ready" ? (

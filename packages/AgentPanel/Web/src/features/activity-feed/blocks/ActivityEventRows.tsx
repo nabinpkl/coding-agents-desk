@@ -369,6 +369,8 @@ export function SegmentEventRow({
       (niceCardKind === "tool"
         ? "border-border session-view-row-tool "
         : "border-border/60 session-view-row ") +
+      // Not taken in yet: the same card, its edge drawn dashed until the transcript holds it.
+      (ev.pending === "queued" ? "border-dashed " : "") +
       (isHighlighted ? "ring-2 ring-primary ring-inset " : "")
     : "border-x border-border session-view-row-tool px-[0.6em] transition-shadow duration-300 " +
       (isFirst ? "rounded-t-md border-t pt-[0.4em] " : "pt-[0.3em] ") +
@@ -439,7 +441,8 @@ export function LiveTailRow({
       isCollapsed={isCollapsed}
       onToggle={onToggle}
       isHighlighted={false}
-      isLive
+      // A queued prompt is not streaming: it says so with its own chip instead.
+      isLive={ev.pending !== "queued"}
     />
   );
 }

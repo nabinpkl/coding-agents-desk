@@ -44,6 +44,7 @@ import {
 } from "@/features/session-view/composer/sessionComposerEditor";
 import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { useSdkSession } from "@/features/cli-input/useSdkSession";
+import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
 import { useRunModeSwitch } from "@/features/cli-input/useRunModeSwitch";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
 
@@ -67,6 +68,7 @@ export function SessionComposer({
   onRunSlash,
   surfaces,
   onAbort,
+  onQueuedPrompts,
 }: {
   feed: SidecarDataSource;
   session: SessionSummary;
@@ -131,6 +133,11 @@ export function SessionComposer({
   /** What a slash command left open over this composer; see `usePanelCommands`. */
   surfaces: PanelCommandSurfaces;
   onAbort: () => Promise<void>;
+  /**
+   * The prompts an SDK session holds as queued, for the feed to draw at its end. Told rather than
+   * read by the feed because this band is what follows the session's runner.
+   */
+  onQueuedPrompts?: (queued: readonly ClaudeSdkQueuedPrompt[]) => void;
 }) {
   const { source, sessionId, capabilities } = session;
   const isClaude = source === "claude";
@@ -149,6 +156,10 @@ export function SessionComposer({
   // learns of its socket from a directory watch -- and costs an idle stream where none ever does.
   const sdkSession = useSdkSession(feed, tmuxComposerSession, isClaude);
   const sdkCandidate = isClaude && (cliSession.isSdkSession || sdkSession.state.connected);
+  const queuedPrompts = sdkSession.state.queued;
+  useEffect(() => {
+    onQueuedPrompts?.(queuedPrompts);
+  }, [onQueuedPrompts, queuedPrompts]);
   const runModeSwitch = useRunModeSwitch(feed, tmuxComposerSession, cliSession.refresh);
   const windowCandidate = (isClaude || isCodex) && !terminalCandidate && !sdkCandidate;
 
