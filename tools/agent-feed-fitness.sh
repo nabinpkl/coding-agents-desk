@@ -172,7 +172,10 @@ fi
 #    touched, and a lint finding is the same kind of fact about the tree as checks 5 to 7. oxlint is
 #    the panel's dev dependency, so the panel's dependencies are brought up to date first.
 node tools/build-system/ensure-js-dependencies.mjs agent-panel packages/AgentPanel/Web .build/js-dependencies
-if ! packages/AgentPanel/Web/node_modules/.bin/oxlint -c .oxlintrc.json \
+# oxlint looks for tsgolint, the type checker behind its type-aware rules, beside the directory it
+# runs in, and this runs from the repository root.
+if ! OXLINT_TSGOLINT_PATH="$ROOT/packages/AgentPanel/Web/node_modules/.bin/tsgolint" \
+    packages/AgentPanel/Web/node_modules/.bin/oxlint -c .oxlintrc.json \
     packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/wire; then
     fail "lint failed (rules and the reason for each are in .oxlintrc.json)"
 fi

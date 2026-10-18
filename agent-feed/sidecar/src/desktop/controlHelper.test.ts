@@ -43,7 +43,10 @@ function fakeProcess() {
       notify = null;
     },
     process: {
-      write: (line: string) => written.push(line),
+      write: (line: string) => {
+        written.push(line);
+        return Promise.resolve();
+      },
       frames: stream(),
       kill: () => {
         killed = true;
@@ -115,6 +118,19 @@ describe("control helper", () => {
     const helper = createControlHelper(() => fake.process, { probe: () => binary(1), timeoutMs: 10 });
 
     await expect(helper.request("desktop-audit")).rejects.toThrow("helper-timeout");
+    helper.stop();
+  });
+
+  test("fails the request and retires the helper when a write fails after it returned", async () => {
+    // A full pipe makes Bun's write answer later, so a dead helper shows up as a rejection rather
+    // than a throw at the call.
+    const fake = fakeProcess();
+    const gone = new Error("broken pipe");
+    const process: HelperProcess = { ...fake.process, write: () => Promise.reject(gone) };
+    const helper = createControlHelper(() => process, { probe: () => binary(1) });
+
+    await expect(helper.request("desktop-audit")).rejects.toBe(gone);
+    expect(fake.killed).toBe(true);
     helper.stop();
   });
 

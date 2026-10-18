@@ -25,8 +25,8 @@ const message = {
 } satisfies Message;
 
 let fake: ReturnType<typeof Bun.serve> | undefined;
-afterEach(() => {
-  fake?.stop(true);
+afterEach(async () => {
+  await fake?.stop(true);
   fake = undefined;
 });
 

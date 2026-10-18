@@ -455,7 +455,7 @@ void startCatalog()
   })
   .catch((error) => {
     console.error("agent feed catalog startup failed", error);
-    server.stop(true);
+    void server.stop(true); // Not awaited: the exit next closes the listener either way.
     process.exit(1);
   });
 
@@ -492,7 +492,7 @@ async function shutdown(signal: string): Promise<void> {
   } catch (error) {
     console.error("agent backend shutdown failed", error);
   }
-  server.stop(true);
+  void server.stop(true); // Not awaited: the exit next closes the listener either way.
   process.exit(0);
 }
 

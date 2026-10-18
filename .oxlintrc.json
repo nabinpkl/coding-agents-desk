@@ -5,6 +5,9 @@
   // Only rules that were already at zero, or were cleared in the change that gated them: a rule
   // that warns on a backlog teaches everyone to ignore the output.
   "plugins": ["eslint", "typescript", "react", "import"],
+  // The two promise rules below need the types, which tsgolint (the `oxlint-tsgolint` package)
+  // reads from each tree's tsconfig. Check 8 tells oxlint where that binary is.
+  "options": { "typeAware": true },
   "categories": {
     "correctness": "off",
     "suspicious": "off",
@@ -29,6 +32,26 @@
     "import/no-cycle": "error",
     // A rethrow without `cause` loses the error that explains it.
     "eslint/preserve-caught-error": "error",
+    // A promise nobody awaits or catches is a failure nobody hears about: the desktop helper's
+    // stdin writes went unawaited, so a helper dying under a full pipe went unreported. `act` is
+    // exempt because React 19 types it as a promise even when the callback is synchronous; an
+    // intentional fire-and-forget says so with `void`.
+    "typescript/no-floating-promises": [
+      "error",
+      {
+        "allowForKnownSafeCalls": [
+          { "from": "package", "name": "act", "package": "react" },
+          { "from": "package", "name": "act", "package": "@testing-library/react" }
+        ]
+      }
+    ],
+    // A promise handed to something that expects a plain callback. JSX handler props and object
+    // properties are left out: every async `onSubmit` and `onClick` here catches its own failure,
+    // and the rule cannot tell those from the ones that do not.
+    "typescript/no-misused-promises": [
+      "error",
+      { "checksVoidReturn": { "attributes": false, "properties": false } }
+    ],
     // No effects outside the approved hooks (ADR-0146). The panel had 310 on 2026-10-18, most of
     // them copied from the file next door: state derived a render late, a fetch with its own
     // cancel flag, a write to storage watching a value. Each of those has a better home -- the

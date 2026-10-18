@@ -28,8 +28,11 @@ export class ControlHelperError extends Error {
 }
 
 export interface HelperProcess {
-  /** Newline-delimited JSON in. */
-  write(line: string): void;
+  /**
+   * Newline-delimited JSON in. Settles once the line is in the pipe, which under backpressure is
+   * after the call returns, and rejects when the pipe is gone.
+   */
+  write(line: string): Promise<void>;
   /** `{kind, payload}` out, control and meta frames alike. */
   frames: AsyncGenerator<{ kind: number; payload: Uint8Array }>;
   kill(): void;
@@ -187,16 +190,14 @@ export function createControlHelper(
           reject(new ControlHelperError("helper-timeout"));
         }, timeoutMs);
         current.pending.set(rid, { resolve, reject, timer });
-        try {
-          current.process.write(`${JSON.stringify({ ...payload, rid, type })}\n`);
-        } catch (error) {
+        current.process.write(`${JSON.stringify({ ...payload, rid, type })}\n`).catch((error: unknown) => {
           current.pending.delete(rid);
           clearTimeout(timer);
-          // A write that throws means the pipe is gone, which the frame loop may not have noticed
-          // yet. Retire now so the next request does not queue behind a corpse.
+          // A failed write means the pipe is gone, which the frame loop may not have noticed yet.
+          // Retire now so the next request does not queue behind a corpse.
           retire(current, "helper-write-failed");
           reject(error instanceof Error ? error : new ControlHelperError("helper-write-failed"));
-        }
+        });
       });
     },
     capabilities() {
@@ -224,9 +225,12 @@ function spawnControlHelper(path: string, idleSeconds: number): HelperProcess {
   });
   const encoder = new TextEncoder();
   return {
-    write: (line) => {
-      child.stdin.write(encoder.encode(line));
-      child.stdin.flush();
+    // Bun's pipe answers a write and a flush with a number when the bytes went straight through and
+    // a promise when the pipe was full, so both are awaited: an unawaited one that rejects is a
+    // dead helper nobody hears about.
+    write: async (line) => {
+      await child.stdin.write(encoder.encode(line));
+      await child.stdin.flush();
     },
     frames: frames(child.stdout as ReadableStream<Uint8Array>),
     kill: () => {

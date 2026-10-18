@@ -128,7 +128,7 @@ test("a stream whose events are refused is handed back", async () => {
     await until(() => observer.deleted.length > 0);
     expect(observer.deleted).toEqual(["stream-1"]);
   } finally {
-    observer.stop();
+    await observer.stop();
   }
 });
 
@@ -144,6 +144,6 @@ test("a live stream is handed back when it is closed, and not before", async () 
     await until(() => observer.deleted.length > 0);
     expect(observer.deleted).toEqual(["stream-1"]);
   } finally {
-    observer.stop();
+    await observer.stop();
   }
 });

@@ -18,7 +18,7 @@ const roots: string[] = [];
 const servers: ReturnType<typeof Bun.serve>[] = [];
 
 afterEach(async () => {
-  for (const server of servers.splice(0)) server.stop(true);
+  await Promise.all(servers.splice(0).map((server) => server.stop(true)));
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 

@@ -185,7 +185,11 @@ export function createSummaryRunner(
       });
 
       try {
-        await withTimeout(session.prompt(prompt), config.summaryTimeoutMs, () => session.abort());
+        await withTimeout(session.prompt(prompt), config.summaryTimeoutMs, () => {
+          // The timeout already fails the request; an abort that fails too is only worth a line,
+          // since the run it was stopping may still be spending tokens.
+          session.abort().catch((error: unknown) => console.error("summarizer abort failed", error));
+        });
       } finally {
         unsubscribe();
         // A run that stopped mid-thought -- aborted, timed out, or simply ended without a
