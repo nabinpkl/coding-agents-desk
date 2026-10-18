@@ -166,7 +166,8 @@ constant and caches the first answer (the Shiki highlighter stayed `null` that w
 rule says so. A check during render for "did this change" compares the inputs themselves, never a
 `useMemo`'s identity: the compiler drops a memo whose result is neither returned nor drawn, and the
 canvas roster's prune looped on that. A hand-written `useCallback` or `useMemo` lists every setter and
-ref it uses, because the compiler skips the whole component otherwise.
+ref it uses, because the compiler skips the whole component otherwise, and so does a `finally`
+clause anywhere inside it: that goes through `runWithFinally`.
 
 ## Transient states take no space
 

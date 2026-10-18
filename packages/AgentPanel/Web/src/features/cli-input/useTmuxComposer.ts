@@ -42,6 +42,7 @@ import { useCommitToRef, useLatestRef } from "@/hooks/useLatestRef";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /**
  * The panel's composer, mirrored into the prompt box of the CLI this session is running in.
@@ -162,7 +163,7 @@ export function useTmuxComposer(
       return;
     }
     pushing.current = true;
-    try {
+    return runWithFinally(async () => {
       let sent: string;
       do {
         pushAgain.current = false;
@@ -181,10 +182,10 @@ export function useTmuxComposer(
         // Only when the draft actually moved. A flag set by a keystroke that produced the same
         // text -- an edit and an undo inside one request -- has nothing left to send.
       } while (pushAgain.current && draftRef.current !== sent);
-    } finally {
+    }, () => {
       pushing.current = false;
-    }
-  }, [feed]);
+    });
+  }, [feed, sessionRef, setState, setError]);
 
   const observePastes = attachments.observe;
   const receive = useCallback((next: TmuxComposerState) => {
@@ -290,24 +291,24 @@ export function useTmuxComposer(
     }
     setPending(true);
     setError(null);
-    try {
-      // Brought up to date first, and awaited: Return presses whatever the box holds, so sending
-      // it while a debounced push was still in flight would submit half a sentence.
-      const synced = await feed.syncTmuxComposer(sessionRef.current, text ?? draftRef.current);
-      setState(synced);
-      if (synced.reason !== null) return false;
-      const after = await feed.submitTmuxComposer(sessionRef.current);
-      setState(after);
-      if (after.reason !== null) return false;
-      edited.current = false;
-      setBoth("");
-      return true;
-    } catch (failure) {
-      setError(String((failure as Error).message ?? failure));
-      return false;
-    } finally {
-      setPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        // Brought up to date first, and awaited: Return presses whatever the box holds, so sending
+        // it while a debounced push was still in flight would submit half a sentence.
+        const synced = await feed.syncTmuxComposer(sessionRef.current, text ?? draftRef.current);
+        setState(synced);
+        if (synced.reason !== null) return false;
+        const after = await feed.submitTmuxComposer(sessionRef.current);
+        setState(after);
+        if (after.reason !== null) return false;
+        edited.current = false;
+        setBoth("");
+        return true;
+      } catch (failure) {
+        setError(String((failure as Error).message ?? failure));
+        return false;
+      }
+    }, () => setPending(false));
   }, [feed, setBoth, setError, sessionRef, setState]);
 
   /**
@@ -344,37 +345,37 @@ export function useTmuxComposer(
     }
     setPending(true);
     setError(null);
-    try {
-      // Size is the one thing worth judging before the upload, because encoding a file this side
-      // is what the upload costs. WHETHER it is an image is not judged here at all: the sidecar
-      // sniffs the bytes, and a second opinion from the browser's own `type` -- which is empty on
-      // some platforms for files that are perfectly good images -- could only disagree with it.
-      const sendable = files.filter((file) => file.size <= MAXIMUM_COMPOSER_IMAGE_BYTES);
-      if (sendable.length < files.length) {
-        setError(
-          `An image has to be under ${MAXIMUM_COMPOSER_IMAGE_BYTES / (1024 * 1024)} MB.`,
-        );
+    return runWithFinally(async () => {
+      try {
+        // Size is the one thing worth judging before the upload, because encoding a file this side
+        // is what the upload costs. WHETHER it is an image is not judged here at all: the sidecar
+        // sniffs the bytes, and a second opinion from the browser's own `type` -- which is empty on
+        // some platforms for files that are perfectly good images -- could only disagree with it.
+        const sendable = files.filter((file) => file.size <= MAXIMUM_COMPOSER_IMAGE_BYTES);
+        if (sendable.length < files.length) {
+          setError(
+            `An image has to be under ${MAXIMUM_COMPOSER_IMAGE_BYTES / (1024 * 1024)} MB.`,
+          );
+        }
+        if (sendable.length === 0) return;
+        if (edited.current) {
+          const synced = await feed.syncTmuxComposer(sessionRef.current, draftRef.current);
+          setState(synced);
+          if (synced.reason !== null) return;
+        }
+        for (const file of sendable) {
+          const after = await feed.dropTmuxComposerImage(sessionRef.current, file);
+          setState(after);
+          if (after.reason !== null) return;
+          // Only once the pane has it. A picture queued for an image that never landed would be
+          // shown beside the next one that did.
+          queue(file);
+        }
+        edited.current = false;
+      } catch (failure) {
+        setError(String((failure as Error).message ?? failure));
       }
-      if (sendable.length === 0) return;
-      if (edited.current) {
-        const synced = await feed.syncTmuxComposer(sessionRef.current, draftRef.current);
-        setState(synced);
-        if (synced.reason !== null) return;
-      }
-      for (const file of sendable) {
-        const after = await feed.dropTmuxComposerImage(sessionRef.current, file);
-        setState(after);
-        if (after.reason !== null) return;
-        // Only once the pane has it. A picture queued for an image that never landed would be
-        // shown beside the next one that did.
-        queue(file);
-      }
-      edited.current = false;
-    } catch (failure) {
-      setError(String((failure as Error).message ?? failure));
-    } finally {
-      setPending(false);
-    }
+    }, () => setPending(false));
   }, [feed, queue, setError, sessionRef, setState]);
 
   const onBlur = useCallback(() => {
@@ -420,15 +421,15 @@ export function useTmuxComposer(
   const choosePermissionMode = useCallback(async (mode: ClaudePermissionMode) => {
     setPending(true);
     setError(null);
-    try {
-      const outcome = await feed.setTmuxPermissionMode(sessionRef.current, mode);
-      if (outcome.mode !== null) setPermissionMode(outcome.mode);
-      if (!outcome.ok) setError(`Not switched: ${outcome.message}.`);
-    } catch (failure) {
-      setError(String((failure as Error).message ?? failure));
-    } finally {
-      setPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        const outcome = await feed.setTmuxPermissionMode(sessionRef.current, mode);
+        if (outcome.mode !== null) setPermissionMode(outcome.mode);
+        if (!outcome.ok) setError(`Not switched: ${outcome.message}.`);
+      } catch (failure) {
+        setError(String((failure as Error).message ?? failure));
+      }
+    }, () => setPending(false));
   }, [feed, setError, sessionRef, setPermissionMode]);
 
   const toggleModifier = useCallback((modifier: RailModifier) => {

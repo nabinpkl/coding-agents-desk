@@ -7,6 +7,7 @@ import {
   type WindowComposerStatus,
 } from "@/features/window-composer/WindowComposerClient";
 import { composerReasonText } from "@/features/session-view/SessionTerminalControls";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /**
  * The window-composer mechanism, extracted from the shared band so the band
@@ -85,13 +86,13 @@ export function useWindowComposer(
     async (operation: () => Promise<string>) => {
       setPending(true);
       setError(null);
-      try {
-        adopt(await operation());
-      } catch (failure) {
-        reportFailure(failure);
-      } finally {
-        setPending(false);
-      }
+      return runWithFinally(async () => {
+        try {
+          adopt(await operation());
+        } catch (failure) {
+          reportFailure(failure);
+        }
+      }, () => setPending(false));
     },
     [adopt, reportFailure],
   );

@@ -8,6 +8,7 @@ import { runtimesOf } from "@/features/messages/hubRuntime";
 import { SessionPicker } from "@/features/messages/SessionPicker";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /**
  * The other side of a thread, as a directory entry.
@@ -62,16 +63,18 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
     if (!to || !body.trim() || sending) return;
     setSending(true);
     setFailure(null);
-    try {
-      // What the owner writes to an agent is an instruction, so it goes as a request.
-      await messages.send({ to, body: body.trim(), kind: "request" });
-      setBody("");
-    } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error));
-    } finally {
+    return runWithFinally(async () => {
+      try {
+        // What the owner writes to an agent is an instruction, so it goes as a request.
+        await messages.send({ to, body: body.trim(), kind: "request" });
+        setBody("");
+      } catch (error) {
+        setFailure(error instanceof Error ? error.message : String(error));
+      }
+    }, () => {
       setSending(false);
       bodyRef.current?.focus();
-    }
+    });
   };
 
   if (state.kind === "loading" || state.kind === "idle") return <SidebarStatus>Loading messages…</SidebarStatus>;
@@ -162,14 +165,14 @@ function Thread({
     if (!reply.trim() || sending) return;
     setSending(true);
     setFailure(null);
-    try {
-      await messages.reply(last.id, reply.trim());
-      setReply("");
-    } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        await messages.reply(last.id, reply.trim());
+        setReply("");
+      } catch (error) {
+        setFailure(error instanceof Error ? error.message : String(error));
+      }
+    }, () => setSending(false));
   };
 
   return (

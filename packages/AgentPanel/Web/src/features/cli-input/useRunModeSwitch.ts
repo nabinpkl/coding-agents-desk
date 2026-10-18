@@ -12,6 +12,7 @@ import type { ClaudeRunMode } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress, SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /** When to read the registry again after a switch, in ms: bounded, and covering a slow start. */
 const REREADS = [1_500, 4_000, 8_000] as const;
@@ -43,18 +44,18 @@ export function useRunModeSwitch(
   const switchTo = useCallback(async (mode: ClaudeRunMode) => {
     setPending(true);
     setError(null);
-    try {
-      const outcome = await feed.switchClaudeRunMode({ source, sessionId }, mode);
-      if (!outcome.ok) {
-        setError(sentence(outcome.message));
-        return;
+    return runWithFinally(async () => {
+      try {
+        const outcome = await feed.switchClaudeRunMode({ source, sessionId }, mode);
+        if (!outcome.ok) {
+          setError(sentence(outcome.message));
+          return;
+        }
+        timers.current = REREADS.map((delay) => setTimeout(refresh, delay));
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : String(failure));
       }
-      timers.current = REREADS.map((delay) => setTimeout(refresh, delay));
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setPending(false);
-    }
+    }, () => setPending(false));
   }, [feed, refresh, sessionId, source, setError]);
 
   return { pending, error, switchTo };

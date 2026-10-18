@@ -8,6 +8,7 @@
 import { useCallback, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { AgentCommandReceipt, AgentSessionDescriptor, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 export function useSessionCommands(
   feed: SidecarDataSource,
@@ -24,15 +25,15 @@ export function useSessionCommands(
     if (commandPending || !text.trim()) return;
     setCommandPending(true);
     setCommandError(null);
-    try {
-      await feed.sendMessage(session, text.trim(), delivery, files);
-    } catch (error) {
-      setCommandError(String((error as Error).message ?? error));
-      // Rethrow so the composer that owns the draft only clears it on success.
-      throw error;
-    } finally {
-      setCommandPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        await feed.sendMessage(session, text.trim(), delivery, files);
+      } catch (error) {
+        setCommandError(String((error as Error).message ?? error));
+        // Rethrow so the composer that owns the draft only clears it on success.
+        throw error;
+      }
+    }, () => setCommandPending(false));
   }, [commandPending, feed, session]);
 
   /**
@@ -47,14 +48,14 @@ export function useSessionCommands(
     if (commandPending) throw new Error("another command is still running");
     setCommandPending(true);
     setCommandError(null);
-    try {
-      return await feed.runOpencodeCommand(session.sessionId, name, args);
-    } catch (error) {
-      setCommandError(String((error as Error).message ?? error));
-      throw error;
-    } finally {
-      setCommandPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        return await feed.runOpencodeCommand(session.sessionId, name, args);
+      } catch (error) {
+        setCommandError(String((error as Error).message ?? error));
+        throw error;
+      }
+    }, () => setCommandPending(false));
   }, [commandPending, feed, session]);
 
   /**
@@ -69,14 +70,14 @@ export function useSessionCommands(
     if (commandPending) throw new Error("another command is still running");
     setCommandPending(true);
     setCommandError(null);
-    try {
-      return await feed.createSession(projectPath, "opencode");
-    } catch (error) {
-      setCommandError(String((error as Error).message ?? error));
-      throw error;
-    } finally {
-      setCommandPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        return await feed.createSession(projectPath, "opencode");
+      } catch (error) {
+        setCommandError(String((error as Error).message ?? error));
+        throw error;
+      }
+    }, () => setCommandPending(false));
   }, [commandPending, feed, session]);
 
   /** Puts a reason in the caption from outside this hook, for the panel-run commands' own reads. */
@@ -88,13 +89,13 @@ export function useSessionCommands(
     if (commandPending) return;
     setCommandPending(true);
     setCommandError(null);
-    try {
-      await feed.abortSession(session);
-    } catch (error) {
-      setCommandError(String((error as Error).message ?? error));
-    } finally {
-      setCommandPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        await feed.abortSession(session);
+      } catch (error) {
+        setCommandError(String((error as Error).message ?? error));
+      }
+    }, () => setCommandPending(false));
   }, [commandPending, feed, session]);
 
   /**
@@ -121,14 +122,14 @@ export function useSessionCommands(
     if (commandPending) return;
     setCommandPending(true);
     setCommandError(null);
-    try {
-      await feed.switchOpencodeModel(session.sessionId, providerID, modelID);
-    } catch (error) {
-      setCommandError(String((error as Error).message ?? error));
-      throw error;
-    } finally {
-      setCommandPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        await feed.switchOpencodeModel(session.sessionId, providerID, modelID);
+      } catch (error) {
+        setCommandError(String((error as Error).message ?? error));
+        throw error;
+      }
+    }, () => setCommandPending(false));
   }, [commandPending, feed, session]);
 
   return {

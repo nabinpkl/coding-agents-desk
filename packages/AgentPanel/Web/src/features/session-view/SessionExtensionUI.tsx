@@ -5,6 +5,7 @@
 import { useState } from "react";
 import type { AgentUiRequest } from "@agentdesk/agent-feed-wire";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 export function ExtensionUISurface({
   requests,
@@ -46,13 +47,13 @@ export function ExtensionUIPrompt({
     if (pending) return;
     setPending(true);
     setError(null);
-    try {
-      await onRespond(request, response);
-    } catch (caught) {
-      setError(String((caught as Error).message ?? caught));
-    } finally {
-      setPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        await onRespond(request, response);
+      } catch (caught) {
+        setError(String((caught as Error).message ?? caught));
+      }
+    }, () => setPending(false));
   };
   return (
     <section role="dialog" aria-label={request.title ?? "Pi extension request"} className={`shrink-0 border-t border-primary/30 bg-primary/5 ${COLUMN_GUTTER_CLASS} py-2`}>

@@ -20,6 +20,7 @@ import type { TmuxQuestionSender } from "@/features/session-view/composer/questi
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 type SdkFeed = Pick<
   SidecarDataSource,
@@ -60,16 +61,16 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
   const run = useCallback(async (command: () => Promise<ClaudeSdkCommandOutcome>): Promise<boolean> => {
     setPending(true);
     setError(null);
-    try {
-      const outcome = await command();
-      if (!outcome.ok) setError(sdkRefusalText(outcome));
-      return outcome.ok;
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-      return false;
-    } finally {
-      setPending(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        const outcome = await command();
+        if (!outcome.ok) setError(sdkRefusalText(outcome));
+        return outcome.ok;
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : String(failure));
+        return false;
+      }
+    }, () => setPending(false));
   }, [setError]);
 
   const address = useMemo(() => ({ source, sessionId }), [source, sessionId]);

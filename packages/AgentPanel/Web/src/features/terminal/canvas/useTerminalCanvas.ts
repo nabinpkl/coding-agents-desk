@@ -46,6 +46,7 @@ import { terminalParentHues, terminalParentRanks } from "@/features/terminal/can
 import { DEFAULT_TILE_GRID } from "@/features/terminal/terminalTileSize";
 import { usePersistentState } from "@/hooks/state/usePersistentState";
 import { useSubscription } from "@/hooks/useSubscription";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /** One machine's tmux listing and workspace roots, as the last load left them. */
 interface MachineSnapshot {
@@ -268,7 +269,7 @@ export function useTerminalCanvas(
       next.delete(parent.key);
       return next;
     });
-    void (async () => {
+    void runWithFinally(async () => {
       try {
         const target = feedFor(parent.machineId);
         // Created and immediately released: the listing reports the session from here on, and a
@@ -293,14 +294,14 @@ export function useTerminalCanvas(
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
         setAddErrors((previous) => new Map(previous).set(parent.key, message));
-      } finally {
-        setAddingKeys((previous) => {
-          const next = new Set(previous);
-          next.delete(parent.key);
-          return next;
-        });
       }
-    })();
+    }, () => {
+      setAddingKeys((previous) => {
+        const next = new Set(previous);
+        next.delete(parent.key);
+        return next;
+      });
+    });
   }, [all, feedFor, grouping, refresh, reload, setOpenChildren]);
 
   /**

@@ -15,6 +15,7 @@ import type { EventsPageAt } from "@agentdesk/agent-feed-wire";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 export interface ActivityBlock {
   kind:
@@ -355,11 +356,11 @@ onEvent: (event) => {
     const before = windowStartRef.current;
     if (before <= 0) return;
     loadingOlderRef.current = true;
-    try {
+    return runWithFinally(async () => {
       await readInto({ before });
-    } finally {
+    }, () => {
       loadingOlderRef.current = false;
-    }
+    });
   }, [readInto, windowStartRef]);
 
   /**

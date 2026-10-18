@@ -13,7 +13,7 @@
 // somebody typed are still in the field they wrote them in, and the outcome's own `keptText` is
 // written back over it -- which is a no-op when they agree and a recovery when they do not.
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type {
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
@@ -37,6 +37,7 @@ import {
   type QuestionDraft,
 } from "@/features/session-view/composer/question/questionAnswers";
 import { useStateFor } from "@/hooks/state/useStateFor";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /** The one call this needs, named so a test stands in for it without a whole data source. */
 export interface TmuxQuestionSender {
@@ -181,30 +182,31 @@ export function useTmuxQuestion(
     );
   }, [count, questions, setError, setTouched, setDrafts]);
 
-  const aligned = alignDrafts(drafts, count);
-  const answers = toAnswers(questions, aligned);
+  // Held across renders, so `submit` keeps its identity and the compiler can trust what it sends.
+  const aligned = useMemo(() => alignDrafts(drafts, count), [drafts, count]);
+  const answers = useMemo(() => toAnswers(questions, aligned), [questions, aligned]);
   const submit = useCallback(async () => {
     if (!answers) return;
     setPending(true);
     setError(null);
-    try {
-      const outcome = await feed.answerTmuxQuestion(session, answers);
-      if (outcome.answered) return;
-      setError(reasonText(outcome.reason, outcome.sent));
-      // Nothing typed is dropped by a refusal. The draft already holds it; this writes the
-      // sidecar's own copy back over it, so the two cannot quietly disagree about what was sent.
-      setDrafts((current) =>
-        current.map((draft, at) => {
-          const kept = outcome.keptText.find((entry) => entry.question === questions[at]?.question);
-          return kept ? { ...draft, other: kept.text } : draft;
-        })
-      );
-    } catch (failure) {
-      setError(String((failure as Error).message ?? failure));
-    } finally {
-      setPending(false);
-    }
-  }, [answers, feed, questions, reasonText, session]);
+    return runWithFinally(async () => {
+      try {
+        const outcome = await feed.answerTmuxQuestion(session, answers);
+        if (outcome.answered) return;
+        setError(reasonText(outcome.reason, outcome.sent));
+        // Nothing typed is dropped by a refusal. The draft already holds it; this writes the
+        // sidecar's own copy back over it, so the two cannot quietly disagree about what was sent.
+        setDrafts((current) =>
+          current.map((draft, at) => {
+            const kept = outcome.keptText.find((entry) => entry.question === questions[at]?.question);
+            return kept ? { ...draft, other: kept.text } : draft;
+          })
+        );
+      } catch (failure) {
+        setError(String((failure as Error).message ?? failure));
+      }
+    }, () => setPending(false));
+  }, [answers, feed, questions, reasonText, session, setError, setDrafts]);
 
   return {
     questions,

@@ -22,6 +22,7 @@ import { useLatestRef } from "@/hooks/useLatestRef";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /**
  * The AskUserQuestion mirror's mechanism, mirroring the composer hook's shape.
@@ -95,13 +96,13 @@ export function useWindowQuestion(
     async (operation: () => Promise<QuestionPanelStatus>) => {
       setPending(true);
       setError(null);
-      try {
-        adoptFromResult(await operation());
-      } catch (failure) {
-        reportFailure(failure);
-      } finally {
-        setPending(false);
-      }
+      return runWithFinally(async () => {
+        try {
+          adoptFromResult(await operation());
+        } catch (failure) {
+          reportFailure(failure);
+        }
+      }, () => setPending(false));
     },
     [adoptFromResult, reportFailure, setError],
   );

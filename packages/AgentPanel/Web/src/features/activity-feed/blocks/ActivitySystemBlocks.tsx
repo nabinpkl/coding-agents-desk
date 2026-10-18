@@ -7,6 +7,7 @@ import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSou
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 import type { ActivityBlock } from "@/features/activity-feed/useSessionEventsStream";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /**
  * A collapsed transcript drawer, sized as a chip.
@@ -130,13 +131,13 @@ export function RawJsonBlock({
     if (raw !== null || loading) return;
     setLoading(true);
     setError(null);
-    try {
-      setRaw(await dataSource.fetchRawEvent(session, eventIndex));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "raw event fetch failed");
-    } finally {
-      setLoading(false);
-    }
+    return runWithFinally(async () => {
+      try {
+        setRaw(await dataSource.fetchRawEvent(session, eventIndex));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "raw event fetch failed");
+      }
+    }, () => setLoading(false));
   }, [dataSource, eventIndex, loading, raw, session]);
 
   const pretty = useMemo(() => (raw !== null ? formatRawJson(raw) : null), [raw]);

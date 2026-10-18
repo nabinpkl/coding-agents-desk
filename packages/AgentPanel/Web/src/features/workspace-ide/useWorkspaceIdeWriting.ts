@@ -23,6 +23,7 @@ import type { OpenFile } from "@/features/workspace-ide/useWorkspaceIde";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
 import { WorkspaceRequestError } from "@/features/workspace-ide/workspaceIdeClient";
 import { removeDraft, storeDraft } from "@/features/workspace-ide/workspaceIdeDrafts";
+import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /**
  * How long unsaved text rests before it is also kept in this tab's storage.
@@ -158,64 +159,64 @@ export function useWorkspaceIdeWriting({
       const held = current[path];
       return held ? { ...current, [path]: { ...held, saveState: "saving" } } : current;
     });
-    try {
-      const outcome = await client.writeFile(workspaceId, path, revision, text);
-      if (generation !== generationRef.current) return;
-      // Decided from the ref rather than inside the updater, which React may run twice.
-      const moved = (openFilesRef.current[path]?.text ?? text) !== text;
-      setOpenFiles((current) => {
-        const held = current[path];
-        if (!held) return current;
-        if (outcome.status === "conflict") {
-          return { ...current, [path]: { ...held, saveState: "conflict" } };
-        }
-        return {
-          ...current,
-          [path]: {
-            ...held,
-            revision: outcome.written.revision,
-            saveState: moved ? "dirty" : "clean",
-          },
-        };
-      });
-      // A conflict is one of the two states autosave will never rescue, so the text is kept
-      // against the revision it was typed from rather than the one that beat it.
-      if (outcome.status === "conflict") {
-        keepDraft(path);
-        return;
-      }
-      // Keystrokes landed while the write was in flight, so the file is dirty again against the
-      // revision this write just produced. Without this it would sit dirty and unscheduled until
-      // the reader typed once more.
-      if (moved) {
-        keepDraft(path);
-        scheduleSave(path);
-        return;
-      }
-      // On disk and identical, so there is nothing left for a draft to preserve.
-      forgetDraft(path);
-      if (pendingCloseRef.current.delete(path)) {
+    return runWithFinally(async () => {
+      try {
+        const outcome = await client.writeFile(workspaceId, path, revision, text);
+        if (generation !== generationRef.current) return;
+        // Decided from the ref rather than inside the updater, which React may run twice.
+        const moved = (openFilesRef.current[path]?.text ?? text) !== text;
         setOpenFiles((current) => {
-          const next = { ...current };
-          delete next[path];
-          return next;
+          const held = current[path];
+          if (!held) return current;
+          if (outcome.status === "conflict") {
+            return { ...current, [path]: { ...held, saveState: "conflict" } };
+          }
+          return {
+            ...current,
+            [path]: {
+              ...held,
+              revision: outcome.written.revision,
+              saveState: moved ? "dirty" : "clean",
+            },
+          };
         });
-        void applyOperation({ type: "close", path });
+        // A conflict is one of the two states autosave will never rescue, so the text is kept
+        // against the revision it was typed from rather than the one that beat it.
+        if (outcome.status === "conflict") {
+          keepDraft(path);
+          return;
+        }
+        // Keystrokes landed while the write was in flight, so the file is dirty again against the
+        // revision this write just produced. Without this it would sit dirty and unscheduled until
+        // the reader typed once more.
+        if (moved) {
+          keepDraft(path);
+          scheduleSave(path);
+          return;
+        }
+        // On disk and identical, so there is nothing left for a draft to preserve.
+        forgetDraft(path);
+        if (pendingCloseRef.current.delete(path)) {
+          setOpenFiles((current) => {
+            const next = { ...current };
+            delete next[path];
+            return next;
+          });
+          void applyOperation({ type: "close", path });
+        }
+      } catch (cause) {
+        if (generation !== generationRef.current) return;
+        setOpenFiles((current) => {
+          const held = current[path];
+          return held ? { ...current, [path]: { ...held, saveState: "dirty" } } : current;
+        });
+        pendingCloseRef.current.delete(path);
+        // The other state autosave does not come back to: a failed write waits for the next
+        // keystroke, so without this the text would have nothing behind it until then.
+        keepDraft(path);
+        setError(describe(cause, "The file could not be saved."));
       }
-    } catch (cause) {
-      if (generation !== generationRef.current) return;
-      setOpenFiles((current) => {
-        const held = current[path];
-        return held ? { ...current, [path]: { ...held, saveState: "dirty" } } : current;
-      });
-      pendingCloseRef.current.delete(path);
-      // The other state autosave does not come back to: a failed write waits for the next
-      // keystroke, so without this the text would have nothing behind it until then.
-      keepDraft(path);
-      setError(describe(cause, "The file could not be saved."));
-    } finally {
-      writingRef.current.delete(path);
-    }
+    }, () => writingRef.current.delete(path));
   }, [applyOperation, client, forgetDraft, keepDraft, openFilesRef, scheduleSave, setError, setOpenFiles, generationRef, writingRef, pendingCloseRef, workspaceId]);
 
   useCommitToRef(writeNowRef, (path: string, revision: string, text: string) => void writeNow(path, revision, text));
