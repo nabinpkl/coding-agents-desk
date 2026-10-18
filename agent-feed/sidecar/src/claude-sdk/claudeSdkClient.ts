@@ -396,6 +396,7 @@ export class ClaudeSdkClient {
       this.send(connection, { type: "call", method: "getSettings", args: [] }),
     ]);
     if (connection.session !== session) return;
+    if (models.ok || settings.ok) session.answered();
     if (models.ok) session.setModels(sdkModels(models.value));
     else this.log(`${connection.sessionId}: could not list the models: ${models.message}`);
     if (settings.ok) session.setApplied(settings.value);

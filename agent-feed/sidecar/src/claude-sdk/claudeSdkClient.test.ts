@@ -190,7 +190,8 @@ describe("the effort a session runs at", () => {
     const client = new ClaudeSdkClient(work, quiet);
     const followed = await stateWhere(client, session.sessionId, (state) => state.effort !== null);
     // What `getSettings().applied` said, with no turn run: the fake answers as the CLI did when measured.
-    expect(followed.state).toMatchObject({ effort: "high", model: "claude-opus-5-5" });
+    // Idle too: the CLI answering is what says it is up, where its `init` waits for a first turn.
+    expect(followed.state).toMatchObject({ effort: "high", model: "claude-opus-5-5", status: "idle" });
     expect(await client.command(session.sessionId, { type: "set-effort", effort: "max" })).toEqual({ ok: true });
     for (let tries = 0; (await client.state(session.sessionId)).effort !== "max" && tries < 50; tries += 1) await Bun.sleep(10);
     expect((await client.state(session.sessionId)).effort).toBe("max");

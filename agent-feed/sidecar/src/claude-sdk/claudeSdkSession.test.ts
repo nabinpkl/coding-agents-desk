@@ -37,6 +37,19 @@ describe("a session's state", () => {
     expect(session.state().status).toBe("exited");
   });
 
+  test("is idle once the CLI answers a call, without waiting for the init of a first turn", () => {
+    const session = new SdkSession(SESSION, true);
+    session.answered();
+    expect(session.state().status).toBe("idle");
+    // A turn already under way, or a process that has gone, is not undone by a late answer.
+    session.fold({ kind: "input" });
+    session.answered();
+    expect(session.state().status).toBe("running");
+    session.fold({ kind: "ended" });
+    session.answered();
+    expect(session.state().status).toBe("exited");
+  });
+
   test("is running from an input or the first streamed byte to the result, and waiting while a call is held", () => {
     const session = new SdkSession(SESSION, true);
     session.fold(message({ type: "system", subtype: "init", permissionMode: "auto" }));

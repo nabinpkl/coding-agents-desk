@@ -85,11 +85,10 @@ const NOT_IDLE: Record<string, string> = {
  * Why a runner that answers says its session is not idle, or null when it has no reason to.
  *
  * Only what the runner knows and the registry row may not yet say: a turn it has just been sent, a
- * question waiting on the reader, a background task. `starting` is no reason. A runner stays
- * `starting` until its CLI sends `init`, and the CLI sends that only with the first message, so a
- * runner nothing has been sent since it launched would otherwise read as busy until someone typed
- * into it -- which made every switch back out of a fresh runner refuse (2026-10-18). Whether a turn
- * is running is the registry row's to say, as it is for a terminal.
+ * question waiting on the reader, a background task. `starting` is no reason: it once lasted until
+ * the CLI's `init`, which comes only with the first message, and every switch back out of a fresh
+ * runner was refused (2026-10-18). It ends sooner now (`SdkSession.answered`), but whether a turn is
+ * running stays the registry row's to say, as it is for a terminal.
  */
 function runnerNotIdle(state: ClaudeSdkSessionState): string | null {
   if (state.status === "running" || state.status === "requires-action") return "a turn is running";

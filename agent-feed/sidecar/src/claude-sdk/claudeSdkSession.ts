@@ -271,6 +271,15 @@ export class SdkSession {
   }
 
   /**
+   * The CLI answered a call, so it is up: a runner still `starting` is idle from here. Its `init`
+   * comes only with the first message, so without this a runner nothing has been sent would read
+   * `starting` for as long as it ran.
+   */
+  answered(): void {
+    if (this.status === "starting") this.status = "idle";
+  }
+
+  /**
    * One record into the state, and the stream frame it carries for the live mirror, if any.
    *
    * The status is worked out here rather than read only from the CLI's `session_state_changed`,
