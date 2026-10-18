@@ -149,6 +149,40 @@ Still in `App`: `usePiSessionCreation`, for the dormant Pi provider. It backs th
 New Pi session button and the harness's `createPiSession`, which several thread tests use to open a
 live session, so it goes when Pi leaves the panel rather than moving.
 
+## Transient states take no space
+
+Settled 2026-10-18, on the owner's word, after the canvas jumped on every sidecar restart.
+
+**A state that comes and goes while the content it is about stays on screen is drawn OVER that
+content, never in the flow beside it.** Reconnecting, loading more, saving, retrying, a sync in
+flight: each one lasts seconds and appears again on every restart, so a box in the flow pushes
+everything below it down when it appears and pulls it back up when it goes, twice per occurrence.
+The canvas did exactly that: "Reconnecting to Mac" was a band above the strip, and every card on
+the canvas moved down and back up on each sidecar restart. On a surface that is read while it
+streams, a jump moves the line the reader is on.
+
+Three shapes, in order of preference:
+
+- **An overlay in a positioned box**: `absolute`, `pointer-events-none`, a `z-` above the content,
+  and placed OUTSIDE the scroller so it does not scroll away. `ReconnectingNotice` (a card's
+  transcript), `CanvasReconnecting` (the canvas, in a `relative` wrapper around its scroller) and
+  `CompactingNotice` are this shape.
+- **A sticky box of no height** where there is no positioned box to float in: `sticky top-0 h-0
+  overflow-visible`, with the chip hanging out of it over the first rows. `SidebarReconnecting` is
+  this shape.
+- **Space reserved for it at all times**, when the status has a permanent slot of its own (a
+  footer line, a fixed-size button whose label turns into a spinner): the slot is drawn whether or
+  not anything is in it, and the state changes what is in it, never its size.
+
+What this does NOT cover: a placeholder that REPLACES a surface with nothing else on it
+(`CanvasPlaceholder`, `SidebarStatus` for "Loading sessions…"), because there is nothing for it to
+move; and a lasting condition the reader has to act on (a machine that is not answering, an error
+no card can carry), which can take a band, because it is not coming and going. The test is whether
+the thing appears and disappears while the content under it stays: if it does, it takes no space.
+
+The one chip for "reconnecting" is `ReconnectingChip`; use it rather than a new look, so a reader
+who has seen it once knows it everywhere.
+
 ## What an edit costs the open panel
 
 Settled 2026-10-15. Most edits reach every open panel without reloading the page, and the ones that

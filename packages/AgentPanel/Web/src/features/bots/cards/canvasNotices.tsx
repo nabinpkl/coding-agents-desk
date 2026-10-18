@@ -1,9 +1,11 @@
-// What the canvas says instead of drawing cards, and what it says above the ones it is drawing.
+// What the canvas says instead of drawing cards, and what it says above and over the ones it is
+// drawing.
 //
 // Split out of `BotCanvas.tsx` because it is a different concern from the strip: the placeholder
 // REPLACES the canvas when there is nothing to lay out, the bands sit ABOVE it and are about what
-// the canvas is not showing, and neither has anything to do with how cards are sized, ordered or
-// carried. What was left behind is the strip itself.
+// the canvas is not showing, the reconnecting chips float OVER it for the second or two a stream is
+// down, and none of them has anything to do with how cards are sized, ordered or carried. What was
+// left behind is the strip itself.
 //
 // It sits under `cards/` rather than beside `BotCanvas.tsx`, and that half is the twelve-file
 // ceiling rather than the concept: `features/bots/` has one slot left and the canvas's zoom hook
@@ -12,6 +14,7 @@
 // directory that is least about a card.
 
 import { Bot, LoaderCircle, Plus } from "lucide-react";
+import { ReconnectingChip } from "@/features/activity-feed/ReconnectingNotice";
 import type { MachineError } from "@/features/bots/useBots";
 
 export function CanvasNotice({ children }: { children: React.ReactNode }) {
@@ -86,6 +89,30 @@ export function CanvasPlaceholder({
   );
 }
 
+/**
+ * The machines whose Bot stream dropped while their last snapshot is still drawn, over the cards.
+ *
+ * An overlay rather than a band: a stream drops on every sidecar restart and comes back a second or
+ * two later, and a band in the flow pushed every card down and then pulled it back up each time.
+ * The caller places it over the canvas's scroller, not inside it, so it stays put while the strip
+ * scrolls under it.
+ */
+export function CanvasReconnecting({ machineErrors }: { machineErrors: readonly MachineError[] }) {
+  const held = machineErrors.filter((each) => each.held);
+  if (held.length === 0) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none absolute inset-x-0 top-3 z-30 flex flex-col items-center gap-2"
+    >
+      {held.map(({ label }) => (
+        <ReconnectingChip key={label} machine={label} />
+      ))}
+    </div>
+  );
+}
+
 /** One band, so the three below cannot drift apart in the one thing they share, which is shape. */
 function Band({ alert, children }: { alert?: boolean; children: React.ReactNode }) {
   return (
@@ -120,8 +147,9 @@ export function CanvasNotices({
    *
    * Said rather than swallowed: a declared peer that is unreachable looks exactly like a peer with
    * no Bots on it, so an empty strip where a machine's cards used to be is the one failure on this
-   * surface that reports itself as success. One whose last snapshot is still drawn is said to be
-   * reconnecting instead, because its cards are on the canvas and saying otherwise is untrue.
+   * surface that reports itself as success. One whose last snapshot is still drawn is not banded
+   * here: its cards are on the canvas, so it is reconnecting, and `CanvasReconnecting` says that
+   * over them.
    */
   machineErrors: readonly MachineError[];
   /** Bots on the canvas at all, hidden machines included. */
@@ -134,9 +162,7 @@ export function CanvasNotices({
   return (
     <>
       {machineErrors.map(({ label, reason, held }) =>
-        held ? (
-          <Band key={label}>Reconnecting to {label}. Its Bots are shown as they last were.</Band>
-        ) : (
+        held ? null : (
           <Band key={label}>
             {label} is not answering, so its Bots are not on the canvas: {reason}
           </Band>

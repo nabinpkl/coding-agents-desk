@@ -10,7 +10,7 @@ import {
 import { botsOnShownMachines } from "@/features/bots/botMachines";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import { BotCanvasCard } from "@/features/bots/cards/BotCanvasCard";
-import { CanvasNotices } from "@/features/bots/cards/canvasNotices";
+import { CanvasNotices, CanvasReconnecting } from "@/features/bots/cards/canvasNotices";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedCanvasScroll";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
@@ -249,41 +249,46 @@ export function BotCanvasList({
     </ul>
   );
   return (
-    <div
-      ref={canvas}
-      onScroll={rememberScroll}
-      style={zoom.scrollerStyle}
-      // The margin is the SCROLLER's rather than padding on the strip inside it, so the gutter
-      // holds while the canvas is scrolled: cards enter and leave at the inset edge instead of
-      // running to the window's, and the strip reads as a region with room around it rather than
-      // as content pressed against the panel. It is horizontal only -- the vertical run is what
-      // the cards are measured in, and the bar this surface no longer draws already gave it back.
-      //
-      // `flex-1` rather than `h-full` because this scroller is no longer the column's only child:
-      // the open Father home stands above it, and a full height here would push the strip past the
-      // column's end instead of sharing it.
-      className="mx-4 min-h-0 flex-1 overflow-auto overscroll-contain"
-    >
-      <CanvasNotices
-        machineErrors={machineErrors}
-        onCanvas={bots.length}
-        drawn={standing.length}
-        orphanedError={orphanedError}
-      />
-      {/* The SIZER. A transform does not change `scrollWidth`, so without a box sized to what is
-          actually drawn the scroller keeps a range several times wider than its contents and most
-          of it is empty. With one, panning is ordinary scrolling, which is what keeps the momentum
-          on a phone and lets the remembered offset go on meaning something.
+    // The positioned box the reconnecting chips float in, so they sit over the strip and stay put
+    // while it scrolls under them. In the flow they moved every card on each sidecar restart.
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <CanvasReconnecting machineErrors={machineErrors} />
+      <div
+        ref={canvas}
+        onScroll={rememberScroll}
+        style={zoom.scrollerStyle}
+        // The margin is the SCROLLER's rather than padding on the strip inside it, so the gutter
+        // holds while the canvas is scrolled: cards enter and leave at the inset edge instead of
+        // running to the window's, and the strip reads as a region with room around it rather than
+        // as content pressed against the panel. It is horizontal only -- the vertical run is what
+        // the cards are measured in, and the bar this surface no longer draws already gave it back.
+        //
+        // `flex-1` rather than `h-full` because this scroller is no longer the column's only child:
+        // the open Father home stands above it, and a full height here would push the strip past the
+        // column's end instead of sharing it.
+        className="mx-4 min-h-0 flex-1 overflow-auto overscroll-contain"
+      >
+        <CanvasNotices
+          machineErrors={machineErrors}
+          onCanvas={bots.length}
+          drawn={standing.length}
+          orphanedError={orphanedError}
+        />
+        {/* The SIZER. A transform does not change `scrollWidth`, so without a box sized to what is
+            actually drawn the scroller keeps a range several times wider than its contents and most
+            of it is empty. With one, panning is ordinary scrolling, which is what keeps the momentum
+            on a phone and lets the remembered offset go on meaning something.
 
-          Always rendered, and `display: contents` while the mode is off -- so it generates no box
-          and the strip is laid out exactly as though it were still the scroller's own child.
-          Rendering it conditionally reads tidier and was a real bug: it moves the strip in the
-          tree, so React unmounts it and mounts a new one. That detached the element the
-          ResizeObserver was watching, which then reported zero and undid the measurement; and it
-          would remount every open session card inside the strip, standing up every stream on the
-          canvas again on each toggle. Same trick, and the same reason, as `BotSessionCard`'s
-          tasks host. */}
-      <div style={zoom.sizerStyle}>{strip}</div>
+            Always rendered, and `display: contents` while the mode is off -- so it generates no box
+            and the strip is laid out exactly as though it were still the scroller's own child.
+            Rendering it conditionally reads tidier and was a real bug: it moves the strip in the
+            tree, so React unmounts it and mounts a new one. That detached the element the
+            ResizeObserver was watching, which then reported zero and undid the measurement; and it
+            would remount every open session card inside the strip, standing up every stream on the
+            canvas again on each toggle. Same trick, and the same reason, as `BotSessionCard`'s
+            tasks host. */}
+        <div style={zoom.sizerStyle}>{strip}</div>
+      </div>
     </div>
   );
 }

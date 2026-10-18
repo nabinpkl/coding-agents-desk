@@ -42,11 +42,19 @@ export function SidebarError({
   );
 }
 
-/** A list that is still on screen while the stream behind it reconnects. Above the list, not instead of it. */
+/**
+ * A list that is still on screen while the stream behind it reconnects, said over the list.
+ *
+ * A box of no height that sticks to the top of whatever scrolls the list, with the chip hanging out
+ * of it over the first rows. In the flow it pushed the whole list down for the second or two a
+ * sidecar restart takes and pulled it back up after, which is the jump this exists to avoid.
+ */
 export function SidebarReconnecting() {
   return (
-    <div role="status" aria-live="polite" className="flex justify-center px-3 py-2.5">
-      <ReconnectingChip />
+    <div role="status" aria-live="polite" className="pointer-events-none sticky top-0 z-20 h-0 overflow-visible">
+      <div className="flex justify-center px-3 pt-2.5">
+        <ReconnectingChip />
+      </div>
     </div>
   );
 }

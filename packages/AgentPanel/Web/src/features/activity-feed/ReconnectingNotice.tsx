@@ -2,18 +2,22 @@ import { LoaderCircle } from "lucide-react";
 
 /**
  * The one "reconnecting" chip, for every surface that keeps showing what it had while its stream
- * comes back: a session card's transcript and the sidebar's Sessions list. One look for one fact, so
- * a reader who has seen it once knows it everywhere. Raised and coloured on purpose: it appears for
- * a second or two during a sidecar restart, and a muted chip that size went unnoticed.
+ * comes back: a session card's transcript, the canvas, and the sidebar's Sessions list. One look for
+ * one fact, so a reader who has seen it once knows it everywhere. Raised and coloured on purpose: it
+ * appears for a second or two during a sidecar restart, and a muted chip that size went unnoticed.
+ * Always drawn OVER what it is about, never in the flow beside it, so its coming and going moves
+ * nothing (`packages/AgentPanel/Web/AGENTS.md`, "Transient states take no space").
+ *
+ * `machine` names which machine's stream it is, where the surface draws more than one.
  */
-export function ReconnectingChip() {
+export function ReconnectingChip({ machine }: { machine?: string } = {}) {
   return (
     <span
       className="flex items-center gap-2 rounded-full border border-amber-500/50 bg-card px-4 py-1.5 font-medium text-foreground shadow-lg shadow-black/25 ring-1 ring-black/5"
       style={{ fontSize: "var(--agent-panel-fs-sidebar-body, 15px)" }}
     >
       <LoaderCircle className="size-[1.1em] animate-spin text-amber-500 motion-reduce:animate-none" aria-hidden />
-      Reconnecting…
+      {machine ? `Reconnecting to ${machine}…` : "Reconnecting…"}
     </span>
   );
 }
