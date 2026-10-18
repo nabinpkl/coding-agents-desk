@@ -16,7 +16,7 @@
 // the confirmation is where the reader decides that.
 
 import { LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   MACHINE_SHELL_SESSION,
@@ -27,6 +27,8 @@ import {
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { ShellTerminal } from "@/features/terminal/ShellTerminal";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
+import { useMountEffect } from "@/hooks/useMountEffect";
+import { useSidecarConfig } from "@/query/sidecarConfig";
 
 export interface MachineTerminalTarget {
   /** What the tab bar calls the machine. */
@@ -75,12 +77,12 @@ export function TerminalShellDialog({ feed, context, title, where, onClose, onEn
   phaseRef.current = phase;
 
   // Back to the button that opened it, so a keyboard reader is not dropped at the top of the page.
-  useEffect(() => {
+  useMountEffect(() => {
     opener.current = document.activeElement;
     return () => {
       if (opener.current instanceof HTMLElement) opener.current.focus();
     };
-  }, []);
+  });
 
   const onState = (state: AgentTerminalState): void => {
     if (state.kind === "ready") descriptor.current = state.descriptor;
@@ -196,22 +198,11 @@ export function MachineTerminalDialog({ machine, onClose }: {
   machine: MachineTerminalTarget;
   onClose: () => void;
 }) {
-  const [via, setVia] = useState<MachineShellBackend | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    machine.feed.fetchConfig()
-      .then((config) => {
-        if (!cancelled) setVia(config.machineShell);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setProblem(`Could not ask ${machine.label} how to open a shell: ${String((error as Error).message ?? error)}`);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [machine]);
+  const config = useSidecarConfig(machine.feed);
+  const via: MachineShellBackend | null = config.data?.machineShell ?? null;
+  const problem = config.error
+    ? `Could not ask ${machine.label} how to open a shell: ${String((config.error as Error).message ?? config.error)}`
+    : null;
 
   const context = useMemo<AgentTerminalContext | null>(
     () => (via ? { kind: "machine", via } : null),

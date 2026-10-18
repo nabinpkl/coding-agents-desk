@@ -74,7 +74,13 @@
         "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useOlderPageAnchor.ts",
         // The canvas scroller's remembered position: put back once the strip is wide enough to take
         // it, re-asked every frame until it is or the reader takes over, and written down on leaving.
-        "**/AgentPanel/Web/src/features/bots/canvas/useRememberedCanvasScroll.ts"
+        "**/AgentPanel/Web/src/features/bots/canvas/useRememberedCanvasScroll.ts",
+        // The same restore on the terminal canvas's strip, and its put-back when a phone keyboard
+        // closes.
+        "**/AgentPanel/Web/src/features/terminal/canvas/useTerminalCanvasScroll.ts",
+        // xterm: a terminal opened on a mount, attached to a pane or PTY, fed its stream, resized
+        // with its box and disposed with it.
+        "**/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts"
       ],
       "rules": { "eslint/no-restricted-imports": "off" }
     },
@@ -96,15 +102,7 @@
         "**/AgentPanel/Web/src/features/desktop-viewer/tile-viewport/TileViewport.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/TrackpadDeck.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useScrollStripGestures.ts",
-        "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useTrackpadGestures.ts",
-        "**/AgentPanel/Web/src/features/terminal/AgentTerminalPane.tsx",
-        "**/AgentPanel/Web/src/features/terminal/canvas/strip/TerminalChildCard.tsx",
-        "**/AgentPanel/Web/src/features/terminal/canvas/strip/TerminalParentCard.tsx",
-        "**/AgentPanel/Web/src/features/terminal/canvas/useTerminalCanvas.ts",
-        "**/AgentPanel/Web/src/features/terminal/canvas/useTerminalCanvasScroll.ts",
-        "**/AgentPanel/Web/src/features/terminal/MachineTerminalDialog.tsx",
-        "**/AgentPanel/Web/src/features/terminal/TerminalRestartButton.tsx",
-        "**/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts"
+        "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useTrackpadGestures.ts"
       ],
       "rules": { "eslint/no-restricted-imports": "off" }
     }

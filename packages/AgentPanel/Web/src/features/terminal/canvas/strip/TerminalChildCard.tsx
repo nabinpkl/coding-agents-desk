@@ -12,7 +12,7 @@
 // card is a closed row, because all it needs is the session name and its feed.
 
 import { ChevronDown, EyeOff, Paperclip, Skull, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { MAXIMUM_COMPOSER_IMAGE_BYTES, type TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
@@ -24,6 +24,7 @@ import { TerminalTile } from "@/features/terminal/TerminalTile";
 import { parseTerminalChildKey } from "@/features/terminal/canvas/terminalGroups";
 import { TerminalWindowRows } from "@/features/terminal/canvas/TerminalWindowRows";
 import { terminalChildStyle } from "@/features/terminal/canvas/terminalSurface";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 export function TerminalChildCard({
   session,
@@ -88,7 +89,7 @@ export function TerminalChildCard({
   // scrolling there would drag the strip off the offset the reader left it at.
   const card = useRef<HTMLLIElement | null>(null);
   const wasOpen = useRef(open);
-  useEffect(() => {
+  useDomSync(() => {
     const opened = open && !wasOpen.current;
     wasOpen.current = open;
     if (!opened) return;

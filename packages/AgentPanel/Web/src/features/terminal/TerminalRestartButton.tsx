@@ -5,10 +5,11 @@
 // Two presses, because the first one ends whatever the session is doing, a turn in flight
 // included. The second has to come within a few seconds, so a stray tap cannot arm it for later.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { RotateCcw } from "lucide-react";
 import type { SessionTmuxTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useTimeout } from "@/hooks/useInterval";
 
 const CONFIRM_WINDOW_MS = 4_000;
 
@@ -24,11 +25,7 @@ export function TerminalRestartButton(
   const [state, setState] = useState<RestartState>({ kind: "idle" });
 
   // Disarms on its own, so the second press means "yes, now" rather than whenever.
-  useEffect(() => {
-    if (state.kind !== "armed") return;
-    const timer = setTimeout(() => setState({ kind: "idle" }), CONFIRM_WINDOW_MS);
-    return () => clearTimeout(timer);
-  }, [state.kind]);
+  useTimeout(() => setState({ kind: "idle" }), state.kind === "armed" ? CONFIRM_WINDOW_MS : null);
 
   const press = (): void => {
     if (state.kind === "restarting") return;

@@ -12,10 +12,10 @@
 // stream would cost a connection per machine on an origin that holds about six. The Bot roster
 // rides its existing subscription, which the canvas is already paying for wherever it is mounted.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { machineKey, type BotMachine } from "@/features/bots/botMachines";
+import { machineFeedKey, machineKey, type BotMachine } from "@/features/bots/botMachines";
 import { loadHiddenMachines, storeHiddenMachines } from "@/features/bots/canvas/botCanvasPreferences";
 import { useBots } from "@/features/bots/useBots";
 import {
@@ -44,6 +44,8 @@ import {
 } from "@/features/terminal/canvas/terminalCanvasPreferences";
 import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
 import { DEFAULT_TILE_GRID } from "@/features/terminal/terminalTileSize";
+import { usePersistentState } from "@/hooks/state/usePersistentState";
+import { useSubscription } from "@/hooks/useSubscription";
 
 /** One machine's tmux listing and workspace roots, as the last load left them. */
 interface MachineSnapshot {
@@ -115,7 +117,9 @@ export function useTerminalCanvas(
     await Promise.all(jobs);
   }, []);
 
-  useEffect(() => {
+  // Every machine's listing, read again for each set of machines and on each asked-for refresh. An
+  // answer for a set that has since moved on is dropped.
+  useSubscription(`${revision}:${all.map(machineFeedKey).join("\u0000")}`, () => {
     const live = { on: true };
     void reload(all, live);
     // A machine that is no longer declared takes its snapshot with it, or a peer removed from
@@ -125,7 +129,7 @@ export function useTerminalCanvas(
     return () => {
       live.on = false;
     };
-  }, [reload, all, revision]);
+  });
 
   const refresh = useCallback(() => setRevision((now) => now + 1), []);
 
@@ -146,8 +150,7 @@ export function useTerminalCanvas(
     [all, snapshots, roster.bots, roster.machineOf],
   );
   const grouping: TerminalGrouping = useMemo(() => groupTerminalsByDirectory(sources), [sources]);
-  const [activeOnly, setActiveOnly] = useState<boolean>(loadTerminalActiveOnly);
-  useEffect(() => storeTerminalActiveOnly(activeOnly), [activeOnly]);
+  const [activeOnly, setActiveOnly] = usePersistentState<boolean>(loadTerminalActiveOnly, storeTerminalActiveOnly);
   // Active-only hides the empty parents -- workspace roots and Bot directories with nothing
   // running in them -- while the hues and ranks below still read the whole roster, so toggling
   // never repaints a face. Residue groups always stand: a pathless session is running work.
@@ -189,49 +192,44 @@ export function useTerminalCanvas(
     ? machineErrors[0]!.reason
     : null;
 
-  const [hiddenMachines, setHiddenMachines] = useState<ReadonlySet<string>>(loadHiddenMachines);
-  useEffect(() => storeHiddenMachines(hiddenMachines), [hiddenMachines]);
-  const [hiddenParents, setHiddenParents] = useState<ReadonlySet<string>>(loadHiddenTerminalParents);
-  useEffect(() => storeHiddenTerminalParents(hiddenParents), [hiddenParents]);
-  const [offStripChildren, setOffStripChildren] = useState<ReadonlySet<string>>(loadOffStripTerminalChildren);
-  useEffect(() => storeOffStripTerminalChildren(offStripChildren), [offStripChildren]);
-  const [openChildren, setOpenChildren] = useState<ReadonlySet<string>>(loadOpenTerminalChildren);
-  useEffect(() => storeOpenTerminalChildren(openChildren), [openChildren]);
+  const [hiddenMachines, setHiddenMachines] = usePersistentState<ReadonlySet<string>>(loadHiddenMachines, storeHiddenMachines);
+  const [hiddenParents, setHiddenParents] = usePersistentState<ReadonlySet<string>>(loadHiddenTerminalParents, storeHiddenTerminalParents);
+  const [offStripChildren, setOffStripChildren] = usePersistentState<ReadonlySet<string>>(loadOffStripTerminalChildren, storeOffStripTerminalChildren);
+  const [openChildren, setOpenChildren] = usePersistentState<ReadonlySet<string>>(loadOpenTerminalChildren, storeOpenTerminalChildren);
 
   // Drawn whole or drawn at its own size, and how much room the fitted canvas gets to be
   // scrolled around in. The same arrangement the Bot canvas keeps, under this canvas's own
   // keys -- one canvas's fit must never open the other one drawn small.
-  const [zoomMode, setZoomMode] = useState<boolean>(loadTerminalZoomMode);
-  useEffect(() => storeTerminalZoomMode(zoomMode), [zoomMode]);
-  const [zoomRoom, setZoomRoom] = useState<number>(loadTerminalRoom);
-  useEffect(() => storeTerminalRoom(zoomRoom), [zoomRoom]);
+  const [zoomMode, setZoomMode] = usePersistentState<boolean>(loadTerminalZoomMode, storeTerminalZoomMode);
+  const [zoomRoom, setZoomRoom] = usePersistentState<number>(loadTerminalRoom, storeTerminalRoom);
 
   // A stale open key opens nothing and says nothing about it, so unlike the hidden sets --
   // whose staleness the strip announces -- these are pruned once the listing is whole. Pruned
   // against the grouping rather than the strip, because a child taken off the strip on purpose
   // stays open-capable: hiding is an arrangement, and only death ends it. Compared outside the
   // updater, because the store write beside the set is a side effect and updaters must stay pure.
-  useEffect(() => {
-    if (!settled) return;
-    const liveKeys = new Set<string>();
+  const liveKeys = useMemo(() => {
+    const keys = new Set<string>();
     for (const parent of [...grouping.parents, ...grouping.residue]) {
       for (const child of parent.children) {
-        liveKeys.add(terminalChildKey(parent.machineId, child.name));
+        keys.add(terminalChildKey(parent.machineId, child.name));
         for (const window of child.windowList) {
-          liveKeys.add(terminalWindowKey(parent.machineId, child.name, window.index));
+          keys.add(terminalWindowKey(parent.machineId, child.name, window.index));
           for (const pane of window.panes) {
-            liveKeys.add(terminalPaneKey(parent.machineId, child.name, window.index, pane.index));
+            keys.add(terminalPaneKey(parent.machineId, child.name, window.index, pane.index));
           }
         }
       }
     }
+    return keys;
+  }, [grouping]);
+  if (settled) {
     const next = new Set(
       [...openChildren].filter((key) => parseTerminalChildKey(key) !== null && liveKeys.has(key)),
     );
-    if (next.size === openChildren.size) return;
-    storeOpenTerminalChildren(next);
-    setOpenChildren(next);
-  }, [settled, grouping, openChildren]);
+    // The setter writes the store; only when something actually went.
+    if (next.size !== openChildren.size) setOpenChildren(next);
+  }
 
   const feedFor = useCallback(
     (machineId: string | undefined): SidecarDataSource => (

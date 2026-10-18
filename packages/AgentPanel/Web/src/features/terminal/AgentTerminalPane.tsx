@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
@@ -16,6 +9,9 @@ import { TerminalRestartButton } from "@/features/terminal/TerminalRestartButton
 import { paneRoomBesideTranscript } from "@/features/terminal/terminalPaneRoom";
 import { keepLastDrawnRowInView } from "@/features/terminal/lastDrawnRowInView";
 import { TERMINAL_ZOOM, useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 
 const MINIMUM_TERMINAL_HEIGHT = 150;
 const MAXIMUM_TERMINAL_SHARE = 0.72;
@@ -176,30 +172,20 @@ export function AgentTerminalPane(
   // a terminal nobody is typing into.
   const showsKeyRail = focused && softwareKeyboard;
 
-  useEffect(() => {
-    if (!band) return;
-    if (heightBasis) {
-      // An element answers every question the two window events answer and one they do not: the
-      // surface can change height without the window doing anything, which is what happens when a
-      // card is opened above this one. A keyboard still reaches it, because the inset shortens the
-      // document and every column in it shortens too.
-      setBasis(heightBasis.clientHeight);
-      if (typeof ResizeObserver === "undefined") return;
-      const observer = new ResizeObserver(() => setBasis(heightBasis.clientHeight));
-      observer.observe(heightBasis);
-      return () => observer.disconnect();
-    }
-    const update = (): void => setBasis(viewportHeight());
-    // Both, because they answer different questions: `visualViewport` is the one a keyboard moves,
-    // and `window` is the one a rotation or a desktop window resize moves.
-    globalThis.visualViewport?.addEventListener("resize", update);
-    globalThis.addEventListener("resize", update);
-    update();
-    return () => {
-      globalThis.visualViewport?.removeEventListener("resize", update);
-      globalThis.removeEventListener("resize", update);
-    };
-  }, [band, heightBasis]);
+  // An element answers every question the two window events answer and one they do not: the
+  // surface can change height without the window doing anything, which is what happens when a
+  // card is opened above this one. A keyboard still reaches it, because the inset shortens the
+  // document and every column in it shortens too. Without one, both window events, because they
+  // answer different questions: `visualViewport` is the one a keyboard moves, and `window` is the
+  // one a rotation or a desktop window resize moves.
+  const measureBand = (): void => {
+    if (band) setBasis(heightBasis ? heightBasis.clientHeight : viewportHeight());
+  };
+  useDomSync(measureBand, [band, heightBasis]);
+  useResizeObserver(band ? heightBasis : null, measureBand);
+  const followsViewport = band && !heightBasis;
+  useEventListener(followsViewport ? globalThis.visualViewport : null, "resize", measureBand);
+  useEventListener(followsViewport ? globalThis : null, "resize", measureBand);
 
   /**
    * The tallest a band pane is any use at: its whole screen at the width it has, plus the pane's
@@ -208,7 +194,7 @@ export function AgentTerminalPane(
    * Measured after layout rather than during render; the chrome moves with the key rail.
    */
   const [wholeScreen, setWholeScreen] = useState<number | null>(null);
-  useLayoutEffect(() => {
+  useDomSync(() => {
     const pane = paneRef.current;
     const mount = mountRef.current;
     const known = band && contentHeight !== null && contentHeight > 0 && pane && mount;
@@ -239,7 +225,7 @@ export function AgentTerminalPane(
    * Never over a drag: a viewer who has sized this pane has said what they want, and a later
    * checkpoint must not take it back.
    */
-  useEffect(() => {
+  useDomSync(() => {
     if (!band || echo || contentHeight === null || !(contentHeight > 0) || sized.current) return;
     const pane = paneRef.current;
     const mount = mountRef.current;
@@ -259,7 +245,7 @@ export function AgentTerminalPane(
    * row moves rather than on every write, on the screen's height, which a reflow moves, and on
    * `height`, because a reader dragging the peek taller changes how much fits above it.
    */
-  useLayoutEffect(() => {
+  useDomSync(() => {
     if (echo && mountRef.current) keepLastDrawnRowInView(mountRef.current, lastDrawnRow);
   }, [echo, contentHeight, height, lastDrawnRow, mountRef]);
 
@@ -272,7 +258,7 @@ export function AgentTerminalPane(
    * A share of the column is the same size from the first frame and follows the screen when it
    * resizes. Still never past what leaves the transcript its floor, and never over a drag.
    */
-  useEffect(() => {
+  useDomSync(() => {
     if (!echo || sized.current) return;
     setHeight(Math.min(selfCeiling(), echoHeight(basis)));
     // `selfCeiling` reads the layout this render measured; the basis is what moves it.

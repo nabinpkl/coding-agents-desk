@@ -8,7 +8,7 @@
 // its own.
 
 import { EyeOff, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { ActivityDot } from "@/features/sidebar/session-list/SessionMeta";
@@ -21,6 +21,7 @@ import {
   type TerminalParentGroup,
 } from "@/features/terminal/canvas/terminalGroups";
 import { terminalChildSteps, terminalParentStyle } from "@/features/terminal/canvas/terminalSurface";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 export function TerminalParentCard({
   group,
@@ -111,7 +112,7 @@ export function TerminalParentCard({
   // to an arrangement rather than a reader opening something.
   const card = useRef<HTMLLIElement | null>(null);
   const wasOpen = useRef(holdsOpen);
-  useEffect(() => {
+  useDomSync(() => {
     const opened = holdsOpen && !wasOpen.current;
     wasOpen.current = holdsOpen;
     if (!opened) return;
