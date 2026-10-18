@@ -4,7 +4,7 @@
 // what it had left over, which is why the width and height it remembers are the CARD's and the
 // open session's are its own. `BotSessionCard.tsx` holds the row this renders.
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -29,6 +29,8 @@ import { isFatherSession } from "@/features/bots/botRosterOrder";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { reachMilestone } from "@/features/telemetry/pageMilestones";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useMountEffect } from "@/hooks/useMountEffect";
 
 export function BotCanvasCard({
   bot,
@@ -253,7 +255,7 @@ export function BotCanvasCard({
   // and forgotten only when the reader closes it.
   const card = useRef<HTMLLIElement | null>(null);
   const announced = useRef<ReadonlySet<string>>(openKeys);
-  useEffect(() => {
+  useDomSync(() => {
     const before = announced.current;
     const opened = shown.some((session) => {
       const key = sessionKey(session);
@@ -268,7 +270,7 @@ export function BotCanvasCard({
     if (!opened) return;
     card.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   }, [openKeys, shown]);
-  useEffect(() => reachMilestone("first-card"), []);
+  useMountEffect(() => reachMilestone("first-card"));
   // `bot-surface` sets the background and the border together, because a tinted card inside a
   // neutral border reads as a mistake rather than as a colour. A Bot the roster has not ranked
   // falls back to the plain card it was, which is defensive rather than expected: the canvas shows

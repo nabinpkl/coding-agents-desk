@@ -1,7 +1,10 @@
 import { ChevronDown, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { OpencodeModel } from "@/features/activity-feed/data-source/SidecarAgentSessions";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 
 /**
  * Picking an opencode session's model, with its context window and price beside each entry.
@@ -70,23 +73,18 @@ export function OpencodeModelsDialog({
   /** The effort row under the list; absent where the model takes none. */
   effort?: ModelEffortChoice;
 }) {
-  const [filter, setFilter] = useState("");
-  const [pendingName, setPendingName] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // A new list, or a new starting filter, starts the dialog over.
+  const listing = useMemo(() => ({ models, initialFilter }), [models, initialFilter]);
+  const [filter, setFilter] = useStateFor(listing, () => initialFilter);
+  const [pendingName, setPendingName] = useStateFor<string | null>(listing, () => null);
+  const [error, setError] = useStateFor<string | null>(listing, () => null);
   const menu = useRef<HTMLDivElement>(null);
 
   // Dropped below a control lower on a page, the menu can open past the screen's bottom edge on a
   // phone, where nothing says it opened: it brings itself into view, scrolling only as far as that.
-  useEffect(() => {
+  useDomSync(() => {
     if (models && placement === "below") menu.current?.scrollIntoView?.({ block: "nearest" });
   }, [models, placement]);
-
-  useEffect(() => {
-    if (!models) return;
-    setFilter(initialFilter);
-    setPendingName(null);
-    setError(null);
-  }, [models, initialFilter]);
 
   const shown = useMemo(() => {
     if (!models) return [];
@@ -348,21 +346,15 @@ export function OpencodeModelsHost({
   onClose: () => void;
   onSwitch: (providerID: string, modelID: string) => Promise<void>;
 }) {
-  const [models, setModels] = useState<readonly OpencodeModel[] | null>(null);
-  useEffect(() => {
-    let live = true;
-    feed.listOpencodeModels().then(
-      (list) => {
-        if (live) setModels(list);
-      },
-      () => {
-        if (live) onClose();
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [feed, onClose]);
+  // A list that cannot be read closes the dialog rather than opening an empty one.
+  const listed = usePanelQuery({
+    queryKey: ["opencode-models", sourceKey(feed)],
+    queryFn: () => feed.listOpencodeModels().catch((cause: unknown) => {
+      onClose();
+      throw cause;
+    }),
+  });
+  const models = listed.data ?? null;
 
   if (!models) return null;
   return (

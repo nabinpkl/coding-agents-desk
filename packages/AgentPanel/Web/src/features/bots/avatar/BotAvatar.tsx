@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
 import { botSurfaceStyle } from "@/features/bots/botSurface";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /**
  * A Bot's face: its picture, its generated face, or its initials on its own colour.
@@ -29,8 +29,8 @@ export function BotAvatar({ bot, hue, rank, size = "size-12" }: {
   rank?: number;
   size?: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [bot.iconUrl]);
+  // A new picture gets its own chance to load.
+  const [failed, setFailed] = useStateFor(bot.iconUrl, () => false);
   const faces = useBotFaces();
   const initials = bot.name
     .split(/\s+/)

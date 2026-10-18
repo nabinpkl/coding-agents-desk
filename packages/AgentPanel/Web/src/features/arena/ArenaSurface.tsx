@@ -345,6 +345,8 @@ function useWide(surface: React.RefObject<HTMLDivElement | null>): boolean {
   useDomSync(() => {
     if (surface.current) measure(surface.current);
   }, [surface]);
-  useResizeObserver(surface, (entry) => measure(entry.target));
+  useResizeObserver(surface, () => {
+    if (surface.current) measure(surface.current);
+  });
   return wide;
 }

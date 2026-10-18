@@ -1,6 +1,9 @@
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, type FormEvent } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
+import { useModal } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /**
  * Renaming one Bot and restyling its face, in the smallest dialog that can carry the fields.
@@ -22,29 +25,16 @@ export function BotRenameDialog({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState("");
-  const [iconUrl, setIconUrl] = useState("");
-  const [role, setRole] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useStateFor(bot, () => bot?.name ?? "");
+  const [iconUrl, setIconUrl] = useStateFor(bot, () => bot?.iconUrl ?? "");
+  const [role, setRole] = useStateFor(bot, () => bot?.metadata.role ?? "");
+  const [pending, setPending] = useStateFor(bot, () => false);
+  const [error, setError] = useStateFor<string | null>(bot, () => null);
 
-  useEffect(() => {
-    if (!bot) return;
-    setName(bot.name);
-    setIconUrl(bot.iconUrl ?? "");
-    setRole(bot.metadata.role ?? "");
-    setPending(false);
-    setError(null);
-  }, [bot]);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !bot || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, [bot]);
+  useModal(dialogRef, Boolean(bot), { attributeFallback: true });
 
-  useEffect(() => {
+  useDomSync(() => {
     if (bot) globalThis.requestAnimationFrame?.(() => field.current?.select());
   }, [bot]);
 

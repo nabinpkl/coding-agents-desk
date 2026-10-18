@@ -1,7 +1,10 @@
 import { Check, ShieldAlert, type LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { placePopup, triggerIsVisible, type Placement } from "@/features/bots/menus/anchoredPlacement";
+import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 export interface MenuChoice<T extends string> {
   value: T;
@@ -43,23 +46,15 @@ export interface ChoiceMenuProps<T extends string> {
 export function ChoiceMenu<T extends string>({ label, value, choices, onChoose, trigger }: ChoiceMenuProps<T>) {
   const [open, setOpen] = useState(false);
   /** Null until the layout pass has measured; the menu stays invisible until then. */
-  const [placement, setPlacement] = useState<Placement | null>(null);
+  // Dropped on close, so a menu reopened after the page moved is never placed from before.
+  const [placement, setPlacement] = useStateFor<Placement | null>(open, () => null);
   const menu = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (menu.current?.contains(target) || button.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
+  useDismissOnOutsidePress(open, [menu, button], () => setOpen(false));
 
   // The keyboard lands on the current choice, so Enter on an unchanged mind changes nothing.
-  useEffect(() => {
+  useDomSync(() => {
     if (!open) return;
     const rows = enabledRows(menu.current);
     (rows.find((row) => row.getAttribute("aria-checked") === "true") ?? rows[0])?.focus();
@@ -76,20 +71,8 @@ export function ChoiceMenu<T extends string>({ label, value, choices, onChoose, 
     setPlacement(placePopup(anchor.getBoundingClientRect(), popup.getBoundingClientRect(), "start"));
   }, []);
 
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    reposition();
-    globalThis.addEventListener?.("scroll", reposition, true);
-    globalThis.addEventListener?.("resize", reposition);
-    return () => {
-      globalThis.removeEventListener?.("scroll", reposition, true);
-      globalThis.removeEventListener?.("resize", reposition);
-    };
-  }, [open, reposition]);
+  useOverlayPlacement(open, () => reposition(), [reposition]);
 
-  useEffect(() => {
-    if (!open) setPlacement(null);
-  }, [open]);
 
   const close = () => {
     setOpen(false);

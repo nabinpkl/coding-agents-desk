@@ -1,8 +1,10 @@
 import { LoaderCircle, Plus, SquareTerminal, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useRef, type FormEvent } from "react";
 import type { BotSessionRef, BotView, ClaudeRunMode, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
+import { useModal } from "@/hooks/dom/overlays";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /**
  * The harness a new session runs in. Codex and Pi are not offered: neither is started from here.
@@ -65,44 +67,26 @@ export function BotSessionPickerDialog({
   onStartNew: (bot: BotView, task: string, harness: NewSessionHarness) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [task, setTask] = useState("");
-  const [harness, setHarness] = useState<NewSessionHarness>("claude");
+  // Everything chosen here belongs to one opening for one Bot.
+  const opening = `${bot?.botId}:${open}`;
+  const [selectedKeys, setSelectedKeys] = useStateFor<Set<string>>(opening, () => new Set());
+  const [pending, setPending] = useStateFor(opening, () => false);
+  const [error, setError] = useStateFor<string | null>(opening, () => null);
+  const [task, setTask] = useStateFor(opening, () => "");
+  const [harness, setHarness] = useStateFor<NewSessionHarness>(opening, () => "claude");
   const attachedKeys = useMemo(
     () => new Set(bot?.sessionRefs.map(sessionKey) ?? []),
     [bot],
   );
 
-  useEffect(() => {
-    if (!open) return;
-    setSelectedKeys(new Set());
-    setPending(false);
-    setError(null);
-    setTask("");
-    setHarness("claude");
-  }, [bot?.botId, open]);
+  // A choice can only be of a session still listed and not attached already.
+  if (open && sessions) {
+    const selectable = new Set(sessions.map(sessionKey).filter((key) => !attachedKeys.has(key)));
+    const kept = new Set([...selectedKeys].filter((key) => selectable.has(key)));
+    if (kept.size !== selectedKeys.size) setSelectedKeys(kept);
+  }
 
-  useEffect(() => {
-    if (!open || !sessions) return;
-    const selectable = new Set(
-      sessions
-        .map(sessionKey)
-        .filter((key) => !attachedKeys.has(key)),
-    );
-    setSelectedKeys((current) => {
-      const next = new Set([...current].filter((key) => selectable.has(key)));
-      return next.size === current.size ? current : next;
-    });
-  }, [attachedKeys, open, sessions]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !open || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, [open]);
+  useModal(dialogRef, Boolean(open), { attributeFallback: true });
 
   if (!open || !bot) return null;
 

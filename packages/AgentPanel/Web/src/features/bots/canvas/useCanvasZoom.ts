@@ -28,8 +28,13 @@
 // most of that range is empty. With one, the scroller's own range is right -- which is what keeps
 // iOS momentum, and what lets the existing scroll memory go on meaning something.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useRef, type CSSProperties } from "react";
 import { cardUnder, pressedOnStrip } from "@/features/bots/canvas/canvasPress";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
+import { usePersistentState } from "@/hooks/state/usePersistentState";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /**
  * What the reader chose, remembered across reloads: whether the mode is on, and how far out.
@@ -263,9 +268,13 @@ export function useCanvasZoom({
   /** Where the mode and the scale persist. Defaults to the Bot canvas's keys. */
   storage?: CanvasZoomStorage;
 }): CanvasZoom {
-  const [wanted, setWanted] = useState(storage.loadScale);
-  const [content, setContent] = useState<Size>({ width: 0, height: 0 });
-  const [viewport, setViewport] = useState<Size>({ width: 0, height: 0 });
+  // One write for the scale, from the setter rather than beside each of the gestures that move it,
+  // which is how one of them ends up forgotten.
+  const [wanted, setWanted] = usePersistentState(storage.loadScale, storage.storeScale);
+  // Dropped when the mode goes off, so turning it back on measures the canvas it is turned on over
+  // rather than the one it was last turned off over.
+  const [content, setContent] = useStateFor<Size>(on, () => ({ width: 0, height: 0 }));
+  const [viewport, setViewport] = useStateFor<Size>(on, () => ({ width: 0, height: 0 }));
   const measured = content.width > 0 && viewport.width > 0;
   const fit = fitScale(content, viewport);
   const scale = on && measured ? clampZoom(wanted, fit) : 1;
@@ -288,7 +297,7 @@ export function useCanvasZoom({
   // once the sizer has resized. In a layout effect so the reader never sees the frame where the
   // strip has changed size and the scroller has not caught up with it.
   const landing = useRef<{ left: number; top: number } | null>(null);
-  useLayoutEffect(() => {
+  useDomSync(() => {
     const box = scroller.current;
     const at = landing.current;
     landing.current = null;
@@ -302,7 +311,7 @@ export function useCanvasZoom({
   // a scroller already somewhere and the canvas lurches by exactly that much. The restore on mount
   // sets an absolute offset AFTER this runs, so the two never double up.
   const applied = useRef(gutter);
-  useLayoutEffect(() => {
+  useDomSync(() => {
     const box = scroller.current;
     const was = applied.current;
     applied.current = gutter;
@@ -311,24 +320,13 @@ export function useCanvasZoom({
     box.scrollTop += gutter.top - was.top;
   }, [scroller, gutter.left, gutter.top]);
 
-  // One write for the scale, from an effect on the value rather than beside each of the gestures
-  // that move it, which is how one of them ends up forgotten.
-  useEffect(() => storage.storeScale(wanted), [wanted, storage]);
-
-  useEffect(() => {
-    if (!on) {
-      // Dropped rather than kept, so turning the mode back on measures the canvas it is turned on
-      // over rather than the one it was last turned off over.
-      setContent({ width: 0, height: 0 });
-      setViewport({ width: 0, height: 0 });
-      return;
-    }
+  // Layout values on both sides: `offsetWidth` is what the strip WOULD occupy, so the strip's own
+  // transform does not perturb the number the transform is computed from.
+  const measure = () => {
     const strand = strip.current;
     const box = scroller.current;
-    if (!strand || !box) return;
-    // Layout values on both sides: `offsetWidth` is what the strip WOULD occupy, so the strip's
-    // own transform does not perturb the number the transform is computed from.
-    const measure = () => {
+    if (!on || !strand || !box) return;
+    {
       // A detached node measures zero, and zero here would clear `measured`, drop the sizer and
       // undo the very layout being measured. It cannot happen now that the wrapper is permanent,
       // and it is guarded anyway because the failure it caused was invisible: the observer went on
@@ -342,14 +340,11 @@ export function useCanvasZoom({
         unchanged(was, box.clientWidth, box.clientHeight)
           ? was
           : { width: box.clientWidth, height: box.clientHeight });
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(strand);
-    observer.observe(box);
-    return () => observer.disconnect();
-  }, [on, scroller, strip]);
+    }
+  };
+  useDomSync(measure, [on, scroller, strip]);
+  useResizeObserver(on ? strip : null, measure);
+  useResizeObserver(on ? scroller : null, measure);
 
   const zoomTo = useCallback((next: number, clientX?: number, clientY?: number) => {
     const box = scroller.current;
@@ -369,33 +364,29 @@ export function useCanvasZoom({
     setWanted(to);
   }, [scroller]);
 
-  useEffect(() => {
-    const box = scroller.current;
-    const strand = strip.current;
-    if (!on || !box || !strand) return;
-
-    // A trackpad pinch arrives as a wheel with ctrlKey set, and that is the only wheel this takes.
-    // A plain wheel goes on scrolling the canvas, because panning is what a scroller's wheel means
-    // and panning is most of what this mode is for.
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
+  // A trackpad pinch arrives as a wheel with ctrlKey set, and that is the only wheel this takes. A
+  // plain wheel goes on scrolling the canvas, because panning is what a scroller's wheel means and
+  // panning is most of what this mode is for.
+  const surface = on ? scroller : null;
+  useEventListener<WheelEvent>(surface, "wheel", (event) => {
+      const box = scroller.current;
+      if (!box || !event.ctrlKey) return;
       event.preventDefault();
       // Wheels do not all speak pixels: a line-mode wheel reports about 3 and a page-mode one
       // about 1, and reading either as pixels makes the gesture do nothing at all.
       const lines = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? box.clientHeight : 1;
       zoomTo(drawn.current * Math.exp(-event.deltaY * lines * TRACKPAD_RATE), event.clientX, event.clientY);
-    };
+  }, { passive: false });
 
-    // Two fingers are the pinch, and the gesture is taken from the browser only while two are
-    // down. One finger stays native scrolling, which is what keeps the strip's momentum and its
-    // overscroll rather than reimplementing both badly.
-    let began = 0;
-    let from = 1;
-    const onTouchStart = (event: TouchEvent) => {
-      began = event.touches.length === 2 ? spread(event.touches) : 0;
-      from = drawn.current;
-    };
-    const onTouchMove = (event: TouchEvent) => {
+  // Two fingers are the pinch, and the gesture is taken from the browser only while two are down.
+  // One finger stays native scrolling, which is what keeps the strip's momentum and its overscroll
+  // rather than reimplementing both badly.
+  const pinch = useRef({ began: 0, from: 1 });
+  useEventListener<TouchEvent>(surface, "touchstart", (event) => {
+    pinch.current = { began: event.touches.length === 2 ? spread(event.touches) : 0, from: drawn.current };
+  }, { passive: true });
+  useEventListener<TouchEvent>(surface, "touchmove", (event) => {
+      const { began, from } = pinch.current;
       if (event.touches.length !== 2 || began <= 0) return;
       // Non-passive, so this can stop the browser scrolling the canvas out from under the pinch.
       event.preventDefault();
@@ -406,10 +397,12 @@ export function useCanvasZoom({
         (first.clientX + second.clientX) / 2,
         (first.clientY + second.clientY) / 2,
       );
-    };
-    const onTouchEnd = (event: TouchEvent) => {
-      if (event.touches.length < 2) began = 0;
-    };
+  }, { passive: false });
+  const endPinch = (event: TouchEvent) => {
+    if (event.touches.length < 2) pinch.current = { ...pinch.current, began: 0 };
+  };
+  useEventListener<TouchEvent>(surface, "touchend", endPinch, { passive: true });
+  useEventListener<TouchEvent>(surface, "touchcancel", endPinch, { passive: true });
 
     // A press that reaches the scroller rather than a card, which is the empty canvas AROUND the
     // strip: beside it, and below it, where a canvas drawn small leaves most of the panel empty.
@@ -417,8 +410,10 @@ export function useCanvasZoom({
     // The strip itself is a hit-test target at every scale, so a press on a card belongs to the
     // card and never to the canvas. That is deliberate -- the cards are the reader's at any size
     // -- and it leaves this the whole of the way in and out on a surface carrying no chrome.
-    const onClick = (event: MouseEvent) => {
-      if (pressedOnStrip(event, strand)) return;
+  useEventListener<MouseEvent>(surface, "click", (event) => {
+      const box = scroller.current;
+      const strand = strip.current;
+      if (!box || !strand || pressedOnStrip(event, strand)) return;
       const rect = box.getBoundingClientRect();
       // Already at its own size, so there is nothing left to zoom into and the press means the
       // other direction. This is the way back out on a surface that carries no chrome of its own.
@@ -443,23 +438,7 @@ export function useCanvasZoom({
           + gap.current.top - CARD_INSET),
       };
       setWanted(1);
-    };
-
-    box.addEventListener("wheel", onWheel, { passive: false });
-    box.addEventListener("touchstart", onTouchStart, { passive: true });
-    box.addEventListener("touchmove", onTouchMove, { passive: false });
-    box.addEventListener("touchend", onTouchEnd, { passive: true });
-    box.addEventListener("touchcancel", onTouchEnd, { passive: true });
-    box.addEventListener("click", onClick);
-    return () => {
-      box.removeEventListener("wheel", onWheel);
-      box.removeEventListener("touchstart", onTouchStart);
-      box.removeEventListener("touchmove", onTouchMove);
-      box.removeEventListener("touchend", onTouchEnd);
-      box.removeEventListener("touchcancel", onTouchEnd);
-      box.removeEventListener("click", onClick);
-    };
-  }, [on, scroller, strip, zoomTo]);
+  });
 
   return {
     on,

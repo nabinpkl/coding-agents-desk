@@ -7,7 +7,9 @@
 // cannot fit. The session card already measures itself the same way, in CSS (`BotSessionCard`'s
 // `@container`).
 
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useState, type RefObject } from "react";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 
 /**
  * The width below which the code, git and terminal controls move into the more menu.
@@ -40,18 +42,11 @@ export function useNarrowHeader(
   const [narrow, setNarrow] = useState(false);
   // A layout effect, not an effect: the first measurement lands before the paint that would show
   // the crowded row, so a narrow card never appears to have a one-character name for a frame.
-  useLayoutEffect(() => {
-    const node = header.current;
-    if (!node) return undefined;
-    const measure = (): void => {
-      const width = node.getBoundingClientRect().width;
-      setNarrow(width > 0 && width < at);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [header, at]);
+  const measure = (): void => {
+    const width = header.current?.getBoundingClientRect().width ?? 0;
+    setNarrow(width > 0 && width < at);
+  };
+  useDomSync(measure, [header, at]);
+  useResizeObserver(header, measure);
   return narrow;
 }

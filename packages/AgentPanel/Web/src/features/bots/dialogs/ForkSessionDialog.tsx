@@ -1,7 +1,10 @@
 import { Upload } from "lucide-react";
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, type ChangeEvent, type FormEvent } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import { nextForkTitle } from "@/features/bots/dialogs/sessionTitles";
+import { useModal } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /** The sidecar's own cap on a fork brief, repeated so the dialog refuses before the round trip. */
 const MAXIMUM_BRIEF = 32_768;
@@ -62,57 +65,34 @@ export function ForkSessionDialog({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState("");
-  const [brief, setBrief] = useState("");
-  const [worktree, setWorktree] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  /** The text this opening wants selected, until it has been. Null once it is, or when closed. */
-  const wantsSelected = useRef<string | null>(null);
+  // Everything below starts from the request it was opened for. Keyed on the request alone:
+  // `takenTitles` is rebuilt on every inventory push, and following it would retype the reader's
+  // field underneath them while they are in it.
+  const [title, setTitle] = useStateFor(request, () =>
+    request === null ? "" : nextForkTitle(request.session.title || request.session.sessionId, takenTitles));
+  // Seeded with what that message said, because the thing a reader wants from forking at a
+  // message is almost always to send it again differently -- which is what Claude's own rewind
+  // does when it puts the rewound-to message back in the composer to be edited. Offering it here
+  // means the editing happens before the fork exists rather than in its pane afterwards.
+  const [brief, setBrief] = useStateFor(request, () => request?.from?.text ?? "");
+  const [worktree, setWorktree] = useStateFor(request, () => false);
+  const [error, setError] = useStateFor<string | null>(request, () => null);
 
-  useEffect(() => {
-    if (!request) return;
-    const seed = nextForkTitle(request.session.title || request.session.sessionId, takenTitles);
-    setTitle(seed);
-    // Seeded with what that message said, because the thing a reader wants from forking at a
-    // message is almost always to send it again differently -- which is what Claude's own rewind
-    // does when it puts the rewound-to message back in the composer to be edited. Offering it here
-    // means the editing happens before the fork exists rather than in its pane afterwards.
-    setBrief(request.from?.text ?? "");
-    setWorktree(false);
-    setError(null);
-    wantsSelected.current = seed;
-    // Deliberately keyed on the request alone: `takenTitles` is rebuilt on every inventory push,
-    // and depending on it would retype the reader's field underneath them while they are in it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !request || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, [request]);
+  useModal(dialogRef, Boolean(request), { attributeFallback: true });
 
   /**
    * Selects the proposal so typing replaces it, once the field is actually showing it.
    *
-   * Not done beside `showModal`: React writes the new value onto the input as a property, and that
-   * clears any selection made before it lands. Measured -- selecting in a frame callback after
-   * `showModal` left the caret at one end and nothing highlighted, so the reader had to clear the
-   * field by hand, which is most of what this dialog exists to avoid.
-   *
-   * It waits for the field to hold the exact text this opening seeded, rather than for any value,
-   * because both of the other spellings are wrong in one direction. Firing on the title alone
-   * misses a REOPEN with the same proposal, where `setTitle` writes the value it already has and
-   * React skips the render -- measured, and the second open selected nothing. Firing on the request
-   * alone runs while the previous proposal is still in the field, and selects that.
+   * After the commit that wrote it: React writes the new value onto the input as a property, and
+   * that clears any selection made before it lands. Measured -- selecting in a frame callback
+   * after `showModal` left the caret at one end and nothing highlighted, so the reader had to
+   * clear the field by hand, which is most of what this dialog exists to avoid. The title starts
+   * over in the same render the request arrives in, so the field already holds this opening's
+   * proposal when this runs, never the previous one's.
    */
-  useEffect(() => {
-    if (wantsSelected.current === null) return;
-    if (!field.current || field.current.value !== wantsSelected.current) return;
-    wantsSelected.current = null;
-    field.current.select();
-  }, [request, title]);
+  useDomSync(() => {
+    if (request) field.current?.select();
+  }, [request]);
 
   if (!request) return null;
 

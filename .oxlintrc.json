@@ -71,7 +71,10 @@
         // restored once its row has been measured, all of which is known only after layout.
         "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useTranscriptScrollRestore.ts",
         "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useGapFill.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useOlderPageAnchor.ts"
+        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useOlderPageAnchor.ts",
+        // The canvas scroller's remembered position: put back once the strip is wide enough to take
+        // it, re-asked every frame until it is or the reader takes over, and written down on leaving.
+        "**/AgentPanel/Web/src/features/bots/canvas/useRememberedCanvasScroll.ts"
       ],
       "rules": { "eslint/no-restricted-imports": "off" }
     },
@@ -85,27 +88,6 @@
         "**/AgentPanel/Web/src/app/shell-state/useCanvasRoster.ts",
         "**/AgentPanel/Web/src/app/shell-state/useProjectInventory.ts",
         "**/AgentPanel/Web/src/app/shell-state/useThreadSelection.ts",
-        "**/AgentPanel/Web/src/features/bots/avatar/BotAvatar.tsx",
-        "**/AgentPanel/Web/src/features/bots/canvas/useCanvasZoom.ts",
-        "**/AgentPanel/Web/src/features/bots/canvas/useMoveAlongStrip.ts",
-        "**/AgentPanel/Web/src/features/bots/canvas/useRememberedCanvasScroll.ts",
-        "**/AgentPanel/Web/src/features/bots/cards/BotCanvasCard.tsx",
-        "**/AgentPanel/Web/src/features/bots/cards/BotCanvasList.tsx",
-        "**/AgentPanel/Web/src/features/bots/cards/SessionCardMeta.tsx",
-        "**/AgentPanel/Web/src/features/bots/cards/useNarrowHeader.ts",
-        "**/AgentPanel/Web/src/features/bots/dialogs/BotCreatorDialog.tsx",
-        "**/AgentPanel/Web/src/features/bots/dialogs/BotRenameDialog.tsx",
-        "**/AgentPanel/Web/src/features/bots/dialogs/BotSessionPickerDialog.tsx",
-        "**/AgentPanel/Web/src/features/bots/dialogs/ForkSessionDialog.tsx",
-        "**/AgentPanel/Web/src/features/bots/dialogs/HandoverDialog.tsx",
-        "**/AgentPanel/Web/src/features/bots/dialogs/NewSessionDialog.tsx",
-        "**/AgentPanel/Web/src/features/bots/dialogs/OpencodeModelsDialog.tsx",
-        "**/AgentPanel/Web/src/features/bots/dialogs/SessionRenameDialog.tsx",
-        "**/AgentPanel/Web/src/features/bots/menus/ChoiceMenu.tsx",
-        "**/AgentPanel/Web/src/features/bots/menus/RowMenu.tsx",
-        "**/AgentPanel/Web/src/features/bots/useBots.ts",
-        "**/AgentPanel/Web/src/features/bots/useMachineInventory.ts",
-        "**/AgentPanel/Web/src/features/bots/useMissingSessionLog.ts",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewer.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerControls.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSettings.tsx",

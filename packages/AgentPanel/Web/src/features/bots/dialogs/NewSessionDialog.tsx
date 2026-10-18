@@ -5,11 +5,13 @@
 // without the Bot. The session can be put on one afterwards, from the modal it opens in.
 
 import { LoaderCircle, SquareTerminal, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useRef, type FormEvent } from "react";
 import type { ProjectSummary, StartSessionCommand } from "@agentdesk/agent-feed-wire";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
 import { HARNESSES, harnessStart, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
+import { useModal } from "@/hooks/dom/overlays";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 const NO_CLAIMS: ReadonlySet<string> = new Set();
 
@@ -31,12 +33,12 @@ export function NewSessionDialog({
   onStart: (command: StartSessionCommand) => Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [harness, setHarness] = useState<NewSessionHarness>("claude");
-  const [title, setTitle] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [selectedPath, setSelectedPath] = useStateFor<string | null>(open, () => null);
+  const [harness, setHarness] = useStateFor<NewSessionHarness>(open, () => "claude");
+  const [title, setTitle] = useStateFor(open, () => "");
+  const [prompt, setPrompt] = useStateFor(open, () => "");
+  const [pending, setPending] = useStateFor(open, () => false);
+  const [error, setError] = useStateFor<string | null>(open, () => null);
 
   const browse = useCallback((path: string | null) => machine.feed.browseDirectories(path), [machine]);
   const createFolder = useCallback(
@@ -44,22 +46,8 @@ export function NewSessionDialog({
     [machine],
   );
 
-  useEffect(() => {
-    if (!open) return;
-    setSelectedPath(null);
-    setHarness("claude");
-    setTitle("");
-    setPrompt("");
-    setPending(false);
-    setError(null);
-  }, [open]);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !open || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, [open]);
+  useModal(dialogRef, Boolean(open), { attributeFallback: true });
 
   if (!open) return null;
 

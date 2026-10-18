@@ -44,8 +44,8 @@ export function useAutoGrowingTextArea(value: string): (element: HTMLTextAreaEle
   // observer reports the content box and nothing here has read that box yet.
   const observed = useRef<number | null>(null);
   useResizeObserver(ref, (entry) => {
-    const width = entry.contentRect.width;
-    if (width === observed.current) return;
+    const width = entry?.contentRect.width;
+    if (width === undefined || width === observed.current) return;
     const first = observed.current === null;
     observed.current = width;
     if (!first) measure();

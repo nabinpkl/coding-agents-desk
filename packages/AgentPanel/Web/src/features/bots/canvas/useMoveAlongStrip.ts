@@ -4,9 +4,10 @@
 // laid-out boxes, and the only thing it knows about what is in them is that they must not be
 // re-parented. That constraint is the reason the whole thing exists as transforms; see below.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { STRIP_GAP } from "@/features/bots/cards/botCanvasCards";
 import { effectiveScale } from "@/features/bots/canvas/useCanvasZoom";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
 
 /** How close to an edge a drag has to get before the strip scrolls itself, and how fast. */
 const EDGE_SCROLL_MARGIN = 56;
@@ -153,7 +154,7 @@ export function useMoveAlongStrip({
     if (held && held.to !== held.from) onDrop(held.from, held.to);
   };
 
-  useEffect(() => stopScrolling, []);
+  useUnmountEffect(stopScrolling);
 
   return {
     liftedIndex: carried?.from ?? null,

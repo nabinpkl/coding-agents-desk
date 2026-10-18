@@ -16,12 +16,16 @@
 // header, so resting on a task shrank the transcript under it and pushed every row below; and the
 // card clips what it holds, so it could not reach past a closed card's one row anyway.
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Bin, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { WorktreeChip } from "@/features/sidebar/session-list/SessionMeta";
 import { placePopup, triggerIsVisible, type Placement } from "@/features/bots/menus/anchoredPlacement";
+import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
 
 /** How long the popover stays after the mouse leaves, so the mouse can cross onto it. */
 const HOVER_GRACE_MS = 150;
@@ -55,13 +59,14 @@ export function SessionCardMeta({
 function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["taskState"]> }) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
-  /** Null until the layout pass has measured; the popover stays invisible until then. */
-  const [placement, setPlacement] = useState<Placement | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
   const popupId = useId();
   const leaving = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showing = pinned || hovered;
+  /** Null until the layout pass has measured; the popover stays invisible until then. Dropped on
+   * close, so a popover reopened after the page moved is never placed from before. */
+  const [placement, setPlacement] = useStateFor<Placement | null>(showing, () => null);
 
   const stay = useCallback((): void => {
     if (leaving.current !== null) clearTimeout(leaving.current);
@@ -82,7 +87,7 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
     stay();
     leaving.current = setTimeout(() => setHovered(false), HOVER_GRACE_MS);
   };
-  useEffect(() => stay, [stay]);
+  useUnmountEffect(stay);
 
   const reposition = useCallback(() => {
     const button = trigger.current;
@@ -97,41 +102,13 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
   }, [close]);
 
   // Before paint, so the popover is placed in the commit that opens it rather than a frame later.
-  useLayoutEffect(() => {
-    if (!showing) return undefined;
-    reposition();
-    // Every scroller: `capture` is what hears a scroll event, which does not bubble.
-    globalThis.addEventListener?.("scroll", reposition, true);
-    globalThis.addEventListener?.("resize", reposition);
-    return () => {
-      globalThis.removeEventListener?.("scroll", reposition, true);
-      globalThis.removeEventListener?.("resize", reposition);
-    };
-  }, [showing, reposition]);
-
-  // Dropped on close, so a popover reopened after the page moved is never placed from before.
-  useEffect(() => {
-    if (!showing) setPlacement(null);
-  }, [showing]);
+  useOverlayPlacement(showing, () => reposition(), [reposition]);
 
   // A pinned popover closes the way a menu does: a press anywhere else, or Escape.
-  useEffect(() => {
-    if (!showing) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (popup.current?.contains(target) || trigger.current?.contains(target)) return;
-      close();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [showing, close]);
+  useDismissOnOutsidePress(showing, [popup, trigger], close);
+  useEventListener<KeyboardEvent>(showing ? document : null, "keydown", (event) => {
+    if (event.key === "Escape") close();
+  });
 
   return (
     <>

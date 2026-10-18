@@ -14,9 +14,10 @@
 // name: one is what the registry decided, the other is what the reader was shown, and a chain is
 // only worth having if its links can be told apart.
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import { attachedSessionKey } from "@/features/bots/botRosterOrder";
+import { useNotify } from "@/hooks/useNotify";
 
 /**
  * Which surface drew the row.
@@ -41,7 +42,8 @@ export function useMissingSessionLog(bot: BotView, surface: MissingSessionSurfac
   latest.current = bot.missingSessionRefs;
   const signature = bot.missingSessionRefs.map(attachedSessionKey).sort().join("|");
 
-  useEffect(() => {
+  // The log is the outside thing told: once per change in which sessions are missing.
+  useNotify(`${signature}\n${surface}\n${bot.botId}\n${bot.name}`, () => {
     const missing = latest.current;
     const now = new Set(missing.map(attachedSessionKey));
     for (const key of now) {
@@ -67,5 +69,5 @@ export function useMissingSessionLog(bot: BotView, surface: MissingSessionSurfac
       }));
     }
     held.current = now;
-  }, [signature, surface, bot.botId, bot.name]);
+  });
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import {
@@ -17,7 +17,7 @@ import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedC
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
-import { keepTypingInSight } from "@/app/page/keyboardInset";
+import { keepTypingInSightWhileMounted } from "@/app/page/keyboardInset";
 import type { MachineError } from "@/features/bots/useBots";
 
 /**
@@ -133,10 +133,13 @@ export function BotCanvasList({
   const list = useRef<HTMLUListElement | null>(null);
   // A card has a fixed height, so a phone keyboard shortening the page shortens this scroller and
   // leaves the card's composer and terminal where they were: under the keyboard. Scroll them back.
-  useEffect(() => {
-    if (!canvas.current) return;
-    const keeping = keepTypingInSight(canvas.current);
-    return () => keeping.remove();
+  const attachCanvas = useCallback((node: HTMLDivElement | null) => {
+    canvas.current = node;
+    const leave = keepTypingInSightWhileMounted(node);
+    return () => {
+      leave?.();
+      canvas.current = null;
+    };
   }, []);
   // Moved by id rather than by these indices: the strip is showing a subset of the roster -- a
   // detached Bot has no card, and a hidden machine's are filtered out -- while the order a drop
@@ -258,7 +261,7 @@ export function BotCanvasList({
     <div className="relative flex min-h-0 flex-1 flex-col">
       <CanvasReconnecting machineErrors={machineErrors} />
       <div
-        ref={canvas}
+        ref={attachCanvas}
         onScroll={rememberScroll}
         style={zoom.scrollerStyle}
         // The margin is the SCROLLER's rather than padding on the strip inside it, so the gutter

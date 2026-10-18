@@ -1,10 +1,13 @@
 import { LoaderCircle, Upload, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useCallback, useMemo, useRef, type ChangeEvent, type FormEvent } from "react";
 import type { AddBotCommand, BotView, ProjectSummary } from "@agentdesk/agent-feed-wire";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { type BotMachine } from "@/features/bots/botMachines";
 import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";
+import { useModal } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /**
  * The registry's own cap on a first turn, repeated here so the dialog refuses before the round
@@ -61,22 +64,22 @@ export function BotCreatorDialog({
   // default is the machine the panel is running beside and picking another is a deliberate act.
   // At least one machine always exists -- the app names this one when its embedder names none --
   // so an empty list is a caller that is wrong rather than a state to render around.
-  const [machine, setMachine] = useState<BotMachine>(() => machines[0]!);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [iconUrl, setIconUrl] = useState("");
-  const [role, setRole] = useState("");
-  const [description, setDescription] = useState("");
-  const [labels, setLabels] = useState("");
-  const [customMetadata, setCustomMetadata] = useState("");
-  const [canAddBots, setCanAddBots] = useState(false);
+  const [machine, setMachine] = useStateFor<BotMachine>(open, () => machines[0]!);
+  const [selectedPath, setSelectedPath] = useStateFor<string | null>(open, () => null);
+  const [name, setName] = useStateFor(open, () => "");
+  const [iconUrl, setIconUrl] = useStateFor(open, () => "");
+  const [role, setRole] = useStateFor(open, () => "");
+  const [description, setDescription] = useStateFor(open, () => "");
+  const [labels, setLabels] = useStateFor(open, () => "");
+  const [customMetadata, setCustomMetadata] = useStateFor(open, () => "");
+  const [canAddBots, setCanAddBots] = useStateFor(open, () => false);
   // On by default: a Bot is a directory and the sessions working in it, and creating one almost
   // always means starting the first. Turning it off is how an existing session's directory gets
   // adopted without spawning a second agent into it.
-  const [startSession, setStartSession] = useState(true);
-  const [firstTurn, setFirstTurn] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [startSession, setStartSession] = useStateFor(open, () => true);
+  const [firstTurn, setFirstTurn] = useStateFor(open, () => "");
+  const [pending, setPending] = useStateFor(open, () => false);
+  const [error, setError] = useStateFor<string | null>(open, () => null);
 
   // Only while a PEER is selected. This machine's directories are already on the app's stream, and
   // opening a second one for them would spend a stream slot to learn what the panel already knows.
@@ -109,31 +112,10 @@ export function BotCreatorDialog({
     [machine],
   );
 
-  useEffect(() => {
-    if (!open) return;
-    setMachine(machines[0]!);
-    setSelectedPath(null);
-    setName("");
-    setIconUrl("");
-    setRole("");
-    setDescription("");
-    setLabels("");
-    setCustomMetadata("");
-    setCanAddBots(false);
-    setStartSession(true);
-    setFirstTurn("");
-    setPending(false);
-    setError(null);
-  }, [open]);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !open || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, [open]);
+  useModal(dialogRef, Boolean(open), { attributeFallback: true });
 
-  useEffect(() => {
+  useDomSync(() => {
     if (selectedPath) globalThis.requestAnimationFrame?.(() => nameInput.current?.focus());
   }, [selectedPath]);
 

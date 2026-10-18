@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
 import {
   indexBotMachines,
@@ -8,6 +8,7 @@ import {
   mergeMachineBots,
   type BotMachine,
 } from "@/features/bots/botMachines";
+import { useSubscription } from "@/hooks/useSubscription";
 
 function retryDelay(attempt: number): number {
   return Math.min(1_000 * 2 ** attempt, 15_000);
@@ -90,7 +91,8 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
   machinesRef.current = machines;
   const signature = machines.map(machineFeedKey).join("\0");
 
-  useEffect(() => {
+  // One stream per machine, reopened when the set of machines or any one's data source changes.
+  useSubscription(signature, () => {
     const current = machinesRef.current;
     const stops = new Map<string, () => void>();
     const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -142,7 +144,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
       for (const stop of stops.values()) stop();
       for (const timer of timers.values()) clearTimeout(timer);
     };
-  }, [signature]);
+  });
 
   const rosters = useMemo(
     () =>

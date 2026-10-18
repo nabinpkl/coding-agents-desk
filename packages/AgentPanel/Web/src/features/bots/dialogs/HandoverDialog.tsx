@@ -1,7 +1,9 @@
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, type FormEvent } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import { handoverDestination, HANDOVER_LABELS } from "@/features/bots/sessionHandover";
+import { useModal } from "@/hooks/dom/overlays";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /**
  * What is being handed over, and where the reader was when they asked.
@@ -36,23 +38,12 @@ export function HandoverDialog({
 }) {
   const destination = request ? handoverDestination(request.session) : null;
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [message, setMessage] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useStateFor(request, () => "");
+  const [pending, setPending] = useStateFor(request, () => false);
+  const [error, setError] = useStateFor<string | null>(request, () => null);
 
-  useEffect(() => {
-    if (!request) return;
-    setMessage("");
-    setPending(false);
-    setError(null);
-  }, [request]);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !request || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, [request]);
+  useModal(dialogRef, Boolean(request), { attributeFallback: true });
 
   if (!request || !destination) return null;
 

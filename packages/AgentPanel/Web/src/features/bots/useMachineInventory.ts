@@ -12,9 +12,11 @@
 // the sidecar's finite stream budget (see `subscribeInventory` for what ran out of it first) on a
 // list nobody is looking at.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { machineFeedKey, type BotMachine } from "@/features/bots/botMachines";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useSubscription } from "@/hooks/useSubscription";
 
 export interface MachineInventory {
   projects: ProjectSummary[];
@@ -46,7 +48,6 @@ export function useMachineInventory(
   machine: BotMachine | null,
   projectPaths: readonly string[],
 ): MachineInventory {
-  const [state, setState] = useState<MachineInventory>(NOTHING);
   // The subscription's identity rather than its argument, the same rule `useProjectInventory`
   // follows and for the same reason: the sidecar reads the set when the stream opens, so a
   // re-render that rebuilt the array must not reopen it. NUL is the one byte a POSIX path cannot
@@ -54,14 +55,16 @@ export function useMachineInventory(
   const pathKey = useMemo(() => [...new Set(projectPaths)].sort().join("\0"), [projectPaths]);
   const key = machine === null ? null : `${machineFeedKey(machine)}${pathKey}`;
 
-  useEffect(() => {
-    if (machine === null) {
-      setState(NOTHING);
-      return;
-    }
+  // Starts over for each machine, data source and set of paths: nothing yet, and loading.
+  const [state, setState] = useStateFor<MachineInventory>(key, () =>
+    machine === null ? NOTHING : { projects: [], sessionsByProject: new Map(), loading: true, error: null });
+  // Keyed on the machine, its data source and the paths rather than on the objects: a re-render
+  // that rebuilt either must not tear down and reopen the stream underneath an open dialog, and a
+  // data source swapped in by a save must not leave the stream on the one it replaced.
+  useSubscription(key, () => {
+    if (machine === null) return;
     let live = true;
     const paths = pathKey === "" ? [] : pathKey.split("\0");
-    setState({ projects: [], sessionsByProject: new Map(), loading: true, error: null });
     const stop = machine.feed.subscribeInventory(
       paths,
       {
@@ -86,10 +89,7 @@ export function useMachineInventory(
       live = false;
       stop();
     };
-    // Keyed on the machine, its data source and the paths rather than on the objects: a re-render
-    // that rebuilt either must not tear down and reopen the stream underneath an open dialog, and a
-    // data source swapped in by a save must not leave the stream on the one it replaced.
-  }, [key]);
+  });
 
   return state;
 }

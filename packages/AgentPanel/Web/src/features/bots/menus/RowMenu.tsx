@@ -1,7 +1,10 @@
 import { EllipsisVertical, type LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { placePopup, triggerIsVisible, type Placement } from "@/features/bots/menus/anchoredPlacement";
+import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 export interface RowMenuItem {
   label: string;
@@ -34,23 +37,15 @@ export interface RowMenuItem {
 export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
   const [open, setOpen] = useState(false);
   /** Null until the layout pass has measured; the menu stays invisible until then. */
-  const [placement, setPlacement] = useState<Placement | null>(null);
+  // Dropped on close, so a menu reopened after the page moved is never placed from before.
+  const [placement, setPlacement] = useStateFor<Placement | null>(open, () => null);
   const menu = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (menu.current?.contains(target) || trigger.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
+  useDismissOnOutsidePress(open, [menu, trigger], () => setOpen(false));
 
   // The keyboard has to land on the action without tabbing through the rest of the roster.
-  useEffect(() => {
+  useDomSync(() => {
     if (!open) return;
     menu.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   }, [open]);
@@ -70,29 +65,13 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
 
   // Before paint, so the menu is measured and placed in the same commit that opens it rather than
   // appearing at the top-left corner for a frame.
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    reposition();
-    // Every scroller, not just the page: `capture` is what hears a scroll event, which does not
-    // bubble. Without this the menu stays where the row USED to be the moment the canvas moves.
-    globalThis.addEventListener?.("scroll", reposition, true);
-    globalThis.addEventListener?.("resize", reposition);
-    return () => {
-      globalThis.removeEventListener?.("scroll", reposition, true);
-      globalThis.removeEventListener?.("resize", reposition);
-    };
-  }, [open, reposition]);
+  useOverlayPlacement(open, () => reposition(), [reposition]);
 
   const close = (restoreFocus = true) => {
     setOpen(false);
     if (restoreFocus) globalThis.requestAnimationFrame?.(() => trigger.current?.focus());
   };
 
-  // Dropped on close rather than kept, so a menu reopened after the page moved is never placed
-  // from where the row was last time.
-  useEffect(() => {
-    if (!open) setPlacement(null);
-  }, [open]);
 
   return (
     <span className="shrink-0">
