@@ -62,7 +62,10 @@
         "**/AgentPanel/Web/src/features/workspace-ide/editor/usePdfJs.ts",
         // A tmux pane's composer box: the debounced push of the draft into the pane, which a
         // submit cancels by hand.
-        "**/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts"
+        "**/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts",
+        // A Mac window's composer field, through the host's accessibility watch: the focus-gated
+        // watch, and the debounced push of the draft into it, which a send cancels by hand.
+        "**/AgentPanel/Web/src/features/session-view/composer/useWindowComposer.ts"
       ],
       "rules": { "eslint/no-restricted-imports": "off" }
     },
@@ -116,7 +119,6 @@
         "**/AgentPanel/Web/src/features/bots/useBots.ts",
         "**/AgentPanel/Web/src/features/bots/useMachineInventory.ts",
         "**/AgentPanel/Web/src/features/bots/useMissingSessionLog.ts",
-        "**/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewer.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerControls.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSettings.tsx",
@@ -133,19 +135,6 @@
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useScrollStripGestures.ts",
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useTrackpadGestures.ts",
         "**/AgentPanel/Web/src/features/profile/useStaleSessions.ts",
-        "**/AgentPanel/Web/src/features/session-view/composer/question/AskUserQuestionMirror.tsx",
-        "**/AgentPanel/Web/src/features/session-view/composer/question/useTmuxQuestion.ts",
-        "**/AgentPanel/Web/src/features/session-view/composer/question/useWindowQuestion.ts",
-        "**/AgentPanel/Web/src/features/session-view/composer/SessionComposer.tsx",
-        "**/AgentPanel/Web/src/features/session-view/composer/useAutoGrowingTextArea.ts",
-        "**/AgentPanel/Web/src/features/session-view/composer/useComposerFileDrop.ts",
-        "**/AgentPanel/Web/src/features/session-view/composer/useComposerHold.ts",
-        "**/AgentPanel/Web/src/features/session-view/composer/useOpencodeCommands.ts",
-        "**/AgentPanel/Web/src/features/session-view/composer/useWindowComposer.ts",
-        "**/AgentPanel/Web/src/features/session-view/OpencodeAsideDialog.tsx",
-        "**/AgentPanel/Web/src/features/session-view/SessionModal.tsx",
-        "**/AgentPanel/Web/src/features/session-view/SessionView.tsx",
-        "**/AgentPanel/Web/src/features/session-view/StartedSessionModal.tsx",
         "**/AgentPanel/Web/src/features/terminal/AgentTerminalPane.tsx",
         "**/AgentPanel/Web/src/features/terminal/canvas/strip/TerminalChildCard.tsx",
         "**/AgentPanel/Web/src/features/terminal/canvas/strip/TerminalParentCard.tsx",

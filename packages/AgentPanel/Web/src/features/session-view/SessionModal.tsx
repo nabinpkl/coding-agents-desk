@@ -9,12 +9,14 @@
 // the body at z-50, and anything outside the top layer paints under it whatever its z-index.
 
 import { LayoutDashboard, LoaderCircle, X } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView } from "@/features/session-view/SessionView";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useMountEffect } from "@/hooks/useMountEffect";
 
 /** Escape belongs to whatever is being typed in, which may be a session's own composer. */
 function isEditable(target: EventTarget | null): boolean {
@@ -84,24 +86,20 @@ export function SessionModal({
   };
 
   // Focus moves in on open and back to whatever held it on close, the way a dialog's does.
-  useEffect(() => {
+  useMountEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButton.current?.focus();
     return () => previous?.focus();
-  }, []);
+  });
 
   // On the document rather than the overlay: on a phone the drawer this was picked from closes in
   // the same moment and hands focus back to its own trigger, outside this box, so a key handler
   // here would never hear the key.
-  useEffect(() => {
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || isEditable(event.target)) return;
-      event.preventDefault();
-      onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  useEventListener<globalThis.KeyboardEvent>(document, "keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || isEditable(event.target)) return;
+    event.preventDefault();
+    onClose();
+  });
 
   return createPortal(
     <div

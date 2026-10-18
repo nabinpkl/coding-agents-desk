@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 
 /**
  * A textarea that grows with its content instead of scrolling inside a fixed single row.
@@ -35,25 +37,19 @@ export function useAutoGrowingTextArea(value: string): (element: HTMLTextAreaEle
     element.scrollTop = scrolled;
   }, []);
 
-  useEffect(measure, [measure, value]);
+  useDomSync(measure, [measure, value]);
 
-  useEffect(() => {
-    const element = ref.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    // Width only. Observing the field it also resizes would otherwise feed its own height changes
-    // back in as fresh observations. Starts unset rather than at a measured width, because the
-    // observer reports the content box and nothing here has read that box yet.
-    let observed: number | null = null;
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
-      if (width === undefined || width === observed) return;
-      const first = observed === null;
-      observed = width;
-      if (!first) measure();
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [measure]);
+  // Width only. Observing the field it also resizes would otherwise feed its own height changes
+  // back in as fresh observations. Starts unset rather than at a measured width, because the
+  // observer reports the content box and nothing here has read that box yet.
+  const observed = useRef<number | null>(null);
+  useResizeObserver(ref, (entry) => {
+    const width = entry.contentRect.width;
+    if (width === observed.current) return;
+    const first = observed.current === null;
+    observed.current = width;
+    if (!first) measure();
+  });
 
   return useCallback(
     (element: HTMLTextAreaElement | null) => {

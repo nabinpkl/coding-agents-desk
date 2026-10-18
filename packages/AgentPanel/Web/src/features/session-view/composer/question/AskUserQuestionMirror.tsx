@@ -19,7 +19,7 @@
 // panel click by click. They differ because the two dialogs differ, and the rendering does not
 // need to know which one it is attached to.
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -83,7 +83,7 @@ export function AskUserQuestionMirror({
   // Which question is on screen. Transient view state, so it lives here rather than in the draft:
   // the band gives this component the call's id as its key, so a new call starts back at the first
   // question without an effect to say so.
-  const [at, setAt] = useState(0);
+  const [at, setAt] = useState(() => paneAt ?? 0);
   // Folded away, and folded back out again. The band does not scroll and sits between the
   // transcript and the composer, so a question with four options and a preview on each takes the
   // conversation it is about down to a sliver -- and a reader who wants to go back and READ before
@@ -101,9 +101,11 @@ export function AskUserQuestionMirror({
   // Keyed on the pane's own index rather than run every render, so paging by hand still works --
   // it holds until the terminal actually moves, which is the point at which following it is what
   // a reader wants.
-  useEffect(() => {
+  const [followed, setFollowed] = useState(paneAt);
+  if (followed !== paneAt) {
+    setFollowed(paneAt);
     if (paneAt !== null && paneAt !== undefined) setAt(paneAt);
-  }, [paneAt]);
+  }
   const inert = pending || disabled;
   const many = questions.length > 1;
   const shown = Math.min(at, Math.max(questions.length - 1, 0));

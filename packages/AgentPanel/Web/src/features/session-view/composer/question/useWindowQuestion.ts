@@ -9,7 +9,7 @@
 // does with a call carrying several, so it answers the FIRST and the band says so. The tmux half
 // next door answers all of them, because its dialog was measured.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   type QuestionPanelStatus,
   type WindowComposerClient,
@@ -17,6 +17,11 @@ import {
 } from "@/features/window-composer/WindowComposerClient";
 import type { AskUserQuestionItem, OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { composerReasonText } from "@/features/session-view/SessionTerminalControls";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { useLeaveEffect } from "@/hooks/useMountEffect";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 /**
  * The AskUserQuestion mirror's mechanism, mirroring the composer hook's shape.
@@ -39,36 +44,25 @@ export function useWindowQuestion(
 ) {
   // The Desktop panel is single-pane, so this half only ever acts on the first question of a call.
   const asked: AskUserQuestionItem | null = question?.questions[0] ?? null;
-  const [status, setStatus] = useState<QuestionPanelStatus | null>(null);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
-  const [otherText, setOtherText] = useState("");
-  const selectedRef = useRef<number[]>([]);
-  const otherTextRef = useRef("");
-  const otherEdited = useRef(false);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    selectedRef.current = selected;
-  }, [selected]);
-  useEffect(() => {
-    otherTextRef.current = otherText;
-  }, [otherText]);
-
   // A new question (new callId) starts a fresh mirror: no carried-over selection or
   // Other text from the previous question, and a fresh status read on the new watch.
-  useEffect(() => {
-    setStatus(null);
-    setError(null);
-    setSelected([]);
-    setOtherText("");
+  const callId = question?.callId;
+  const [status, setStatus] = useStateFor<QuestionPanelStatus | null>(callId, () => null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useStateFor<string | null>(callId, () => null);
+  const [selected, setSelected] = useStateFor<number[]>(callId, () => []);
+  const [otherText, setOtherText] = useStateFor(callId, () => "");
+  const selectedRef = useLatestRef(selected);
+  const otherTextRef = useLatestRef(otherText);
+  const otherEdited = useRef(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useLeaveEffect(callId, () => {
     otherEdited.current = false;
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
       debounceTimer.current = null;
     }
-  }, [question?.callId]);
+  });
 
   const reportFailure = useCallback((failure: unknown) => {
     setError(
@@ -112,10 +106,9 @@ export function useWindowQuestion(
     [adoptFromResult, reportFailure],
   );
 
-  useEffect(() => {
-    if (!active) return;
-    return host.subscribeWindowQuestion(sessionId, adoptFromStatus);
-  }, [active, adoptFromStatus, host, sessionId]);
+  const adopt = useLatestRef(adoptFromStatus);
+  useSubscription(active ? `${sourceKey(host)}:${sessionId}` : null, () =>
+    host.subscribeWindowQuestion(sessionId, (next) => adopt.current(next)));
 
   const selectOption = useCallback(
     (index: number) => {

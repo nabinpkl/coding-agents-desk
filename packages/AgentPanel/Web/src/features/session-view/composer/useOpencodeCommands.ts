@@ -11,10 +11,12 @@
  * decides what the menu shows of it and what a typed draft resolves to.
  */
 
-import { useEffect, useState } from "react";
 import type { ComposerCommand } from "@agentdesk/agent-feed-wire";
 import type { OpencodeSlashCommand } from "@/features/activity-feed/data-source/SidecarAgentSessions";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
+
+const NO_COMMANDS: readonly OpencodeSlashCommand[] = [];
 
 export type { OpencodeSlashCommand };
 
@@ -22,22 +24,17 @@ export function useOpencodeCommands(
   feed: SidecarDataSource,
   session: { source: string; sessionId: string } | null,
 ): readonly OpencodeSlashCommand[] {
-  const [commands, setCommands] = useState<readonly OpencodeSlashCommand[]>([]);
   const source = session?.source;
   const sessionId = session?.sessionId;
-  useEffect(() => {
-    if (source !== "opencode" || !sessionId) return;
-    let live = true;
-    feed.listOpencodeCommands().then(
-      (list) => {
-        if (live) setCommands(list);
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
-  }, [feed, source, sessionId]);
+  // Read again for each opencode session opened. A list that cannot be read offers nothing, and
+  // the last list read stands while the next one is asked for.
+  const listed = usePanelQuery({
+    queryKey: ["opencode-commands", sourceKey(feed), sessionId],
+    queryFn: () => feed.listOpencodeCommands(),
+    enabled: source === "opencode" && Boolean(sessionId),
+    placeholderData: (previous) => previous,
+  });
+  const commands = listed.data ?? NO_COMMANDS;
   return commands;
 }
 

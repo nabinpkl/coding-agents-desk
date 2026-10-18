@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import type {
@@ -42,6 +37,8 @@ import type {
   SessionViewContext,
   TerminalState,
 } from "@/features/session-view/sessionTerminalTypes";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 // Re-exported: the app and the canvas both hand a session view its context by this name.
 export type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
@@ -223,10 +220,11 @@ function SessionViewContent({
    * name, or at a collapsed card, would never reach a handler installed here. Same reasoning as
    * `controlsHost`: what this view knows, the surface places.
    */
-  useEffect(() => {
-    onAcceptFiles(fileDrop?.accept ?? null);
+  const accept = fileDrop?.accept ?? null;
+  useSubscription(`${sourceKey(onAcceptFiles)}:${accept ? sourceKey(accept) : "none"}`, () => {
+    onAcceptFiles(accept);
     return () => onAcceptFiles(null);
-  }, [onAcceptFiles, fileDrop]);
+  });
 
   const summary = useSummary(feed, { source, sessionId });
   // Whether this is a Claude Code process in someone's terminal, which is what decides between the
@@ -254,8 +252,8 @@ function SessionViewContent({
   // Extension-UI prompts arrive on the open thread's own stream, so they need no session filter
   // here and cannot outlive the thread that asked them: this view is keyed on the session, so
   // leaving one unmounts the subscription along with whatever was still on screen.
-  useEffect(
-    () => feed.subscribeExtensionUI((event) => {
+  useSubscription(`extension-ui:${sourceKey(feed)}`, () =>
+    feed.subscribeExtensionUI((event) => {
       if (event.type === "dismiss") {
         setExtensionUI((current) => current.filter((item) => item.requestId !== event.requestId));
         return;
@@ -270,9 +268,7 @@ function SessionViewContent({
         const notices = next.filter((item) => !item.expectsResponse).slice(-8);
         return [...notices, ...prompts];
       });
-    }),
-    [feed],
-  );
+    }));
 
   const openTerminal = useCallback(() => {
     if (!isTerminalSource(source) || !capabilities.canOpenTerminal) return;

@@ -9,7 +9,9 @@
  * because an opencode session holds its picks itself and sends them with its turn.
  */
 
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 export function useComposerFileDrop(options: {
   isClaude: boolean;
@@ -38,10 +40,10 @@ export function useComposerFileDrop(options: {
     : holdsForSend
       ? holdForSend
       : null;
-  useEffect(() => {
-    // Null unregisters, which is how sessions with nowhere to put an image stand down.
+  // Null unregisters, which is how sessions with nowhere to put an image stand down.
+  useSubscription(`${sourceKey(onFileDrop)}:${fileAccept ? sourceKey(fileAccept) : "none"}`, () => {
     onFileDrop(fileAccept ? { accept: fileAccept } : null);
     return () => onFileDrop(null);
-  }, [fileAccept, onFileDrop]);
+  });
   return fileAccept;
 }

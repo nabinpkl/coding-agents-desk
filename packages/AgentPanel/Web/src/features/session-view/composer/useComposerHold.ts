@@ -28,7 +28,7 @@
  * their own draft, keep it across a reload already, and must not be second-guessed by a copy.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ComposerImage } from "@/features/cli-input/tmuxComposerHandle";
 import { base64FromBlob } from "@/features/activity-feed/data-source/layers/SidecarComposers";
 import {
@@ -37,6 +37,7 @@ import {
   readHeldImages,
   removeHeldImage,
 } from "@/features/session-view/composer/heldImagesStore";
+import { useSubscription } from "@/hooks/useSubscription";
 
 export interface SendableImage extends ComposerImage {
   blob: Blob;
@@ -96,10 +97,11 @@ export function useSendAttachments(sessionKey: string) {
   const keyRef = useRef(sessionKey);
   keyRef.current = sessionKey;
 
-  useEffect(() => {
+  // The strip is already this session's and empty, thanks to the render-time adjustment above;
+  // all that is left is to read this session's own images back into it, and to let their URLs go
+  // when the session is left.
+  useSubscription(sessionKey, () => {
     let current = true;
-    // The strip is already this session's and empty, thanks to the render-time adjustment
-    // above; all that is left is to read this session's own images back into it.
     void readHeldImages(sessionKey).then(
       (restored) => {
         if (!current || keyRef.current !== sessionKey) return;
@@ -120,7 +122,7 @@ export function useSendAttachments(sessionKey: string) {
       for (const url of minted.current) URL.revokeObjectURL(url);
       minted.current.clear();
     };
-  }, [sessionKey]);
+  });
 
   const attach = useCallback(async (files: readonly File[]) => {
     const picked = files.filter((file) => file.type.startsWith("image/"));

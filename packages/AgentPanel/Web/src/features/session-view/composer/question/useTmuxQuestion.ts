@@ -13,7 +13,7 @@
 // somebody typed are still in the field they wrote them in, and the outcome's own `keptText` is
 // written back over it -- which is a no-op when they agree and a recovery when they do not.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
@@ -36,6 +36,8 @@ import {
   writeOther,
   type QuestionDraft,
 } from "@/features/session-view/composer/question/questionAnswers";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useLeaveEffect } from "@/hooks/useMountEffect";
 
 /** The one call this needs, named so a test stands in for it without a whole data source. */
 export interface TmuxQuestionSender {
@@ -106,9 +108,11 @@ export function useTmuxQuestion(
 ) {
   const questions: AskUserQuestionItem[] = question?.questions ?? [];
   const count = questions.length;
-  const [drafts, setDrafts] = useState<QuestionDraft[]>(() => emptyDrafts(questions));
+  const callId = question?.callId;
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // A new call starts a fresh draft, and no error. Keyed on the callId rather than on the array,
+  // which is a new object on every render of the feed.
+  const [error, setError] = useStateFor<string | null>(callId, () => null);
 
   /**
    * Which questions this reader has answered here and not yet sent.
@@ -119,29 +123,21 @@ export function useTmuxQuestion(
    * question at a time and the ones still blank are exactly the ones worth filling.
    */
   const touched = useRef(new Set<number>());
-
-  // A new call starts a fresh draft. Keyed on the callId rather than on the array, which is a new
-  // object on every render of the feed.
-  useEffect(() => {
-    setDrafts(emptyDrafts(question?.questions ?? []));
+  useLeaveEffect(callId, () => {
     touched.current = new Set();
-    setError(null);
-  }, [question?.callId]);
+  });
 
   // Follows the terminal, for questions this reader has not answered here. Somebody at that
-  // keyboard may have been part-way through the dialog before the panel was opened on it.
-  useEffect(() => {
-    if (!pane) return;
-    setDrafts((current) =>
-      adoptPaneState(
-        alignDrafts(current, count),
-        questions,
-        pane,
-        (at) => !touched.current.has(at),
-      )
-    );
-    // `questions` is a fresh array on every render of the feed, so the call is keyed by its id.
-  }, [pane, question?.callId]);
+  // keyboard may have been part-way through the dialog before the panel was opened on it. A new
+  // call starts from the pane as it stands; the same call follows each new reading of it.
+  const follow = (current: QuestionDraft[]) =>
+    pane ? adoptPaneState(alignDrafts(current, count), questions, pane, (at) => !touched.current.has(at)) : current;
+  const [drafts, setDrafts] = useStateFor<QuestionDraft[]>(callId, () => follow(emptyDrafts(questions)));
+  const [followedPane, setFollowedPane] = useStateFor(callId, () => pane);
+  if (followedPane !== pane) {
+    setFollowedPane(pane);
+    if (pane) setDrafts(follow);
+  }
 
   // Every write aligns first, because a call's questions arrive rather than existing all at once:
   // the tool_use's input streams into the transcript, and a draft built from the first reading is

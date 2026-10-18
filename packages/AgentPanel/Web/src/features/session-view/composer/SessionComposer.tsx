@@ -3,13 +3,7 @@
 // The band under the transcript: a field, a terminal, or a mirror of a window's own
 // composer, whichever this session's harness makes possible.
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type {
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
@@ -47,6 +41,8 @@ import { useSdkSession } from "@/features/cli-input/useSdkSession";
 import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
 import { useRunModeSwitch } from "@/features/cli-input/useRunModeSwitch";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useLeaveEffect } from "@/hooks/useMountEffect";
 
 export function SessionComposer({
   feed,
@@ -201,8 +197,7 @@ export function SessionComposer({
   //
   // Bounded, which is what makes it affordable: a question is open for part of a turn rather than
   // for the life of a session, and only the session this band is rendered for has one watched.
-  const [engaged, setEngaged] = useState(false);
-  useEffect(() => setEngaged(false), [source, sessionId]);
+  const [engaged, setEngaged] = useStateFor(`${source}/${sessionId}`, () => false);
   const engage = useCallback(() => setEngaged(true), []);
   // Held here rather than in the pane: an opencode session has no pane, so picked images wait
   // for the send instead. Keyed by the session, so a strip never rides into another thread and
@@ -294,7 +289,9 @@ export function SessionComposer({
    */
   const filePicker = useRef<HTMLInputElement>(null);
   const previousTransport = useRef(transport.kind);
-  useEffect(() => {
+  // When the field changes owner, what it held moves to the new one. Run as the old transport is
+  // left, with the values of the render that replaced it.
+  useLeaveEffect(transport.kind, () => {
     if (previousTransport.current === "window" && transport.kind !== "window") {
       setLocalDraft((current) => current.length > 0 ? current : windowComposer.draft);
       windowComposer.stopWatching();
@@ -311,14 +308,7 @@ export function SessionComposer({
       setLocalDraft("");
     }
     previousTransport.current = transport.kind;
-  }, [
-    localDraft,
-    transport.kind,
-    tmuxComposer.change,
-    tmuxComposer.draft,
-    windowComposer.draft,
-    windowComposer.stopWatching,
-  ]);
+  });
   // The two mirrored transports own their own draft, because it is half of a value something
   // outside this component holds the other half of. Everything else composes locally.
   const editorValue = windowBand

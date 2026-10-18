@@ -6,9 +6,11 @@
 // answer is transient by design, so it is shown here rather than appended anywhere: this
 // question deliberately does not join the conversation.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { LoaderCircle, X } from "lucide-react";
 import type { OpencodeAside } from "@/features/session-view/usePanelCommands";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 export function OpencodeAsideDialog({
   aside,
@@ -19,14 +21,14 @@ export function OpencodeAsideDialog({
   onAsk: (question: string) => void;
   onClose: () => void;
 }) {
-  const [question, setQuestion] = useState(aside.question);
+  // Both follow the aside whenever it moves on.
+  const asked = JSON.stringify([aside.question, aside.answer]);
+  const [question, setQuestion] = useStateFor(asked, () => aside.question);
   const field = useRef<HTMLTextAreaElement | null>(null);
-  // The question the answer belongs to, so a second ask does not leave the first answer on
-  // screen beside the new question while it is still loading.
-  const [answered, setAnswered] = useState<string | null>(aside.answer);
-  useEffect(() => {
-    setQuestion(aside.question);
-    setAnswered(aside.answer);
+  // The answer to the question asked: a second ask arrives with no answer, so the first one does
+  // not stay on screen beside the new question while it loads.
+  const answered = aside.answer;
+  useDomSync(() => {
     if (!aside.question) field.current?.focus();
   }, [aside.question, aside.answer]);
 

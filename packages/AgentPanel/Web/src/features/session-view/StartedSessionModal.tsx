@@ -16,7 +16,7 @@
 // composer sending through the runner, and is handed over the same way.
 
 import { SquareTerminal, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectSummary, SessionSummary, StartedSourceSession } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -25,6 +25,8 @@ import { SessionModal } from "@/features/session-view/SessionModal";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
+import { useMountEffect } from "@/hooks/useMountEffect";
+import { useNotify } from "@/hooks/useNotify";
 
 /** A session this panel started, and whether it runs through the SDK runner rather than the terminal. */
 export type StartedNewSession = StartedSourceSession & { sdk: boolean };
@@ -68,19 +70,20 @@ export function StartedSessionModal({
   const closeButton = useRef<HTMLButtonElement>(null);
   const [body, setBody] = useState<HTMLElement | null>(null);
 
-  useEffect(() => {
-    const session = sessionsByProject.get(started.projectPath)?.find(
-      (entry) => entry.source === started.source && entry.sessionId === started.sessionId,
-    );
-    if (!session) return;
-    onListed(projectOf(started, projects, session.lastEventAt), session);
-  }, [onListed, projects, sessionsByProject, started]);
+  const listed = sessionsByProject.get(started.projectPath)?.find(
+    (entry) => entry.source === started.source && entry.sessionId === started.sessionId,
+  ) ?? null;
+  // The catalog listing it is what hands the session over to the ordinary session modal.
+  useNotify(listed, (session) => {
+    if (session) onListed(projectOf(started, projects, session.lastEventAt), session);
+  });
 
-  useEffect(() => {
+  // Focus moves in on open and back to whatever held it on close, the way a dialog's does.
+  useMountEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButton.current?.focus();
     return () => previous?.focus();
-  }, []);
+  });
 
   // Not rebuilt on every render: the view keys its effects on the objects it is handed.
   const awaited = useMemo(
