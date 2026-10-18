@@ -1,9 +1,9 @@
 // Archiving a whole project folder, and archiving every session in one.
 //
 // Two different things on purpose. Archiving the folder files the folder itself: the project
-// leaves the list and every session in it reads as archived, including one started there later.
-// Archiving its sessions files each stopped session one by one, in one write, and leaves the folder
-// listed, so a session started there tomorrow shows up as usual.
+// leaves the list and every session in it reads as archived, until one is written to again, which
+// brings the folder back holding just that session (`sessionArchive.ts`). Archiving its sessions
+// files each stopped session one by one, in one write, and leaves the folder listed.
 //
 // Both keep the session rule that archived means nobody is working in it: the folder is refused
 // while any session in it is running, and the bulk archive leaves running sessions where they are

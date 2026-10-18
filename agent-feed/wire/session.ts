@@ -45,6 +45,8 @@ export interface ProjectSummary {
    *
    * Every session in an archived folder reads as archived too (`SessionSummary.archivedAt`), so
    * the folder leaves every list at once, and the project list offers it back under its own fold.
+   * Absent again while a session written there since the folder was archived is showing: the
+   * folder is listed so that session has a row to be reached from.
    */
   archivedAt?: number;
 }
@@ -73,8 +75,9 @@ export interface SessionSummary {
    *
    * Archived is ours, not the provider's (`session-archive.json` beside `bots.json`): every surface
    * hides the row, and the project list offers it back under its own toggle. Every session in an
-   * archived project folder carries the folder's time when it has none of its own. A Bot view never
-   * carries one, because the sidecar leaves archived sessions out of Bot views altogether.
+   * archived project folder carries the folder's time when it has none of its own, unless it was
+   * written to after the folder was archived. A Bot view never carries one, because the sidecar
+   * leaves archived sessions out of Bot views altogether.
    */
   archivedAt?: number;
   /**

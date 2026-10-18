@@ -101,15 +101,15 @@ test("archives many sessions in one write and counts only the new ones", async (
   expect(await store.archiveMany([REF, other])).toBe(0);
 });
 
-test("archives a project folder, keeps its first timestamp, and unarchives it", async () => {
+test("archives a project folder, moves its time forward when archived again, and unarchives it", async () => {
   const path = await archivePath();
   const store = new SessionArchiveStore(path);
   expect(await store.archiveProject("/repo", 3)).toBe(3);
-  expect(await store.archiveProject("/repo", 4)).toBe(3);
-  expect(JSON.parse(await readFile(path, "utf8")).projects).toEqual([{ projectPath: "/repo", archivedAt: 3 }]);
+  expect(await store.archiveProject("/repo", 4)).toBe(4);
+  expect(JSON.parse(await readFile(path, "utf8")).projects).toEqual([{ projectPath: "/repo", archivedAt: 4 }]);
   const reread = new SessionArchiveStore(path);
   await reread.ready();
-  expect(reread.projectArchivedAt("/repo")).toBe(3);
+  expect(reread.projectArchivedAt("/repo")).toBe(4);
   expect(await store.unarchiveProject("/repo")).toBe(true);
   expect(store.projectArchivedAt("/repo")).toBeUndefined();
   expect(await store.unarchiveProject("/repo")).toBe(false);
@@ -122,7 +122,7 @@ test("an archived folder archives every session in it and marks the project, wit
   installSessionArchive(store);
   try {
     const own = { ...REF, project: "/repo", lastEventAt: 2 };
-    const later = { source: "claude" as const, sessionId: "started-later", project: "/repo", lastEventAt: 3 };
+    const later = { source: "claude" as const, sessionId: "quiet", project: "/repo", lastEventAt: 3 };
     const elsewhere = { source: "claude" as const, sessionId: "elsewhere", project: "/other", lastEventAt: 1 };
     expect(summarizeSession(own).archivedAt).toBe(10);
     expect(summarizeSession(later).archivedAt).toBe(20);
@@ -135,6 +135,32 @@ test("an archived folder archives every session in it and marks the project, wit
     await store.unarchiveProject("/repo");
     expect(summarizeSession(own).archivedAt).toBe(10);
     expect("archivedAt" in summarizeSession(later)).toBe(false);
+  } finally {
+    installSessionArchive(null);
+  }
+});
+
+test("a session written to since its folder was archived shows again, with its folder listed, until the folder is archived again", async () => {
+  const store = new SessionArchiveStore(await archivePath());
+  await store.archive(REF, 10);
+  await store.archiveProject("/repo", 20);
+  installSessionArchive(store);
+  try {
+    const quiet = { source: "claude" as const, sessionId: "quiet", project: "/repo", lastEventAt: 20 };
+    const resumed = { source: "claude" as const, sessionId: "resumed", project: "/repo", lastEventAt: 25 };
+    // Its own entry still wins: a session archived on its own stays archived over new writes.
+    const ownLater = { ...REF, project: "/repo", lastEventAt: 30 };
+    expect(summarizeSession(quiet).archivedAt).toBe(20);
+    expect("archivedAt" in summarizeSession(resumed)).toBe(false);
+    expect(summarizeSession(ownLater).archivedAt).toBe(10);
+    expect(mostRecentSessions([ownLater, resumed, quiet], 10).sessions).toEqual([resumed]);
+    expect("archivedAt" in projectSummaries([ownLater, resumed, quiet])[0]!).toBe(false);
+    // Only a session the reader has archived on its own does not bring the folder back.
+    expect(projectSummaries([ownLater, quiet])[0]!.archivedAt).toBe(20);
+
+    await store.archiveProject("/repo", 40);
+    expect(summarizeSession(resumed).archivedAt).toBe(40);
+    expect(projectSummaries([ownLater, resumed, quiet])[0]!.archivedAt).toBe(40);
   } finally {
     installSessionArchive(null);
   }

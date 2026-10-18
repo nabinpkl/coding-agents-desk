@@ -51,10 +51,16 @@ The rules that come with it:
 Two actions on a project row, both in the same file (now version 2, with a `projects` list):
 
 - **Archive folder** files the folder itself. The project leaves the list and every session in it
-  reads as archived, including one started there after the folder was filed: the same "stays
-  archived" rule, applied to the folder. Refused with 409 while any session in it is running. The
-  sessions' own entries are untouched, so Unarchive (from an "Archived projects (n)" fold below the
-  project list) brings back exactly what was showing before.
+  reads as archived. Refused with 409 while any session in it is running. The sessions' own
+  entries are untouched, so Unarchive (from an "Archived projects (n)" fold below the project
+  list) brings back exactly what was showing before.
+- **Unlike a single session, a folder does not stay archived over new work.** A session written to
+  after the folder was archived shows again, and the folder is listed holding just that session.
+  Because the folder was refused while anything ran, newer writes mean work started or resumed
+  there since, and a folder of old sessions is the place new work is likeliest to start; hiding it
+  would break "never hides work in progress". Written-since rather than the live bin, so the
+  session does not vanish again when its turn ends. Archiving the folder again moves its time
+  forward and files that session with the rest.
 - **Archive all sessions** archives every stopped session in the folder in one write and leaves
   the folder listed, so a session started there later shows as usual. Running sessions are left
   alone and counted in the answer rather than refusing the whole request.

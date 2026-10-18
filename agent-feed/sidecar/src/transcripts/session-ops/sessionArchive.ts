@@ -5,9 +5,13 @@
 // session that is written to again stays archived; only Unarchive brings it back.
 //
 // An archived project is the same decision made for a whole folder: the project leaves the list,
-// and every session in it reads as archived, including one started there after the folder was
-// filed. Its sessions keep their own entries, so unarchiving the folder brings back exactly the
-// sessions that were showing before it was archived.
+// and every session in it reads as archived. Its sessions keep their own entries, so unarchiving
+// the folder brings back exactly the sessions that were showing before it was archived.
+//
+// Except a session written to since the folder was archived. Archiving a folder is refused while
+// anything in it runs, so a session with newer writes is work started or resumed there afterwards,
+// and hiding it would hide work in progress. It shows again, and its folder comes back to the list
+// holding it, until the reader archives the folder again, which moves the folder's time forward.
 //
 // The file is the authority, and it lives beside `bots.json` (`config.sessionArchivePath`). This
 // process keeps a copy in memory so a row can be summarized without a read, re-reads the file
@@ -142,12 +146,14 @@ export class SessionArchiveStore {
     });
   }
 
-  /** Archives a project folder, keeping the first timestamp when it already was. */
+  /**
+   * Archives a project folder. Archiving it again moves its time forward, which is how a session
+   * written there since the last time is filed away with the rest.
+   */
   archiveProject(projectPath: string, now = Date.now()): Promise<number> {
     return this.mutate((archive) => {
-      const existing = archive.projects.find((entry) => entry.projectPath === projectPath);
-      if (existing) return { archive, value: existing.archivedAt };
-      return { archive: { ...archive, projects: [...archive.projects, { projectPath, archivedAt: now }] }, value: now };
+      const kept = archive.projects.filter((entry) => entry.projectPath !== projectPath);
+      return { archive: { ...archive, projects: [...kept, { projectPath, archivedAt: now }] }, value: now };
     });
   }
 
@@ -219,11 +225,16 @@ export function installSessionArchive(store: SessionArchiveStore | null): void {
 }
 
 /**
- * When a session reads as archived: its own entry, or else its project folder's. A session inside
- * an archived folder is archived whether or not it has an entry of its own.
+ * When a session reads as archived: its own entry, or else its project folder's, unless it has
+ * been written to since the folder was archived (the header says why).
  */
-export function sessionArchivedAt(session: { source: string; sessionId: string; project: string }): number | undefined {
-  return installed?.archivedAt(session.source, session.sessionId) ?? installed?.projectArchivedAt(session.project);
+export function sessionArchivedAt(
+  session: { source: string; sessionId: string; project: string; lastEventAt: number },
+): number | undefined {
+  const own = installed?.archivedAt(session.source, session.sessionId);
+  if (own !== undefined) return own;
+  const folder = installed?.projectArchivedAt(session.project);
+  return folder !== undefined && session.lastEventAt <= folder ? folder : undefined;
 }
 
 export function projectArchivedAt(projectPath: string): number | undefined {

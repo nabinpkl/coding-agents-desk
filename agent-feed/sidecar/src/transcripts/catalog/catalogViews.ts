@@ -80,7 +80,11 @@ function reportSlowDerivation(
 function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
   const startedAt = performance.now();
   const grouped = new Map<string, ProjectSummary>();
+  // Folders with a session showing in them. An archived folder holding one is listed, not folded
+  // away, or that session would be on the canvas with no row in the project list to reach it from.
+  const showing = new Set<string>();
   for (const session of sessions) {
+    if (sessionArchivedAt(session) === undefined) showing.add(session.project);
     let project = grouped.get(session.project);
     if (!project) {
       project = {
@@ -98,7 +102,7 @@ function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
   }
   for (const project of grouped.values()) {
     const archivedAt = projectArchivedAt(project.projectPath);
-    if (archivedAt !== undefined) project.archivedAt = archivedAt;
+    if (archivedAt !== undefined && !showing.has(project.projectPath)) project.archivedAt = archivedAt;
   }
   const projects = [...grouped.values()].sort((left, right) =>
     right.lastEventAt - left.lastEventAt || left.projectPath.localeCompare(right.projectPath)
