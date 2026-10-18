@@ -3,6 +3,7 @@ import type { BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
 import {
   indexBotMachines,
   indexSessionMachines,
+  machineFeedKey,
   machineKey,
   mergeMachineBots,
   type BotMachine,
@@ -57,17 +58,6 @@ export interface BotRosterState {
   machineErrors: MachineError[];
 }
 
-/** A number per data source for the life of the page, so a subscription can tell two apart. */
-const feedIds = new WeakMap<object, number>();
-let lastFeedId = 0;
-function feedId(feed: object): number {
-  let id = feedIds.get(feed);
-  if (id === undefined) {
-    id = ++lastFeedId;
-    feedIds.set(feed, id);
-  }
-  return id;
-}
 
 function withoutAbsent<T>(
   current: ReadonlyMap<string, T>,
@@ -98,7 +88,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
   // only rebuilt the array.
   const machinesRef = useRef(machines);
   machinesRef.current = machines;
-  const signature = machines.map((machine) => `${machineKey(machine)}:${feedId(machine.feed)}`).join("\0");
+  const signature = machines.map(machineFeedKey).join("\0");
 
   useEffect(() => {
     const current = machinesRef.current;

@@ -46,6 +46,24 @@ export function machineKey(machine: { readonly id?: string }): string {
   return machine.id ?? "";
 }
 
+const feedIds = new WeakMap<object, number>();
+let lastFeedId = 0;
+
+/**
+ * A machine's identity AND its data source's, for keying a subscription.
+ *
+ * The id alone is not enough: a save to the data source swaps in a fresh one under the same id, and
+ * a subscription keyed on the id alone stays open on the replaced one, running the old code.
+ */
+export function machineFeedKey(machine: { readonly id?: string; readonly feed: object }): string {
+  let id = feedIds.get(machine.feed);
+  if (id === undefined) {
+    id = ++lastFeedId;
+    feedIds.set(machine.feed, id);
+  }
+  return `${machineKey(machine)}:${id}`;
+}
+
 /**
  * Which machine each Bot came from, by `botId`.
  *

@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { machineKey, type BotMachine } from "@/features/bots/botMachines";
+import { machineFeedKey, type BotMachine } from "@/features/bots/botMachines";
 
 export interface MachineInventory {
   projects: ProjectSummary[];
@@ -52,7 +52,7 @@ export function useMachineInventory(
   // re-render that rebuilt the array must not reopen it. NUL is the one byte a POSIX path cannot
   // contain, so the round trip can neither invent nor lose a path.
   const pathKey = useMemo(() => [...new Set(projectPaths)].sort().join("\0"), [projectPaths]);
-  const key = machine === null ? null : `${machineKey(machine)}${pathKey}`;
+  const key = machine === null ? null : `${machineFeedKey(machine)}${pathKey}`;
 
   useEffect(() => {
     if (machine === null) {
@@ -86,9 +86,9 @@ export function useMachineInventory(
       live = false;
       stop();
     };
-    // Keyed on the machine's id and the paths rather than on the objects: a re-render that rebuilt
-    // either must not tear down and reopen the stream underneath an open dialog. Safe because a
-    // machine's feed is built from its id and memoized on it, so one id is always one data source.
+    // Keyed on the machine, its data source and the paths rather than on the objects: a re-render
+    // that rebuilt either must not tear down and reopen the stream underneath an open dialog, and a
+    // data source swapped in by a save must not leave the stream on the one it replaced.
   }, [key]);
 
   return state;
