@@ -16,7 +16,7 @@ import type { HandoverDestination } from "@/features/bots/sessionHandover";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
-import { BOT_SESSION_SHADES, botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
+import { botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
 import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
 
 /** How far a press has to travel before it stops being a click and becomes a carry. */
@@ -182,7 +182,7 @@ export function BotSessionCard({
   // Both or neither, decided in one place so the class and the properties cannot disagree: a card
   // wearing `bot-session-fill` with no `--bot-hue` would resolve the hue it inherited from the Bot
   // card around it and paint step zero of a ladder it is not on.
-  const shaded = botSessionStyle(hue, slot === undefined ? undefined : slot % BOT_SESSION_SHADES);
+  const shaded = botSessionStyle(hue, slot);
   // The rail says which Bot a card belongs to, among the Bot's several. With one session there is
   // no "among", and a rail down the only thing in a container draws a line between a group and
   // itself. The card keeps its shade either way, so it still reads as a card sitting on its Bot.
