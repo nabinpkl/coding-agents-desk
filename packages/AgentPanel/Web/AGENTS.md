@@ -167,7 +167,11 @@ rule says so. A check during render for "did this change" compares the inputs th
 `useMemo`'s identity: the compiler drops a memo whose result is neither returned nor drawn, and the
 canvas roster's prune looped on that. A hand-written `useCallback` or `useMemo` lists every setter and
 ref it uses, because the compiler skips the whole component otherwise, and so does a `finally`
-clause anywhere inside it: that goes through `runWithFinally`.
+clause anywhere inside it: that goes through `runWithFinally`. `panelReact.test.ts` fails on every
+function the compiler would skip. One that cannot be compiled safely opts out with `"use no memo"`
+and the reason beside it: today that is the feed's virtualizer and the two hooks it feeds. A lint
+disable comment that silences nothing fails the gate, because one still hides its function from
+the compiler and from the compiler's own lint rules.
 
 ## Transient states take no space
 

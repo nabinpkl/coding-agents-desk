@@ -174,8 +174,13 @@ fi
 node tools/build-system/ensure-js-dependencies.mjs agent-panel packages/AgentPanel/Web .build/js-dependencies
 # oxlint looks for tsgolint, the type checker behind its type-aware rules, beside the directory it
 # runs in, and this runs from the repository root.
+#
+# A disable comment that silences nothing fails too. Eight once named `react-hooks/exhaustive-deps`,
+# a rule this repo never ran, and each still hid the function it sat in from React Compiler and from
+# the compiler's own lint rules: five findings went unseen behind them.
 if ! OXLINT_TSGOLINT_PATH="$ROOT/packages/AgentPanel/Web/node_modules/.bin/tsgolint" \
     packages/AgentPanel/Web/node_modules/.bin/oxlint -c .oxlintrc.json \
+    --report-unused-disable-directives-severity=error \
     packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/wire; then
     fail "lint failed (rules and the reason for each are in .oxlintrc.json)"
 fi
