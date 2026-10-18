@@ -11,7 +11,7 @@
 // `setBotCanvas`. The rest is how this reader arranged this browser, and `botCanvasPreferences`
 // keeps it.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
@@ -30,6 +30,8 @@ import {
   storeHiddenMachines,
 } from "@/features/bots/canvas/botCanvasPreferences";
 import { loadCanvasZoomMode, storeCanvasZoomMode } from "@/features/bots/canvas/useCanvasZoom";
+import { usePersistentState } from "@/hooks/state/usePersistentState";
+import { useNotify } from "@/hooks/useNotify";
 
 export function useCanvasRoster(
   botsState: {
@@ -115,7 +117,7 @@ export function useCanvasRoster(
   // Which sessions the canvas has open, as `source:sessionId`. Held here rather than inside the
   // canvas because the sidebar's roster opens cards too, and a picker cannot drive state that lives
   // inside the thing it is driving.
-  const [canvasOpenKeys, setCanvasOpenKeys] = useState<ReadonlySet<string>>(loadCanvasOpenKeys);
+  const [canvasOpenKeys, setCanvasOpenKeys] = usePersistentState<ReadonlySet<string>>(loadCanvasOpenKeys, storeCanvasOpenKeys);
   const toggleCanvasSession = useCallback((key: string) => {
     setCanvasOpenKeys((current) => {
       // A new set rather than a mutation, because React decides whether to re-render by identity.
@@ -125,9 +127,8 @@ export function useCanvasRoster(
     });
   }, []);
   // One write for every way the open cards change -- a row's own toggle, the sidebar roster opening
-  // one, a Bot leaving the canvas -- rather than a call beside each of them, which is how one of
-  // them ends up forgotten.
-  useEffect(() => storeCanvasOpenKeys(canvasOpenKeys), [canvasOpenKeys]);
+  // one, a Bot leaving the canvas -- from the setter, rather than a call beside each of them, which
+  // is how one of them ends up forgotten.
   // And one prune, because an open key is an address that nothing resolved: a key naming a session
   // no Bot holds any more opened nothing, went unnoticed for exactly that reason, and stayed in the
   // store for good. Dropped against the roster rather than on write, and only once the roster is
@@ -169,24 +170,31 @@ export function useCanvasRoster(
     }
     return byKey;
   }, [botsState.bots]);
-  useEffect(() => {
-    if (!botsState.settled || botsState.bots.length === 0) return;
+  // A card whose session no Bot holds any more closes, once the Bots have settled. Checked during
+  // render against each new set of Bots, and written only when something goes, so a snapshot that
+  // changed nothing neither re-renders nor rewrites the store.
+  const pruneOn = useMemo(
+    () => ({ holders, machineList, settled: botsState.settled, bots: botsState.bots }),
+    [holders, machineList, botsState.settled, botsState.bots],
+  );
+  const [prunedFor, setPrunedFor] = useState<typeof pruneOn | null>(null);
+  if (prunedFor !== pruneOn) {
+    setPrunedFor(pruneOn);
+    if (botsState.settled && botsState.bots.length > 0) {
     const present = machineList === undefined ? undefined : new Set(machineList.split("\n"));
-    setCanvasOpenKeys((current) => {
-      const kept = new Set([...current].filter((key) => {
-        if (holders.has(key)) return true;
-        const machine = openMachines.current.get(key);
-        if (present === undefined) return false;
-        return machine === undefined || !present.has(machine);
-      }));
-      // Identity when nothing goes, so this neither re-renders nor rewrites the store on every
-      // snapshot the stream sends.
-      return kept.size === current.size ? current : kept;
-    });
-  }, [botsState.bots, botsState.settled, holders, machineList]);
+    const kept = new Set([...canvasOpenKeys].filter((key) => {
+      if (holders.has(key)) return true;
+      const machine = openMachines.current.get(key);
+      if (present === undefined) return false;
+      return machine === undefined || !present.has(machine);
+    }));
+    if (kept.size !== canvasOpenKeys.size) setCanvasOpenKeys(kept);
+    }
+  }
   // Which machine each open card is on, written from one place like the keys themselves: recorded
   // whenever a Bot is seen holding an open key, and dropped once the key is closed.
-  useEffect(() => {
+  const recorded = useMemo(() => ({ canvasOpenKeys, holders }), [canvasOpenKeys, holders]);
+  useNotify(recorded, () => {
     const next = new Map<string, string>();
     for (const key of canvasOpenKeys) {
       const machine = holders.get(key) ?? openMachines.current.get(key);
@@ -196,7 +204,7 @@ export function useCanvasRoster(
     if (next.size === before.size && [...next].every(([key, machine]) => before.get(key) === machine)) return;
     openMachines.current = next;
     storeCanvasOpenMachines(next);
-  }, [canvasOpenKeys, holders]);
+  });
   /**
    * The order the Bots stand in, left to right, and the one every surface that lists them reads.
    *
@@ -212,12 +220,11 @@ export function useCanvasRoster(
    */
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const recordOrder = useMemo(() => botCanvasPositionOrder(botsState.bots), [botsState.bots]);
-  useEffect(() => {
-    if (!pendingOrder) return;
+  if (pendingOrder) {
     const landed = botCanvasOrderOf(orderBotsForCanvas(botsState.bots, recordOrder));
     const wanted = botCanvasOrderOf(orderBotsForCanvas(botsState.bots, pendingOrder));
     if (landed.every((id, index) => id === wanted[index])) setPendingOrder(null);
-  }, [botsState.bots, recordOrder, pendingOrder]);
+  }
   /** Every Bot the panel can see, arranged. What the sidebar's roster lists. */
   const orderedBots = useMemo(
     () => orderBotsForCanvas(botsState.bots, pendingOrder ?? recordOrder),
@@ -362,7 +369,7 @@ export function useCanvasRoster(
    * and `detachedCount` still counts only the Bots a reader actually took off. The canvas does the
    * filtering, beside the chips that say what is hidden.
    */
-  const [hiddenMachines, setHiddenMachines] = useState<ReadonlySet<string>>(loadHiddenMachines);
+  const [hiddenMachines, setHiddenMachines] = usePersistentState<ReadonlySet<string>>(loadHiddenMachines, storeHiddenMachines);
   const toggleMachineOnCanvas = useCallback((key: string) => {
     setHiddenMachines((current) => {
       const next = new Set(current);
@@ -370,7 +377,6 @@ export function useCanvasRoster(
       return next;
     });
   }, []);
-  useEffect(() => storeHiddenMachines(hiddenMachines), [hiddenMachines]);
   /**
    * Whether the canvas is drawn small enough to see all of at once.
    *
@@ -379,13 +385,11 @@ export function useCanvasRoster(
    * is driving. The SCALE is not here -- it belongs to the gesture, nothing above the canvas reads
    * it, and it is kept beside the gesture in `useCanvasZoom`.
    */
-  const [canvasZoomMode, setCanvasZoomMode] = useState<boolean>(loadCanvasZoomMode);
+  const [canvasZoomMode, setCanvasZoomMode] = usePersistentState<boolean>(loadCanvasZoomMode, storeCanvasZoomMode);
   const toggleCanvasZoom = useCallback(() => setCanvasZoomMode((on) => !on), []);
-  useEffect(() => storeCanvasZoomMode(canvasZoomMode), [canvasZoomMode]);
   // How much room the fitted canvas is given to be moved around in, which is the same kind of fact
   // and kept the same way: the control for it sits beside the mode's, in the sidebar.
-  const [canvasRoom, setCanvasRoom] = useState<number>(loadCanvasRoom);
-  useEffect(() => storeCanvasRoom(canvasRoom), [canvasRoom]);
+  const [canvasRoom, setCanvasRoom] = usePersistentState<number>(loadCanvasRoom, storeCanvasRoom);
   const toggleBotOnCanvas = useCallback((bot: BotView) => {
     void setBotCanvas(bot.botId, { onCanvas: Boolean(bot.offCanvas) });
   }, [setBotCanvas]);

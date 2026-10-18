@@ -5,12 +5,13 @@
 // than inside the session view because they survive switching threads: everything a session owns
 // is replaced with the session, and these two deliberately are not.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary, BotView } from "@agentdesk/agent-feed-wire";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { loadEventMode, storeEventMode } from "@/features/activity-feed/reading-preferences/eventModeStore";
 import { loadCacheHitsVisible, storeCacheHitsVisible } from "@/features/activity-feed/reading-preferences/cacheHitStore";
 import { storeSelection, type RememberedSelection } from "@/features/sidebar/selectionStore";
+import { useNotify } from "@/hooks/useNotify";
 
 interface SelectedThread {
   project: ProjectSummary;
@@ -142,17 +143,22 @@ export function useThreadSelection({
    * fabricated summary would open a thread in a view its source does not serve. A session that has
    * since been deleted simply never matches, and the panel opens on its empty state.
    */
-  useEffect(() => {
-    if (restoredSelection.current || selectedThread) return;
-    const remembered = rememberedSelection;
-    if (!remembered) return;
-    const project = projects.find((entry) => entry.projectPath === remembered.projectPath);
-    const session = sessionsByProject.get(remembered.projectPath)
-      ?.find((entry) => entry.sessionId === remembered.sessionId && entry.source === remembered.source);
-    if (!project || !session) return;
+  const remembered = selectedThread ? null : rememberedSelection;
+  const restorable = remembered
+    ? {
+      project: projects.find((entry) => entry.projectPath === remembered.projectPath),
+      session: sessionsByProject.get(remembered.projectPath)
+        ?.find((entry) => entry.sessionId === remembered.sessionId && entry.source === remembered.source),
+    }
+    : null;
+  const restore = restorable?.project && restorable.session
+    ? `${restorable.project.projectPath}\u0000${restorable.session.source}:${restorable.session.sessionId}`
+    : null;
+  useNotify(restore, () => {
+    if (restoredSelection.current || !restorable?.project || !restorable.session) return;
     restoredSelection.current = true;
-    openSession(project, session);
-  }, [projects, rememberedSelection, sessionsByProject, selectedThread, openSession]);
+    openSession(restorable.project, restorable.session);
+  });
 
   return {
     selectedThread,

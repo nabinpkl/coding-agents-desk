@@ -5,7 +5,7 @@
 // sidebar is open. Its own file because none of it is about a session, a project, or a Bot: it is
 // the chrome the reader arranged, and all of it is remembered.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { AgentSidebarMode } from "@/features/sidebar/AgentSidebar";
 import type { CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 import { useSidebarEnvironment } from "@/features/sidebar/SidebarPresentation";
@@ -14,6 +14,8 @@ import {
   storeSidebarPreferences,
 } from "@/features/sidebar/sidebarPreferences";
 import { searchWithSidebarMode, sidebarModeFromSearch } from "@/features/sidebar/sidebarRoute";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
+import { useNotify } from "@/hooks/useNotify";
 
 export function useSidebarChrome() {
   const { compact, hoverCapable } = useSidebarEnvironment();
@@ -38,7 +40,7 @@ export function useSidebarChrome() {
   // Written on every change of the view rather than only on a press, so the address is right after
   // a restore from storage too. `replaceState` rather than `pushState`: choosing a view is not a
   // navigation, and making Back walk the tabs would take a reader out of the panel to leave it.
-  useEffect(() => {
+  useNotify(sidebarMode, () => {
     if (typeof window === "undefined") return;
     if (sidebarModeFromSearch(window.location.search) === sidebarMode) return;
     try {
@@ -50,7 +52,7 @@ export function useSidebarChrome() {
     } catch {
       // A custom-scheme container may refuse to rewrite its address; the panel does not need it to.
     }
-  }, [sidebarMode]);
+  });
 
   // Width owns composition. A fine pointer may change desktop affordances, but
   // it must not turn a compact layout back into two side-by-side columns.
@@ -68,9 +70,9 @@ export function useSidebarChrome() {
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Leaving the panel is the one hover that never resolves, because the component goes with it.
-  useEffect(() => () => {
+  useUnmountEffect(() => {
     if (hoverCloseTimer.current !== null) clearTimeout(hoverCloseTimer.current);
-  }, []);
+  });
 
   const setSidebarOpen = useCallback((open: boolean) => {
     setSidebarPreferences((current) => {

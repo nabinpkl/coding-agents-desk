@@ -10,12 +10,12 @@
 // This is the bar-less mounts' home. Where a surface bar owns the switch, the site-wide scope
 // stands the drawer instead and this renders nothing.
 
-import { useEffect, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
 import { FatherButton, FatherOverlay } from "@/features/bots/canvas/FatherOverlay";
 import { loadFatherOpen, storeFatherOpen } from "@/features/bots/canvas/fatherPreferences";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
+import { usePersistentState } from "@/hooks/state/usePersistentState";
 
 export function FatherHome({
   floating,
@@ -38,10 +38,7 @@ export function FatherHome({
   /** A failure from editing a Bot, shown when it is about the Father session. */
   botError: BotCommandError | null;
 }) {
-  const [fatherOpen, setFatherOpen] = useState(loadFatherOpen);
-  useEffect(() => {
-    storeFatherOpen(fatherOpen);
-  }, [fatherOpen]);
+  const [fatherOpen, setFatherOpen] = usePersistentState(loadFatherOpen, storeFatherOpen);
 
   return (
     <>

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { StaleClaudeSessions, StaleSessionRestartResult } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { machineKey } from "@/features/bots/botMachines";
+import { useNotify } from "@/hooks/useNotify";
 
 export type StaleSessionsSource = Pick<SidecarDataSource, "staleSessions" | "restartStaleSessions">;
 
@@ -145,7 +146,8 @@ export function useStaleSessions(all: readonly StaleSessionsMachine[]): StaleSes
   const views = useStore(store, (state) => state.views);
   const actions = useStore(store, (state) => state.actions);
 
-  useEffect(() => loadArrivals(all), [all]);
+  // A machine that joins is read once the reader has asked for the list at all.
+  useNotify(all, loadArrivals);
 
   const load = useCallback(() => loadAll(all), [all]);
   const restart = useCallback(

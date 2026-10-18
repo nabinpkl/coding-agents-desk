@@ -1,5 +1,5 @@
 import { SquareTerminal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { App } from "@/app/AgentPanelApp";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { FatherScope } from "@/features/bots/father/FatherScope";
@@ -28,6 +28,8 @@ import {
   SURFACES,
   type BrowserSurface,
 } from "@/app/page/browserSurface";
+import { useSubscription } from "@/hooks/useSubscription";
+import { useSidecarConfig } from "@/query/sidecarConfig";
 
 /**
  * The login sessions this origin can reach, or none when it does not say.
@@ -38,7 +40,7 @@ import {
  */
 function useSessions(): PanelSessionRef[] {
   const [sessions, setSessions] = useState<PanelSessionRef[]>([]);
-  useEffect(() => {
+  useSubscription("panel-sessions", () => {
     // Subscribe, do not poll: the dev server pushes the live set whenever a sidecar announces itself
     // or goes silent, so a desktop that comes up while the page is open appears in the picker on its
     // own. The stream sends the current set on connect and reconnects itself if it drops, so this is
@@ -66,7 +68,7 @@ function useSessions(): PanelSessionRef[] {
       source?.close();
       abort.abort();
     };
-  }, []);
+  });
   return sessions;
 }
 
@@ -89,21 +91,9 @@ function useSessions(): PanelSessionRef[] {
  * tabs to one failed request.
  */
 function useDesktopAvailable(feed: SidecarDataSource): boolean {
-  const [available, setAvailable] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    setAvailable(true);
-    feed.fetchConfig()
-      .then((config) => {
-        if (!cancelled) setAvailable(config.parkAvailable === true);
-      })
-      .catch(() => {
-        // leave the tabs as they are; a blip is not evidence that the desktop is gone
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [feed]);
+  // A failed read leaves the tabs as they are: a blip is not evidence that the desktop is gone.
+  const config = useSidecarConfig(feed).data;
+  const available = config === undefined ? true : config.parkAvailable === true;
   return available;
 }
 
@@ -126,10 +116,9 @@ export function BrowserSurfaces({
   }, []);
   // A remembered session that is no longer announced would proxy to nothing, so fall back once the
   // live list has actually arrived. An empty list means "not known yet", not "gone".
-  useEffect(() => {
-    if (sessionId === undefined || sessions.length === 0) return;
-    if (!sessions.some((session) => session.id === sessionId)) selectSession(undefined);
-  }, [sessionId, sessions, selectSession]);
+  if (sessionId !== undefined && sessions.length > 0 && !sessions.some((session) => session.id === sessionId)) {
+    selectSession(undefined);
+  }
 
   /**
    * One data source per session, built once and kept.
@@ -188,13 +177,10 @@ export function BrowserSurfaces({
   const visible = SURFACES.filter(
     ({ name }) => desktopAvailable || (name !== "desktop" && name !== "screen"),
   );
-  useEffect(() => {
-    if (desktopAvailable) return;
-    if (surface === "desktop" || surface === "screen") {
-      rememberSurface("feed");
-      setSurface("feed");
-    }
-  }, [desktopAvailable, surface]);
+  if (!desktopAvailable && (surface === "desktop" || surface === "screen")) {
+    rememberSurface("feed");
+    setSurface("feed");
+  }
 
   // Which machine's shell is open over the surface, if any. React state rather than stored: the
   // dialog ends its shell when it is closed, so a reload that forgets it forgets nothing running.

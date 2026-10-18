@@ -8,9 +8,11 @@
 // Which projects are watched is decided outside: a Bot session picker and a just-started session
 // both add one, and neither is the inventory's business.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ProjectSummary, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 /**
  * How long to wait before re-subscribing after a failure.
@@ -81,7 +83,7 @@ export function useProjectInventory(
     () => (subscribedProjectKey === "" ? [] : subscribedProjectKey.split("\0")),
     [subscribedProjectKey],
   );
-  const initializedProjectExpansion = useRef(false);
+  const [initializedProjectExpansion, setInitializedProjectExpansion] = useState(false);
   // Incremented to re-run the subscription below after a failure.
   //
   // A visibility subscription is one-shot: the host tears the stream down when it
@@ -109,7 +111,9 @@ export function useProjectInventory(
   // one reopens behind the list it already has rather than behind "Loading".
   const deliveredInventory = useRef(false);
 
-  useEffect(() => {
+  useSubscription(
+    `${sourceKey(feed)}:${retryNonce}:${recentCount}:${reviewCount}:${subscribedProjectPaths.join("\u0000")}`,
+    () => {
     // Not on every resubscribe: expanding a project reopens this stream, and a sidebar
     // that flipped back to "Loading projects" each time a row was unfolded would be
     // reporting the transport's business as the reader's.
@@ -152,12 +156,14 @@ export function useProjectInventory(
       if (timer !== undefined) clearTimeout(timer);
       stop?.();
     };
-  }, [feed, retryNonce, subscribedProjectPaths, recentCount, reviewCount]);
+  });
 
-  useEffect(() => {
-    if (projects.length === 0) return;
-    if (!initializedProjectExpansion.current) {
-      initializedProjectExpansion.current = true;
+  // Followed during render, so a project that arrives is expanded in the frame that first draws it.
+  const [expandedFor, setExpandedFor] = useState(projects);
+  if (expandedFor !== projects && projects.length > 0) {
+    setExpandedFor(projects);
+    if (!initializedProjectExpansion) {
+      setInitializedProjectExpansion(true);
       // The remembered project, when it is still there, because a collapsed project's sessions
       // are not on the inventory stream at all -- so without expanding it first there is nothing
       // for the restore below to match against. Falls back to the first project, as before.
@@ -166,18 +172,20 @@ export function useProjectInventory(
         ? remembered
         : projects[0]!.projectPath;
       setExpandedProjectPaths(new Set([openAt]));
-      return;
+    } else {
+      const currentPaths = new Set(projects.map((project) => project.projectPath));
+      setExpandedProjectPaths((current) => {
+        const next = new Set([...current].filter((path) => currentPaths.has(path)));
+        return next.size === current.size ? current : next;
+      });
     }
-    const currentPaths = new Set(projects.map((project) => project.projectPath));
-    setExpandedProjectPaths((current) => {
-      const next = new Set([...current].filter((path) => currentPaths.has(path)));
-      return next.size === current.size ? current : next;
-    });
-  }, [projects]);
+  }
 
   // A directory that is neither expanded nor open in a Bot session picker is no longer
   // on the stream, so keeping it would be keeping a copy that nothing refreshes.
-  useEffect(() => {
+  const [keptFor, setKeptFor] = useState(subscribedProjectPaths);
+  if (keptFor !== subscribedProjectPaths) {
+    setKeptFor(subscribedProjectPaths);
     const subscribed = new Set(subscribedProjectPaths);
     const keepSubscribed = (current: Map<string, SessionSummary[]>) => {
       const next = new Map(
@@ -187,7 +195,7 @@ export function useProjectInventory(
     };
     setSessionsByProject(keepSubscribed);
     setArchivedByProject(keepSubscribed);
-  }, [subscribedProjectPaths]);
+  }
 
   const toggleProject = useCallback((projectPath: string) => {
     setExpandedProjectPaths((current) => {

@@ -32,7 +32,7 @@ export function useFeedRows({
   // Per-event collapse: each agent/result event has its own toggle. Set
   // contains event indices currently collapsed (heading-only).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
-  const defaultedSystemEventsRef = useRef<Set<number>>(new Set());
+  const [defaultedSystemEvents, setDefaultedSystemEvents] = useState<ReadonlySet<number>>(() => new Set());
 
   // System events are transcript scaffolding rather than the agent's working
   // thread, so start each one collapsed. Record which events received the
@@ -43,10 +43,10 @@ export function useFeedRows({
   if (defaultedFor !== events) {
     setDefaultedFor(events);
     const newSystemEventIds = events
-      .filter((event) => event.type === "system" && !defaultedSystemEventsRef.current.has(event.index))
+      .filter((event) => event.type === "system" && !defaultedSystemEvents.has(event.index))
       .map((event) => event.index);
     if (newSystemEventIds.length > 0) {
-      for (const eventId of newSystemEventIds) defaultedSystemEventsRef.current.add(eventId);
+      setDefaultedSystemEvents(new Set([...defaultedSystemEvents, ...newSystemEventIds]));
       setCollapsed((previous) => new Set([...previous, ...newSystemEventIds]));
     }
   }

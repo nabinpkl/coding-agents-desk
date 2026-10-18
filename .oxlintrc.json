@@ -82,12 +82,6 @@
       // Files that still held an effect when the ban landed. Each slice of the port removes the
       // files it cleared; the list is empty when the port is done.
       "files": [
-        "**/AgentPanel/Web/src/app/BrowserSurfaces.tsx",
-        "**/AgentPanel/Web/src/app/FatherHome.tsx",
-        "**/AgentPanel/Web/src/app/shell-state/sidebar/useSidebarChrome.ts",
-        "**/AgentPanel/Web/src/app/shell-state/useCanvasRoster.ts",
-        "**/AgentPanel/Web/src/app/shell-state/useProjectInventory.ts",
-        "**/AgentPanel/Web/src/app/shell-state/useThreadSelection.ts",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewer.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerControls.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSettings.tsx",
@@ -103,7 +97,6 @@
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/TrackpadDeck.tsx",
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useScrollStripGestures.ts",
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useTrackpadGestures.ts",
-        "**/AgentPanel/Web/src/features/profile/useStaleSessions.ts",
         "**/AgentPanel/Web/src/features/terminal/AgentTerminalPane.tsx",
         "**/AgentPanel/Web/src/features/terminal/canvas/strip/TerminalChildCard.tsx",
         "**/AgentPanel/Web/src/features/terminal/canvas/strip/TerminalParentCard.tsx",
