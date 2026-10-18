@@ -70,6 +70,8 @@ export interface Header {
   entrypoint?: string;
   /** What wrote last: how the session last ran, which is how it reopens (ADR-0143). */
   lastEntrypoint?: string;
+  /** The model, effort and permission mode it last ran with, which it resumes with. */
+  lastSelection?: LastSelection;
   title?: string;
   /**
    * Turn state as of the last boundary-bearing line in the TAIL edge, absent when
@@ -167,6 +169,17 @@ export interface LineResult {
 // Absent for backends that serve their own data over an API instead of a file
 // (opencode): no transcript reader may be asked for such a session, and the
 // timeline route never does -- it resolves backends before transcripts.
+/**
+ * A Claude session's last selection, as its own transcript records it: the model and effort on its
+ * newest main-thread reply, and the permission mode on its newest record that names one. Raw as the
+ * CLI wrote them; whoever launches with them checks them first.
+ */
+export interface LastSelection {
+  model?: string;
+  effort?: string;
+  permissionMode?: string;
+}
+
 export interface Session {
   sessionId: string;
   source: SourceId;
@@ -180,6 +193,8 @@ export interface Session {
   entrypoint?: string;
   /** The newest record's launcher: `cli` or `sdk-cli` for a session that ran both ways. */
   lastEntrypoint?: string;
+  /** What the session last ran with, from its newest records: what it resumes with. */
+  lastSelection?: LastSelection;
   // The two fields the session list needs that are not identity. Carried on the
   // record rather than derived per read, because the read that produced the rest
   // of this record is the only one that should ever open the transcript to build

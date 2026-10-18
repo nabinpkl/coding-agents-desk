@@ -69,8 +69,10 @@ test("a command carries the launch flags in any order, a flag's value beside it"
   expect(launchedWithFlags(`${CURRENT} abc`, FLAGS)).toBe(true);
   expect(launchedWithFlags("claude --allow-dangerously-skip-permissions --permission-mode auto -r x", FLAGS)).toBe(true);
   expect(launchedWithFlags("claude --resume abc", FLAGS)).toBe(false);
-  // The flag present with another value is a different launch, not the current one.
-  expect(launchedWithFlags("claude --permission-mode plan --allow-dangerously-skip-permissions", FLAGS)).toBe(false);
+  // The mode is the session's own -- a resume opens in the one it last ran in -- so any value is the
+  // current launch, and only a command without the flag at all is behind it.
+  expect(launchedWithFlags("claude --permission-mode plan --allow-dangerously-skip-permissions", FLAGS)).toBe(true);
+  expect(launchedWithFlags("claude --allow-dangerously-skip-permissions --resume abc", FLAGS)).toBe(false);
 });
 
 test("a session started before the mods joined the launch is behind it", () => {

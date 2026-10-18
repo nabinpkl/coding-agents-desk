@@ -72,6 +72,11 @@ export function launchedWithFlags(command: string, launchArgs: readonly string[]
     const value = launchArgs[index + 1];
     if (value !== undefined && !value.startsWith("--")) {
       index += 1;
+      // The mode is the session's own: a resume opens in the one it last ran in, not the launch's.
+      if (SESSION_VALUED_FLAGS.has(flag)) {
+        if (!tokens.includes(flag)) return false;
+        continue;
+      }
       if (!tokens.some((token, at) => token === flag && tokens[at + 1] === value)) return false;
     } else if (!tokens.includes(flag)) {
       return false;
@@ -80,8 +85,14 @@ export function launchedWithFlags(command: string, launchArgs: readonly string[]
   return true;
 }
 
-/** The flags a launch from this sidecar's own paths can carry besides the permission flags. */
-const PANEL_LAUNCH_FLAGS = ["--resume", "--fork-session", "--session-id", "-n"];
+/** Launch flags whose value is the session's own choice rather than the launch's (`resumeSelection`). */
+const SESSION_VALUED_FLAGS: ReadonlySet<string> = new Set(["--permission-mode"]);
+
+/**
+ * The flags a launch from this sidecar's own paths can carry besides the permission flags: a resume
+ * carries the model and effort the session last ran with, which a restart carries again.
+ */
+const PANEL_LAUNCH_FLAGS = ["--resume", "--fork-session", "--session-id", "-n", "--model", "--effort"];
 
 /**
  * The arguments a pane was started with, out of its start command.

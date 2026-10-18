@@ -383,3 +383,22 @@ test('both readers of the Codex turn rule give the same answer', async () => {
     expect(viaTail).toBe(codexAdapter.processLine(line)?.turnClosed);
   }
 });
+
+test('the last selection is the newest main-thread reply\'s model and effort, and the newest mode', async () => {
+  const path = await transcript('selection.jsonl', [
+    userLine('opening prompt'),
+    JSON.stringify({ type: 'assistant', cwd: CWD, requestedModel: 'claude-opus-5-5[1m]', effort: 'high', message: { model: 'claude-opus-5-5' } }),
+    JSON.stringify({ type: 'permission-mode', permissionMode: 'plan' }),
+    // A subagent runs on its own model and is not what the session runs with.
+    JSON.stringify({ type: 'assistant', cwd: CWD, isSidechain: true, effort: 'low', message: { model: 'claude-haiku-4-5' } }),
+    JSON.stringify({ type: 'user', cwd: CWD, permissionMode: 'default', message: { role: 'user', content: 'go on' } }),
+    JSON.stringify({ type: 'assistant', cwd: CWD, message: { model: '<synthetic>' } }),
+  ]);
+  expect((await claudeAdapter.readHeader(path))?.lastSelection).toEqual({
+    model: 'claude-opus-5-5[1m]',
+    effort: 'high',
+    permissionMode: 'default',
+  });
+  const plain = await transcript('plain.jsonl', [userLine('opening prompt')]);
+  expect((await claudeAdapter.readHeader(plain))?.lastSelection).toBeUndefined();
+});

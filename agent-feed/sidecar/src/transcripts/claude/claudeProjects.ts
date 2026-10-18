@@ -6,7 +6,7 @@ import { open } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { config } from "@/config/config";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
-import type { Header } from "@/transcripts/transcriptTypes";
+import type { Header, LastSelection } from "@/transcripts/transcriptTypes";
 import { turnClosedFor } from "@/transcripts/claude/claudePayloads";
 import { currentTitles, titlesOf, type Titles } from "@/transcripts/claude/claudeTitles";
 import { currentTaskState } from "@/transcripts/claude/claudeTaskState";
@@ -222,6 +222,26 @@ function movesLastActivity(ev: Record<string, unknown>): boolean {
   return !(ev.type === 'system' && ev.subtype === 'informational');
 }
 
+
+/**
+ * Folds one record into the session's last selection, read forward so the newest record wins.
+ *
+ * The model and effort come from a main-thread reply: a subagent's (`isSidechain`) can run on
+ * another model, and is not what the session runs with. `requestedModel` is what was asked for,
+ * keeping a variant suffix such as `[1m]` the reply's own `message.model` drops. The permission mode
+ * is on every user record and on a `permission-mode` record each time it changes.
+ */
+function selectionOf(ev: Record<string, unknown>, into: LastSelection): void {
+  if (ev.type === "assistant" && ev.isSidechain !== true) {
+    const message = ev.message as Record<string, unknown> | undefined;
+    const model = typeof ev.requestedModel === "string" ? ev.requestedModel : message?.model;
+    if (typeof model === "string" && !model.startsWith("<")) into.model = model;
+    if (typeof ev.effort === "string") into.effort = ev.effort;
+  }
+  if (typeof ev.permissionMode === "string" && ev.isSidechain !== true && (ev.type === "user" || ev.type === "permission-mode")) {
+    into.permissionMode = ev.permissionMode;
+  }
+}
 /**
  * What the catalog knows about a session without reading its body: the two 32 KB
  * edges, and everything the session list needs pulled out of them.
@@ -258,6 +278,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
     // surface (Desktop auto-continues an SDK session it finds), and what started it is the fact.
     let tailEntrypoint: string | undefined;
     let lastEntrypoint: string | undefined;
+    const lastSelection: LastSelection = {};
     let tailFrom = 0;
     let through = 0;
     for (const [index, range] of ranges.entries()) {
@@ -303,6 +324,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
           // Read forward, so the last one in the tail window is the newest record's.
           if (isTail) lastEntrypoint = ev.entrypoint;
         }
+        if (isTail) selectionOf(ev, lastSelection);
         if (isHead) titlesOf(line, head);
         if (isTail) titlesOf(line, tail);
         // Last one in the window wins: this is the turn state as of the most
@@ -333,6 +355,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
     }
     out.entrypoint ??= tailEntrypoint;
     out.lastEntrypoint = lastEntrypoint ?? out.entrypoint;
+    if (Object.keys(lastSelection).length > 0) out.lastSelection = lastSelection;
     const titles = await currentTitles(fh, filePath, {
       whole: ranges.length === 1,
       head,

@@ -28,7 +28,17 @@ import {
   tmuxSessionExists,
 } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
-import { claudeLaunchArgs } from "@/config/configClaudeLaunch";
+import {
+  claudeLaunchArgs,
+  claudeLaunchModArgs,
+  claudeLaunchPermission,
+  claudePermissionArgs,
+} from "@/config/configClaudeLaunch";
+import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
+import { isEffortLevel, isModelName, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
+import { cliPermissionMode } from "@/claude-sdk/claudeSdkSession";
+import { findSession } from "@/transcripts/catalog/transcriptCatalog";
+import type { LastSelection } from "@/transcripts/transcriptTypes";
 import { isClaudeSdkRunnerCommand } from "@/claude-sdk/claudeSdkProtocol";
 
 /**
@@ -84,9 +94,55 @@ export function newClaudeSessionCommand(
   return command;
 }
 
-/** The argv that reopens a stopped session in a pane, in the same mode a fresh one gets. */
-export function resumeClaudeSessionCommand(sessionId: string): string[] {
-  return ["claude", ...claudeLaunchArgs, "--resume", sessionId];
+/** What a session resumes with, where it last ran with it; absent means the launch default. */
+export interface ResumeSelection {
+  model?: string;
+  effort?: string;
+  /** In the CLI's own names, which its `--permission-mode` takes. */
+  permissionMode?: ClaudePermissionMode;
+}
+
+/**
+ * What a session resumes with: the model, effort and permission mode it last ran with, from its own
+ * transcript, under any choice its SDK runner made since that no turn has recorded yet. Each is
+ * checked before it reaches a command line, and bypass only where launches allow it -- a session
+ * last in bypass otherwise opens in the launch default, as any would.
+ */
+export function resumeSelection(
+  last: LastSelection | undefined,
+  choices: RunnerChoices = {},
+  allowBypass: boolean = claudeLaunchPermission.allowBypass,
+): ResumeSelection {
+  const model = choices.model ?? (isModelName(last?.model) ? last.model : undefined);
+  const effort = choices.effort ?? (isEffortLevel(last?.effort) ? last.effort : undefined);
+  const mode = cliPermissionMode(last?.permissionMode);
+  const permissionMode = mode === "bypassPermissions" && !allowBypass ? undefined : mode ?? undefined;
+  return {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(permissionMode ? { permissionMode } : {}),
+  };
+}
+
+/** `resumeSelection` for a session the catalog knows; the launch defaults for one it does not. */
+export function lastResumeSelection(sessionId: string, choices: RunnerChoices = {}): ResumeSelection {
+  return resumeSelection(findSession("claude", sessionId)?.lastSelection, choices);
+}
+
+/**
+ * The argv that reopens a stopped session in a pane: in the mode, model and effort it last ran
+ * with, so what was chosen for a session stays the session's however often it restarts, and
+ * otherwise as a fresh one opens.
+ */
+export function resumeClaudeSessionCommand(sessionId: string, selection: ResumeSelection = lastResumeSelection(sessionId)): string[] {
+  return [
+    "claude",
+    ...claudePermissionArgs(selection.permissionMode ?? claudeLaunchPermission.mode, claudeLaunchPermission.allowBypass),
+    ...claudeLaunchModArgs,
+    "--resume", sessionId,
+    ...(selection.model ? ["--model", selection.model] : []),
+    ...(selection.effort ? ["--effort", selection.effort] : []),
+  ];
 }
 
 /**
@@ -330,9 +386,11 @@ export type ClaudeRestartOutcome =
 /**
  * Runs a session again in the pane it already has, under today's launch argv.
  *
- * What this exists for is the permission flags: a session started before `configClaudeLaunch.ts`
- * changed keeps the mode it was launched with until its process is replaced, and replacing it in
- * place is what keeps every viewer on the same pane rather than opening a second one.
+ * What this exists for is the launch itself: a session started before `configClaudeLaunch.ts`
+ * changed its mods or whether bypass is allowed, or before the CLI updated, keeps that launch until
+ * its process is replaced, and replacing it in place keeps every viewer on the same pane rather
+ * than opening a second one. The session's own mode, model and effort come back with it
+ * (`resumeSelection`, ADR-0145).
  *
  * Only a pane this sidecar launched FOR THIS SESSION is restarted, and that is decided from the
  * pane's start command rather than from the identity stamp alone. The stamp is also written onto a

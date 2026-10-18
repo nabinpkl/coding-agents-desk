@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "@/config/config";
 import { claudeBinary } from "@/config/configBinaries";
 import { claudeLaunchModDirectories, claudeLaunchPermission } from "@/config/configClaudeLaunch";
-import type { ClaudeRunMode } from "@agentdesk/agent-feed-wire";
+import type { ClaudePermissionMode, ClaudeRunMode } from "@agentdesk/agent-feed-wire";
 import {
   claudeForkPaneName,
   claudeSessionPaneName,
@@ -24,9 +24,10 @@ import {
   resumeClaudeSessionCommand,
   UNATTENDED_COLUMNS,
   UNATTENDED_ROWS,
+  lastResumeSelection,
   type StartedClaudeSession,
 } from "@/terminal/session-panes/claudeSessionLaunch";
-import { RUNNER_ENTRY_FILE, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
+import { isEffortLevel, RUNNER_ENTRY_FILE, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
 import { sdkPermissionMode } from "@/claude-sdk/claudeSdkSession";
 import { createTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
@@ -67,6 +68,8 @@ export function claudeSdkRunnerCommand(options: {
   firstTurnFile?: string;
   /** The model and effort the session had chosen, which a relaunch keeps. */
   choices?: RunnerChoices;
+  /** The mode to open in, in the CLI's names; the launch default when absent. */
+  permissionMode?: ClaudePermissionMode;
 }): string[] {
   const claude = claudeBinary();
   if (!claude) throw new ClaudeSdkUnavailableError("claude is not installed on this machine");
@@ -77,7 +80,7 @@ export function claudeSdkRunnerCommand(options: {
     "--cwd", options.cwd,
     "--name", options.title,
     "--start", options.start,
-    "--permission-mode", sdkPermissionMode(claudeLaunchPermission.mode),
+    "--permission-mode", sdkPermissionMode(options.permissionMode ?? claudeLaunchPermission.mode),
     ...(claudeLaunchPermission.allowBypass ? ["--allow-bypass"] : []),
     ...claudeLaunchModDirectories.flatMap((directory) => ["--plugin-dir", directory]),
     "--claude", claude,
@@ -166,12 +169,25 @@ export function lastRunMode(session: { lastEntrypoint?: string }): ClaudeRunMode
   return session.lastEntrypoint === "sdk-cli" ? "sdk" : "terminal";
 }
 
-/** The argv that resumes a session in one mode or the other; a runner keeps the choices it is given. */
+/**
+ * The argv that resumes a session in one mode or the other, with what it last ran with: so a model,
+ * effort or mode chosen for a session stays the session's, whichever way it runs and however often
+ * it restarts (`resumeSelection`).
+ */
 export function resumeCommandFor(
   mode: ClaudeRunMode,
   options: { sessionId: string; cwd: string; title: string; choices?: RunnerChoices },
 ): string[] {
+  const selection = lastResumeSelection(options.sessionId, options.choices);
   return mode === "sdk"
-    ? claudeSdkRunnerCommand({ ...options, start: "resume" })
-    : resumeClaudeSessionCommand(options.sessionId);
+    ? claudeSdkRunnerCommand({
+      ...options,
+      start: "resume",
+      choices: {
+        ...(selection.model ? { model: selection.model } : {}),
+        ...(isEffortLevel(selection.effort) ? { effort: selection.effort } : {}),
+      },
+      ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
+    })
+    : resumeClaudeSessionCommand(options.sessionId, selection);
 }
