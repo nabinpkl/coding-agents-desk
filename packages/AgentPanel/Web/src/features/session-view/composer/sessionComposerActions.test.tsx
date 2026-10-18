@@ -82,7 +82,7 @@ describe("sending with held images", () => {
     try {
       const { result } = renderHook(() => useSendAttachments("opencode/s1"));
       await act(async () => {
-        result.current.attach([new File(["bytes"], "shot.png", { type: "image/png" })]);
+        await result.current.attach([new File(["bytes"], "shot.png", { type: "image/png" })]);
       });
       const onSendMessage = vi.fn(async () => {});
       const setLocalDraft = vi.fn();
@@ -92,7 +92,7 @@ describe("sending with held images", () => {
         sendAttachments: result.current,
         onSendMessage,
         setLocalDraft,
-      } as Partial<ComposerModel>);
+      });
       await act(async () => {
         await submitComposer(m, "next");
       });
@@ -115,7 +115,7 @@ describe("sending with held images", () => {
       sendAttachments: result.current,
       onSendMessage,
       setLocalDraft: vi.fn(),
-    } as Partial<ComposerModel>);
+    });
     await act(async () => {
       await submitComposer(m, "next");
     });
@@ -163,7 +163,7 @@ describe("sending a slash command", () => {
       onRunSlash,
       onSendMessage,
       setLocalDraft,
-    } as Partial<ComposerModel>);
+    });
     await act(async () => {
       await submitComposer(m, "next");
     });
@@ -184,7 +184,7 @@ describe("sending a slash command", () => {
       onRunSlash,
       onSendMessage,
       setLocalDraft: vi.fn(),
-    } as Partial<ComposerModel>);
+    });
     await act(async () => {
       await submitComposer(m, "next");
     });
@@ -205,7 +205,7 @@ describe("sending a slash command", () => {
         onRunSlash,
         onSendMessage: vi.fn(async () => {}),
         setLocalDraft: vi.fn(),
-      } as Partial<ComposerModel>);
+      });
       await act(async () => {
         await submitComposer(m, "next");
       });

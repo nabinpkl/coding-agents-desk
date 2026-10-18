@@ -205,7 +205,7 @@ it("starts a shell under the offered default, dir plus one past the count", () =
 
   // Three sessions stand on this machine, so the offer steps past all of them.
   fireEvent.click(screen.getByRole("button", { name: "Start a shell in proj" }));
-  expect((screen.getByLabelText("Name the new shell") as HTMLInputElement).value).toBe("proj-4");
+  expect(screen.getByLabelText<HTMLInputElement>("Name the new shell").value).toBe("proj-4");
 
   // Accepting the default is one press: the parent and the offered name travel together.
   fireEvent.click(screen.getByRole("button", { name: "Start" }));
@@ -228,7 +228,7 @@ it("lets the reader name the shell, restores the default, and refuses a collisio
   const reopened = screen.getByLabelText("Name the new shell") as HTMLInputElement;
   fireEvent.change(reopened, { target: { value: "my-shell" } });
   fireEvent.click(screen.getByRole("button", { name: "Use default" }));
-  expect((screen.getByLabelText("Name the new shell") as HTMLInputElement).value).toBe("proj-4");
+  expect(screen.getByLabelText<HTMLInputElement>("Name the new shell").value).toBe("proj-4");
 
   // A name standing anywhere on this machine is a join, so the form refuses it outright.
   fireEvent.change(screen.getByLabelText("Name the new shell"), { target: { value: "a" } });

@@ -46,7 +46,7 @@ function stubRects(resolve: (element: Element) => DOMRect | undefined) {
   const empty = box({ top: 0, left: 0, width: 0, height: 0 });
   Element.prototype.getBoundingClientRect = function fake(this: Element) {
     return resolve(this) ?? empty;
-  } as typeof original;
+  };
   return () => {
     Element.prototype.getBoundingClientRect = original;
   };

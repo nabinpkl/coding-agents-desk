@@ -41,7 +41,7 @@ function setup(overrides: Partial<Parameters<typeof usePanelCommands>[0]> = {}) 
     projectPath: "/repo",
     ...(overrides.onAttachSession === null ? {} : { onAttachSession }),
     ...overrides,
-  } as unknown as Parameters<typeof usePanelCommands>[0];
+  };
   return { input, runCommand, createSession, reportError, onAttachSession, feed };
 }
 
@@ -95,7 +95,7 @@ describe("the panel's own commands", () => {
         switchModel: vi.fn(async () => {}),
         reportCommandError: vi.fn(),
       },
-    } as never);
+    });
     const { result } = renderHook(() => usePanelCommands(input));
     await act(async () => {
       await result.current.run("fork", "");

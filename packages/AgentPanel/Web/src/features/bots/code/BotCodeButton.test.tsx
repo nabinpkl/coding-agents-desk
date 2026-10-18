@@ -156,8 +156,6 @@ it("offers no Source Control tab outside a repository", async () => {
   const git = { status: { botId: "bot-1", repository: false, branch: null, entries: [] }, error: null };
   render(<BotCodeDialog bot={bot} feed={feed} git={git} initialSection="sourceControl" onClose={() => {}} />);
   const dialog = await screen.findByRole("dialog", { name: "Rags" });
-  expect((within(dialog).getByRole("button", { name: "Show Source Control" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Show Source Control" }).disabled).toBe(true);
   expect(within(dialog).getByRole("button", { name: "Show Explorer" }).getAttribute("aria-pressed")).toBe("true");
 });

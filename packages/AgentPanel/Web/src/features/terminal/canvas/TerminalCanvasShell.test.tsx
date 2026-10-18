@@ -136,7 +136,7 @@ it("starts a shell in the parent's directory and opens it", async () => {
   // Offered under dir-plus-count -- one session stands, so the default steps past it -- and
   // taken as offered with one press on Start.
   const canvasScope = within(canvas);
-  expect((canvasScope.getByLabelText("Name the new shell") as HTMLInputElement).value).toBe("proj-2");
+  expect(canvasScope.getByLabelText<HTMLInputElement>("Name the new shell").value).toBe("proj-2");
   fireEvent.click(canvasScope.getByRole("button", { name: "Start" }));
   // Created as a login shell in that directory, and immediately released so the tile
   // joining it does not fight the create for the pane's one pipe.

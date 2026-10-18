@@ -361,7 +361,7 @@ describe("ArenaSurface", () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, "later");
     box.dispatchEvent(new Event("input", { bubbles: true }));
     await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe("later"));
-    expect((screen.getByRole("button", { name: /Send to every lane/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: /Send to every lane/ }).disabled).toBe(true);
   });
   test("the rail, the run's header and each lane's head open their own folder, named by what it belongs to", async () => {
     const { transport, asked } = harness({ runs: [duel()], detail: duel(), modes: ["terminals"] });

@@ -5,8 +5,13 @@
   // Only rules that were already at zero, or were cleared in the change that gated them: a rule
   // that warns on a backlog teaches everyone to ignore the output.
   "plugins": ["eslint", "typescript", "react", "import"],
-  // The two promise rules below need the types, which tsgolint (the `oxlint-tsgolint` package)
-  // reads from each tree's tsconfig. Check 8 tells oxlint where that binary is.
+  // The type-aware rules below need the types, which tsgolint (the `oxlint-tsgolint` package) reads
+  // from each file's nearest tsconfig.json, or from one that config's directory's parents point
+  // to. The panel's tests and the shared wire are covered by configs that are not nearest to them
+  // (`Web/tsconfig.node.json`, `sidecar/tsconfig.json`), so `packages/AgentPanel/tsconfig.json`
+  // and `agent-feed/tsconfig.json` reference them; without those two, those files were linted
+  // with default options and every `@/` import read as `any`. Check 8 tells oxlint where the
+  // binary is.
   "options": { "typeAware": true },
   "categories": {
     "correctness": "off",
@@ -109,23 +114,17 @@
   },
   "overrides": [
     {
-      // Files the type-aware rules read without their real types. tsgolint takes each file's
-      // nearest tsconfig.json, and the panel's leaves out its tests, harnesses and dev server
-      // (`tsconfig.node.json` covers those), while the shared wire has none of its own: both are
-      // read with default options and the panel's `@/` imports unresolved, so an import is `any`.
-      // A rule that reports what a type allows is wrong on them, and its autofix breaks the build.
+      // A test's stand-in for a browser object has to define every member of the interface it
+      // stands in for, deprecated ones included: jsdom's missing `matchMedia` is faked as a whole
+      // `MediaQueryList`, `addListener` and all. A deprecated call a test makes fails that test
+      // when the upgrade removes it, which is the check this rule is for.
       "files": [
-        "**/AgentPanel/Web/src/**/*.test.ts",
-        "**/AgentPanel/Web/src/**/*.test.tsx",
+        "**/*.test.ts",
+        "**/*.test.tsx",
         "**/AgentPanel/Web/src/**/*Harness.tsx",
-        "**/AgentPanel/Web/src/app/testSetup.ts",
-        "**/AgentPanel/Web/src/app/dev-server/**",
-        "**/agent-feed/wire/**"
+        "**/AgentPanel/Web/src/app/testSetup.ts"
       ],
-      "rules": {
-        "typescript/no-unnecessary-type-assertion": "off",
-        "typescript/no-deprecated": "off"
-      }
+      "rules": { "typescript/no-deprecated": "off" }
     },
     {
       // The approved hooks, each named for the outside thing it keeps in step with React, and the

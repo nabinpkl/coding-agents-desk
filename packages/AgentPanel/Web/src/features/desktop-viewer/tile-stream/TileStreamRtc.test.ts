@@ -247,7 +247,7 @@ describe("telling the sidecar a viewer left", () => {
 
   it("goes through the native relay when there is one, which needs no keepalive", async () => {
     const request = vi.fn(() => Promise.resolve({ status: 200, body: "{}" }));
-    postWebrtcClose("attempt-2", { request } as never);
+    postWebrtcClose("attempt-2", { request });
     expect(request).toHaveBeenCalledWith("POST", "/api/park/webrtc/sessions/close", {
       body: { attempt: "attempt-2" },
     });

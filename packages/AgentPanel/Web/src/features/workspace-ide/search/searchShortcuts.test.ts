@@ -30,7 +30,7 @@ describe("doubleShiftDetector", () => {
   it("does not fire across typing: Shift, a letter, Shift is capitals, not a shortcut", () => {
     const detect = doubleShiftDetector();
     detect(key("Shift", 0));
-    detect(key("A", 50, { shiftKey: true } as Partial<KeyboardEvent>));
+    detect(key("A", 50, { shiftKey: true }));
     expect(detect(key("Shift", 100))).toBe(false);
   });
 

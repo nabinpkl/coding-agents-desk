@@ -166,7 +166,7 @@ describe("what the command does with it", () => {
     const result = commands(new SidecarDataSource(transport));
 
     await act(async () => {
-      await result.current.forkFromLastMessage(BOT, { ...SOURCE, source: "codex" } as SessionSummary);
+      await result.current.forkFromLastMessage(BOT, { ...SOURCE, source: "codex" });
     });
 
     expect(result.current.forkRequest).toBeNull();

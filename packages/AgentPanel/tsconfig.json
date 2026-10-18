@@ -1,0 +1,8 @@
+{
+  // Points the type-aware lint at the config that owns each file under Web/. tsgolint takes a
+  // file's nearest tsconfig.json, and Web's is the page's, which leaves out the tests, harnesses
+  // and dev server; `Web/tsconfig.node.json` typechecks those, and tsgolint finds it through
+  // here. Nothing builds from this file.
+  "files": [],
+  "references": [{ "path": "./Web/tsconfig.node.json" }]
+}

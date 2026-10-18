@@ -9,7 +9,7 @@ import { botFeeds, type BotMachine } from "@/features/bots/botMachines";
 import { useBotRecordCommands } from "@/app/shell-state/useBotRecordCommands";
 
 function machine(label: string, updateBot = vi.fn(async () => ({}))): BotMachine {
-  return { label, id: label, feed: { updateBot } as unknown as SidecarDataSource } as BotMachine;
+  return { label, id: label, feed: { updateBot } as unknown as SidecarDataSource };
 }
 
 function bot(botId: string, fatherSessionId?: string): BotView {

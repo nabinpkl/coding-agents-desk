@@ -339,7 +339,7 @@ describe("the WebRTC tile", () => {
               availableIncomingBitrate: 1_500_000,
             } as RTCIceCandidatePairStats,
           ],
-        ]) as RTCStatsReport;
+        ]);
       }
       addEventListener() {}
       removeEventListener() {}

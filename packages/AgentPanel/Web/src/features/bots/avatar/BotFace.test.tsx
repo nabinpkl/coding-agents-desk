@@ -249,9 +249,11 @@ describe("BotFace", () => {
   test("open eyes blink and shut eyes do not", () => {
     const { container, rerender } = render(<BotFace rank={2} />);
     const eyes = container.querySelector<SVGGElement>(".bot-face-eyes")!;
-    expect(eyes.className.baseVal).toContain("bot-face-eyes--open");
+    expect(eyes.getAttribute("class")).toContain("bot-face-eyes--open");
     rerender(<BotFace rank={2} shut />);
-    expect(container.querySelector<SVGGElement>(".bot-face-eyes")!.className.baseVal).toContain("bot-face-eyes--shut");
+    expect(container.querySelector<SVGGElement>(".bot-face-eyes")!.getAttribute("class")).toContain(
+      "bot-face-eyes--shut",
+    );
   });
 
   test("a shut face draws the closed lid rather than the open eye", () => {

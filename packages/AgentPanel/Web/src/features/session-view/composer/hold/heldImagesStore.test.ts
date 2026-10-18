@@ -29,7 +29,7 @@ function fakeIndexedDb(seed: Row[] = []) {
     // read-modify-write in this module under test rather than accidentally synchronous.
     queueMicrotask(() => {
       try {
-        request.onsuccess?.(new Event("success") as never);
+        request.onsuccess?.(new Event("success"));
       } catch (error) {
         // A throw inside a request's success handler ABORTS the transaction in a browser.
         // Modelling that matters here: a refused write would otherwise leave the store's
@@ -57,7 +57,7 @@ function fakeIndexedDb(seed: Row[] = []) {
             } as unknown as IDBRequest<string>;
             queueMicrotask(() => {
               transaction.error = request.error;
-              request.onerror?.(new Event("error") as never);
+              request.onerror?.(new Event("error"));
               transaction.onabort?.();
             });
             return request;

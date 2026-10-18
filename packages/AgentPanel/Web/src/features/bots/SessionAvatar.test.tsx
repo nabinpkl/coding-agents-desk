@@ -28,7 +28,7 @@ describe("SessionAvatar faces switch", () => {
     setBotFaces(true);
     const { container } = render(<SessionAvatar title="First session" activity="live" shaded rank={0} />);
     const face = container.querySelector<SVGGElement>(".bot-face")!;
-    expect(face.className.baseVal).toContain("ring-green-500");
+    expect(face.getAttribute("class")).toContain("ring-green-500");
   });
 
   it("an unshaded session keeps its disc whatever the switch says", () => {

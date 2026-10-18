@@ -1,0 +1,8 @@
+{
+  // Points the type-aware lint at the config that owns each file here. tsgolint takes a file's
+  // nearest tsconfig.json, and the wire has none: the sidecar's typechecks it
+  // (`sidecar/tsconfig.json` includes `../wire/**`), so the wire is linted as part of that program
+  // rather than with default options. Nothing builds from this file.
+  "files": [],
+  "references": [{ "path": "./sidecar/tsconfig.json" }]
+}

@@ -154,11 +154,7 @@ export function slimResponse(request: IncomingMessage, response: ServerResponse,
     const bytes =
       typeof chunk === "string"
         ? Buffer.from(chunk, typeof encodingOrCallback === "string" ? (encodingOrCallback as BufferEncoding) : "utf8")
-        : Buffer.from(
-            (chunk as ArrayBufferView).buffer,
-            (chunk as ArrayBufferView).byteOffset,
-            (chunk as ArrayBufferView).byteLength,
-          );
+        : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
     // Only a script or a stylesheet is read as text, to move its map; Vite sends both as UTF-8.
     // Anything else is compressed byte for byte, whatever its charset.
     const body = /javascript|css/.test(type)

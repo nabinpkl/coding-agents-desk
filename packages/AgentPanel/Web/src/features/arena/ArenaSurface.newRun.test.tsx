@@ -214,7 +214,7 @@ describe("ArenaSurface new run", () => {
 
     screen.getByRole("radio", { name: "None" }).click();
     await waitFor(() => expect(screen.getByText("Add a lane, or choose a manager to plan them")).toBeTruthy());
-    expect((screen.getByRole("button", { name: /Open manager/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: /Open manager/ }).disabled).toBe(true);
 
     screen.getByRole("radio", { name: "Claude" }).click();
     const open = await screen.findByRole("button", { name: /Open manager/ });

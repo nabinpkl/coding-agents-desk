@@ -111,7 +111,7 @@ describe("StaleSessionsPanel", () => {
       />,
     );
     expect(screen.getByText("Every session runs the current launch flags and CLI.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: /Restart 0/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: /Restart 0/ }).disabled).toBe(true);
   });
 
   it("lists each machine under its own name, and restarts each machine's own sessions", () => {

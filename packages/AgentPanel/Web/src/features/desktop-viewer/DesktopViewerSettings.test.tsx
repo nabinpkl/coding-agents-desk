@@ -43,7 +43,7 @@ describe("the viewer's settings popover", () => {
     const overview = screen.getByLabelText("Overview layer");
     const before = (overview as HTMLInputElement).checked;
     fireEvent.click(overview);
-    expect((screen.getByLabelText("Overview layer") as HTMLInputElement).checked).toBe(!before);
+    expect(screen.getByLabelText<HTMLInputElement>("Overview layer").checked).toBe(!before);
 
     fireEvent.click(screen.getByLabelText("Auto keyboard"));
     expect(props.onAutoKeyboardChange).toHaveBeenCalledWith(false);

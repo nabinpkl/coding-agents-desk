@@ -11,7 +11,7 @@ import type { UsageReport } from "@agentdesk/agent-feed-wire";
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import type { StaleSessionsHandle } from "@/features/profile/useStaleSessions";
 import { ProfileRow } from "@/features/profile/ProfileRow";
-import type { UsageHandle, UsageState } from "@/features/usage/useUsage";
+import type { UsageHandle } from "@/features/usage/useUsage";
 
 /** jsdom has no dialog implementation; the modal drives `showModal` and `close`. */
 beforeEach(() => {
@@ -92,7 +92,7 @@ function report(): UsageReport {
 function handle(overrides: Partial<UsageHandle> = {}): UsageHandle {
   return {
     vendors: ["codex"],
-    state: { kind: "ready", report: report(), settled: true } as UsageState,
+    state: { kind: "ready", report: report(), settled: true },
     load: vi.fn(),
     ...overrides,
   };

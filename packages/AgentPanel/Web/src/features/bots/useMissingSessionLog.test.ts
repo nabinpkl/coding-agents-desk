@@ -28,7 +28,7 @@ const OTHER_REF: BotSessionRef = { source: "codex", sessionId: "sid-2" };
 function botWith(...missingSessionRefs: BotSessionRef[]): BotView {
   // A fresh object every call on purpose: the snapshots arrive as new objects, and a hook that only
   // works when the identity holds would pass every test below and log nothing in the panel.
-  return { ...BOT, missingSessionRefs } as BotView;
+  return { ...BOT, missingSessionRefs };
 }
 
 function drawn(spy: { mock: { calls: unknown[][] } }): Record<string, unknown>[] {

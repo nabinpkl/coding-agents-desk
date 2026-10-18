@@ -10,7 +10,7 @@ const loose = {
   lastEventAt: 1,
   activity: "ready",
 } as SessionSummary;
-const held = { ...loose, sessionId: "held", title: "Held" } as SessionSummary;
+const held = { ...loose, sessionId: "held", title: "Held" };
 
 describe("a session row's Move to canvas", () => {
   it("is offered on a session no Bot holds, and moves that session", () => {

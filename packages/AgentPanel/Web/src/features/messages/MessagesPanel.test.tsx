@@ -96,7 +96,7 @@ function feed(over: Record<string, unknown> = {}): HubHandle {
     reply: vi.fn(async () => message({ id: "m2", kind: "reply", from: "human", to: "human", state: "delivered" })),
     cancel: vi.fn(async () => message({ state: "cancelled" })),
     ...over,
-  } as unknown as HubHandle;
+  };
 }
 
 function Harness({ data }: { data: HubHandle }) {
@@ -337,10 +337,10 @@ describe("MessagesPanel", () => {
     // each observed rather than raced against.
     const frames: FrameRequestCallback[] = [];
     const realRaf = globalThis.requestAnimationFrame;
-    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    globalThis.requestAnimationFrame = (callback: FrameRequestCallback) => {
       frames.push(callback);
       return 0;
-    }) as typeof globalThis.requestAnimationFrame;
+    };
     // Something has to actually clip, or the walk finds no clipping ancestor and every reading
     // counts as visible, which would make the whole test pass without testing anything. The
     // longhand, because a stylesheet engine that does not expand the `overflow` shorthand reports

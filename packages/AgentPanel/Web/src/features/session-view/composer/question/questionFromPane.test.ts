@@ -82,9 +82,12 @@ describe("a question read off the terminal", () => {
   });
 
   it("stays up through the review screen, and goes only with the dialog", () => {
-    const { result, rerender } = renderHook(({ reading }) => usePaneQuestion(reading), {
-      initialProps: { reading: pane() as TmuxQuestionState | null },
-    });
+    const { result, rerender } = renderHook<ReturnType<typeof usePaneQuestion>, { reading: TmuxQuestionState | null }>(
+      ({ reading }) => usePaneQuestion(reading),
+      {
+        initialProps: { reading: pane() },
+      },
+    );
     const asked = result.current;
     expect(asked).not.toBeNull();
     rerender({ reading: pane({ question: null, prompt: null, review: true, options: [] }) });
