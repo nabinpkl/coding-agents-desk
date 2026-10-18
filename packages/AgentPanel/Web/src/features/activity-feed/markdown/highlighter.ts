@@ -22,7 +22,7 @@
 //      never more than once, and never for a reader who does not open that language.
 
 import type { HighlighterCore } from "shiki/core";
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 // Emitted by codeToHtml as `--shiki-light` / `--shiki-dark` CSS variables on each token;
 // markdown.css selects between them from the system theme.
@@ -69,8 +69,11 @@ const asking = new Set<string>();
 /** Asked for and refused: shiki has no such grammar, or it would not load. Never asked again. */
 const refused = new Set<string>();
 const listeners = new Set<() => void>();
+/** Moves on every announcement, so a reader of `useSyncExternalStore` sees that something did. */
+let version = 0;
 
 function announce(): void {
+  version += 1;
   for (const listener of listeners) listener();
 }
 
@@ -181,14 +184,14 @@ export function useCodeHighlighting(
   nameOrLang: string,
 ): { highlighter: HighlighterCore | null; lang: string } {
   const wanted = grammarWanted(nameOrLang);
-  const [, redraw] = useState(0);
-  useEffect(() => {
-    const listener = () => redraw((count) => count + 1);
-    listeners.add(listener);
+  // Subscribing is also what asks for the grammar, so a block that wants a new one asks once.
+  const subscribe = useCallback((onChange: () => void) => {
+    listeners.add(onChange);
     void ensureHighlighter().then(() => ensureLanguage(wanted));
     return () => {
-      listeners.delete(listener);
+      listeners.delete(onChange);
     };
   }, [wanted]);
+  useSyncExternalStore(subscribe, () => version, () => version);
   return { highlighter: instance, lang: loaded.has(wanted) ? wanted : PLAIN };
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import { ChevronRight } from "lucide-react";
+import { usePanelQuery } from "@/query/panelQuery";
 
 // Mermaid is the one renderer that is genuinely async and changes height a lot
 // (a text fence becomes a rendered SVG). To keep the virtualized feed's initial
@@ -32,36 +33,33 @@ export function MermaidBlock({ code }: { code: string }) {
 }
 
 function MermaidRender({ code }: { code: string }) {
-  const ref = useRef<HTMLDivElement>(null);
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-  const [error, setError] = useState<string | null>(null);
+  const drawn = usePanelQuery({
+    queryKey: ["mermaid", reactId, code],
+    queryFn: async () => {
+      const mermaid = (await import("mermaid")).default;
+      // securityLevel "strict" sanitizes label HTML and disables click
+      // handlers — diagram source comes from agent transcripts, treat as
+      // untrusted.
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark" });
+      const { svg } = await mermaid.render(`agent-panel-mmd-${reactId}`, code);
+      return svg;
+    },
+    staleTime: Infinity,
+  });
 
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const mermaid = (await import("mermaid")).default;
-        // securityLevel "strict" sanitizes label HTML and disables click
-        // handlers — diagram source comes from agent transcripts, treat as
-        // untrusted.
-        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark" });
-        const { svg } = await mermaid.render(`agent-panel-mmd-${reactId}`, code);
-        if (alive && ref.current) ref.current.innerHTML = svg;
-      } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : "diagram render failed");
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [code, reactId]);
-
-  if (error) {
+  if (drawn.error) {
     return (
       <pre className="agent-panel-mermaid__error">
         <code>{code}</code>
       </pre>
     );
   }
-  return <div ref={ref} className="agent-panel-mermaid__body" />;
+  return (
+    <div
+      className="agent-panel-mermaid__body"
+      // Mermaid's own output under its strict security level, as the block wrote it before.
+      dangerouslySetInnerHTML={drawn.data === undefined ? undefined : { __html: drawn.data }}
+    />
+  );
 }

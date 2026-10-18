@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 import type { ActivityBlock } from "@/features/activity-feed/useSessionEventsStream";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
 
 /**
  * A collapsed transcript drawer, sized as a chip.
@@ -192,9 +193,9 @@ export function RawJsonBlock({
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
+  useUnmountEffect(() => {
     if (timer.current) clearTimeout(timer.current);
-  }, []);
+  });
   return (
     <button
       type="button"

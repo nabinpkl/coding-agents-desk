@@ -11,13 +11,16 @@
 // The jump opens a range around the message (`loadAround`) and lands on it: one read wherever the
 // message is, where this used to page back through every row between it and the reader.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import type { LastSessionMessage } from "@agentdesk/agent-feed-wire";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { SidecarError } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { isEventItem, leadEvent, type FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import type { RemoteUserBar } from "@/features/activity-feed/sticky-headers/useStickyIndices";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 
 /** The last thing said before `before`, asked once per position. Null `before` asks nothing. */
 export function useRemoteUserBar(
@@ -25,33 +28,29 @@ export function useRemoteUserBar(
   before: number | null,
 ): { message: LastSessionMessage | null; remote: RemoteUserBar | null } {
   const ds = useDataSource();
-  const [answer, setAnswer] = useState<{ before: number; message: LastSessionMessage | null } | null>(null);
-  useEffect(() => {
-    if (before === null) return;
-    let cancelled = false;
-    ds.lastMessage(sessionId, { said: true, before }).then(
+  const asked = usePanelQuery({
+    queryKey: ["last-said", sourceKey(ds), sessionId, before],
+    queryFn: (): Promise<LastSessionMessage | null> => ds.lastMessage(sessionId, { said: true, before: before! }).then(
       (message) => {
-        if (cancelled) return;
         // Checked rather than trusted: the bar renders the text and the jump reads around the index.
         if (typeof message?.text !== "string" || typeof message.index !== "number") {
           console.error(`[user bar] the sidecar's answer for ${before} is not a message`, message);
-          setAnswer({ before, message: null });
-          return;
+          return null;
         }
-        setAnswer({ before, message });
+        return message;
       },
       (error: unknown) => {
-        if (cancelled) return;
         // A 404 is an answer: nothing was said above this position. Anything else is a failure,
         // and the bar stays down rather than naming a message it could not find.
         if (!(error instanceof SidecarError && error.status === 404)) {
           console.error(`[user bar] could not ask for the message before ${before}`, error);
         }
-        setAnswer({ before, message: null });
+        return null;
       },
-    );
-    return () => { cancelled = true; };
-  }, [ds, sessionId, before]);
+    ),
+    enabled: before !== null,
+  });
+  const answer = before !== null && asked.data !== undefined ? { before, message: asked.data } : null;
   const current = answer !== null && answer.before === before ? answer : null;
   return {
     message: current?.message ?? null,
@@ -78,10 +77,10 @@ export function useJumpToMessage({
 }): (message: LastSessionMessage) => void {
   // The message being landed on, and whether its page has come back yet.
   const [seeking, setSeeking] = useState<{ eventId: string; read: boolean } | null>(null);
-  const itemsRef = useRef(items);
-  useEffect(() => { itemsRef.current = items; }, [items]);
+  const itemsRef = useLatestRef(items);
 
-  useEffect(() => {
+  // Once the rows are drawn with the message among them, the feed is taken to it.
+  useDomSync(() => {
     if (seeking === null) return;
     const rowIndex = items.findIndex((item) => isEventItem(item) && leadEvent(item).id === seeking.eventId);
     const found = items[rowIndex];

@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 
 // Treat the container as "at the end" within this many pixels. This is a
 // sub-pixel rounding tolerance (fractional device pixels, flex rounding), NOT
@@ -144,89 +146,66 @@ export function useStickToBottom(
   }, [setFollowing]);
 
   // Tail enforcement: re-pin whenever the measured content height changes.
-  useEffect(() => {
-    if (!active) return;
-    const sized = sizedRef.current;
-    if (!sized) return;
-    const ro = new ResizeObserver(() => {
-      if (followingRef.current) snapToBottom();
-    });
-    ro.observe(sized);
-    return () => ro.disconnect();
-  }, [active, sizedRef, snapToBottom]);
+  useResizeObserver(active ? sizedRef : null, () => {
+    if (followingRef.current) snapToBottom();
+  });
 
   // Record when an input last asked to move towards earlier content. Only the
   // input can say that; the scroll event it produces cannot, and neither can a
   // clamp that looks identical to it. Note the direction test: a flick DOWNWARD
   // at the tail moves nothing but still fires events, and must not authorize the
   // clamp that a hand-off happens to deliver a moment later.
-  useEffect(() => {
-    if (!active) return;
+  const markUpward = () => {
+    upwardIntentAtRef.current = performance.now();
+  };
+  // Already at the end, a downward input moves nothing, so no scroll event follows it to
+  // re-attach; the input does it itself.
+  const markDownward = () => {
+    downwardIntentAtRef.current = performance.now();
     const el = scrollRef.current;
-    if (!el) return;
-    const markUpward = () => {
-      upwardIntentAtRef.current = performance.now();
-    };
-    // Already at the end, a downward input moves nothing, so no scroll event follows it to
-    // re-attach; the input does it itself.
-    const markDownward = () => {
-      downwardIntentAtRef.current = performance.now();
-      if (!followingRef.current && el.scrollHeight - el.scrollTop - el.clientHeight <= END_EPSILON_PX) {
-        setFollowing(true);
-      }
-    };
-    const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) markUpward();
-      if (event.deltaY > 0) markDownward();
-    };
-    const onTouchStart = (event: TouchEvent) => {
-      lastTouchYRef.current = event.touches[0]?.clientY ?? null;
-    };
-    const onTouchMove = (event: TouchEvent) => {
-      const y = event.touches[0]?.clientY;
-      if (y == null) return;
-      const previous = lastTouchYRef.current;
-      lastTouchYRef.current = y;
-      // A finger travelling DOWN the screen drags earlier content into view.
-      if (previous != null && y > previous) markUpward();
-      if (previous != null && y < previous) markDownward();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (UPWARD_KEYS.has(event.key) || (event.key === " " && event.shiftKey)) markUpward();
-      // Typed into a field, a space or an arrow moves the caret, not the feed, so it cannot be
-      // the reader taking the feed to its end.
-      const typing = event.target instanceof HTMLElement
-        && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
-      if (!typing && (DOWNWARD_KEYS.has(event.key) || (event.key === " " && !event.shiftKey))) markDownward();
-    };
-    // A press on the scrollbar is dispatched to the scroller itself, never to a row inside it.
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target === el && event.offsetX >= el.clientWidth - SCROLLBAR_GRAB_PX) {
-        scrollbarHeldRef.current = true;
-      }
-    };
-    const onPointerUp = () => {
-      scrollbarHeldRef.current = false;
-    };
-    el.addEventListener("wheel", onWheel, { passive: true });
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
-    el.addEventListener("pointerdown", onPointerDown, { passive: true });
-    window.addEventListener("pointerup", onPointerUp, true);
-    window.addEventListener("pointercancel", onPointerUp, true);
-    // On window: scrolling by keyboard does not require focus to be inside the
-    // feed, and usually is not.
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointerup", onPointerUp, true);
-      window.removeEventListener("pointercancel", onPointerUp, true);
-      window.removeEventListener("keydown", onKeyDown, true);
-    };
-  }, [active, scrollRef, setFollowing]);
+    if (el && !followingRef.current && el.scrollHeight - el.scrollTop - el.clientHeight <= END_EPSILON_PX) {
+      setFollowing(true);
+    }
+  };
+  const scroller = active ? scrollRef : null;
+  useEventListener<WheelEvent>(scroller, "wheel", (event) => {
+    if (event.deltaY < 0) markUpward();
+    if (event.deltaY > 0) markDownward();
+  }, { passive: true });
+  useEventListener<TouchEvent>(scroller, "touchstart", (event) => {
+    lastTouchYRef.current = event.touches[0]?.clientY ?? null;
+  }, { passive: true });
+  useEventListener<TouchEvent>(scroller, "touchmove", (event) => {
+    const y = event.touches[0]?.clientY;
+    if (y == null) return;
+    const previous = lastTouchYRef.current;
+    lastTouchYRef.current = y;
+    // A finger travelling DOWN the screen drags earlier content into view.
+    if (previous != null && y > previous) markUpward();
+    if (previous != null && y < previous) markDownward();
+  }, { passive: true });
+  // A press on the scrollbar is dispatched to the scroller itself, never to a row inside it.
+  useEventListener<PointerEvent>(scroller, "pointerdown", (event) => {
+    const el = scrollRef.current;
+    if (el && event.target === el && event.offsetX >= el.clientWidth - SCROLLBAR_GRAB_PX) {
+      scrollbarHeldRef.current = true;
+    }
+  }, { passive: true });
+  const released = () => {
+    scrollbarHeldRef.current = false;
+  };
+  useEventListener(active ? window : null, "pointerup", released, { capture: true });
+  useEventListener(active ? window : null, "pointercancel", released, { capture: true });
+  // On window: scrolling by keyboard does not require focus to be inside the feed, and usually
+  // is not.
+  useEventListener<KeyboardEvent>(active ? window : null, "keydown", (event) => {
+    if (UPWARD_KEYS.has(event.key) || (event.key === " " && event.shiftKey)) markUpward();
+    // Typed into a field, a space or an arrow moves the caret, not the feed, so it cannot be
+    // the reader taking the feed to its end.
+    const typing = event.target instanceof HTMLElement
+      && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
+    if (!typing && (DOWNWARD_KEYS.has(event.key) || (event.key === " " && !event.shiftKey))) markDownward();
+  }, { capture: true });
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;

@@ -65,7 +65,13 @@
         "**/AgentPanel/Web/src/features/cli-input/useTmuxComposer.ts",
         // A Mac window's composer field, through the host's accessibility watch: the focus-gated
         // watch, and the debounced push of the draft into it, which a send cancels by hand.
-        "**/AgentPanel/Web/src/features/session-view/composer/useWindowComposer.ts"
+        "**/AgentPanel/Web/src/features/session-view/composer/useWindowComposer.ts",
+        // The transcript's virtualiser: what it has laid out and where it is scrolled to. Pages are
+        // asked for as gaps and the top come into its visible range, and a remembered position is
+        // restored once its row has been measured, all of which is known only after layout.
+        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useTranscriptScrollRestore.ts",
+        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useGapFill.ts",
+        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useOlderPageAnchor.ts"
       ],
       "rules": { "eslint/no-restricted-imports": "off" }
     },
@@ -79,25 +85,6 @@
         "**/AgentPanel/Web/src/app/shell-state/useCanvasRoster.ts",
         "**/AgentPanel/Web/src/app/shell-state/useProjectInventory.ts",
         "**/AgentPanel/Web/src/app/shell-state/useThreadSelection.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/blocks/ActivitySystemBlocks.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/blocks/CompactingNotice.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/blocks/diff/DiffBlock.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/blocks/streamingText.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/markdown/CodeBlock.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/markdown/highlighter.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/markdown/Markdown.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/markdown/MermaidBlock.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/reading-preferences/fontStore.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/rows/useFeedRows.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useGapFill.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useOlderPageAnchor.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useStickToBottom.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/scroll-position/useTranscriptScrollRestore.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/sticky-headers/useRemoteUserBar.ts",
-        "**/AgentPanel/Web/src/features/activity-feed/TokenMeter.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/TokenMeterDetails.tsx",
-        "**/AgentPanel/Web/src/features/activity-feed/useSessionEventsStream.ts",
         "**/AgentPanel/Web/src/features/bots/avatar/BotAvatar.tsx",
         "**/AgentPanel/Web/src/features/bots/canvas/useCanvasZoom.ts",
         "**/AgentPanel/Web/src/features/bots/canvas/useMoveAlongStrip.ts",

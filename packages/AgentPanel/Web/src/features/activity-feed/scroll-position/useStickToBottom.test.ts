@@ -8,8 +8,9 @@ import { useStickToBottom } from "@/features/activity-feed/scroll-position/useSt
 
 let roCallback: (() => void) | null = null;
 class MockResizeObserver {
-  constructor(cb: () => void) {
-    roCallback = cb;
+  // A real observer always reports at least one entry, the element it watches.
+  constructor(cb: (entries: unknown[]) => void) {
+    roCallback = () => cb([{}]);
   }
   observe() {}
   disconnect() {}

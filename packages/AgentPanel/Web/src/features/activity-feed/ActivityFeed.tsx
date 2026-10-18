@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
@@ -41,6 +41,8 @@ import { useTranscriptScrollRestore } from "@/features/activity-feed/scroll-posi
 import { useOlderPageAnchor } from "@/features/activity-feed/scroll-position/useOlderPageAnchor";
 import { gapIdentity, useGapFill } from "@/features/activity-feed/scroll-position/useGapFill";
 import { expectMilestone, reachMilestone } from "@/features/telemetry/pageMilestones";
+import { useMountEffect } from "@/hooks/useMountEffect";
+import { useNotify } from "@/hooks/useNotify";
 
 /** A thread with nothing to show: one with no events yet, or none this mode shows. */
 export function EmptyFeed({ text = "no events" }: { text?: string }) {
@@ -126,24 +128,23 @@ export function ActivityFeed({
   const {
     events, loadOlder, fillGap, loadAround, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary, reconnecting,
   } = useSessionEventsStream(source, sessionId, mode);
-  useEffect(() => {
-    onSessionState?.({ runState, queue });
-  }, [onSessionState, queue.followUp, queue.steer, runState]);
-  useEffect(() => {
-    onUsage?.(usage);
-  }, [onUsage, usage]);
-  useEffect(() => {
-    onSessionModel?.(sessionModel);
-  }, [onSessionModel, sessionModel]);
+  // What the stream says about the session, for the card around this feed. Keyed on the counts,
+  // not the queue object, which is rebuilt on every state message.
+  const sessionState = useMemo(
+    () => ({ runState, queue }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [runState, queue.followUp, queue.steer],
+  );
+  useNotify(sessionState, (state) => onSessionState?.(state));
+  useNotify(usage, (reading) => onUsage?.(reading));
+  useNotify(sessionModel, (model) => onSessionModel?.(model));
   // The open AskUserQuestion derives from the stream the feed owns. Memoized so
   // the shell's mirror only re-renders when the answer actually changes it.
   const openQuestion = useMemo(
     () => openAskUserQuestion(events, liveTails),
     [events, liveTails],
   );
-  useEffect(() => {
-    onOpenQuestion?.(openQuestion);
-  }, [onOpenQuestion, openQuestion]);
+  useNotify(openQuestion, (question) => onOpenQuestion?.(question));
   // The queued prompts the transcript does not hold yet, after the live tails: the feed's end is
   // where they will land, and each goes the moment its own message arrives, ahead of the turn's end.
   const tails = useMemo(
@@ -284,10 +285,14 @@ export function ActivityFeed({
     virtualItems,
   });
   changesAtRef.current = changesAt;
-  useEffect(() => { setAskBefore(userBarBefore); }, [userBarBefore]);
+  // The bar above asks about the position the sticky header below has just worked out, so it is
+  // carried into the next render -- which happens at once, before anything is drawn.
+  if (askBefore !== userBarBefore) setAskBefore(userBarBefore);
   const hasRows = rowItems.length > 0;
-  useEffect(() => expectMilestone("first-rows"), []);
-  useEffect(() => { if (hasRows) reachMilestone("first-rows"); }, [hasRows]);
+  useMountEffect(() => expectMilestone("first-rows"));
+  useNotify(hasRows, (some) => {
+    if (some) reachMilestone("first-rows");
+  });
   const remoteMessage = userBarBefore !== null && remoteBar.remote?.before === userBarBefore ? remoteBar.message : null;
 
   const { restoring } = useTranscriptScrollRestore({

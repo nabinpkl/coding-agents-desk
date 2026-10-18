@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { generateDiffFile } from "@git-diff-view/file";
 import { DiffView, DiffModeEnum, type DiffFile } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
 import { useFontStore } from "@/features/activity-feed/reading-preferences/fontStore";
+import { useMemo } from "react";
+import { useMediaQuery } from "@/hooks/dom/useMediaQuery";
 
 // Renders a unified diff for an Edit tool_use block. Uses the snippet (not
 // the full file) since the harness records old_string/new_string only.
@@ -22,10 +23,7 @@ export function DiffBlock({
   // Library renders code lines via canvas measurement, not CSS inheritance,
   // so the wrapper's font-size is ignored. Pass the token through directly.
   const diffPx = useFontStore((s) => s.tokens.tile_diff);
-  const [file, setFile] = useState<DiffFile | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
+  const { file, error } = useMemo((): { file: DiffFile | null; error: string | null } => {
     try {
       const lang = languageFromPath(filePath);
       const name = filePath.split("/").pop() ?? filePath;
@@ -33,10 +31,9 @@ export function DiffBlock({
       f.initTheme(isDark ? "dark" : "light");
       f.init();
       f.buildUnifiedDiffLines();
-      setFile(f);
-      setError(null);
+      return { file: f, error: null };
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      return { file: null, error: String((e as Error).message ?? e) };
     }
   }, [filePath, oldString, newString, isDark]);
 
@@ -94,17 +91,5 @@ export function languageFromPath(p: string): string {
 // therefore always answered light here, painting light pink/green diffs on a dark
 // feed. Read the same media query directly instead.
 export function usePrefersDark(): boolean {
-  const [dark, setDark] = useState(
-    () =>
-      typeof window !== "undefined" && typeof window.matchMedia === "function"
-        && window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
-  useEffect(() => {
-    const query = window.matchMedia?.("(prefers-color-scheme: dark)");
-    if (!query) return;
-    const update = (): void => setDark(query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return dark;
+  return useMediaQuery("(prefers-color-scheme: dark)");
 }

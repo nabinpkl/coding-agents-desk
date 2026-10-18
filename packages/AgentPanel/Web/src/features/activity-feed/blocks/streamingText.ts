@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useInterval } from "@/hooks/useInterval";
 
 // Claude Code's "letter-by-letter" stream is a client-side reveal of the same
 // per-frame deltas we already replay. Our panel painted each delta whole, so a
@@ -66,33 +67,21 @@ export function markdownSafePrefix(text: string): string {
  */
 export function useProgressiveText(text: string, streaming: boolean): string {
   const [shown, setShown] = useState<number>(streaming ? 0 : text.length);
-  const shownRef = useRef<number>(streaming ? 0 : text.length);
-  const textRef = useRef<string>(text);
-  textRef.current = text;
+  // A block that stops streaming is shown whole at once, and resumes from there if it starts again.
+  if (!streaming && shown !== text.length) setShown(text.length);
 
-  useEffect(() => {
-    if (!streaming) {
-      shownRef.current = text.length;
-      setShown(text.length);
-      return;
-    }
-    const timer = setInterval(() => {
-      const target = textRef.current.length;
-      const current = shownRef.current;
-      if (current >= target) {
-        clearInterval(timer);
-        return;
-      }
+  // Ticks only while there is something left to reveal.
+  useInterval(() => {
+    setShown((current) => {
+      const target = text.length;
+      if (current >= target) return current;
       // A large backlog resolves in a bounded number of ticks; a small addition
       // still trickles instead of snapping. `MAX_CATCH_UP_TICKS` of 24 at
       // ~30fps means anything fills in within about three quarters of a second.
       const step = Math.max(MIN_STEP, Math.ceil((target - current) / MAX_CATCH_UP_TICKS));
-      const next = Math.min(target, current + step);
-      shownRef.current = next;
-      setShown(next);
-    }, TICK_MS);
-    return () => clearInterval(timer);
-  }, [streaming, text]);
+      return Math.min(target, current + step);
+    });
+  }, streaming && shown < text.length ? TICK_MS : null);
 
-  return text.slice(0, shown);
+  return streaming ? text.slice(0, shown) : text;
 }

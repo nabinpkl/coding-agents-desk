@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import {
   PAGE_SIZE,
@@ -12,6 +12,9 @@ import { lastUsageFromEvents, newerUsage } from "@/features/activity-feed/usageF
 import { retireLiveRows, splitLiveTails, visibleTails, liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { EventsPageAt } from "@agentdesk/agent-feed-wire";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 export interface ActivityBlock {
   kind:
@@ -173,7 +176,7 @@ export function useSessionEventsStream(
 
   // One subscription seeds and follows the thread: its opening snapshot is the newest window, and
   // everything after it arrives on the same stream. SSE never stops on scroll.
-  useEffect(() => {
+  useSubscription(`${sourceKey(ds)}:${source}:${sessionId}:${mode}`, () => {
     timelineEpochRef.current += 1;
     // Cleared on every open, not only on unsubscribe. The stream says afresh whether the context
     // is being rewritten, so a session swapped in behind a compacting one must not inherit it.
@@ -322,7 +325,7 @@ onEvent: (event) => {
       cancelled = true;
       unsubscribe();
     };
-  }, [session, ds]);
+  });
 
   const events = useMemo(() => {
     const arr = Array.from(state.events.values());
@@ -330,8 +333,7 @@ onEvent: (event) => {
     return arr;
   }, [state.events]);
   const windowStart = windowStartOf(events);
-  const windowStartRef = useRef(windowStart);
-  useEffect(() => { windowStartRef.current = windowStart; }, [windowStart]);
+  const windowStartRef = useLatestRef(windowStart);
 
   /**
    * Reads one page from `at` into the rows held, or drops it when a snapshot replaced the window

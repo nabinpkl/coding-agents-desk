@@ -7,12 +7,13 @@
 // setter pauses the tail-follower first, since a restructure the reader asked for must not
 // be answered by snapping back to the bottom.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode, AgentSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import { buildFeedLayout, type PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 import { keepUnchangedItems, keepUnchangedPairs } from "@/features/activity-feed/rows/keepUnchanged";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
 
 export function useFeedRows({
   events,
@@ -37,20 +38,18 @@ export function useFeedRows({
   // thread, so start each one collapsed. Record which events received the
   // default once so a later live update does not re-collapse a row the user
   // explicitly expanded.
-  useLayoutEffect(() => {
+  // During render, so a new system row is drawn collapsed from its first frame.
+  const [defaultedFor, setDefaultedFor] = useState(events);
+  if (defaultedFor !== events) {
+    setDefaultedFor(events);
     const newSystemEventIds = events
-      .filter(
-        (event) =>
-          event.type === "system" && !defaultedSystemEventsRef.current.has(event.index),
-      )
+      .filter((event) => event.type === "system" && !defaultedSystemEventsRef.current.has(event.index))
       .map((event) => event.index);
-    if (newSystemEventIds.length === 0) return;
-
-    for (const eventId of newSystemEventIds) {
-      defaultedSystemEventsRef.current.add(eventId);
+    if (newSystemEventIds.length > 0) {
+      for (const eventId of newSystemEventIds) defaultedSystemEventsRef.current.add(eventId);
+      setCollapsed((previous) => new Set([...previous, ...newSystemEventIds]));
     }
-    setCollapsed((previous) => new Set([...previous, ...newSystemEventIds]));
-  }, [events]);
+  }
 
   // Per-tool-call expansion: every row opens on click, including the newest
   // shell call. Auto-expanding the live edge turned long windows into a wall
@@ -77,9 +76,9 @@ export function useFeedRows({
       highlightTimerRef.current = null;
     }, 900);
   }, []);
-  useEffect(() => () => {
+  useUnmountEffect(() => {
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-  }, []);
+  });
 
   // Runs of tool work start open and fold only when the reader folds them. Not the
   // `collapsed` set, though both default to open: a run is keyed by its first event's

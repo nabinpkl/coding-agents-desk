@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 /** How near the bottom a reader has to be for the summary to keep following what arrives. */
 const FOLLOW_SLACK_PX = 8;
@@ -32,7 +33,7 @@ export function CompactingNotice({ summary }: { summary: string }) {
   const scroller = useRef<HTMLDivElement>(null);
   // Follows the newest text until the reader scrolls up to read something earlier.
   const following = useRef(true);
-  useLayoutEffect(() => {
+  useDomSync(() => {
     const box = scroller.current;
     if (box && following.current) box.scrollTop = box.scrollHeight;
   }, [summary, open]);

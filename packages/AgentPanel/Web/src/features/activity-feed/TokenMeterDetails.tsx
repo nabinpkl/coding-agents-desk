@@ -8,7 +8,7 @@
 // on this machine, and the second one is invisible everywhere else in the panel -- it is not in
 // the transcript, and the CLI only shows it in its own status line.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FoldVertical, LoaderCircle } from "lucide-react";
 import type { UsageQuota } from "@agentdesk/agent-feed-wire";
@@ -16,6 +16,9 @@ import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream
 import type { CompactControl, HoverHandlers } from "@/features/activity-feed/TokenMeter";
 import type { LimitsState } from "@/features/usage/useLimits";
 import { formatAge, formatResetIn, formatUsd, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
+import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useNotify } from "@/hooks/useNotify";
 
 /** The gap this panel keeps between itself and the edge of the window. */
 const MARGIN = 8;
@@ -87,34 +90,18 @@ export function TokenMeterDetails({
 
   // Before paint, so the panel is placed in the same commit that opens it rather than appearing
   // in the corner of the window for a frame.
-  useLayoutEffect(() => {
-    reposition();
-    // Every scroller, not just the page: `capture` is what hears a scroll event, which does not
-    // bubble. Without it the panel stays where the readout USED to be as soon as the canvas moves.
-    globalThis.addEventListener?.("scroll", reposition, true);
-    globalThis.addEventListener?.("resize", reposition);
-    return () => {
-      globalThis.removeEventListener?.("scroll", reposition, true);
-      globalThis.removeEventListener?.("resize", reposition);
-    };
-  }, [reposition]);
+  // Every scroller, not just the page: without it the panel stays where the readout USED to be
+  // as soon as the canvas moves.
+  useOverlayPlacement(true, () => reposition(), [reposition]);
 
   // Portalled to the end of the body, so Tab from the trigger would never reach it.
-  useEffect(() => {
+  useDomSync(() => {
     if (!focusOnOpen) return;
     const popup = panel.current;
     (popup?.querySelector<HTMLElement>("button:not(:disabled)") ?? popup)?.focus();
   }, [focusOnOpen]);
 
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (panel.current?.contains(target) || trigger.current?.contains(target)) return;
-      onDismiss();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [onDismiss, trigger]);
+  useDismissOnOutsidePress(true, [panel, trigger], onDismiss);
 
   return createPortal(
     <div
@@ -182,7 +169,8 @@ function CompactButton({ control, onSent }: { control: CompactControl; onSent: (
   const [failure, setFailure] = useState<string | null>(null);
   const note = control.blocked ?? failure;
   const { prepare } = control;
-  useEffect(() => prepare?.(), [prepare]);
+  // Whatever the control needs ready before it can be pressed, asked for as it is shown.
+  useNotify(prepare, (ready) => ready?.());
   return (
     <div className="mt-2.5 flex flex-col items-end gap-1">
       <button

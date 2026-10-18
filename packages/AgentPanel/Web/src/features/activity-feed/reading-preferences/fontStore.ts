@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
 import { create } from "zustand";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 // Locked discrete steps so persisted values can be validated against the
 // same set rather than a free range.
@@ -207,7 +207,7 @@ export const useFontStore = create<FontStore>((set, get) => ({
 // <html> so every consumer can read its variable without prop drilling.
 export function FontSizeRoot() {
   const tokens = useFontStore((s) => s.tokens);
-  useEffect(() => {
+  useDomSync(() => {
     const root = document.documentElement;
     for (const t of FONT_TOKENS) {
       root.style.setProperty(t.cssVar, `${tokens[t.key]}px`);

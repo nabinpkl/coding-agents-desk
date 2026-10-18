@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { QuotaVendorId, UsageQuota } from "@agentdesk/agent-feed-wire";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TokenMeterDetails } from "@/features/activity-feed/TokenMeterDetails";
 import { useLimits, type LimitsState } from "@/features/usage/useLimits";
 import { formatUsd, formatWindow, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
+import { useInterval } from "@/hooks/useInterval";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
 
 /**
  * The panel's Compact button, as the composer hands it over.
@@ -48,7 +50,7 @@ function useHoverOpen() {
     clearTimeout(timer.current);
     timer.current = null;
   }, []);
-  useEffect(() => cancel, [cancel]);
+  useUnmountEffect(cancel);
   const close = useCallback(() => {
     cancel();
     setOpen(false);
@@ -135,10 +137,7 @@ function minutesOfCacheLeft(usage: TokenUsage, now: number): number | null {
  */
 function CacheCountdown({ usage }: { usage: TokenUsage }) {
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), CACHE_TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
+  useInterval(() => setNow(Date.now()), CACHE_TICK_MS);
 
   const minutes = minutesOfCacheLeft(usage, now);
   if (minutes === null) return null;

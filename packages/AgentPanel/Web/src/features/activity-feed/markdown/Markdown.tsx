@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useContext, useLayoutEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { memo, useContext, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import "katex/dist/katex.min.css";
 import "@/features/activity-feed/markdown/markdown.css";
@@ -18,6 +18,7 @@ import {
   toBlocks,
   type FenceBlock,
 } from "@/features/activity-feed/markdown/proseBlocks";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 // What each prose element was last given, so the patch can diff against the string
 // we produced rather than the browser's reserialization of it. Keyed by the element
@@ -56,7 +57,7 @@ const ProseBlock = memo(function ProseBlock({
   const [slots, setSlots] = useState<readonly Element[]>([]);
   const opener = useContext(FilePathOpenerContext);
   const root = opener?.root ?? null;
-  useLayoutEffect(() => {
+  useDomSync(() => {
     const el = ref.current;
     if (el === null) return;
     // Marked paths whose opener has gone are links to nowhere, so they go with it.
