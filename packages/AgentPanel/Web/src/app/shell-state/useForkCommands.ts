@@ -225,7 +225,11 @@ export function useForkCommands(
         // opencode holds no Claude history, so its fork is a handover: the conversation rendered
         // as one first turn, the reader's words after it, attached as an ordinary reference.
         const { session: started } = await feed.handoverToOpencode(request.session.sessionId, brief);
-        await feed.addBotSessions(botId, { sessionRefs: [{ source: "opencode", sessionId: started.sessionId }] });
+        // Beside its source, where its draft was; a Claude fork stands there without being told.
+        await feed.addBotSessions(botId, {
+          sessionRefs: [{ source: "opencode", sessionId: started.sessionId }],
+          after: { source: "claude", sessionId: request.session.sessionId },
+        });
         // Always, as a fresh opencode session's is: the attach spent the Bot's anchor, and this is
         // what puts it on the session, with the task bracketed after it when there is one.
         await feed.setSessionTask("opencode", started.sessionId, choices.task.trim());

@@ -23,6 +23,17 @@ export interface StripMove {
 }
 
 /**
+ * Marks a child of the strip that is laid out in it and cannot be carried.
+ *
+ * The session row is the reason: among a Bot's own sessions it also lays out the ones this panel
+ * has started and has nowhere to put yet, a fork not yet sent, and the references whose
+ * transcripts have gone missing. None has a place in the Bot's order, so a card dropped on one
+ * would be aimed at a position that cannot be expressed, and measuring one would shift every
+ * index after it. Unmarked, every child is movable, which is what the canvas strip wants.
+ */
+export const STRIP_FIXED = "data-strip-fixed";
+
+/**
  * Carrying one card along the strip and dropping it somewhere else in the order.
  *
  * Everything moves by TRANSFORM and nothing is re-parented, which is not a rendering preference: a
@@ -44,7 +55,6 @@ export function useMoveAlongStrip({
   canvas,
   list,
   gap = STRIP_GAP,
-  count,
   onDrop,
 }: {
   canvas: React.RefObject<HTMLDivElement | null>;
@@ -58,16 +68,6 @@ export function useMoveAlongStrip({
    * already knows from the class it wrote.
    */
   gap?: number;
-  /**
-   * How many of the strip's children may be carried, counted from the first.
-   *
-   * The session row is the reason: after a Bot's own sessions it also lays out the ones this panel
-   * has started and has nowhere to put yet, and the references whose transcripts have gone
-   * missing. Neither has a place in the Bot's order, so a card dropped on one would be aimed at a
-   * position that cannot be expressed. Absent, every child is movable, which is what the canvas
-   * strip wants.
-   */
-  count?: number;
   onDrop: (from: number, to: number) => void;
 }): StripMove {
   const laidOut = useRef<{ left: number; width: number }[]>([]);
@@ -107,7 +107,7 @@ export function useMoveAlongStrip({
     if (!strip) return;
     scale.current = effectiveScale(strip);
     const origin = strip.getBoundingClientRect().left;
-    laidOut.current = [...strip.children].slice(0, count).map((child) => {
+    laidOut.current = [...strip.children].filter((child) => !child.hasAttribute(STRIP_FIXED)).map((child) => {
       const box = child.getBoundingClientRect();
       return { left: (box.left - origin) / scale.current, width: box.width / scale.current };
     });

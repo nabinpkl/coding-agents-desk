@@ -69,3 +69,22 @@ export function reorderRefs(
     value: updated,
   };
 }
+
+/**
+ * A Bot's references with `added` stood right after `after`, or at the end when `after` is absent
+ * or names a session the Bot does not hold.
+ *
+ * The fork's case: its card belongs beside the session it came from, and a reader who forked the
+ * first of six should not have to find it after the sixth. The end is the answer for everything
+ * else, and for an `after` the Bot let go of between the reader's click and this write, where any
+ * other position would be invented.
+ */
+export function placeRefs(
+  held: readonly BotSessionRef[],
+  added: readonly BotSessionRef[],
+  after: BotSessionRef | undefined,
+): BotSessionRef[] {
+  const at = after === undefined ? -1 : held.findIndex((ref) => sessionKey(ref) === sessionKey(after));
+  if (at < 0) return [...held, ...added];
+  return [...held.slice(0, at + 1), ...added, ...held.slice(at + 1)];
+}

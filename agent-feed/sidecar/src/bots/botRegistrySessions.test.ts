@@ -205,6 +205,41 @@ test("forks one of the Bot's own sessions, and puts the brief behind the handoff
   expect(added.bot.sessionAnchors?.["claude:started-1"]).toBe("Adam");
 });
 
+test("stands a fork right after its source rather than at the end of the Bot's row", async () => {
+  const { launcher } = recordingLauncher();
+  const { project, ref, claudeRef, registry } = await fixture(launcher);
+  const bot = await addBot(registry, { requestId: "add", name: "AD bot", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [claudeRef, ref] }, { kind: "user" });
+
+  const added = await registry.addSessions(
+    bot.botId,
+    { requestId: "fork", launch: { title: "Beside", from: claudeRef } },
+    { kind: "user" },
+  );
+
+  expect(added.bot.sessionRefs.map((each) => each.sessionId)).toEqual([claudeRef.sessionId, "started-1", ref.sessionId]);
+});
+
+test("stands attached sessions after the one named, and at the end when the Bot does not hold it", async () => {
+  const { project, ref, secondRef, claudeRef, registry } = await fixture();
+  const bot = await addBot(registry, { requestId: "add", name: "AD bot", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+
+  const atEnd = await registry.addSessions(
+    bot.botId,
+    { requestId: "after-absent", sessionRefs: [claudeRef], after: secondRef },
+    { kind: "user" },
+  );
+  expect(atEnd.bot.sessionRefs.map((each) => each.sessionId)).toEqual([ref.sessionId, claudeRef.sessionId]);
+
+  const beside = await registry.addSessions(
+    bot.botId,
+    { requestId: "after-held", sessionRefs: [secondRef], after: ref },
+    { kind: "user" },
+  );
+  expect(beside.bot.sessionRefs.map((each) => each.sessionId)).toEqual([ref.sessionId, secondRef.sessionId, claudeRef.sessionId]);
+});
+
 test("forks one of the Bot's own sessions from a message, and holds the brief for after the rewind", async () => {
   // The same rewind the session endpoint does, on the endpoint that attaches: a reader forking from
   // a message on a card wants the fork on that card's Bot.

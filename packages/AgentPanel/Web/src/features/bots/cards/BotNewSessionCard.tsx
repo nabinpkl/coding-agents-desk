@@ -87,7 +87,8 @@ export function BotNewSessionCard({
     onResizeCommit,
   });
   return (
-    <li className="shrink-0" style={{ width: open ? resize.width : NEW_SESSION_SPINE_WIDTH }}>
+    // Fixed in the row's drag order: its session has no place in it until its first turn lands.
+    <li data-strip-fixed="" className="shrink-0" style={{ width: open ? resize.width : NEW_SESSION_SPINE_WIDTH }}>
       <div
         className={`flex overflow-hidden rounded-lg border ${open ? "border-primary" : "border-border"}`}
         style={open ? { height: resize.height } : undefined}

@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
-import { reorderSessionRefs } from "@/features/bots/cards/botSessionOrder";
+import { reorderSessionRefs, standingAfter } from "@/features/bots/cards/botSessionOrder";
 
 const ref = (sessionId: string): BotSessionRef => ({ source: "claude", sessionId });
 const ids = (refs: readonly BotSessionRef[]): string[] => refs.map((each) => each.sessionId);
@@ -59,5 +59,31 @@ describe("reorderSessionRefs", () => {
     const laidOut = [ref("a"), ref("fresh")];
 
     expect(reorderSessionRefs(ORDER, laidOut, 1, 0)).toBeNull();
+  });
+});
+
+describe("standingAfter", () => {
+  const key = (sessionId: string) => `claude:${sessionId}`;
+
+  it("puts a starting session beside the laid-out card before it, in the Bot's order", () => {
+    // A fork of `a` started twice: the sidecar stood each right after `a`, the newer first.
+    const order = [ref("a"), ref("f2"), ref("f1"), ref("b")];
+    const groups = standingAfter(order, [ref("a"), ref("b")], ["f1", "f2"], key);
+
+    expect(groups.get("claude:a")).toEqual(["f2", "f1"]);
+    expect(groups.has(null)).toBe(false);
+  });
+
+  it("skips a reference the card is not showing to find the one it stands after", () => {
+    const order = [ref("a"), ref("hidden"), ref("f"), ref("b")];
+
+    expect(standingAfter(order, [ref("a"), ref("b")], ["f"], key).get("claude:a")).toEqual(["f"]);
+  });
+
+  it("sends one the order does not hold yet, or with nothing before it, to the end of the row", () => {
+    const order = [ref("first"), ref("a")];
+    const groups = standingAfter(order, [ref("a")], ["unknown", "first"], key);
+
+    expect(groups.get(null)).toEqual(["first", "unknown"]);
   });
 });

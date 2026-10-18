@@ -53,3 +53,40 @@ export function reorderSessionRefs(
   sessionRefs.splice(to > from ? at + 1 : at, 0, moved);
   return { sessionRefs, moved };
 }
+
+/**
+ * Cards the drag order has no place for -- a session still starting, a fork not yet sent -- put
+ * beside the laid-out card each stands after in the Bot's order, keyed by that card's session key.
+ *
+ * The Bot's order is the one answer to where a card goes: the sidecar stands a fork right after
+ * its source, so the starting card is drawn there too, and does not move when its first turn
+ * turns it into an ordinary card. Within one card's group they keep the Bot's order. One the order
+ * does not hold yet, or that has no laid-out card before it, is under `null`: the end of the row,
+ * after the ones that are placed.
+ */
+export function standingAfter<T>(
+  refs: readonly BotSessionRef[],
+  laidOut: readonly BotSessionRef[],
+  items: readonly T[],
+  keyOf: (item: T) => string,
+): Map<string | null, T[]> {
+  const shown = new Set(laidOut.map(sessionKey));
+  const position = new Map(refs.map((ref, index) => [sessionKey(ref), index]));
+  const groups = new Map<string | null, T[]>();
+  const ranked = [...items].sort(
+    (a, b) => (position.get(keyOf(a)) ?? Infinity) - (position.get(keyOf(b)) ?? Infinity),
+  );
+  for (const item of ranked) {
+    const at = position.get(keyOf(item));
+    let after: string | null = null;
+    for (let index = (at ?? 0) - 1; at !== undefined && index >= 0; index -= 1) {
+      const key = sessionKey(refs[index]!);
+      if (shown.has(key)) {
+        after = key;
+        break;
+      }
+    }
+    groups.set(after, [...(groups.get(after) ?? []), item]);
+  }
+  return groups;
+}

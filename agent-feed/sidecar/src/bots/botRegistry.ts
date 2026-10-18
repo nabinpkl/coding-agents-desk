@@ -28,6 +28,7 @@ import {
   normalizeLaunchFor,
   normalizePlaceSession,
   normalizeRetire,
+  normalizeSessionRef,
   normalizeSessionRefCommand,
 } from "@/bots/botCommands";
 import { actorKey, appendIdempotency, commandSignature, priorBot, sessionKey } from "@/bots/botIdempotency";
@@ -222,6 +223,10 @@ export class BotRegistry {
     if (normalized.sessionRefs.length === 0 && !launch) {
       throw new BotInvalidError("sessionRefs or launch is required");
     }
+    // A fork stands beside its source unless the caller named somewhere else.
+    const after = command.after === undefined
+      ? launch?.from === undefined ? undefined : { source: "claude" as const, sessionId: launch.from.sessionId }
+      : normalizeSessionRef(command.after);
     const resolved = normalized.sessionRefs.map((ref) => {
       const session = this.catalog.resolveSession(ref);
       if (!session) throw new BotNotFoundError(`session ${sessionKey(ref)} is not in the current catalog`);
@@ -246,7 +251,7 @@ export class BotRegistry {
         break;
       }
     }
-    const signature = commandSignature({ botId, ...normalized, launch });
+    const signature = commandSignature({ botId, ...normalized, launch, after });
     const idempotencyKey = `sessions:${actorKey(actor)}:${normalized.requestId}`;
 
     const record = await this.store.mutate((snapshot) =>
@@ -257,6 +262,7 @@ export class BotRegistry {
         outsideIndex < 0 ? undefined : normalized.sessionRefs[outsideIndex],
         idempotencyKey,
         signature,
+        after,
       )
     );
 
@@ -273,7 +279,7 @@ export class BotRegistry {
     const started = await this.starter.launchReservedSession(botId, record.bot, launch);
     return {
       bot: await this.viewer.viewRecord(
-        await this.starter.recordStartedSession(botId, { source: "claude", sessionId: started.sessionId }),
+        await this.starter.recordStartedSession(botId, { source: "claude", sessionId: started.sessionId }, after),
       ),
       started,
     };

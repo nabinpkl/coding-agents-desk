@@ -212,6 +212,12 @@ export interface AddBotSessionsCommand {
   sessionRefs?: BotSessionRef[];
   /** A session to start in that directory and attach. */
   launch?: BotLaunchCommand;
+  /**
+   * One of the Bot's sessions the added ones stand right after, rather than at the end: a fork's
+   * card belongs beside the session it came from. A launch that forks stands after its source
+   * without being told. Ignored when the Bot no longer holds it.
+   */
+  after?: BotSessionRef;
 }
 
 /** `POST /api/bots/:botId/sessions` response. */

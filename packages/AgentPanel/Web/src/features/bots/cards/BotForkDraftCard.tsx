@@ -70,7 +70,7 @@ export function BotForkDraftCard({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const card = useRef<HTMLLIElement>(null);
-  // Brought into view as it appears: it lands at the end of its Bot's row, which can be off screen.
+  // Brought into view as it appears: beside its source, which can be at the edge of the canvas.
   useEffect(() => {
     card.current?.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
   }, []);
@@ -110,7 +110,7 @@ export function BotForkDraftCard({
   };
 
   return (
-    <li ref={card} className="shrink-0" style={{ width: DEFAULT_CARD_SIZE.width }}>
+    <li ref={card} data-strip-fixed="" className="shrink-0" style={{ width: DEFAULT_CARD_SIZE.width }}>
       <section
         aria-label={`Fork of ${source}`}
         className="flex flex-col overflow-hidden rounded-lg border border-primary"

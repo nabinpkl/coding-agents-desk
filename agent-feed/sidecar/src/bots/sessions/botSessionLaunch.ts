@@ -26,6 +26,7 @@ import type { BotStore } from "@/bots/botStore";
 import type { NormalizedLaunch } from "@/bots/botCommands";
 import { sessionKey } from "@/bots/botIdempotency";
 import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
+import { placeRefs } from "@/bots/sessions/botSessionOrder";
 import { BotInvalidError } from "@/bots/botTypes";
 import {
   BotConflictError,
@@ -264,8 +265,9 @@ export class BotSessionStarter {
    *
    * Until the first turn lands the reference sits in `missingSessionRefs`, which is the honest
    * reading of it, and moves to `sessions` on its own when the catalog picks the file up.
+   * It stands after `after` when the Bot holds that one, which is where a fork's card belongs.
    */
-  async recordStartedSession(botId: string, ref: BotSessionRef): Promise<BotRecord> {
+  async recordStartedSession(botId: string, ref: BotSessionRef, after?: BotSessionRef): Promise<BotRecord> {
     return this.store.mutate((snapshot) => {
       const index = snapshot.bots.findIndex((bot) => bot.botId === botId);
       if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
@@ -273,7 +275,7 @@ export class BotSessionStarter {
       if (bot.sessionRefs.some((existing) => sessionKey(existing) === sessionKey(ref))) {
         return { snapshot, value: bot };
       }
-      const heldRefs = [...bot.sessionRefs, ref];
+      const heldRefs = placeRefs(bot.sessionRefs, [ref], after);
       const updated: BotRecord = { ...bot, sessionRefs: heldRefs, ...ensureSessionSlots(bot, heldRefs) };
       const bots = [...snapshot.bots];
       bots[index] = updated;

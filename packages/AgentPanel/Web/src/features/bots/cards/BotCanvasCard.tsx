@@ -4,7 +4,7 @@
 // what it had left over, which is why the width and height it remembers are the CARD's and the
 // open session's are its own. `BotSessionCard.tsx` holds the row this renders.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -24,7 +24,7 @@ import { BotForkDraftCard, type ForkDraftControls } from "@/features/bots/cards/
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
 import { SESSION_GAP, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
-import { reorderSessionRefs } from "@/features/bots/cards/botSessionOrder";
+import { reorderSessionRefs, standingAfter } from "@/features/bots/cards/botSessionOrder";
 import { isFatherSession } from "@/features/bots/botRosterOrder";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { reachMilestone } from "@/features/telemetry/pageMilestones";
@@ -189,14 +189,48 @@ export function BotCanvasCard({
     const moved = reorderSessionRefs(bot.sessionRefs, shown, from, to);
     if (moved) onReorderSessions(bot, moved.sessionRefs, moved.moved);
   };
+  // The cards with no place in the drag order, drawn beside the card each stands after rather than
+  // at the end of the row. A fork's draft sits beside its source, where the sidecar will stand the
+  // fork once it is sent (`placeRefs` there), and a starting session stands where the Bot's order
+  // puts it, so neither moves when it turns into an ordinary card. `null` is the end of the row.
+  const draftsHere = forkDrafts.drafts.filter((draft) => draft.request.botId === bot.botId);
+  const startingAfter = standingAfter(bot.sessionRefs, shown, starting, (each) => `claude:${each.sessionId}`);
+  const shownKeys = new Set(shown.map(sessionKey));
+  const beside = (after: string | null): ReactNode => (
+    <>
+      {draftsHere
+        .filter((draft) => {
+          const source = sessionKey(draft.request.session);
+          return (shownKeys.has(source) ? source : null) === after;
+        })
+        .map((draft) => (
+          <BotForkDraftCard
+            key={draft.key}
+            draft={draft}
+            anchor={bot.nextAnchor}
+            onStart={(choices) => forkDrafts.start(draft.key, choices)}
+            onClose={() => forkDrafts.close(draft.key)}
+          />
+        ))}
+      {(startingAfter.get(after) ?? []).map((each) => (
+        <BotNewSessionCard
+          key={`claude:${each.sessionId}`}
+          feed={sessionContext.feed}
+          session={each}
+          open={openKeys.has(`claude:${each.sessionId}`)}
+          onToggle={() => onToggleSession(`claude:${each.sessionId}`)}
+          size={sessionSizes[`claude:${each.sessionId}`] ?? DEFAULT_CARD_SIZE}
+          onResize={(next) => onResizeSession(`claude:${each.sessionId}`, next, false)}
+          onResizeCommit={(next) => onResizeSession(`claude:${each.sessionId}`, next, true)}
+          onClose={() => onCloseNewSession(each.sessionId)}
+        />
+      ))}
+    </>
+  );
   const moveSession = useMoveAlongStrip({
     canvas: scroller,
     list: roster,
     gap: SESSION_GAP,
-    // The Bot's own sessions and nothing after them. The starting cards and the missing references
-    // are laid out in this same row and have no place in the order, so a card dropped on one would
-    // be aimed at a position that cannot be expressed.
-    count: shown.length,
     onDrop: rearrangeSessions,
   });
   // Brings this card into view when one of its sessions BECOMES open, because the row that opened
@@ -297,7 +331,7 @@ export function BotCanvasCard({
           onCloseFile={() => setFileRequest(null)}
         />
 
-        {shown.length === 0 && shownMissing.length === 0 && starting.length === 0 ? (
+        {shown.length === 0 && shownMissing.length === 0 && starting.length === 0 && draftsHere.length === 0 ? (
           <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
             {/* Not "No sessions attached", which would be false and would send the reader to Add
                 sessions for sessions this Bot already has. The sidebar is where they went. */}
@@ -343,90 +377,67 @@ export function BotCanvasCard({
               className="flex items-start gap-4 p-2.5 pl-2"
             >
               {shown.map((session, index) => (
-                // A session card that throws -- a transcript row the sidecar changed shape under --
-                // costs that card, and its siblings and the Bot's own header keep working.
-                <PanelErrorBoundary key={sessionKey(session)} surface="session card" compact listItem>
-                  <BotSessionCard
-                    bot={bot}
-                    session={session}
-                    offset={moveSession.offsetOf(index)}
-                    lifted={moveSession.liftedIndex === index}
-                    onMoveStart={(clientX) => moveSession.start(index, clientX)}
-                    onMoveBy={moveSession.to}
-                    onMoveEnd={moveSession.end}
-                    onMoveBySteps={(steps) => rearrangeSessions(index, index + steps)}
-                    canMoveEarlier={index > 0}
-                    canMoveLater={index < shown.length - 1}
-                    hue={hue}
-                    rank={rank}
-                    slot={slots.get(sessionKey(session))}
-                    solo={bot.sessionRefs.length === 1}
-                    open={openKeys.has(sessionKey(session))}
-                    onToggle={() => onToggleSession(sessionKey(session))}
-                    size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}
-                    onResize={(next) => onResizeSession(sessionKey(session), next, false)}
-                    onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
-                    sessionContext={sessionContext}
-                    botError={botError}
-                    // The forks are Claude-only, and absent rather than inert on a Codex row: forking
-                    // asks the Claude CLI for a branch it alone has. `canRenameSession` answers the
-                    // same question for a title, and it is not Claude's alone.
-                    onFork={
-                      session.source === "claude" ? () => onForkSession(bot, session) : undefined
-                    }
-                    onForkFromLastMessage={
-                      session.source === "claude"
-                        ? () => onForkFromLastMessage(bot, session)
-                        : undefined
-                    }
-                    onForkFromLastCompaction={
-                      session.source === "claude"
-                        ? () => onForkFromLastCompaction(bot, session)
-                        : undefined
-                    }
-                    handover={handoverMenuProp(session, () => onHandoverSession(bot, session))}
-                    onRename={
-                      canRenameSession(session) ? () => onRenameSession(session) : undefined
-                    }
-                    // Every source: `/new` and `/fork` are opencode's, but a session made from any
-                    // session's composer belongs to the Bot whose card asked.
-                    onAttachSession={attachSessionToBot(bot)}
-                    onDetach={() => onDetachSession(bot, session)}
-                    onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
-                    onMaximize={() => onMaximizeSession(bot, session)}
-                    isFather={isFatherSession(bot, session)}
-                    onSetFather={() => onSetFatherSession(bot, session)}
-                    onClearFather={() => onSetFatherSession(bot, null)}
-                  />
-                </PanelErrorBoundary>
+                <Fragment key={sessionKey(session)}>
+                  {/* A session card that throws -- a transcript row the sidecar changed shape under --
+                      costs that card, and its siblings and the Bot's own header keep working. */}
+                  <PanelErrorBoundary surface="session card" compact listItem>
+                    <BotSessionCard
+                      bot={bot}
+                      session={session}
+                      offset={moveSession.offsetOf(index)}
+                      lifted={moveSession.liftedIndex === index}
+                      onMoveStart={(clientX) => moveSession.start(index, clientX)}
+                      onMoveBy={moveSession.to}
+                      onMoveEnd={moveSession.end}
+                      onMoveBySteps={(steps) => rearrangeSessions(index, index + steps)}
+                      canMoveEarlier={index > 0}
+                      canMoveLater={index < shown.length - 1}
+                      hue={hue}
+                      rank={rank}
+                      slot={slots.get(sessionKey(session))}
+                      solo={bot.sessionRefs.length === 1}
+                      open={openKeys.has(sessionKey(session))}
+                      onToggle={() => onToggleSession(sessionKey(session))}
+                      size={sessionSizes[sessionKey(session)] ?? DEFAULT_CARD_SIZE}
+                      onResize={(next) => onResizeSession(sessionKey(session), next, false)}
+                      onResizeCommit={(next) => onResizeSession(sessionKey(session), next, true)}
+                      sessionContext={sessionContext}
+                      botError={botError}
+                      // The forks are Claude-only, and absent rather than inert on a Codex row: forking
+                      // asks the Claude CLI for a branch it alone has. `canRenameSession` answers the
+                      // same question for a title, and it is not Claude's alone.
+                      onFork={
+                        session.source === "claude" ? () => onForkSession(bot, session) : undefined
+                      }
+                      onForkFromLastMessage={
+                        session.source === "claude"
+                          ? () => onForkFromLastMessage(bot, session)
+                          : undefined
+                      }
+                      onForkFromLastCompaction={
+                        session.source === "claude"
+                          ? () => onForkFromLastCompaction(bot, session)
+                          : undefined
+                      }
+                      handover={handoverMenuProp(session, () => onHandoverSession(bot, session))}
+                      onRename={
+                        canRenameSession(session) ? () => onRenameSession(session) : undefined
+                      }
+                      // Every source: `/new` and `/fork` are opencode's, but a session made from any
+                      // session's composer belongs to the Bot whose card asked.
+                      onAttachSession={attachSessionToBot(bot)}
+                      onDetach={() => onDetachSession(bot, session)}
+                      onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
+                      onMaximize={() => onMaximizeSession(bot, session)}
+                      isFather={isFatherSession(bot, session)}
+                      onSetFather={() => onSetFatherSession(bot, session)}
+                      onClearFather={() => onSetFatherSession(bot, null)}
+                    />
+                  </PanelErrorBoundary>
+                  {beside(sessionKey(session))}
+                </Fragment>
               ))}
-              {/* After the Bot's own sessions, because that is where each one lands the moment its
-                  first turn writes a transcript: the card keeps its place in the row rather than
-                  jumping to the end of it. */}
-              {starting.map((each) => (
-                <BotNewSessionCard
-                  key={`claude:${each.sessionId}`}
-                  feed={sessionContext.feed}
-                  session={each}
-                  open={openKeys.has(`claude:${each.sessionId}`)}
-                  onToggle={() => onToggleSession(`claude:${each.sessionId}`)}
-                  size={sessionSizes[`claude:${each.sessionId}`] ?? DEFAULT_CARD_SIZE}
-                  onResize={(next) => onResizeSession(`claude:${each.sessionId}`, next, false)}
-                  onResizeCommit={(next) => onResizeSession(`claude:${each.sessionId}`, next, true)}
-                  onClose={() => onCloseNewSession(each.sessionId)}
-                />
-              ))}
-              {/* Beside the starting cards, where the fork will land once it starts: sending turns
-                  this card into one of those without moving it. */}
-              {forkDrafts.drafts.filter((draft) => draft.request.botId === bot.botId).map((draft) => (
-                <BotForkDraftCard
-                  key={draft.key}
-                  draft={draft}
-                  anchor={bot.nextAnchor}
-                  onStart={(choices) => forkDrafts.start(draft.key, choices)}
-                  onClose={() => forkDrafts.close(draft.key)}
-                />
-              ))}
+              {beside(null)}
               {/* Shown rather than hidden: a curated reference whose transcript the catalog has
                   forgotten is the row a reader most needs to see, and removing it is the Bots view's
                   job, not this one's. Only the ones this canvas is showing, though -- a reference the
@@ -435,6 +446,7 @@ export function BotCanvasCard({
               {shownMissing.map((ref) => (
                 <li
                   key={sessionKey(ref)}
+                  data-strip-fixed=""
                   className="flex min-h-9 shrink-0 items-center gap-2 py-1 pr-1.5 pl-3 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
                 >
                   <span className="min-w-0 flex-1 truncate font-mono">{ref.sessionId}</span>

@@ -12,6 +12,7 @@ import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
 import { allocateAnchors } from "@/bots/sessions/botTitleNormalize";
 import { spentAnchors } from "@/bots/sessions/botSessionLaunch";
 import { BotConflictError, BotNotFoundError } from "@/bots/botTypes";
+import { placeRefs } from "@/bots/sessions/botSessionOrder";
 
 /**
  * Records references a Bot now holds, refusing ones it already has or may not claim.
@@ -21,7 +22,7 @@ import { BotConflictError, BotNotFoundError } from "@/bots/botTypes";
  * this runs; an empty `refs` with no launch records only the idempotency, so the launch after it
  * knows the request is new. A session attached from outside arrives with whatever title it has;
  * the anchor it will normalize to is spent here, beside the slot, so the next rename already
- * knows its name.
+ * knows its name. They stand after `after` when the Bot holds it, and at the end otherwise.
  */
 export function attachRefs(
   snapshot: StoredBotSnapshot,
@@ -30,6 +31,7 @@ export function attachRefs(
   outside: BotSessionRef | undefined,
   idempotencyKey: string,
   signature: string,
+  after?: BotSessionRef,
 ): { snapshot: StoredBotSnapshot; value: { bot: BotRecord; fresh: boolean } } {
   const prior = priorBot(snapshot, idempotencyKey, signature);
   if (prior) return { snapshot, value: { bot: prior, fresh: false } };
@@ -55,7 +57,7 @@ export function attachRefs(
   const duplicate = refs.find((ref) => attached.has(sessionKey(ref)));
   if (duplicate) throw new BotConflictError(`session ${sessionKey(duplicate)} is already attached to this Bot`);
 
-  const heldRefs = [...bot.sessionRefs, ...refs];
+  const heldRefs = placeRefs(bot.sessionRefs, refs, after);
   const updated: BotRecord = {
     ...bot,
     sessionRefs: heldRefs,
