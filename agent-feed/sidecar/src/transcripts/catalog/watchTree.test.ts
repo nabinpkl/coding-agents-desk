@@ -28,29 +28,15 @@ function track<T extends TreeWatch>(watch: T): T {
   return watch;
 }
 
+/** Above bun's 5s default per test, which would otherwise cut the budgets below short. */
+const PATIENT = 30_000;
+
 /**
  * Waits for a condition the watcher has to deliver, rather than for a fixed delay.
  *
  * The budget is a ceiling, not a delay: a satisfied predicate returns on the next poll, so a
  * longer one costs nothing when the watcher is working.
- *
- * These tests fail intermittently inside the full suite and pass alone, and the explanation
- * written here before -- that FSEvents is merely SLOWER under that load, so a bigger budget would
- * cover it -- is measured to be wrong. Raising the budget from 4 seconds to 20 changed nothing,
- * because bun's own per-test timeout is 5 seconds and silently capped it; `PATIENT` below lifts
- * that, and with 20 seconds actually available the watcher still delivers NOTHING. Twenty seconds
- * is not slow, it is never.
- *
- * So the open question is not the budget. It is why a recursive `fs.watch` stops delivering when
- * the process holds many of them at once, which is what the full suite does and what the sidecar
- * itself will do with several corpora. Reproduced on a clean tree at `eaf0e877`, so it is not a
- * property of any current change. Until that is understood these two are known-flaky under load,
- * and the numbers here are arranged so the failure reads as an unmet assertion rather than as a
- * runner timeout -- which is the difference between a test that says the watcher went quiet and
- * one that says only that time passed.
  */
-const PATIENT = 30_000;
-
 async function until(predicate: () => boolean, budgetMs = 20_000): Promise<void> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
@@ -59,11 +45,46 @@ async function until(predicate: () => boolean, budgetMs = 20_000): Promise<void>
   }
 }
 
+/**
+ * A throwaway file written until the watch reports it, so the test's own writes land on a watch
+ * that is already on.
+ *
+ * `watch()` returns before macOS has started delivering for the new root, and a write in that gap
+ * is never reported -- not late, lost. On a quiet machine the gap is too short to hit; with other
+ * processes busy on the disk it is up to ~100ms. Measured 2026-10-18 under six processes churning
+ * files: a write 0ms after `watch()` was lost 3 times in 4, one 100ms or more after it was seen
+ * 16 times in 16, and a watch that lost its first writes reported a write three seconds later
+ * within 4ms. That is why these tests used to pass alone and fail inside the full suite, waiting
+ * twenty seconds for an event that had already been dropped.
+ */
+function arming(base: string) {
+  const path = join(base, "arming.jsonl");
+  let heard = false;
+  return {
+    /** True for the arming file's own reports, which the test leaves out of what it asserts on. */
+    claims(reported: string): boolean {
+      if (reported !== path) return false;
+      heard = true;
+      return true;
+    },
+    async ready(): Promise<void> {
+      const deadline = Date.now() + 5_000;
+      while (!heard && Date.now() < deadline) {
+        await writeFile(path, `${Date.now()}\n`);
+        await until(() => heard, 250);
+      }
+      if (!heard) throw new Error("the watch never reported its arming file within 5s");
+    },
+  };
+}
+
 test("reports a path written anywhere under the root", async () => {
   const base = await root();
   await mkdir(join(base, "project"), { recursive: true });
   const seen: string[] = [];
-  track(watchTree({ root: base, depth: 1, onPath: (path) => seen.push(path), onError: () => {} }));
+  const arm = arming(base);
+  track(watchTree({ root: base, depth: 1, onPath: (path) => arm.claims(path) || seen.push(path), onError: () => {} }));
+  await arm.ready();
 
   const target = join(base, "project", "session.jsonl");
   await writeFile(target, "one\n");
@@ -77,7 +98,9 @@ test("coalesces one change reported more than once", async () => {
   // reacts by reading the file or reconciling a catalog, so the duplicate is real work.
   const base = await root();
   const seen: string[] = [];
-  track(watchTree({ root: base, depth: 1, onPath: (path) => seen.push(path), onError: () => {} }));
+  const arm = arming(base);
+  track(watchTree({ root: base, depth: 1, onPath: (path) => arm.claims(path) || seen.push(path), onError: () => {} }));
+  await arm.ready();
 
   const target = join(base, "session.jsonl");
   await writeFile(target, "one\n");
@@ -96,7 +119,9 @@ test("ignores anything deeper than the depth it was given", async () => {
   const base = await root();
   await mkdir(join(base, "one", "two"), { recursive: true });
   const seen: string[] = [];
-  track(watchTree({ root: base, depth: 1, onPath: (path) => seen.push(path), onError: () => {} }));
+  const arm = arming(base);
+  track(watchTree({ root: base, depth: 1, onPath: (path) => arm.claims(path) || seen.push(path), onError: () => {} }));
+  await arm.ready();
 
   const tooDeep = join(base, "one", "two", "buried.jsonl");
   const shallow = join(base, "one", "visible.jsonl");
@@ -113,12 +138,14 @@ test("tells appearing, being written, and vanishing apart", async () => {
   // stat and a set of strings, which is what makes a thousand-file corpus affordable.
   const base = await root();
   const changes: Array<[string, EntryChange]> = [];
+  const arm = arming(base);
   track(watchTreeEntries({
     root: base,
     depth: 1,
-    onEntry: (path, change) => changes.push([path, change]),
+    onEntry: (path, change) => arm.claims(path) || changes.push([path, change]),
     onError: () => {},
   }));
+  await arm.ready();
 
   const target = join(base, "rollout.jsonl");
   await writeFile(target, "one\n");
@@ -136,13 +163,15 @@ test("tells appearing, being written, and vanishing apart", async () => {
 test("skips a path the caller does not accept, without asking the filesystem", async () => {
   const base = await root();
   const changes: string[] = [];
+  const arm = arming(base);
   track(watchTreeEntries({
     root: base,
     depth: 1,
     accepts: (path) => path.endsWith(".jsonl"),
-    onEntry: (path) => changes.push(path),
+    onEntry: (path) => arm.claims(path) || changes.push(path),
     onError: () => {},
   }));
+  await arm.ready();
 
   await writeFile(join(base, "notes.txt"), "x\n");
   const wanted = join(base, "kept.jsonl");
