@@ -6,6 +6,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { isEventItem, leadEvent, type DisplayItem, type FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
@@ -109,6 +110,10 @@ export function useTranscriptScrollRestore({
   topEvent: ActivityEvent | null;
   virtualItems: { index: number }[];
 }): { restoring: boolean } {
+  // Left uncompiled on purpose. It is handed the feed's TanStack Virtual virtualizer, one object
+  // whose measurements change inside it, which React Compiler cannot see: memoized on that object,
+  // this would keep answering from geometry the rows have already left.
+  "use no memo";
   const restoredFor = useRef<string | null>(null);
   // Puts the reader back where they were reading, as soon as there are rows to land on.
   //
@@ -130,6 +135,9 @@ export function useTranscriptScrollRestore({
     if (restoredFor.current === key || rowItems.length === 0) return;
     const anchor = loadTranscriptAnchor({ source, sessionId });
     if (anchor === null) {
+      // The restore's state is set from this effect because whether it can land is layout: the
+      // virtualiser measures the anchor's row only after a commit.
+      // oxlint-disable-next-line react/set-state-in-effect
       setPendingAnchor((current) => current === null ? current : null);
       restoredFor.current = key;
       return;
@@ -172,7 +180,6 @@ export function useTranscriptScrollRestore({
     restoredFor.current = key;
     pause();
     setHoldingEvent(anchor);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, sessionId, timelineEpoch, around, rowItems, virtualItems, rowVirtualizer, pause, loadAround]);
 
   /**
@@ -238,8 +245,7 @@ export function useTranscriptScrollRestore({
    * boundary crosses the top), so a reader who read down through one long answer used to keep
    * whatever offset was current when that row first reached the top.
    */
-  const latest = useRef({ following, rowItems, topEvent });
-  latest.current = { following, rowItems, topEvent };
+  const latest = useLatestRef({ following, rowItems, topEvent });
   useEffect(() => {
     if (restoredFor.current !== `${source}:${sessionId}:${timelineEpoch}` || holdingEvent !== null) return;
     const el = parentRef.current;

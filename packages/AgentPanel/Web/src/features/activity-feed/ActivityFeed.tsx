@@ -125,6 +125,11 @@ export function ActivityFeed({
   /** An SDK session's prompts sent mid-turn, drawn after everything else until the transcript holds them. */
   queuedPrompts?: readonly ClaudeSdkQueuedPrompt[];
 }) {
+  // Left uncompiled on purpose. TanStack Virtual's virtualizer is one object whose measurements
+  // change inside it, which React Compiler cannot see: memoized on that object, this would keep
+  // answering from geometry the rows have already left. React Compiler lists the library as
+  // incompatible, and skips the feed on its own; this says so where it applies.
+  "use no memo";
   const {
     events, loadOlder, fillGap, loadAround, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary, reconnecting,
   } = useSessionEventsStream(source, sessionId, mode);
@@ -132,7 +137,6 @@ export function ActivityFeed({
   // not the queue object, which is rebuilt on every state message.
   const sessionState = useMemo(
     () => ({ runState, queue }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [runState, queue.followUp, queue.steer],
   );
   useNotify(sessionState, (state) => onSessionState?.(state));

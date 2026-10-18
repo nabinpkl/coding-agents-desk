@@ -7,8 +7,9 @@
 // and hands the answers to the feed: all three read the same measurement cache, and
 // separating one from the others is how they drift.
 
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import type { RefObject } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import {
@@ -122,26 +123,34 @@ export function useStickyIndices({
   stickyHeaderRef: RefObject<HTMLButtonElement | null>;
   virtualItems: { index: number; end: number }[];
 }) {
+  // Left uncompiled on purpose. It is handed the feed's TanStack Virtual virtualizer, one object
+  // whose measurements change inside it, which React Compiler cannot see: memoized on that object,
+  // this would keep answering from geometry the rows have already left.
+  "use no memo";
   const barHeight = () => stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE;
 
   // `measurementsCache` is the public mirror of the private getMeasurements(); the
   // getVirtualItems() call in the feed refreshes it every render, so it holds current geometry
   // for every row, including those scrolled off. `virtualItems` stays a dependency so a
   // re-measure is picked up even without a scroll.
+  //
+  // The bar's height is read as last drawn, while rendering: the top line is the one under the bar,
+  // and its height is layout, which nothing reports as a value. Harmless uncompiled, where each
+  // render reads it afresh.
   const answer = useMemo(
+    // oxlint-disable-next-line react/refs
     () => answerAt(items, rowVirtualizer.measurementsCache, rowItems.length, scrollTop, barHeight(), oldestStart, remote),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [scrollTop, virtualItems, items, rowItems.length, oldestStart, remote],
   );
 
-  // What the scroll handler compares against, kept current with every render.
-  const latest = useRef({ answer, items, rowCount: rowItems.length, oldestStart, remote });
-  latest.current = { answer, items, rowCount: rowItems.length, oldestStart, remote };
-  const changesAt = useRef((offset: number): boolean => {
+  // What the scroll handler compares against, as of the last commit: a scroll arrives after one.
+  const latest = useLatestRef({ answer, items, rowCount: rowItems.length, oldestStart, remote });
+  const changesAt = useCallback((offset: number): boolean => {
     const now = latest.current;
-    const next = answerAt(now.items, rowVirtualizer.measurementsCache, now.rowCount, offset, barHeight(), now.oldestStart, now.remote);
+    const height = stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE;
+    const next = answerAt(now.items, rowVirtualizer.measurementsCache, now.rowCount, offset, height, now.oldestStart, now.remote);
     return !sameAnswer(next, now.answer);
-  }).current;
+  }, [latest, rowVirtualizer, stickyHeaderRef]);
 
   const { userBar, stickyCurrentIndex, topRowIndex } = answer;
   const stickyUserIndex = userBar !== null && "row" in userBar ? userBar.row : null;
