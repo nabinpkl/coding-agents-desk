@@ -13,7 +13,7 @@
 // anyway, so page order is belt and braces rather than load-bearing.
 
 import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
-import { serveGet } from "@/agents/opencode/opencodeClient";
+import { serveGet } from "@/agents/opencode/serve/opencodeClient";
 
 /** History pages hold this many messages; the live tail reads one page. */
 const HISTORY_PAGE_LIMIT = 200;

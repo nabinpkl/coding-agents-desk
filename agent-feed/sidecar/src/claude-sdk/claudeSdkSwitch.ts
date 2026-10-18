@@ -25,10 +25,10 @@ import {
   tmuxPaneCommandExited,
   tmuxPaneStarts,
 } from "@/terminal/tmux/tmuxSessions";
-import type { ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
+import type { ClaudeSdkClient } from "@/claude-sdk/session/claudeSdkClient";
 import { resumeCommandFor } from "@/claude-sdk/claudeSdkLaunch";
 import { isClaudeSdkRunnerCommand, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
-import type { SessionReply } from "@/claude-sdk/claudeSdkSession";
+import type { SessionReply } from "@/claude-sdk/session/claudeSdkCommands";
 
 export type SwitchRefusal =
   /** No process holds the session; opening it starts it, in the mode it last ran in. */

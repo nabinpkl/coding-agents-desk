@@ -11,13 +11,13 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { useComposerDraft, useSendAttachments } from "@/features/session-view/composer/useComposerHold";
+import { useComposerDraft, useSendAttachments } from "@/features/session-view/composer/hold/useComposerHold";
 
 /** The store's contract, in memory: the same four calls, ids allocated beside the stored ones. */
 const stored = new Map<string, { id: number; name: string; mime: string; blob: Blob; addedAt: number }[]>();
 let refuseWrites = false;
 
-vi.mock("@/features/session-view/composer/heldImagesStore", () => ({
+vi.mock("@/features/session-view/composer/hold/heldImagesStore", () => ({
   appendHeldImage: vi.fn(async (key: string, image: { name: string; mime: string; blob: Blob }) => {
     if (refuseWrites) throw new Error("held images: this browser has no IndexedDB");
     const images = stored.get(key) ?? [];

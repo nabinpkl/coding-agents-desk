@@ -6,9 +6,7 @@
 // Session lifetimes live one layer down, in `opencodeSessionPool.ts`: opening,
 // adopting, refreshing and reaping all edit the same maps, so they share one
 // owner rather than two sharers. This class issues commands and answers queries
-// against the sessions the pool hands back. Creating one is here rather than there: it is a
-// single remote call that owns none of the pool's state, and the session is the pool's only
-// from its first `open`.
+// against the sessions the pool hands back. Creating one is neither's: `opencodeSessionCreate.ts`.
 //
 // What it deliberately does NOT do: spawn a server (`createOpencode()` is
 // never constructed -- the user already runs one serve per machine), read the
@@ -23,8 +21,8 @@
 // called: a 200 text/html where JSON was expected is what a wrong family looks
 // like, and it was measured before this comment existed.
 
-import { opencodeClient, resetOpencodeClient, serveRequest, type OpencodeClient } from "@/agents/opencode/opencodeClient";
-import { stageOpencodeAttachments, listOpencodeServeCommands, listOpencodeModels, switchOpencodeModel, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, redoOpencodeSession, renameOpencodeSession, forkOpencodeSession, askOpencodeAside, exportOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand, type OpencodeModel } from "@/agents/opencode/opencodeServeCalls";
+import { opencodeClient, resetOpencodeClient, serveRequest, type OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
+import { stageOpencodeAttachments, listOpencodeServeCommands, listOpencodeModels, switchOpencodeModel, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, redoOpencodeSession, renameOpencodeSession, forkOpencodeSession, askOpencodeAside, exportOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand, type OpencodeModel } from "@/agents/opencode/serve/opencodeServeCalls";
 import type {
   AgentBackend,
   AgentCommandReceipt,
@@ -45,17 +43,11 @@ import {
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import type { TokenUsage, EventMode } from "@/transcripts/transcriptTypes";
 import { OpencodeSessionPool, type OpencodePoolOptions, type OwnedSession } from "@/agents/opencode/opencodeSessionPool";
+import { createOpencodeSession, type OpencodePermissionRule } from "@/agents/opencode/opencodeSessionCreate";
 
 export type { OpencodeSessionLocation } from "@/agents/opencode/opencodeSessionPool";
 
 export interface OpencodeBackendOptions extends Omit<OpencodePoolOptions, "capabilities"> {}
-
-/** One serve permission rule. Of those matching an action and resource, the last decides. */
-export interface OpencodePermissionRule {
-  action: string;
-  resource: string;
-  effect: "allow" | "deny" | "ask";
-}
 
 export const OPENCODE_AGENT_CAPABILITIES: AgentSessionCapabilities = {
   modes: ["nice"],
@@ -115,28 +107,13 @@ export class OpencodeAgentBackend implements AgentBackend {
     projectPath: string,
     permissions: readonly OpencodePermissionRule[] | undefined,
   ): Promise<AgentSessionDescriptor> {
-    const client = this.serve();
-    if (!client) throw new Error("opencode serve password is not configured");
-    const created = await client.session.create({
-      location: { directory: projectPath },
-      ...(permissions ? { permissions } : {}),
-    });
-    if (typeof created.id !== "string" || !created.id) throw new Error("opencode created a session without an id");
-    // Rules that did not arrive leave a session running as its agent, which is everything the
-    // rules were there to refuse. The old client dropped this very field without an error, so
-    // the stored rules are checked against the asked-for ones, and a mismatch removes the
-    // session before anything can use it rather than handing it on unconfined.
-    if (permissions && !sameRules(created.permissions, permissions)) {
-      await client.session.remove({ sessionID: created.id }).catch(() => {});
-      throw new Error("opencode created the session without the rules it was asked to hold");
-    }
-    const location = { sessionId: created.id, projectPath };
-    this.options.onSessionCreated(location);
+    const created = await createOpencodeSession(this.serve(), projectPath, permissions);
+    this.options.onSessionCreated({ sessionId: created.sessionId, projectPath });
     return {
-      sessionId: created.id,
+      sessionId: created.sessionId,
       source: "opencode",
       projectPath,
-      title: created.title || created.id,
+      title: created.title,
       lastEventAt: this.now(),
       activity: "ready",
       capabilities: this.capabilities,
@@ -471,24 +448,4 @@ export class OpencodeAgentBackend implements AgentBackend {
   private assertActive(): void {
     if (this.disposed) throw new AgentBackendDisposedError("opencode agent backend is disposed");
   }
-
-  private disposeOwned(owned: OwnedSession): void {
-    if (owned.disposed) return;
-    owned.disposed = true;
-    if (owned.refreshTimer) clearTimeout(owned.refreshTimer);
-    owned.refreshTimer = null;
-    owned.ui.dispose();
-  }
-}
-
-/** The same rules in the same order: order is meaning here, since the last match decides. */
-function sameRules(
-  stored: readonly OpencodePermissionRule[] | undefined,
-  asked: readonly OpencodePermissionRule[],
-): boolean {
-  if (!stored || stored.length !== asked.length) return false;
-  return stored.every((rule, index) => {
-    const other = asked[index];
-    return rule.action === other?.action && rule.resource === other.resource && rule.effect === other.effect;
-  });
 }

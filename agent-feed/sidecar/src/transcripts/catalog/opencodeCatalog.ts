@@ -8,7 +8,7 @@
 
 import type { SessionInfo } from "@opencode/client";
 import { config } from "@/config/config";
-import { isServeUnauthorized, opencodeClient, resetOpencodeClient, type OpencodeClient } from "@/agents/opencode/opencodeClient";
+import { isServeUnauthorized, opencodeClient, resetOpencodeClient, type OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import type { OpencodeSessionLocation } from "@/agents/opencode/opencodeAgentBackend";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";

@@ -20,29 +20,17 @@ import type {
   SessionAddress,
   SidecarDataSource,
 } from "@/features/activity-feed/data-source/SidecarDataSource";
-
-/** How long after the last keystroke the pane is brought up to date. */
-const PUSH_DEBOUNCE_MS = 90;
-import {
-  holdsFreshPaste,
-  type TmuxComposerHandle,
-} from "@/features/cli-input/tmuxComposerHandle";
+import { holdsFreshPaste, type TmuxComposerHandle } from "@/features/cli-input/tmuxComposerHandle";
 import { useComposerAttachments } from "@/features/cli-input/useComposerAttachments";
-
-// Re-exported: the hook is the address its surface already imports, and these are what
-// it hands back. The declarations live in `tmuxComposerHandle.ts`.
-export {
-  composerImageIds,
-  tmuxComposerReasonText,
-  type ComposerImage,
-  type TmuxComposerHandle,
-} from "@/features/cli-input/tmuxComposerHandle";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useCommitToRef, useLatestRef } from "@/hooks/useLatestRef";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
 import { runWithFinally } from "@/hooks/state/runWithFinally";
+
+/** How long after the last keystroke the pane is brought up to date. */
+const PUSH_DEBOUNCE_MS = 90;
 
 /**
  * The panel's composer, mirrored into the prompt box of the CLI this session is running in.

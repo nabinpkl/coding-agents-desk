@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionInfo } from "@opencode/client";
-import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import { state } from "@/transcripts/transcriptState";
 import { sessionKey } from "@/transcripts/catalog/catalogState";
 import {

@@ -10,7 +10,7 @@
 // restarts on every edit to it. So a session the catalog lists as recently active is looked up once
 // per process, from the newest page of its messages.
 
-import { serveGet } from "@/agents/opencode/opencodeClient";
+import { serveGet } from "@/agents/opencode/serve/opencodeClient";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
 import { scheduleBroadcast, sessionKey } from "@/transcripts/catalog/catalogState";

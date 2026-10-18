@@ -36,7 +36,7 @@ import {
   clearHeldImages,
   readHeldImages,
   removeHeldImage,
-} from "@/features/session-view/composer/heldImagesStore";
+} from "@/features/session-view/composer/hold/heldImagesStore";
 import { useCommitToRef, useLatestRef } from "@/hooks/useLatestRef";
 import { useSubscription } from "@/hooks/useSubscription";
 

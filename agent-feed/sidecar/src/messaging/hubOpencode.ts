@@ -11,7 +11,7 @@
 // session it lists is reachable, and a message to a session the serve has not listed waits.
 
 import type { BotSessionRef, HubStreamEvent, Message, MessageRef, RenamedBracket } from "@agentdesk/agent-feed-wire";
-import { opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencode/opencodeClient";
+import { opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencode/serve/opencodeClient";
 import { subscribeCatalog } from "@/transcripts/catalog/catalogState";
 import type { HubClient } from "@/messaging/hubClient";
 import { agentKindLine, agentPreamble, ownerKindLine } from "@repo/agent-feed/sidecar/mods/agentdesk-hub/hooks/hubKindWording.ts";

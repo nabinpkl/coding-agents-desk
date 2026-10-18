@@ -23,7 +23,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { AgentSessionDescriptor, ArenaContestantSource } from "@agentdesk/agent-feed-wire";
-import type { OpencodePermissionRule } from "@/agents/opencode/opencodeAgentBackend";
+import type { OpencodePermissionRule } from "@/agents/opencode/opencodeSessionCreate";
 import type { ArenaContestantRecord, ArenaRunRecord, ArenaRunRegistry } from "@/arena/arenaRun";
 import { claudeContestantArgv } from "@/arena/contestants/claudeContestant";
 import { LIVE_TERMINAL_STEPS } from "@/arena/contestants/terminalContestants";

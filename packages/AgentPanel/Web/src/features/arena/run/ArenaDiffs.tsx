@@ -10,7 +10,7 @@ import { DiffFile } from "@git-diff-view/file";
 import { DiffModeEnum, DiffView } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
 import type { ArenaContestantDetail } from "@agentdesk/agent-feed-wire";
-import { splitDiff, type DiffFilePart } from "@/features/arena/arenaFacts";
+import { splitDiff, type DiffFilePart } from "@/features/arena/run/arenaFacts";
 import { TEXT } from "@/features/arena/arenaVocabulary";
 import { languageFromPath, usePrefersDark } from "@/features/activity-feed/blocks/diff/DiffBlock";
 import { useFontStore } from "@/features/activity-feed/reading-preferences/fontStore";

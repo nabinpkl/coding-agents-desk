@@ -8,7 +8,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessageAttachment } from "@/agents/agentBackend";
-import { resetOpencodeClient, serveGet, serveWrite } from "@/agents/opencode/opencodeClient";
+import { resetOpencodeClient, serveGet, serveWrite } from "@/agents/opencode/serve/opencodeClient";
 import { readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 
 /** One slash command the serve offers, as the composer picker shows it. */

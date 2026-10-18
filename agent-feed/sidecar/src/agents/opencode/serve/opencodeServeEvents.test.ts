@@ -7,9 +7,9 @@
 // permission, a form -- is answered through the session's broker, and the answer is its reply.
 import { expect, test } from "bun:test";
 import type { V2Event } from "@opencode/client";
-import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import type { AgentUiBroker } from "@/agents/agentUiBroker";
-import { OpencodeServeEvents, type ServeEventRouter } from "@/agents/opencode/opencodeServeEvents";
+import { OpencodeServeEvents, type ServeEventRouter } from "@/agents/opencode/serve/opencodeServeEvents";
 
 function compaction(type: string, data: Record<string, unknown>): V2Event {
   return { id: "evt-1", type, data } as unknown as V2Event;

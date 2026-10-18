@@ -7,7 +7,7 @@
 // projections plus commands are another.
 
 import type { V2Event } from "@opencode/client";
-import { isServeUnauthorized, resetOpencodeClient, type OpencodeClient } from "@/agents/opencode/opencodeClient";
+import { isServeUnauthorized, resetOpencodeClient, type OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import type { OpencodeStreamedPart } from "@/agents/opencode/opencodeStreamTail";
 import type { AgentUiBroker } from "@/agents/agentUiBroker";
 import { noteOpencodeText } from "@/transcripts/catalog/opencodeTaskState";

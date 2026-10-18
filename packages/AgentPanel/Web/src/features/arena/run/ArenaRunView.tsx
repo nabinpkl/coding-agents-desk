@@ -15,29 +15,30 @@
 // between views of one run never has it move out from under the finger.
 //
 // The run's folder opens in the folder viewer from beside them, and each contestant's worktree from
-// its lane's head (`code/ArenaCodeButton.tsx`). A run with a manager has its switch beside Remove;
+// its lane's head (`arena/code/ArenaCodeButton.tsx`). A run with a manager has its switch beside Remove;
 // the manager's window floats over the lanes' corner only while it is open
-// (`manager/ArenaManagerWindow.tsx`).
+// (`arena/manager/ArenaManagerWindow.tsx`).
 //
 // A terminals run whose lanes were opened before its prompt has no prompt to show yet, so the
 // header holds the box the prompt is typed into instead. It goes to every lane at once, as soon as
 // all of them are ready -- sending it early is fine, it waits at the same line.
 
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { ArrowUp, LoaderCircle, PanelLeftClose, PanelLeftOpen, Trash2 } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { PanelLeftClose, PanelLeftOpen, Trash2 } from "lucide-react";
 import type { ArenaRunDetail, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
-import { DiffLane } from "@/features/arena/ArenaDiffs";
-import { ArenaFilesMatrix } from "@/features/arena/ArenaFilesMatrix";
+import { DiffLane } from "@/features/arena/run/ArenaDiffs";
+import { ArenaFilesMatrix } from "@/features/arena/run/ArenaFilesMatrix";
 import { ArenaCodeButton } from "@/features/arena/code/ArenaCodeButton";
-import { ArenaLaneFacts } from "@/features/arena/ArenaLaneFacts";
-import { SessionLane, useRunSessions } from "@/features/arena/ArenaSessionLanes";
+import { ArenaLaneFacts } from "@/features/arena/run/ArenaLaneFacts";
+import { SessionLane, useRunSessions } from "@/features/arena/run/ArenaSessionLanes";
 import { ArenaManagerWindow, ManagerSwitch } from "@/features/arena/manager/ArenaManagerWindow";
 import { lineupKind } from "@/features/arena/ArenaNewRun";
-import { basename, diffStat, elapsedMs, fileMatrix, formatAgo } from "@/features/arena/arenaFacts";
-import { FIELD, FOCUS, ICON_BUTTON, isLive, PRIMARY_BUTTON, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
+import { LanesPrompt } from "@/features/arena/run/ArenaLanesPrompt";
+import { basename, diffStat, elapsedMs, fileMatrix, formatAgo } from "@/features/arena/run/arenaFacts";
+import { FOCUS, ICON_BUTTON, isLive, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 import { useDomSync } from "@/hooks/dom/useDomSync";
 import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 
@@ -306,111 +307,6 @@ function useControlsHosts(): {
     return ref;
   };
   return { hosts, refFor };
-}
-
-const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-const SEND_CHORD = MAC ? "⌘↵" : "Ctrl↵";
-
-/**
- * A prompt for every lane: the first, typed once the lanes are open, or the next, once the last
- * one has settled in every lane.
- *
- * The first is the view's one action, so it is a full box with a filled button. The next shares
- * the header with the lanes the reader is watching, so it is one quiet row that grows with what is
- * typed, its send button inside it the way every session composer has one, filled only once there
- * is something to send. It can be drafted while the lanes work, and sent once they settle.
- */
-function LanesPrompt({
-  onSend,
-  next,
-  busy,
-}: {
-  onSend: (prompt: string) => Promise<string | null>;
-  /** The prompt after the first: one row, and cleared once sent. */
-  next: boolean;
-  /** The lanes are still on the last prompt, so this one waits. */
-  busy: boolean;
-}) {
-  const id = useId();
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
-  const canSend = !sending && !busy && text.trim().length > 0;
-  const send = async () => {
-    if (!canSend) return;
-    setSending(true);
-    setRefusal(null);
-    const problem = await onSend(text);
-    setSending(false);
-    if (problem) setRefusal(problem);
-    else if (next) setText("");
-  };
-  const sendOnChord = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      void send();
-    }
-  };
-  const refusalLine = refusal ? <p role="alert" className={`${TEXT.meta} text-destructive`}>{refusal}</p> : null;
-  if (next) {
-    return (
-      <div className="flex max-w-3xl flex-col gap-1.5">
-        {/* The border is the row's, around the field and its button side by side, the way a
-            session composer draws one: the button sits in the box without lying over the text. */}
-        <div
-          className="flex items-end gap-2 rounded-md border border-input bg-background py-1.5 pr-1.5 pl-3 transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50"
-        >
-          <textarea
-            aria-label="Next prompt for every lane"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={sendOnChord}
-            placeholder={busy ? "Draft the next prompt; it sends once every lane settles" : "Next prompt for every lane"}
-            rows={1}
-            className={`block max-h-40 min-h-7 flex-1 resize-none bg-transparent py-0.5 ${TEXT.body} leading-relaxed text-foreground outline-none field-sizing-content placeholder:text-muted-foreground`}
-          />
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={!canSend}
-            aria-label="Send to every lane"
-            title={busy ? "The lanes are still on the last prompt; send this once they settle" : `Send to every lane (${SEND_CHORD})`}
-            className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors duration-150 hover:bg-primary/90 active:bg-primary/80 disabled:pointer-events-none disabled:bg-muted disabled:text-muted-foreground ${FOCUS}`}
-          >
-            {sending ? <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" /> : <ArrowUp aria-hidden className="size-4" />}
-          </button>
-        </div>
-        {refusalLine}
-      </div>
-    );
-  }
-  return (
-    <div className="flex max-w-3xl flex-col gap-2">
-      <label htmlFor={id} className={`${TEXT.meta} font-medium text-muted-foreground`}>
-        Prompt
-      </label>
-      <textarea
-        id={id}
-        aria-label="Prompt every lane gets"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={sendOnChord}
-        placeholder="The one prompt every lane gets"
-        rows={3}
-        autoFocus
-        className={`${FIELD} min-h-20 resize-y leading-relaxed`}
-      />
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {refusal ? <p role="alert" className={`mr-auto ${TEXT.meta} text-destructive`}>{refusal}</p> : null}
-        <button type="button" onClick={() => void send()} disabled={!canSend} className={`${PRIMARY_BUTTON} whitespace-nowrap`}>
-          {sending ? "Sending" : "Send to every lane"}
-          <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
-            {SEND_CHORD}
-          </kbd>
-        </button>
-      </div>
-    </div>
-  );
 }
 
 /**

@@ -15,7 +15,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
-import { setBotFaces } from "@/features/bots/avatar/BotFace";
+import { setBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 
 const bot = (botId: string, name: string, createdAt = 0): BotView => ({
   botId,

@@ -9,7 +9,7 @@
 import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ArenaContestantSummary, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
-import { basename, formatAgo } from "@/features/arena/arenaFacts";
+import { basename, formatAgo } from "@/features/arena/run/arenaFacts";
 import {
   BUTTON,
   FOCUS,

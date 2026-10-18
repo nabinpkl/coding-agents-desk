@@ -26,9 +26,9 @@ import type { PanelCommandSurfaces } from "@/features/session-view/usePanelComma
 import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
 import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
-import { useComposerFileDrop } from "@/features/session-view/composer/useComposerFileDrop";
+import { useComposerFileDrop } from "@/features/session-view/composer/hold/useComposerFileDrop";
 import { useOpencodeCommands } from "@/features/session-view/composer/useOpencodeCommands";
-import { useComposerDraft, useSendAttachments, type SendAttachment } from "@/features/session-view/composer/useComposerHold";
+import { useComposerDraft, useSendAttachments, type SendAttachment } from "@/features/session-view/composer/hold/useComposerHold";
 import { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import { composerActions } from "@/features/session-view/composer/sessionComposerActions";
 import {

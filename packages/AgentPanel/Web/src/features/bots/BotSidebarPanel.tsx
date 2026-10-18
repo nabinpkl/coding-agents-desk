@@ -2,7 +2,7 @@ import { Bot, LoaderCircle, Plus, ScanFace } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { setBotFaces, useBotFaces } from "@/features/bots/avatar/BotFace";
+import { setBotFaces, useBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 import { BotRosterRow } from "@/features/bots/BotRosterRow";
 import { withOffCanvasLast } from "@/features/bots/botRosterOrder";
 import { botCanvasHues, botCanvasRanks } from "@/features/bots/botSurface";

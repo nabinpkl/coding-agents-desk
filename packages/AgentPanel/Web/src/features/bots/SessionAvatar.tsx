@@ -7,7 +7,8 @@
 
 import type { Bin } from "@agentdesk/agent-feed-wire";
 import { sessionInitials } from "@/features/bots/botSurface";
-import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
+import { BotFace } from "@/features/bots/avatar/BotFace";
+import { useBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 
 /**
  * The mark that says a session belongs to the Bot it sits in, and which of that Bot's sessions

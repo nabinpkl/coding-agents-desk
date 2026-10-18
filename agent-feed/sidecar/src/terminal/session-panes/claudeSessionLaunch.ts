@@ -36,7 +36,7 @@ import {
 } from "@/config/configClaudeLaunch";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import { isEffortLevel, isModelName, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
-import { cliPermissionMode } from "@/claude-sdk/claudeSdkSession";
+import { cliPermissionMode } from "@/claude-sdk/session/claudeSdkSession";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import type { LastSelection } from "@/transcripts/transcriptTypes";
 import { isClaudeSdkRunnerCommand } from "@/claude-sdk/claudeSdkProtocol";

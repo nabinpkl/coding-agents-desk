@@ -6,7 +6,7 @@ import {
   forkOpencodeSession,
   lastCompletedCompactionIndex,
   LOCAL_OPENCODE_COMMANDS,
-} from "@/agents/opencode/opencodeServeCalls";
+} from "@/agents/opencode/serve/opencodeServeCalls";
 
 const assistant = (output: number, read: number) => ({
   type: "assistant",

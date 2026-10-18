@@ -7,7 +7,8 @@
 import { Eye, EyeOff, Plus, Skull, X } from "lucide-react";
 import { useState } from "react";
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
-import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
+import { BotFace } from "@/features/bots/avatar/BotFace";
+import { useBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
 import {
   botSessionFaceRank,

@@ -3,7 +3,7 @@
 // sessions already open; this needs no projection, only a serve that answers a create.
 
 import { expect, test } from "bun:test";
-import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 
 type CreateInput = { location?: { directory?: string }; permissions?: readonly unknown[] };

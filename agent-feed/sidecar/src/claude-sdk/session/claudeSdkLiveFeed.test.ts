@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ClaudeSdkLiveFeed, type RunnerStreamTarget } from "@/claude-sdk/claudeSdkLiveFeed";
+import { ClaudeSdkLiveFeed, type RunnerStreamTarget } from "@/claude-sdk/session/claudeSdkLiveFeed";
 import type { RunnerStreamFrame } from "@/claude-sdk/claudeSdkProtocol";
 
 function recording() {

@@ -20,7 +20,7 @@
 // unknown model is a count with no bar until the first lookup lands.
 
 import type { OpencodeModelLimits } from "@/agents/opencode/opencodeModelLimits";
-import { currentWindowTokens, lastCompletedCompactionIndex } from "@/agents/opencode/opencodeServeCalls";
+import { currentWindowTokens, lastCompletedCompactionIndex } from "@/agents/opencode/serve/opencodeServeCalls";
 import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 import type { TokenUsage } from "@/transcripts/transcriptTypes";
 

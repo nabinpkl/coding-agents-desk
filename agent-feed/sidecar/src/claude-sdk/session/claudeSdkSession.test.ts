@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { sdkAnswers } from "@/claude-sdk/claudeSdkAnswers";
+import { sdkAnswers } from "@/claude-sdk/session/claudeSdkAnswers";
 import type { RunnerCallback, RunnerRecord } from "@/claude-sdk/claudeSdkProtocol";
-import { parseSessionCommand, sdkModels, SdkSession } from "@/claude-sdk/claudeSdkSession";
+import { sdkModels, SdkSession } from "@/claude-sdk/session/claudeSdkSession";
+import { parseSessionCommand } from "@/claude-sdk/session/claudeSdkCommands";
 
 const SESSION = "11111111-2222-4333-8444-555555555555";
 

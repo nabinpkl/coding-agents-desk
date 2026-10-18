@@ -29,7 +29,7 @@ import {
   type StartedClaudeSession,
 } from "@/terminal/session-panes/claudeSessionLaunch";
 import { isEffortLevel, RUNNER_ENTRY_FILE, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
-import { sdkPermissionMode } from "@/claude-sdk/claudeSdkSession";
+import { sdkPermissionMode } from "@/claude-sdk/session/claudeSdkSession";
 import { createTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 

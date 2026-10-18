@@ -5,7 +5,7 @@
 // as props because the shell ranks the whole roster once and both surfaces read that answer.
 
 import { LoaderCircle, ScanFace, SquareTerminal, X } from "lucide-react";
-import { setBotFaces, useBotFaces } from "@/features/bots/avatar/BotFace";
+import { setBotFaces, useBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 import {
   suggestTerminalSessionName,
   type TerminalGrouping,

@@ -21,10 +21,10 @@ import type {
   TmuxQuestionOutcome,
   TmuxQuestionRefusal,
 } from "@agentdesk/agent-feed-wire";
-import { NO_RUNNER, sharedClaudeSdkClient, type ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
+import { NO_RUNNER, sharedClaudeSdkClient, type ClaudeSdkClient } from "@/claude-sdk/session/claudeSdkClient";
 import { isPromptImageType } from "@/claude-sdk/claudeSdkProtocol";
-import { parseSessionCommand, type SessionCommand, type SessionReply } from "@/claude-sdk/claudeSdkSession";
-import { ClaudeSdkLiveFeed, type RunnerStreamTarget } from "@/claude-sdk/claudeSdkLiveFeed";
+import { parseSessionCommand, type SessionCommand, type SessionReply } from "@/claude-sdk/session/claudeSdkCommands";
+import { ClaudeSdkLiveFeed, type RunnerStreamTarget } from "@/claude-sdk/session/claudeSdkLiveFeed";
 import { liveSwitchSteps, switchRunMode, type SwitchSteps } from "@/claude-sdk/claudeSdkSwitch";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import { parseMessageAttachments } from "@/agents/agentBackend";

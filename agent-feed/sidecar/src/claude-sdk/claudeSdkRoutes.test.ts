@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
-import type { SessionCommand } from "@/claude-sdk/claudeSdkSession";
+import type { ClaudeSdkClient } from "@/claude-sdk/session/claudeSdkClient";
+import type { SessionCommand } from "@/claude-sdk/session/claudeSdkCommands";
 import { createClaudeSdkRoutes } from "@/claude-sdk/claudeSdkRoutes";
 
 const ID = "11111111-2222-4333-8444-555555555555";

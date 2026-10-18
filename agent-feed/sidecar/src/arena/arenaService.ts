@@ -37,18 +37,15 @@ import {
 } from "@/arena/arenaRun";
 import { claimRunFolder, nextRunName, releaseRunFolder, runNameFor } from "@/arena/arenaRunFolders";
 import { ArenaStore } from "@/arena/arenaStore";
-import { boundedDiff, LIVE_WORKTREE_STEPS, undoWorktrees, type ArenaWorktreeSteps } from "@/arena/arenaWorktrees";
+import { LIVE_WORKTREE_STEPS, undoWorktrees, type ArenaWorktreeSteps } from "@/arena/arenaWorktrees";
 import {
   StartLine,
-  startLineTerminal,
-  type ContestantDriver,
   type ContestantDrivers,
-  type ContestantPlan,
   type ContestantResume,
 } from "@/arena/contestants/contestantDriver";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
-import { homedir } from "node:os";
-import { ArenaNextPromptError, factsAfterTurn, nextPromptContestants } from "@/arena/arenaTurns";
+import { ArenaNextPromptError, nextPromptContestants } from "@/arena/arenaTurns";
+import { driveContestant } from "@/arena/arenaDrive";
 import { checkLanes, checkRunRequest, promptProblem } from "@/arena/arenaRequest";
 import { LANE_FOLDERS_PATTERN, newLaneRecords } from "@/arena/arenaLanes";
 import { MANAGER_FOLDER, type ArenaManagers } from "@/arena/manager/arenaManagers";
@@ -408,14 +405,8 @@ export class ArenaService {
     }
   }
 
-  /**
-   * One contestant's whole turn: send the prompt, wait for the close, record the facts.
-   *
-   * Every state it passes through is written to the record as it happens, so a run is watchable
-   * from its first moment and a contestant that dies mid-turn leaves its failure where the
-   * reader is already looking.
-   */
-  private async driveOne(
+  /** One contestant's whole turn (`arenaDrive.ts`), against this service's own registry and store. */
+  private driveOne(
     run: ArenaRunRecord,
     record: ArenaContestantRecord,
     drivers: ContestantDrivers,
@@ -423,78 +414,7 @@ export class ArenaService {
     resume?: ContestantResume,
     continues?: string,
   ): Promise<void> {
-    const mark = (apply: (contestant: ArenaContestantRecord, now: number) => void): void => {
-      this.registry.updateContestant(run.runId, record.contestantId, apply);
-    };
-    const atLine = startLine
-      ? startLineTerminal({
-        label: `arena ${record.contestantId} ${run.runId.slice(0, 8)}`,
-        line: startLine,
-        ...(resume ? { resume } : {}),
-        marks: {
-          pane: (pane, sessionId) => mark((contestant) => {
-            contestant.tmuxSession = pane;
-            contestant.sessionId = sessionId;
-            contestant.status = "starting";
-          }),
-          ready: () => mark((contestant) => {
-            contestant.status = "ready";
-          }),
-          running: () => mark((contestant, now) => {
-            contestant.status = "running";
-            contestant.startedAt = now;
-          }),
-        },
-      })
-      : null;
-    const terminal = atLine?.terminal;
-    try {
-      const drive: ContestantDriver | undefined = drivers[record.source];
-      // createRun refused every source without a driver, so this is a broken invariant.
-      if (!drive) throw new Error(`no driver wired for source "${record.source}"`);
-      const plan: ContestantPlan = {
-        prompt: run.prompt,
-        worktreePath: record.worktreePath,
-        model: record.model,
-        // One per prompt, not per contestant: a harness deduplicates a send by it, so a later
-        // prompt under the first one's id would be refused as the same command sent again.
-        requestId: `${run.runId}:${record.contestantId}:${run.round}`,
-        turnTimeoutMs: this.turnTimeoutMs,
-        ...(terminal ? { terminal } : {}),
-        ...(continues ? { continues } : {}),
-        onSessionId: (sessionId) => {
-          mark((contestant, now) => {
-            // The session exists from here, so a reader can open it while it duels; the turn
-            // has not run yet, which is why the status says running rather than closed.
-            contestant.sessionId = sessionId;
-            contestant.startedAt = now;
-            contestant.status = "running";
-          });
-        },
-      };
-      const result = await drive(plan);
-
-      const facts = factsAfterTurn(record, result.events, run, homedir());
-      const bounded = boundedDiff(await this.worktrees.captureDiff({ worktreePath: record.worktreePath, ref: run.baseRef }));
-      this.store.writeContestantDiff(run.runId, record.contestantId, bounded);
-      this.registry.updateContestant(run.runId, record.contestantId, (contestant, now) => {
-        contestant.status = "closed";
-        contestant.closedAt = now;
-        contestant.contextTokens = result.usage?.current ?? null;
-        contestant.costUsd = result.usage?.cost ?? null;
-        Object.assign(contestant, facts);
-        contestant.gitDiff = bounded;
-      });
-    } catch (error) {
-      this.registry.updateContestant(run.runId, record.contestantId, (contestant, now) => {
-        contestant.status = "failed";
-        contestant.closedAt = now;
-        contestant.error = error instanceof Error ? error.message : String(error);
-      });
-    } finally {
-      // A contestant that never reached the start line is out of the race, so nobody waits on it.
-      atLine?.done();
-    }
+    const steps = { registry: this.registry, store: this.store, worktrees: this.worktrees, turnTimeoutMs: this.turnTimeoutMs };
+    return driveContestant(steps, run, record, drivers, startLine, resume, continues);
   }
 }
-

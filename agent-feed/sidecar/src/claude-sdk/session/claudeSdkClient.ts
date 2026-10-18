@@ -31,10 +31,11 @@ import {
   type RunnerReply,
   type SidecarToRunner,
 } from "@/claude-sdk/claudeSdkProtocol";
-import { sdkModels, SdkSession, type SessionCommand, type SessionReply } from "@/claude-sdk/claudeSdkSession";
+import { sdkModels, SdkSession } from "@/claude-sdk/session/claudeSdkSession";
+import type { SessionCommand, SessionReply } from "@/claude-sdk/session/claudeSdkCommands";
 import { config } from "@/config/config";
 import { privateSocketDirectory } from "@/claude-sdk/claudeSdkRunnerServer";
-import type { ClaudeSdkLiveFeed } from "@/claude-sdk/claudeSdkLiveFeed";
+import type { ClaudeSdkLiveFeed } from "@/claude-sdk/session/claudeSdkLiveFeed";
 
 /** How long a command waits for the runner's reply before it is reported as not established. */
 const REPLY_TIMEOUT_MS = 20_000;

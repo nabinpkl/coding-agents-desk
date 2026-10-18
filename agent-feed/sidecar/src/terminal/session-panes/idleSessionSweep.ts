@@ -47,7 +47,7 @@ import { currentProcessTable } from "@/tasks/processProbe";
 import { liveSessionProcesses } from "@/tasks/sessionRegistry";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessionList";
 import { findSession } from "@/transcripts/catalog/catalogState";
-import { serveGet } from "@/agents/opencode/opencodeClient";
+import { serveGet } from "@/agents/opencode/serve/opencodeClient";
 import { sessionActivity } from "@/terminal/session-panes/staleClaudeSessions";
 import { noServerRunning, tmux } from "@/terminal/tmux/tmuxCommand";
 import type { ClaudeSessionProcess } from "@/tasks/sessionRegistry";

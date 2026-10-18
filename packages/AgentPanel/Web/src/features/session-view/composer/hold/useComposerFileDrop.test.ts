@@ -5,7 +5,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useComposerFileDrop } from "@/features/session-view/composer/useComposerFileDrop";
+import { useComposerFileDrop } from "@/features/session-view/composer/hold/useComposerFileDrop";
 
 function hook(overrides: Partial<Parameters<typeof useComposerFileDrop>[0]> = {}) {
   const onFileDrop = vi.fn();

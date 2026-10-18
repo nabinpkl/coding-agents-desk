@@ -19,7 +19,7 @@
 
 import type { ReactNode } from "react";
 import type { ArenaContestantDetail } from "@agentdesk/agent-feed-wire";
-import { diffStat, elapsedMs, formatDuration, formatTokens } from "@/features/arena/arenaFacts";
+import { diffStat, elapsedMs, formatDuration, formatTokens } from "@/features/arena/run/arenaFacts";
 import { SOURCE_LABEL, StatusMark, TEXT } from "@/features/arena/arenaVocabulary";
 
 const BAR_INK: Record<ArenaContestantDetail["status"], string> = {

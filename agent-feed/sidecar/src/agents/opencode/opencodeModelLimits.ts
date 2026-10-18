@@ -6,7 +6,7 @@
 // the latch so a later session can try again, and a missing limit stays missing rather than
 // becoming a guessed bar on the meter.
 
-import { fetchOpencodeModelLimits } from "@/agents/opencode/opencodeServeCalls";
+import { fetchOpencodeModelLimits } from "@/agents/opencode/serve/opencodeServeCalls";
 
 export class OpencodeModelLimits {
   private readonly limits = new Map<string, number>();

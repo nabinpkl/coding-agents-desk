@@ -10,7 +10,8 @@
 import { EyeOff, Plus } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
+import { BotFace } from "@/features/bots/avatar/BotFace";
+import { useBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 import { ActivityDot } from "@/features/sidebar/session-list/SessionMeta";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import { botSurfaceStyle, sessionInitials } from "@/features/bots/botSurface";

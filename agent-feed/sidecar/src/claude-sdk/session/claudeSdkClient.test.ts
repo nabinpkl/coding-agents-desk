@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSdkSessionState } from "@agentdesk/agent-feed-wire";
-import { ClaudeSdkClient, NO_RUNNER } from "@/claude-sdk/claudeSdkClient";
+import { ClaudeSdkClient, NO_RUNNER } from "@/claude-sdk/session/claudeSdkClient";
 import { FakeQuery } from "@/claude-sdk/claudeSdkHarness";
 import { PROTOCOL_VERSION, runnerBuild, runnerSocketPath } from "@/claude-sdk/claudeSdkProtocol";
 import { ClaudeSdkRunner, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";

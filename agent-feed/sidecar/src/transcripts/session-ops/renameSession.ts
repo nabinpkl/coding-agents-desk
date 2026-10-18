@@ -15,7 +15,7 @@
  * no fallback to writing the record. A half rename that silently leaves the address behind is the
  * outcome this exists to avoid, so it is refused with a reason instead.
  */
-import { sharedClaudeSdkClient, type ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
+import { sharedClaudeSdkClient, type ClaudeSdkClient } from "@/claude-sdk/session/claudeSdkClient";
 import { renameTmuxSession } from "@/input/tmuxComposer";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";

@@ -8,7 +8,7 @@
 // nothing here except through the `OwnedSession` those hand back. Creating a session is not
 // here: it is one remote call that touches none of these maps, and ownership starts at `open`.
 
-import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import { config } from "@/config/config";
 import type {
   AgentCommandReceipt,
@@ -30,9 +30,9 @@ import {
   type OpencodeStreamedPart,
 } from "@/agents/opencode/opencodeStreamTail";
 import { OpencodeCompactionWatch } from "@/agents/opencode/opencodeCompactionWatch";
-import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/opencodeServeEvents";
+import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/serve/opencodeServeEvents";
 import { latestCompletedCompactionId, readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
-import { isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/opencodeClient";
+import { isServeUnauthorized, opencodeClient, resetOpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import { notifyOpencodeSessionChanged } from "@/transcripts/catalog/opencodeCatalog";
 import type { TokenUsage } from "@/transcripts/transcriptTypes";
 

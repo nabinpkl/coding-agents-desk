@@ -8,8 +8,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { compactControl, composerActions, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
-import { useSendAttachments } from "@/features/session-view/composer/useComposerHold";
+import { composerActions } from "@/features/session-view/composer/sessionComposerActions";
+import { compactControl, submitComposer } from "@/features/session-view/composer/sessionComposerSubmit";
+import { useSendAttachments } from "@/features/session-view/composer/hold/useComposerHold";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 
 function model(overrides: Partial<ComposerModel> = {}): ComposerModel {

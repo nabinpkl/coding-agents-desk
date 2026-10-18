@@ -8,8 +8,8 @@ import type {
   RailModifier,
 } from "@agentdesk/agent-feed-wire";
 import type { ModifierState } from "@/features/keyboard/modifierLatch";
-import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
-import { tmuxComposerReasonText } from "@/features/cli-input/useTmuxComposer";
+import type { ComposerImage } from "@/features/cli-input/tmuxComposerHandle";
+import { tmuxComposerReasonText } from "@/features/cli-input/tmuxComposerHandle";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { opencodeCommandRows } from "@/features/session-view/composer/useOpencodeCommands";
 

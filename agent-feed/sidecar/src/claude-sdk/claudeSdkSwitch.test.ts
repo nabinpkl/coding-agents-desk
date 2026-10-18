@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ClaudeSdkSessionState } from "@agentdesk/agent-feed-wire";
 import type { ClaudeSessionProcess } from "@/tasks/sessionRegistry";
 import { relaunchStaleRunner, restartRunner, switchRunMode, type SwitchSteps } from "@/claude-sdk/claudeSdkSwitch";
-import type { ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
+import type { ClaudeSdkClient } from "@/claude-sdk/session/claudeSdkClient";
 
 const ID = "11111111-2222-4333-8444-555555555555";
 const SESSION = { sessionId: ID, cwd: "/repo", title: "Garden" };

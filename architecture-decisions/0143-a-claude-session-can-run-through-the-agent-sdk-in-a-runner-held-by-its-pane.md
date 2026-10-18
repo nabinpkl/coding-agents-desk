@@ -67,7 +67,7 @@ CLI 2.1.302):
 - Prompts carry `origin: { kind: "human" }`, which the SDK says a host relaying keyboard input must.
 
 The runner also forwards every `stream_event` it receives, and the sidecar feeds them to the live
-mirror (`claude-sdk/claudeSdkLiveFeed.ts` into `ClaudeLiveBackend.acceptRunnerStream`), one flow
+mirror (`claude-sdk/session/claudeSdkLiveFeed.ts` into `ClaudeLiveBackend.acceptRunnerStream`), one flow
 per message from `message_start` to `message_stop`. They are the same Anthropic events the proxy
 capture decodes, so the mirror applies them unchanged, and they are the session's own account, so a
 capture that dies mid-turn no longer takes an SDK session's live view with it. Measured with the
@@ -126,7 +126,7 @@ which the transcript still supplies, and a message whose start the sidecar misse
 
 ### Confirmation
 
-`claude-sdk/claudeSdkClient.test.ts` answers a question through a client created after the one that
+`claude-sdk/session/claudeSdkClient.test.ts` answers a question through a client created after the one that
 saw it was discarded, over a real socket. `claudeSdkRunner.test.ts` pins the options above. The
 idle sweep closes a runner pane like any other, and the runner's hangup handler ends the session so
 `claude` writes its exit records (measured: `last-prompt` written, socket and registry row gone).

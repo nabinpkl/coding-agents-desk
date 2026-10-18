@@ -14,7 +14,7 @@ import {
   readHeldImages,
   removeHeldImage,
   type HeldImage,
-} from "@/features/session-view/composer/heldImagesStore";
+} from "@/features/session-view/composer/hold/heldImagesStore";
 
 type Row = { sessionKey: string; images: unknown[] };
 

@@ -7,7 +7,7 @@ import {
   formatDuration,
   relativeToWorktree,
   splitDiff,
-} from "@/features/arena/arenaFacts";
+} from "@/features/arena/run/arenaFacts";
 
 const contestant = (over: Partial<ArenaContestantDetail> = {}): ArenaContestantDetail => ({
   contestantId: "c1",

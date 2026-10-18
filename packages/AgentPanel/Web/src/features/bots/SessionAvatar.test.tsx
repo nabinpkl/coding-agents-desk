@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
-import { setBotFaces } from "@/features/bots/avatar/BotFace";
+import { setBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 
 describe("SessionAvatar faces switch", () => {
   beforeEach(() => {

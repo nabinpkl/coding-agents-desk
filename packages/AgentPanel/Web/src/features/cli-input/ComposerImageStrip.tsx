@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { X } from "lucide-react";
-import type { ComposerImage } from "@/features/cli-input/useTmuxComposer";
+import type { ComposerImage } from "@/features/cli-input/tmuxComposerHandle";
 import { ImageLightbox } from "@/features/image-viewer/ImageLightbox";
 
 /**

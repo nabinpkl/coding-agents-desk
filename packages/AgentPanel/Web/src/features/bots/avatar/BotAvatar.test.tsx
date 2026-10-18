@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
-import { setBotFaces } from "@/features/bots/avatar/BotFace";
+import { setBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 
 afterEach(cleanup);
 

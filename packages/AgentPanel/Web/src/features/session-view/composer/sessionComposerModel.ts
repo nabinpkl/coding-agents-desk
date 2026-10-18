@@ -11,7 +11,7 @@ import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 import type { SdkSessionHandle } from "@/features/cli-input/useSdkSession";
 import type { RunModeSwitchHandle } from "@/features/cli-input/useRunModeSwitch";
 import type { ClaudeRunMode } from "@agentdesk/agent-feed-wire";
-import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/useComposerHold";
+import type { useSendAttachments, SendAttachment } from "@/features/session-view/composer/hold/useComposerHold";
 import type { OpencodeSlashCommand } from "@/features/session-view/composer/useOpencodeCommands";
 import type { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";

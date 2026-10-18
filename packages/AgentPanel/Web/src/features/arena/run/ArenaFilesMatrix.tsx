@@ -9,7 +9,7 @@
 // with a reach into a rival's worktree said as such.
 
 import type { ArenaContestantDetail, ArenaOutsideReach } from "@agentdesk/agent-feed-wire";
-import { fileMatrix, type FileRow, type FileTouch } from "@/features/arena/arenaFacts";
+import { fileMatrix, type FileRow, type FileTouch } from "@/features/arena/run/arenaFacts";
 import { isLive, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 
 const TOUCH: Record<FileTouch, { word: string; ink: string }> = {

@@ -35,7 +35,7 @@ import { sidecarWindowComposerClient } from "@/features/window-composer/WindowCo
 import { ArenaNewRun, EMPTY_DRAFT, type ArenaDraft } from "@/features/arena/ArenaNewRun";
 import { ArenaRunRail } from "@/features/arena/ArenaRunRail";
 import { ArenaCodeButton } from "@/features/arena/code/ArenaCodeButton";
-import { ArenaRunView, type ArenaView } from "@/features/arena/ArenaRunView";
+import { ArenaRunView, type ArenaView } from "@/features/arena/run/ArenaRunView";
 import { isLive } from "@/features/arena/arenaVocabulary";
 import { useNow } from "@/hooks/useNow";
 import { addressWithRun, runInAddress } from "@/features/arena/arenaAddress";

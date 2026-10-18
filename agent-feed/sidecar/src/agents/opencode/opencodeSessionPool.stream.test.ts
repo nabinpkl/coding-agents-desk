@@ -6,7 +6,7 @@
 // message history. The fake serve counts those fetches, because before this each delta bought
 // one (coalesced into a re-read that arrived later than the words it was re-reading for).
 import { afterEach, describe, expect, it } from "bun:test";
-import type { OpencodeClient } from "@/agents/opencode/opencodeClient";
+import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { OpencodeSessionPool } from "@/agents/opencode/opencodeSessionPool";
 import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
