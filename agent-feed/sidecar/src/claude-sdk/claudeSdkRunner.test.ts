@@ -296,6 +296,26 @@ describe("the model", () => {
   });
 });
 
+describe("the effort", () => {
+  test("offers each model's levels, sets one live through the flag layer, and takes the CLI's word", async () => {
+    const { runner, fake, done } = started();
+    fake().send({ type: "system", subtype: "init", permissionMode: "auto", claude_code_version: "2.1.302", model: "claude-opus-5-5" });
+    await Bun.sleep(5);
+    expect(runner.state().effort).toBeNull();
+    expect(runner.state().models.map((entry) => entry.effortLevels)).toEqual([["low", "medium", "high", "max"], undefined]);
+    expect(await runner.setEffort("max")).toEqual({ ok: true });
+    expect(fake().flagSettings).toEqual([{ effortLevel: "max" }]);
+    expect(runner.state().effort).toBe("max");
+    // A CLI that names its effort on init (after a downgrade, say) is the better account.
+    fake().send({ type: "system", subtype: "init", permissionMode: "auto", claude_code_version: "2.1.302", model: "claude-opus-5-5", effort: "high" });
+    await Bun.sleep(5);
+    expect(runner.state().effort).toBe("high");
+    fake().end();
+    await done;
+    expect(await runner.setEffort("low")).toMatchObject({ ok: false, reason: "failed" });
+  });
+});
+
 describe("renaming", () => {
   test("asks the CLI's own rename for this session, and says so when the SDK has none", async () => {
     const { runner, fake, done } = started();

@@ -17,6 +17,7 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
+  ClaudeEffortLevel,
   ClaudePermissionMode,
   ClaudeSdkApprovalRequest,
   ClaudeSdkModel,
@@ -60,6 +61,8 @@ export interface RunnerQuery extends AsyncIterable<SDKMessage> {
   interrupt(): Promise<unknown>;
   setModel(model?: string): Promise<void>;
   supportedModels(): Promise<ModelInfo[]>;
+  /** The flag settings layer, mid-session; the runner sets only `effortLevel` through it. */
+  applyFlagSettings(settings: { effortLevel?: ClaudeEffortLevel | null }): Promise<void>;
   /**
    * The CLI's `rename_session` control request, as a user rename (`source: "host"`). On the SDK's
    * `Query` though not in its typed interface (0.3.302), so it is checked for at the call rather
@@ -146,6 +149,7 @@ export class ClaudeSdkRunner {
   private claudeCodeVersion: string | null = null;
   private model: string | null = null;
   private models: ClaudeSdkModel[] = [];
+  private effort: ClaudeEffortLevel | null = null;
   private backgroundTasks = 0;
   private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Set<(state: RunnerState) => void>();
@@ -191,6 +195,7 @@ export class ClaudeSdkRunner {
       claudeCodeVersion: this.claudeCodeVersion,
       model: this.model,
       models: this.models,
+      effort: this.effort,
     };
   }
 
@@ -314,6 +319,22 @@ export class ClaudeSdkRunner {
   }
 
   /**
+   * Sets how much the session thinks, from its next request, the way `/effort` does: through the
+   * flag settings layer, so it lasts the session and is written to no settings file.
+   */
+  async setEffort(effort: ClaudeEffortLevel): Promise<RunnerReply> {
+    if (!this.query) return { ok: false, reason: "failed", message: "the session is not running" };
+    try {
+      await this.query.applyFlagSettings({ effortLevel: effort });
+    } catch (error) {
+      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
+    }
+    this.effort = effort;
+    this.publish();
+    return { ok: true };
+  }
+
+  /**
    * The models this `claude` offers, asked once the query is open. A failure leaves the list empty,
    * which the panel reads as nothing to switch to rather than as an error to show.
    */
@@ -324,6 +345,9 @@ export class ClaudeSdkRunner {
         ...(entry.resolvedModel ? { resolvedModel: entry.resolvedModel } : {}),
         displayName: entry.displayName,
         description: entry.description,
+        ...(entry.supportsEffort && entry.supportedEffortLevels?.length
+          ? { effortLevels: entry.supportedEffortLevels }
+          : {}),
       }));
       this.publish();
     } catch (error) {
@@ -423,6 +447,8 @@ export class ClaudeSdkRunner {
         this.permissionMode = cliPermissionMode(message.permissionMode);
         this.claudeCodeVersion = message.claude_code_version;
         this.model = message.model;
+        // Said only by a CLI that publishes it; otherwise the level chosen here stands.
+        if (message.effort !== undefined) this.effort = message.effort;
         if (this.status === "starting") this.status = "idle";
         break;
       case "status":

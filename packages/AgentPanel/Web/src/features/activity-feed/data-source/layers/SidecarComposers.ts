@@ -8,6 +8,7 @@
 // somebody types at the machine itself.
 
 import type {
+  ClaudeEffortLevel,
   ClaudePermissionMode,
   ClaudeSdkCommandOutcome,
   ClaudeSdkDecideCommand,
@@ -39,7 +40,7 @@ import { SidecarTranscript } from "@/features/activity-feed/data-source/layers/S
 /** A session run through the Agent SDK, reached through its runner (ADR-0143). */
 function claudeSdkPath(
   session: SessionAddress,
-  action: "stream" | "prompt" | "answer" | "decide" | "mode" | "model" | "interrupt" | "switch",
+  action: "stream" | "prompt" | "answer" | "decide" | "mode" | "model" | "effort" | "interrupt" | "switch",
 ): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/sdk/${action}`;
 }
@@ -448,6 +449,13 @@ export class SidecarComposers extends SidecarTranscript {
   async setClaudeSdkModel(session: SessionAddress, model: string): Promise<ClaudeSdkCommandOutcome> {
     return parse<ClaudeSdkCommandOutcome>(
       await this.transport.request("POST", claudeSdkPath(session, "model"), { body: { model } }),
+    );
+  }
+
+  /** Sets how much the session thinks, from its next request. */
+  async setClaudeSdkEffort(session: SessionAddress, effort: ClaudeEffortLevel): Promise<ClaudeSdkCommandOutcome> {
+    return parse<ClaudeSdkCommandOutcome>(
+      await this.transport.request("POST", claudeSdkPath(session, "effort"), { body: { effort } }),
     );
   }
 

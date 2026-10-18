@@ -15,6 +15,10 @@ import type { TmuxQuestionAnswer, TmuxQuestionOutcome } from "./tmuxQuestion.ts"
 /** How a Claude session's process is run. Terminal is the default; SDK is chosen at creation. */
 export type ClaudeRunMode = "terminal" | "sdk";
 
+/** How much Claude thinks before answering, in the SDK's names for the levels, least first. */
+export type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+export const CLAUDE_EFFORT_LEVELS: readonly ClaudeEffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
+
 /** What the runner says its `claude` is doing, from the SDK's own session-state messages. */
 export type ClaudeSdkRunStatus = "starting" | "idle" | "running" | "requires-action" | "exited";
 
@@ -87,6 +91,11 @@ export interface ClaudeSdkSessionState {
   model: string | null;
   /** The models this `claude` offers, from the SDK's `supportedModels()`; empty until it answers. */
   models: ClaudeSdkModel[];
+  /**
+   * The effort the session sends on its next request: from the CLI's init where it says, else the
+   * level last chosen here; null while neither has (the model's own default).
+   */
+  effort: ClaudeEffortLevel | null;
 }
 
 /** One model the session can be switched to. */
@@ -97,11 +106,18 @@ export interface ClaudeSdkModel {
   resolvedModel?: string;
   displayName: string;
   description: string;
+  /** The effort levels this model takes; absent for a model without effort. */
+  effortLevels?: ClaudeEffortLevel[];
 }
 
 /** Switch the model a session answers with, from its next turn. */
 export interface ClaudeSdkModelCommand {
   model: string;
+}
+
+/** Set how much the session thinks, from its next request. */
+export interface ClaudeSdkEffortCommand {
+  effort: ClaudeEffortLevel;
 }
 
 /** The state a reader holds before a runner has answered, and after one is gone. */
@@ -115,6 +131,7 @@ export const DISCONNECTED_CLAUDE_SDK_STATE: ClaudeSdkSessionState = {
   claudeCodeVersion: null,
   model: null,
   models: [],
+  effort: null,
 };
 
 /** A turn typed into an SDK session. */

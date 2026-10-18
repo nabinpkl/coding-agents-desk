@@ -11,7 +11,9 @@
 
 import { join } from "node:path";
 import {
+  CLAUDE_EFFORT_LEVELS,
   CLAUDE_PERMISSION_MODES,
+  type ClaudeEffortLevel,
   type ClaudePermissionMode,
   type ClaudeSdkSessionState,
   type TmuxQuestionAnswer,
@@ -44,6 +46,7 @@ export type SidecarToRunner =
   | { type: "decide"; id: string; toolUseId: string; allow: boolean; message?: string }
   | { type: "set-mode"; id: string; mode: ClaudePermissionMode }
   | { type: "set-model"; id: string; model: string }
+  | { type: "set-effort"; id: string; effort: ClaudeEffortLevel }
   | { type: "interrupt"; id: string }
   | { type: "rename"; id: string; title: string }
   | { type: "stop"; id: string };
@@ -144,6 +147,10 @@ function isPermissionMode(value: unknown): value is ClaudePermissionMode {
   return (CLAUDE_PERMISSION_MODES as readonly unknown[]).includes(value);
 }
 
+function isEffortLevel(value: unknown): value is ClaudeEffortLevel {
+  return (CLAUDE_EFFORT_LEVELS as readonly unknown[]).includes(value);
+}
+
 function questionAnswers(value: unknown): TmuxQuestionAnswer[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > 8) return null;
   const answers: TmuxQuestionAnswer[] = [];
@@ -208,6 +215,8 @@ export function parseSidecarMessage(line: string): SidecarToRunner | null {
       return isId(fields.id) && isString(fields.model) && /^[A-Za-z0-9._:\[\]-]{1,128}$/.test(fields.model)
         ? { type: "set-model", id: fields.id, model: fields.model }
         : null;
+    case "set-effort":
+      return isId(fields.id) && isEffortLevel(fields.effort) ? { type: "set-effort", id: fields.id, effort: fields.effort } : null;
     case "interrupt":
       return isId(fields.id) ? { type: "interrupt", id: fields.id } : null;
     case "rename":
@@ -239,12 +248,14 @@ function runnerState(value: unknown): RunnerState | null {
   if (state.claudeCodeVersion !== null && !isString(state.claudeCodeVersion)) return null;
   if (state.model !== null && !isString(state.model)) return null;
   if (!Array.isArray(state.models)) return null;
+  // Absent from a runner started before effort was a field: a runner outlives the sidecar's reloads.
+  if (state.effort !== undefined && state.effort !== null && !isEffortLevel(state.effort)) return null;
   for (const request of state.pending) {
     if (request === null || typeof request !== "object") return null;
     const { kind, toolUseId } = request as Fields;
     if ((kind !== "question" && kind !== "approval") || !isId(toolUseId)) return null;
   }
-  return state as unknown as RunnerState;
+  return { ...(state as unknown as RunnerState), effort: (state.effort as ClaudeEffortLevel | undefined) ?? null };
 }
 
 function runnerReply(value: unknown): RunnerReply | null {

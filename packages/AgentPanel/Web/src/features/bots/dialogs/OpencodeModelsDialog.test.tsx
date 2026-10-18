@@ -25,6 +25,33 @@ describe("OpencodeModelsDialog", () => {
     expect(screen.getByText(/\$0\.1\/\$0\.2 per MTok/)).toBeTruthy();
   });
 
+  it("sets an effort from the row under the list, staying open, and says why when refused", async () => {
+    const onClose = vi.fn();
+    const onChoose = vi.fn(async (level: string) => {
+      if (level === "max") throw new Error("This model runs no higher than high.");
+    });
+    render(
+      <OpencodeModelsDialog
+        models={MODELS}
+        current="opencode-go/spark"
+        initialFilter=""
+        onClose={onClose}
+        onSwitch={async () => {}}
+        effort={{ levels: ["low", "medium", "high", "max"], current: "medium", onChoose }}
+      />,
+    );
+    const group = screen.getByRole("radiogroup", { name: "Effort" });
+    expect(group.querySelectorAll("[role='radio']")).toHaveLength(4);
+    expect(screen.getByRole("radio", { name: "Med" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: "Med" }));
+    expect(onChoose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("radio", { name: "High" }));
+    await vi.waitFor(() => expect(onChoose).toHaveBeenCalledWith("high"));
+    fireEvent.click(await screen.findByRole("radio", { name: "Max" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("This model runs no higher than high.");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("filters by the slash args it opened with", () => {
     render(
       <OpencodeModelsDialog

@@ -57,6 +57,15 @@ describe("a model switch", () => {
   });
 });
 
+describe("an effort", () => {
+  test("goes to the runner as the level it names, and a level the SDK has not is refused", async () => {
+    const { sent, post } = routes();
+    expect(await post("effort", { effort: "xhigh" })).toEqual({ status: 200, body: { ok: true } });
+    expect(sent).toEqual([{ type: "set-effort", effort: "xhigh" }]);
+    expect((await post("effort", { effort: "ultra" })).status).toBe(400);
+  });
+});
+
 describe("a switch", () => {
   test("refuses a mode that is neither", async () => {
     const { post } = routes();

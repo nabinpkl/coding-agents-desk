@@ -23,6 +23,18 @@ import type { OpencodeModel } from "@/features/activity-feed/data-source/Sidecar
  */
 export type OpencodeModelsPlacement = "above" | "below";
 
+/**
+ * A second choice beside the model, for a session whose model takes one: a Claude SDK session's
+ * effort. Its levels are the current model's, least first; `current` null is the model's default.
+ */
+export interface ModelEffortChoice {
+  levels: readonly string[];
+  current: string | null;
+  onChoose: (level: string) => Promise<void>;
+}
+
+const EFFORT_LABELS: Record<string, string> = { low: "Low", medium: "Med", high: "High", xhigh: "XHigh", max: "Max" };
+
 const PLACEMENT_CLASS: Record<OpencodeModelsPlacement, string> = {
   above: "bottom-full mb-2 max-w-full",
   below: "top-full mt-2 max-w-[calc(100vw-2rem)]",
@@ -38,6 +50,7 @@ export function OpencodeModelsDialog({
   onClose,
   onSwitch,
   onCustom,
+  effort,
 }: {
   /** Every model the serve offers, or null while the list is still loading. */
   models: readonly OpencodeModel[] | null;
@@ -54,6 +67,8 @@ export function OpencodeModelsDialog({
   onSwitch: (model: OpencodeModel) => Promise<void>;
   /** Takes the filter as typed, when it names no listed model; absent, only the list can be chosen. */
   onCustom?: (text: string) => Promise<void>;
+  /** The effort row under the list; absent where the model takes none. */
+  effort?: ModelEffortChoice;
 }) {
   const [filter, setFilter] = useState("");
   const [pendingName, setPendingName] = useState<string | null>(null);
@@ -129,6 +144,12 @@ export function OpencodeModelsDialog({
   };
   const choose = (model: OpencodeModel) => settle(`${model.providerID}/${model.modelID}`, () => onSwitch(model));
   const takeCustom = (text: string) => settle(`custom:${text}`, () => onCustom!(text));
+  // Stays open on success: an effort is set beside a model, often right after choosing one.
+  const chooseEffort = (level: string) =>
+    settle(`effort:${level}`, async () => {
+      await effort!.onChoose(level);
+      setPendingName(null);
+    });
 
   return (
     <>
@@ -252,6 +273,35 @@ export function OpencodeModelsDialog({
         </ul>
         {shown.length === 0 && !custom ? (
           <p className="text-sm text-muted-foreground">No models match that filter.</p>
+        ) : null}
+        {effort ? (
+          <div role="radiogroup" aria-label="Effort" className="flex items-center gap-2 border-t border-border pt-2">
+            <span className="text-xs font-medium text-muted-foreground">Effort</span>
+            <div className="flex min-w-0 flex-1 gap-0.5 rounded-lg bg-muted p-0.5">
+              {effort.levels.map((level) => {
+                const checked = effort.current === level;
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    role="radio"
+                    aria-checked={checked}
+                    disabled={pendingName !== null}
+                    onClick={() => {
+                      if (!checked) void chooseEffort(level);
+                    }}
+                    className={`flex h-7 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-md px-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60 ${
+                      checked ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground active:bg-background/60"
+                    }`}
+                  >
+                    {pendingName === `effort:${level}`
+                      ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+                      : EFFORT_LABELS[level] ?? level}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         ) : null}
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       </div>

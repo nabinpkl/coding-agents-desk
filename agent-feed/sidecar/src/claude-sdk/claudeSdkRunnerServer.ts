@@ -115,6 +115,8 @@ export async function serveRunner(
         return runner.setMode(message.mode);
       case "set-model":
         return runner.setModel(message.model);
+      case "set-effort":
+        return runner.setEffort(message.effort);
       case "interrupt":
         return runner.interrupt();
       case "rename":

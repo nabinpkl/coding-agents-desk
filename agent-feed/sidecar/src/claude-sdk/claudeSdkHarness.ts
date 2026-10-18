@@ -49,9 +49,22 @@ export class FakeQuery implements RunnerQuery {
 
   async supportedModels() {
     return [
-      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "Most capable" },
+      {
+        value: "opus",
+        resolvedModel: "claude-opus-5-5",
+        displayName: "Opus",
+        description: "Most capable",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "max"] as ("low" | "medium" | "high" | "max")[],
+      },
       { value: "haiku", resolvedModel: "claude-haiku-4-5", displayName: "Haiku", description: "Fastest" },
     ];
+  }
+
+  readonly flagSettings: Record<string, unknown>[] = [];
+
+  async applyFlagSettings(settings: Record<string, unknown>): Promise<void> {
+    this.flagSettings.push(settings);
   }
 
   readonly renamed: string[] = [];

@@ -10,7 +10,7 @@ import { DISCONNECTED_CLAUDE_SDK_STATE, type ClaudeSdkSessionState } from "@agen
 import { compactControl, composerActions, submitComposer } from "@/features/session-view/composer/sessionComposerActions";
 import { composerCaption, composerEditor } from "@/features/session-view/composer/sessionComposerEditor";
 import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
-import { currentSdkModel, sdkModelRows, type SdkSessionHandle } from "@/features/cli-input/useSdkSession";
+import { currentSdkModel, sdkEffortChoice, sdkModelRows, type SdkSessionHandle } from "@/features/cli-input/useSdkSession";
 import { runnerQuestion, sdkQuestionReasonText } from "@/features/session-view/composer/question/useQuestionMirror";
 import { approvalDetail, SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
 
@@ -25,9 +25,10 @@ const LIVE: ClaudeSdkSessionState = {
   model: "claude-opus-5-5",
   models: [
     { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", description: "" },
-    { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "" },
+    { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "", effortLevels: ["low", "medium", "high", "max"] },
     { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku", description: "" },
   ],
+  effort: null,
 };
 
 function handle(state: Partial<ClaudeSdkSessionState> = {}, overrides: Partial<SdkSessionHandle> = {}): SdkSessionHandle {
@@ -40,6 +41,7 @@ function handle(state: Partial<ClaudeSdkSessionState> = {}, overrides: Partial<S
     decide: vi.fn(async () => true),
     choosePermissionMode: vi.fn(async () => true),
     setModel: vi.fn(async () => {}),
+    setEffort: vi.fn(async () => {}),
     questions: { answerTmuxQuestion: vi.fn(), pointTmuxQuestion: vi.fn() },
     ...overrides,
   };
@@ -159,6 +161,16 @@ describe("the SDK band's actions", () => {
     const name = screen.getByText("Bypass");
     expect(name.className).toContain("hidden");
     expect(name.className).toContain("@[420px]:inline");
+  });
+
+  it("offers the current model's effort levels in the picker, and sets the one chosen", async () => {
+    const session = handle({ effort: "high" });
+    const choice = sdkEffortChoice(session)!;
+    expect(choice.levels).toEqual(["low", "medium", "high", "max"]);
+    expect(choice.current).toBe("high");
+    await choice.onChoose("max");
+    expect(session.setEffort).toHaveBeenCalledWith("max");
+    expect(sdkEffortChoice(handle({ model: "claude-haiku-5-5" }))).toBeUndefined();
   });
 
   it("compacts by sending /compact as a turn, and not over a draft or without a runner", async () => {

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DISCONNECTED_CLAUDE_SDK_STATE,
+  type ClaudeEffortLevel,
   type ClaudePermissionMode,
   type ClaudeSdkCommandOutcome,
   type ClaudeSdkSessionState,
@@ -25,6 +26,7 @@ type SdkFeed = Pick<
   | "decideClaudeSdk"
   | "setClaudeSdkMode"
   | "setClaudeSdkModel"
+  | "setClaudeSdkEffort"
   | "interruptClaudeSdk"
 >;
 
@@ -89,6 +91,11 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
     const outcome = await feed.setClaudeSdkModel(address, model);
     if (!outcome.ok) throw new Error(sdkRefusalText(outcome));
   }, [address, feed]);
+  /** Sets the effort, throwing a refusal for the picker to show, as `setModel` does. */
+  const setEffort = useCallback(async (effort: ClaudeEffortLevel) => {
+    const outcome = await feed.setClaudeSdkEffort(address, effort);
+    if (!outcome.ok) throw new Error(sdkRefusalText(outcome));
+  }, [address, feed]);
   /** Puts the session in one mode, which its runner sets directly; the new state arrives on the stream. */
   const choosePermissionMode = useCallback(
     (mode: ClaudePermissionMode) => run(() => feed.setClaudeSdkMode(address, mode)),
@@ -104,7 +111,7 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
     pointTmuxQuestion: async () => ({ pointed: true }),
   }), [feed]);
 
-  return { state, pending, error, send, interrupt, decide, choosePermissionMode, setModel, questions };
+  return { state, pending, error, send, interrupt, decide, choosePermissionMode, setModel, setEffort, questions };
 }
 
 export type SdkSessionHandle = ReturnType<typeof useSdkSession>;
@@ -131,4 +138,18 @@ export function currentSdkModel(state: ClaudeSdkSessionState): ClaudeSdkSessionS
   return state.models.find((entry) => entry.value === state.model)
     ?? state.models.find((entry) => entry.value !== "default" && entry.resolvedModel === state.model)
     ?? null;
+}
+
+/**
+ * The effort row the models picker shows under the list: the current model's levels, or nothing
+ * for a model without effort, or while the session's model is not yet matched to a row.
+ */
+export function sdkEffortChoice(session: Pick<SdkSessionHandle, "state" | "setEffort">) {
+  const levels = currentSdkModel(session.state)?.effortLevels;
+  if (!levels || levels.length === 0) return undefined;
+  return {
+    levels,
+    current: session.state.effort,
+    onChoose: (level: string) => session.setEffort(level as ClaudeEffortLevel),
+  };
 }

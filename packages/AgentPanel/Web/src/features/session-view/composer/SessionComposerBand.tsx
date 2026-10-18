@@ -22,7 +22,7 @@ import { AskUserQuestionMirror } from "@/features/session-view/composer/question
 import { SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
 import type { QuestionMirrorModel } from "@/features/session-view/composer/question/useQuestionMirror";
 import { OpencodeModelsDialog, OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
-import { currentSdkModel, sdkModelRows } from "@/features/cli-input/useSdkSession";
+import { currentSdkModel, sdkEffortChoice, sdkModelRows } from "@/features/cli-input/useSdkSession";
 import { ChoiceMenu } from "@/features/bots/menus/ChoiceMenu";
 import { OpencodeAsideDialog } from "@/features/session-view/OpencodeAsideDialog";
 import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
@@ -307,6 +307,7 @@ export function SessionComposerBand({
                 await model.sdkSession.setModel(row.modelID);
                 surfaces.models?.onClose();
               }}
+              effort={sdkEffortChoice(model.sdkSession)}
             />
           ) : surfaces.models ? (
             <OpencodeModelsHost

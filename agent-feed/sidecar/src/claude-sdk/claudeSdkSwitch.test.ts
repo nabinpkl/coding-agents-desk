@@ -18,6 +18,7 @@ const IDLE_RUNNER: ClaudeSdkSessionState = {
   claudeCodeVersion: "2.1.302",
   model: null,
   models: [],
+  effort: null,
 };
 
 function row(overrides: Partial<ClaudeSessionProcess> = {}): ClaudeSessionProcess {
