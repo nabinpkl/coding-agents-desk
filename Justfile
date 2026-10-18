@@ -293,8 +293,29 @@ agent-feed-sidecar-check:
     SIDECAR='{{agent_feed_sidecar_dir}}'
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-feed-sidecar "$SIDECAR" "$ROOT/.build/js-dependencies"
     cd "$SIDECAR"
-    bun run typecheck
-    bun run test
+    # A signal sent to this recipe (a timeout, a cancelled session) ends only this bash, and
+    # `bun run test` runs `bun test` as a grandchild that carries on as an orphan. Measured
+    # 2026-10-14: one such run kept going for 18 minutes after "terminated by signal 15" and held
+    # 16GB of footprint (peak 23.5GB). So each step gets its own process group (`set -m`), and
+    # leaving the recipe by any route kills whatever is still in the group last started.
+    set -m
+    STEP_PID=''
+    reap_step() {
+        [ -n "$STEP_PID" ] || return 0
+        kill -0 -- "-$STEP_PID" 2>/dev/null || return 0
+        kill -TERM -- "-$STEP_PID" 2>/dev/null || true
+        sleep 2
+        kill -KILL -- "-$STEP_PID" 2>/dev/null || true
+    }
+    trap reap_step EXIT
+    trap 'exit 143' INT TERM HUP
+    step() {
+        "$@" &
+        STEP_PID=$!
+        wait "$STEP_PID"
+    }
+    step bun run typecheck
+    step bun run test
     if rg -n --glob '!*.test.ts' \
         'watcher-cache|AGENT_FEED_STATE_DIR|projects/digest|ProjectDigest' src; then
         echo "agent-feed-sidecar-check: removed cache or digest contract returned" >&2
