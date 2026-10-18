@@ -1,4 +1,4 @@
-import { parse, type Type } from "protobufjs";
+import { parse } from "protobufjs";
 import ptyProtocolSource from "@repo/terminal/pty-manager/proto/pty.proto" with { type: "text" };
 
 export const PTY_PROTOCOL_VERSION = 7;
@@ -82,7 +82,7 @@ export interface PtySessionSummary {
 
 const envelopeType = parse(ptyProtocolSource, { keepCase: false }).root.lookupType(
   "pty.v1.Envelope",
-) as Type;
+);
 
 export function encodePtyEnvelope(envelope: PtyEnvelope): Uint8Array {
   const message = envelopeType.fromObject(envelope);

@@ -22,7 +22,7 @@ const SHOWN_FIELDS = ["command", "file_path", "path", "url", "pattern", "plan", 
  * the first one recognised. So the rest is always shown, under the headline, in full.
  */
 export function approvalDetail(input: Record<string, unknown>): { headline: string | null; rest: string | null } {
-  const field = SHOWN_FIELDS.find((name) => typeof input[name] === "string" && (input[name] as string).trim());
+  const field = SHOWN_FIELDS.find((name) => typeof input[name] === "string" && (input[name]).trim());
   const headline = field ? input[field] as string : null;
   const remaining = Object.fromEntries(Object.entries(input).filter(([name]) => name !== field));
   return { headline, rest: Object.keys(remaining).length > 0 ? JSON.stringify(remaining, null, 2) : null };

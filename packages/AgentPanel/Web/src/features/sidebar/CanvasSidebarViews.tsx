@@ -36,7 +36,7 @@ export function CanvasSidebarViews({
     else if (event.key === "End") next = VIEWS.length - 1;
     if (next === null) return;
     event.preventDefault();
-    const target = VIEWS[next].view;
+    const target = VIEWS[next]!.view;
     onViewChange(target);
     globalThis.requestAnimationFrame?.(() => tabs.current.get(target)?.focus());
   };

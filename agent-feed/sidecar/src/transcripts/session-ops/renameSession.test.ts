@@ -19,7 +19,7 @@ function steps(serving: boolean, reply: { ok: true } | { ok: false; reason: "fai
     known: (sessionId) => sessionId !== "gone",
     inPane: async (_sessionId, title) => {
       done.push(`pane /rename ${title}`);
-      return { renamed: true } as Awaited<ReturnType<RenameSteps["inPane"]>>;
+      return { renamed: true };
     },
     relabel: async (_sessionId, title) => void done.push(`relabel ${title}`),
   };

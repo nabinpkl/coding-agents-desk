@@ -113,7 +113,7 @@ export class OpencodeEventMapper {
               kind: "text",
               label: file.name ?? file.mime,
               text: `[Attached ${file.mime}]`,
-            } as ActivityBlock);
+            });
           }
         }
         return { ts: message.time.created, type: "user", humanTurn: true, phase: "complete", blocks };
@@ -147,7 +147,7 @@ export class OpencodeEventMapper {
               kind: "tool_use",
               tool: "shell",
               callId: message.shellID,
-              input: { command: message.command } as Record<string, unknown>,
+              input: { command: message.command },
               summary: command.trim() ? heuristicShellLabel(command) : message.command,
             },
             // The output is an object on the serve (`{ output, cursor, size, truncated }`); the

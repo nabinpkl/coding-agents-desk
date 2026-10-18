@@ -25,7 +25,7 @@ import { BOT_SESSION_FACE_BASE, botSessionFaceRank } from "@/features/bots/botSu
 function pointsOf(path: string): [number, number][] {
   const points: [number, number][] = [];
   for (const [, letter, body] of path.matchAll(/([MLCQAZ])([^MLCQAZ]*)/g)) {
-    const numbers = (body.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    const numbers = (body!.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
     const pairs = letter === "A"
       ? numbers.slice(5).reduce<number[]>((all, n, i) => (i % 7 < 2 ? [...all, n] : all), numbers.slice(5, 7))
       : numbers;

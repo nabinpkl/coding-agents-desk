@@ -107,7 +107,7 @@ function validateSnapshot(value: unknown): StoredBotSnapshot {
   if (!value.bots.every(isBotRecord)) {
     throw new Error("bots.json contains an invalid Bot record");
   }
-  const bots = (value.bots as BotRecord[]).map((bot) =>
+  const bots = value.bots.map((bot) =>
     // Version 2 predates slots: backfill from the order its sessions already wear, so the
     // migration changes the stored shape and nothing the reader sees.
     bot.sessionSlots === undefined && bot.nextSessionSlot === undefined

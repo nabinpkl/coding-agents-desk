@@ -178,7 +178,7 @@ test("opens a workspace shell in the root, under one name per directory", async 
   const pty: AgentTerminalPtyClient = {
     listSessions: async () => [],
     openSession: async (options) => {
-      opened.push(options as (typeof opened)[number]);
+      opened.push(options);
       return {
         attachment: { sessionName: options.sessionName, pid: 7, columns: 100, rows: 30 },
         onEnvelope: () => () => {},
@@ -251,7 +251,7 @@ test("opens a machine shell in the home, under one name for the machine", async 
   const pty: AgentTerminalPtyClient = {
     listSessions: async () => [],
     openSession: async (options) => {
-      opened.push(options as (typeof opened)[number]);
+      opened.push(options);
       return {
         attachment: { sessionName: options.sessionName, pid: 7, columns: 100, rows: 30 },
         onEnvelope: () => () => {},

@@ -254,7 +254,7 @@ describe("a span read forward", () => {
     const end = await completeEnd(path);
 
     const events = await readEventsBetween(source, sessionId, path, at[3]!, end, "nice", at[2]!);
-    expect(events[0]!.previous).toBe(at[2]!);
+    expect(events[0]!.previous).toBe(at[2]);
     expect(events.at(-1)!.index).toBe(at.at(-1)!);
   });
 });

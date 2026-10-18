@@ -61,11 +61,11 @@ const CLAUDE_SUMMARY_KEYS = [
 // Per-tool summary string used as the row's chip label in the activity feed.
 export function summarizeToolUse(name: string, input?: Record<string, unknown>): string {
   const i = input ?? {};
-  const path = typeof i.file_path === 'string' ? (i.file_path as string).split('/').pop() : null;
+  const path = typeof i.file_path === 'string' ? i.file_path.split('/').pop() : null;
   if ((name === 'Read' || name === 'Edit' || name === 'Write') && path) return `${name} ${path}`;
-  if (name === 'Bash' && typeof i.command === 'string') return (i.command as string).slice(0, 200);
+  if (name === 'Bash' && typeof i.command === 'string') return i.command.slice(0, 200);
   if (name === 'Grep' && typeof i.pattern === 'string') return `pattern "${i.pattern}"`;
-  if (name === 'Glob' && typeof i.pattern === 'string') return i.pattern as string;
+  if (name === 'Glob' && typeof i.pattern === 'string') return i.pattern;
   for (const key of CLAUDE_SUMMARY_KEYS) {
     const value = i[key];
     if (typeof value === 'string' && value.trim()) return `${name} ${value.trim().slice(0, 200)}`;
@@ -92,7 +92,7 @@ export function summarizeToolUse(name: string, input?: Record<string, unknown>):
 // Arrow-prefixed snippet for the rail summary.
 export function arrowToolUse(name: string, input?: Record<string, unknown>): string {
   const i = input ?? {};
-  const path = typeof i.file_path === 'string' ? basename(i.file_path as string) : null;
+  const path = typeof i.file_path === 'string' ? basename(i.file_path) : null;
   if (name === 'Read' && path) return `→ Read ${path}`;
   if (name === 'Edit' && path) return `→ Edit ${path}`;
   if (name === 'Write' && path) return `→ Write ${path}`;
@@ -122,9 +122,9 @@ function nonTextResultPreview(content: unknown): string {
   return (content as Array<Record<string, unknown>>)
     .map((item) =>
       typeof item?.tool_name === 'string'
-        ? (item.tool_name as string)
+        ? (item.tool_name)
         : typeof item?.type === 'string'
-          ? (item.type as string)
+          ? (item.type)
           : 'item',
     )
     .join('\n');
@@ -161,26 +161,26 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
   for (const b of content as Array<Record<string, unknown>>) {
     const t = b?.type;
     const image = t === 'image' ? pastedImage(b) : null;
-    if (t === 'text' && typeof b.text === 'string' && (b.text as string).trim()) {
-      out.push({ block: { kind: 'text', text: b.text as string }, raw: b.text as string });
+    if (t === 'text' && typeof b.text === 'string' && b.text.trim()) {
+      out.push({ block: { kind: 'text', text: b.text }, raw: b.text });
     } else if (t === 'thinking') {
       // Any `thinking` block is reasoning, even when its `thinking` text is
       // empty (an opaque encrypted `signature` trace). Classify by TYPE, not by
       // non-empty text: reading text here would dump the signature as a Plain
       // JSON card instead of an emittable collapsed reasoning block.
-      const thinking = typeof b.thinking === 'string' ? (b.thinking as string) : '';
+      const thinking = typeof b.thinking === 'string' ? (b.thinking) : '';
       out.push({ block: { kind: 'reasoning', text: thinking }, raw: thinking });
     } else if (t === 'tool_use' && typeof b.name === 'string') {
       const input = (b.input as Record<string, unknown> | undefined) ?? {};
-      const id = typeof b.id === 'string' ? (b.id as string) : undefined;
+      const id = typeof b.id === 'string' ? (b.id) : undefined;
       // Resolved here rather than left to the reader, because the panel addresses one of these by
       // its POSITION and the route resolves that position from the same rule. See claudeFiles.ts.
       const files = toolFilePaths(input);
       out.push({
         block: {
           kind: 'tool_use',
-          tool: b.name as string,
-          summary: summarizeToolUse(b.name as string, input),
+          tool: b.name,
+          summary: summarizeToolUse(b.name, input),
           input,
           ...(files.length ? { files } : {}),
           ...(id ? { callId: id } : {}),
@@ -190,7 +190,7 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
     } else if (t === 'tool_result') {
       let preview = '';
       const c = b.content;
-      const useId = typeof b.tool_use_id === 'string' ? (b.tool_use_id as string) : undefined;
+      const useId = typeof b.tool_use_id === 'string' ? (b.tool_use_id) : undefined;
       const idPart = useId ? { callId: useId } : {};
       const items = Array.isArray(c) ? c as Array<Record<string, unknown>> : [];
       // A screenshot a tool took, or a picture Read opened. Each becomes an image block right after
@@ -204,7 +204,7 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
       else if (Array.isArray(c)) {
         for (const sub of c as Array<Record<string, unknown>>) {
           if (sub?.type === 'text' && typeof sub.text === 'string') {
-            preview = sub.text as string;
+            preview = sub.text;
             break;
           }
         }

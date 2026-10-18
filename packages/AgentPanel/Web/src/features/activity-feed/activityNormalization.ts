@@ -79,7 +79,7 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
     // event field by field, and without it a transcript's rows could no longer say which of them
     // are neighbours.
     ...(source?.previous === null || typeof source?.previous === "number"
-      ? { previous: source.previous as number | null }
+      ? { previous: source.previous }
       : {}),
     revision: typeof source?.revision === "number" ? source.revision : undefined,
     phase:

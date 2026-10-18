@@ -56,7 +56,7 @@ interface CodexThreadRow {
 export function readCodexThreadRows(databasePath: string): CodexThreadRow[] {
   const database = new Database(databasePath, { readwrite: true });
   try {
-    database.exec("PRAGMA query_only = ON");
+    database.run("PRAGMA query_only = ON");
     return database.prepare(`
       SELECT id, cwd, title, rollout_path,
              created_at_ms, updated_at_ms, created_at, updated_at,

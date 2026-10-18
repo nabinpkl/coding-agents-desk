@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react";
-import { useRef, type FormEvent } from "react";
+import { useRef, type SubmitEvent } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import { handoverDestination, HANDOVER_LABELS } from "@/features/bots/sessionHandover";
 import { useModal } from "@/hooks/dom/overlays";
@@ -47,7 +47,7 @@ export function HandoverDialog({
 
   if (!request || !destination) return null;
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (pending) return;
     setPending(true);

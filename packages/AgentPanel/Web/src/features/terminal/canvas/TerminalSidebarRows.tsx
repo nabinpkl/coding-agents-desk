@@ -379,7 +379,7 @@ function TerminalSidebarChild({
             // The live ring stays, because the face says which session this is and only the
             // ring says whether it is live.
             <BotFace
-              rank={faceRank as number}
+              rank={faceRank}
               className={`size-8 shrink-0 ${session.attachedClients > 0 ? "rounded-full ring-2 ring-green-500" : ""}`}
               style={botSessionStyle(hue, step)}
             />

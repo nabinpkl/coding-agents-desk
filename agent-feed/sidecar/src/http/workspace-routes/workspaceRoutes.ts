@@ -49,7 +49,7 @@ function parseOperation(value: unknown): WorkspaceOperation {
         || !record.orderedPaths.every((path) => typeof path === "string")) {
         throw new RequestFailure("invalidOperation", '"reorder" needs an array of paths.');
       }
-      return { type: "reorder", orderedPaths: record.orderedPaths as string[] };
+      return { type: "reorder", orderedPaths: record.orderedPaths };
     default:
       throw new RequestFailure("invalidOperation", `unknown operation: ${String(record.type)}`);
   }
@@ -190,7 +190,7 @@ async function reorder(service: WorkspaceService, request: Request): Promise<Res
     if (!Array.isArray(body.ids) || !body.ids.every((id) => typeof id === "string")) {
       throw new RequestFailure("invalidOperation", '"ids" must be an array of workspace ids.');
     }
-    await service.store.reorder(body.ids as string[]);
+    await service.store.reorder(body.ids);
     return new Response(null, { status: 204 });
   } catch (error) {
     return refusalResponse(error);

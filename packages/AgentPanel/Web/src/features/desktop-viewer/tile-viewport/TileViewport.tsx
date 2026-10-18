@@ -9,7 +9,7 @@ import {
   type PointerInputSession,
 } from "@/features/desktop-viewer/pointer-input/pointerInputSession";
 import { VelocityTracker } from "@/features/desktop-viewer/pointer-input/velocityTracker";
-import { createZoomView, type SettleOutcome, type ViewLayers } from "@/features/desktop-viewer/zoom/zoomModels";
+import { createZoomView, type SettleOutcome } from "@/features/desktop-viewer/zoom/zoomModels";
 import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "@/features/desktop-viewer/zoom/captureCrop";
 import { useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
 import { useOverviewLayer } from "@/features/desktop-viewer/zoom/overviewLayer";
@@ -180,7 +180,7 @@ export function TileViewport({
     if (!ctx.frame || !ctx.inner || !ctx.overlay || !ctx.fallback || !ctx.image) return undefined;
     if (!pointerMode && scrollEngagedRef.current) setScrollEngaged(false);
 
-    ctx.layers = { content: ctx.inner, underlay: underlayContent.current } as ViewLayers;
+    ctx.layers = { content: ctx.inner, underlay: underlayContent.current };
     // A plan the previous display's view settled after the switch is a request for the wrong
     // screen; the streams beneath would send it to the new one.
     if (zoomMode === "crop") {
@@ -335,7 +335,7 @@ export function TileViewport({
       ref={viewport}
       data-desktop-viewport=""
       className={`relative overflow-hidden select-none ${className}`}
-      style={{ touchAction: "none", WebkitTouchCallout: "none" } as React.CSSProperties}
+      style={{ touchAction: "none", WebkitTouchCallout: "none" }}
     >
       {/* Underneath, so the sharp picture above it wins wherever both are drawn. */}
       <div ref={underlayContent} className="absolute inset-0">

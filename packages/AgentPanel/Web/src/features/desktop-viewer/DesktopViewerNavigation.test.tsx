@@ -79,7 +79,7 @@ describe("monitor handover", () => {
   it("does not replace the capture for ordinary Desktop changes and hides navigation while typing", () => {
     show();
     act(() => harness.surfaces.get("A")!.onEvent?.({ ...snapshot("A", 2),
-      displays: [{ ...displays[0], activeSpaceId: "2" }, ...displays.slice(1)] }));
+      displays: [{ ...displays[0]!, activeSpaceId: "2" }, ...displays.slice(1)] }));
     expect(harness.opens).toEqual(["A"]);
     act(() => harness.surfaces.get("A")!.onKeyboard?.(true));
     expect(screen.queryByTestId("desktop-navigation")).not.toBeInTheDocument();

@@ -304,22 +304,22 @@ export function Block({
             {command !== null ? <CodeBlock code={command} lang="bash" wrap /> : null}
             {isEditDiff ? (
               <DiffBlock
-                filePath={editPath!}
+                filePath={editPath}
                 oldString={editOld ?? ""}
                 newString={editNew ?? ""}
               />
             ) : null}
             {isMarkdownWrite ? (
-              <Markdown content={writeContent!} />
+              <Markdown content={writeContent} />
             ) : null}
             {isCodeWrite ? (
-              <CodeBlock code={writeContent!} lang={writePath!} />
+              <CodeBlock code={writeContent} lang={writePath} />
             ) : null}
             {isMarkdownRead ? (
-              <Markdown content={stripReadLineNumbers(readText!)} />
+              <Markdown content={stripReadLineNumbers(readText)} />
             ) : null}
             {isCodeRead ? (
-              <CodeBlock code={stripReadLineNumbers(readText!)} lang={readPath!} />
+              <CodeBlock code={stripReadLineNumbers(readText)} lang={readPath} />
             ) : null}
             {searchBody ? <SearchResultBody body={searchBody} /> : null}
             {webBody ? <WebResultBody body={webBody} /> : null}

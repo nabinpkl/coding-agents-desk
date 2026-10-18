@@ -15,7 +15,7 @@ const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
 const css = readFileSync(resolve(process.cwd(), "src/app/styles.css"), "utf8");
 
 function matches(source: string, pattern: RegExp): string[] {
-  return [...source.matchAll(pattern)].map((match) => match[1].trim());
+  return [...source.matchAll(pattern)].map((match) => match[1]!.trim());
 }
 
 describe("critical background", () => {

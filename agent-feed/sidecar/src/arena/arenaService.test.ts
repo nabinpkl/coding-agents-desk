@@ -207,7 +207,7 @@ const request = (over: Record<string, unknown> = {}): ArenaCreateRunRequest =>
     repoPath: "/repos/one",
     contestants: [{ source: "opencode" }, { source: "opencode" }],
     ...over,
-  }) as ArenaCreateRunRequest;
+  });
 
 async function whenContestantsSettle(registry: ArenaRunRegistry): Promise<void> {
   const deadline = Date.now() + 2000;

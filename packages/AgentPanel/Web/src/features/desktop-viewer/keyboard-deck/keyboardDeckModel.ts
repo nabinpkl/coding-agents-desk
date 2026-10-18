@@ -56,7 +56,7 @@ export const SPACE_CURSOR_STEP_PX = 14;
 export const SPACE_PAN_SLOP_PX = 10;
 
 function characters(source: readonly string[] | string): DeckKey[] {
-  return [...source].map((value) => ({ kind: "character", value }) as DeckKey);
+  return [...source].map((value) => ({ kind: "character", value }));
 }
 
 const PUNCTUATION_ROW = [".", ",", "?", "!", "'"];

@@ -1,5 +1,5 @@
 import { CornerUpLeft, SendHorizontal, X } from "lucide-react";
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type SubmitEvent, type SyntheticEvent } from "react";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { hubOf, useMessages, type MessagesHandle } from "@/features/messages/useMessages";
@@ -58,7 +58,7 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
   const directory = state.kind === "ready" ? state.directory : [];
   const reachable = to ? isReachable(to, directory) : false;
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SyntheticEvent) => {
     event.preventDefault();
     if (!to || !body.trim() || sending) return;
     setSending(true);
@@ -160,7 +160,7 @@ function Thread({
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const sendReply = async (event: FormEvent) => {
+  const sendReply = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!reply.trim() || sending) return;
     setSending(true);

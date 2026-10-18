@@ -252,7 +252,7 @@ export function reserveInputRevision(shared: SharedEncoder): number {
 export function rememberCursorAck(shared: SharedEncoder, revision: number, ack: PendingCursorAck) {
   shared.pendingCursorAcks.set(revision, ack);
   if (shared.pendingCursorAcks.size <= MAX_PENDING_CURSOR_ACKS) return;
-  const oldest = shared.pendingCursorAcks.keys().next().value as number | undefined;
+  const oldest = shared.pendingCursorAcks.keys().next().value;
   if (oldest !== undefined) shared.pendingCursorAcks.delete(oldest);
 }
 
@@ -343,7 +343,7 @@ export async function acquireSharedEncoder(
   void (async () => {
     let stopReason = "stdout-ended";
     try {
-      for await (const frame of frames(child.stdout as ReadableStream<Uint8Array>)) {
+      for await (const frame of frames(child.stdout)) {
         if (shared.dead) break;
         if (frame.kind === KIND_META) {
           const meta = JSON.parse(new TextDecoder().decode(frame.payload)) as Record<string, unknown>;

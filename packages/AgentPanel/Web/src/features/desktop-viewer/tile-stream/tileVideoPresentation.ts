@@ -53,7 +53,7 @@ export function createVideoPresentationWatch(
       let maximum = 0;
       for (let index = 0; index < pixels.length; index += 4) {
         const luma = Math.round(
-          (pixels[index] * 54 + pixels[index + 1] * 183 + pixels[index + 2] * 19) / 256,
+          (pixels[index]! * 54 + pixels[index + 1]! * 183 + pixels[index + 2]! * 19) / 256,
         );
         total += luma;
         minimum = Math.min(minimum, luma);

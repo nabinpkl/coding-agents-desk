@@ -9,7 +9,7 @@
 // The read half stays live the way a session subscriber does: the bot streams push, so a Father
 // named, cleared, or forgotten on any machine reaches the home without a reload.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import type {
   AgentSessionDescriptor,
   BotSessionRef,
@@ -33,9 +33,12 @@ import type { SessionViewContext } from "@/features/session-view/SessionView";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import { sessionKey } from "@/features/bots/cards/botCanvasCards";
 
-/** A window-composer pair per sidecar, made the first time each is asked for. */
+/**
+ * A window-composer pair per sidecar, made the first time each is asked for. Weakly held, so a
+ * machine that left, or a data source a hot swap replaced, takes its pair with it.
+ */
 function composerPairs() {
-  const pairs = new Map<
+  const pairs = new WeakMap<
     SidecarDataSource,
     { claude: ReturnType<typeof sidecarWindowComposerClient>; codex: ReturnType<typeof sidecarWindowComposerClient> }
   >();
@@ -90,8 +93,9 @@ export function useFatherScope({
   // One window-composer pair per sidecar, because typing into another application's text field
   // is something a sidecar does on the machine it runs on. Keyed on the feed object, which is
   // stable per machine, so a roster push does not rebuild the clients out from under the session.
-  // Rebuilt when the machines change, so a machine that left takes its clients with it.
-  const composersFor = useMemo(() => composerPairs(), [feed, machines]);
+  // Made once per home: the map lets go of a machine's pair when its feed goes, which a memo keyed
+  // on the machines only appeared to do, since React Compiler keys a memo on what it reads.
+  const [composersFor] = useState(composerPairs);
 
   /**
    * The context the Father's session renders in, by Bot.

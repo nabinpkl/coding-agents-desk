@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 import { CAPTURES } from "@/input/question/questionCaptures";
 import { questionDialog } from "@/input/question/questionDialog";
 import { questionStateFrom } from "@/input/question/questionMirrorState";
@@ -7,7 +6,7 @@ import { questionStateFrom } from "@/input/question/questionMirrorState";
 function dialogFor(name: string) {
   const found = CAPTURES.find((entry) => entry.name === name);
   if (!found) throw new Error(`no capture named ${name}`);
-  const dialog = questionDialog({ screen: found.screen, cursor: { row: 0, column: 0 } } as TmuxPaneView);
+  const dialog = questionDialog({ screen: found.screen, cursor: { row: 0, column: 0 } });
   if (!dialog) throw new Error(`capture ${name} did not parse`);
   return dialog;
 }

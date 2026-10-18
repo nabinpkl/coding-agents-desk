@@ -85,7 +85,7 @@ export function updateBotRecord(
       // silently unnameable.
       if (!bot.sessionRefs.some((ref) => sessionKey(ref) === sessionKey(command.fatherSession!))) {
         throw new BotNotFoundError(
-          `session ${sessionKey(command.fatherSession!)} is not attached to this Bot`,
+          `session ${sessionKey(command.fatherSession)} is not attached to this Bot`,
         );
       }
       updated = { ...updated, fatherSession: command.fatherSession };

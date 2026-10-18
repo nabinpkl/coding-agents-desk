@@ -65,7 +65,7 @@ export interface TypePreference {
 const STORAGE_KEY = "agent-panel.type";
 
 export function familyFor(id: string): TypeFamily {
-  return TYPE_FAMILIES.find((family) => family.id === id) ?? TYPE_FAMILIES[0];
+  return TYPE_FAMILIES.find((family) => family.id === id) ?? TYPE_FAMILIES[0]!;
 }
 
 /**

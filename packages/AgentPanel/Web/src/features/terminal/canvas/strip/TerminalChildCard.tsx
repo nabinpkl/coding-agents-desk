@@ -188,7 +188,7 @@ export function TerminalChildCard({
                   own step of its parent's colour otherwise -- a tmux name already is one. */}
               {faced ? (
                 <BotFace
-                  rank={faceRank as number}
+                  rank={faceRank}
                   className={`mt-0.5 size-8 shrink-0 ${session.attachedClients > 0 ? "rounded-full ring-2 ring-green-500" : ""}`}
                   style={botSessionStyle(hue, step)}
                 />

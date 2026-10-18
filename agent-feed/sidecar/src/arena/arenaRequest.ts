@@ -63,7 +63,7 @@ export function checkLanes(
     if (source === "opencode" && named && !named.includes("/")) {
       return { problem: `contestant ${index} is opencode, whose model is named "provider/model", not "${named}"` };
     }
-    lanes.push({ source: source as ArenaContestantSource, model: named || null });
+    lanes.push({ source, model: named || null });
   }
   return lanes;
 }

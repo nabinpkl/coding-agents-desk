@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react";
-import { useRef, type FormEvent } from "react";
+import { useRef, type SubmitEvent } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import { useModal } from "@/hooks/dom/overlays";
 import { useDomSync } from "@/hooks/dom/useDomSync";
@@ -40,7 +40,7 @@ export function BotRenameDialog({
 
   if (!bot) return null;
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (pending || !name.trim()) return;
     setPending(true);

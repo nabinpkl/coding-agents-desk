@@ -208,7 +208,7 @@ export function classifyCodexLine(record: {
   // blob and says nothing. 81,905 rows / 7.2 MB here. The text check is shared
   // with the adapter so the two cannot disagree about which items those are.
   if (top === 'response_item' && inner === 'reasoning') {
-    return extractReasoningText(payload as { summary?: unknown; content?: unknown })
+    return extractReasoningText(payload)
       ? 'content'
       : 'machinery';
   }

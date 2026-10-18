@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import type { DirectoryEntry, Message, MessageAddress, SentMessageKind } from "@agentdesk/agent-feed-wire";
+import type { DirectoryEntry, Message, SentMessageKind } from "@agentdesk/agent-feed-wire";
 import type { HubHandle } from "@/features/activity-feed/data-source/layers/SidecarHub";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { createSourceStore, useSourceStore } from "@/features/activity-feed/data-source/sourceStore";
@@ -111,7 +111,7 @@ export function useMessages(hub: HubHandle): MessagesHandle {
   const addressable = useMemo(
     () =>
       state.kind === "ready"
-        ? state.directory.filter((entry): entry is DirectoryEntry => (entry.address as MessageAddress) !== "human")
+        ? state.directory.filter((entry): entry is DirectoryEntry => (entry.address) !== "human")
         : [],
     [state],
   );

@@ -49,7 +49,7 @@ export function joinTextContent(content: unknown): string {
   for (const block of content as Array<Record<string, unknown>>) {
     const kind = block?.type;
     if ((kind === 'input_text' || kind === 'output_text') && typeof block.text === 'string') {
-      parts.push(block.text as string);
+      parts.push(block.text);
     }
   }
   return parts.join('\n\n');

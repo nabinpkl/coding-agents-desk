@@ -186,7 +186,7 @@ export class HostActionsClient {
       requestId,
       context,
       ptySessionName: frame.psn,
-      exitStatus: frame.xs as number | undefined,
+      exitStatus: frame.xs,
     };
   }
 }

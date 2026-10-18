@@ -183,8 +183,8 @@ test("a second viewer joins the run instead of paying for a second one", async (
   const gate = new Promise<void>((resolve) => { open = resolve; });
   const runner = countingRunner(gate);
   const route = routes(runner);
-  const first = (await route(...get(), server)!) as Response;
-  const second = (await route(...get(), server)!) as Response;
+  const first = (await route(...get(), server)!);
+  const second = (await route(...get(), server)!);
   open();
 
   const [a, b] = await Promise.all([collect(first), collect(second)]);
@@ -212,11 +212,11 @@ test("a viewer who opens mid-run is replayed what it has already said", async ()
     },
   });
 
-  const first = (await route(...get(), server)!) as Response;
+  const first = (await route(...get(), server)!);
   await started;
   // The phone opening the same thread the Mac is already watching: it should not see a blank
   // panel just because it arrived second.
-  const late = (await route(...get(), server)!) as Response;
+  const late = (await route(...get(), server)!);
   emit({ type: "reasoning", text: "late" });
   open();
 

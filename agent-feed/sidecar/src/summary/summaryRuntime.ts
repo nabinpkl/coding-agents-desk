@@ -291,7 +291,7 @@ const createPiSummarySession: SummarySessionFactory = async (project) => {
   const session = created.session;
   return {
     prompt: (text) => session.prompt(text),
-    subscribe: (listener) => session.subscribe(listener as never),
+    subscribe: (listener) => session.subscribe(listener),
     abort: () => session.abort(),
     lastAssistantText: () => assistantText(session.messages),
   };

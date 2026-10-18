@@ -51,7 +51,7 @@ Sentry.initWithoutDefaultIntegrations({
 });
 
 // From the moment Bun started this process, which is what `performance.timeOrigin` is here.
-const boot = Sentry.startInactiveSpan({ name: BOOT, op: "app.start", forceTransaction: true, startTime: performance.timeOrigin });
+const boot = Sentry.startInactiveSpan({ name: BOOT, op: "app.start", startTime: performance.timeOrigin });
 
 /** Called once the server is listening. */
 export function sidecarListening(): void {
@@ -77,7 +77,6 @@ export function traceRequest<T extends Response | undefined>(
       {
         name: `${request.method} ${url.pathname}`,
         op: "http.server",
-        forceTransaction: true,
         attributes: { "http.request.method": request.method, "url.path": url.pathname },
       },
       // Ends when the handler has a response, not when its body does: a stream's span is the time

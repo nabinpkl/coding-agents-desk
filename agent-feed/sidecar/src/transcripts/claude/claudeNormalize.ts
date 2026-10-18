@@ -244,7 +244,7 @@ export function normalizedRecord(
   // The Anthropic message id the live `/v1/messages` stream also names on
   // `message_start`, so the viewer can hand a streaming live tail off to the
   // durable transcript once it contains this same id.
-  const rawMessageId = typeof message.id === 'string' ? (message.id as string).trim() : '';
+  const rawMessageId = typeof message.id === 'string' ? message.id.trim() : '';
   const event: ParsedLine = {
     ts,
     type: semanticType,

@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react";
-import { useRef, type FormEvent, useMemo } from "react";
+import { useRef, type SubmitEvent, useMemo } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import { formatBotSessionTitle, taskFromText } from "@agentdesk/agent-feed-wire";
 import { useModal } from "@/hooks/dom/overlays";
@@ -62,7 +62,7 @@ export function SessionRenameDialog({
 
   if (!session) return null;
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     // Under an anchor an empty field is a bare anchor, not a missing name.
     if (pending || (!title.trim() && !anchor)) return;

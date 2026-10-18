@@ -78,7 +78,7 @@ export function useSessionCommands(
         throw error;
       }
     }, () => setCommandPending(false));
-  }, [commandPending, feed, session]);
+  }, [commandPending, feed]);
 
   /** Puts a reason in the caption from outside this hook, for the panel-run commands' own reads. */
   const reportCommandError = useCallback((message: string) => {

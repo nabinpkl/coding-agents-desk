@@ -237,7 +237,7 @@ export class BotSessionStarter {
       if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
       const current = snapshot.bots[index]!;
       if (current.sessionAnchors?.[key] !== undefined) {
-        return { snapshot, value: current.sessionAnchors[key]! };
+        return { snapshot, value: current.sessionAnchors[key] };
       }
       const anchor = nextAnchor(spentAnchors(snapshot.bots));
       const updated: BotRecord = {

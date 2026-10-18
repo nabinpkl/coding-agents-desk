@@ -179,7 +179,7 @@ export class ClaudeSdkClient {
       }, REPLY_TIMEOUT_MS);
       connection.replies.set(id, { resolve, timer });
     });
-    connection.socket.write(encodeLine({ ...message, id } as SidecarToRunner));
+    connection.socket.write(encodeLine({ ...message, id }));
     return reply;
   }
 

@@ -5,7 +5,7 @@
 // without the Bot. The session can be put on one afterwards, from the modal it opens in.
 
 import { LoaderCircle, SquareTerminal, X } from "lucide-react";
-import { useCallback, useRef, type FormEvent } from "react";
+import { useCallback, useRef, type SubmitEvent } from "react";
 import type { ProjectSummary, StartSessionCommand } from "@agentdesk/agent-feed-wire";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
@@ -51,7 +51,7 @@ export function NewSessionDialog({
 
   if (!open) return null;
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (pending || !selectedPath || !title.trim()) return;
     setPending(true);

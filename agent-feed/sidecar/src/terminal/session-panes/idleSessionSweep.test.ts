@@ -143,7 +143,7 @@ describe("a sweep", () => {
     return {
       closed,
       said,
-      processes: async () => live(process("s-dylan", activities[Math.min(asked++, activities.length - 1)]!)),
+      processes: async () => live(process("s-dylan", activities[Math.min(asked++, activities.length - 1)])),
       panes: async () => [pane("dylan", "s-dylan")],
       lastEventAt: async () => NOW - 3 * HOUR,
       activeOpencode: async () => new Set(),

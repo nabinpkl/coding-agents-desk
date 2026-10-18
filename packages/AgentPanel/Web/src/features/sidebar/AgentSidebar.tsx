@@ -230,7 +230,7 @@ function SidebarContent(props: AgentSidebarProps) {
     else if (event.key === "End") next = SIDEBAR_MODES.length - 1;
     if (next === null) return;
     event.preventDefault();
-    selectMode(SIDEBAR_MODES[next].mode, true);
+    selectMode(SIDEBAR_MODES[next]!.mode, true);
   };
 
   return (

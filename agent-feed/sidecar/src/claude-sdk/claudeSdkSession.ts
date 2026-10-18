@@ -318,7 +318,7 @@ export class SdkSession {
       this.pending.set(callback.id, { kind: "question", toolUseId, questions, openedAt: callback.openedAt });
       return null;
     }
-    const text = (key: string) => (isString(options[key]) && options[key] ? { [key]: options[key] as string } : {});
+    const text = (key: string) => (isString(options[key]) && options[key] ? { [key]: options[key] } : {});
     this.pending.set(callback.id, {
       kind: "approval",
       toolUseId,

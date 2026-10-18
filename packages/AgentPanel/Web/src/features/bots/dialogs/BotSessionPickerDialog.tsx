@@ -1,5 +1,5 @@
 import { LoaderCircle, Plus, SquareTerminal, X } from "lucide-react";
-import { useMemo, useRef, type FormEvent } from "react";
+import { useMemo, useRef, type SubmitEvent } from "react";
 import type { BotSessionRef, BotView, ClaudeRunMode, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
@@ -90,14 +90,14 @@ export function BotSessionPickerDialog({
 
   if (!open || !bot) return null;
 
-  const startNew = (event: FormEvent) => {
+  const startNew = (event: SubmitEvent) => {
     event.preventDefault();
     // An empty task is a bare anchor, not a missing name.
     if (pending || bot.environmentAvailability === "missing") return;
     onStartNew(bot, task.trim(), harness);
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (selectedKeys.size === 0 || pending || !sessions) return;
     const sessionRefs = sessions

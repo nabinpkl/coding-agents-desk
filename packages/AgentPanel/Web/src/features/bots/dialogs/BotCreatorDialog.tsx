@@ -1,5 +1,5 @@
 import { LoaderCircle, Upload, X } from "lucide-react";
-import { useCallback, useMemo, useRef, type ChangeEvent, type FormEvent } from "react";
+import { useCallback, useMemo, useRef, type ChangeEvent, type SubmitEvent } from "react";
 import type { AddBotCommand, BotView, ProjectSummary } from "@agentdesk/agent-feed-wire";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { type BotMachine } from "@/features/bots/botMachines";
@@ -147,7 +147,7 @@ export function BotCreatorDialog({
     }
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!selectedPath || pending || !name.trim()) return;
     setPending(true);

@@ -183,7 +183,7 @@ export async function currentProcessTable(
   tableInFlight = processTable(run)
     .then((rows) => {
       tableCache = { at: now(), rows };
-      return rows as readonly ProcessRow[];
+      return rows;
     })
     .finally(() => {
       tableInFlight = null;

@@ -1,5 +1,5 @@
 import { Upload } from "lucide-react";
-import { useRef, type ChangeEvent, type FormEvent } from "react";
+import { useRef, type ChangeEvent, type SubmitEvent } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import { nextForkTitle } from "@/features/bots/dialogs/sessionTitles";
 import { useModal } from "@/hooks/dom/overlays";
@@ -118,7 +118,7 @@ export function ForkSessionDialog({
     }
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = (event: SubmitEvent) => {
     event.preventDefault();
     const chosen = title.trim();
     if (!chosen) return;

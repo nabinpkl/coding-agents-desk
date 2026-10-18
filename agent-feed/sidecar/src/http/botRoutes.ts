@@ -9,8 +9,6 @@ import type {
   PlaceBotSessionCommand,
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
-  SetBotCanvasCommand,
-  UpdateBotCommand,
 } from "@agentdesk/agent-feed-wire";
 import {
   BotConflictError,
@@ -364,7 +362,7 @@ async function setBotCanvas(
     const body = await requestObject(request);
     if (body instanceof Response) return body;
     return jsonResponse(
-      await registry.setCanvas(decodedBotId, body as unknown as SetBotCanvasCommand, { kind: "user" }),
+      await registry.setCanvas(decodedBotId, body, { kind: "user" }),
     );
   } catch (error) {
     return routeError(error);
@@ -381,7 +379,7 @@ async function updateBot(
     const body = await requestObject(request);
     if (body instanceof Response) return body;
     return jsonResponse(
-      await registry.updateBot(decodedBotId, body as unknown as UpdateBotCommand, { kind: "user" }),
+      await registry.updateBot(decodedBotId, body, { kind: "user" }),
     );
   } catch (error) {
     return routeError(error);

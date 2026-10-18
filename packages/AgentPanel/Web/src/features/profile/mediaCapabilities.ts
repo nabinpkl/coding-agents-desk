@@ -42,7 +42,7 @@ export interface MediaCapabilities {
  */
 export const HEVC_FRAGMENT_TYPE = 'video/mp4; codecs="hvc1.1.6.L93.B0"';
 
-export function detectMediaCapabilities(scope: MediaScope = globalThis as MediaScope): MediaCapabilities {
+export function detectMediaCapabilities(scope: MediaScope = globalThis): MediaCapabilities {
   const managed = typeof scope.ManagedMediaSource !== "undefined";
   const plain = typeof scope.MediaSource !== "undefined";
   const source = scope.ManagedMediaSource ?? scope.MediaSource;

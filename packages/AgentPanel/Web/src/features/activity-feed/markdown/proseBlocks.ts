@@ -128,7 +128,7 @@ function peelNestedFences(token: Token, into: FenceBlock[], base: number): void 
           block: true,
           pre: false,
           text: `<div ${FENCE_SLOT_ATTRIBUTE}="${index}"></div>`,
-        } as unknown as Token;
+        };
         continue;
       }
       peelNestedFences(child, into, base);

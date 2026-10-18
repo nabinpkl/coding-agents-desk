@@ -232,7 +232,7 @@ function spawnControlHelper(path: string, idleSeconds: number): HelperProcess {
       await child.stdin.write(encoder.encode(line));
       await child.stdin.flush();
     },
-    frames: frames(child.stdout as ReadableStream<Uint8Array>),
+    frames: frames(child.stdout),
     kill: () => {
       try {
         child.kill();

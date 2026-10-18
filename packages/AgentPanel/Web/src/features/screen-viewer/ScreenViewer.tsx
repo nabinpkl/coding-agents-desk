@@ -59,7 +59,7 @@ export function ScreenViewer() {
 
   useUnmountEffect(teardown);
 
-  function connect(event: React.FormEvent) {
+  function connect(event: React.SubmitEvent) {
     event.preventDefault();
     if (!screen.current) return;
     teardown();

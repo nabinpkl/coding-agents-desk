@@ -26,8 +26,8 @@ async function makeCodexStateDatabase(
   temporaryDirectories.push(root);
   const path = join(root, "state_5.sqlite");
   const seed = new Database(path, { create: true });
-  seed.exec("PRAGMA journal_mode = WAL");
-  seed.exec(`
+  seed.run("PRAGMA journal_mode = WAL");
+  seed.run(`
     CREATE TABLE threads (
       id TEXT, cwd TEXT, title TEXT, rollout_path TEXT,
       created_at_ms INTEGER, updated_at_ms INTEGER,
@@ -36,12 +36,12 @@ async function makeCodexStateDatabase(
       archived INTEGER
     )
   `);
-  seed.exec(`
+  seed.run(`
     INSERT INTO threads VALUES
       ('t1', '/work/one', 'first', '/rollouts/t1.jsonl', 1000, 2000, 1, 2, null, 'main', null, 0),
       ('t2', '/work/two', 'archived', '/rollouts/t2.jsonl', 1000, 3000, 1, 3, null, null, null, 1)
   `);
-  seed.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  seed.run("PRAGMA wal_checkpoint(TRUNCATE)");
   seed.close();
   if (!leaveRunning) {
     for (const suffix of ["-wal", "-shm"]) {
@@ -81,8 +81,8 @@ describe("codex state database", () => {
     readCodexThreadRows(path);
 
     const database = new Database(path, { readwrite: true });
-    database.exec("PRAGMA query_only = ON");
-    expect(() => database.exec("INSERT INTO threads (id) VALUES ('t3')")).toThrow();
+    database.run("PRAGMA query_only = ON");
+    expect(() => database.run("INSERT INTO threads (id) VALUES ('t3')")).toThrow();
     database.close();
 
     expect(readCodexThreadRows(path).map((row) => row.id)).toEqual(["t1"]);

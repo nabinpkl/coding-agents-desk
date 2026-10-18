@@ -45,7 +45,7 @@ export function allocateAnchors(
     const key = sessionKey(ref);
     if (anchors[key] === undefined) {
       anchors[key] = nextAnchor(taken);
-      taken.add(anchors[key]!);
+      taken.add(anchors[key]);
     }
   }
   return anchors;

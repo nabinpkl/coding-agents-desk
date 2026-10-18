@@ -6,7 +6,7 @@
 
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ArenaOutsideReach } from "@agentdesk/agent-feed-wire";
-import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
+import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 
 /**
  * Tool names, lowercased, by the direction they work in. Lowercased because the two harnesses
@@ -53,7 +53,7 @@ export function filesFromEvents(events: readonly ActivityEvent[]): {
   const read = new Set<string>();
   const written = new Set<string>();
   for (const event of events) {
-    for (const block of event.blocks as ActivityBlock[]) {
+    for (const block of event.blocks) {
       if (block.kind !== "tool_use" || !block.tool) continue;
       const tool = block.tool.toLowerCase();
       const writes = WRITE_TOOLS.has(tool);
@@ -127,10 +127,10 @@ export function outsideReaches(
     out.push({ path, how, rival });
   };
   for (const event of events) {
-    for (const block of event.blocks as ActivityBlock[]) {
+    for (const block of event.blocks) {
       if (block.kind !== "tool_use" || !block.tool) continue;
       const tool = block.tool.toLowerCase();
-      const input = block.input && typeof block.input === "object" ? block.input as Record<string, unknown> : {};
+      const input = block.input && typeof block.input === "object" ? block.input : {};
       if (SHELL_TOOLS.has(tool)) {
         if (typeof input.command === "string") for (const word of pathWords(input.command)) note(word, "shell");
         continue;

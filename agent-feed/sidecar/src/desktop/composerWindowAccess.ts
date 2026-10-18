@@ -92,17 +92,18 @@ export function createWindowAccess(helper: ControlHelper) {
     }
 
     let outcome: T;
-    let failure: unknown;
+    // Boxed, so a body that throws `undefined` still counts as having failed.
+    let failure: { error: unknown } | undefined;
     try {
       outcome = await body();
     } catch (error) {
-      failure = error;
+      failure = { error };
       outcome = undefined as T;
     }
 
     if (moved) await restoreWindow(target);
 
-    if (failure !== undefined) throw failure;
+    if (failure) throw failure.error;
 
     // Sampled after the restore so the whole sequence is covered. Nothing above activates an
     // application, so a change means an assumption broke; it cannot be undone, only reported.

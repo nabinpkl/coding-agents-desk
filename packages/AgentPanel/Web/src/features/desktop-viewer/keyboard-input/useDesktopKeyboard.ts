@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type FormEvent, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type CompositionEvent as ReactCompositionEvent } from "react";
+import { useCallback, useRef, useState, type InputEvent as ReactInputEvent, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type CompositionEvent as ReactCompositionEvent } from "react";
 import type {
   DesktopControlEvent,
   DesktopControlInput,
@@ -133,7 +133,7 @@ export function useDesktopKeyboard({
   const consumePointerGesture = useCallback(() => capture.consumePointerGesture(ctxRef.current), [ctxRef]);
   const showManually = useCallback(() => capture.showManually(ctxRef.current), [ctxRef]);
   const onBeforeInput = useCallback((input: InputEvent) => capture.onBeforeInput(ctxRef.current, input), [ctxRef]);
-  const onInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => capture.onInput(ctxRef.current, event), [ctxRef]);
+  const onInput = useCallback((event: ReactInputEvent<HTMLTextAreaElement>) => capture.onInput(ctxRef.current, event), [ctxRef]);
   const onPaste = useCallback((event: ReactClipboardEvent<HTMLTextAreaElement>) => capture.onPaste(ctxRef.current, event), [ctxRef]);
   const onCompositionStart = useCallback(() => capture.onCompositionStart(ctxRef.current), [ctxRef]);
   const onCompositionEnd = useCallback((event: ReactCompositionEvent<HTMLTextAreaElement>) => capture.onCompositionEnd(ctxRef.current, event), [ctxRef]);

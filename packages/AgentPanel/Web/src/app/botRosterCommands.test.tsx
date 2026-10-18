@@ -338,7 +338,7 @@ describe("App shell", () => {
         expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
       );
     });
-    deliverProjectSessions(transport, FIXTURE_PROJECT_B.projectPath, [FIXTURE_SESSIONS[0]]);
+    deliverProjectSessions(transport, FIXTURE_PROJECT_B.projectPath, [FIXTURE_SESSIONS[0]!]);
     fireEvent.click(screen.getByRole("checkbox", { name: /Session Claude 01/ }));
 
     transport.responses.set("POST /api/bots/bot-beta/sessions", {

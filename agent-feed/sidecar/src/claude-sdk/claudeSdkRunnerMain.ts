@@ -51,7 +51,7 @@ function spawnProcessGroup(options: SpawnOptions): SpawnedProcess {
       }
     }
   });
-  return child as unknown as SpawnedProcess;
+  return child;
 }
 
 /** The SDK's names for the modes, which the launch passes: the CLI's `manual` is `default` here. */

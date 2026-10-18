@@ -73,7 +73,7 @@ async function pass(...records: Array<[BotRecord, Resolve]>): Promise<Split[]> {
 
 /** One Bot's split, asserted. This tree indexes as possibly undefined, hence the two `!`s. */
 async function passOne(record: BotRecord, resolve: Resolve): Promise<Split> {
-  const [split] = (await pass([record, resolve]))!;
+  const [split] = (await pass([record, resolve]));
   return split!;
 }
 

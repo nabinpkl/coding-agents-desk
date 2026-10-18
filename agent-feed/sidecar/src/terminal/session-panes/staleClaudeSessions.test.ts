@@ -47,7 +47,7 @@ function rowOf(pid: number, command: string): ProcessRow {
 function machine(
   processes: ClaudeSessionProcess[],
   commands: Record<number, string>,
-  { notOurs = [] as string[], starts = {} as Record<string, string> } = {},
+  { notOurs = [], starts = {} }: { notOurs?: string[]; starts?: Record<string, string> } = {},
 ) {
   const state = { processes, commands };
   const sources: StaleSessionSources = {

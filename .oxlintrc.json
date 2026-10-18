@@ -40,6 +40,30 @@
     "react/purity": "error",
     "react/globals": "error",
     "react/set-state-in-effect": "error",
+    // The rest of the compiler's checks, gated on 2026-10-18 while all but one were at zero: a hook
+    // called conditionally, a hand-written memo the compiler cannot keep, a state set while
+    // rendering, a component defined inside another, syntax it cannot compile. The one that was not
+    // is `memo-dependencies`, whose four findings included one the compiler had already broken: a
+    // memo listed `machines` so it would rebuild when they changed, but read nothing of them, and the
+    // compiler keys a memo on what it reads, so it never rebuilt.
+    "react/hooks": "error",
+    "react/preserve-manual-memoization": "error",
+    "react/set-state-in-render": "error",
+    "react/static-components": "error",
+    "react/unsupported-syntax": "error",
+    "react/memo-dependencies": "error",
+    // An assertion that changes nothing is an assertion nobody re-checks when the type under it
+    // changes; 231 were cleared with this gate, most of them `!` on a value already narrowed.
+    "typescript/no-unnecessary-type-assertion": "error",
+    // A deprecated call is one the next upgrade breaks. Cleared with this gate: React 19's
+    // `FormEvent`, Sentry's `forceTransaction`, bun:sqlite's `exec`.
+    "typescript/no-deprecated": "error",
+    // `== null` is left alone: it is how this tree says "null or undefined" in one comparison.
+    "eslint/eqeqeq": ["error", "always", { "null": "ignore" }],
+    // Throw and reject with errors, not strings. A caught `unknown` passed on is allowed: it is
+    // whatever was thrown, and wrapping it would change what the caller catches.
+    "typescript/only-throw-error": ["error", { "allowThrowingUnknown": true }],
+    "typescript/prefer-promise-reject-errors": ["error", { "allowThrowingUnknown": true }],
     // A cycle is how a plain helper exported from a component file shows up: the eight cleared
     // with this gate were all `harnessName` living in SessionView.tsx.
     "import/no-cycle": "error",
@@ -84,6 +108,25 @@
     ]
   },
   "overrides": [
+    {
+      // Files the type-aware rules read without their real types. tsgolint takes each file's
+      // nearest tsconfig.json, and the panel's leaves out its tests, harnesses and dev server
+      // (`tsconfig.node.json` covers those), while the shared wire has none of its own: both are
+      // read with default options and the panel's `@/` imports unresolved, so an import is `any`.
+      // A rule that reports what a type allows is wrong on them, and its autofix breaks the build.
+      "files": [
+        "**/AgentPanel/Web/src/**/*.test.ts",
+        "**/AgentPanel/Web/src/**/*.test.tsx",
+        "**/AgentPanel/Web/src/**/*Harness.tsx",
+        "**/AgentPanel/Web/src/app/testSetup.ts",
+        "**/AgentPanel/Web/src/app/dev-server/**",
+        "**/agent-feed/wire/**"
+      ],
+      "rules": {
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-deprecated": "off"
+      }
+    },
     {
       // The approved hooks, each named for the outside thing it keeps in step with React, and the
       // tests, whose harnesses stand up whatever the component under test expects to find.

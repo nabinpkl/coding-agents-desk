@@ -76,7 +76,7 @@ interface ParkRequestBody {
 async function body(request: Request): Promise<ParkRequestBody> {
   try {
     const parsed = await request.json();
-    return parsed && typeof parsed === "object" ? (parsed as ParkRequestBody) : {};
+    return parsed && typeof parsed === "object" ? (parsed) : {};
   } catch {
     return {};
   }

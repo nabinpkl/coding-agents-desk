@@ -80,13 +80,13 @@ export function parseArgs(raw: unknown): { input: Record<string, unknown>; raw: 
 
 export function summarizeToolUse(name: string, input: Record<string, unknown>, raw: string): string {
   if (name === 'apply_patch' && typeof input.file_path === 'string') {
-    return `apply_patch ${basename(input.file_path as string)}`;
+    return `apply_patch ${basename(input.file_path)}`;
   }
   if (name === 'read_file' && typeof input.path === 'string') {
-    return `read_file ${basename(input.path as string)}`;
+    return `read_file ${basename(input.path)}`;
   }
   if (name === 'shell' && typeof input.command === 'string') {
-    return commandSummary(input.command as string);
+    return commandSummary(input.command);
   }
   // `input` is empty for a `custom_tool_call`, whose arguments are a script or a
   // patch document rather than JSON, and the JSON reader covers the function

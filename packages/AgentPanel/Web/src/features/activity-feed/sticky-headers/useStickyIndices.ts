@@ -136,9 +136,10 @@ export function useStickyIndices({
   //
   // The bar's height is read as last drawn, while rendering: the top line is the one under the bar,
   // and its height is layout, which nothing reports as a value. Harmless uncompiled, where each
-  // render reads it afresh.
+  // render reads it afresh. For the same reason the list names what moves the geometry rather than
+  // the geometry itself, which is one object the virtualizer changes in place.
   const answer = useMemo(
-    // oxlint-disable-next-line react/refs
+    // oxlint-disable-next-line react/refs, react/memo-dependencies
     () => answerAt(items, rowVirtualizer.measurementsCache, rowItems.length, scrollTop, barHeight(), oldestStart, remote),
     [scrollTop, virtualItems, items, rowItems.length, oldestStart, remote],
   );

@@ -29,10 +29,10 @@ describe("desktop navigation lifecycle", () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "space-select", spaceId: "3", displayId: "A" }));
     expect(result.current.model.motion.kind).toBe("pending");
     act(() => result.current.handleEvent({ ...snapshot, revision: 2,
-      displays: [{ ...snapshot.displays[0], activeSpaceId: "2" }] }));
+      displays: [{ ...snapshot.displays[0]!, activeSpaceId: "2" }] }));
     expect(result.current.model.motion.kind).toBe("pending");
     act(() => result.current.handleEvent({ ...snapshot, revision: 3,
-      displays: [{ ...snapshot.displays[0], activeSpaceId: "3" }] }));
+      displays: [{ ...snapshot.displays[0]!, activeSpaceId: "3" }] }));
     expect(result.current.model.motion.kind).toBe("idle");
     expect(report).toHaveBeenCalledWith("navigation-settled", expect.objectContaining({ reached: true }));
     act(() => vi.advanceTimersByTime(3000));
@@ -66,7 +66,7 @@ describe("desktop navigation lifecycle", () => {
     expect(result.current.model.motion).toMatchObject({ kind: "pending", target: "2" });
     act(() => result.current.begin());
     act(() => result.current.handleEvent({ ...snapshot, revision: 2,
-      displays: [{ ...snapshot.displays[0], activeSpaceId: "2" }] }));
+      displays: [{ ...snapshot.displays[0]!, activeSpaceId: "2" }] }));
     expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ phase: "cancelled" }));
     expect(result.current.model.motion.kind).toBe("idle");
   });

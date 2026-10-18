@@ -253,7 +253,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
             // twice, and a reload started in there would be two requests for one event.
             const held = openFilesRef.current;
             const conflicted = event.changedPaths.filter(
-              (path) => held[path] && held[path]!.saveState !== "clean",
+              (path) => held[path] && held[path].saveState !== "clean",
             );
             for (const path of event.changedPaths) {
               if (held[path]?.saveState === "clean") void reload(path);

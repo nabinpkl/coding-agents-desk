@@ -27,6 +27,7 @@ import { SessionModal } from "@/features/session-view/SessionModal";
 import { StartedSessionModal } from "@/features/session-view/StartedSessionModal";
 import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
+import { sessionKey } from "@/features/bots/cards/botCanvasCards";
 
 export function AppDialogs({
   attachBotSessions,
@@ -112,16 +113,14 @@ export function AppDialogs({
     canvasMove: { held: ReadonlySet<string>; onMove: (session: SessionSummary) => Promise<void> };
   };
 }) {
-  const keyOf = (session: Pick<SessionSummary, "source" | "sessionId">): string =>
-    `${session.source}:${session.sessionId}`;
   // The anchor a rename must leave alone, when exactly one Bot holds the session with one stored.
   // Held twice over, or held with none yet, and the dialog edits the whole title the way it
   // always has.
   const renameAnchor = useMemo(() => {
     if (!renamingSession) return undefined;
-    const holders = bots.filter((bot) => bot.sessionAnchors?.[keyOf(renamingSession)] !== undefined);
+    const holders = bots.filter((bot) => bot.sessionAnchors?.[sessionKey(renamingSession)] !== undefined);
     if (holders.length !== 1) return undefined;
-    return holders[0]!.sessionAnchors![keyOf(renamingSession)]!;
+    return holders[0]!.sessionAnchors![sessionKey(renamingSession)]!;
   }, [bots, renamingSession]);
   // The machine the Sessions view reads, which is the shell's: a new session starts where it will
   // be listed.
@@ -203,7 +202,7 @@ export function AppDialogs({
           />
         </PanelErrorBoundary>
       {newSession.started ? (
-        <PanelErrorBoundary key={keyOf(newSession.started)} surface="started session" overlay onDismiss={newSession.clearStarted}>
+        <PanelErrorBoundary key={sessionKey(newSession.started)} surface="started session" overlay onDismiss={newSession.clearStarted}>
           <StartedSessionModal
             feed={shellFeed}
             context={sessionModal.context}
@@ -219,7 +218,7 @@ export function AppDialogs({
         </PanelErrorBoundary>
       ) : null}
       {sessionModal.thread ? (
-        <PanelErrorBoundary key={keyOf(sessionModal.thread.session)} surface="session window" overlay onDismiss={sessionModal.onClose}>
+        <PanelErrorBoundary key={sessionKey(sessionModal.thread.session)} surface="session window" overlay onDismiss={sessionModal.onClose}>
           <SessionModal
             context={sessionModal.thread.botId === undefined
               ? sessionModal.context
@@ -228,7 +227,7 @@ export function AppDialogs({
             project={sessionModal.thread.project}
             session={sessionModal.thread.session}
             onClose={sessionModal.onClose}
-            {...(sessionModal.canvasMove.held.has(keyOf(sessionModal.thread.session))
+            {...(sessionModal.canvasMove.held.has(sessionKey(sessionModal.thread.session))
               ? {}
               : { onMoveToCanvas: sessionModal.canvasMove.onMove })}
           />

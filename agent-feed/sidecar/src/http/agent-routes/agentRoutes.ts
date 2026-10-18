@@ -1,4 +1,4 @@
-import { backendPage, parseMessageAttachments, stampSessionModel, type AgentBackend, type AgentMessageDelivery } from "@/agents/agentBackend";
+import { backendPage, parseMessageAttachments, stampSessionModel, type AgentBackend } from "@/agents/agentBackend";
 import { eventsPageAtFromQuery } from "@agentdesk/agent-feed-wire";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
 import { canonicalProjectPath, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
@@ -181,7 +181,7 @@ async function sendMessage(
     if (attachments.length > 0 && source !== "opencode") {
       return errorResponse("unsupported-attachments", `agent source "${source}" takes no image attachments`, 400, requestId);
     }
-    const receipt = await backend.send(sessionId, requestId, text, delivery as AgentMessageDelivery, attachments);
+    const receipt = await backend.send(sessionId, requestId, text, delivery, attachments);
     return jsonResponse(receipt, 202);
   } catch (error) {
     return routeError(error);

@@ -64,7 +64,7 @@ describe("a Bot with nothing missing", () => {
 describe("a reference being drawn as missing", () => {
   it("is announced once, with the surface that drew it", () => {
     renderHook(() => useMissingSessionLog(botWith(REF), "roster-row"));
-    const [line] = drawn(log);
+    const line = drawn(log)[0]!;
     expect(line.event).toBe("agent-panel-bot-session-missing");
     expect(line.surface).toBe("roster-row");
     expect(line.source).toBe("claude");
@@ -95,7 +95,7 @@ describe("a reference being drawn as missing", () => {
     rerender({ bot: botWith(REF, OTHER_REF) });
     const lines = drawn(log);
     expect(lines).toHaveLength(1);
-    expect(lines[0].sessionId).toBe("sid-2");
+    expect(lines[0]!.sessionId).toBe("sid-2");
   });
 
   it("says again when one reference leaves and another arrives in the same snapshot", () => {
@@ -121,7 +121,7 @@ describe("a reference that came back", () => {
     );
     log.mockClear();
     rerender({ bot: botWith() });
-    const [line] = drawn(log);
+    const line = drawn(log)[0]!;
     expect(line.event).toBe("agent-panel-bot-session-drawn");
     expect(line.session).toBe("claude:sid-1");
   });

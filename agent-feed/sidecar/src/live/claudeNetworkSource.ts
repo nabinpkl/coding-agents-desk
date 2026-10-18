@@ -408,7 +408,7 @@ export function mapAnthropicStreamEvent(payload: unknown): AnthropicStreamEvent 
       return {
         kind: "content_block_delta",
         index: asIndex(obj.index),
-        delta: asObject(obj.delta) as AnthropicDelta,
+        delta: asObject(obj.delta),
       };
     case "content_block_stop":
       return { kind: "content_block_stop", index: asIndex(obj.index) };

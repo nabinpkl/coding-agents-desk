@@ -69,7 +69,7 @@ describe("Agent Panel type rendering", () => {
   });
 
   it("points every @font-face at a file the installed package actually ships", () => {
-    const sources = [...appStyles.matchAll(/src:\s*url\("([^"]+)"\)/g)].map((m) => m[1]);
+    const sources = [...appStyles.matchAll(/src:\s*url\("([^"]+)"\)/g)].map((m) => m[1]!);
     // Four families, each latin and latin-ext, each upright and italic. A census rather than a
     // cap: it moves when the picker gains or loses a family, and it is here so that removing a
     // package without removing its faces has to be noticed.

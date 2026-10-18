@@ -5,7 +5,7 @@
 // exactly once and handing it to the send layer.
 
 import type {
-  FormEvent,
+  InputEvent as ReactInputEvent,
   ClipboardEvent as ReactClipboardEvent,
   CompositionEvent as ReactCompositionEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -129,9 +129,9 @@ export function onBeforeInput(ctx: KeyboardContext, input: InputEvent) {
   }
 }
 
-export function onInput(ctx: KeyboardContext, event: FormEvent<HTMLTextAreaElement>) {
+export function onInput(ctx: KeyboardContext, event: ReactInputEvent<HTMLTextAreaElement>) {
   if (ctx.composing.current) return;
-  const input = event.nativeEvent as InputEvent;
+  const input = event.nativeEvent;
   const text = event.currentTarget.value.replace(/^\u200b/, "");
   resetCapture(ctx);
   if (ctx.handledNativeInput.current) {
@@ -178,6 +178,9 @@ export function onCompositionEnd(ctx: KeyboardContext, event: ReactCompositionEv
 }
 
 export function onKeyDown(ctx: KeyboardContext, event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+  // keyCode 229 is the keydown that opens an IME composition, which Safari sends before it sets
+  // `isComposing`, and no replacement for `keyCode` reports it.
+  // oxlint-disable-next-line typescript/no-deprecated
   if (ctx.composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
   const controls: Partial<Record<string, RemoteKeyCode>> = {
     Escape: "escape", Tab: "tab", ArrowLeft: "left", ArrowRight: "right",
@@ -196,7 +199,7 @@ export function onKeyDown(ctx: KeyboardContext, event: ReactKeyboardEvent<HTMLTe
   if (event.altKey) physical.push("option");
   if (event.shiftKey) physical.push("shift");
   key.modifiers = REMOTE_MODIFIER_ORDER.filter((modifier) => (
-    physical.includes(modifier) || key!.modifiers.includes(modifier)
+    physical.includes(modifier) || key.modifiers.includes(modifier)
   ));
   event.preventDefault();
   event.stopPropagation();

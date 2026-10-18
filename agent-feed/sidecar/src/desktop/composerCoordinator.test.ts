@@ -33,7 +33,7 @@ function snapshot(windows: Partial<DesktopAuditSnapshot["windows"][number]>[] = 
       bounds: { x: 0, y: 0, w: 100, h: 100 },
       ...window,
     })),
-  } as unknown as DesktopAuditSnapshot;
+  };
 }
 
 /** A helper whose every verb is scripted, recording the calls in order. */

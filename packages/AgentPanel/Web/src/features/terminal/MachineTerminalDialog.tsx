@@ -199,7 +199,7 @@ export function MachineTerminalDialog({ machine, onClose }: {
   const config = useSidecarConfig(machine.feed);
   const via: MachineShellBackend | null = config.data?.machineShell ?? null;
   const problem = config.error
-    ? `Could not ask ${machine.label} how to open a shell: ${String((config.error as Error).message ?? config.error)}`
+    ? `Could not ask ${machine.label} how to open a shell: ${String(config.error.message ?? config.error)}`
     : null;
 
   const context = useMemo<AgentTerminalContext | null>(
