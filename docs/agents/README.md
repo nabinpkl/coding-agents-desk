@@ -39,6 +39,6 @@ elsewhere in the tree to `AGENTS.md` "<heading>" names one of these:
 | An argv flattened into a shell string must be quoted per argument | `docs/agents/shell-scripts.md` |
 | A delete names an absolute path, and preferably one this run created | `docs/agents/shell-scripts.md` |
 | Phase-lane implementor-reviewer loop | `docs/agents/workers-mode.md` |
-| Six things `FEATURE-MAP.md` exists to stop you getting wrong (in full) | `FEATURE-MAP.md` |
+| Seven things `FEATURE-MAP.md` exists to stop you getting wrong (in full) | `FEATURE-MAP.md` |
 | The native client, host builds, and the simulator are dormant | root `AGENTS.md`, "Hardware is a checkpoint", with the detail in `docs/dormant-native.md` |
 | Subagents Work Mode | root `AGENTS.md`, "Subagents", with roles and the loop in `docs/agents/workers-mode.md` |

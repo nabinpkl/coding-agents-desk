@@ -124,12 +124,15 @@ When a ledger and `git log` disagree, `git log` wins.
 Sessions run in **Claude** and **opencode**, and a handover runs between those two. Two more
 providers are still wired into the sidecar and still put rows in the session lists, and neither
 is current: **Pi** (dormant since 2026-09-13) and **Codex** (dormant since 2026-10-11). Both on
-the owner's word; "Six things this map exists to stop you getting wrong", below, has what each
+the owner's word; "Seven things this map exists to stop you getting wrong", below, has what each
 still touches. A gap on a Pi or Codex row is not a bug to fix, and neither is a provider to extend.
+A Claude session runs through the Agent SDK runner by default; Claude Code's terminal UI mode is
+dormant, under the same heading.
 
-## Six things this map exists to stop you getting wrong
+## Seven things this map exists to stop you getting wrong
 
-Moved here from `AGENTS.md` on 2026-10-17, unchanged; the root `AGENTS.md` keeps one line for each.
+Moved here from `AGENTS.md` on 2026-10-17; the one on Claude's terminal mode was added 2026-10-18.
+The root `AGENTS.md` keeps one line for each.
 They are easy to infer backwards from the shape of the tree.
 
 - **Swift is not the compile path.** Most files here are Swift and `just check` still compiles a lot
@@ -161,6 +164,18 @@ They are easy to infer backwards from the shape of the tree.
   badge (`SourceBadge.tsx`). Do not extend it, do not suggest extending it (making it a handover
   source was proposed once from the code's own comments), and do not treat a gap on a Codex row as
   a bug to fix.
+- **A Claude session runs through the Agent SDK runner by default; the terminal UI mode is dormant**
+  (recorded 2026-10-18, on the owner's word). The runner is ADR-0143: `claudeMode: "sdk"`,
+  `agent-feed/sidecar/src/claude-sdk/`, and the panel's `useSdkSession`. New Claude work goes there.
+  The other mode, Claude Code's own terminal UI in a tmux pane, is still wired in and may still be
+  running sessions, so it has to keep working, but it is no longer a priority: leave its code
+  alone. Add no features to it, do not refactor it, and do not treat a gap in it as a bug to chase.
+  That covers the mode and the code that drives a session by typing into and reading its pane: the
+  sidecar's `input/` (the tmux composer, the question and `/rewind` pickers read off the screen, the
+  permission-mode footer and its Shift+Tab switch, `claudeCliSession`) and the panel's tmux composer
+  in `features/cli-input/` (`useTmuxComposer`, `tmuxComposerHandle`, `useCliSession`). Not dormant:
+  tmux itself, whose pane holds the SDK runner's process (ADR-0143) and opencode's sessions, and the
+  terminal view that shows those panes.
 - **The sidebar's Bots tab is dormant in favour of Canvas** (recorded 2026-09-15, on the owner's
   word). Canvas is where Bots are read and acted on. The Bots tab (`AgentSidebarMode` `"bots"` in
   `features/sidebar/AgentSidebar.tsx`) is still wired in and still looks current: it sits between

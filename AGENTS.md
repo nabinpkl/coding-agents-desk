@@ -27,8 +27,8 @@ under `docs/agents/`, and is read when its situation comes up:
 | reading Claude Code's own files for a feature | `docs/agents/claude-files.md` |
 | running workers mode, once the user has asked for it | `docs/agents/workers-mode.md` |
 
-Six things `FEATURE-MAP.md` exists to stop you getting wrong, in full under its "Six things this map
-exists to stop you getting wrong":
+Seven things `FEATURE-MAP.md` exists to stop you getting wrong, in full under its "Seven things this
+map exists to stop you getting wrong":
 
 - **Swift is not the compile path.** The working loop is TypeScript: the Vite-served panel in
   `packages/AgentPanel/Web/` and the supervised sidecar in `agent-feed/sidecar/src/`, with
@@ -40,6 +40,10 @@ exists to stop you getting wrong":
   it or fix its gaps. The Pi SDK still runs the turn summarizer, so that dependency stays.
 - **Codex is dormant as a session provider** (2026-10-11), though it is still wired in. Do not
   extend it, suggest extending it, or fix its gaps. Sessions run in Claude and opencode.
+- **A Claude session runs through the Agent SDK runner by default; the terminal UI mode is dormant**
+  (2026-10-18). Claude Code's own TUI in a tmux pane, and the code that drives a session by typing
+  into and reading that pane, may still be running sessions: keep it working, but add no features
+  to it and leave its code alone. tmux itself is not dormant: it holds the SDK runner and opencode.
 - **The sidebar's Bots tab is dormant in favour of Canvas** (2026-09-15). `BotSidebarPanel` is not:
   it is the Canvas roster too.
 - **Canvas session cards are the current iteration; the Sessions tab and its full-width thread
