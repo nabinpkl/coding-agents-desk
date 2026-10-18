@@ -32,19 +32,27 @@ export function MermaidBlock({ code }: { code: string }) {
   );
 }
 
+/**
+ * Draws one diagram, loading mermaid on the first one opened.
+ *
+ * Out here rather than inline in the query: React Compiler cannot compile a component holding an
+ * `import()`, and skips it.
+ */
+async function renderMermaid(id: string, code: string): Promise<string> {
+  const mermaid = (await import("mermaid")).default;
+  // securityLevel "strict" sanitizes label HTML and disables click
+  // handlers — diagram source comes from agent transcripts, treat as
+  // untrusted.
+  mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark" });
+  const { svg } = await mermaid.render(`agent-panel-mmd-${id}`, code);
+  return svg;
+}
+
 function MermaidRender({ code }: { code: string }) {
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const drawn = usePanelQuery({
     queryKey: ["mermaid", reactId, code],
-    queryFn: async () => {
-      const mermaid = (await import("mermaid")).default;
-      // securityLevel "strict" sanitizes label HTML and disables click
-      // handlers — diagram source comes from agent transcripts, treat as
-      // untrusted.
-      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark" });
-      const { svg } = await mermaid.render(`agent-panel-mmd-${reactId}`, code);
-      return svg;
-    },
+    queryFn: () => renderMermaid(reactId, code),
     staleTime: Infinity,
   });
 

@@ -52,8 +52,6 @@ export function useOverlayPlacement(
       if (scroll) globalThis.removeEventListener?.("scroll", onScroll, true);
       globalThis.removeEventListener?.("resize", onResize);
     };
-    // `deps` are the caller's by contract; the rule cannot see through the wrapper.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, scroll, ...deps]);
 }
 

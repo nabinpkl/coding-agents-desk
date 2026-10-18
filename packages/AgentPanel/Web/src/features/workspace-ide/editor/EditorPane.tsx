@@ -135,7 +135,7 @@ export function EditorPane({
             <span className="flex-1">This file changed on disk.</span>
             <button
               type="button"
-              onClick={() => ide.useHostVersion(activePath)}
+              onClick={() => ide.takeHostVersion(activePath)}
               className="rounded-md border border-current px-2 py-1 outline-none
                 focus-visible:ring-2 focus-visible:ring-primary"
             >

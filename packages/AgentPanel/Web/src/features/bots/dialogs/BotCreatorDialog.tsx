@@ -137,7 +137,8 @@ export function BotCreatorDialog({
     try {
       const text = await file.text();
       if (text.length > MAXIMUM_FIRST_TURN) {
-        throw new Error(`${file.name} is longer than ${MAXIMUM_FIRST_TURN} characters`);
+        setError(`${file.name} is longer than ${MAXIMUM_FIRST_TURN} characters`);
+        return;
       }
       setFirstTurn(text);
       setError(null);

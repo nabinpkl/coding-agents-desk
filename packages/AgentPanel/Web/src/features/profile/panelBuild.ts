@@ -172,6 +172,10 @@ function askServer(
     .then((report: PanelBuildReport) => readReport(report));
 }
 
+// Read here, once, rather than as the default below: React Compiler cannot reorder a default that
+// reads `import.meta`, and skips the hook. Each module's `import.meta.hot` is its own.
+const DEV_SERVER: unknown = import.meta.hot;
+
 /**
  * The build this tab is running, kept current for as long as the page can hear the dev server.
  *
@@ -183,7 +187,7 @@ function askServer(
  * under Vitest and cannot be stood up there, and the disconnected branch is the whole reason this
  * exists, so it is the one that most needs a test.
  */
-export function usePanelBuild(devServer: unknown = import.meta.hot): PanelBuild {
+export function usePanelBuild(devServer: unknown = DEV_SERVER): PanelBuild {
   const [build, setBuild] = useState<PanelBuildState>(NOT_SERVED);
   // Derived rather than stored: it is a fact about this page's own wiring, known before the first
   // fetch, and a state that starts false would flicker the control off on every mount.

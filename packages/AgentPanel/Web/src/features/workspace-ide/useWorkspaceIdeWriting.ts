@@ -52,7 +52,7 @@ interface Options {
 export interface WorkspaceIdeWriting {
   edit(path: string, text: string): void;
   closePath(path: string): void;
-  useHostVersion(path: string): void;
+  takeHostVersion(path: string): void;
   keepMyVersion(path: string): void;
 }
 
@@ -238,7 +238,7 @@ export function useWorkspaceIdeWriting({
     scheduleSave(path);
   }, [keepDraft, openFilesRef, scheduleSave, setOpenFiles]);
 
-  const useHostVersion = useCallback((path: string) => {
+  const takeHostVersion = useCallback((path: string) => {
     cancelTimer(path);
     pendingCloseRef.current.delete(path);
     // Dropped before the read, not after: the reader asked for the file on disk, and a draft left
@@ -311,7 +311,7 @@ export function useWorkspaceIdeWriting({
   return {
     edit,
     closePath,
-    useHostVersion,
+    takeHostVersion,
     keepMyVersion: useCallback((path: string) => void keepMyVersion(path), [keepMyVersion]),
   };
 }

@@ -237,7 +237,6 @@ export function AgentTerminalPane(
     setHeight(Math.min(selfCeiling(), Math.max(MINIMUM_TERMINAL_HEIGHT, contentHeight + chrome)));
     // `ceiling` reads the basis this render measured; re-running it on every render would fight
     // the drag rather than follow the grid.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [band, contentHeight]);
 
   /**
@@ -262,7 +261,6 @@ export function AgentTerminalPane(
     if (!echo || sized.current) return;
     setHeight(Math.min(selfCeiling(), echoHeight(basis)));
     // `selfCeiling` reads the layout this render measured; the basis is what moves it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [echo, basis]);
 
   /**

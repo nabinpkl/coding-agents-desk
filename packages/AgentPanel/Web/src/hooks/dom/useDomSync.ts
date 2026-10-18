@@ -13,7 +13,5 @@
 import { useLayoutEffect, type DependencyList } from "react";
 
 export function useDomSync(work: () => void | (() => void), deps?: DependencyList): void {
-  // The caller's deps are this hook's deps by contract; the rule cannot see through the wrapper.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(work, deps);
 }

@@ -25,6 +25,10 @@ import { useDismissOnOutsidePress } from "@/hooks/dom/overlays";
 import { useDomSync } from "@/hooks/dom/useDomSync";
 import { useNow } from "@/hooks/useNow";
 
+// Read here, once, rather than as the default below: React Compiler cannot reorder a default that
+// reads `import.meta`, and skips the component. Each module's `import.meta.hot` is its own.
+const DEV_SERVER: unknown = import.meta.hot;
+
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
  *
@@ -43,7 +47,7 @@ export function ProfileRow({
   // The seam `panelBuild.ts` and the error boundary already use: `import.meta.hot` cannot be stood
   // up under Vitest, and the live-updates control exists only when there is a dev server behind
   // this page, so it is the half that most needs a test.
-  devServer = import.meta.hot,
+  devServer = DEV_SERVER,
 }: {
   usage: UsageHandle;
   park: DesktopParkHandle;

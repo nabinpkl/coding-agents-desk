@@ -108,7 +108,8 @@ export function ForkSessionDialog({
     try {
       const text = await file.text();
       if (text.length > MAXIMUM_BRIEF) {
-        throw new Error(`${file.name} is longer than ${MAXIMUM_BRIEF} characters`);
+        setError(`${file.name} is longer than ${MAXIMUM_BRIEF} characters`);
+        return;
       }
       setBrief(text);
       setError(null);

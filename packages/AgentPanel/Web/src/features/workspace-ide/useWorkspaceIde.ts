@@ -101,7 +101,7 @@ export interface WorkspaceIde extends WorkspaceIdeState {
   setDirectoryExpanded(path: string, expanded: boolean): void;
   edit(path: string, text: string): void;
   togglePreview(path: string): void;
-  useHostVersion(path: string): void;
+  takeHostVersion(path: string): void;
   keepMyVersion(path: string): void;
   update(change: Partial<WorkspaceIdePreferences>): void;
   /**
@@ -455,7 +455,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     ),
     edit,
     togglePreview,
-    useHostVersion: writing.useHostVersion,
+    takeHostVersion: writing.takeHostVersion,
     keepMyVersion: writing.keepMyVersion,
     update,
     dismissError: useCallback(() => {

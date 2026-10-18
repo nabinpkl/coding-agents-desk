@@ -76,7 +76,7 @@ export function useRememberedCanvasScroll(
     if (!el) return;
     // Read once and held, because this effect runs again on every render until it lands, and what
     // it is looking for cannot change underneath it -- nothing writes the offset until it has.
-    wanted.current ??= loadCanvasScroll();
+    if (wanted.current === null) wanted.current = loadCanvasScroll();
     const { left, top } = wanted.current;
     // Nothing to put back AND nowhere else to put it, so the canvas is already where it belongs
     // and every scroll from here is the reader's. Marked restored rather than left pending, or the

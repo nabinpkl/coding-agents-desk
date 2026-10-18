@@ -111,8 +111,7 @@ export function SessionLane({
       }
       : null),
     // The fields it reads, not the record, which is a new object on every run update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contestant.sessionId, contestant.tmuxSession, contestant.worktreePath, contestant.source, contestant.contestantId, contestant.startedAt],
+    [contestant.sessionId, contestant.tmuxSession, contestant.worktreePath, contestant.source, contestant.startedAt, label],
   );
   const shown = listed ?? awaited;
 

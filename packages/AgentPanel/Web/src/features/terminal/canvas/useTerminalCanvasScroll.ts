@@ -107,7 +107,7 @@ export function useTerminalCanvasScroll(
     if (restored.current || !zoom.ready) return;
     const el = scrollerRef.current;
     if (!el) return;
-    wanted.current ??= loadStripScroll();
+    if (wanted.current === null) wanted.current = loadStripScroll();
     const { left, top } = wanted.current;
     if (left === 0 && top === 0 && zoom.pad.left === 0 && zoom.pad.top === 0) {
       restored.current = true;

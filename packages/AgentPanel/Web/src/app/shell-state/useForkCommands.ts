@@ -178,13 +178,21 @@ export function useForkCommands(
       setForkRequest(null);
       setBotCommandError(null);
       const sourceTitle = request.session.title || request.session.sessionId;
+      // Answered here rather than thrown into the `catch` below, which React Compiler cannot lower.
+      if (!request.from) {
+        setBotCommandError({
+          session: null,
+          message: "Could not fork the session: a fork of a whole session must name the Bot to attach it to",
+        });
+        return;
+      }
+      const from = request.from;
       try {
-        if (!request.from) throw new Error("a fork of a whole session must name the Bot to attach it to");
         const started = await feeds.forSession(request.session).forkSession(request.session.sessionId, {
           title: forkTitle,
           ...(brief.trim() ? { prompt: brief } : {}),
           ...(worktree ? { worktree: {} } : {}),
-          from: { eventId: request.from.eventId },
+          from: { eventId: from.eventId },
         });
         setForkedSession({
           sessionId: started.sessionId,
