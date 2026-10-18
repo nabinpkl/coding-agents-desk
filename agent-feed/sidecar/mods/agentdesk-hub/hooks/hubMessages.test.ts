@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 // A mod imports its own files by relative path, and this test sits beside the module it covers.
-import { DeliveryQueue, LineBuffer, framePrompt, parseReaderLine } from "./hubMessages.js";
+import { DeliveryQueue, LineBuffer, framePrompt, parseReaderLine, promptCarriesMessage } from "./hubMessages.js";
 
 const message = (over: Record<string, unknown> = {}) => ({
   id: "m1",
@@ -105,5 +105,33 @@ describe("DeliveryQueue", () => {
     queue.arrive(delivery("m2", "s3"));
     queue.enteredHead();
     expect(queue.arrive(delivery("m2", "s4"))).toBe("confirm");
+  });
+});
+
+describe("promptCarriesMessage", () => {
+  const framed = (id: string) => `The agentdesk-hub plugin sent a message:\n${framePrompt({ message: message({ id }), fromName: "Fixer" }).text}`;
+
+  test("finds a prompt this mod built for the message, in either format, among the user's messages", () => {
+    expect(promptCarriesMessage([{ role: "assistant", text: "hi" }, { role: "user", text: framed("m-7") }], "m-7")).toBe(true);
+    // The format before the <hub-message> tag, as a prompt that went in during a reload carried it.
+    const old = "A message from another agent session, delivered through the agent hub.\nKind: reply, hop 2, thread t, message_id m-7\n\nwillow";
+    expect(promptCarriesMessage([{ role: "user", text: old }], "m-7")).toBe(true);
+  });
+
+  test("not another message's prompt, a prefix of the id, an assistant quoting it, or text outside the hub", () => {
+    expect(promptCarriesMessage([{ role: "user", text: framed("m-77") }], "m-7")).toBe(false);
+    expect(promptCarriesMessage([{ role: "assistant", text: framed("m-7") }], "m-7")).toBe(false);
+    expect(promptCarriesMessage([{ role: "user", text: 'please look at message_id="m-7"' }], "m-7")).toBe(false);
+    expect(promptCarriesMessage(undefined, "m-7")).toBe(false);
+  });
+});
+
+describe("DeliveryQueue.holds", () => {
+  test("says whether a message is still waiting, the head included", () => {
+    const queue = new DeliveryQueue();
+    queue.arrive({ type: "message", streamId: "s1", fromName: "F", message: message({ id: "m1" }) });
+    expect(queue.holds("m1")).toBe(true);
+    queue.enteredHead();
+    expect(queue.holds("m1")).toBe(false);
   });
 });

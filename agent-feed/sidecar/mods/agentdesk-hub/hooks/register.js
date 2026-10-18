@@ -7,9 +7,11 @@
 // guard, a stopped session) stays queued here, unconfirmed, and is tried again when the person next
 // types; the hub requeues anything unconfirmed if the stream drops. Load it beside prompt-guard,
 // which bounds how many turns these prompts can start.
-import { LineBuffer, parseReaderLine, framePrompt, DeliveryQueue } from './hubMessages.js'
+import { LineBuffer, parseReaderLine, framePrompt, DeliveryQueue, promptCarriesMessage } from './hubMessages.js'
 
 const ENTERED_KEY = 'entered'
+/** Messages submitted whose prompt has not yet been seen to enter: the reload gap (`arrivedAgain`). */
+const SENT_KEY = 'sent'
 /** Longer than a message lives in the hub (seven days), so a late redelivery is still recognised. */
 const ENTERED_TTL_MS = 8 * 24 * 60 * 60 * 1000
 const RESTART_MS = [1000, 2000, 5000, 10000, 30000]
@@ -27,21 +29,31 @@ function sidecarScript($, name) {
   return $.plugin.root + '/../../src/' + name
 }
 
-async function loadEntered($, sid) {
-  const all = (await $.store.get(ENTERED_KEY)) ?? {}
+async function loadIds($, key, sid) {
+  const all = (await $.store.get(key)) ?? {}
   const mine = all[sid] && typeof all[sid] === 'object' ? all[sid] : {}
   return new Set(Object.keys(mine))
 }
 
-async function markEntered($, sid, messageId) {
+/** Adds or removes one message id for `sid` under `key`, dropping ids older than a message lives. */
+async function setId($, key, sid, messageId, present) {
   const now = Date.now()
-  const all = (await $.store.get(ENTERED_KEY)) ?? {}
+  const all = (await $.store.get(key)) ?? {}
   for (const [s, ids] of Object.entries(all)) {
     for (const [id, at] of Object.entries(ids ?? {})) if (now - at > ENTERED_TTL_MS) delete ids[id]
     if (Object.keys(ids ?? {}).length === 0) delete all[s]
   }
-  all[sid] = { ...(all[sid] ?? {}), [messageId]: now }
-  await $.store.set(ENTERED_KEY, all)
+  const mine = { ...(all[sid] ?? {}) }
+  if (present) mine[messageId] = now
+  else delete mine[messageId]
+  if (Object.keys(mine).length > 0) all[sid] = mine
+  else delete all[sid]
+  await $.store.set(key, all)
+}
+
+async function markEntered($, sid, messageId) {
+  await setId($, ENTERED_KEY, sid, messageId, true)
+  await setId($, SENT_KEY, sid, messageId, false)
 }
 
 async function confirm($, messageId, streamId) {
@@ -59,15 +71,23 @@ async function pump($) {
       const head = run.queue.head()
       if (!head || run !== current) return
       const { text, asUser } = framePrompt(head)
+      // Recorded before the submit, because a reload of this mod can land while the prompt goes
+      // in, and then nothing after the submit runs.
+      await setId($, SENT_KEY, run.sid, head.message.id, true)
+      run.sent.add(head.message.id)
       let result
       try {
         result = await $.prompt.submit(asUser ? { text, asUser: true } : { text })
       } catch (err) {
         $.ui.log(`could not submit the message from ${head.fromName}: ${String(err)}`)
+        await setId($, SENT_KEY, run.sid, head.message.id, false)
+        run.sent.delete(head.message.id)
         return
       }
       if (result && result.drop !== undefined) {
         $.ui.log(`holding a message from ${head.fromName} until you next type: ${result.drop}`)
+        await setId($, SENT_KEY, run.sid, head.message.id, false)
+        run.sent.delete(head.message.id)
         return
       }
       const messageId = head.message.id
@@ -78,6 +98,28 @@ async function pump($) {
   } finally {
     pumping = false
   }
+}
+
+/**
+ * A message this mod submitted but never saw enter, pushed again by the hub. That is the reload
+ * gap: the previous copy of the mod was replaced as its prompt went in, so it neither confirmed it
+ * nor recorded it. The session's own messages say whether it arrived; if so it is only confirmed,
+ * and if not it is submitted as if new. Returns whether it was handled here.
+ */
+async function arrivedAgain($, run, delivery) {
+  const id = delivery.message.id
+  // Still waiting in this copy's own queue (its prompt may be on its way in now): not the gap.
+  if (!run.sent.has(id) || run.queue.entered.has(id) || run.queue.holds(id)) return false
+  run.sent.delete(id)
+  if (!promptCarriesMessage(await $.session.messages(), id)) {
+    await setId($, SENT_KEY, run.sid, id, false)
+    return false
+  }
+  run.queue.entered.add(id)
+  await markEntered($, run.sid, id)
+  $.ui.log(`a message from ${delivery.fromName} had already gone in; confirming it rather than sending it twice`, { to: 'debug' })
+  await confirm($, id, delivery.streamId)
+  return true
 }
 
 const AFTER_HOOK_MS = 250
@@ -101,7 +143,8 @@ async function afterPrompt($, personTyped) {
 /** Runs the reader for `run.sid` until it is replaced, starting it again when it stops on its own. */
 async function runReader($, run) {
   const sid = run.sid
-  run.queue = new DeliveryQueue(await loadEntered($, sid))
+  run.sent = await loadIds($, SENT_KEY, sid)
+  run.queue = new DeliveryQueue(await loadIds($, ENTERED_KEY, sid))
   const cwd = await $.session.cwd()
   let failures = 0
   while (!run.stopped) {
@@ -117,6 +160,7 @@ async function runReader($, run) {
         for (const line of buffer.push(text)) {
           const parsed = parseReaderLine(line)
           if (!parsed || parsed.type !== 'message') continue
+          if (await arrivedAgain($, run, parsed)) continue
           if (run.queue.arrive(parsed) === 'confirm') await confirm($, parsed.message.id, parsed.streamId)
           else void pump($)
         }
@@ -139,7 +183,7 @@ async function followSession($) {
   const previous = current
   // Claimed before anything is awaited, so a session.start and a prompt arriving together start one
   // reader rather than two.
-  const run = { sid, queue: null, stopped: false, child: null }
+  const run = { sid, queue: null, sent: new Set(), stopped: false, child: null }
   current = run
   if (previous) {
     previous.stopped = true

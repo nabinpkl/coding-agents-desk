@@ -100,6 +100,19 @@ export function framePrompt({ message, fromName }) {
 }
 
 /**
+ * Whether a prompt carrying this message already went into the session, read from the session's own
+ * messages. The mod can be reloaded (an edit, which lands as the running turn ends) at the moment a
+ * prompt it submitted goes in: the old copy never confirms it, the hub pushes it again, and only the
+ * transcript can say it already arrived. Every prompt this mod builds names the message id; the
+ * second spelling is the one prompts carried before the <hub-message> tag.
+ */
+export function promptCarriesMessage(messages, messageId) {
+  const escaped = String(messageId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const names = new RegExp(`message_id(="${escaped}"| ${escaped}\\b)`)
+  return Array.isArray(messages) && messages.some((m) => m && m.role === 'user' && typeof m.text === 'string' && m.text.includes('agent hub') && names.test(m.text))
+}
+
+/**
  * Messages the reader handed over, in the order they came, each with the newest stream it came on:
  * the hub refuses a confirmation that names a stream the message is no longer waiting on.
  * `entered` names the messages whose prompt already went in; one of those arriving again (its
@@ -125,6 +138,11 @@ export class DeliveryQueue {
 
   head() {
     return this.waiting[0]
+  }
+
+  /** Whether this message is still waiting here, including the one whose prompt is on its way in. */
+  holds(messageId) {
+    return this.waiting.some((d) => d.message.id === messageId)
   }
 
   /** The head's prompt went in: it leaves the queue, and the stream to confirm it on is returned. */
