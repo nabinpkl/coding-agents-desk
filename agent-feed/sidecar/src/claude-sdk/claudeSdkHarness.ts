@@ -63,6 +63,11 @@ export class FakeQuery implements RunnerQuery {
 
   readonly flagSettings: Record<string, unknown>[] = [];
 
+  /** On the SDK's `Query` though not in its typed interface (0.3.302), as the runner calls it. */
+  async getSettings() {
+    return { effective: { env: { SECRET: "x" } }, sources: [], applied: { model: "claude-opus-5-5", effort: "high" } };
+  }
+
   async applyFlagSettings(settings: Record<string, unknown>): Promise<void> {
     this.flagSettings.push(settings);
   }

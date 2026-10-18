@@ -102,19 +102,18 @@ describe("before the first turn", () => {
     expect(new SdkSession(SESSION, true, {}, "sideways").state().permissionMode).toBeNull();
   });
 
-  test("a session launched on no model shows the list's Default row, until init names the model", () => {
+  test("model and effort are what the CLI says it would send, under anything chosen or said since", () => {
     const session = new SdkSession(SESSION, true);
-    expect(session.state().model).toBeNull();
-    session.setModels(sdkModels([
-      { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)" },
-      { value: "haiku", resolvedModel: "claude-haiku-4-5", displayName: "Haiku" },
-    ]));
-    expect(session.state().model).toBe("default");
-    session.fold(message({ type: "system", subtype: "init", permissionMode: "auto", model: "claude-opus-5-5" }));
-    expect(session.state().model).toBe("claude-opus-5-5");
+    expect(session.state()).toMatchObject({ model: null, effort: null });
+    // Measured 2026-10-18: `getSettings()` with no turn run answers `applied` beside the settings files.
+    session.setApplied({ effective: { env: {} }, sources: [], applied: { model: "claude-opus-5-5", effort: "high", ultracode: false } });
+    expect(session.state()).toMatchObject({ model: "claude-opus-5-5", effort: "high" });
+    session.fold(called("applyFlagSettings", { effortLevel: "low" }));
+    session.fold(message({ type: "system", subtype: "init", permissionMode: "auto", model: "claude-haiku-4-5" }));
+    expect(session.state()).toMatchObject({ model: "claude-haiku-4-5", effort: "low" });
     const chosen = new SdkSession(SESSION, true, { model: "haiku" });
-    chosen.setModels(sdkModels([{ value: "default", displayName: "Default" }]));
-    expect(chosen.state().model).toBe("haiku");
+    chosen.setApplied({ applied: { model: "claude-opus-5-5", effort: "ultra" } });
+    expect(chosen.state()).toMatchObject({ model: "haiku", effort: null });
   });
 });
 

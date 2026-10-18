@@ -196,6 +196,8 @@ export class SdkSession {
   private model: string | null = null;
   private models: ClaudeSdkModel[] = [];
   private effort: ClaudeEffortLevel | null = null;
+  /** What `getSettings()` says the CLI would send its next request with; below anything said since. */
+  private applied: { model?: string; effort?: ClaudeEffortLevel } = {};
   private backgroundTasks = 0;
   /** The callbacks the runner holds, by its id for each, as the panel shows them. */
   private readonly pending = new Map<string, ClaudeSdkPendingRequest>();
@@ -239,11 +241,23 @@ export class SdkSession {
       pending: [...this.pending.values()],
       backgroundTasks: this.backgroundTasks,
       claudeCodeVersion: this.claudeCodeVersion,
-      // Launched without a model is launched on the CLI's default, which the list names as its own
-      // row: shown as that until init names the model it resolved to.
-      model: this.model ?? (this.models.some((entry) => entry.value === "default") ? "default" : null),
+      // Before init names them, and with nothing chosen, the CLI's own word on what it would send.
+      model: this.model ?? this.applied.model ?? null,
       models: this.models,
-      effort: this.effort,
+      effort: this.effort ?? this.applied.effort ?? null,
+    };
+  }
+
+  /**
+   * The model and effort the CLI would send its next request with, from `getSettings()`. Only
+   * `applied` is read: the rest of that reply is the merged settings files, which this has no use
+   * for and keeps nothing of.
+   */
+  setApplied(value: unknown): void {
+    const applied = (value as Fields | null)?.applied as Fields | undefined;
+    this.applied = {
+      ...(isModelName(applied?.model) ? { model: applied.model } : {}),
+      ...(isEffortLevel(applied?.effort) ? { effort: applied.effort } : {}),
     };
   }
 

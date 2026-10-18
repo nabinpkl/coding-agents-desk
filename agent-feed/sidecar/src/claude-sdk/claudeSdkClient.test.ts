@@ -171,11 +171,12 @@ describe("the choices a runner was launched with", () => {
 });
 
 describe("the effort a session runs at", () => {
-  test("is the one its transcript records until a level is chosen, which then wins", async () => {
+  test("is the CLI's own word before any turn, until a level is chosen, which then wins", async () => {
     const session = await runnerFor();
-    const client = new ClaudeSdkClient(work, quiet, null, null, () => BUILD, () => "high");
-    const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
-    expect(followed.state.effort).toBe("high");
+    const client = new ClaudeSdkClient(work, quiet);
+    const followed = await stateWhere(client, session.sessionId, (state) => state.effort !== null);
+    // What `getSettings().applied` said, with no turn run: the fake answers as the CLI did when measured.
+    expect(followed.state).toMatchObject({ effort: "high", model: "claude-opus-5-5" });
     expect(await client.command(session.sessionId, { type: "set-effort", effort: "max" })).toEqual({ ok: true });
     for (let tries = 0; (await client.state(session.sessionId)).effort !== "max" && tries < 50; tries += 1) await Bun.sleep(10);
     expect((await client.state(session.sessionId)).effort).toBe("max");

@@ -18,7 +18,6 @@ import { lstat } from "node:fs/promises";
 import type { Socket } from "bun";
 import {
   DISCONNECTED_CLAUDE_SDK_STATE,
-  type ClaudeEffortLevel,
   type ClaudeSdkSessionState,
 } from "@agentdesk/agent-feed-wire";
 import {
@@ -26,7 +25,6 @@ import {
   LineReader,
   parseRunnerMessage,
   PROTOCOL_VERSION,
-  isEffortLevel,
   runnerBuild,
   runnerSocketPath,
   type RunnerChoices,
@@ -35,7 +33,6 @@ import {
 } from "@/claude-sdk/claudeSdkProtocol";
 import { sdkModels, SdkSession, type SessionCommand, type SessionReply } from "@/claude-sdk/claudeSdkSession";
 import { config } from "@/config/config";
-import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import { privateSocketDirectory } from "@/claude-sdk/claudeSdkRunnerServer";
 import type { ClaudeSdkLiveFeed } from "@/claude-sdk/claudeSdkLiveFeed";
 
@@ -64,12 +61,6 @@ interface Connection {
 }
 
 let shared: ClaudeSdkClient | null = null;
-
-/** The effort on the session's newest main-thread reply, as the catalog read it from the transcript. */
-function transcriptEffort(sessionId: string): ClaudeEffortLevel | null {
-  const effort = findSession("claude", sessionId)?.lastSelection?.effort;
-  return isEffortLevel(effort) ? effort : null;
-}
 
 /**
  * The process's one client, which everything that talks to runners shares: the routes, and the
@@ -102,8 +93,6 @@ export class ClaudeSdkClient {
     private readonly onStale: StaleRunner | null = null,
     /** What a runner started now would report; read from disk on each introduction by default. */
     private readonly currentBuild: () => string = runnerBuild,
-    /** The effort the session's own transcript last recorded, for when nothing else has said. */
-    private readonly recordedEffort: (sessionId: string) => ClaudeEffortLevel | null = transcriptEffort,
   ) {}
 
   /**
@@ -353,10 +342,10 @@ export class ClaudeSdkClient {
         this.update(connection);
         return;
       case "replayed":
-        connection.state = this.stateOf(connection.sessionId, session);
+        connection.state = { ...session.state(), connected: true };
         greeted(true);
         this.publish(connection);
-        void this.loadModels(connection, session);
+        void this.loadFacts(connection, session);
         return;
       case "reply": {
         const waiting = connection.replies.get(message.id);
@@ -380,34 +369,28 @@ export class ClaudeSdkClient {
    */
   private update(connection: Connection): void {
     if (!connection.state.connected || !connection.session) return;
-    const next = this.stateOf(connection.sessionId, connection.session);
+    const next: ClaudeSdkSessionState = { ...connection.session.state(), connected: true };
     if (JSON.stringify(next) === JSON.stringify(connection.state)) return;
     connection.state = next;
     this.publish(connection);
   }
 
   /**
-   * The session's state as the panel is sent it. Its effort, when no choice set it and the CLI did
-   * not say (it names its effort on init only on Remote Control hosts, and on no SDK message), is
-   * the one its transcript records on every reply: the level the session actually ran at.
+   * What the CLI says about itself before any turn, asked once per connection: the models it offers,
+   * and the model and effort it would send its next request with (`getSettings().applied`). The CLI
+   * names those on `system/init` only once a turn starts, and its effort never under the SDK. A
+   * failure leaves that part unknown, which the panel shows as nothing rather than as an error.
    */
-  private stateOf(sessionId: string, session: SdkSession): ClaudeSdkSessionState {
-    const state = session.state();
-    return { ...state, effort: state.effort ?? this.recordedEffort(sessionId), connected: true };
-  }
-
-  /**
-   * The models this `claude` offers, asked once per connection. A failure leaves the list empty,
-   * which the panel reads as nothing to switch to rather than as an error to show.
-   */
-  private async loadModels(connection: Connection, session: SdkSession): Promise<void> {
-    const reply = await this.send(connection, { type: "call", method: "supportedModels", args: [] });
-    if (!reply.ok) {
-      this.log(`${connection.sessionId}: could not list the models: ${reply.message}`);
-      return;
-    }
+  private async loadFacts(connection: Connection, session: SdkSession): Promise<void> {
+    const [models, settings] = await Promise.all([
+      this.send(connection, { type: "call", method: "supportedModels", args: [] }),
+      this.send(connection, { type: "call", method: "getSettings", args: [] }),
+    ]);
     if (connection.session !== session) return;
-    session.setModels(sdkModels(reply.value));
+    if (models.ok) session.setModels(sdkModels(models.value));
+    else this.log(`${connection.sessionId}: could not list the models: ${models.message}`);
+    if (settings.ok) session.setApplied(settings.value);
+    else this.log(`${connection.sessionId}: could not read the applied model and effort: ${settings.message}`);
     this.update(connection);
   }
 
