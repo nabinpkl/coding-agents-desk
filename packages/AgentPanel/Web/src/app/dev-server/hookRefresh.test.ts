@@ -8,6 +8,9 @@
  * The unmarked case is checked beside it, so a Vite that starts signing `.ts` hooks by itself says
  * so too, and this plugin can be deleted.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createServer, type Plugin } from "vite";
@@ -24,9 +27,14 @@ const SIGNED = /_s\(use[A-Za-z]+,/;
 const REAL_SIGNATURE = /function \$RefreshSig\$\(\) \{ return \w+\.createSignatureFunctionForTransform\(\); \}/;
 
 async function served(plugins: Plugin[], module: string): Promise<string> {
+  // Its own dependency cache, removed after. The default is the panel's `node_modules/.vite`, the
+  // live dev server's, and the compiler asks this server to pre-bundle its runtime there: every run
+  // deleted the live server's bundles, and each import it loads on demand then answered 504.
+  const cacheDir = mkdtempSync(join(tmpdir(), "hook-refresh-vite-"));
   const server = await createServer({
     configFile: false,
     root: ROOT,
+    cacheDir,
     logLevel: "silent",
     appType: "custom",
     // The module under test imports through the panel's alias, and import analysis resolves it.
@@ -41,6 +49,7 @@ async function served(plugins: Plugin[], module: string): Promise<string> {
     return result.code;
   } finally {
     await server.close();
+    rmSync(cacheDir, { recursive: true, force: true });
   }
 }
 
