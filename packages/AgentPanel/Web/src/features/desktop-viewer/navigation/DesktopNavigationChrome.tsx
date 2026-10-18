@@ -1,8 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { PanelsTopLeft } from "lucide-react";
 import type { DesktopDisplay } from "@agentdesk/agent-feed-wire";
 import { navigationGeometry, NAVIGATION_TUNING, type NavigationModel } from "@/features/desktop-viewer/navigation/desktopNavigationModel";
 import { useMacSwipeDirection } from "@/features/desktop-viewer/navigation/macSwipeDirection";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
+import { useNotify } from "@/hooks/useNotify";
 
 const buttonStyle = "touch-none rounded-md text-white enabled:hover:bg-white/15 enabled:active:bg-white/25 focus-visible:outline-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:text-white/35";
 function preference(key: string, fallback: boolean): { value: boolean; failed: boolean } {
@@ -59,19 +62,14 @@ export function DesktopNavigationChrome({
   const duration = model.motion.kind === "dragging" ? 0
     : model.motion.kind === "pending" ? model.motion.durationMs : 200;
 
-  useLayoutEffect(() => {
-    const measure = () => {
-      setWidth(row.current?.clientWidth ?? 1);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    if (row.current) observer.observe(row.current);
-    return () => observer.disconnect();
-  }, [expanded, hidden, displays.length, spaces.length]);
+  const measure = () => setWidth(row.current?.clientWidth ?? 1);
+  useDomSync(measure, [expanded, hidden, displays.length, spaces.length]);
+  useResizeObserver(row, measure);
 
-  useEffect(() => {
-    if (hidden || disabled) { pointer.current = null; activePointers.current.clear(); onCancel(); }
-  }, [hidden, disabled, onCancel]);
+  // Going away, or out of reach, ends whatever the fingers were doing.
+  useNotify(hidden || disabled, (off) => {
+    if (off) { pointer.current = null; activePointers.current.clear(); onCancel(); }
+  });
 
   const remember = (key: string, value: boolean) => {
     try { localStorage.setItem(key, String(value)); }

@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { desktopNavigationEvent, type DesktopControlEvent, type DesktopControlInput } from "@agentdesk/agent-feed-wire";
 import type { DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import { initialNavigationModel, navigationReducer, navigationStep, NAVIGATION_TUNING,
   selectedNavigationDisplay, type NavigationAction } from "@/features/desktop-viewer/navigation/desktopNavigationModel";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useSubscription } from "@/hooks/useSubscription";
+import { sourceKey } from "@/query/panelQuery";
 
 export type NavigationReport = (phase: string, detail: Record<string, unknown>) => void;
 export function useDesktopNavigation({
@@ -96,7 +99,9 @@ export function useDesktopNavigation({
     }
   }, [cancel, clearFrame, update]);
 
-  useEffect(() => {
+  // One session with the far desktop per transport and display: reset, ask for its state, and on
+  // leaving cancel a swipe still in the hand.
+  useSubscription(`${transport ? sourceKey(transport) : "none"}:${displayId}`, () => {
     clearFrame();
     update({ type: "reset" });
     if (transport) transport.send({ type: "desktop-refresh" });
@@ -110,19 +115,13 @@ export function useDesktopNavigation({
           phase: "cancelled", progress: 0, velocityX: 0 });
       }
     };
-  }, [transport, displayId, update, clearFrame]);
+  });
 
-  useEffect(() => {
-    const hidden = () => { if (document.visibilityState === "hidden") cancel(); };
-    document.addEventListener("visibilitychange", hidden);
-    window.addEventListener("pagehide", cancel);
-    window.addEventListener("blur", cancel);
-    return () => {
-      document.removeEventListener("visibilitychange", hidden);
-      window.removeEventListener("pagehide", cancel);
-      window.removeEventListener("blur", cancel);
-    };
-  }, [cancel]);
+  useEventListener(document, "visibilitychange", () => {
+    if (document.visibilityState === "hidden") cancel();
+  });
+  useEventListener(window, "pagehide", cancel);
+  useEventListener(window, "blur", cancel);
 
   const select = useCallback((spaceId: string) => {
     const display = selectedNavigationDisplay(modelRef.current.snapshot);

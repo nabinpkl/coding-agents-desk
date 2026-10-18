@@ -14,12 +14,13 @@
 // Mac, so dismissing by listening on the document would let the same press go on to click
 // whatever was behind the popover. A transparent layer over the viewer takes that press instead.
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { Settings2 } from "lucide-react";
 import { ResolutionSlider } from "@/features/desktop-viewer/DesktopViewerControls";
 import { useMacSwipeDirection } from "@/features/desktop-viewer/navigation/macSwipeDirection";
 import { setOverviewLayer, useOverviewLayer } from "@/features/desktop-viewer/zoom/overviewLayer";
 import { setZoomMode, useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
+import { useEventListener } from "@/hooks/dom/useEventListener";
 
 const focusRing = "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white";
 
@@ -54,19 +55,12 @@ export function DesktopViewerSettings({
   const macDirection = useMacSwipeDirection((state) => state.macDirection);
   const setMacDirection = useMacSwipeDirection((state) => state.setMacDirection);
 
-  useEffect(() => { if (hidden) setOpen(false); }, [hidden]);
-  useEffect(() => {
-    if (!open) return;
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setOpen(false);
-      trigger.current?.focus();
-    };
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  if (hidden && open) setOpen(false);
+  useEventListener<KeyboardEvent>(open ? document : null, "keydown", (event) => {
+    if (event.key !== "Escape") return;
+    setOpen(false);
+    trigger.current?.focus();
+  });
 
   return (
     <div className="relative shrink-0">

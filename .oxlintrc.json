@@ -80,29 +80,15 @@
         "**/AgentPanel/Web/src/features/terminal/canvas/useTerminalCanvasScroll.ts",
         // xterm: a terminal opened on a mount, attached to a pane or PTY, fed its stream, resized
         // with its box and disposed with it.
-        "**/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts"
-      ],
-      "rules": { "eslint/no-restricted-imports": "off" }
-    },
-    {
-      // Files that still held an effect when the ban landed. Each slice of the port removes the
-      // files it cleared; the list is empty when the port is done.
-      "files": [
-        "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewer.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerControls.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSettings.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/DesktopViewerSurface.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/keyboard-deck/KeyboardDeck.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/keyboard-input/DesktopKeyboardChrome.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/keyboard-input/useDesktopKeyboard.ts",
-        "**/AgentPanel/Web/src/features/desktop-viewer/navigation/DesktopNavigationChrome.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/navigation/useDesktopNavigation.ts",
-        "**/AgentPanel/Web/src/features/desktop-viewer/pointer-input/pointerInputSession.ts",
+        "**/AgentPanel/Web/src/features/terminal/useAgentTerminal.ts",
+        // A WebRTC session with the far Mac's display: peers offered, retired and reconnected, and
+        // closed on page hide so the sidecar does not keep a capture for a viewer that left.
         "**/AgentPanel/Web/src/features/desktop-viewer/tile-stream/TileStreamRtc.tsx",
+        // The far Mac's pointer: a held finger becomes a held mouse button there, so every gesture
+        // surface is bound to its elements and releases what it holds when it goes.
         "**/AgentPanel/Web/src/features/desktop-viewer/tile-viewport/TileViewport.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/TrackpadDeck.tsx",
-        "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useScrollStripGestures.ts",
-        "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useTrackpadGestures.ts"
+        "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useTrackpadGestures.ts",
+        "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useScrollStripGestures.ts"
       ],
       "rules": { "eslint/no-restricted-imports": "off" }
     }

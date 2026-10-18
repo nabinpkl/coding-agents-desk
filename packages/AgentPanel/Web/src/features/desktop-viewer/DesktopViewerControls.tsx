@@ -3,9 +3,10 @@
 // The picture-mode buttons in the viewer's bar, and the resolution slider in its settings popover,
 // with the readout of what the knob actually asks for.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import { getCaptureScale, setCaptureScale } from "@/features/desktop-viewer/zoom/captureScale";
+import { useTimeout } from "@/hooks/useInterval";
 
 /**
  * How long the resolution knob has to sit still before the stream is asked to change.
@@ -73,11 +74,7 @@ export function ResolutionSlider({
   // rest. Deliberately not subscribed: this control is the one writing, and re-rendering it from
   // its own write would fight the pointer mid-drag.
   const [draft, setDraft] = useState(getCaptureScale);
-  useEffect(() => {
-    if (draft === getCaptureScale()) return;
-    const settle = setTimeout(() => setCaptureScale(draft), CAPTURE_SCALE_SETTLE_MS);
-    return () => clearTimeout(settle);
-  }, [draft]);
+  useTimeout(() => setCaptureScale(draft), draft === getCaptureScale() ? null : CAPTURE_SCALE_SETTLE_MS, draft);
   const encoded = sourceWidth && sourceHeight
     ? encodedCaptureSize(sourceWidth, sourceHeight, draft)
     : null;

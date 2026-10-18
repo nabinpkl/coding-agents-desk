@@ -1,13 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type ClipboardEvent as ReactClipboardEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type CompositionEvent as ReactCompositionEvent,
-} from "react";
+import { useCallback, useRef, useState, type FormEvent, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type CompositionEvent as ReactCompositionEvent } from "react";
 import type {
   DesktopControlEvent,
   DesktopControlInput,
@@ -41,6 +32,11 @@ import type {
   KeyboardMode,
   PendingDelivery,
 } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardContext";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
+import { useMountEffect, useUnmountEffect } from "@/hooks/useMountEffect";
+import { useNotify } from "@/hooks/useNotify";
 
 // Re-exported: the surface imports the hook, and these are what it hands back.
 export type { KeyboardMode, DesktopKeyboardTelemetry } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardContext";
@@ -147,32 +143,28 @@ export function useDesktopKeyboard({
   const onBlur = useCallback(() => capture.onBlur(ctxRef.current), []);
   const handleControlEvent = useCallback((event: DesktopControlEvent) => control.handleControlEvent(ctxRef.current, event), []);
 
-  useEffect(() => {
-    transportRef.current = transport;
-    if (transport) {
+  // The keyboard follows its transport: open, it may present; closed, everything local goes.
+  useNotify(transport, (next) => {
+    transportRef.current = next;
+    if (next) {
       updatePresentation({ type: "transport-open" });
     } else {
       clearLocalState("transport-close");
     }
-  }, [clearLocalState, transport, updatePresentation]);
+  });
 
-  useEffect(() => () => {
+  useUnmountEffect(() => {
     clearFocusTimer();
     if (blurTimer.current !== null) window.clearTimeout(blurTimer.current);
-  }, [clearFocusTimer]);
+  });
 
   // React 19 polyfills onBeforeInput from textInput/keypress and misses native deletes.
-  useEffect(() => {
-    // Named `field` rather than `capture`, which is the module of capture handlers here.
-    const field = captureRef.current;
-    field?.addEventListener("beforeinput", onBeforeInput);
-    return () => field?.removeEventListener("beforeinput", onBeforeInput);
-  }, [onBeforeInput]);
+  useEventListener<InputEvent>(captureRef, "beforeinput", onBeforeInput);
 
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return undefined;
-    const update = () => {
+  const viewport = window.visualViewport;
+  const followViewport = () => {
+    if (!viewport) return;
+    {
       const bottom = Math.max(0, window.innerHeight - (viewport.offsetTop + viewport.height));
       setAccessoryBottom(bottom);
       const typing = presentationRef.current.presentation === "shown" || presentationRef.current.presentation === "pending";
@@ -200,36 +192,32 @@ export function useDesktopKeyboard({
           && typing) {
         clearLocalState("hide", "viewport-restored");
       }
-    };
-    update();
-    viewport.addEventListener("resize", update);
-    viewport.addEventListener("scroll", update);
-    window.addEventListener("resize", update);
-    return () => {
-      viewport.removeEventListener("resize", update);
-      viewport.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, [clearLocalState, report]);
+    }
+  };
+  useMountEffect(followViewport);
+  useEventListener(viewport, "resize", followViewport);
+  useEventListener(viewport, "scroll", followViewport);
+  useEventListener(viewport ? window : null, "resize", followViewport);
 
   const keyboardPresented = presentation.presentation === "pending"
     || presentation.presentation === "shown";
+  // Measured again from nothing each time the keyboard comes or goes.
+  const [measuredFor, setMeasuredFor] = useState(keyboardPresented);
+  if (measuredFor !== keyboardPresented) {
+    setMeasuredFor(keyboardPresented);
+    setAccessoryHeight(0);
+  }
 
   // The accessory's height is measured rather than known: its bottom padding follows the safe area
   // until the software keyboard actually owns it, and the key rail is free to change shape. The
   // viewer subtracts this from the video, so a stale guess here is a band of Mac nobody can see.
-  useEffect(() => {
+  const measureAccessory = () => {
     const accessory = accessoryRef.current;
-    if (!accessory) return;
-    const measure = () => setAccessoryHeight(Math.ceil(accessory.getBoundingClientRect().height));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(accessory);
-    return () => {
-      observer.disconnect();
-      setAccessoryHeight(0);
-    };
-  }, [keyboardPresented]);
+    if (accessory) setAccessoryHeight(Math.ceil(accessory.getBoundingClientRect().height));
+  };
+  useDomSync(measureAccessory, [keyboardPresented]);
+  // Re-observed whenever the keyboard comes or goes, since the accessory is drawn with it.
+  useResizeObserver(keyboardPresented ? accessoryRef : null, measureAccessory);
 
   return {
     captureRef,

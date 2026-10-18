@@ -8,7 +8,7 @@
 // held button on the pad is the same held button the picture would hold, and a strip touch stops
 // a coast the puck started.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { MouseRight, SlidersHorizontal } from "lucide-react";
 import { GestureTuningPanel } from "@/features/desktop-viewer/trackpad/GestureTuningPanel";
 import type { PointerInputSession } from "@/features/desktop-viewer/pointer-input/pointerInputSession";
@@ -22,6 +22,7 @@ import {
 } from "@/features/desktop-viewer/trackpad/trackpadConstants";
 import { useScrollStripGestures } from "@/features/desktop-viewer/trackpad/useScrollStripGestures";
 import { useTrackpadGestures } from "@/features/desktop-viewer/trackpad/useTrackpadGestures";
+import { useLeaveEffect } from "@/hooks/useMountEffect";
 
 export function TrackpadDeck({
   input,
@@ -52,11 +53,12 @@ export function TrackpadDeck({
       scroll.wheelEnd();
     }, WHEEL_SCROLL_IDLE_MS);
   };
-  useEffect(() => () => {
+  // A wheel still scrolling ends with the input it was scrolling.
+  useLeaveEffect(input, () => {
     if (wheelIdle.current === 0) return;
     window.clearTimeout(wheelIdle.current);
     input.translator.scroll.wheelEnd();
-  }, [input]);
+  });
 
   useTrackpadGestures(pad, { input, beforeClick, onHeld: setHeld, onWheel: wheel });
   useScrollStripGestures(strip, { input, onWheel: wheel });

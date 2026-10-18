@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { desktopDisplayId, desktopNavigationEvent, type DesktopControlEvent, type DesktopNavigationState,
   type WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
@@ -10,6 +10,9 @@ import { useDesktopNavigation } from "@/features/desktop-viewer/navigation/useDe
 import { postTileTelemetry, type DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 import { desktopDocumentFallbackHeight } from "@/features/desktop-viewer/desktopDocumentHeight";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useTimeout } from "@/hooks/useInterval";
+import { useNotify } from "@/hooks/useNotify";
 
 /**
  * Which monitor this session was last looking at, remembered per session because display ids belong
@@ -49,7 +52,7 @@ export function DesktopViewer({ transport, scope = "default" }: {
   /** Names the login session, so a remembered monitor is restored into the session it belongs to. */
   scope?: string;
 }) {
-  useLayoutEffect(() => {
+  useDomSync(() => {
     const root = document.documentElement;
     const previous = root.style.height;
     const apply = () => {
@@ -130,14 +133,15 @@ export function DesktopViewer({ transport, scope = "default" }: {
     if (id !== (current.pending ?? current.active)) return;
     selectDisplay(replacement, "Monitor disconnected. Now viewing the remaining main monitor.");
   }, [selectDisplay]);
-  useEffect(() => {
-    if (!activeDisplayId || !displaySnapshot || viewer.pending !== null
-        || displays.some((display) => display.id === activeDisplayId)) return;
+  // A monitor that disconnects under the viewer hands it to the main one, once per disconnection.
+  const lostDisplay = missingDisplay && viewer.pending === null ? activeDisplayId : null;
+  useNotify(lostDisplay, (lost) => {
+    if (!lost) return;
     const replacement = displays.find((display) => display.isMain) ?? displays[0];
     if (replacement) {
       selectDisplay(replacement.id, `Monitor disconnected. Now viewing ${replacement.label || "Main"}.`);
     }
-  }, [activeDisplayId, displaySnapshot, displays, viewer.pending, selectDisplay]);
+  });
   /**
    * Give up on a monitor switch and go back to the one that still works.
    *
@@ -157,15 +161,10 @@ export function DesktopViewer({ transport, scope = "default" }: {
       };
     });
   }, []);
-  useEffect(() => {
-    const id = viewer.pending;
-    if (id === null) return;
-    const timeout = setTimeout(
-      () => abandonHandover(id, "Could not switch monitor. Still showing the previous one."),
-      15_000,
-    );
-    return () => clearTimeout(timeout);
-  }, [viewer.pending, abandonHandover]);
+  // A handover that has not painted in fifteen seconds is abandoned, each one on its own clock.
+  useTimeout(() => {
+    if (viewer.pending !== null) abandonHandover(viewer.pending, "Could not switch monitor. Still showing the previous one.");
+  }, viewer.pending === null ? null : 15_000, viewer.pending);
   const pending = viewer.slots.find((slot) => slot.id === viewer.pending);
   const error = pending?.error ?? active.error
     ?? (missingDisplay && displays.length === 0 ? "No monitor is available" : undefined)

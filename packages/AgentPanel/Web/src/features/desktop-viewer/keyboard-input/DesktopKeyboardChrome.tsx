@@ -1,10 +1,11 @@
 import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
-import { useEffect, useState, type RefObject, type TextareaHTMLAttributes } from "react";
+import { useState, type RefObject, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import type { ModifierState } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardModel";
 import { KeyRailButton as KeyboardButton } from "@/features/keyboard/KeyRailButton";
 import { KeyboardDeck } from "@/features/desktop-viewer/keyboard-deck/KeyboardDeck";
 import { deckMetricsForViewportHeight } from "@/features/desktop-viewer/keyboard-deck/keyboardDeckMetrics";
+import { useEventListener } from "@/hooks/dom/useEventListener";
 
 const ARROWS: Array<{ label: string; code: RemoteKeyCode; position: string }> = [
   { label: "↑", code: "up", position: "col-start-2 row-start-1" },
@@ -270,15 +271,9 @@ export function DesktopKeyboardChrome({
 function useDeckMetrics() {
   const [metrics, setMetrics] = useState(() =>
     deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight));
-  useEffect(() => {
-    const update = () => setMetrics(
-      deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight));
-    window.addEventListener("resize", update);
-    window.visualViewport?.addEventListener("resize", update);
-    return () => {
-      window.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("resize", update);
-    };
-  }, []);
+  const update = () => setMetrics(
+    deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight));
+  useEventListener(window, "resize", update);
+  useEventListener(window.visualViewport, "resize", update);
   return metrics;
 }

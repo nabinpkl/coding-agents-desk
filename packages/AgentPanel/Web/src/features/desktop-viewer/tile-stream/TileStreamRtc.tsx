@@ -38,6 +38,8 @@ export {
   type DesktopControlTransport,
   type TileTelemetryEvent,
 } from "@/features/desktop-viewer/tile-stream/webrtcTileWire";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { useNotify } from "@/hooks/useNotify";
 
 /**
  * One window, live, as a `<video>` fed by WebRTC. The transport-only variant.
@@ -129,9 +131,9 @@ export function TileStreamRtc({
       + `@${capturePlan.pixelWidth}x${capturePlan.pixelHeight}`
     : "";
   const [state, setState] = useState<DesktopStreamState>({ kind: "connecting" });
-  const onControlTransportRef = useRef(onControlTransport);
-  const onControlEventRef = useRef(onControlEvent);
-  const onSourceMetadataRef = useRef(onSourceMetadata);
+  const onControlTransportRef = useLatestRef(onControlTransport);
+  const onControlEventRef = useLatestRef(onControlEvent);
+  const onSourceMetadataRef = useLatestRef(onSourceMetadata);
   const onFirstFrameRef = useRef(onFirstFrame);
   onFirstFrameRef.current = onFirstFrame;
   /**
@@ -148,21 +150,10 @@ export function TileStreamRtc({
   const onDisplayUnavailableRef = useRef(onDisplayUnavailable);
   onDisplayUnavailableRef.current = onDisplayUnavailable;
 
-  useEffect(() => {
-    onControlTransportRef.current = onControlTransport;
-  }, [onControlTransport]);
 
-  useEffect(() => {
-    onControlEventRef.current = onControlEvent;
-  }, [onControlEvent]);
 
-  useEffect(() => {
-    onSourceMetadataRef.current = onSourceMetadata;
-  }, [onSourceMetadata]);
 
-  useEffect(() => {
-    onState?.(state);
-  }, [state, onState]);
+  useNotify(state, (next) => onState?.(next));
 
   useEffect(() => {
     const element = video.current;

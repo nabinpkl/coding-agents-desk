@@ -5,11 +5,13 @@
 // button. Two translators would let a strip touch miss the coast a puck flick started, and a
 // trackpad move slip past a drag the picture was holding.
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import type { DesktopPointerInput } from "@agentdesk/agent-feed-wire";
 import { GestureTranslator, type FrameScheduler } from "@/features/desktop-viewer/pointer-input/gestureTranslator";
 import { currentGestureTuning } from "@/features/desktop-viewer/pointer-input/gestureTuning";
 import { RemoteCursor } from "@/features/desktop-viewer/pointer-input/remoteCursor";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
+import { useNotify } from "@/hooks/useNotify";
 
 export interface PointerInputSession {
   cursor: RemoteCursor;
@@ -68,9 +70,10 @@ export function usePointerInputSession(
   const owned = useRef<PointerInputSession | null>(null);
   if (!provided && !owned.current) owned.current = createPointerInputSession(send);
   const session = provided ?? owned.current!;
-  useEffect(() => {
-    if (!provided) session.setSend(send);
-  }, [provided, send, session]);
-  useEffect(() => () => owned.current?.dispose(), []);
+  // The session this owns sends through the latest `send`.
+  useNotify(send, (next) => {
+    if (!provided) session.setSend(next);
+  });
+  useUnmountEffect(() => owned.current?.dispose());
   return session;
 }

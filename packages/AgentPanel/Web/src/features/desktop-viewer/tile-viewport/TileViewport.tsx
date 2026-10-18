@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-feed-wire";
 import type { ViewportPoint } from "@/features/desktop-viewer/tile-viewport/tileViewportMath";
 import { storedPointerScrollPuckOffset } from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
@@ -23,6 +23,7 @@ import type { ViewportRuntime } from "@/features/desktop-viewer/tile-viewport/ti
 import { createScrolling } from "@/features/desktop-viewer/tile-gestures/tileViewportScrolling";
 import { CursorOverlay, PointerScrollPuck } from "@/features/desktop-viewer/tile-viewport/TileViewportOverlays";
 import { createFrameGeometry } from "@/features/desktop-viewer/tile-viewport/tileViewportFrame";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export type ViewportGestureKind = "pointer" | "scroll" | "view-pan" | "pinch-pan";
 export type ViewportGestureOutcome =
@@ -137,11 +138,11 @@ export function TileViewport({
   const dragPrimingArc = useRef<SVGCircleElement>(null);
   const cursorImageCache = useRef(new CursorImageCache());
   const input = usePointerInputSession(sendPointerInput, providedInput);
-  const pointerGestureStartRef = useRef(onPointerGestureStart);
-  const beforeRemoteClickRef = useRef(onBeforeRemoteClick);
-  const keyboardPresentedRef = useRef(keyboardPresented);
-  const gestureTelemetryRef = useRef(onGestureTelemetry);
-  const absolutePointerRef = useRef(absolutePointer);
+  const pointerGestureStartRef = useLatestRef(onPointerGestureStart);
+  const beforeRemoteClickRef = useLatestRef(onBeforeRemoteClick);
+  const keyboardPresentedRef = useLatestRef(keyboardPresented);
+  const gestureTelemetryRef = useLatestRef(onGestureTelemetry);
+  const absolutePointerRef = useLatestRef(absolutePointer);
   const scrollEngagedRef = useRef(false);
   const [scrollEngaged, setScrollEngagedState] = useState(false);
 
@@ -150,27 +151,6 @@ export function TileViewport({
     setScrollEngagedState(engaged);
   };
 
-  useEffect(() => {
-    absolutePointerRef.current = absolutePointer;
-  }, [absolutePointer]);
-
-  useEffect(() => {
-    pointerGestureStartRef.current = onPointerGestureStart;
-  }, [onPointerGestureStart]);
-
-  useEffect(() => {
-    beforeRemoteClickRef.current = onBeforeRemoteClick;
-  }, [onBeforeRemoteClick]);
-
-  // Read at resize time rather than in the layout effect's deps, which would rebind every pointer
-  // listener and reset the view each time the keyboard came and went.
-  useEffect(() => {
-    keyboardPresentedRef.current = keyboardPresented;
-  }, [keyboardPresented]);
-
-  useEffect(() => {
-    gestureTelemetryRef.current = onGestureTelemetry;
-  }, [onGestureTelemetry]);
   useLayoutEffect(() => {
     const ctx = {
       absolutePointerRef,

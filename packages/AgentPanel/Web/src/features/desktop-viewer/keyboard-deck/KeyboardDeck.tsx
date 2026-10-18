@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DELETE_REPEAT_DELAY_MS,
   DELETE_REPEAT_INTERVAL_MS,
@@ -27,6 +27,10 @@ import {
   pointHoldsCell,
   type DeckCell,
 } from "@/features/desktop-viewer/keyboard-deck/keyboardDeckHitTest";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
+import { useStateFor } from "@/hooks/state/useStateFor";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
+import { useNotify } from "@/hooks/useNotify";
 
 interface ActivePress {
   pointerId: number;
@@ -81,9 +85,12 @@ export function KeyboardDeck({
   const [pressedKeyIds, setPressedKeyIds] = useState<readonly string[]>([]);
   // Owned by the pointer that raised it: rolling a second thumb onto another key takes the balloon
   // over, and lifting the first thumb must not take the second one's balloon away with it.
-  const [preview, setPreview] = useState<
+  // A layout change takes the balloon down, even from under a finger that is still holding its key:
+  // `render(_:)` dismisses it whenever the state it is asked for differs from the one on screen.
+  // Reachable with two thumbs, where one holds a letter while the other taps shift.
+  const [preview, setPreview] = useStateFor<
     { pointerId: number; character: string; layout: CharacterPreviewLayout } | null
-  >(null);
+  >(state, () => null);
   const deckRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -107,28 +114,18 @@ export function KeyboardDeck({
     }
   }, []);
 
-  useEffect(() => stopRepeat, [stopRepeat]);
-
-  // A layout change takes the balloon down, even from under a finger that is still holding its
-  // key: `render(_:)` dismisses it whenever the state it is asked for differs from the one on
-  // screen. Reachable with two thumbs, where one holds a letter while the other taps shift.
-  useEffect(() => setPreview(null), [state]);
+  useUnmountEffect(stopRepeat);
 
   // A different page or a different metric set is a different tiling.
-  useEffect(() => {
+  const tiling = useMemo(() => ({ state, metrics }), [state, metrics]);
+  useNotify(tiling, () => {
     cellsRef.current = null;
-  }, [state, metrics]);
+  });
 
   // And so is a resize, which changes no state at all.
-  useEffect(() => {
-    const deck = deckRef.current;
-    if (!deck) return;
-    const observer = new ResizeObserver(() => {
-      cellsRef.current = null;
-    });
-    observer.observe(deck);
-    return () => observer.disconnect();
-  }, []);
+  useResizeObserver(deckRef, () => {
+    cellsRef.current = null;
+  });
 
   const releasePress = useCallback((active: ActivePress) => {
     if (active.element.hasPointerCapture?.(active.pointerId)) {

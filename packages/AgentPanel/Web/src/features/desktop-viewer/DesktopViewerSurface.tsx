@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import type {
   DesktopControlEvent,
   DesktopCursorKind,
@@ -39,6 +39,10 @@ import {
   storedTrackpadDeck,
   trackpadDeckHeight,
 } from "@/features/desktop-viewer/trackpad/trackpadConstants";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
+import { useNotify } from "@/hooks/useNotify";
+import { useSubscription } from "@/hooks/useSubscription";
 
 const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
 /**
@@ -109,20 +113,16 @@ export function DesktopViewerSurface({
   // it: the monitor switcher and controls sit BESIDE the picture rather than on top of it, so the
   // bottom of the remote desktop (its own Dock, most visibly) is never covered by our chrome.
   const [chromeHeight, setChromeHeight] = useState(0);
-  useLayoutEffect(() => {
+  // The entire dock: monitor rows, errors, wrapping, and safe-area padding.
+  const measureChrome = () => {
     const chrome = chromeRef.current;
     if (!chrome) return;
-    // Observe the entire dock: monitor rows, errors, wrapping, and safe-area padding.
-    const measure = () => {
-      const height = Math.ceil(chrome.getBoundingClientRect().height);
-      setChromeHeight(height);
-      onChromeHeight?.(height);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(chrome);
-    return () => observer.disconnect();
-  }, [onChromeHeight]);
+    const height = Math.ceil(chrome.getBoundingClientRect().height);
+    setChromeHeight(height);
+    onChromeHeight?.(height);
+  };
+  useDomSync(measureChrome, [onChromeHeight]);
+  useResizeObserver(chromeRef, measureChrome);
   const applyTileState = useCallback((state: DesktopStreamState) => { setTile(state); onState?.(state); }, [onState]);
   const cursorListeners = useRef(new Set<(event: WebrtcCursorEvent) => void>());
   const latestCursorEvents = useRef(new Map<WebrtcCursorEvent["type"], WebrtcCursorEvent>());
@@ -147,8 +147,8 @@ export function DesktopViewerSurface({
     cursorKind,
     report: reportKeyboardTelemetry,
   });
-  useEffect(() => { onKeyboard?.(keyboard.keyboardPresented); }, [keyboard.keyboardPresented, onKeyboard]);
-  useEffect(() => { onTransport?.(controlTransport); }, [controlTransport, onTransport]);
+  useNotify(keyboard.keyboardPresented, (presented) => onKeyboard?.(presented));
+  useNotify(controlTransport, (transport) => onTransport?.(transport));
   const sendPointerInput = useCallback(
     (input: Parameters<DesktopControlTransport["send"]>[0]) => (
       interactive && source !== null && keyboard.sendControl(input)
@@ -161,15 +161,11 @@ export function DesktopViewerSurface({
   const [touchDevice] = useState(primaryPointerIsTouch);
   const mainRef = useRef<HTMLElement>(null);
   const [viewerHeight, setViewerHeight] = useState(0);
-  useLayoutEffect(() => {
-    const main = mainRef.current;
-    if (!main) return;
-    const measure = () => setViewerHeight(main.getBoundingClientRect().height);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(main);
-    return () => observer.disconnect();
-  }, []);
+  const measureViewer = () => {
+    if (mainRef.current) setViewerHeight(mainRef.current.getBoundingClientRect().height);
+  };
+  useDomSync(measureViewer, []);
+  useResizeObserver(mainRef, measureViewer);
   const publishControlEvent = useCallback((event: DesktopControlEvent) => {
     if (
       event.type === "cursor-applied"
@@ -229,14 +225,14 @@ export function DesktopViewerSurface({
   // A plan is a rectangle on one particular desktop. Carrying it to another display would open the
   // new one zoomed into coordinates that mean nothing there, so a switch starts whole again. The
   // same holds for changing zoom model or layering: each expects to start from one whole stream.
-  useEffect(() => {
+  useSubscription(`${displayId}:${zoomMode}:${overviewLayer}`, () => {
     setCaptureCrop(null);
     clearOverviewReady();
     return () => {
       setCaptureCrop(null);
       clearOverviewReady();
     };
-  }, [displayId, zoomMode, overviewLayer]);
+  });
   return (
     <main ref={mainRef} className="relative h-full overflow-hidden bg-black text-white">
       {/*
