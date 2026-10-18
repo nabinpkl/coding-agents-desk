@@ -20,6 +20,7 @@ import {
 } from "./src/app/dev-server/sidecarBoard";
 import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { slimResponses } from "./src/app/dev-server/slimResponses";
+import { hookRefresh } from "./src/app/dev-server/hookRefresh";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createTypeHolds, dependentsOf, resend } from "./src/app/dev-server/typeHolds";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
@@ -413,6 +414,9 @@ export default defineConfig({
     // First, so it wraps each response before anything answers it: moves Vite's inline source maps
     // out of the modules and compresses what is left, which is most of a cold load on the phone.
     slimResponses(),
+    // Puts modules of hooks alone under Fast Refresh, which Vite leaves out; without it a save that
+    // adds or removes a hook inside one fails its callers with "Should have a queue".
+    hookRefresh(),
     react(),
     tailwindcss(),
     // Before `panelSessions`, because middleware runs in the order it was added and this one owns
