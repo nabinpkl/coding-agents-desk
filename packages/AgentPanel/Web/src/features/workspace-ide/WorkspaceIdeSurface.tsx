@@ -5,7 +5,8 @@
 // are CSS here, which is the whole reason the port was worth doing -- the layout is now something
 // a reader changes by saving a file.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { FolderPlus } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -48,18 +49,13 @@ export function WorkspaceIdeSurface({
   // back -- which is how a reader works through them, one file at a time.
   const search = useContentSearch(ide.client, ide.workspaceId);
   const searchField = useRef<HTMLInputElement | null>(null);
-  const [focusSearch, setFocusSearch] = useState(0);
-
-  // After the render that mounted the section, since the field does not exist until then.
-  useEffect(() => {
-    if (focusSearch === 0) return;
-    searchField.current?.focus();
-    searchField.current?.select();
-  }, [focusSearch]);
 
   const showSearch = useCallback(() => {
-    ide.update({ section: "search", sidebarVisible: true });
-    setFocusSearch((count) => count + 1);
+    // Drawn now rather than at the end of the event, since the field does not exist until the
+    // section has rendered, and focus is what the shortcut was pressed for.
+    flushSync(() => ide.update({ section: "search", sidebarVisible: true }));
+    searchField.current?.focus();
+    searchField.current?.select();
   }, [ide]);
   const hasWorkspace = ide.workspaceId !== null;
   const openQuickOpen = useCallback(() => {

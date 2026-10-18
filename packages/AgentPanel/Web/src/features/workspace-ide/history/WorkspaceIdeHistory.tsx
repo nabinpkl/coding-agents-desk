@@ -22,7 +22,8 @@
 // panel deliberately -- Escape, or a click in the sidebar or the terminal -- does not throw away
 // the commit it was open on either.
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
+import { focusOnMount } from "@/hooks/refCallbacks";
 import { ChevronDown, ChevronRight, GitCommitHorizontal, Loader2, X } from "lucide-react";
 import type {
   WorkspaceCommit,
@@ -71,18 +72,15 @@ export function WorkspaceIdeHistory({
   onOpenDiff: (commit: WorkspaceCommit, file: WorkspaceCommitFile) => void;
   onClose: () => void;
 }) {
-  const panel = useRef<HTMLDivElement | null>(null);
   const { commits, failure, limit, openHash, details } = history;
-
-  // The panel takes focus when it opens: it is the thing the reader just asked for, and Escape has
-  // to reach it from somewhere. The control that opened it takes focus back on close.
-  useEffect(() => panel.current?.focus(), []);
 
   const now = Date.now();
   return (
     <div
       id={id}
-      ref={panel}
+      // The panel takes focus when it opens: it is the thing the reader just asked for, and Escape
+      // has to reach it from somewhere. The control that opened it takes focus back on close.
+      ref={focusOnMount}
       role="dialog"
       aria-label="Commit history"
       tabIndex={-1}

@@ -10,9 +10,10 @@
 // arrangement of the panel, and a popup that reopened three days later on a commit that has since
 // been rebased away would be remembering the wrong thing (AGENTS.md, on what earns storage).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { WorkspaceCommit, WorkspaceCommitDetail } from "@agentdesk/agent-feed-wire";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
+import { queryFailure, sourceKey, usePanelQuery } from "@/query/panelQuery";
 
 /** How many commits arrive at a time, and how many each "Show more" adds. */
 export const PAGE = 50;
@@ -31,8 +32,11 @@ export interface CommitHistory {
   showMore(): void;
 }
 
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+/** Where the reader is in one workspace's log. */
+interface Position {
+  workspaceId: string | null;
+  limit: number;
+  openHash: string | null;
 }
 
 /**
@@ -47,63 +51,62 @@ export function useCommitHistory(
   workspaceId: string | null,
   enabled: boolean,
 ): CommitHistory {
-  const [limit, setLimit] = useState(PAGE);
-  const [commits, setCommits] = useState<WorkspaceCommit[] | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-  const [openHash, setOpenHash] = useState<string | null>(null);
-  const [details, setDetails] = useState<Record<string, WorkspaceCommitDetail>>({});
+  // A commit is a fact about one repository, so the position belongs to the workspace it was taken
+  // in, and a switch starts from the top. Both reads are keyed on the workspace for the same reason:
+  // the last project's log must never draw under this project's branch.
+  const [held, setPosition] = useState<Position>({ workspaceId, limit: PAGE, openHash: null });
+  const position: Position = held.workspaceId === workspaceId ? held : { workspaceId, limit: PAGE, openHash: null };
+  const { limit, openHash } = position;
+  const clientKey = sourceKey(client);
 
-  // A commit is a fact about one repository, so everything read here belongs to the workspace it
-  // was read from. Switching projects with the caches left in place would draw the last project's
-  // log under this project's branch.
-  useEffect(() => {
-    setCommits(null);
-    setFailure(null);
-    setOpenHash(null);
-    setDetails({});
-    setLimit(PAGE);
-  }, [workspaceId]);
+  const log = usePanelQuery({
+    queryKey: ["workspace-commits", clientKey, workspaceId, limit],
+    queryFn: () => client.commits(workspaceId!, limit).then((answer) => answer.commits),
+    enabled: enabled && workspaceId !== null,
+    // "Show more" asks again with a longer limit; the shorter log stays on screen meanwhile.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === workspaceId ? previous : undefined,
+  });
+  const detail = usePanelQuery({
+    queryKey: ["workspace-commit", clientKey, workspaceId, openHash],
+    queryFn: () => client.commit(workspaceId!, openHash!).then((answer) => answer.detail),
+    enabled: openHash !== null && workspaceId !== null,
+    // A commit's files never change under its hash, so re-expanding one is free.
+    staleTime: Infinity,
+  });
 
-  useEffect(() => {
-    if (!enabled || workspaceId === null) return;
-    let live = true;
-    client.commits(workspaceId, limit)
-      .then((answer) => {
-        if (live) setCommits(answer.commits);
-      })
-      .catch((cause: unknown) => {
-        if (live) setFailure(`Could not read the history: ${message(cause)}`);
-      });
-    return () => {
-      live = false;
-    };
-  }, [client, workspaceId, limit, enabled]);
+  const details: Record<string, WorkspaceCommitDetail> =
+    openHash !== null && detail.data ? { [openHash]: detail.data } : {};
+  const failure = log.error
+    ? `Could not read the history: ${queryFailure(log.error)}`
+    : detail.error
+      ? `Could not read that commit: ${queryFailure(detail.error)}`
+      : null;
 
-  useEffect(() => {
-    if (openHash === null || workspaceId === null || details[openHash]) return;
-    let live = true;
-    client.commit(workspaceId, openHash)
-      .then((answer) => {
-        if (live) setDetails((current) => ({ ...current, [openHash]: answer.detail }));
-      })
-      .catch((cause: unknown) => {
-        if (live) setFailure(`Could not read that commit: ${message(cause)}`);
-      });
-    return () => {
-      live = false;
-    };
-  }, [client, workspaceId, openHash, details]);
+  const toggleCommit = useCallback(
+    (hash: string) =>
+      setPosition((current) => {
+        const base = current.workspaceId === workspaceId ? current : { workspaceId, limit: PAGE, openHash: null };
+        return { ...base, openHash: base.openHash === hash ? null : hash };
+      }),
+    [workspaceId],
+  );
+  const showMore = useCallback(
+    () =>
+      setPosition((current) => {
+        const base = current.workspaceId === workspaceId ? current : { workspaceId, limit: PAGE, openHash: null };
+        return { ...base, limit: base.limit + PAGE };
+      }),
+    [workspaceId],
+  );
 
   return {
-    commits,
+    commits: log.data ?? null,
     failure,
     limit,
     openHash,
     details,
-    toggleCommit: useCallback(
-      (hash: string) => setOpenHash((current) => (current === hash ? null : hash)),
-      [],
-    ),
-    showMore: useCallback(() => setLimit((current) => current + PAGE), []),
+    toggleCommit,
+    showMore,
   };
 }

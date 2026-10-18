@@ -12,7 +12,8 @@
 // whatever nobody found a home for, and every addition costs the others their glanceability -- the
 // empty right end is the reminder of that rather than space waiting to be used.
 
-import { useCallback, useEffect, useId, useRef, useState, type RefObject } from "react";
+import { useCallback, useId, useRef, useState, type RefObject } from "react";
+import { useEventListener } from "@/hooks/useEventListener";
 import { GitBranch, History, SquareTerminal } from "lucide-react";
 import type { WorkspaceCommit, WorkspaceCommitFile, WorkspaceGitStatus } from "@agentdesk/agent-feed-wire";
 import type { CommitDiffTarget } from "@/features/workspace-ide/history/CommitDiff";
@@ -95,27 +96,18 @@ export function WorkspaceIdeStatusBar({
   //
   // On `pointerdown` rather than `click`: a click that starts inside the popup and ends outside it
   // -- selecting a line of a diff and releasing past the edge -- is not a click elsewhere.
-  useEffect(() => {
-    if (!historyOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeHistory();
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      const within = (region: HTMLElement | null) =>
-        target instanceof Node && region !== null && region.contains(target);
-      if (within(bar.current) || within(editor.current)) return;
-      // No focus returned here, unlike Escape: the pointer has already put focus where it landed,
-      // and taking it back to the bar would move the reader away from what they just clicked.
-      setHistoryOpen(false);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, [historyOpen, closeHistory, editor]);
+  useEventListener<KeyboardEvent>(historyOpen ? document : null, "keydown", (event) => {
+    if (event.key === "Escape") closeHistory();
+  });
+  useEventListener<PointerEvent>(historyOpen ? document : null, "pointerdown", (event) => {
+    const target = event.target;
+    const within = (region: HTMLElement | null) =>
+      target instanceof Node && region !== null && region.contains(target);
+    if (within(bar.current) || within(editor.current)) return;
+    // No focus returned here, unlike Escape: the pointer has already put focus where it landed,
+    // and taking it back to the bar would move the reader away from what they just clicked.
+    setHistoryOpen(false);
+  });
   // No branch means either a directory git does not track or a detached HEAD: `branch
   // --show-current` answers empty for both, so there is nothing honest to print. An item that
   // said "no branch" over a plain directory would be reporting on git rather than on the project.

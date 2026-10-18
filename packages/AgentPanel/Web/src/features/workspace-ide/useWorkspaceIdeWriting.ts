@@ -14,7 +14,10 @@
 //    and re-schedule rather than waiting for another keystroke;
 //  - resolving a conflict re-reads first, and writes against the revision it just fetched.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
+import { useStateFor } from "@/hooks/useStateFor";
 import type { WorkspaceOperation } from "@agentdesk/agent-feed-wire";
 import type { OpenFile } from "@/features/workspace-ide/useWorkspaceIde";
 import type { WorkspaceIdeClient } from "@/features/workspace-ide/workspaceIdeClient";
@@ -36,8 +39,8 @@ const AUTOSAVE_DELAY_MS = 900;
 interface Options {
   client: WorkspaceIdeClient;
   workspaceId: string | null;
-  /** Which round of requests is current, so an answer from the previous workspace is dropped. */
-  generationRef: { current: number };
+  /** Which workspace's requests are current, so an answer from the previous one is dropped. */
+  generationRef: { readonly current: string };
   openFilesRef: { current: Record<string, OpenFile> };
   setOpenFiles: React.Dispatch<React.SetStateAction<Record<string, OpenFile>>>;
   setError: (message: string) => void;
@@ -70,8 +73,10 @@ export function useWorkspaceIdeWriting({
    * with our own save. The second is `pendingClosePaths`: a tab with unsaved text stays until the
    * text is on disk.
    */
-  const writingRef = useRef(new Set<string>());
-  const pendingCloseRef = useRef(new Set<string>());
+  // Neither set outlives the workspace they were taken against.
+  const [scoped] = useStateFor(workspaceId, () => ({ writing: new Set<string>(), pendingClose: new Set<string>() }));
+  const writingRef = useLatestRef(scoped.writing);
+  const pendingCloseRef = useLatestRef(scoped.pendingClose);
   const draftTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   /** Stop a pending draft write, and drop whatever is stored. The text is on disk or discarded. */
@@ -102,29 +107,17 @@ export function useWorkspaceIdeWriting({
     }, DRAFT_DELAY_MS));
   }, [openFilesRef, setError, workspaceId]);
 
-  useEffect(() => {
-    const pending = draftTimers.current;
-    return () => {
-      for (const timer of pending.values()) clearTimeout(timer);
-      pending.clear();
-    };
-  }, []);
-
-  // Neither set outlives the workspace they were taken against.
-  useEffect(() => {
-    writingRef.current.clear();
-    pendingCloseRef.current.clear();
-  }, [workspaceId]);
+  useUnmountEffect(() => {
+    for (const timer of draftTimers.current.values()) clearTimeout(timer);
+    draftTimers.current.clear();
+  });
 
   // Autosave. One timer per path, cleared when the path saves, closes or is superseded.
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  useEffect(() => {
-    const pending = timers.current;
-    return () => {
-      for (const timer of pending.values()) clearTimeout(timer);
-      pending.clear();
-    };
-  }, []);
+  useUnmountEffect(() => {
+    for (const timer of timers.current.values()) clearTimeout(timer);
+    timers.current.clear();
+  });
 
   const cancelTimer = useCallback((path: string) => {
     const timer = timers.current.get(path);

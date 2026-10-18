@@ -5,7 +5,12 @@
 // already the single source of truth -- taking props from it, not from a second copy, is the one
 // piece of ADR-0077 that survives its own supersession.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { usePersistentState } from "@/hooks/usePersistentState";
+import { useStateFor } from "@/hooks/useStateFor";
+import { useSubscription } from "@/hooks/useSubscription";
+import { panelQueryClient, sourceKey, usePanelQuery } from "@/query/panelQuery";
 import type {
   WorkspaceFileKind,
   WorkspaceGitStatus,
@@ -113,19 +118,28 @@ export interface WorkspaceIde extends WorkspaceIdeState {
 
 export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
   const client = useMemo(() => new WorkspaceIdeClient(transport), [transport]);
-  const [preferences, setPreferences] = useState(loadWorkspaceIdePreferences);
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [shared, setShared] = useState<WorkspaceSharedState | null>(null);
-  const [tree, setTree] = useState<WorkspaceTreeNode[]>([]);
-  const [git, setGit] = useState<WorkspaceGitStatus | null>(null);
-  const [openFiles, setOpenFiles] = useState<Record<string, OpenFile>>({});
-  const [loadingPath, setLoadingPath] = useState<string | null>(null);
-  const [reveal, setReveal] = useState<Reveal | null>(null);
+  // Written from the setter, rather than beside each of the calls that change it: that is how one
+  // of those ends up forgotten (AGENTS.md, "Panel state").
+  const [preferences, setPreferences] = usePersistentState(loadWorkspaceIdePreferences, storeWorkspaceIdePreferences);
   const [error, setError] = useState<string | null>(null);
 
-  // One effect on the value, rather than a write beside each of the calls that change it: that is
-  // how one of those ends up forgotten (AGENTS.md, "Panel state").
-  useEffect(() => storeWorkspaceIdePreferences(preferences), [preferences]);
+  // The roster, read once and then kept current by the workspace stream, which writes each new
+  // roster into the same cache entry.
+  const workspacesKey = useMemo(() => ["workspaces", sourceKey(client)] as const, [client]);
+  const listed = usePanelQuery({
+    queryKey: workspacesKey,
+    queryFn: () => client.listWorkspaces().then((answer) => answer.workspaces),
+  });
+  const workspaces = listed.data ?? NO_WORKSPACES;
+  const setWorkspaces = useCallback(
+    (next: WorkspaceSummary[]) => panelQueryClient.setQueryData(workspacesKey, next),
+    [workspacesKey],
+  );
+  // A failed roster read shows in the banner like every other failure, until it is dismissed.
+  const [dismissedListError, setDismissedListError] = useState<unknown>(null);
+  const shownError = error ?? (listed.error && listed.error !== dismissedListError
+    ? describe(listed.error, "Could not load workspaces.")
+    : null);
 
   const update = useCallback((change: Partial<WorkspaceIdePreferences>) => {
     setPreferences((current) => ({ ...current, ...change }));
@@ -146,51 +160,34 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
 
   // Read by callbacks that must not re-create on every keystroke. The revision moves with every
   // save, and a callback that closed over it would write against a stale one.
+  /**
+   * Everything below belongs to one workspace of one client, and starts empty when either changes.
+   * A stale open file from another workspace is the bug this prevents: same path, different bytes.
+   */
+  const scope = `${sourceKey(client)}:${workspaceId ?? ""}`;
+  const [shared, setShared] = useStateFor<WorkspaceSharedState | null>(scope, () => null);
+  const [tree, setTree] = useStateFor<WorkspaceTreeNode[]>(scope, () => []);
+  const [git, setGit] = useStateFor<WorkspaceGitStatus | null>(scope, () => null);
+  const [openFiles, setOpenFiles] = useStateFor<Record<string, OpenFile>>(scope, () => ({}));
+  const [reveal, setReveal] = useStateFor<Reveal | null>(scope, () => null);
+
   const sharedRef = useRef<WorkspaceSharedState | null>(null);
   sharedRef.current = shared;
   const openFilesRef = useRef(openFiles);
   openFilesRef.current = openFiles;
 
   /**
-   * Which round of requests is current, so an answer from the previous workspace is dropped.
+   * Which workspace's requests are current, so an answer from the previous one is dropped.
    *
    * Ported from `WorkspaceIDEController.requestGeneration`. Resetting the state when the workspace
    * changes is not enough on its own: a read already in flight resolves afterwards and writes its
    * file into the new workspace's state, which is the same path holding another project's bytes.
    */
-  const generationRef = useRef(0);
+  const generationRef = useLatestRef(scope);
 
-  useEffect(() => {
-    let cancelled = false;
-    client.listWorkspaces()
-      .then(({ workspaces: listed }) => {
-        if (!cancelled) setWorkspaces(listed);
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setError(describe(cause, "Could not load workspaces."));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client]);
-
-  /**
-   * Follow the workspace, and drop everything belonging to the previous one.
-   *
-   * The reset is inside the effect rather than in the selection handler so it happens exactly once
-   * per workspace, including on the first mount and on a transport change. A stale open file from
-   * another workspace is the bug this prevents: same path, different bytes.
-   */
-  useEffect(() => {
+  // Follow the workspace. Its state above has already started empty for it.
+  useSubscription(workspaceId ? scope : null, () => {
     if (!workspaceId) return;
-    generationRef.current += 1;
-    setShared(null);
-    setTree([]);
-    setGit(null);
-    setOpenFiles({});
-    setLoadingPath(null);
-    setReveal(null);
-
     return client.subscribe(
       workspaceId,
       (event: WorkspaceStreamEvent) => {
@@ -247,9 +244,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
       },
       (reason) => setError(reason),
     );
-    // `reload` is stable for a given client and workspace, which is what this effect keys on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, workspaceId]);
+  });
 
   const reload = useCallback(async (path: string) => {
     if (!workspaceId) return;
@@ -298,15 +293,15 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     return visibleOpenPaths[0] ?? null;
   }, [visibleOpenPaths, preferences.activePathByWorkspace, workspaceId]);
 
-  // Load whatever is active and not yet in hand. One effect rather than a load beside every place
-  // that can change the active path, of which there are five.
-  useEffect(() => {
-    if (!activePath || openFilesRef.current[activePath] || loadingPath === activePath) return;
-    setLoadingPath(activePath);
-    void reload(activePath).finally(() => {
-      setLoadingPath((current) => (current === activePath ? null : current));
-    });
-  }, [activePath, loadingPath, reload]);
+  // Load whatever is active and not yet in hand. One query rather than a load beside every place
+  // that can change the active path, of which there are five. `reload` puts the file in
+  // `openFiles`, which is what turns the query off again.
+  const loading = usePanelQuery({
+    queryKey: ["workspace-open-file", scope, activePath],
+    queryFn: () => reload(activePath!).then(() => true),
+    enabled: activePath !== null && openFiles[activePath] === undefined,
+  });
+  const loadingPath = loading.isFetching ? activePath : null;
 
   /**
    * Send one shared-state operation, and adopt the state it answers with.
@@ -439,7 +434,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     activePath,
     loadingPath,
     reveal,
-    error,
+    error: shownError,
     preferences,
     // Normalised here rather than at each caller: both the roster's "No workspaces" option and
     // removing the last project arrive as an empty string, and storing that would persist a
@@ -464,10 +459,15 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     useHostVersion: writing.useHostVersion,
     keepMyVersion: writing.keepMyVersion,
     update,
-    dismissError: useCallback(() => setError(null), []),
+    dismissError: useCallback(() => {
+      setError(null);
+      setDismissedListError(listed.error);
+    }, [listed.error]),
     isPreview,
   };
 }
+
+const NO_WORKSPACES: WorkspaceSummary[] = [];
 
 function describe(cause: unknown, fallback: string): string {
   return cause instanceof WorkspaceRequestError ? cause.message : fallback;

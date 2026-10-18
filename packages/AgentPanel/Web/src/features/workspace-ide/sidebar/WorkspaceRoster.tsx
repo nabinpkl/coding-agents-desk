@@ -9,7 +9,9 @@
 // remove asks first -- it unregisters a project rather than deleting anything on disk, but that
 // distinction is not visible from a button, so the confirm says which it is.
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { selectOnMount } from "@/hooks/refCallbacks";
+import { useStateFor } from "@/hooks/useStateFor";
 import { ChevronDown, ChevronUp, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import type { WorkspaceSummary } from "@agentdesk/agent-feed-wire";
 
@@ -38,19 +40,14 @@ export function WorkspaceRoster({
   onRemove: (id: string) => void;
   onReorder: (ids: string[]) => void;
 }) {
-  const [mode, setMode] = useState<"closed" | "open" | "renaming" | "confirming">("closed");
+  // Closed again on a workspace change rather than left open over a different project: the actions
+  // in the menu all name "this workspace", and which one that is has just changed underneath.
+  const [mode, setMode] = useStateFor<"closed" | "open" | "renaming" | "confirming">(workspaceId, () => "closed");
   const [draftName, setDraftName] = useState("");
-  const renameInput = useRef<HTMLInputElement>(null);
 
   const index = workspaces.findIndex((workspace) => workspace.id === workspaceId);
   const current = index < 0 ? null : workspaces[index]!;
 
-  // Closing on a workspace change rather than leaving the menu open over a different project: the
-  // actions in it all name "this workspace", and which one that is has just changed underneath.
-  useEffect(() => setMode("closed"), [workspaceId]);
-  useEffect(() => {
-    if (mode === "renaming") renameInput.current?.select();
-  }, [mode]);
 
   function move(by: -1 | 1) {
     if (!current || index < 0) return;
@@ -123,7 +120,7 @@ export function WorkspaceRoster({
                   }}
                 >
                   <input
-                    ref={renameInput}
+                    ref={selectOnMount}
                     aria-label="Workspace name"
                     value={draftName}
                     onChange={(event) => setDraftName(event.target.value)}

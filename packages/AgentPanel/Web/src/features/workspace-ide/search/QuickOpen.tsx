@@ -4,7 +4,8 @@
 // answers the list in tens of milliseconds, and a round trip per character would be the slow half.
 // `path:42` opens at line 42, as in VS Code.
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 import { createPortal } from "react-dom";
 import { FileSearch, Loader2 } from "lucide-react";
 import { FileIcon } from "@/features/workspace-ide/sidebar/FileIcon";
@@ -36,26 +37,17 @@ export function QuickOpen({
   onOpen: (path: string, line: number | null) => void;
   onClose: () => void;
 }) {
-  const [files, setFiles] = useState<string[] | null>(null);
-  const [truncated, setTruncated] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const listing = usePanelQuery({
+    queryKey: ["workspace-files", sourceKey(client), workspaceId],
+    queryFn: ({ signal }) => client.files(workspaceId, signal),
+  });
+  const files = listing.data?.files ?? null;
+  const truncated = listing.data?.truncated ?? false;
+  const error = listing.error
+    ? listing.error instanceof WorkspaceRequestError ? listing.error.message : "The file list could not be loaded."
+    : null;
   const [value, setValue] = useState("");
-  const [selected, setSelected] = useState(0);
   const list = useRef<HTMLUListElement | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    client.files(workspaceId, controller.signal)
-      .then((answer) => {
-        setFiles(answer.files);
-        setTruncated(answer.truncated);
-      })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
-        setError(cause instanceof WorkspaceRequestError ? cause.message : "The file list could not be loaded.");
-      });
-    return () => controller.abort();
-  }, [client, workspaceId]);
 
   const { query: typed, line } = parseQuickOpenQuery(value);
   // Deferred, so the field takes each character at once and the list catches up. Scoring is the
@@ -76,10 +68,13 @@ export function QuickOpen({
       .slice(0, QUICK_OPEN_ROWS);
   }, [files, openPaths, query]);
 
-  useEffect(() => setSelected(0), [query]);
-  useEffect(() => {
-    list.current?.querySelector<HTMLElement>(`[data-index="${selected}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
+  // The highlighted row belongs to the query it was chosen under: a new query starts from the top.
+  const [held, setHeld] = useState({ query, index: 0 });
+  const selected = held.query === query ? held.index : 0;
+  const select = (index: number, reveal: boolean) => {
+    setHeld({ query, index });
+    if (reveal) list.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
+  };
 
   const choose = (match: FuzzyMatch | undefined) => {
     if (!match) return;
@@ -116,14 +111,17 @@ export function QuickOpen({
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              setValue(event.target.value);
+              if (selected !== 0) list.current?.querySelector<HTMLElement>(`[data-index="0"]`)?.scrollIntoView({ block: "nearest" });
+            }}
             onKeyDown={(event) => {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
-                setSelected((index) => Math.min(index + 1, matches.length - 1));
+                select(Math.min(selected + 1, matches.length - 1), true);
               } else if (event.key === "ArrowUp") {
                 event.preventDefault();
-                setSelected((index) => Math.max(index - 1, 0));
+                select(Math.max(selected - 1, 0), true);
               } else if (event.key === "Enter") {
                 event.preventDefault();
                 choose(matches[selected]);
@@ -157,7 +155,9 @@ export function QuickOpen({
                 data-index={index}
                 role="option"
                 aria-selected={index === selected}
-                onPointerMove={() => setSelected(index)}
+                onPointerMove={() => {
+                  if (index !== selected) select(index, false);
+                }}
                 onClick={() => choose(match)}
                 className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm
                   ${index === selected ? "bg-muted" : ""}`}

@@ -13,7 +13,8 @@
 // `workspaceBrowse.ts`: browsing can only ever show what already exists, so making a folder is the
 // one act here that writes, and it needed a way in that could not walk out of the root.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useMountEffect } from "@/hooks/useMountEffect";
 import { ChevronRight, CornerLeftUp, Folder, FolderPlus, Loader2, X } from "lucide-react";
 import type { WorkspaceBrowseListing } from "@agentdesk/agent-feed-wire";
 
@@ -73,7 +74,8 @@ export function WorkspacePicker({
     [browse],
   );
 
-  useEffect(() => show(null), [show]);
+  // The picker opens where the sidecar says to start: the home directory.
+  useMountEffect(() => show(null));
 
   /**
    * Go where the reader typed.

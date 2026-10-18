@@ -5,8 +5,9 @@
 // and a Bot's uncommitted change on the canvas be the same rows. `ReadPatchView` is the fetching
 // half both of them share: when to read, when to read again, and what to show meanwhile.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { queryFailure, usePanelQuery } from "@/query/panelQuery";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 // The rule that reads Shiki's per-token variables, for the reason the editor imports it too: a
 // surface that emits perfectly tokenised markup and depends on a stylesheet nothing here mentions
@@ -136,9 +137,9 @@ export function PatchView({ diff }: { diff: PatchSource }) {
  * and the previous patch stays up meanwhile so that refresh does not flash. A read that fails with
  * a patch already showing says so above it rather than throwing the patch away.
  *
- * `read` is held in a ref rather than listed as a dependency, because every caller builds it inline
- * and a new function each render would read on every render. `subject` is what says the thing
- * being read has changed.
+ * `read` is not part of the query's key, because every caller builds it inline and a new function
+ * each render would read on every render. `subject` is what says the thing being read has changed,
+ * and `refresh` is counted rather than keyed: it is a fresh object on every git status.
  */
 export function ReadPatchView({
   read,
@@ -151,32 +152,17 @@ export function ReadPatchView({
   /** Changes when the patch may have moved. Pass something constant for one that cannot. */
   refresh: unknown;
 }) {
-  const reader = useRef(read);
-  reader.current = read;
-  const [diff, setDiff] = useState<PatchSource | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [refreshes, setRefreshes] = useState({ refresh, count: 0 });
+  if (!Object.is(refreshes.refresh, refresh)) setRefreshes({ refresh, count: refreshes.count + 1 });
 
-  useEffect(() => {
-    setDiff(null);
-    setFailure(null);
-  }, [subject]);
+  const query = usePanelQuery({ queryKey: ["patch", subject, refreshes.count], queryFn: read });
 
-  useEffect(() => {
-    let live = true;
-    reader.current().then(
-      (answer) => {
-        if (!live) return;
-        setDiff(answer);
-        setFailure(null);
-      },
-      (cause: unknown) => {
-        if (live) setFailure(cause instanceof Error ? cause.message : String(cause));
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [subject, refresh]);
+  // The last patch this subject answered with, so a re-read in flight or one that failed draws over
+  // it instead of blanking it.
+  const [kept, setKept] = useState<{ subject: string; diff: PatchSource } | null>(null);
+  if (query.data && (kept?.subject !== subject || kept.diff !== query.data)) setKept({ subject, diff: query.data });
+  const diff = query.data ?? (kept?.subject === subject ? kept.diff : null);
+  const failure = query.error ? queryFailure(query.error) : null;
 
   if (failure !== null && diff === null) {
     return (

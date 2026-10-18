@@ -6,7 +6,8 @@
 // surface, so they stop when it unmounts: a Canvas card is where a reader types to agents, and
 // Shift there is not a shortcut.
 
-import { useEffect, useRef } from "react";
+import { useState } from "react";
+import { useEventListener } from "@/hooks/useEventListener";
 
 /** Two Shift presses closer together than this are a double Shift, as JetBrains times it. */
 export const DOUBLE_SHIFT_MS = 350;
@@ -41,32 +42,22 @@ export function useSearchShortcuts({
   onQuickOpen: () => void;
   onSearch: () => void;
 }): void {
-  // Read through refs so the listener is installed once, not re-installed on every render.
-  const quickOpen = useRef(onQuickOpen);
-  quickOpen.current = onQuickOpen;
-  const search = useRef(onSearch);
-  search.current = onSearch;
-
-  useEffect(() => {
-    const detect = doubleShiftDetector();
-    const onKeyDown = (event: KeyboardEvent) => {
-      const command = event.metaKey || event.ctrlKey;
-      const key = event.key.toLowerCase();
-      // Cmd+P is the browser's Print, and taken over on purpose: it is the quick open every
-      // editor reader already has in their fingers.
-      if (command && !event.shiftKey && !event.altKey && key === "p") {
-        event.preventDefault();
-        quickOpen.current();
-        return;
-      }
-      if (command && event.shiftKey && !event.altKey && key === "f") {
-        event.preventDefault();
-        search.current();
-        return;
-      }
-      if (detect(event)) quickOpen.current();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  const [detect] = useState(doubleShiftDetector);
+  useEventListener<KeyboardEvent>(window, "keydown", (event) => {
+    const command = event.metaKey || event.ctrlKey;
+    const key = event.key.toLowerCase();
+    // Cmd+P is the browser's Print, and taken over on purpose: it is the quick open every editor
+    // reader already has in their fingers.
+    if (command && !event.shiftKey && !event.altKey && key === "p") {
+      event.preventDefault();
+      onQuickOpen();
+      return;
+    }
+    if (command && event.shiftKey && !event.altKey && key === "f") {
+      event.preventDefault();
+      onSearch();
+      return;
+    }
+    if (detect(event)) onQuickOpen();
+  }, { capture: true });
 }

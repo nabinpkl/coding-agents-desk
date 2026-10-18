@@ -23,7 +23,8 @@
 // scrolls code blocks rather than wrapping them because source is read by its indentation, and
 // `CommitDiff` scrolls its patch for the same reason.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
+import { useDomSync } from "@/hooks/useDomSync";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 // The colours the painted layer wears. Imported here rather than relied on from a neighbour,
 // because the rule that reads Shiki's per-token variables is what makes this surface coloured at
@@ -132,31 +133,26 @@ export function CodeEditor({
   // its own, which is what makes the illusion hold once a file is longer or wider than the pane.
   // The gutter takes the vertical half only: it stays put while the code scrolls sideways, the
   // way a gutter does everywhere else.
-  useEffect(() => {
+  const sync = () => {
     const control = input.current;
     if (!control) return;
-    const sync = () => {
-      const layer = painted.current;
-      if (layer) {
-        layer.scrollTop = control.scrollTop;
-        layer.scrollLeft = control.scrollLeft;
-      }
-      const numbered = gutter.current;
-      if (numbered) numbered.scrollTop = control.scrollTop;
-      const marked = band.current;
-      if (marked && bandTop.current !== null) {
-        marked.style.transform = `translateY(${bandTop.current - control.scrollTop}px)`;
-      }
-    };
-    control.addEventListener("scroll", sync);
-    sync();
-    return () => control.removeEventListener("scroll", sync);
-  }, []);
+    const layer = painted.current;
+    if (layer) {
+      layer.scrollTop = control.scrollTop;
+      layer.scrollLeft = control.scrollLeft;
+    }
+    const numbered = gutter.current;
+    if (numbered) numbered.scrollTop = control.scrollTop;
+    const marked = band.current;
+    if (marked && bandTop.current !== null) {
+      marked.style.transform = `translateY(${bandTop.current - control.scrollTop}px)`;
+    }
+  };
 
   // Take the reader to a revealed line: a third of the way down the pane, so the lines before it
   // give it context, with the match selected so the caret is already there when they click in.
   // Not focused: on a phone, focus opens the keyboard over the line it just scrolled to.
-  useEffect(() => {
+  useDomSync(() => {
     const control = input.current;
     if (!control || !reveal || applied.current === reveal.nonce) return;
     applied.current = reveal.nonce;
@@ -174,7 +170,7 @@ export function CodeEditor({
       band.current.style.height = `${height}px`;
       band.current.style.transform = `translateY(${top - control.scrollTop}px)`;
     }
-    control.dispatchEvent(new Event("scroll"));
+    sync();
   }, [reveal, text]);
 
   return (
@@ -227,6 +223,7 @@ export function CodeEditor({
         value={text}
         readOnly={readOnly}
         onChange={(event) => onChange?.(event.target.value)}
+        onScroll={sync}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"

@@ -17,7 +17,6 @@
 // version of the renderer gets wrong. The document's own CSS is confined to the frame too, which
 // is also what keeps its page styles from leaking onto the panel.
 
-import { useEffect, useState } from "react";
 import type { HElement } from "docx-preview";
 import {
   describeFailure,
@@ -26,6 +25,7 @@ import {
   fetchDocumentBytes,
   OUTSIDE_LINK,
 } from "@/features/workspace-ide/editor/documentPreview";
+import { usePanelQuery } from "@/query/panelQuery";
 
 type DocxPreviewLibrary = typeof import("docx-preview");
 
@@ -64,25 +64,19 @@ export function DocxPreview({
   /** The bytes' hash: a new one renders the document again. */
   revision: string;
 }) {
-  const [rendered, setRendered] = useState<Rendered>({ status: "loading" });
-
-  useEffect(() => {
-    if (url === null) return;
-    setRendered({ status: "loading" });
-    const abort = new AbortController();
-    let current = true;
-    void (async () => {
-      const [docx, bytes] = await Promise.all([loadDocxPreview(), fetchDocumentBytes(url, abort.signal)]);
-      const html = await renderDocxFrame(docx, bytes);
-      if (current) setRendered({ status: "ready", html });
-    })().catch((cause: unknown) => {
-      if (current) setRendered({ status: "failed", reason: describeFailure(cause) });
-    });
-    return () => {
-      current = false;
-      abort.abort();
-    };
-  }, [url, revision]);
+  const query = usePanelQuery({
+    queryKey: ["docx-preview", url, revision],
+    queryFn: async ({ signal }) => {
+      const [docx, bytes] = await Promise.all([loadDocxPreview(), fetchDocumentBytes(url!, signal)]);
+      return renderDocxFrame(docx, bytes);
+    },
+    enabled: url !== null,
+  });
+  const rendered: Rendered = query.error
+    ? { status: "failed", reason: describeFailure(query.error) }
+    : query.data === undefined
+      ? { status: "loading" }
+      : { status: "ready", html: query.data };
 
   if (url === null) {
     return (
