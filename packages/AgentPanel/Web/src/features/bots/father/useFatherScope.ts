@@ -33,6 +33,24 @@ import type { SessionViewContext } from "@/features/session-view/SessionView";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import { sessionKey } from "@/features/bots/cards/botCanvasCards";
 
+/** A window-composer pair per sidecar, made the first time each is asked for. */
+function composerPairs() {
+  const pairs = new Map<
+    SidecarDataSource,
+    { claude: ReturnType<typeof sidecarWindowComposerClient>; codex: ReturnType<typeof sidecarWindowComposerClient> }
+  >();
+  return (feedFor: SidecarDataSource) => {
+    const hit = pairs.get(feedFor);
+    if (hit) return hit;
+    const pair = {
+      claude: sidecarWindowComposerClient(feedFor, "claude"),
+      codex: sidecarWindowComposerClient(feedFor, "codex"),
+    };
+    pairs.set(feedFor, pair);
+    return pair;
+  };
+}
+
 export function useFatherScope({
   feed,
   host,
@@ -72,22 +90,8 @@ export function useFatherScope({
   // One window-composer pair per sidecar, because typing into another application's text field
   // is something a sidecar does on the machine it runs on. Keyed on the feed object, which is
   // stable per machine, so a roster push does not rebuild the clients out from under the session.
-  const composersFor = useMemo(() => {
-    const pairs = new Map<
-      SidecarDataSource,
-      { claude: ReturnType<typeof sidecarWindowComposerClient>; codex: ReturnType<typeof sidecarWindowComposerClient> }
-    >();
-    return (feedFor: SidecarDataSource) => {
-      const hit = pairs.get(feedFor);
-      if (hit) return hit;
-      const pair = {
-        claude: sidecarWindowComposerClient(feedFor, "claude"),
-        codex: sidecarWindowComposerClient(feedFor, "codex"),
-      };
-      pairs.set(feedFor, pair);
-      return pair;
-    };
-  }, [feed, machines]);
+  // Rebuilt when the machines change, so a machine that left takes its clients with it.
+  const composersFor = useMemo(() => composerPairs(), [feed, machines]);
 
   /**
    * The context the Father's session renders in, by Bot.
@@ -100,7 +104,8 @@ export function useFatherScope({
    */
   const sessionContextFor = useCallback(
     (botId: string): SessionViewContext => {
-      const feedFor = roster.machineOf(botId)?.feed ?? feed;
+      // The index rather than `machineOf`: this is asked while the home renders.
+      const feedFor = roster.machineIndex.bot.get(botId)?.feed ?? feed;
       return {
         feed: feedFor,
         host,

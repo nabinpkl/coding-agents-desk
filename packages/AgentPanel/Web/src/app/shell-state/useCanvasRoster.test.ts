@@ -149,9 +149,9 @@ describe("which open cards survive a machine coming and going", () => {
   const OPEN = "agent-panel.bot-canvas.open-session";
   const holding = (botId: string, ...sessionIds: string[]) =>
     ({ ...bot(botId), sessionRefs: sessionIds.map((sessionId) => ({ source: "claude", sessionId })) } as BotView);
-  const machineOf = (botId: string) => (botId === "peer" ? "oracle" : "");
+  const machineKeys = new Map([["home", ""], ["peer", "oracle"]]);
   const shell = (initial: { bots: BotView[]; machines: string[] }) => renderHook(
-    ({ bots: current, machines }) => useCanvasRoster({ bots: current, settled: true, machineOf, machines }, feeds),
+    ({ bots: current, machines }) => useCanvasRoster({ bots: current, settled: true, machineKeys, machines }, feeds),
     { initialProps: initial },
   );
   const stored = (): string[] => JSON.parse(localStorage.getItem(OPEN) ?? "[]").sort();

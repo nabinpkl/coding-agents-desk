@@ -5,7 +5,7 @@
 // button. Two translators would let a strip touch miss the coast a puck flick started, and a
 // trackpad move slip past a drag the picture was holding.
 
-import { useRef } from "react";
+import { useState } from "react";
 import type { DesktopPointerInput } from "@agentdesk/agent-feed-wire";
 import { GestureTranslator, type FrameScheduler } from "@/features/desktop-viewer/pointer-input/gestureTranslator";
 import { currentGestureTuning } from "@/features/desktop-viewer/pointer-input/gestureTuning";
@@ -67,13 +67,14 @@ export function usePointerInputSession(
   send: ((input: DesktopPointerInput) => boolean) | undefined,
   provided?: PointerInputSession,
 ): PointerInputSession {
-  const owned = useRef<PointerInputSession | null>(null);
-  if (!provided && !owned.current) owned.current = createPointerInputSession(send);
-  const session = provided ?? owned.current!;
+  // Made whether or not one is handed in: it holds nothing until a gesture starts, and a surface
+  // that is handed one on some renders and not others still has its own to fall back on.
+  const [owned] = useState(() => createPointerInputSession(send));
+  const session = provided ?? owned;
   // The session this owns sends through the latest `send`.
   useNotify(send, (next) => {
     if (!provided) session.setSend(next);
   });
-  useUnmountEffect(() => owned.current?.dispose());
+  useUnmountEffect(() => owned.dispose());
   return session;
 }

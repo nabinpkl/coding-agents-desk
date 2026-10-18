@@ -35,6 +35,7 @@ import { useEventListener } from "@/hooks/dom/useEventListener";
 import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 import { usePersistentState } from "@/hooks/state/usePersistentState";
 import { useStateFor } from "@/hooks/state/useStateFor";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 /**
  * What the reader chose, remembered across reloads: whether the mode is on, and how far out.
@@ -250,7 +251,8 @@ function spread(touches: TouchList): number {
 }
 
 export function useCanvasZoom({
-  scroller,
+  // Named for what it is, so the writes to the element behind it read as writes through a ref.
+  scroller: scrollerRef,
   strip,
   on,
   room,
@@ -281,24 +283,21 @@ export function useCanvasZoom({
 
   // A gesture reads the scale and the floor it is continuing, and must not wait for a render to
   // find out where the last event left them.
-  const drawn = useRef(scale);
-  drawn.current = scale;
-  const floor = useRef(fit);
-  floor.current = fit;
+  const drawn = useLatestRef(scale);
+  const floor = useLatestRef(fit);
 
   // The gutter the canvas is scrolled around in. The reader's own number rather than anything
   // derived from the scale, so it does not move under a pinch: the canvas grows and shrinks
   // inside a border that stays put.
   const gutter = on && measured && room > 0 ? { left: room, top: room } : NO_ROOM;
-  const gap = useRef(gutter);
-  gap.current = gutter;
+  const gap = useLatestRef(gutter);
 
   // Where the next paint has to leave the scroller, set by whatever changed the scale and applied
   // once the sizer has resized. In a layout effect so the reader never sees the frame where the
   // strip has changed size and the scroller has not caught up with it.
   const landing = useRef<{ left: number; top: number } | null>(null);
   useDomSync(() => {
-    const box = scroller.current;
+    const box = scrollerRef.current;
     const at = landing.current;
     landing.current = null;
     if (!box || !at) return;
@@ -312,19 +311,19 @@ export function useCanvasZoom({
   // sets an absolute offset AFTER this runs, so the two never double up.
   const applied = useRef(gutter);
   useDomSync(() => {
-    const box = scroller.current;
+    const box = scrollerRef.current;
     const was = applied.current;
     applied.current = gutter;
     if (!box || (was.left === gutter.left && was.top === gutter.top)) return;
     box.scrollLeft += gutter.left - was.left;
     box.scrollTop += gutter.top - was.top;
-  }, [scroller, gutter.left, gutter.top]);
+  }, [scrollerRef, gutter.left, gutter.top]);
 
   // Layout values on both sides: `offsetWidth` is what the strip WOULD occupy, so the strip's own
   // transform does not perturb the number the transform is computed from.
   const measure = () => {
     const strand = strip.current;
-    const box = scroller.current;
+    const box = scrollerRef.current;
     if (!on || !strand || !box) return;
     {
       // A detached node measures zero, and zero here would clear `measured`, drop the sizer and
@@ -342,12 +341,12 @@ export function useCanvasZoom({
           : { width: box.clientWidth, height: box.clientHeight });
     }
   };
-  useDomSync(measure, [on, scroller, strip]);
+  useDomSync(measure, [on, scrollerRef, strip]);
   useResizeObserver(on ? strip : null, measure);
-  useResizeObserver(on ? scroller : null, measure);
+  useResizeObserver(on ? scrollerRef : null, measure);
 
   const zoomTo = useCallback((next: number, clientX?: number, clientY?: number) => {
-    const box = scroller.current;
+    const box = scrollerRef.current;
     if (!box) return;
     const from = drawn.current;
     const to = clampZoom(next, floor.current);
@@ -362,14 +361,14 @@ export function useCanvasZoom({
       padTop: gap.current.top,
     }, from, to);
     setWanted(to);
-  }, [scroller]);
+  }, [scrollerRef]);
 
   // A trackpad pinch arrives as a wheel with ctrlKey set, and that is the only wheel this takes. A
   // plain wheel goes on scrolling the canvas, because panning is what a scroller's wheel means and
   // panning is most of what this mode is for.
-  const surface = on ? scroller : null;
+  const surface = on ? scrollerRef : null;
   useEventListener<WheelEvent>(surface, "wheel", (event) => {
-      const box = scroller.current;
+      const box = scrollerRef.current;
       if (!box || !event.ctrlKey) return;
       event.preventDefault();
       // Wheels do not all speak pixels: a line-mode wheel reports about 3 and a page-mode one
@@ -411,7 +410,7 @@ export function useCanvasZoom({
     // card and never to the canvas. That is deliberate -- the cards are the reader's at any size
     // -- and it leaves this the whole of the way in and out on a surface carrying no chrome.
   useEventListener<MouseEvent>(surface, "click", (event) => {
-      const box = scroller.current;
+      const box = scrollerRef.current;
       const strand = strip.current;
       if (!box || !strand || pressedOnStrip(event, strand)) return;
       const rect = box.getBoundingClientRect();

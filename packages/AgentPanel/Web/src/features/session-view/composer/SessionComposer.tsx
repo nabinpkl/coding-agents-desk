@@ -3,7 +3,7 @@
 // The band under the transcript: a field, a terminal, or a mirror of a window's own
 // composer, whichever this session's harness makes possible.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import type {
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
@@ -286,7 +286,7 @@ export function SessionComposer({
    * reach a phone's photo library -- and on a phone it is the ONLY way in: there is no drag, and a
    * clipboard that holds an image is a rarer thing there than a camera roll that does.
    */
-  const filePicker = useRef<HTMLInputElement>(null);
+  const filePickerId = useId();
   const previousTransport = useRef(transport.kind);
   // When the field changes owner, what it held moves to the new one. Run as the old transport is
   // left, with the values of the render that replaced it.
@@ -366,7 +366,7 @@ export function SessionComposer({
     editorValue,
     engage,
     error,
-    filePicker,
+    filePickerId,
     isClaude,
     isCodex,
     localDraft,
@@ -410,7 +410,7 @@ export function SessionComposer({
       composerFocused={composerFocused}
       editor={editor}
       feed={feed}
-      filePicker={filePicker}
+      filePickerId={filePickerId}
       onPickFiles={fileAccept}
       isClaude={isClaude}
       isCodex={isCodex}

@@ -12,7 +12,7 @@
 // card is a closed row, because all it needs is the session name and its feed.
 
 import { ChevronDown, EyeOff, Paperclip, Skull, X } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { MAXIMUM_COMPOSER_IMAGE_BYTES, type TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotFace, useBotFaces } from "@/features/bots/avatar/BotFace";
@@ -140,13 +140,14 @@ export function TerminalChildCard({
   // and no program answering, only the session name, so there is no state in which it cannot
   // take the file.
   const drop = useFileDropTarget<HTMLDivElement>(acceptImageFiles);
-  const picker = useRef<HTMLInputElement | null>(null);
+  // Opened by id from the menu: the items are built while rendering, which may not read a ref.
+  const pickerId = useId();
 
   const items: RowMenuItem[] = [];
   if (open) items.push({ label: "Close terminal", icon: X, onSelect: onToggle });
   // Below the close and above the kill, widening from arranging the view to ending the work.
   items.push({ label: "Take off strip", icon: EyeOff, onSelect: onHide });
-  items.push({ label: "Attach image…", icon: Paperclip, onSelect: () => picker.current?.click() });
+  items.push({ label: "Attach image…", icon: Paperclip, onSelect: () => document.getElementById(pickerId)?.click() });
   items.push({ label: "Kill session", icon: Skull, onSelect: () => setConfirming(true) });
 
   const watched = session.attachedClients > 0
@@ -291,7 +292,7 @@ export function TerminalChildCard({
             what is actually taken is judged by the sidecar sniffing the bytes. Cleared so
             picking the same file twice fires a second change. */}
         <input
-          ref={picker}
+          id={pickerId}
           type="file"
           accept="image/png,image/jpeg,image/gif,image/webp"
           multiple

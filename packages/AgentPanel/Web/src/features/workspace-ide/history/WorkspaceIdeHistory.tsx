@@ -35,6 +35,7 @@ import type { CommitHistory } from "@/features/workspace-ide/history/useCommitHi
 import { PAGE } from "@/features/workspace-ide/history/useCommitHistory";
 import { FileIcon } from "@/features/workspace-ide/sidebar/FileIcon";
 import { gitStatusTone, TONE_BADGE } from "@/features/workspace-ide/sidebar/gitTones";
+import { useNow } from "@/hooks/useNow";
 
 const ROW = "flex w-full items-center gap-2 px-2 text-left outline-none transition-colors"
   + " hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
@@ -74,7 +75,8 @@ export function WorkspaceIdeHistory({
 }) {
   const { commits, failure, limit, openHash, details } = history;
 
-  const now = Date.now();
+  // Read afresh when the commits change, and every minute after, so "5 minutes ago" keeps meaning it.
+  const now = useNow(commits, 60_000);
   return (
     <div
       id={id}

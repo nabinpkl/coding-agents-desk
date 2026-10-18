@@ -18,6 +18,7 @@ import { useRef } from "react";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 import { attachedSessionKey } from "@/features/bots/botRosterOrder";
 import { useNotify } from "@/hooks/useNotify";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 /**
  * Which surface drew the row.
@@ -38,8 +39,7 @@ export function useMissingSessionLog(bot: BotView, surface: MissingSessionSurfac
   // Read when the log runs rather than watched. The array is rebuilt on every snapshot, and
   // following its identity would run this on every write even when the missing set is unchanged
   // -- which is the flood the edge trigger exists to prevent. `signature` carries the contents.
-  const latest = useRef(bot.missingSessionRefs);
-  latest.current = bot.missingSessionRefs;
+  const latest = useLatestRef(bot.missingSessionRefs);
   const signature = bot.missingSessionRefs.map(attachedSessionKey).sort().join("|");
 
   // The log is the outside thing told: once per change in which sessions are missing.

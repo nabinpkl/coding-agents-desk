@@ -8,8 +8,6 @@ import {
   type ArenaContestantStatus,
   type ArenaRunMode,
 } from "@agentdesk/agent-feed-wire";
-import { useInterval } from "@/hooks/useInterval";
-import { useStateFor } from "@/hooks/state/useStateFor";
 
 export const SOURCE_LABEL: Record<ArenaContestantSource, string> = {
   opencode: "OpenCode",
@@ -111,13 +109,3 @@ export function StatusGlyph({ status }: { status: ArenaContestantStatus }) {
   return <span aria-hidden className="inline-flex size-2 rounded-full border border-current" />;
 }
 
-/**
- * The time now, ticking once a second while `live` -- a running lane's elapsed time -- and
- * standing still otherwise, so a page of settled runs schedules nothing.
- */
-export function useNow(live: boolean): number {
-  // Read afresh whenever `live` flips, then ticked while it holds.
-  const [now, setNow] = useStateFor(live, () => Date.now());
-  useInterval(() => setNow(Date.now()), live ? 1000 : null);
-  return now;
-}

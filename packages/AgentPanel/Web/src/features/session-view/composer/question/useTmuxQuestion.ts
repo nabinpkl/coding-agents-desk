@@ -13,7 +13,7 @@
 // somebody typed are still in the field they wrote them in, and the outcome's own `keptText` is
 // written back over it -- which is a no-op when they agree and a recovery when they do not.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type {
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
@@ -37,7 +37,6 @@ import {
   type QuestionDraft,
 } from "@/features/session-view/composer/question/questionAnswers";
 import { useStateFor } from "@/hooks/state/useStateFor";
-import { useLeaveEffect } from "@/hooks/useMountEffect";
 
 /** The one call this needs, named so a test stands in for it without a whole data source. */
 export interface TmuxQuestionSender {
@@ -122,16 +121,13 @@ export function useTmuxQuestion(
    * overwrite one somebody has. Per question rather than one flag, because a call is answered a
    * question at a time and the ones still blank are exactly the ones worth filling.
    */
-  const touched = useRef(new Set<number>());
-  useLeaveEffect(callId, () => {
-    touched.current = new Set();
-  });
+  const [touched, setTouched] = useStateFor<ReadonlySet<number>>(callId, () => new Set());
 
   // Follows the terminal, for questions this reader has not answered here. Somebody at that
   // keyboard may have been part-way through the dialog before the panel was opened on it. A new
   // call starts from the pane as it stands; the same call follows each new reading of it.
   const follow = (current: QuestionDraft[]) =>
-    pane ? adoptPaneState(alignDrafts(current, count), questions, pane, (at) => !touched.current.has(at)) : current;
+    pane ? adoptPaneState(alignDrafts(current, count), questions, pane, (at) => !touched.has(at)) : current;
   const [drafts, setDrafts] = useStateFor<QuestionDraft[]>(callId, () => follow(emptyDrafts(questions)));
   const [followedPane, setFollowedPane] = useStateFor(callId, () => pane);
   if (followedPane !== pane) {
@@ -167,7 +163,7 @@ export function useTmuxQuestion(
 
   const choose = useCallback((at: number, index: number) => {
     setError(null);
-    touched.current.add(at);
+    setTouched((current) => new Set(current).add(at));
     setDrafts((current) =>
       chooseOption(alignDrafts(current, count), at, index, questions[at]?.multiSelect === true)
     );
@@ -179,7 +175,7 @@ export function useTmuxQuestion(
 
   const write = useCallback((at: number, text: string) => {
     setError(null);
-    touched.current.add(at);
+    setTouched((current) => new Set(current).add(at));
     setDrafts((current) =>
       writeOther(alignDrafts(current, count), at, text, questions[at]?.multiSelect === true)
     );

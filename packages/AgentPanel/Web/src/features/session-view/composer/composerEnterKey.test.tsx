@@ -50,7 +50,7 @@ function opencodeModel(overrides: Partial<ComposerModel> = {}): ComposerModel {
     deliveryError: null,
     deliveryPending: false,
     editorValue: localDraft,
-    filePicker: { current: null },
+    filePickerId: "composer-file-picker",
     cliSessionBand: false,
     isClaude: false,
     isCodex: false,
@@ -87,7 +87,7 @@ function band(model: ComposerModel) {
       composerFocused={false}
       editor={editor}
       feed={{} as never}
-      filePicker={model.filePicker}
+      filePickerId={model.filePickerId}
       isClaude={false}
       isCodex={false}
       model={model}

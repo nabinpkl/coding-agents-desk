@@ -11,12 +11,13 @@
 // controls for one height, which is why `AgentTerminalPane` is not reused here despite rendering
 // the same hook.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export function ShellTerminal({ feed, context, label, where, onState: reportState }: {
   feed: SidecarDataSource;
@@ -37,8 +38,7 @@ export function ShellTerminal({ feed, context, label, where, onState: reportStat
   const [problem, setProblem] = useState<string | null>(null);
   // Read through a ref so a caller's inline callback does not re-attach the terminal every render:
   // the hook tears down and reopens whenever `onState` changes by identity.
-  const report = useRef(reportState);
-  report.current = reportState;
+  const report = useLatestRef(reportState);
   const onState = useCallback((_context: AgentTerminalContext, state: AgentTerminalState) => {
     if (state.kind === "error") setProblem(state.message);
     else if (state.kind === "ended") setProblem("The shell exited");

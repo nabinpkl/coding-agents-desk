@@ -29,6 +29,7 @@ import { ShellTerminal } from "@/features/terminal/ShellTerminal";
 import type { AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { useMountEffect } from "@/hooks/useMountEffect";
 import { useSidecarConfig } from "@/query/sidecarConfig";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export interface MachineTerminalTarget {
   /** What the tab bar calls the machine. */
@@ -65,16 +66,13 @@ export function TerminalShellDialog({ feed, context, title, where, onClose, onEn
    */
   onEnd: (feed: SidecarDataSource, descriptor: AgentTerminalDescriptor | null) => Promise<boolean>;
 }) {
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  const endRef = useRef(onEnd);
-  endRef.current = onEnd;
+  const closeRef = useLatestRef(onClose);
+  const endRef = useLatestRef(onEnd);
   const opener = useRef<Element | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("open");
   const descriptor = useRef<AgentTerminalDescriptor | null>(null);
-  const phaseRef = useRef(phase);
-  phaseRef.current = phase;
+  const phaseRef = useLatestRef(phase);
 
   // Back to the button that opened it, so a keyboard reader is not dropped at the top of the page.
   useMountEffect(() => {

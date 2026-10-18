@@ -23,6 +23,7 @@ import {
 } from "@/features/profile/useStaleSessions";
 import { useDismissOnOutsidePress } from "@/hooks/dom/overlays";
 import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useNow } from "@/hooks/useNow";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
@@ -73,6 +74,8 @@ export function ProfileRow({
   }, [open]);
 
   const quota = quotaOf(usage);
+  // Read as the menu opens and every minute it stays open, for the countdown to the next reset.
+  const now = useNow(open, open ? 60_000 : null);
   // Detected once per mount. These are engine facts, not session facts: they
   // cannot change while the page is alive, and re-probing on every menu open
   // would be pretending otherwise.
@@ -219,7 +222,7 @@ export function ProfileRow({
             </p>
             {quota ? (
               <p className="truncate">
-                {quota.label} {quota.usedPercent}%, resets in {formatResetIn(quota.resetsAt, Date.now())}
+                {quota.label} {quota.usedPercent}%, resets in {formatResetIn(quota.resetsAt, now)}
               </p>
             ) : null}
             {/* What this webview can receive. Reported rather than assumed because

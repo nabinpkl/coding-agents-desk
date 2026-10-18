@@ -46,7 +46,7 @@ const RESTORE_HOLD_MS = 1500;
  * whatever changing means the strip may have grown; the effect re-checks on it until it lands.
  */
 export function useRememberedCanvasScroll(
-  scroller: React.RefObject<HTMLDivElement | null>,
+  scrollerRef: React.RefObject<HTMLDivElement | null>,
   content: unknown,
   /**
    * What the canvas is drawn at, and whether that is settled yet.
@@ -72,7 +72,7 @@ export function useRememberedCanvasScroll(
 
   useLayoutEffect(() => {
     if (restored.current || !zoom.ready) return;
-    const el = scroller.current;
+    const el = scrollerRef.current;
     if (!el) return;
     // Read once and held, because this effect runs again on every render until it lands, and what
     // it is looking for cannot change underneath it -- nothing writes the offset until it has.
@@ -110,12 +110,12 @@ export function useRememberedCanvasScroll(
     // end only moves outwards while the cards fill in, so an offset that already fits keeps
     // fitting, and a hold is a second and a half of not writing down where the reader goes.
     if (el.scrollLeft < asked.left - 1 || el.scrollTop < asked.top - 1) setHolding({ left, top });
-  }, [scroller, content, zoom.ready, zoom.scale, zoom.pad.left, zoom.pad.top]);
+  }, [scrollerRef, content, zoom.ready, zoom.scale, zoom.pad.left, zoom.pad.top]);
 
   // Asks again, every frame, until the strip is wide enough to answer or the reader takes over.
   useEffect(() => {
     if (holding === null) return;
-    const el = scroller.current;
+    const el = scrollerRef.current;
     if (!el) return;
     const release = (): void => setHolding(null);
     let frame = requestAnimationFrame(function again() {
@@ -140,13 +140,13 @@ export function useRememberedCanvasScroll(
       el.removeEventListener("pointerdown", release);
       window.removeEventListener("keydown", release, true);
     };
-  }, [holding, scroller, zoom.scale, zoom.pad.left, zoom.pad.top]);
+  }, [holding, scrollerRef, zoom.scale, zoom.pad.left, zoom.pad.top]);
 
   // Written from one place, on a timer, rather than beside each of the things that scroll the
   // canvas -- the reader, a card coming into view, a drag creeping at the edge. They all end up
   // here because they all end up as a scroll event.
   const remember = useCallback(() => {
-    const el = scroller.current;
+    const el = scrollerRef.current;
     // A hold is the restore still arriving rather than the reader moving: the scrolls it raises
     // say how far the strip can reach so far, not where anybody chose to be, and writing one of
     // those down is exactly how the remembered place walks away from the reader.
@@ -162,7 +162,7 @@ export function useRememberedCanvasScroll(
       timer.current = null;
       if (latest.current) storeCanvasScroll(latest.current);
     }, SCROLL_SETTLE_MS);
-  }, [scroller, zoom.scale, zoom.pad.left, zoom.pad.top, holding]);
+  }, [scrollerRef, zoom.scale, zoom.pad.left, zoom.pad.top, holding]);
 
   // Leaving the canvas is the one scroll that never settles, because the component goes with it.
   useEffect(() => () => {

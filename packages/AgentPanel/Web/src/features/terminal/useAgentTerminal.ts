@@ -61,6 +61,7 @@ export type {
   TerminalLabels,
   TerminalSizing,
 } from "@/features/terminal/mounted-terminal/agentTerminalTypes";
+import { useLatestRef } from "@/hooks/useLatestRef";
 export { TERMINAL_ZOOM } from "@/features/terminal/mounted-terminal/agentTerminalLayout";
 
 export function useAgentTerminal(
@@ -105,13 +106,11 @@ export function useAgentTerminal(
   // The effect's `onData` reads the latch as it stands at the keystroke, not as it stood when the
   // terminal was created, and the effect deliberately does not re-run on a modifier press: that
   // would tear down the session to answer a Ctrl tap.
-  const modifiersRef = useRef(modifiers);
-  modifiersRef.current = modifiers;
+  const modifiersRef = useLatestRef(modifiers);
   // Same shape as the modifier latch above and for the same reason: the fit reads the choice as it
   // stands, and the effect must not re-run on a zoom press -- that would tear down the attachment
   // and re-import the whole scrollback to answer a button.
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
+  const zoomRef = useLatestRef(zoom);
   /** The live `fitType`, so a zoom can re-run it without owning any of what it closes over. */
   const refitRef = useRef<(() => void) | null>(null);
   // Set once the terminal is open. Chrome outside the terminal -- the key rail -- types through it.

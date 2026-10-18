@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type { CliSessionStatus } from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
   SidecarDataSource,
 } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { sourceKey, usePanelQuery } from "@/query/panelQuery";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export interface CliSessionHandle {
   /**
@@ -55,8 +56,7 @@ export function useCliSession(
   const [reads, setReads] = useState(0);
   const refresh = useCallback(() => setReads((count) => count + 1), []);
   // The address is a fresh object on every render of the caller, so it cannot be part of a key.
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
+  const sessionRef = useLatestRef(session);
 
   const key = session && active ? `${session.source}/${session.sessionId}` : null;
 

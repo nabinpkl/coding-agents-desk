@@ -6,16 +6,16 @@
 // one axis once the finger has travelled far enough to say which, and a lift that was a throw
 // coasts. All of that past the touch itself is the shared translator's.
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import type { PointerInputSession } from "@/features/desktop-viewer/pointer-input/pointerInputSession";
 import { VelocityTracker } from "@/features/desktop-viewer/pointer-input/velocityTracker";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export function useScrollStripGestures(
   strip: RefObject<HTMLElement | null>,
   options: { input: PointerInputSession; onWheel?: (event: WheelEvent) => void },
 ) {
-  const latest = useRef(options);
-  latest.current = options;
+  const latest = useLatestRef(options);
 
   useEffect(() => {
     const element = strip.current;

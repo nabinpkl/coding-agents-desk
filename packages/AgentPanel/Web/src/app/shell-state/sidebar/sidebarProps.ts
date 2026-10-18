@@ -33,7 +33,7 @@ export function sidebarProps({
   thread,
 }: {
   botsState: ReturnType<typeof useBots>;
-  chrome: ReturnType<typeof useSidebarChrome>;
+  chrome: Omit<ReturnType<typeof useSidebarChrome>, "drawerTriggerRef">;
   commands: ReturnType<typeof useBotCommands>;
   creatingProjectPath: ReturnType<typeof usePiSessionCreation>["creatingProjectPath"];
   creationErrors: ReturnType<typeof usePiSessionCreation>["creationErrors"];
@@ -71,8 +71,8 @@ export function sidebarProps({
     bots: roster.orderedBots,
     botMachineLabels: machines.labels,
     // The roster rows' terminal button opens a shell in the Bot's own directory, on the machine
-    // that owns it -- the same lookup every Bot command already routes through.
-    feedForBot: (botId: string) => machines.feeds.forBot(botId),
+    // that owns it. Read as of this render, because the rows ask while they draw.
+    feedForBot: (botId: string) => machines.feedOfBot(botId),
     botsLoading: botsState.loading,
     botsError: botsState.error,
     selectedBotId: thread.selectedBotId,

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 import type { DesktopControlInput, DesktopCursorKind } from "@agentdesk/agent-feed-wire";
 import type { DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import { useDesktopKeyboard, type DesktopKeyboardTelemetry } from "@/features/desktop-viewer/keyboard-input/useDesktopKeyboard";
+import { useNotify } from "@/hooks/useNotify";
 
 export 
 type Controller = ReturnType<typeof useDesktopKeyboard>;
@@ -25,17 +26,19 @@ function Harness({
   expose: (controller: Controller) => void;
 }) {
   const controller = useDesktopKeyboard({ transport, cursorKind, report });
-  expose(controller);
+  // Handed over once committed, the way a parent learns anything a child derives.
+  useNotify(controller, expose);
+  const { captureRef, accessoryRef, captureProps, keyboardPresented } = controller;
   return (
     <>
       <textarea
-        ref={controller.captureRef}
+        ref={captureRef}
         aria-label="capture"
-        {...controller.captureProps}
+        {...captureProps}
       />
       {/* Stands in for the portaled accessory, which is what the hook measures. */}
-      {controller.keyboardPresented
-        ? <section ref={controller.accessoryRef} aria-label="accessory" />
+      {keyboardPresented
+        ? <section ref={accessoryRef} aria-label="accessory" />
         : null}
     </>
   );

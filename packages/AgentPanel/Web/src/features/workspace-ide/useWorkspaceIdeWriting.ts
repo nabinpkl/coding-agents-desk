@@ -15,7 +15,7 @@
 //  - resolving a conflict re-reads first, and writes against the revision it just fetched.
 
 import { useCallback, useRef } from "react";
-import { useLatestRef } from "@/hooks/useLatestRef";
+import { useCommitToRef, useLatestRef } from "@/hooks/useLatestRef";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import type { WorkspaceOperation } from "@agentdesk/agent-feed-wire";
@@ -218,7 +218,7 @@ export function useWorkspaceIdeWriting({
     }
   }, [applyOperation, client, forgetDraft, keepDraft, openFilesRef, scheduleSave, setError, setOpenFiles, generationRef, writingRef, pendingCloseRef, workspaceId]);
 
-  writeNowRef.current = (path, revision, text) => void writeNow(path, revision, text);
+  useCommitToRef(writeNowRef, (path: string, revision: string, text: string) => void writeNow(path, revision, text));
 
   const edit = useCallback((path: string, text: string) => {
     setOpenFiles((current) => {

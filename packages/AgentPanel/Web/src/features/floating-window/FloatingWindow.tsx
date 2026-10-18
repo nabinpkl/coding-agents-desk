@@ -25,6 +25,7 @@ import {
 } from "@/features/floating-window/floatingWindowPreferences";
 import { useDomSync } from "@/hooks/dom/useDomSync";
 import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 /** The gap between the switch and the window hanging from it, so the two read as one drawer. */
 const SWITCH_GAP = 4;
@@ -99,8 +100,7 @@ export function FloatingWindow({
     },
   });
   const size = { width: resize.width, height: resize.height };
-  const sizeNow = useRef(size);
-  sizeNow.current = size;
+  const sizeNow = useLatestRef(size);
   useEventListener(window, "resize", () =>
     setPosition((placed) =>
       placed

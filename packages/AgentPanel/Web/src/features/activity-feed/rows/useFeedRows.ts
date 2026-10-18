@@ -11,7 +11,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode, AgentSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
-import { buildFeedLayout, type PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
+import { buildFeedLayout, type FeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
 import { keepUnchangedItems, keepUnchangedPairs } from "@/features/activity-feed/rows/keepUnchanged";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 
@@ -94,32 +94,31 @@ export function useFeedRows({
     });
   }, [pause]);
 
-  // The previous layout's items and results, so a rebuild hands back the same object for every
-  // row a new line did not change and the memoized rows skip them (`keepUnchanged.ts`).
-  const previousLayout = useRef<{ items: FeedItem[]; pairedToolResults: ReadonlyMap<string, PairedToolResult> }>({
-    items: [],
-    pairedToolResults: new Map(),
-  });
-  const { items, allEventIds, clusterLeadIds, pairedToolResults } = useMemo(
-    () => {
-      // Clustering and scaffolding removal belong to Nice alone. Raw stays one
-      // row per transcript line, which is the fidelity guarantee Nice leans on.
-      const layout = buildFeedLayout(events, {
-        cluster: mode === "nice",
-        hideSystem: mode === "nice",
-        incrementalReasoning: mode === "nice" && (source === "codex" || source === "opencode"),
-        foldedClusters,
-      });
-      const kept = {
-        ...layout,
-        items: keepUnchangedItems(previousLayout.current.items, layout.items),
-        pairedToolResults: keepUnchangedPairs(previousLayout.current.pairedToolResults, layout.pairedToolResults),
-      };
-      previousLayout.current = kept;
-      return kept;
-    },
-    [events, mode, source, foldedClusters],
-  );
+  // The layout, and what it was built from. A rebuild hands back the previous layout's object for
+  // every row a new line did not change, so the memoized rows skip them (`keepUnchanged.ts`). Held
+  // as state and rebuilt during the render that sees new inputs, which React supports for a
+  // component's own state: it renders again at once, before anything is drawn, and the previous
+  // layout is this component's own value rather than one written aside during render.
+  const inputs = [events, mode, source, foldedClusters] as const;
+  const [built, setBuilt] = useState<{ inputs: typeof inputs; layout: FeedLayout } | null>(null);
+  let layout = built?.layout;
+  if (!built || !layout || inputs.some((input, index) => !Object.is(input, built.inputs[index]))) {
+    // Clustering and scaffolding removal belong to Nice alone. Raw stays one
+    // row per transcript line, which is the fidelity guarantee Nice leans on.
+    const fresh = buildFeedLayout(events, {
+      cluster: mode === "nice",
+      hideSystem: mode === "nice",
+      incrementalReasoning: mode === "nice" && (source === "codex" || source === "opencode"),
+      foldedClusters,
+    });
+    layout = {
+      ...fresh,
+      items: keepUnchangedItems(built?.layout.items ?? [], fresh.items),
+      pairedToolResults: keepUnchangedPairs(built?.layout.pairedToolResults ?? new Map(), fresh.pairedToolResults),
+    };
+    setBuilt({ inputs, layout });
+  }
+  const { items, allEventIds, clusterLeadIds, pairedToolResults } = layout;
 
   // The part of the turn the transcript has not reached yet, appended after the
   // durable layout as one row per live message (the "live tail"). A turn is many

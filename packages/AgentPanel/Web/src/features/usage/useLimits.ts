@@ -109,6 +109,34 @@ function receive(entry: Entry, message: LimitsStreamMessage) {
 }
 
 /**
+ * Counts one reader in, opening the stream if it is the first, and returns what counts it out.
+ *
+ * No sidecar to ask is answered by the caller: the surface that has one always passes it, and
+ * a readout rendered without one stays empty rather than inventing a meter.
+ */
+function follow(entry: Entry, feed: LimitsFeed, go: boolean, onChange: () => void): () => void {
+  entry.listeners.add(onChange);
+  entry.live += 1;
+  if (entry.live === 1 && !entry.unsubscribe) {
+    if (entry.reading.kind === "idle") publish(entry, { kind: "loading" });
+    entry.unsubscribe = feed.subscribeLimits(
+      {
+        onMessage: (message) => receive(entry, message),
+        onError: (reason) => publish(entry, { kind: "error", message: reason }),
+      },
+      go ? "opencode-go" : null,
+    );
+  }
+  return () => {
+    entry.listeners.delete(onChange);
+    entry.live -= 1;
+    if (entry.live > 0) return;
+    entry.unsubscribe?.();
+    entry.unsubscribe = null;
+  };
+}
+
+/**
  * The rate-limit meters for one machine, pushed as they move.
  *
  * Followed rather than polled because the sidecar is already told. Anthropic publishes the
@@ -128,30 +156,7 @@ export function useLimits(
   // by the last; the reading itself outlives it, so a card reopening shows the last known meters
   // at once and then corrects.
   const subscribe = useCallback(
-    (onChange: () => void) => {
-      // No sidecar to ask. The surface that has one always passes it; this keeps a readout
-      // rendered without one from throwing rather than from quietly inventing a meter.
-      if (!entry || !feed) return () => {};
-      entry.listeners.add(onChange);
-      entry.live += 1;
-      if (entry.live === 1 && !entry.unsubscribe) {
-        if (entry.reading.kind === "idle") publish(entry, { kind: "loading" });
-        entry.unsubscribe = feed.subscribeLimits(
-          {
-            onMessage: (message) => receive(entry, message),
-            onError: (reason) => publish(entry, { kind: "error", message: reason }),
-          },
-          go ? "opencode-go" : null,
-        );
-      }
-      return () => {
-        entry.listeners.delete(onChange);
-        entry.live -= 1;
-        if (entry.live > 0) return;
-        entry.unsubscribe?.();
-        entry.unsubscribe = null;
-      };
-    },
+    (onChange: () => void) => (entry && feed ? follow(entry, feed, go, onChange) : () => {}),
     [entry, feed, go],
   );
   // The store's own object, unchanged between reads, because `useSyncExternalStore` compares

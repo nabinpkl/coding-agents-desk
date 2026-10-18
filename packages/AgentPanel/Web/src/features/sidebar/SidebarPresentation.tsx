@@ -5,7 +5,7 @@ import {
   clampSidebarWidth,
 } from "@/features/sidebar/sidebarPreferences";
 import { useMediaQuery } from "@/hooks/dom/useMediaQuery";
-import { useLatestRef } from "@/hooks/useLatestRef";
+import { useCommitToRef } from "@/hooks/useLatestRef";
 
 const COMPACT_SIDEBAR_QUERY = "(max-width: 719px)";
 const HOVER_SIDEBAR_QUERY = "(hover: hover) and (pointer: fine)";
@@ -32,7 +32,10 @@ export function ResizableSidebar({
   children: ReactNode;
 }) {
   const drag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
-  const latestWidth = useLatestRef(width);
+  // Written by the drag as it previews, ahead of the render that width causes, and caught up with
+  // the prop after each commit.
+  const latestWidth = useRef(width);
+  useCommitToRef(latestWidth, width);
 
   const previewWidth = (nextWidth: number) => {
     const clamped = clampSidebarWidth(nextWidth);

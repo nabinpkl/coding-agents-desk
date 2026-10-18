@@ -6,9 +6,10 @@
 // this is the arbitration they did between them, written out: a finger that travels before the
 // hold is a move, one that lifts before it is a click, one that stays is a held button.
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import { TOUCH_DRAG_HOLD_MS } from "@/features/desktop-viewer/pointer-input/gestureConstants";
 import type { PointerInputSession } from "@/features/desktop-viewer/pointer-input/pointerInputSession";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export interface TrackpadGestureOptions {
   input: PointerInputSession;
@@ -21,8 +22,7 @@ export interface TrackpadGestureOptions {
 }
 
 export function useTrackpadGestures(pad: RefObject<HTMLElement | null>, options: TrackpadGestureOptions) {
-  const latest = useRef(options);
-  latest.current = options;
+  const latest = useLatestRef(options);
 
   useEffect(() => {
     const element = pad.current;

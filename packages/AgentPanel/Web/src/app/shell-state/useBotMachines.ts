@@ -54,8 +54,16 @@ export interface ShellMachines {
    * keeps meaning the same machine when a peer is relabelled.
    */
   readonly chips: readonly { key: string; label: string }[];
+  /** Which machine each Bot is on, as the key its chip carries. Changes with the roster. */
+  readonly machineKeys: ReadonlyMap<string, string>;
   /** Which machine a Bot is on, as the key its chip carries. */
   keyOfBot(botId: string): string | undefined;
+  /**
+   * The sidecar a rendered Bot belongs to, as of this render. `feeds.forBot` answers the same for a
+   * command, but from the roster as last committed, which a Bot that arrived in this render is not
+   * in yet.
+   */
+  feedOfBot(botId: string): SidecarDataSource;
   /**
    * Whether the set of machines is KNOWN, as opposed to not having arrived.
    *
@@ -142,15 +150,20 @@ export function useBotMachines(
    * Over the whole roster rather than the cards on the canvas, for the reason `botCanvasHues` is:
    * this is a fact about a Bot, not about what is currently on screen.
    */
+  const index = roster.machineIndex;
   const labels = useMemo(() => {
     const byBot = new Map<string, string>();
     if (!machinesAreMixed(all)) return byBot;
     for (const bot of roster.bots) {
-      const label = roster.machineOf(bot.botId)?.label;
+      const label = index.bot.get(bot.botId)?.label;
       if (label) byBot.set(bot.botId, label);
     }
     return byBot;
-  }, [all, roster.bots, roster.machineOf]);
+  }, [all, roster.bots, index]);
+  const machineKeys = useMemo(
+    () => new Map([...index.bot].map(([botId, machine]) => [botId, machineKey(machine)])),
+    [index],
+  );
   const chips = useMemo(
     () => (machinesAreMixed(all)
       ? all.map((machine) => ({ key: machineKey(machine), label: machine.label }))
@@ -165,13 +178,19 @@ export function useBotMachines(
     composers,
     labels,
     chips,
+    machineKeys,
     keyOfBot(botId) {
-      const machine = roster.machineOf(botId);
-      return machine === undefined ? undefined : machineKey(machine);
+      return machineKeys.get(botId);
+    },
+    feedOfBot(botId) {
+      const machine = index.bot.get(botId);
+      // Thrown for the reason `botFeeds.forBot` throws: a rendered Bot came out of this roster.
+      if (!machine) throw new Error(`no machine holds the Bot "${botId}"`);
+      return machine.feed;
     },
     known: machines === undefined || machines.length > 0,
     contextFor(base, botId) {
-      const machine = roster.machineOf(botId);
+      const machine = index.bot.get(botId);
       // The shell's own context when the Bot is on the machine the shell is pointed at, so the
       // ordinary single-machine panel hands every card the same object it always did.
       //

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen } from "@testing-library/react";
 import type { CliSessionStatus } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useCliSession } from "@/features/cli-input/useCliSession";
@@ -83,18 +83,13 @@ describe("useCliSession", () => {
         .mockResolvedValueOnce(TERMINAL)
         .mockResolvedValue({ entrypoint: "sdk-cli", tmuxSession: "keyboard", liveProcesses: 2 }),
     };
-    let handle!: ReturnType<typeof useCliSession>;
-    function Holder() {
-      handle = useCliSession(feed, S1, true);
-      return null;
-    }
-    render(<Holder />);
+    const { result } = renderHook(() => useCliSession(feed, S1, true));
     await flush();
-    expect(handle).toMatchObject({ isTerminalSession: true, isSdkSession: false, liveProcesses: 1 });
-    act(() => handle.refresh());
-    expect(handle.isTerminalSession).toBe(true);
+    expect(result.current).toMatchObject({ isTerminalSession: true, isSdkSession: false, liveProcesses: 1 });
+    act(() => result.current.refresh());
+    expect(result.current.isTerminalSession).toBe(true);
     await flush();
-    expect(handle).toMatchObject({ isTerminalSession: false, isSdkSession: true, liveProcesses: 2 });
+    expect(result.current).toMatchObject({ isTerminalSession: false, isSdkSession: true, liveProcesses: 2 });
     expect(feed.cliSessionStatus).toHaveBeenCalledTimes(2);
   });
 });

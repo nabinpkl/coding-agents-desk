@@ -28,7 +28,9 @@ export function FatherScope({
   open: boolean;
   onClose: () => void;
 }) {
-  const scope = useFatherScope({ feed, host, machines });
+  // The tasks host apart: it is handed to `ref`, and what render reads off `scope` must not sit
+  // beside something React treats as a ref.
+  const { setTasksHost, ...scope } = useFatherScope({ feed, host, machines });
   // Shut is shut, and loading with nothing yet is not a home that names nothing: the overlay
   // would say how to name one before the records have even arrived.
   if (!open || (scope.loading && scope.bots.length === 0)) return null;
@@ -43,7 +45,7 @@ export function FatherScope({
         onClose={onClose}
       />
       {/* `contents` so this box is not one: the panel inside it positions against the home. */}
-      <div ref={scope.setTasksHost} className="contents" />
+      <div ref={setTasksHost} className="contents" />
     </>
   );
 }

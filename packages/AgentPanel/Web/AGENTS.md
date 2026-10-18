@@ -157,6 +157,10 @@ files `.oxlintrc.json` names, one per outside system (ADR-0146). Reach for, in o
 with `sourceKey`), `useSubscription` or a store for a stream, then the `src/hooks/` hook named for
 the thing. `useDomSync` is DOM work only; `useNotify` is a parent that should be holding the state.
 
+Nor a ref read or written while rendering (React Compiler's rules, also lint errors): a latest value
+goes through `useLatestRef`, one a handler writes ahead of the render through `useCommitToRef`, the
+time through `useNow`, and a ref a hook returns is split off the rest of what it returns.
+
 ## Transient states take no space
 
 Settled 2026-10-18, on the owner's word, after the canvas jumped on every sidecar restart.

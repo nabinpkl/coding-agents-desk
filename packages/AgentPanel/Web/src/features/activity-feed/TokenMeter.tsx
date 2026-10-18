@@ -7,6 +7,7 @@ import { useLimits, type LimitsState } from "@/features/usage/useLimits";
 import { formatUsd, formatWindow, STALE_QUOTA_MS } from "@/features/usage/formatTokens";
 import { useInterval } from "@/hooks/useInterval";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
+import { useNow } from "@/hooks/useNow";
 
 /**
  * The panel's Compact button, as the composer hands it over.
@@ -432,7 +433,14 @@ function LimitChips({ quotas, unavailable }: { quotas: UsageQuota[]; unavailable
     );
   }
   if (quotas.length === 0) return null;
-  const at = Date.now();
+  return <LimitChipList quotas={quotas} />;
+}
+
+/** The chips themselves, once there are readings to draw. */
+function LimitChipList({ quotas }: { quotas: UsageQuota[] }) {
+  // Read afresh with each new reading, and every minute while one is shown: a reading turns stale
+  // by sitting on screen, which nothing reports.
+  const at = useNow(quotas.reduce((latest, quota) => Math.max(latest, quota.sampledAt), 0), 60_000);
   return (
     <span className="flex shrink-0 items-center gap-1.5">
       {quotas.map((quota) => {

@@ -37,6 +37,7 @@ import { useEventListener } from "@/hooks/dom/useEventListener";
 import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 import { useMountEffect, useUnmountEffect } from "@/hooks/useMountEffect";
 import { useNotify } from "@/hooks/useNotify";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Re-exported: the surface imports the hook, and these are what it hands back.
 export type { KeyboardMode, DesktopKeyboardTelemetry } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardContext";
@@ -68,10 +69,9 @@ export function useDesktopKeyboard({
   const [keyboardMode, setKeyboardModeState] = useState<KeyboardMode>(storedKeyboardMode);
   // The platform decides whether a deck is on offer at all; the preference only chooses between
   // the two where both exist. A desktop browser raises no keyboard and has a real one attached.
-  const deckAvailable = useRef(drawsOwnKeyboard()).current;
+  const [deckAvailable] = useState(drawsOwnKeyboard);
   const showsDeck = deckAvailable && keyboardMode === "deck";
-  const showsDeckRef = useRef(showsDeck);
-  showsDeckRef.current = showsDeck;
+  const showsDeckRef = useLatestRef(showsDeck);
   const [modifiers, setModifiers] = useState<Record<RemoteModifier, ModifierState>>(OFF_MODIFIERS);
   const modifiersRef = useRef(modifiers);
   const [receipt, setReceipt] = useState<string[]>([]);
@@ -84,8 +84,7 @@ export function useDesktopKeyboard({
    * typing into, and leaving it takes Send or Cancel rather than a backspace.
    */
   const [draft, setDraft] = useState<string | null>(null);
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
+  const draftRef = useLatestRef(draft);
   const [accessoryBottom, setAccessoryBottom] = useState(0);
   const [accessoryHeight, setAccessoryHeight] = useState(0);
   const accessoryRef = useRef<HTMLElement>(null);
@@ -113,8 +112,7 @@ export function useDesktopKeyboard({
   };
   // Read through a ref rather than captured, so every callback below is stable and the parts
   // always see this render's props.
-  const ctxRef = useRef(ctx);
-  ctxRef.current = ctx;
+  const ctxRef = useLatestRef(ctx);
 
   const setKeyboardMode = useCallback((mode: KeyboardMode) => session.setKeyboardMode(ctxRef.current, mode), []);
   const updatePresentation = useCallback((action: KeyboardPresentationAction) => session.updatePresentation(ctxRef.current, action), []);

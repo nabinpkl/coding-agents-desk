@@ -77,14 +77,16 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   const shellMachines = useBotMachines(feed, machines);
   const botsState = shellMachines.roster;
   const windowComposers = shellMachines.composers;
-  const chrome = useSidebarChrome();
+  // The drawer's trigger apart from the rest: what render reads off `chrome` must not sit beside a
+  // ref, or every one of those reads looks like a read of the ref.
+  const { drawerTriggerRef, ...chrome } = useSidebarChrome();
   // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
   // roster to drop stored cards against. See `useBotMachines`.
   const roster = useCanvasRoster(
     {
       bots: botsState.bots,
       settled: botsState.settled && shellMachines.known,
-      machineOf: shellMachines.keyOfBot,
+      machineKeys: shellMachines.machineKeys,
       // Absent where the embedder names no machines: then this sidecar is the only one there is.
       ...(machines === undefined ? {} : { machines: shellMachines.all.map(machineKey) }),
     },
@@ -146,7 +148,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   // Which directories are watched, and which machine answers for each: see `useShellInventory`.
   const { inventory, dialogSessionsByProject, rememberedSelection } = useShellInventory({
     feed,
-    machineOf: botsState.machineOf,
+    botMachines: botsState.machineIndex.bot,
     picker: botSessionPicker
       ? { botId: botSessionPicker.botId, projectPath: botSessionPicker.environment.path }
       : null,
@@ -155,7 +157,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   const thread = useThreadSelection({
     projects: inventory.projects,
     sessionsByProject: inventory.sessionsByProject,
-    rememberedSelection: rememberedSelection.current,
+    rememberedSelection,
     setBotCommandError: commands.setBotCommandError,
     setHoverPreviewOpen: chrome.setHoverPreviewOpen,
     setSidebarOpen: chrome.setSidebarOpen,
@@ -267,7 +269,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
           forkRequest={commands.forkRequest}
           handoverRequest={commands.handoverRequest}
           machines={shellMachines.all}
-          machineOfBot={botsState.machineOf}
+          botMachines={botsState.machineIndex.bot}
           forkTitlesInProject={forkTitlesInProject}
           inventoryLoading={inventory.loadingLayer}
           projects={inventory.projects}
@@ -294,7 +296,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
           <AgentSidebarDialog
             {...sidebar}
             open={chrome.drawerOpen}
-            triggerRef={chrome.drawerTriggerRef}
+            triggerRef={drawerTriggerRef}
             onRequestClose={() => chrome.setSidebarOpen(false)}
           />
         ) : null}
@@ -338,7 +340,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
             >
               {!chrome.sidebarPinned ? (
                 <button
-                  ref={chrome.drawerTriggerRef}
+                  ref={drawerTriggerRef}
                   type="button"
                   onClick={chrome.openSidebar}
                   onPointerEnter={chrome.hoverCapable ? chrome.revealSidebarOnHover : undefined}

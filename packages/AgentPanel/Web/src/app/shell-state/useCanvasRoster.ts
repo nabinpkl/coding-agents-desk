@@ -11,7 +11,7 @@
 // `setBotCanvas`. The rest is how this reader arranged this browser, and `botCanvasPreferences`
 // keeps it.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
@@ -31,6 +31,7 @@ import {
 } from "@/features/bots/canvas/botCanvasPreferences";
 import { loadCanvasZoomMode, storeCanvasZoomMode } from "@/features/bots/canvas/useCanvasZoom";
 import { usePersistentState } from "@/hooks/state/usePersistentState";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNotify } from "@/hooks/useNotify";
 
 export function useCanvasRoster(
@@ -38,8 +39,12 @@ export function useCanvasRoster(
     bots: BotView[];
     /** Every machine's roster has arrived. See the prune below for why "not failing" is not enough. */
     settled: boolean;
-    /** Which machine a Bot is on, as its machine key. Absent where there is only ever one. */
-    machineOf?: (botId: string) => string | undefined;
+    /**
+     * Which machine each Bot is on, as its machine key. Absent where there is only ever one. A map
+     * rather than a lookup, because the prune below decides during render and has to see a Bot
+     * that arrived in this render.
+     */
+    machineKeys?: ReadonlyMap<string, string>;
     /**
      * The machines the roster covers right now, by key, or absent when the embedder names none and
      * this sidecar is the only one there can be. A peer that misses its heartbeat leaves this list.
@@ -66,8 +71,7 @@ export function useCanvasRoster(
     [botsState.bots],
   );
   // Read through a ref so the commands below keep one identity while the roster moves under them.
-  const currentBots = useRef(botsState.bots);
-  currentBots.current = botsState.bots;
+  const currentBots = useLatestRef(botsState.bots);
   /**
    * A canvas change that did not land. Said on the canvas rather than swallowed: nothing moves
    * until the sidecar has written it, so a failure would otherwise look like a click that did
@@ -156,20 +160,19 @@ export function useCanvasRoster(
   // holding it), and only while that machine is in the list. A key from before machines were
   // recorded is judged against the whole roster only where no peer can exist; elsewhere it is kept
   // until a Bot is seen holding it, rather than guessed at.
-  const openMachines = useRef<ReadonlyMap<string, string>>(loadCanvasOpenMachines());
-  const machineOf = useRef(botsState.machineOf);
-  machineOf.current = botsState.machineOf;
+  const [openMachines, setOpenMachines] = useState<ReadonlyMap<string, string>>(loadCanvasOpenMachines);
+  const machineKeys = botsState.machineKeys;
   // Joined, so the effects below see a change of machines rather than a new array per render.
   const machineList = botsState.machines === undefined ? undefined : botsState.machines.join("\n");
   /** Each session some Bot holds, and the machine that Bot is on. */
   const holders = useMemo(() => {
     const byKey = new Map<string, string>();
     for (const bot of botsState.bots) {
-      const machine = machineOf.current?.(bot.botId) ?? "";
+      const machine = machineKeys?.get(bot.botId) ?? "";
       for (const ref of bot.sessionRefs) byKey.set(`${ref.source}:${ref.sessionId}`, machine);
     }
     return byKey;
-  }, [botsState.bots]);
+  }, [botsState.bots, machineKeys]);
   // A card whose session no Bot holds any more closes, once the Bots have settled. Checked during
   // render against each new set of Bots, and written only when something goes, so a snapshot that
   // changed nothing neither re-renders nor rewrites the store.
@@ -184,7 +187,7 @@ export function useCanvasRoster(
     const present = machineList === undefined ? undefined : new Set(machineList.split("\n"));
     const kept = new Set([...canvasOpenKeys].filter((key) => {
       if (holders.has(key)) return true;
-      const machine = openMachines.current.get(key);
+      const machine = openMachines.get(key);
       if (present === undefined) return false;
       return machine === undefined || !present.has(machine);
     }));
@@ -197,12 +200,12 @@ export function useCanvasRoster(
   useNotify(recorded, () => {
     const next = new Map<string, string>();
     for (const key of canvasOpenKeys) {
-      const machine = holders.get(key) ?? openMachines.current.get(key);
+      const machine = holders.get(key) ?? openMachines.get(key);
       if (machine !== undefined) next.set(key, machine);
     }
-    const before = openMachines.current;
+    const before = openMachines;
     if (next.size === before.size && [...next].every(([key, machine]) => before.get(key) === machine)) return;
-    openMachines.current = next;
+    setOpenMachines(next);
     storeCanvasOpenMachines(next);
   });
   /**
@@ -232,8 +235,7 @@ export function useCanvasRoster(
   );
   // Read through a ref so the move below keeps one identity for the life of the panel: it is handed
   // to the canvas, and a fresh callback on every roster snapshot would rebuild the strip's props.
-  const arranged = useRef(orderedBots);
-  arranged.current = orderedBots;
+  const arranged = useLatestRef(orderedBots);
   /**
    * Stands one Bot where another is, naming both rather than their places on the strip.
    *

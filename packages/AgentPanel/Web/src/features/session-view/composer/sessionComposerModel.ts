@@ -5,7 +5,6 @@
 // six of these and the six overlap. Built once per render in `SessionComposer.tsx`, which
 // is the only thing that decides any of it.
 
-import type { RefObject } from "react";
 import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
@@ -80,7 +79,11 @@ export interface ComposerModel {
    * card's drop target is given, so the paperclip and a drop do the same thing.
    */
   acceptFiles: ((files: readonly File[]) => void) | null;
-  filePicker: RefObject<HTMLInputElement | null>;
+  /**
+   * The id of the band's hidden file input, which the paperclip opens. An id rather than a ref,
+   * because the actions are built while rendering and a ref is not something render may read.
+   */
+  filePickerId: string;
   cliSessionBand: boolean;
   isClaude: boolean;
   isCodex: boolean;

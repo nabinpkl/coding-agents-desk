@@ -11,7 +11,7 @@
 // sat on "Loading sessions from this directory" for good, because the Mac's inventory stream
 // accepted the path, found no project, and never sent a sessions message for it.
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { loadSelection } from "@/features/sidebar/selectionStore";
@@ -22,7 +22,8 @@ import type { SessionArchiving } from "@/features/sidebar/session-list/ArchivedS
 
 export function useShellInventory({
   feed,
-  machineOf,
+  /** Which machine each Bot is on, as of this render: the reads below are decided while rendering. */
+  botMachines,
   /** The Bot whose session picker is open, if one is. Its directory is what a peer read is FOR. */
   picker,
   /**
@@ -34,7 +35,7 @@ export function useShellInventory({
   recentWanted,
 }: {
   feed: SidecarDataSource;
-  machineOf: (botId: string) => BotMachine | undefined;
+  botMachines: ReadonlyMap<string, BotMachine>;
   picker: { botId: string; projectPath: string } | null;
   startedSessions: readonly { botId?: string; projectPath: string }[];
   recentWanted: boolean;
@@ -42,9 +43,9 @@ export function useShellInventory({
   // Null unless the open picker's Bot is on a machine other than the one this shell is pointed at.
   const pickerPeer = useMemo(() => {
     if (!picker) return null;
-    const machine = machineOf(picker.botId);
+    const machine = botMachines.get(picker.botId);
     return machine && machine.feed !== feed ? machine : null;
-  }, [picker, machineOf, feed]);
+  }, [picker, botMachines, feed]);
   const pickerPeerPaths = useMemo(
     () => (pickerPeer && picker ? [picker.projectPath] : []),
     [pickerPeer, picker],
@@ -63,19 +64,19 @@ export function useShellInventory({
     // rendering the placeholder card, not so it can be attached -- the Bot did that when it started
     // it. A session started on a peer is watched by that peer's own Bot stream instead.
     for (const started of startedSessions) {
-      const machine = started.botId === undefined ? undefined : machineOf(started.botId);
+      const machine = started.botId === undefined ? undefined : botMachines.get(started.botId);
       if (!machine || machine.feed === feed) paths.push(started.projectPath);
     }
     return paths;
-  }, [picker, pickerPeer, startedSessions, machineOf, feed]);
+  }, [picker, pickerPeer, startedSessions, botMachines, feed]);
 
   // Read once, at mount. Storage is written on every selection, so re-reading it later would race
   // the write the shell just made.
-  const rememberedSelection = useRef(loadSelection());
+  const [rememberedSelection] = useState(loadSelection);
   const inventory = useProjectInventory(
     feed,
     extraProjectPaths,
-    rememberedSelection.current?.projectPath,
+    rememberedSelection?.projectPath,
     recentWanted,
   );
 

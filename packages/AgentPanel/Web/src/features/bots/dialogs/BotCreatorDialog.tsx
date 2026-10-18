@@ -36,7 +36,7 @@ export function BotCreatorDialog({
   projects,
   bots,
   machines,
-  machineOfBot,
+  botMachines,
   inventoryLoading,
   onClose,
   onCreate,
@@ -47,7 +47,8 @@ export function BotCreatorDialog({
   bots: BotView[];
   /** Every sidecar a Bot can be created on, home first. One machine hides the picker entirely. */
   machines: readonly BotMachine[];
-  machineOfBot: (botId: string) => BotMachine | undefined;
+  /** Which machine each Bot is on, as of this render: the claimed directories are decided in it. */
+  botMachines: ReadonlyMap<string, BotMachine>;
   inventoryLoading: boolean;
   onClose: () => void;
   /**
@@ -92,10 +93,10 @@ export function BotCreatorDialog({
   const claimedDirectories = useMemo(
     () => new Set(
       bots
-        .filter((bot) => machineOfBot(bot.botId)?.id === machine.id)
+        .filter((bot) => botMachines.get(bot.botId)?.id === machine.id)
         .map((bot) => bot.environment.path),
     ),
-    [bots, machineOfBot, machine.id],
+    [bots, botMachines, machine.id],
   );
 
   // Memoized on the machine, not rebuilt per render: the picker re-reads the folder it is

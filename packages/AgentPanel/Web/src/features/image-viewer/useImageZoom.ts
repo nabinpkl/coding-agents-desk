@@ -8,6 +8,7 @@
 // already pointing at.
 
 import { useCallback, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { useEventListener } from "@/hooks/dom/useEventListener";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
 import { useStateFor } from "@/hooks/state/useStateFor";
@@ -69,8 +70,7 @@ export function useImageZoom(resetKey: string): ImageZoom {
   const [view, setView] = useStateFor<View>(resetKey, () => FIT);
   // Gestures read the view they are continuing, and a pointer move must not wait for a render to
   // see where the last one left it.
-  const latest = useRef<View>(FIT);
-  latest.current = view;
+  const latest = useLatestRef<View>(view);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ distance: number; scale: number } | null>(null);
   const drag = useRef<{ x: number; y: number; from: View } | null>(null);

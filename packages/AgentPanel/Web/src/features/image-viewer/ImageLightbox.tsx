@@ -33,7 +33,8 @@ export function ImageLightbox({
   onClose: () => void;
   children?: ReactNode;
 }) {
-  const zoom = useImageZoom(url);
+  // The two ref callbacks apart: what render reads off `zoom` must not sit beside them.
+  const { frameRef, imageRef, ...zoom } = useImageZoom(url);
 
 
   return (
@@ -113,7 +114,7 @@ export function ImageLightbox({
             growing the dialog, and it owns the gestures: `touch-action: none` because a pinch and
             a drag in here are this view's, not the page's. */}
         <div
-          ref={zoom.frameRef}
+          ref={frameRef}
           {...zoom.frameHandlers}
           className={
             "flex touch-none items-center justify-center overflow-hidden rounded-lg " +
@@ -121,7 +122,7 @@ export function ImageLightbox({
           }
         >
           <img
-            ref={zoom.imageRef}
+            ref={imageRef}
             src={url}
             alt={alt}
             draggable={false}

@@ -37,7 +37,7 @@ export function AppDialogs({
   forkRequest,
   handoverRequest,
   machines,
-  machineOfBot,
+  botMachines,
   forkTitlesInProject,
   inventoryLoading,
   projects,
@@ -68,7 +68,7 @@ export function AppDialogs({
   forkTitlesInProject: string[];
   /** Every sidecar a Bot can be created on. See `botMachines.ts` for why the record stays there. */
   machines: readonly BotMachine[];
-  machineOfBot: (botId: string) => BotMachine | undefined;
+  botMachines: ReadonlyMap<string, BotMachine>;
   inventoryLoading: boolean;
   projects: ProjectSummary[];
   renameBot: (bot: BotView, restyle: { name: string; iconUrl?: string; role?: string }) => Promise<void>;
@@ -142,7 +142,7 @@ export function AppDialogs({
             projects={projects}
             bots={bots}
             machines={machines}
-            machineOfBot={machineOfBot}
+            botMachines={botMachines}
             inventoryLoading={inventoryLoading}
             onClose={() => setBotCreatorOpen(false)}
             onCreate={createBot}

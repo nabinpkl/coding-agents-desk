@@ -130,12 +130,14 @@ export function TileStreamRtc({
       + `${Math.round(capturePlan.region.width)},${Math.round(capturePlan.region.height)}`
       + `@${capturePlan.pixelWidth}x${capturePlan.pixelHeight}`
     : "";
-  const [state, setState] = useState<DesktopStreamState>({ kind: "connecting" });
+  // A webview without WebRTC is known before anything is tried, so it starts in the state it ends in.
+  const [state, setState] = useState<DesktopStreamState>(() => typeof RTCPeerConnection === "undefined"
+    ? { kind: "unsupported", message: "this webview has no RTCPeerConnection" }
+    : { kind: "connecting" });
   const onControlTransportRef = useLatestRef(onControlTransport);
   const onControlEventRef = useLatestRef(onControlEvent);
   const onSourceMetadataRef = useLatestRef(onSourceMetadata);
-  const onFirstFrameRef = useRef(onFirstFrame);
-  onFirstFrameRef.current = onFirstFrame;
+  const onFirstFrameRef = useLatestRef(onFirstFrame);
   /**
    * The previous session's peer, kept alive until the next session has painted.
    *
@@ -147,8 +149,7 @@ export function TileStreamRtc({
    */
   const retiring = useRef<{ peer: RTCPeerConnection; attempt: string; timer: number } | null>(null);
   const [hasPicture, setHasPicture] = useState(false);
-  const onDisplayUnavailableRef = useRef(onDisplayUnavailable);
-  onDisplayUnavailableRef.current = onDisplayUnavailable;
+  const onDisplayUnavailableRef = useLatestRef(onDisplayUnavailable);
 
 
 
@@ -158,10 +159,7 @@ export function TileStreamRtc({
   useEffect(() => {
     const element = video.current;
     if (!element) return undefined;
-    if (typeof RTCPeerConnection === "undefined") {
-      setState({ kind: "unsupported", message: "this webview has no RTCPeerConnection" });
-      return undefined;
-    }
+    if (typeof RTCPeerConnection === "undefined") return undefined;
 
     const live: TileSessionRuntime = {
       cancelled: false,

@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { keyboardInset, typesText } from "@/app/page/keyboardInset";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 const SCROLL_KEY = "agent-panel.terminal-canvas.scroll";
 const SCROLL_SETTLE_MS = 200;
@@ -79,7 +80,7 @@ function keyboardCovering(): boolean {
 }
 
 export function useTerminalCanvasScroll(
-  scroller: React.RefObject<HTMLDivElement | null>,
+  scrollerRef: React.RefObject<HTMLDivElement | null>,
   /** Whatever changing means the strip may have grown: re-checks the restore on it. */
   content: unknown,
   /**
@@ -104,7 +105,7 @@ export function useTerminalCanvasScroll(
 
   useLayoutEffect(() => {
     if (restored.current || !zoom.ready) return;
-    const el = scroller.current;
+    const el = scrollerRef.current;
     if (!el) return;
     wanted.current ??= loadStripScroll();
     const { left, top } = wanted.current;
@@ -150,7 +151,7 @@ export function useTerminalCanvasScroll(
       el.removeEventListener("touchstart", release);
       el.removeEventListener("pointerdown", release);
     };
-  }, [scroller, content, zoom.ready, zoom.scale, zoom.pad.left, zoom.pad.top]);
+  }, [scrollerRef, content, zoom.ready, zoom.scale, zoom.pad.left, zoom.pad.top]);
 
   // Whether the keyboard was covering the last time anything looked. Shared by the scroll
   // handler below and the close watcher after it: a keyboard that opens with no subscribed
@@ -159,7 +160,7 @@ export function useTerminalCanvasScroll(
   const wasCovering = useRef<boolean>(false);
 
   const remember = useCallback(() => {
-    const el = scroller.current;
+    const el = scrollerRef.current;
     // A hold is the restore still arriving rather than the reader moving: writing one of those
     // down is how the remembered place walks away from the reader a little further every visit.
     if (!el || !restored.current || holding.current) return;
@@ -183,7 +184,7 @@ export function useTerminalCanvasScroll(
       timer.current = null;
       if (latest.current) storeStripScroll(latest.current);
     }, SCROLL_SETTLE_MS);
-  }, [scroller, zoom.scale, zoom.pad.left, zoom.pad.top]);
+  }, [scrollerRef, zoom.scale, zoom.pad.left, zoom.pad.top]);
 
   // Puts the canvas back where it was once the keyboard is gone. The browser restores neither
   // the offset its own scroll-into-view moved nor what the shortened document clamped, and the
@@ -191,8 +192,7 @@ export function useTerminalCanvasScroll(
   // keyboard-era offset until the reader drags it back by hand. One shot rather than a hold:
   // the strip is the same size it was, so an offset that fitted before fits again. Skipped
   // while the mount restore still owns the offset, and while there is nothing to put back.
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
+  const zoomRef = useLatestRef(zoom);
   useEffect(() => {
     wasCovering.current = keyboardCovering();
     const onChange = (): void => {
@@ -200,7 +200,7 @@ export function useTerminalCanvasScroll(
       const closed = wasCovering.current && !covering;
       wasCovering.current = covering;
       if (!closed) return;
-      const el = scroller.current;
+      const el = scrollerRef.current;
       const at = latest.current ?? wanted.current;
       if (!el || !restored.current || holding.current || !at) return;
       if (at.left === 0 && at.top === 0 && zoomRef.current.pad.left === 0 && zoomRef.current.pad.top === 0) return;
@@ -223,7 +223,7 @@ export function useTerminalCanvasScroll(
       document.removeEventListener("focusin", onChange);
       document.removeEventListener("focusout", onChange);
     };
-  }, [scroller]);
+  }, [scrollerRef]);
 
   useEffect(() => () => {
     if (timer.current !== null) clearTimeout(timer.current);

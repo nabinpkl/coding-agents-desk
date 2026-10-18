@@ -39,7 +39,7 @@ export function SessionComposerBand({
   composerFocused,
   editor,
   feed,
-  filePicker,
+  filePickerId,
   isClaude,
   isCodex,
   model,
@@ -63,7 +63,7 @@ export function SessionComposerBand({
   composerFocused: boolean;
   editor: ComposerEditor;
   feed: Parameters<typeof AgentTerminalPane>[0]["feed"];
-  filePicker: ComposerModel["filePicker"];
+  filePickerId: ComposerModel["filePickerId"];
   /** Takes the images the picker returns, or null where this session has nowhere to put one. */
   onPickFiles: ComposerModel["acceptFiles"];
   isClaude: boolean;
@@ -149,7 +149,7 @@ export function SessionComposerBand({
           what dropping on the card does. */}
       {onPickFiles ? (
         <input
-          ref={filePicker}
+          id={filePickerId}
           type="file"
           accept="image/png,image/jpeg,image/gif,image/webp"
           multiple

@@ -85,13 +85,15 @@ export function StartedSessionModal({
     return () => previous?.focus();
   });
 
+  // When the modal opened, which is when the session it waits for was last heard of.
+  const [openedAt] = useState(Date.now);
   // Not rebuilt on every render: the view keys its effects on the objects it is handed.
   const awaited = useMemo(
     () => ({
-      project: projectOf(started, projects, Date.now()),
+      project: projectOf(started, projects, openedAt),
       session: awaitedSession(started.source, started.sessionId, started.title, null),
     }),
-    [projects, started],
+    [projects, started, openedAt],
   );
 
   if (started.sdk) {

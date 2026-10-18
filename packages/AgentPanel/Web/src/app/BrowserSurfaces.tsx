@@ -97,6 +97,18 @@ function useDesktopAvailable(feed: SidecarDataSource): boolean {
   return available;
 }
 
+/** A data source per proxied session over one transport, made the first time each is asked for. */
+function sessionSources(transport: AgentHttpTransport): (id: string) => SidecarDataSource {
+  const made = new Map<string, SidecarDataSource>();
+  return (id) => {
+    const existing = made.get(id);
+    if (existing) return existing;
+    const source = new SidecarDataSource(sessionTransport(transport, id));
+    made.set(id, source);
+    return source;
+  };
+}
+
 export function BrowserSurfaces({
   transport,
   feed,
@@ -128,19 +140,12 @@ export function BrowserSurfaces({
    * it -- including this machine's, for a change on another machine entirely. Keyed on `transport`
    * so the cache cannot outlive the thing it wraps.
    */
-  const sources = useMemo(() => new Map<string, SidecarDataSource>(), [transport]);
+  const sources = useMemo(() => sessionSources(transport), [transport]);
   const sourceFor = useCallback(
-    (id: string | undefined): SidecarDataSource => {
-      // The default session keeps the source built at startup, which keeps the native/webview leg
-      // bit-for-bit what it was.
-      if (!id) return feed;
-      const existing = sources.get(id);
-      if (existing) return existing;
-      const made = new SidecarDataSource(sessionTransport(transport, id));
-      sources.set(id, made);
-      return made;
-    },
-    [feed, sources, transport],
+    // The default session keeps the source built at startup, which keeps the native/webview leg
+    // bit-for-bit what it was.
+    (id: string | undefined): SidecarDataSource => (id ? sources(id) : feed),
+    [feed, sources],
   );
 
   /**

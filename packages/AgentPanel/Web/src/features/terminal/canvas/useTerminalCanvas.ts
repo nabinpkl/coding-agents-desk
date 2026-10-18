@@ -143,11 +143,11 @@ export function useTerminalCanvas(
         sessions: snapshot?.sessions ?? [],
         workspaceRoots: snapshot?.workspaceRoots ?? [],
         botDirs: roster.bots
-          .filter((bot) => roster.machineOf(bot.botId) === machine)
+          .filter((bot) => roster.machineIndex.bot.get(bot.botId) === machine)
           .map((bot) => bot.environment.path),
       };
     }),
-    [all, snapshots, roster.bots, roster.machineOf],
+    [all, snapshots, roster.bots, roster.machineIndex],
   );
   const grouping: TerminalGrouping = useMemo(() => groupTerminalsByDirectory(sources), [sources]);
   const [activeOnly, setActiveOnly] = usePersistentState<boolean>(loadTerminalActiveOnly, storeTerminalActiveOnly);

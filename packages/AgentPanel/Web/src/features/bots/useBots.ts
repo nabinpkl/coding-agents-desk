@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
 import {
   indexBotMachines,
@@ -8,6 +8,7 @@ import {
   mergeMachineBots,
   type BotMachine,
 } from "@/features/bots/botMachines";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { useSubscription } from "@/hooks/useSubscription";
 
 function retryDelay(attempt: number): number {
@@ -26,10 +27,29 @@ export interface MachineError {
   held: boolean;
 }
 
+/** Which machine each Bot and each held session is on, as of one roster. */
+export interface BotMachineIndex {
+  bots: readonly BotView[];
+  /** By Bot id. */
+  bot: ReadonlyMap<string, BotMachine>;
+  /** By `source:sessionId`. */
+  session: ReadonlyMap<string, BotMachine>;
+}
+
 export interface BotRosterState {
   /** Every machine's Bots as one roster, in the order `mergeMachineBots` fixes. */
   bots: BotView[];
-  /** Which sidecar a Bot's commands and transcripts must go to. Undefined for an unknown id. */
+  /**
+   * Which machine each Bot is on, for anything that decides it while rendering. It changes with
+   * the roster, so a memo keyed on it sees a Bot that has just arrived.
+   */
+  machineIndex: BotMachineIndex;
+  /**
+   * Which sidecar a Bot's commands and transcripts must go to, for a command. Undefined for an
+   * unknown id. One identity for the life of the panel, reading the roster as last committed, so
+   * not for render: a Bot that arrives in this render is not in it yet. Render reads
+   * `machineIndex`.
+   */
   machineOf: (botId: string) => BotMachine | undefined;
   /** The same, for a command addressed at a session rather than at the Bot holding it. */
   machineOfSession: (ref: BotSessionRef) => BotMachine | undefined;
@@ -87,8 +107,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
   const [errors, setErrors] = useState<ReadonlyMap<string, string>>(new Map());
   // Read as the subscriptions open rather than keyed on, so they survive a re-render that only
   // rebuilt the array.
-  const machinesRef = useRef(machines);
-  machinesRef.current = machines;
+  const machinesRef = useLatestRef(machines);
   const signature = machines.map(machineFeedKey).join("\0");
 
   // One stream per machine, reopened when the set of machines or any one's data source changes.
@@ -155,28 +174,25 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
     [machines, snapshots],
   );
   const bots = useMemo(() => mergeMachineBots(rosters), [rosters]);
-  // Read through a ref, so both resolvers keep ONE identity for the life of the panel.
+  const machineIndex = useMemo<BotMachineIndex>(
+    () => ({ bots, bot: indexBotMachines(rosters), session: indexSessionMachines(rosters) }),
+    [bots, rosters],
+  );
+  // The resolvers read the index through a ref, so they keep ONE identity for the life of the
+  // panel.
   //
   // Two things follow, and both are wanted. Every command callback that closes over them stays
   // stable while the Bot stream pushes -- otherwise a snapshot every few seconds would rebuild the
   // whole command surface and every prop on the canvas with it. And a command resolves against the
   // roster as it is when the button is PRESSED rather than as it was when the button rendered,
   // which is the correct answer for a Bot that moved between the two.
-  const indexes = useRef({
-    bots: [] as readonly BotView[],
-    bot: new Map<string, BotMachine>() as ReadonlyMap<string, BotMachine>,
-    session: new Map<string, BotMachine>() as ReadonlyMap<string, BotMachine>,
-  });
-  indexes.current = useMemo(
-    () => ({ bots, bot: indexBotMachines(rosters), session: indexSessionMachines(rosters) }),
-    [bots, rosters],
-  );
-  const machineOf = useCallback((botId: string) => indexes.current.bot.get(botId), []);
+  const committed = useLatestRef(machineIndex);
+  const machineOf = useCallback((botId: string) => committed.current.bot.get(botId), [committed]);
   const machineOfSession = useCallback(
-    (ref: BotSessionRef) => indexes.current.session.get(`${ref.source}:${ref.sessionId}`),
-    [],
+    (ref: BotSessionRef) => committed.current.session.get(`${ref.source}:${ref.sessionId}`),
+    [committed],
   );
-  const botsNow = useCallback(() => indexes.current.bots, []);
+  const botsNow = useCallback(() => committed.current.bots, [committed]);
   const machineErrors = useMemo(
     () =>
       machines.flatMap((machine) => {
@@ -189,6 +205,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
 
   return {
     bots,
+    machineIndex,
     machineOf,
     machineOfSession,
     botsNow,

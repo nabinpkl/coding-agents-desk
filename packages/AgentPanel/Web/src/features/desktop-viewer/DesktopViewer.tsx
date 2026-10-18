@@ -13,6 +13,7 @@ import { desktopDocumentFallbackHeight } from "@/features/desktop-viewer/desktop
 import { useDomSync } from "@/hooks/dom/useDomSync";
 import { useTimeout } from "@/hooks/useInterval";
 import { useNotify } from "@/hooks/useNotify";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 /**
  * Which monitor this session was last looking at, remembered per session because display ids belong
@@ -73,8 +74,7 @@ export function DesktopViewer({ transport, scope = "default" }: {
   const [viewer, setViewer] = useState<ViewerState>(() => ({
     active: 1, pending: null, slots: [{ id: 1, displayId: rememberedDisplay(scope) }], notice: null,
   }));
-  const viewerRef = useRef(viewer);
-  viewerRef.current = viewer;
+  const viewerRef = useLatestRef(viewer);
   const sequence = useRef(1);
   const [chromeHeight, setChromeHeight] = useState(0);
   const active = viewer.slots.find((slot) => slot.id === viewer.active)!;
@@ -87,8 +87,7 @@ export function DesktopViewer({ transport, scope = "default" }: {
     transport: viewer.pending === null && active.source?.desktopNavigationVersion === 1 ? active.control ?? null : null,
     displayId: activeDisplayId, report,
   });
-  const navigationRef = useRef(navigation);
-  navigationRef.current = navigation;
+  const navigationRef = useLatestRef(navigation);
   const patchSlot = useCallback((id: number, patch: Partial<ViewerSlotState>) => {
     setViewer((current) => {
       if (!current.slots.some((slot) => slot.id === id)) return current;

@@ -37,6 +37,7 @@ import {
   readHeldImages,
   removeHeldImage,
 } from "@/features/session-view/composer/heldImagesStore";
+import { useCommitToRef, useLatestRef } from "@/hooks/useLatestRef";
 import { useSubscription } from "@/hooks/useSubscription";
 
 export interface SendableImage extends ComposerImage {
@@ -79,8 +80,7 @@ export function useSendAttachments(sessionKey: string) {
    * The strip as last committed, so a removal can find the URL to revoke without reading a
    * closure that may predate the render which drew it.
    */
-  const held = useRef<readonly SendableImage[]>([]);
-  held.current = images;
+  const held = useLatestRef<readonly SendableImage[]>(images);
   /**
    * Every object URL this strip is showing, revoked when the strip empties for any reason: one
    * removed, one sent, the session changed, the component unmounted. A URL is added as soon as
@@ -94,8 +94,7 @@ export function useSendAttachments(sessionKey: string) {
   const unstored = useRef(0);
   // The key in a ref as well as the subscription's key, so a write that lands after the reader
   // has moved to another session stores against the session it was picked for.
-  const keyRef = useRef(sessionKey);
-  keyRef.current = sessionKey;
+  const keyRef = useLatestRef(sessionKey);
 
   // The strip is already this session's and empty, thanks to the render-time adjustment above;
   // all that is left is to read this session's own images back into it, and to let their URLs go
@@ -254,13 +253,12 @@ export function useComposerDraft(
   if (held.key !== sessionKey) setHeld({ key: sessionKey, draft: readStoredDraft(sessionKey) });
   // The key in a ref as well, so a keystroke that lands after the reader has moved to another
   // session is stored against the session it was typed for.
-  const keyRef = useRef(sessionKey);
-  keyRef.current = sessionKey;
+  const keyRef = useLatestRef(sessionKey);
   // The current draft, so the updater form a `useState` setter accepts can be resolved here
   // rather than only a plain value. The transport handover uses it to keep whichever side
   // already holds text.
   const draftRef = useRef(held.draft);
-  draftRef.current = held.draft;
+  useCommitToRef(draftRef, held.draft);
   const setDraft = useCallback((value: string | ((current: string) => string)) => {
     const next = typeof value === "function" ? value(draftRef.current) : value;
     draftRef.current = next;

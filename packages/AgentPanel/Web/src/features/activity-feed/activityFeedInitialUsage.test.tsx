@@ -43,7 +43,6 @@ describe("initial usage, full feed chain", () => {
 
     function Harness() {
       const [usage, setUsage] = useState<TokenUsage | null>(null);
-      seen = usage;
       return (
         <DataSourceProvider source={source}>
           <ActivityFeed
@@ -54,7 +53,11 @@ describe("initial usage, full feed chain", () => {
             showCacheHits={false}
             onToggleCacheHits={() => {}}
             controlsHost={null}
-            onUsage={setUsage}
+            onUsage={(next) => {
+              // Recorded as reported rather than read back during render.
+              seen = next;
+              setUsage(next);
+            }}
           />
           <TokenMeter usage={usage} />
         </DataSourceProvider>
@@ -93,7 +96,6 @@ describe("initial usage, full feed chain", () => {
 
     function Harness() {
       const [usage, setUsage] = useState<TokenUsage | null>(null);
-      seen = usage;
       return (
         <DataSourceProvider source={source}>
           <ActivityFeed
@@ -104,7 +106,11 @@ describe("initial usage, full feed chain", () => {
             showCacheHits={false}
             onToggleCacheHits={() => {}}
             controlsHost={null}
-            onUsage={setUsage}
+            onUsage={(next) => {
+              // Recorded as reported rather than read back during render.
+              seen = next;
+              setUsage(next);
+            }}
           />
           <TokenMeter usage={usage} />
         </DataSourceProvider>

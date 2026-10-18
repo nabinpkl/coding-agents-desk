@@ -38,7 +38,7 @@ export {
   type TmuxComposerHandle,
 } from "@/features/cli-input/tmuxComposerHandle";
 import { useStateFor } from "@/hooks/state/useStateFor";
-import { useLatestRef } from "@/hooks/useLatestRef";
+import { useCommitToRef, useLatestRef } from "@/hooks/useLatestRef";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
@@ -85,8 +85,7 @@ export function useTmuxComposer(
 ): TmuxComposerHandle {
   // The address is a fresh object on every render of the caller, so it cannot be a dependency.
   // Held in a ref and keyed by identity, the same way `useCliSession` does it.
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
+  const sessionRef = useLatestRef(session);
   const key = active ? `${session.source}/${session.sessionId}` : null;
 
   // Everything resets on the session, including the draft: a draft belongs to the thread it was
@@ -109,6 +108,9 @@ export function useTmuxComposer(
   /** An edit that has not been seen in the pane yet. Guards the read from overwriting it. */
   const edited = useRef(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The attachments' own view of the draft, told on every change. Declared here and filled once
+  // they exist below, because they are built from `change`, which is built from this.
+  const followDraft = useRef<(text: string) => void>(() => {});
 
   const setBoth = useCallback((text: string) => {
     draftRef.current = text;
@@ -135,7 +137,7 @@ export function useTmuxComposer(
     edit: change,
     report: setError,
   });
-  const followDraft = useLatestRef(attachments.follow);
+  useCommitToRef(followDraft, attachments.follow);
 
   /**
    * One push at a time, with whatever was typed during it folded into the next one.
@@ -398,8 +400,7 @@ export function useTmuxComposer(
    * to undo. The pane answers on the stream, and the field adopts whatever it says.
    */
   const [modifiers, setModifiers] = useState(RAIL_MODIFIERS_OFF);
-  const modifiersRef = useRef(modifiers);
-  modifiersRef.current = modifiers;
+  const modifiersRef = useLatestRef(modifiers);
 
   const pressKey = useCallback((key: RailKey) => {
     const held = heldModifiers(modifiersRef.current);

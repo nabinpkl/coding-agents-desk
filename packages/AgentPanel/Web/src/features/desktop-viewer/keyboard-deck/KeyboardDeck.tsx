@@ -31,6 +31,7 @@ import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 import { useNotify } from "@/hooks/useNotify";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 interface ActivePress {
   pointerId: number;
@@ -92,12 +93,12 @@ export function KeyboardDeck({
     { pointerId: number; character: string; layout: CharacterPreviewLayout } | null
   >(state, () => null);
   const deckRef = useRef<HTMLDivElement>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const stateRef = useLatestRef(state);
   /** One entry per finger. Two-thumb typing is ordinary typing, and each key tracks its own touch. */
   const presses = useRef(new Map<number, ActivePress>());
+  const rows = deckRows(state);
   /** The rows as last rendered, so a resolved cell can be turned back into the key it stands for. */
-  const rowsRef = useRef<DeckKey[][]>([]);
+  const rowsRef = useLatestRef(rows);
   const cellsRef = useRef<{
     cells: DeckCell[][];
     elements: HTMLElement[][];
@@ -339,8 +340,6 @@ export function KeyboardDeck({
     releasePress(active);
   }, [releasePress]);
 
-  const rows = deckRows(state);
-  rowsRef.current = rows;
   const deckStyle = {
     paddingTop: metrics.topDeckPadding,
     paddingBottom: `calc(${metrics.bottomDeckPadding}px + ${edgeInset.bottom})`,

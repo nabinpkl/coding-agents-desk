@@ -232,7 +232,7 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       disabled: m.tmuxComposer.pending,
       className: `${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`,
       placement: "footer",
-      onClick: () => m.filePicker.current?.click(),
+      onClick: () => document.getElementById(m.filePickerId)?.click(),
     });
   }
   // The SDK toggle: braces, drawn in the active colour while the session runs through the SDK

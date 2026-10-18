@@ -80,7 +80,7 @@ export function usePdfDocument(url: string | null, revision: string): Loaded {
  * what went wrong if the draw failed.
  */
 export function usePdfCanvas(
-  canvas: RefObject<HTMLCanvasElement | null>,
+  canvasRef: RefObject<HTMLCanvasElement | null>,
   document: PDFDocumentProxy,
   number: number,
   width: number,
@@ -90,7 +90,7 @@ export function usePdfCanvas(
   const [ratio, setRatio] = useState(fallbackRatio);
   const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => {
-    const target = canvas.current;
+    const target = canvasRef.current;
     if (!target) return;
     if (!near) {
       // Let the bitmap go: a zero-sized canvas holds no pixels.
@@ -125,7 +125,7 @@ export function usePdfCanvas(
       current = false;
       task?.cancel();
     };
-  }, [canvas, document, number, width, near]);
+  }, [canvasRef, document, number, width, near]);
   return { ratio, failure };
 }
 
@@ -186,10 +186,17 @@ export function useSettledWidth(element: HTMLElement | null): number {
       const style = getComputedStyle(element);
       return element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
     };
-    setWidth(measure());
+    // An observer reports once as soon as it starts watching, which is the first measurement, taken
+    // at once; every report after it waits for the size to hold still.
+    let first = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const observer = new ResizeObserver(() => {
       clearTimeout(timer);
+      if (first) {
+        first = false;
+        setWidth(measure());
+        return;
+      }
       timer = setTimeout(() => setWidth(measure()), RESIZE_SETTLE_MS);
     });
     observer.observe(element);

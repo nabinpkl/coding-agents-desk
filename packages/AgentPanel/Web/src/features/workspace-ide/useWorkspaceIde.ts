@@ -5,7 +5,7 @@
 // already the single source of truth -- taking props from it, not from a second copy, is the one
 // piece of ADR-0077 that survives its own supersession.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePersistentState } from "@/hooks/state/usePersistentState";
 import { useStateFor } from "@/hooks/state/useStateFor";
@@ -171,10 +171,8 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
   const [openFiles, setOpenFiles] = useStateFor<Record<string, OpenFile>>(scope, () => ({}));
   const [reveal, setReveal] = useStateFor<Reveal | null>(scope, () => null);
 
-  const sharedRef = useRef<WorkspaceSharedState | null>(null);
-  sharedRef.current = shared;
-  const openFilesRef = useRef(openFiles);
-  openFilesRef.current = openFiles;
+  const sharedRef = useLatestRef(shared);
+  const openFilesRef = useLatestRef(openFiles);
 
   /**
    * Which workspace's requests are current, so an answer from the previous one is dropped.
@@ -184,6 +182,38 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
    * file into the new workspace's state, which is the same path holding another project's bytes.
    */
   const generationRef = useLatestRef(scope);
+
+  // Above the subscription, which reloads a file that changed on disk while it was clean.
+  const reload = useCallback(async (path: string) => {
+    if (!workspaceId) return;
+    const generation = generationRef.current;
+    try {
+      const { file } = await client.readFile(workspaceId, path);
+      if (generation !== generationRef.current) return;
+      const disk = file.text ?? "";
+      // Text this tab had typed and not written down comes back with the file, along with whether
+      // the file moved underneath it while it was gone.
+      const kept = reconcileDraft(loadDraft(workspaceId, path), disk, file.revision);
+      if (kept.state === "identical") removeDraft(workspaceId, path);
+      setOpenFiles((current) => ({
+        ...current,
+        [path]: {
+          path,
+          kind: file.kind,
+          text: kept.state === "unsaved" || kept.state === "conflict" ? kept.text : disk,
+          revision: file.revision,
+          saveState: kept.state === "unsaved"
+            ? "dirty"
+            : kept.state === "conflict"
+              ? "conflict"
+              : "clean",
+        },
+      }));
+    } catch (cause) {
+      if (generation !== generationRef.current) return;
+      setError(describe(cause, `Could not open ${path.split("/").pop() ?? path}.`));
+    }
+  }, [client, workspaceId]);
 
   // Follow the workspace. Its state above has already started empty for it.
   useSubscription(workspaceId ? scope : null, () => {
@@ -245,37 +275,6 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
       (reason) => setError(reason),
     );
   });
-
-  const reload = useCallback(async (path: string) => {
-    if (!workspaceId) return;
-    const generation = generationRef.current;
-    try {
-      const { file } = await client.readFile(workspaceId, path);
-      if (generation !== generationRef.current) return;
-      const disk = file.text ?? "";
-      // Text this tab had typed and not written down comes back with the file, along with whether
-      // the file moved underneath it while it was gone.
-      const kept = reconcileDraft(loadDraft(workspaceId, path), disk, file.revision);
-      if (kept.state === "identical") removeDraft(workspaceId, path);
-      setOpenFiles((current) => ({
-        ...current,
-        [path]: {
-          path,
-          kind: file.kind,
-          text: kept.state === "unsaved" || kept.state === "conflict" ? kept.text : disk,
-          revision: file.revision,
-          saveState: kept.state === "unsaved"
-            ? "dirty"
-            : kept.state === "conflict"
-              ? "conflict"
-              : "clean",
-        },
-      }));
-    } catch (cause) {
-      if (generation !== generationRef.current) return;
-      setError(describe(cause, `Could not open ${path.split("/").pop() ?? path}.`));
-    }
-  }, [client, workspaceId]);
 
   /**
    * The tabs on screen: what the shared state says is open, plus anything held back from a remote

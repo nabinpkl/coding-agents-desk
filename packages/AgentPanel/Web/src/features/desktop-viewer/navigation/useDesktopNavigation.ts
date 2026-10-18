@@ -6,6 +6,7 @@ import { initialNavigationModel, navigationReducer, navigationStep, NAVIGATION_T
 import { useEventListener } from "@/hooks/dom/useEventListener";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export type NavigationReport = (phase: string, detail: Record<string, unknown>) => void;
 export function useDesktopNavigation({
@@ -13,8 +14,7 @@ export function useDesktopNavigation({
 }: { transport: DesktopControlTransport | null; displayId?: string; report: NavigationReport }) {
   const [model, setModel] = useState(initialNavigationModel);
   const modelRef = useRef(model);
-  const current = useRef({ transport, displayId, report });
-  current.current = { transport, displayId, report };
+  const current = useLatestRef({ transport, displayId, report });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAt = useRef(0);
   const frame = useRef(0);

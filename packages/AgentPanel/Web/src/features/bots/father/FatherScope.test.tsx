@@ -54,7 +54,12 @@ const PEER = { label: "oracle", feed: { addBotSessions: vi.fn(), detachBotSessio
 const HOME = { addBotSessions: vi.fn(), detachBotSessions: vi.fn() };
 
 function arrange(bots: BotView[], loading = false, machineOf: (botId: string) => unknown = () => undefined) {
-  mockUseBots.mockReturnValue({ bots, loading, machineOf });
+  // The index is what the home reads while rendering, and `machineOf` what its commands read.
+  const bot = new Map(bots.flatMap((each) => {
+    const machine = machineOf(each.botId);
+    return machine === undefined ? [] : [[each.botId, machine] as const];
+  }));
+  mockUseBots.mockReturnValue({ bots, loading, machineOf, machineIndex: { bots, bot, session: new Map() } });
 }
 
 const PROPS = {
