@@ -168,6 +168,7 @@ export async function serveRunner(
           build: identity.build,
           allowBypass: runner.allowBypass,
           choices: runner.choices,
+          permissionMode: runner.permissionMode,
         });
       },
       data(socket, chunk) {

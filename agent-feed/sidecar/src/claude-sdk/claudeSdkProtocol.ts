@@ -119,7 +119,20 @@ export type SidecarToRunner =
 export type RunnerReply = { ok: true; value: unknown } | { ok: false; message: string };
 
 export type RunnerToSidecar =
-  | { type: "hello"; version: number; sessionId: string; pid: number; build: string; allowBypass: boolean; choices: RunnerChoices }
+  | {
+    type: "hello";
+    version: number;
+    sessionId: string;
+    pid: number;
+    build: string;
+    allowBypass: boolean;
+    choices: RunnerChoices;
+    /**
+     * The mode the runner launched `claude` in, in the SDK's spelling. The CLI names its mode only
+     * once a turn starts (`system/init`), so until then this is the only account of it.
+     */
+    permissionMode: string | null;
+  }
   /** `replay` is true for what a connection is handed on arrival rather than as it happens. */
   | { type: "record"; record: RunnerRecord; replay: boolean }
   | { type: "callback"; callback: RunnerCallback }
@@ -301,6 +314,8 @@ export function parseRunnerMessage(text: string): RunnerToSidecar | null {
           build: fields.build,
           allowBypass: fields.allowBypass,
           choices: runnerChoices(fields.choices),
+          // Absent from a runner started before it was reported, which then says nothing until init.
+          permissionMode: isString(fields.permissionMode) ? fields.permissionMode : null,
         }
         : null;
     case "record": {

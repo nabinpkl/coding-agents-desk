@@ -159,7 +159,8 @@ describe("the choices a runner was launched with", () => {
     const session = await runnerFor(BUILD, { model: "haiku", effort: "max" });
     const client = new ClaudeSdkClient(work, quiet);
     const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
-    expect(followed.state).toMatchObject({ model: "haiku", effort: "max" });
+    // The runner launched in auto (`runnerFor`'s plan), which it says before any turn has run.
+    expect(followed.state).toMatchObject({ model: "haiku", effort: "max", permissionMode: "auto" });
     expect(await client.choices(session.sessionId)).toEqual({ model: "haiku", effort: "max" });
     expect(await client.command(session.sessionId, { type: "set-model", model: "opus" })).toEqual({ ok: true });
     for (let tries = 0; (await client.choices(session.sessionId)).model !== "opus" && tries < 50; tries += 1) await Bun.sleep(10);

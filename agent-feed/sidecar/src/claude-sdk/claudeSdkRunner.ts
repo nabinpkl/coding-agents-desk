@@ -173,6 +173,11 @@ export class ClaudeSdkRunner {
     return this.plan.choices;
   }
 
+  /** The mode `claude` was launched in, which nothing else reports before the first turn. */
+  get permissionMode(): PermissionMode {
+    return this.plan.permissionMode;
+  }
+
   /** Everything a connection arriving now is handed: the kept records, then the open callbacks. */
   snapshot(): { records: RunnerRecord[]; callbacks: RunnerCallback[] } {
     return { records: [...this.records.values()], callbacks: [...this.callbacks.values()].map((entry) => entry.callback) };

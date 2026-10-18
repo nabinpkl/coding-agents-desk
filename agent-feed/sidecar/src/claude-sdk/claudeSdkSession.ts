@@ -209,11 +209,17 @@ export class SdkSession {
     private readonly allowBypass: boolean,
     /** What its runner was launched with: a choice carried over from the runner before it. */
     launched: RunnerChoices = {},
+    /**
+     * The mode the runner launched in, in the SDK's spelling: shown until the CLI's own init or
+     * status names one, the way t3code shows the mode it opened a query in.
+     */
+    launchMode: unknown = null,
   ) {
     this.chosenModel = launched.model;
     this.chosenEffort = launched.effort;
     this.model = launched.model ?? null;
     this.effort = launched.effort ?? null;
+    this.permissionMode = cliPermissionMode(launchMode);
   }
 
   /** The model and effort to launch the next runner with: the session's own choices, never a default. */
@@ -233,7 +239,9 @@ export class SdkSession {
       pending: [...this.pending.values()],
       backgroundTasks: this.backgroundTasks,
       claudeCodeVersion: this.claudeCodeVersion,
-      model: this.model,
+      // Launched without a model is launched on the CLI's default, which the list names as its own
+      // row: shown as that until init names the model it resolved to.
+      model: this.model ?? (this.models.some((entry) => entry.value === "default") ? "default" : null),
       models: this.models,
       effort: this.effort,
     };

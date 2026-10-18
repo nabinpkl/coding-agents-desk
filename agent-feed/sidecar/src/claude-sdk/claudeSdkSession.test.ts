@@ -93,6 +93,31 @@ describe("the choices a relaunch carries", () => {
   });
 });
 
+describe("before the first turn", () => {
+  test("the mode is the one the runner launched in, until the CLI names its own", () => {
+    const session = new SdkSession(SESSION, true, {}, "default");
+    expect(session.state().permissionMode).toBe("manual");
+    session.fold(message({ type: "system", subtype: "init", permissionMode: "plan" }));
+    expect(session.state().permissionMode).toBe("plan");
+    expect(new SdkSession(SESSION, true, {}, "sideways").state().permissionMode).toBeNull();
+  });
+
+  test("a session launched on no model shows the list's Default row, until init names the model", () => {
+    const session = new SdkSession(SESSION, true);
+    expect(session.state().model).toBeNull();
+    session.setModels(sdkModels([
+      { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)" },
+      { value: "haiku", resolvedModel: "claude-haiku-4-5", displayName: "Haiku" },
+    ]));
+    expect(session.state().model).toBe("default");
+    session.fold(message({ type: "system", subtype: "init", permissionMode: "auto", model: "claude-opus-5-5" }));
+    expect(session.state().model).toBe("claude-opus-5-5");
+    const chosen = new SdkSession(SESSION, true, { model: "haiku" });
+    chosen.setModels(sdkModels([{ value: "default", displayName: "Default" }]));
+    expect(chosen.state().model).toBe("haiku");
+  });
+});
+
 describe("the models and the effort", () => {
   test("a model choice reads as the full id its alias stands for, until the CLI names it", () => {
     const session = new SdkSession(SESSION, true);

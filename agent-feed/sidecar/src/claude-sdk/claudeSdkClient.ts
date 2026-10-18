@@ -293,7 +293,7 @@ export class ClaudeSdkClient {
   private introduces(connection: Connection, line: string): boolean {
     const message = parseRunnerMessage(line);
     if (message?.type === "hello" && message.version === PROTOCOL_VERSION && message.sessionId === connection.sessionId) {
-      connection.session = new SdkSession(connection.sessionId, message.allowBypass, message.choices);
+      connection.session = new SdkSession(connection.sessionId, message.allowBypass, message.choices, message.permissionMode);
       connection.stale = message.build !== this.currentBuild();
       if (connection.stale) this.log(`${connection.sessionId}: its runner is build ${message.build}, older than this code`);
       return true;
