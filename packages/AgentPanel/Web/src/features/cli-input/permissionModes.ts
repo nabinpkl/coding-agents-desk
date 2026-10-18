@@ -4,8 +4,17 @@
 // one by Shift+Tab until its footer names it. `dontAsk` is a mode the CLI accepts and its cycle was
 // never seen to visit, so it is named (a session started in it still says so) but not offered.
 
-import { BellOff, ClipboardList, FilePen, Hand, ShieldAlert, Zap, type LucideIcon } from "lucide-react";
+import { BellOff, ClipboardList, createLucideIcon, FilePen, Hand, ShieldAlert, type LucideIcon } from "lucide-react";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
+
+/**
+ * A capital A in Lucide's own stroke, for Auto. Lucide has no plain letter, and the lightning bolt
+ * Auto had read as fast mode.
+ */
+const LetterA = createLucideIcon("letter-a", [
+  ["path", { d: "m6 20 6-16 6 16", key: "letter-a-legs" }],
+  ["path", { d: "M8.25 14h7.5", key: "letter-a-bar" }],
+]);
 
 /** What the chip says for each mode: the words Claude's own footer uses, shortened. */
 export const PERMISSION_MODE_LABELS: Record<ClaudePermissionMode, string> = {
@@ -22,7 +31,7 @@ export const PERMISSION_MODE_ICONS: Record<ClaudePermissionMode, LucideIcon> = {
   plan: ClipboardList,
   manual: Hand,
   acceptEdits: FilePen,
-  auto: Zap,
+  auto: LetterA,
   bypassPermissions: ShieldAlert,
   dontAsk: BellOff,
 };
