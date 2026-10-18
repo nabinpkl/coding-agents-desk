@@ -91,6 +91,15 @@ const DOWNWARD_KEYS = new Set(["ArrowDown", "PageDown", "End"]);
  * re-pins, and the scroll event saw "up, height held" and detached. The
  * scrollbar is now an input like the others, read off the press itself.
  *
+ * And a reader's upward input outranks the follower's own snap. Content that grows on every frame
+ * snaps on every frame, and each snap fences the scroll event behind it until the next frame, so a
+ * flick up landed inside a fence, was taken for the snap, and the next growth pulled it back down.
+ * Reported 2026-10-18 on an opencode thread mid-turn, which redraws its streaming message on every
+ * delta: the reader could not scroll up until the turn ended. (The fence is the cause as read from
+ * the code and pinned by the tests here; it was not traced in a browser.) So while an upward input
+ * is fresh the follower does not snap, and a move up inside the fence is the reader's, since a snap
+ * only ever moves the viewport down.
+ *
  * `active` gates observer setup on the content tree being mounted (the feed
  * renders loading/empty placeholders first, when the refs are still null).
  */
@@ -145,9 +154,18 @@ export function useStickToBottom(
     setFollowing(false);
   }, [setFollowing]);
 
-  // Tail enforcement: re-pin whenever the measured content height changes.
+  // Whether the reader is asking to go up right now: an upward input inside its window, or a press
+  // held on the scrollbar.
+  const pullingUp = useCallback(
+    () => scrollbarHeldRef.current || performance.now() - upwardIntentAtRef.current <= UPWARD_INTENT_WINDOW_MS,
+    [],
+  );
+
+  // Tail enforcement: re-pin whenever the measured content height changes, except while the reader
+  // is pulling away from it. The scroll event their input produces is what detaches; a snap landing
+  // first would put the viewport back at the end before that event could see it move.
   useResizeObserver(active ? sizedRef : null, () => {
-    if (followingRef.current) snapToBottom();
+    if (followingRef.current && !pullingUp()) snapToBottom();
   });
 
   // Record when an input last asked to move towards earlier content. Only the
@@ -199,12 +217,14 @@ export function useStickToBottom(
   // On window: scrolling by keyboard does not require focus to be inside the feed, and usually
   // is not.
   useEventListener<KeyboardEvent>(active ? window : null, "keydown", (event) => {
-    if (UPWARD_KEYS.has(event.key) || (event.key === " " && event.shiftKey)) markUpward();
-    // Typed into a field, a space or an arrow moves the caret, not the feed, so it cannot be
-    // the reader taking the feed to its end.
+    // Typed into a field, a space or an arrow moves the caret, not the feed, so it is the reader
+    // taking the feed neither up nor to its end. Upward matters as much as downward: an upward
+    // input holds off the follower's snap, and the composer's ArrowUp would hold it off mid-turn.
     const typing = event.target instanceof HTMLElement
       && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
-    if (!typing && (DOWNWARD_KEYS.has(event.key) || (event.key === " " && !event.shiftKey))) markDownward();
+    if (typing) return;
+    if (UPWARD_KEYS.has(event.key) || (event.key === " " && event.shiftKey)) markUpward();
+    if (DOWNWARD_KEYS.has(event.key) || (event.key === " " && !event.shiftKey)) markDownward();
   }, { capture: true });
 
   const onScroll = useCallback(() => {
@@ -214,12 +234,12 @@ export function useStickToBottom(
     const wentUp = top < lastTopRef.current - 1;
     const fromEnd = el.scrollHeight - top - el.clientHeight;
     lastTopRef.current = top;
-    if (enforcingRef.current) return; // our own snap, not the user
+    const pulledUp = pullingUp();
+    // Inside the fence the event is our own snap's, unless it went up with the reader asking: a
+    // snap only moves the viewport down, and the reader's flick delivered alongside one is theirs.
+    if (enforcingRef.current && !(wentUp && pulledUp)) return;
     if (followingRef.current) {
       if (fromEnd <= END_EPSILON_PX) return;
-      const pulledUp =
-        scrollbarHeldRef.current
-        || performance.now() - upwardIntentAtRef.current <= UPWARD_INTENT_WINDOW_MS;
       // The reader asked to go up: let them. Short of the end for any other reason is layout,
       // which a viewport that is following does not get to keep.
       if (wentUp && pulledUp) setFollowing(false);
@@ -231,7 +251,7 @@ export function useStickToBottom(
         || performance.now() - downwardIntentAtRef.current <= DOWNWARD_INTENT_WINDOW_MS;
       if (pushedDown) setFollowing(true);
     }
-  }, [scrollRef, setFollowing, snapToBottom]);
+  }, [scrollRef, setFollowing, snapToBottom, pullingUp]);
 
   return { following, onScroll, scrollToBottom, pause };
 }

@@ -177,6 +177,86 @@ describe("useStickToBottom", () => {
     expect(view.result.current.following).toBe(false);
   });
 
+  // An opencode turn redraws its message on every delta, so the content grows and the follower
+  // snaps on every frame, and the reader's flick is delivered inside the fence of the last snap.
+  it("detaches on an upward flick delivered inside the fence of the follower's own snap", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    scrollEl.scrollHeight = 1400;
+    act(() => roCallback!()); // the growth snaps to 1400, and its fence is still up
+    act(() => wheel(scrollEl, -120));
+    act(() => {
+      scrollEl.scrollTop = 900;
+      view.result.current.onScroll();
+    });
+    expect(view.result.current.following).toBe(false);
+    scrollEl.scrollHeight = 1600;
+    act(() => roCallback!()); // the next delta leaves the reader where they went
+    expect(scrollEl.scrollTop).toBe(900);
+  });
+
+  it("does not snap a growth back over an upward flick whose scroll event is still to come", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => wheel(scrollEl, -120));
+    scrollEl.scrollTop = 800;
+    scrollEl.scrollHeight = 1400;
+    act(() => roCallback!());
+    expect(scrollEl.scrollTop).toBe(800);
+    act(() => view.result.current.onScroll());
+    expect(view.result.current.following).toBe(false);
+  });
+
+  it("snaps a growth again once the flick has gone stale", () => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+    try {
+      const { scrollEl } = setup();
+      act(() => {
+        roCallback!();
+        flushRaf();
+      });
+      act(() => wheel(scrollEl, -120));
+      vi.advanceTimersByTime(1000);
+      scrollEl.scrollHeight = 1400;
+      act(() => roCallback!());
+      expect(scrollEl.scrollTop).toBe(1400);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an ArrowUp typed into the composer neither holds off the snap nor authorizes a clamp", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    const field = document.createElement("textarea");
+    document.body.append(field);
+    try {
+      act(() => {
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+      });
+      scrollEl.scrollHeight = 1400;
+      act(() => {
+        roCallback!();
+        flushRaf();
+      });
+      expect(scrollEl.scrollTop).toBe(1400);
+      scrollEl.scrollTop = 900; // a clamp, delivered with the content already grown back
+      act(() => view.result.current.onScroll());
+      expect(view.result.current.following).toBe(true);
+    } finally {
+      field.remove();
+    }
+  });
+
   it("a stale flick does not authorize a later clamp", () => {
     vi.useFakeTimers({ toFake: ["performance"] });
     try {
