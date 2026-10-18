@@ -1,12 +1,5 @@
 import { X } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  type KeyboardEvent,
-  type RefObject,
-} from "react";
+import { useCallback, useId, useRef, type KeyboardEvent, type RefObject } from "react";
 import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { LiveProfileRow, type ProfileFeed } from "@/features/profile/ProfileRow";
@@ -18,6 +11,8 @@ import { ProjectSessionList, type SessionArchiving } from "@/features/sidebar/se
 import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/session-list/CanvasSessionsList";
 import { CanvasSidebarViews, type CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
+import { useModal } from "@/hooks/dom/overlays";
+import { useDomSync } from "@/hooks/dom/useDomSync";
 
 export type AgentSidebarMode = "sessions" | "bots" | "canvas" | "messages";
 
@@ -211,7 +206,7 @@ function SidebarContent(props: AgentSidebarProps) {
 
   // On mount as well as on selection: a reader who reloads with a view remembered has not clicked
   // anything, and the remembered view is the one that has to be on screen when they arrive.
-  useEffect(() => {
+  useDomSync(() => {
     revealSelectedTab();
   }, [revealSelectedTab]);
 
@@ -436,20 +431,7 @@ export function AgentSidebarDialog({
 }: AgentSidebarDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open && !dialog.open) {
-      if (typeof dialog.showModal === "function") dialog.showModal();
-      else dialog.setAttribute("open", "");
-    } else if (!open && dialog.open) {
-      if (typeof dialog.close === "function") dialog.close();
-      else {
-        dialog.removeAttribute("open");
-        dialog.dispatchEvent(new Event("close"));
-      }
-    }
-  }, [open]);
+  useModal(dialogRef, open, { attributeFallback: true });
 
   const closeDialog = () => {
     const dialog = dialogRef.current;

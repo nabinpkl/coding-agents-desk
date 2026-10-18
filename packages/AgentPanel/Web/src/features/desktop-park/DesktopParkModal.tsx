@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { MousePointer2, RotateCcw, X } from "lucide-react";
 import type { ParkMove } from "@agentdesk/agent-feed-wire";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
@@ -9,6 +9,8 @@ import { TileViewport } from "@/features/desktop-viewer/tile-viewport/TileViewpo
 import type { DesktopParkHandle } from "@/features/desktop-park/useDesktopPark";
 import { Action, Outcome, WindowRow } from "@/features/desktop-park/DesktopParkRows";
 import { groupByDesktop } from "@/features/desktop-park/desktopParkGroups";
+import { useModal } from "@/hooks/dom/overlays";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /**
  * Desktop Park: every window this machine could gather onto one Desktop, grouped
@@ -36,12 +38,7 @@ export function DesktopParkModal({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
 
-  useEffect(() => {
-    const node = dialog.current;
-    if (!node) return;
-    if (open && !node.open) node.showModal?.();
-    else if (!open && node.open) node.close?.();
-  }, [open]);
+  useModal(dialog, open);
 
   return (
     <dialog
@@ -96,8 +93,9 @@ export function DesktopParkPanel({
   // never enters the picture.
   const [expanded, setExpanded] = useState(false);
   const [tile, setTile] = useState<DesktopStreamState>({ kind: "connecting" });
-  const [pointerMode, setPointerMode] = useState(false);
-  const [pointerTransport, setPointerTransport] = useState<DesktopControlTransport | null>(null);
+  // Both belong to what is being watched, and start over when that changes.
+  const [pointerMode, setPointerMode] = useStateFor(watching, () => false);
+  const [pointerTransport, setPointerTransport] = useStateFor<DesktopControlTransport | null>(watching, () => null);
   const watchedWindow =
     typeof watching === "number" ? ready?.state.windows.find((w) => w.id === watching) ?? null : null;
   const displayFrame = ready?.plan.display.frame ?? null;
@@ -111,14 +109,8 @@ export function DesktopParkPanel({
         }
       : watchedWindow;
 
-  useEffect(() => {
-    setPointerMode(false);
-    setPointerTransport(null);
-  }, [watching]);
-
-  useEffect(() => {
-    if (!pointerTransport) setPointerMode(false);
-  }, [pointerTransport]);
+  // Pointer mode needs a transport to drive, and leaves with it.
+  if (!pointerTransport && pointerMode) setPointerMode(false);
 
   const pointerAvailable = pointerTransport !== null && tile.kind === "playing";
 

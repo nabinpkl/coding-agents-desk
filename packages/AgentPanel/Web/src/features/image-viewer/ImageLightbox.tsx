@@ -1,6 +1,7 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Minus, Plus, X } from "lucide-react";
 import { useImageZoom } from "@/features/image-viewer/useImageZoom";
+import { modalWhileMounted } from "@/hooks/dom/refCallbacks";
 
 /** Every control on the header line: one size, one set of states, hover through disabled. */
 const CONTROL_CLASS =
@@ -32,19 +33,12 @@ export function ImageLightbox({
   onClose: () => void;
   children?: ReactNode;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const zoom = useImageZoom(url);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || dialog.open) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-  }, []);
 
   return (
     <dialog
-      ref={dialogRef}
+      ref={modalWhileMounted}
       aria-label={title}
       className="fixed inset-0 z-60 m-0 h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-transparent p-4 text-foreground backdrop:bg-black/70 open:flex"
       onCancel={(event) => {

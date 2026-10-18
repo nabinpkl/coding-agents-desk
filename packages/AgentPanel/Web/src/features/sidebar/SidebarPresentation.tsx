@@ -1,36 +1,14 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-  type ReactNode,
-} from "react";
+import { useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import {
   MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
   clampSidebarWidth,
 } from "@/features/sidebar/sidebarPreferences";
+import { useMediaQuery } from "@/hooks/dom/useMediaQuery";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 const COMPACT_SIDEBAR_QUERY = "(max-width: 719px)";
 const HOVER_SIDEBAR_QUERY = "(hover: hover) and (pointer: fine)";
-
-function useMediaQuery(queryText: string): boolean {
-  const [matches, setMatches] = useState(() =>
-    globalThis.matchMedia?.(queryText).matches ?? false,
-  );
-
-  useEffect(() => {
-    const query = globalThis.matchMedia?.(queryText);
-    if (!query) return undefined;
-    const update = () => setMatches(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, [queryText]);
-
-  return matches;
-}
 
 export function useSidebarEnvironment(): {
   compact: boolean;
@@ -54,11 +32,7 @@ export function ResizableSidebar({
   children: ReactNode;
 }) {
   const drag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
-  const latestWidth = useRef(width);
-
-  useEffect(() => {
-    latestWidth.current = width;
-  }, [width]);
+  const latestWidth = useLatestRef(width);
 
   const previewWidth = (nextWidth: number) => {
     const clamped = clampSidebarWidth(nextWidth);

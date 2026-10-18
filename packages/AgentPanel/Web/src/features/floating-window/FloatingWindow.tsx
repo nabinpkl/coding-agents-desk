@@ -15,15 +15,7 @@
 // raised.
 
 import { X } from "lucide-react";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type HTMLAttributes,
-  type PointerEvent,
-  type ReactNode,
-} from "react";
+import { useRef, useState, type HTMLAttributes, type PointerEvent, type ReactNode } from "react";
 import { useCardResize } from "@/features/bots/cards/useCardResize";
 import {
   clampFloatingPosition,
@@ -31,6 +23,8 @@ import {
   type FloatingWindowPosition,
   type FloatingWindowPreferences,
 } from "@/features/floating-window/floatingWindowPreferences";
+import { useDomSync } from "@/hooks/dom/useDomSync";
+import { useEventListener } from "@/hooks/dom/useEventListener";
 
 /** The gap between the switch and the window hanging from it, so the two read as one drawer. */
 const SWITCH_GAP = 4;
@@ -107,31 +101,24 @@ export function FloatingWindow({
   const size = { width: resize.width, height: resize.height };
   const sizeNow = useRef(size);
   sizeNow.current = size;
-  useEffect(() => {
-    const onResize = (): void =>
-      setPosition((placed) =>
-        placed
-          ? clampFloatingPosition(placed, sizeNow.current, { width: window.innerWidth, height: window.innerHeight })
-          : placed
-      );
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+  useEventListener(window, "resize", () =>
+    setPosition((placed) =>
+      placed
+        ? clampFloatingPosition(placed, sizeNow.current, { width: window.innerWidth, height: window.innerHeight })
+        : placed
+    ));
 
   // How far down it hangs before a hand has carried it anywhere: just below its switch, measured
   // because a switch stands wherever its surface put it. A layout effect settles the measurement
   // before the browser paints, so the window only ever appears where it belongs; with no switch
   // to measure it hangs from the top of the viewport.
   const [restTop, setRestTop] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const measure = (): void => {
-      const switchBox = document.querySelector(switchSelector)?.getBoundingClientRect();
-      setRestTop(switchBox ? clampFloatingTop(switchBox.bottom + SWITCH_GAP, window.innerHeight) : null);
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [switchSelector]);
+  const measureRest = (): void => {
+    const switchBox = document.querySelector(switchSelector)?.getBoundingClientRect();
+    setRestTop(switchBox ? clampFloatingTop(switchBox.bottom + SWITCH_GAP, window.innerHeight) : null);
+  };
+  useDomSync(measureRest, [switchSelector]);
+  useEventListener(window, "resize", measureRest);
 
   // Carrying it by its header, the way a Bot card carries by its own: a press is a click until it
   // has travelled far enough to be a carry, and a press that began on a control belongs to that
@@ -188,30 +175,20 @@ export function FloatingWindow({
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   };
 
-  useEffect(() => {
-    if (!closeOnEscape) return;
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [closeOnEscape, onClose]);
+  useEventListener<KeyboardEvent>(closeOnEscape ? window : null, "keydown", (event) => {
+    if (event.key === "Escape") onClose();
+  });
 
   // On `pointerdown` rather than `click`, so a press that starts outside and ends inside still
   // closes. Menus the session portals into `document.body` are not outside: they are the window
   // acting at a distance. Neither is its own switch, which both opens and closes it: dismissing on
   // the press and toggling on the click would shut it and open it again in one gesture.
-  useEffect(() => {
-    if (!closeOnOutsidePress) return;
-    const onPointerDown = (event: globalThis.PointerEvent): void => {
-      const target = event.target as Element | null;
-      if (sectionRef.current?.contains(event.target as Node)) return;
-      if (target?.closest?.(`[data-portal-menu], [role="menu"], [role="dialog"], [role="listbox"], ${switchSelector}`)) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [closeOnOutsidePress, onClose, switchSelector]);
+  useEventListener<globalThis.PointerEvent>(closeOnOutsidePress ? document : null, "pointerdown", (event) => {
+    const target = event.target as Element | null;
+    if (sectionRef.current?.contains(event.target as Node)) return;
+    if (target?.closest?.(`[data-portal-menu], [role="menu"], [role="dialog"], [role="listbox"], ${switchSelector}`)) return;
+    onClose();
+  });
 
   const top = placed ? placed.y : restTop ?? 0;
   return (

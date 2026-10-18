@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import RFB from "@novnc/novnc";
+import { useUnmountEffect } from "@/hooks/useMountEffect";
 
 /**
  * The Mac's own Screen Sharing, in the panel.
@@ -56,7 +57,7 @@ export function ScreenViewer() {
     client.current = null;
   }, []);
 
-  useEffect(() => teardown, [teardown]);
+  useUnmountEffect(teardown);
 
   function connect(event: React.FormEvent) {
     event.preventDefault();

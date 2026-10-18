@@ -60,12 +60,27 @@ export function useOverlayPlacement(
 /**
  * A `<dialog>` that is always rendered, shown as a modal while `open` and closed otherwise. A
  * dialog rendered only while open takes `modalWhileMounted` as its ref instead.
+ *
+ * `attributeFallback` drives the `open` attribute, and the `close` event, where the element has no
+ * `showModal`/`close` -- jsdom's dialog -- for a caller whose tests read either.
  */
-export function useModal(dialog: RefObject<HTMLDialogElement | null>, open: boolean): void {
+export function useModal(
+  dialog: RefObject<HTMLDialogElement | null>,
+  open: boolean,
+  { attributeFallback = false }: { attributeFallback?: boolean } = {},
+): void {
   useLayoutEffect(() => {
     const node = dialog.current;
     if (!node) return;
-    if (open && !node.open) node.showModal?.();
-    else if (!open && node.open) node.close?.();
-  }, [dialog, open]);
+    if (open && !node.open) {
+      if (typeof node.showModal === "function") node.showModal();
+      else if (attributeFallback) node.setAttribute("open", "");
+    } else if (!open && node.open) {
+      if (typeof node.close === "function") node.close();
+      else if (attributeFallback) {
+        node.removeAttribute("open");
+        node.dispatchEvent(new Event("close"));
+      }
+    }
+  }, [dialog, open, attributeFallback]);
 }

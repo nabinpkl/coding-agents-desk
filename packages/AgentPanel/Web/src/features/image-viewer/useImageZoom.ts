@@ -7,14 +7,10 @@
 // under them. Zooming about the centre instead is what makes a reader chase the detail they were
 // already pointing at.
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useCallback, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEventListener } from "@/hooks/dom/useEventListener";
+import { useLeaveEffect } from "@/hooks/useMountEffect";
+import { useStateFor } from "@/hooks/state/useStateFor";
 
 /** Fit is the floor: this view exists to show the whole picture first. */
 export const FIT_SCALE = 1;
@@ -69,7 +65,8 @@ export interface ImageZoom {
 export function useImageZoom(resetKey: string): ImageZoom {
   const frame = useRef<HTMLDivElement | null>(null);
   const image = useRef<HTMLImageElement | null>(null);
-  const [view, setView] = useState<View>(FIT);
+  // A second picture opens whole, never at the zoom and pan the first was left in.
+  const [view, setView] = useStateFor<View>(resetKey, () => FIT);
   // Gestures read the view they are continuing, and a pointer move must not wait for a render to
   // see where the last one left it.
   const latest = useRef<View>(FIT);
@@ -77,7 +74,7 @@ export function useImageZoom(resetKey: string): ImageZoom {
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ distance: number; scale: number } | null>(null);
   const drag = useRef<{ x: number; y: number; from: View } | null>(null);
-  const [isMoving, setMoving] = useState(false);
+  const [isMoving, setMoving] = useStateFor(resetKey, () => false);
 
   /**
    * How large the picture is actually painted at scale 1. Not the element's box: `object-contain`
@@ -139,10 +136,9 @@ export function useImageZoom(resetKey: string): ImageZoom {
   // A wheel over the picture zooms rather than scrolling, so the listener has to be able to
   // preventDefault -- which React's own onWheel, attached passively at the root, cannot do.
   // A trackpad pinch arrives here too, as a wheel with ctrlKey set and a much larger delta.
-  useEffect(() => {
-    const box = frame.current;
-    if (!box) return;
-    const onWheel = (event: WheelEvent) => {
+  useEventListener<WheelEvent>(frame, "wheel", (event) => {
+      const box = frame.current;
+      if (!box) return;
       event.preventDefault();
       // Wheels do not all speak pixels: a line-mode wheel reports about 3, a page-mode one about
       // 1, and reading either as pixels makes the wheel do nothing at all.
@@ -151,26 +147,18 @@ export function useImageZoom(resetKey: string): ImageZoom {
       // as a ctrl-wheel of much smaller deltas, which is why it gets its own rate.
       const rate = event.ctrlKey ? 0.01 : 0.002;
       zoomTo((scale) => scale * Math.exp(-event.deltaY * lines * rate), event.clientX, event.clientY);
-    };
-    box.addEventListener("wheel", onWheel, { passive: false });
-    return () => box.removeEventListener("wheel", onWheel);
-  }, [zoomTo]);
+  }, { passive: false });
 
   // A picture is only as big as the window it is in: shrinking the window can leave the view
   // panned past an edge that just moved.
-  useEffect(() => {
-    const onResize = () => setView((current) => clamp(current));
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [clamp]);
+  useEventListener(window, "resize", () => setView((current) => clamp(current)));
 
-  useEffect(() => {
+  // A gesture in progress belongs to the picture it started on.
+  useLeaveEffect(resetKey, () => {
     pointers.current.clear();
     pinch.current = null;
     drag.current = null;
-    setMoving(false);
-    setView(FIT);
-  }, [resetKey]);
+  });
 
   const endGesture = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     pointers.current.delete(event.pointerId);

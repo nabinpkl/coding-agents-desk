@@ -317,7 +317,7 @@ describe("the turn summarizer", () => {
   it("opens a stream for the selected thread and shows the work before the digest", async () => {
     const { transport } = setupSummary();
     openClaudeThread(transport);
-    await act(async () => {});
+    await screen.findByLabelText("Summarize this turn");
 
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Summarize this turn"));
@@ -365,7 +365,8 @@ describe("the turn summarizer", () => {
   it("reports a failed summary instead of leaving the button spinning", async () => {
     const { transport } = setupSummary();
     openClaudeThread(transport);
-    await act(async () => {});
+    // The button waits for the sidecar's config, which arrives through the query cache.
+    await screen.findByLabelText("Summarize this turn");
 
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Summarize this turn"));
