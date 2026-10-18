@@ -169,6 +169,20 @@ describe("the choices a runner was launched with", () => {
   });
 });
 
+describe("the effort a session runs at", () => {
+  test("is the one its transcript records until a level is chosen, which then wins", async () => {
+    const session = await runnerFor();
+    const client = new ClaudeSdkClient(work, quiet, null, null, () => BUILD, () => "high");
+    const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
+    expect(followed.state.effort).toBe("high");
+    expect(await client.command(session.sessionId, { type: "set-effort", effort: "max" })).toEqual({ ok: true });
+    for (let tries = 0; (await client.state(session.sessionId)).effort !== "max" && tries < 50; tries += 1) await Bun.sleep(10);
+    expect((await client.state(session.sessionId)).effort).toBe("max");
+    followed.stop();
+    await session.stop();
+  });
+});
+
 describe("a runner on older code", () => {
   test("is said to be stale on every state, and is read as usual meanwhile", async () => {
     const session = await runnerFor("0.0.1+older");

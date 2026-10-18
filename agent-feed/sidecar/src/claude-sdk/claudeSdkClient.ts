@@ -18,6 +18,7 @@ import { lstat } from "node:fs/promises";
 import type { Socket } from "bun";
 import {
   DISCONNECTED_CLAUDE_SDK_STATE,
+  type ClaudeEffortLevel,
   type ClaudeSdkSessionState,
 } from "@agentdesk/agent-feed-wire";
 import {
@@ -25,6 +26,7 @@ import {
   LineReader,
   parseRunnerMessage,
   PROTOCOL_VERSION,
+  isEffortLevel,
   runnerBuild,
   runnerSocketPath,
   type RunnerChoices,
@@ -33,6 +35,7 @@ import {
 } from "@/claude-sdk/claudeSdkProtocol";
 import { sdkModels, SdkSession, type SessionCommand, type SessionReply } from "@/claude-sdk/claudeSdkSession";
 import { config } from "@/config/config";
+import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import { privateSocketDirectory } from "@/claude-sdk/claudeSdkRunnerServer";
 import type { ClaudeSdkLiveFeed } from "@/claude-sdk/claudeSdkLiveFeed";
 
@@ -61,6 +64,12 @@ interface Connection {
 }
 
 let shared: ClaudeSdkClient | null = null;
+
+/** The effort on the session's newest main-thread reply, as the catalog read it from the transcript. */
+function transcriptEffort(sessionId: string): ClaudeEffortLevel | null {
+  const effort = findSession("claude", sessionId)?.lastSelection?.effort;
+  return isEffortLevel(effort) ? effort : null;
+}
 
 /**
  * The process's one client, which everything that talks to runners shares: the routes, and the
@@ -93,6 +102,8 @@ export class ClaudeSdkClient {
     private readonly onStale: StaleRunner | null = null,
     /** What a runner started now would report; read from disk on each introduction by default. */
     private readonly currentBuild: () => string = runnerBuild,
+    /** The effort the session's own transcript last recorded, for when nothing else has said. */
+    private readonly recordedEffort: (sessionId: string) => ClaudeEffortLevel | null = transcriptEffort,
   ) {}
 
   /**
@@ -342,7 +353,7 @@ export class ClaudeSdkClient {
         this.update(connection);
         return;
       case "replayed":
-        connection.state = { ...session.state(), connected: true };
+        connection.state = this.stateOf(connection.sessionId, session);
         greeted(true);
         this.publish(connection);
         void this.loadModels(connection, session);
@@ -369,10 +380,20 @@ export class ClaudeSdkClient {
    */
   private update(connection: Connection): void {
     if (!connection.state.connected || !connection.session) return;
-    const next: ClaudeSdkSessionState = { ...connection.session.state(), connected: true };
+    const next = this.stateOf(connection.sessionId, connection.session);
     if (JSON.stringify(next) === JSON.stringify(connection.state)) return;
     connection.state = next;
     this.publish(connection);
+  }
+
+  /**
+   * The session's state as the panel is sent it. Its effort, when no choice set it and the CLI did
+   * not say (it names its effort on init only on Remote Control hosts, and on no SDK message), is
+   * the one its transcript records on every reply: the level the session actually ran at.
+   */
+  private stateOf(sessionId: string, session: SdkSession): ClaudeSdkSessionState {
+    const state = session.state();
+    return { ...state, effort: state.effort ?? this.recordedEffort(sessionId), connected: true };
   }
 
   /**
