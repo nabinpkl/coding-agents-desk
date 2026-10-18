@@ -12,7 +12,7 @@
 // Readers are counted, so whatever an entry holds open -- a stream, a poll -- is closed after the
 // last one leaves; the state stays, so the next reader shows what was known and then corrects.
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 export interface SourceStore<Source extends object, State> {
   get(source: Source): State;
@@ -76,20 +76,30 @@ export function createSourceStore<Source extends object, State>({
 }
 
 /**
- * One data source's entry, re-rendering on every change, and counted as a reader while mounted.
+ * One data source's entry, re-rendering on every change, and counted as a reader while subscribed.
  *
- * Three hooks that never change, so editing a store's logic never changes the hooks of the
- * component reading it -- React's "Should have a queue" needs a changed hook list to happen.
+ * Two hooks that never change, so editing a store's logic never changes the hooks of the component
+ * reading it -- React's "Should have a queue" needs a changed hook list to happen. The reader is
+ * counted in by the subscription itself, so what the entry holds open follows exactly the
+ * subscriptions React keeps, with no effect of its own.
  */
 export function useSourceStore<Source extends object, State>(
   store: SourceStore<Source, State>,
   source: Source,
 ): State {
-  const subscribe = useCallback((onChange: () => void) => store.subscribe(source, onChange), [store, source]);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const unlisten = store.subscribe(source, onChange);
+      const release = store.retain(source);
+      return () => {
+        unlisten();
+        release();
+      };
+    },
+    [store, source],
+  );
   // The entry's own object, unchanged between reads, because `useSyncExternalStore` compares
   // snapshots by identity and a fresh one per render loops instead of re-rendering.
   const read = () => store.get(source);
-  const state = useSyncExternalStore(subscribe, read, read);
-  useEffect(() => store.retain(source), [store, source]);
-  return state;
+  return useSyncExternalStore(subscribe, read, read);
 }

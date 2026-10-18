@@ -176,5 +176,10 @@ if ! packages/AgentPanel/Web/node_modules/.bin/oxlint -c .oxlintrc.json \
     packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/wire; then
     fail "lint failed (rules and the reason for each are in .oxlintrc.json)"
 fi
+# The effect ban reads imports, so `React.useEffect` through a namespace import walks past it.
+if grep -rnE '\bReact\.use(Layout|Insertion)?Effect\b' packages/AgentPanel/Web/src \
+    --include='*.ts' --include='*.tsx' | grep -vE '\.test\.tsx?:|/src/hooks/'; then
+    fail "an effect reached through the React namespace; ADR-0146 bans them outside src/hooks"
+fi
 
 echo "agent-feed-fitness: OK"

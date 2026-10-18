@@ -1,4 +1,13 @@
 import "@testing-library/jest-dom";
+import { afterEach } from "vitest";
+import { panelQueryClient } from "@/query/panelQuery";
+
+// The page's one query cache outlives a test the way it outlives a component. Most suites build a
+// fresh fake data source, whose key no other test can share, but one that reuses a module-level
+// fake would otherwise read the previous test's answer instead of asking.
+afterEach(() => {
+  panelQueryClient.clear();
+});
 
 // Node's experimental Web Storage global shadows jsdom under Bun-spawned Vitest unless Node was
 // given a persistence file. Replace it without reading the warning-producing getter, keeping the
