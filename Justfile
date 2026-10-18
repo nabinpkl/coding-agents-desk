@@ -1293,6 +1293,11 @@ check-legs: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness te
 # Conservative in one direction on purpose: a path no leg claims runs everything, because a
 # silently skipped leg is worse than a slow gate. Native paths are reported, never run -- they
 # belong to `just swift-check`, and this deliberately does not invoke it.
+#
+# Each leg runs under a time limit and fails, named, when it outruns it. Measured 2026-10-18: one
+# sidecar test run sat at 0% CPU with its sockets open for over nine minutes and would have held
+# the gate open for good; the same suite then passed in 47s. Ten minutes is several times any leg.
+check_leg_timeout := env_var_or_default("AGENTDESK_CHECK_LEG_TIMEOUT", "600")
 check:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1350,10 +1355,38 @@ check:
     # the wire at once: its inputs are too spread to map honestly.
     add agent-feed-fitness
     echo "check:$legs" >&2
+    # Each leg in a process group of its own (`set -m`), so a stop reaches everything it started.
+    # The watchdog sleeps to the deadline rather than polling: `wait` has no timeout to give it.
+    # TERM first, which a leg's own traps turn into reaping its children, then KILL after a grace.
+    set -m
+    limit='{{check_leg_timeout}}'
+    run_leg() {
+        just "$1" &
+        local leg=$! began=$SECONDS leg_status=0
+        (
+            sleep "$limit"
+            kill -TERM -- "-$leg" 2>/dev/null
+            sleep 5
+            kill -KILL -- "-$leg" 2>/dev/null
+        ) &
+        local watchdog=$!
+        # Asked again until the leg is gone: under job control `wait` can return while it still runs,
+        # and stopping the watchdog then would cancel the KILL a leg that ignores TERM needs.
+        while kill -0 "$leg" 2>/dev/null; do
+            wait "$leg"
+            leg_status=$?
+        done
+        kill -- "-$watchdog" 2>/dev/null
+        if (( SECONDS - began < limit )); then return "$leg_status"; fi
+        echo "check: $1 did not finish in ${limit}s; stopped it and failed the leg" >&2
+        # Whatever the leg left in its group goes too, rather than outliving the gate.
+        kill -KILL -- "-$leg" 2>/dev/null
+        return 124
+    }
     status=0
     for leg in $legs; do
         echo "===== $leg" >&2
-        just "$leg" || status=1
+        run_leg "$leg" || status=1
     done
     if [ -n "$native" ]; then
         echo >&2
