@@ -10,6 +10,7 @@ import { h, iconButton, textButton } from "./dom.ts";
 import { icon } from "./icons.ts";
 import { createPreviewBanner, type PreviewBannerHandlers, type PreviewView } from "./previewBanner.ts";
 import { PANEL_CSS } from "./styles.ts";
+import { mount } from "./topLayer.ts";
 
 export type ConnStatus = "unknown" | "connected" | "offline" | "signed-out";
 
@@ -177,7 +178,7 @@ export interface Panel {
 
 export function createPanel(on: PanelHandlers): Panel {
   const host = h("div", { id: HOST_ID, "data-ax-ui": "1" });
-  document.documentElement.append(host);
+  mount(host);
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = PANEL_CSS;

@@ -14,6 +14,7 @@ import type { PreviewView } from "./previewBanner.ts";
 import { draftKey } from "./previewDraft.ts";
 import { createPreviewSession } from "./previewSession.ts";
 import { createRegionSelector, type RegionSelector } from "./region.ts";
+import { mount } from "./topLayer.ts";
 
 type Region = NonNullable<ElementMetadata["region"]>;
 
@@ -333,7 +334,7 @@ function main(): void {
     ta.value = text;
     ta.setAttribute("data-ax-ui", "1");
     ta.style.cssText = "position:fixed;left:-9999px;top:0;";
-    document.documentElement.append(ta);
+    mount(ta);
     ta.select();
     const ok = document.execCommand("copy");
     ta.remove();
@@ -520,7 +521,7 @@ function main(): void {
     for (const el of [dim, box]) el.setAttribute("data-ax-ui", "1");
     dim.style.cssText = "position:fixed;inset:0;z-index:2147483644;background:rgba(0,0,0,.3);pointer-events:none;display:none;";
     box.style.cssText = "position:fixed;z-index:2147483645;background:rgba(66,133,244,.22);border:1px solid rgba(66,133,244,.9);pointer-events:none;display:none;";
-    document.documentElement.append(dim, box);
+    mount(dim, box);
   }
 
   /** Hides everything the annotator draws for two frames' worth of paint, so a capture shows only the page. */
@@ -566,7 +567,7 @@ function main(): void {
     const flash = document.createElement("div");
     flash.setAttribute("data-ax-ui", "1");
     flash.style.cssText = `position:fixed;z-index:2147483645;pointer-events:none;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;outline:2px solid #d32f2f;`;
-    document.documentElement.append(flash);
+    mount(flash);
     setTimeout(() => flash.remove(), 900);
   }
 
@@ -602,7 +603,7 @@ function main(): void {
       m.setAttribute("data-ax-ui", "1");
       m.textContent = String(i + 1);
       m.style.cssText = `position:fixed;z-index:2147483646;left:${r.left}px;top:${r.top - 22}px;background:${colors[a.tag]};color:#fff;font:12px/20px sans-serif;min-width:20px;text-align:center;border-radius:10px;pointer-events:none;`;
-      document.documentElement.append(m);
+      mount(m);
     });
   }
 
@@ -643,6 +644,8 @@ function main(): void {
       e.preventDefault();
       setActive(!active);
     } else if (e.key === "Escape" && active) {
+      // The annotator's Escape, not the page's: a modal dialog being annotated would close on it too.
+      e.preventDefault();
       if (regionSel?.dragging()) regionSel.cancelDrag();
       else if (panel?.formOpen()) forms.cancelForm();
       else setActive(false);

@@ -4,6 +4,8 @@
  * smaller than MIN_SIZE is treated as a stray click and ignored. The overlay
  * swallows pointer events so the page never sees the drag. */
 
+import { mount } from "./topLayer.ts";
+
 const MIN_SIZE = 4;
 
 export interface RegionSelector {
@@ -18,12 +20,12 @@ export function createRegionSelector(onSelect: (rect: DOMRect) => void): RegionS
   const sel = document.createElement("div");
   const size = document.createElement("div");
   for (const el of [layer, sel, size]) el.setAttribute("data-ax-ui", "1");
-  layer.style.cssText = "position:fixed;inset:0;z-index:2147483644;cursor:crosshair;display:none;touch-action:none;";
+  layer.style.cssText = "position:fixed;inset:0;z-index:2147483644;pointer-events:auto;cursor:crosshair;display:none;touch-action:none;";
   sel.style.cssText =
     "position:fixed;z-index:2147483645;pointer-events:none;display:none;box-sizing:border-box;border:1px solid rgba(255,255,255,.95);outline:1px solid rgba(0,0,0,.45);box-shadow:0 0 0 200vmax rgba(0,0,0,.3);";
   size.style.cssText =
     "position:fixed;z-index:2147483646;pointer-events:none;display:none;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.72);color:#fff;font:11px/16px -apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap;";
-  document.documentElement.append(layer, sel, size);
+  mount(layer, sel, size);
 
   let start: { x: number; y: number } | null = null;
   let pointerId: number | null = null;
