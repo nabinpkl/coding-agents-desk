@@ -5,7 +5,7 @@
 // project list is memoized on the catalog generation because it is the one projection
 // that N subscribers would otherwise each recompute on every change.
 
-import { sessionArchivedAt } from "@/transcripts/session-ops/sessionArchive";
+import { projectArchivedAt, sessionArchivedAt } from "@/transcripts/session-ops/sessionArchive";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import { basename } from "node:path";
@@ -96,6 +96,10 @@ function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
     project.sessionCount += 1;
     project.lastEventAt = Math.max(project.lastEventAt, session.lastEventAt);
   }
+  for (const project of grouped.values()) {
+    const archivedAt = projectArchivedAt(project.projectPath);
+    if (archivedAt !== undefined) project.archivedAt = archivedAt;
+  }
   const projects = [...grouped.values()].sort((left, right) =>
     right.lastEventAt - left.lastEventAt || left.projectPath.localeCompare(right.projectPath)
   );
@@ -161,7 +165,7 @@ export function summarizeSession(
   // it from the file itself during reconciliation, so a second reading taken at
   // emission time could only disagree with the one every other consumer is using.
   const lastEventAt = session.lastEventAt;
-  const archivedAt = sessionArchivedAt(session.source, session.sessionId);
+  const archivedAt = sessionArchivedAt(session);
   const automation = sessionAutomation(session);
   return {
     sessionId: session.sessionId,
@@ -256,7 +260,7 @@ export function mostRecentSessions(
   const reviews: Session[] = [];
   let more = false;
   for (const session of snapshot) {
-    if (sessionArchivedAt(session.source, session.sessionId) !== undefined) continue;
+    if (sessionArchivedAt(session) !== undefined) continue;
     if (sessionAutomation(session) === "security-review") reviews.push(session);
     else if (sessions.length === limit) more = true;
     else sessions.push(session);

@@ -40,6 +40,13 @@ export interface ProjectSummary {
   sourceCounts: Record<string, number>;
   sessionCount: number;
   lastEventAt: number;
+  /**
+   * When the reader archived this project folder, epoch ms. Absent when it is not archived.
+   *
+   * Every session in an archived folder reads as archived too (`SessionSummary.archivedAt`), so
+   * the folder leaves every list at once, and the project list offers it back under its own fold.
+   */
+  archivedAt?: number;
 }
 
 export interface SessionSummary {
@@ -65,7 +72,8 @@ export interface SessionSummary {
    * When the reader archived this session, epoch ms. Absent for a session that is not archived.
    *
    * Archived is ours, not the provider's (`session-archive.json` beside `bots.json`): every surface
-   * hides the row, and the project list offers it back under its own toggle. A Bot view never
+   * hides the row, and the project list offers it back under its own toggle. Every session in an
+   * archived project folder carries the folder's time when it has none of its own. A Bot view never
    * carries one, because the sidecar leaves archived sessions out of Bot views altogether.
    */
   archivedAt?: number;

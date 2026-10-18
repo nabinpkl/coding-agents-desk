@@ -46,6 +46,22 @@ The rules that come with it:
 - **Stays archived.** New activity does not bring a session back; only Unarchive does, from the
   per-project "Archived (n)" toggle in the Sessions list.
 
+### Amendment 2026-10-18: a whole project folder
+
+Two actions on a project row, both in the same file (now version 2, with a `projects` list):
+
+- **Archive folder** files the folder itself. The project leaves the list and every session in it
+  reads as archived, including one started there after the folder was filed: the same "stays
+  archived" rule, applied to the folder. Refused with 409 while any session in it is running. The
+  sessions' own entries are untouched, so Unarchive (from an "Archived projects (n)" fold below the
+  project list) brings back exactly what was showing before.
+- **Archive all sessions** archives every stopped session in the folder in one write and leaves
+  the folder listed, so a session started there later shows as usual. Running sessions are left
+  alone and counted in the answer rather than refusing the whole request.
+
+Routes: `POST /api/projects/archive`, `/unarchive`, `/archive-sessions`, with `{ projectPath }`
+in the body (`http/agent-routes/projectArchiveRoutes.ts`).
+
 ### Consequences
 
 - Good, because the provider stores are untouched and the archive follows the machine, not the

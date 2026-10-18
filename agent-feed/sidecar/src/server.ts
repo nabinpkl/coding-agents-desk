@@ -34,6 +34,7 @@ import { createWebrtcTileRoutes } from "@/http/tile/tile-peer/webrtcTileRoutes";
 import type { RouteHandler } from "@/http/protocol/route";
 import { createSessionRoutes } from "@/http/session-routes/sessionRoutes";
 import { createSessionArchiveRoutes, liveSessionCheck } from "@/http/agent-routes/sessionArchiveRoutes";
+import { createProjectArchiveRoutes } from "@/http/agent-routes/projectArchiveRoutes";
 import { installSessionArchive, SessionArchiveStore } from "@/transcripts/session-ops/sessionArchive";
 import { broadcast as broadcastCatalog } from "@/transcripts/catalog/catalogState";
 import { createBracketRoutes } from "@/http/session-routes/bracketRoutes";
@@ -342,6 +343,8 @@ const routes: RouteHandler[] = [
   createBracketRoutes(botRegistry, { renameSession }),
   // `/archive` and `/unarchive`, under `/api/sessions/` like the rest above.
   createSessionArchiveRoutes({ archive: sessionArchive, isRunning: liveSessionCheck(describeAgentSession) }),
+  // A whole project folder: `/api/projects/archive`, `/unarchive` and `/archive-sessions`.
+  createProjectArchiveRoutes({ archive: sessionArchive, isRunning: liveSessionCheck(describeAgentSession) }),
   createSessionRoutes(describeAgentSession),
   // The agent messaging hub, spoken to as `human` on the panel's behalf (docs/agent-messaging.md).
   createHubRoutes(),

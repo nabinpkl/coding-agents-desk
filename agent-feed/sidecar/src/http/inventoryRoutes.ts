@@ -100,7 +100,7 @@ function sessionsFingerprint(
         session.firstPrompt,
         session.lastTurnClosed,
         resolveAgentSession?.(session.source, session.sessionId)?.activity,
-        sessionArchivedAt(session.source, session.sessionId),
+        sessionArchivedAt(session),
       ]),
   );
 }

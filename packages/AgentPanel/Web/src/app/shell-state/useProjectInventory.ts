@@ -53,6 +53,9 @@ export function useProjectInventory(
   const [archivedByProject, setArchivedByProject] = useState<Map<string, SessionSummary[]>>(
     new Map(),
   );
+  // Archived project folders, kept apart for the same reason. Only the project list's Archived
+  // projects fold reads it.
+  const [archivedProjects, setArchivedProjects] = useState<ProjectSummary[]>([]);
   const [loadingLayer, setLoadingLayer] = useState(true);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [expandedProjectPaths, setExpandedProjectPaths] = useState<Set<string>>(new Set());
@@ -134,8 +137,9 @@ export function useProjectInventory(
       consecutiveFailures.current = 0;
     };
     const stop = feed.subscribeInventory(subscribedProjectPaths, {
-      onProjects: (snapshot) => {
+      onProjects: (snapshot, archived) => {
         setProjects(snapshot);
+        setArchivedProjects(archived);
         onLoaded();
       },
       onSessions: (projectPath, sessions, archived) => {
@@ -210,6 +214,7 @@ export function useProjectInventory(
     toggleRecentReviews,
     showMoreRecentReviews,
     archivedByProject,
+    archivedProjects,
     loadingLayer,
     layerError,
     retrying,

@@ -92,9 +92,10 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    * passes the whole set rather than adding to it: the sidecar reads the set when the
    * stream opens, and one stream reopening costs one slot, never two.
    *
-   * Archived sessions are split off HERE, the one place every inventory reader goes through, so
-   * no list, picker or restore can show one by forgetting to filter: `sessions` never holds an
-   * archived row, and only a caller that offers them back reads `archived`.
+   * Archived sessions and archived project folders are split off HERE, the one place every
+   * inventory reader goes through, so no list, picker or restore can show one by forgetting to
+   * filter: `projects` and `sessions` never hold an archived entry, and only a caller that offers
+   * them back reads the second list.
    *
    * `recent` asks the same stream for that many of the most recently changed sessions across
    * every project as well, ordered by the sidecar (`RecentSessionsPayload`), delivered to
@@ -104,7 +105,7 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
   subscribeInventory(
     projectPaths: readonly string[],
     handlers: {
-      onProjects: (projects: ProjectSummary[]) => void;
+      onProjects: (projects: ProjectSummary[], archived: ProjectSummary[]) => void;
       onSessions: (projectPath: string, sessions: SessionSummary[], archived: SessionSummary[]) => void;
       onRecent?: (recent: RecentSessionsPayload) => void;
     },
@@ -129,7 +130,12 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
             more?: boolean;
             securityReviews: RecentSessionsPayload["securityReviews"];
           };
-          if (message.projects) handlers.onProjects(message.projects);
+          if (message.projects) {
+            handlers.onProjects(
+              message.projects.filter((project) => project.archivedAt === undefined),
+              message.projects.filter((project) => project.archivedAt !== undefined),
+            );
+          }
           else if (message.recent) {
             handlers.onRecent?.({
               recent: message.recent,
@@ -199,6 +205,34 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
         `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/${archived ? "archive" : "unarchive"}`,
       ),
     );
+  }
+
+  /**
+   * Files a whole project folder away, or brings it back. Archiving is refused while any session
+   * in the folder is running, as a conflict carrying the reason.
+   */
+  async setProjectArchived(projectPath: string, archived: boolean): Promise<void> {
+    parse<unknown>(
+      await this.transport.request(
+        "POST",
+        `/api/projects/${archived ? "archive" : "unarchive"}`,
+        { body: { projectPath } },
+      ),
+    );
+  }
+
+  /**
+   * Archives every stopped session in a project folder, leaving the folder listed. Running sessions
+   * are left alone and counted rather than refused, so the answer says how many stayed.
+   */
+  async archiveProjectSessions(projectPath: string): Promise<{ archived: number; running: number }> {
+    const answer = parse<{ archived?: unknown; running?: unknown }>(
+      await this.transport.request("POST", "/api/projects/archive-sessions", { body: { projectPath } }),
+    );
+    if (typeof answer.archived !== "number" || typeof answer.running !== "number") {
+      throw new Error("Archive all sessions returned no counts");
+    }
+    return { archived: answer.archived, running: answer.running };
   }
 
   /**

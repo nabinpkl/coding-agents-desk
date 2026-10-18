@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { installSessionArchive, SessionArchiveStore } from "@/transcripts/session-ops/sessionArchive";
-import { summarizeSession } from "@/transcripts/catalog/catalogViews";
+import { mostRecentSessions, projectSummaries, summarizeSession } from "@/transcripts/catalog/catalogViews";
 
 const directories: string[] = [];
 
@@ -28,8 +28,9 @@ test("archives into a private versioned file that a second store reads back", as
   expect(await store.archive(REF, 1_234)).toBe(1_234);
   expect(store.archivedAt(REF.source, REF.sessionId)).toBe(1_234);
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-    version: 1,
+    version: 2,
     sessions: [{ ...REF, archivedAt: 1_234 }],
+    projects: [],
   });
   expect((await stat(path)).mode & 0o777).toBe(0o600);
 
@@ -63,7 +64,7 @@ test("refuses a malformed file rather than treating it as an empty archive", asy
   const store = new SessionArchiveStore(path);
   await store.ready();
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify({ version: 1, sessions: [{ source: "claude" }] }));
+  await writeFile(path, JSON.stringify({ version: 2, sessions: [{ source: "claude" }], projects: [] }));
   await expect(store.archive(REF)).rejects.toThrow("invalid entry");
   await expect(new SessionArchiveStore(path).ready()).rejects.toThrow("invalid entry");
 });
@@ -76,6 +77,64 @@ test("the installed archive is what a summarized row carries", async () => {
     const session = { ...REF, project: "/repo", lastEventAt: 0 };
     expect(summarizeSession(session).archivedAt).toBe(77);
     expect("archivedAt" in summarizeSession({ ...session, sessionId: "other" })).toBe(false);
+  } finally {
+    installSessionArchive(null);
+  }
+});
+
+test("refuses a version 1 file rather than reading it without its projects", async () => {
+  const path = await archivePath();
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify({ version: 1, sessions: [] }));
+  await expect(new SessionArchiveStore(path).ready()).rejects.toThrow("version 2");
+});
+
+test("archives many sessions in one write and counts only the new ones", async () => {
+  const path = await archivePath();
+  const store = new SessionArchiveStore(path);
+  await store.archive(REF, 1);
+  const other = { source: "codex" as const, sessionId: "rollout-2" };
+  expect(await store.archiveMany([REF, other, other], 5)).toBe(1);
+  expect(store.archivedAt(REF.source, REF.sessionId)).toBe(1);
+  expect(store.archivedAt(other.source, other.sessionId)).toBe(5);
+  expect(JSON.parse(await readFile(path, "utf8")).sessions).toHaveLength(2);
+  expect(await store.archiveMany([REF, other])).toBe(0);
+});
+
+test("archives a project folder, keeps its first timestamp, and unarchives it", async () => {
+  const path = await archivePath();
+  const store = new SessionArchiveStore(path);
+  expect(await store.archiveProject("/repo", 3)).toBe(3);
+  expect(await store.archiveProject("/repo", 4)).toBe(3);
+  expect(JSON.parse(await readFile(path, "utf8")).projects).toEqual([{ projectPath: "/repo", archivedAt: 3 }]);
+  const reread = new SessionArchiveStore(path);
+  await reread.ready();
+  expect(reread.projectArchivedAt("/repo")).toBe(3);
+  expect(await store.unarchiveProject("/repo")).toBe(true);
+  expect(store.projectArchivedAt("/repo")).toBeUndefined();
+  expect(await store.unarchiveProject("/repo")).toBe(false);
+});
+
+test("an archived folder archives every session in it and marks the project, without touching their own entries", async () => {
+  const store = new SessionArchiveStore(await archivePath());
+  await store.archive(REF, 10);
+  await store.archiveProject("/repo", 20);
+  installSessionArchive(store);
+  try {
+    const own = { ...REF, project: "/repo", lastEventAt: 2 };
+    const later = { source: "claude" as const, sessionId: "started-later", project: "/repo", lastEventAt: 3 };
+    const elsewhere = { source: "claude" as const, sessionId: "elsewhere", project: "/other", lastEventAt: 1 };
+    expect(summarizeSession(own).archivedAt).toBe(10);
+    expect(summarizeSession(later).archivedAt).toBe(20);
+    expect("archivedAt" in summarizeSession(elsewhere)).toBe(false);
+    expect(mostRecentSessions([later, own, elsewhere], 10).sessions).toEqual([elsewhere]);
+    const projects = projectSummaries([later, own, elsewhere]);
+    expect(projects.find((project) => project.projectPath === "/repo")?.archivedAt).toBe(20);
+    expect("archivedAt" in projects.find((project) => project.projectPath === "/other")!).toBe(false);
+
+    await store.unarchiveProject("/repo");
+    expect(summarizeSession(own).archivedAt).toBe(10);
+    expect("archivedAt" in summarizeSession(later)).toBe(false);
   } finally {
     installSessionArchive(null);
   }

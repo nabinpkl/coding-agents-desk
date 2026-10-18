@@ -11,6 +11,7 @@ import { ArchiveRestore, ChevronDown, LoaderCircle } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
+import type { ProjectArchiving } from "@/features/sidebar/session-list/ArchivedProjects";
 
 export type SetSessionArchived = (session: SessionSummary, archived: boolean) => Promise<void>;
 
@@ -18,6 +19,8 @@ export type SetSessionArchived = (session: SessionSummary, archived: boolean) =>
 export interface SessionArchiving {
   archivedByProject: ReadonlyMap<string, SessionSummary[]>;
   setArchived: SetSessionArchived;
+  /** Archiving a whole project folder. Absent where only single sessions are offered. */
+  projects?: ProjectArchiving;
 }
 
 function keyOf(session: SessionSummary): string {

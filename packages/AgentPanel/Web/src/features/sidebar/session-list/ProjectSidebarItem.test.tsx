@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import { ProjectSessionPreview } from "@/features/sidebar/session-list/ProjectSidebarItem";
+import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { ProjectSessionList, ProjectSessionPreview } from "@/features/sidebar/session-list/ProjectSidebarItem";
 
 const loose = { source: "claude", sessionId: "loose", title: "Loose", lastEventAt: 1, activity: "ready" } as SessionSummary;
 const held = { ...loose, sessionId: "held", title: "Held" } as SessionSummary;
@@ -87,5 +87,85 @@ describe("a project's security reviews", () => {
     render(<ProjectSessionPreview sessions={[review("one")]} selectedSessionKey={null} onSelect={() => {}} />);
     expect(screen.queryByRole("list", { name: "Sessions" })).toBeNull();
     expect(screen.getByRole("button", { name: /Security reviews \(1\)/ })).toBeInTheDocument();
+  });
+});
+
+describe("archiving a project folder", () => {
+  const repo: ProjectSummary = {
+    projectPath: "/work/repo",
+    displayName: "repo",
+    sourceCounts: { claude: 2 },
+    sessionCount: 2,
+    lastEventAt: 1,
+  };
+  const old: ProjectSummary = { ...repo, projectPath: "/work/old", displayName: "old", archivedAt: 5 };
+
+  function renderList(projects: {
+    active?: ProjectSummary[];
+    archived?: ProjectSummary[];
+    setArchived?: (projectPath: string, archived: boolean) => Promise<void>;
+    archiveSessions?: (projectPath: string) => Promise<{ archived: number; running: number }>;
+  }) {
+    const setArchived = vi.fn(projects.setArchived ?? (async () => {}));
+    const archiveSessions = vi.fn(projects.archiveSessions ?? (async () => ({ archived: 2, running: 0 })));
+    render(
+      <ProjectSessionList
+        projects={projects.active ?? [repo]}
+        sessionsByProject={new Map()}
+        loading={false}
+        error={null}
+        retrying={false}
+        selectedProjectPath={null}
+        selectedSessionKey={null}
+        expandedProjectPaths={new Set()}
+        onToggleProject={() => {}}
+        onSelectSession={() => {}}
+        archiving={{
+          archivedByProject: new Map(),
+          setArchived: async () => {},
+          projects: { archived: projects.archived ?? [], setArchived, archiveSessions },
+        }}
+      />,
+    );
+    return { setArchived, archiveSessions };
+  }
+
+  it("archives the folder from its row menu", () => {
+    const { setArchived } = renderList({});
+    fireEvent.click(screen.getByRole("button", { name: "Actions for repo" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive folder" }));
+    expect(setArchived).toHaveBeenCalledWith("/work/repo", true);
+  });
+
+  it("archives every session and says how many running ones it left", async () => {
+    const { archiveSessions } = renderList({ archiveSessions: async () => ({ archived: 1, running: 2 }) });
+    fireEvent.click(screen.getByRole("button", { name: "Actions for repo" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive all sessions" }));
+    expect(archiveSessions).toHaveBeenCalledWith("/work/repo");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "2 running sessions were left in repo; stop them to archive them too.",
+    );
+  });
+
+  it("names the reason a folder archive was refused", async () => {
+    renderList({
+      setArchived: async () => {
+        throw new Error("1 session is still running in this folder");
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Actions for repo" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive folder" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not archive repo: 1 session is still running in this folder",
+    );
+  });
+
+  it("gives archived folders back from a fold below the list, even when no folder is left", () => {
+    const { setArchived } = renderList({ active: [], archived: [old] });
+    expect(screen.getByText("No projects yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unarchive old" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Archived projects (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unarchive old" }));
+    expect(setArchived).toHaveBeenCalledWith("/work/old", false);
   });
 });

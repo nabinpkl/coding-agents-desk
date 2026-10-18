@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ChevronDown, LayoutDashboard, LoaderCircle, Plus } from "lucide-react";
+import { Archive, ChevronDown, FolderArchive, LayoutDashboard, LoaderCircle, Plus } from "lucide-react";
 import { useId, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
@@ -10,6 +10,12 @@ import {
   useSessionArchiveCommand,
   type SessionArchiving,
 } from "@/features/sidebar/session-list/ArchivedSessions";
+import {
+  ArchivedProjects,
+  projectDisplayName,
+  useProjectArchiveCommand,
+  type ProjectArchiveCommand,
+} from "@/features/sidebar/session-list/ArchivedProjects";
 import { SecurityReviewFold, splitSecurityReviews } from "@/features/sidebar/session-list/SecurityReviewSessions";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -44,6 +50,7 @@ export function ProjectSidebarItem({
   onCreatePiSession,
   canvasMove,
   archiving,
+  projectArchive,
 }: {
   project: ProjectSummary;
   sessions: SessionSummary[] | undefined;
@@ -59,9 +66,17 @@ export function ProjectSidebarItem({
   canvasMove?: SessionCanvasMove;
   /** Archive and Unarchive. Absent where the list offers neither. */
   archiving?: SessionArchiving;
+  /** The list's folder command, present where the list offers archiving a folder. */
+  projectArchive?: ProjectArchiveCommand;
 }) {
   const regionId = useId();
-  const displayName = project.displayName || project.projectPath.split("/").pop() || project.projectPath;
+  const displayName = projectDisplayName(project);
+  const projectMenu: RowMenuItem[] = projectArchive
+    ? [
+      { label: "Archive all sessions", icon: Archive, onSelect: () => projectArchive.run(project, "archive-sessions") },
+      { label: "Archive folder", icon: FolderArchive, onSelect: () => projectArchive.run(project, "archive") },
+    ]
+    : [];
   return (
     <li className="border-b border-border/80">
       <div className={active ? "bg-muted/45" : undefined}>
@@ -102,7 +117,22 @@ export function ProjectSidebarItem({
               <span>Pi</span>
             </button>
           ) : null}
+          {projectArchive?.isPending(project.projectPath) ? (
+            <LoaderCircle
+              className="mx-1 size-3.5 shrink-0 self-center text-muted-foreground motion-safe:animate-spin"
+              role="img"
+              aria-label="Archiving"
+            />
+          ) : null}
+          {projectMenu.length > 0 ? (
+            <span className="flex items-center pr-1">
+              <RowMenu label={displayName} items={projectMenu} />
+            </span>
+          ) : null}
         </div>
+        {projectArchive ? (
+          <ArchiveFailure message={projectArchive.noticeFor(project.projectPath)} className="px-9 pb-2" />
+        ) : null}
         {creationError ? (
           <p role="alert" className="px-9 pb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
             Pi session unavailable: {creationError}
@@ -307,32 +337,48 @@ export function ProjectSessionList(props: {
   canvasMove?: SessionCanvasMove;
   archiving?: SessionArchiving;
 }) {
+  const projectArchiving = props.archiving?.projects;
+  const projectArchive = useProjectArchiveCommand(projectArchiving);
   if (props.loading) return <SidebarStatus>Loading projects…</SidebarStatus>;
   if (props.error) {
     return <SidebarError message={`Projects unavailable: ${props.error}`} retrying={props.retrying} />;
   }
-  if (props.projects.length === 0) return <SidebarStatus>No projects yet</SidebarStatus>;
+  const archivedFold = projectArchiving
+    ? <ArchivedProjects archiving={projectArchiving} command={projectArchive} />
+    : null;
+  if (props.projects.length === 0) {
+    return (
+      <>
+        <SidebarStatus>No projects yet</SidebarStatus>
+        {archivedFold}
+      </>
+    );
+  }
   return (
-    <ul role="list" aria-label="Projects">
-      {props.projects.map((project) => (
-        <ProjectSidebarItem
-          key={project.projectPath}
-          project={project}
-          sessions={props.sessionsByProject.get(project.projectPath)}
-          expanded={props.expandedProjectPaths.has(project.projectPath)}
-          active={props.selectedProjectPath === project.projectPath}
-          selectedSessionKey={
-            props.selectedProjectPath === project.projectPath ? props.selectedSessionKey : null
-          }
-          creating={props.pi?.creatingProjectPath === project.projectPath}
-          creationError={props.pi?.creationErrors.get(project.projectPath) ?? null}
-          onToggle={() => props.onToggleProject(project.projectPath)}
-          onSelectSession={(session) => props.onSelectSession(project, session)}
-          {...(props.pi ? { onCreatePiSession: () => props.pi!.onCreate(project) } : {})}
-          {...(props.canvasMove ? { canvasMove: props.canvasMove } : {})}
-          {...(props.archiving ? { archiving: props.archiving } : {})}
-        />
-      ))}
-    </ul>
+    <>
+      <ul role="list" aria-label="Projects">
+        {props.projects.map((project) => (
+          <ProjectSidebarItem
+            key={project.projectPath}
+            project={project}
+            sessions={props.sessionsByProject.get(project.projectPath)}
+            expanded={props.expandedProjectPaths.has(project.projectPath)}
+            active={props.selectedProjectPath === project.projectPath}
+            selectedSessionKey={
+              props.selectedProjectPath === project.projectPath ? props.selectedSessionKey : null
+            }
+            creating={props.pi?.creatingProjectPath === project.projectPath}
+            creationError={props.pi?.creationErrors.get(project.projectPath) ?? null}
+            onToggle={() => props.onToggleProject(project.projectPath)}
+            onSelectSession={(session) => props.onSelectSession(project, session)}
+            {...(props.pi ? { onCreatePiSession: () => props.pi!.onCreate(project) } : {})}
+            {...(props.canvasMove ? { canvasMove: props.canvasMove } : {})}
+            {...(props.archiving ? { archiving: props.archiving } : {})}
+            {...(projectArchiving ? { projectArchive } : {})}
+          />
+        ))}
+      </ul>
+      {archivedFold}
+    </>
   );
 }

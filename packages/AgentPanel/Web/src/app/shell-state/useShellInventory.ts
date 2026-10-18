@@ -107,9 +107,25 @@ export function useShellInventory({
     (session: SessionSummary, archived: boolean) => feed.setSessionArchived(session, archived),
     [feed],
   );
+  const setProjectArchived = useCallback(
+    (projectPath: string, archived: boolean) => feed.setProjectArchived(projectPath, archived),
+    [feed],
+  );
+  const archiveProjectSessions = useCallback(
+    (projectPath: string) => feed.archiveProjectSessions(projectPath),
+    [feed],
+  );
   const archiving = useMemo<SessionArchiving>(
-    () => ({ archivedByProject: inventory.archivedByProject, setArchived: setSessionArchived }),
-    [inventory.archivedByProject, setSessionArchived],
+    () => ({
+      archivedByProject: inventory.archivedByProject,
+      setArchived: setSessionArchived,
+      projects: {
+        archived: inventory.archivedProjects,
+        setArchived: setProjectArchived,
+        archiveSessions: archiveProjectSessions,
+      },
+    }),
+    [inventory.archivedByProject, inventory.archivedProjects, setSessionArchived, setProjectArchived, archiveProjectSessions],
   );
 
   return { inventory: { ...inventory, archiving }, dialogSessionsByProject, rememberedSelection };

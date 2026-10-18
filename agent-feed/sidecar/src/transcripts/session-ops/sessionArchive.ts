@@ -1,8 +1,13 @@
-// Which sessions the reader has archived on this machine.
+// Which sessions, and which project folders, the reader has archived on this machine.
 //
 // Archiving is a filing decision of ours and nothing more: the transcript is untouched, the
 // provider is not told, and every surface hides the session until the reader unarchives it. A
 // session that is written to again stays archived; only Unarchive brings it back.
+//
+// An archived project is the same decision made for a whole folder: the project leaves the list,
+// and every session in it reads as archived, including one started there after the folder was
+// filed. Its sessions keep their own entries, so unarchiving the folder brings back exactly the
+// sessions that were showing before it was archived.
 //
 // The file is the authority, and it lives beside `bots.json` (`config.sessionArchivePath`). This
 // process keeps a copy in memory so a row can be summarized without a read, re-reads the file
@@ -16,7 +21,7 @@ import { readFile } from "node:fs/promises";
 import type { BotSessionRef, SourceId } from "@agentdesk/agent-feed-wire";
 import { acquireFileLock, writeJsonAtomically } from "@/config/lockedJsonFile";
 
-const SESSION_ARCHIVE_VERSION = 1;
+const SESSION_ARCHIVE_VERSION = 2;
 const SOURCES: readonly SourceId[] = ["claude", "codex", "pi", "opencode"];
 
 export interface ArchivedSession extends BotSessionRef {
@@ -24,9 +29,16 @@ export interface ArchivedSession extends BotSessionRef {
   archivedAt: number;
 }
 
+export interface ArchivedProject {
+  projectPath: string;
+  /** `Date.now()` when it was archived. */
+  archivedAt: number;
+}
+
 interface StoredSessionArchive {
-  version: 1;
+  version: 2;
   sessions: ArchivedSession[];
+  projects: ArchivedProject[];
 }
 
 function archiveKey(source: string, sessionId: string): string {
@@ -43,19 +55,38 @@ function isArchivedSession(value: unknown): value is ArchivedSession {
     && Number.isFinite(entry.archivedAt);
 }
 
+function isArchivedProject(value: unknown): value is ArchivedProject {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return typeof entry.projectPath === "string"
+    && entry.projectPath.length > 0
+    && typeof entry.archivedAt === "number"
+    && Number.isFinite(entry.archivedAt);
+}
+
 function validateArchive(value: unknown, path: string): StoredSessionArchive {
-  const stored = value as { version?: unknown; sessions?: unknown } | null;
-  if (!stored || stored.version !== SESSION_ARCHIVE_VERSION || !Array.isArray(stored.sessions)) {
-    throw new Error(`session-archive.json at ${path} must have version ${SESSION_ARCHIVE_VERSION} and a sessions list`);
+  const stored = value as { version?: unknown; sessions?: unknown; projects?: unknown } | null;
+  if (
+    !stored
+    || stored.version !== SESSION_ARCHIVE_VERSION
+    || !Array.isArray(stored.sessions)
+    || !Array.isArray(stored.projects)
+  ) {
+    throw new Error(
+      `session-archive.json at ${path} must have version ${SESSION_ARCHIVE_VERSION}, a sessions list and a projects list`,
+    );
   }
-  if (!stored.sessions.every(isArchivedSession)) {
+  if (!stored.sessions.every(isArchivedSession) || !stored.projects.every(isArchivedProject)) {
     throw new Error(`session-archive.json at ${path} contains an invalid entry`);
   }
-  return { version: SESSION_ARCHIVE_VERSION, sessions: stored.sessions };
+  return { version: SESSION_ARCHIVE_VERSION, sessions: stored.sessions, projects: stored.projects };
 }
+
+const EMPTY_ARCHIVE: StoredSessionArchive = { version: SESSION_ARCHIVE_VERSION, sessions: [], projects: [] };
 
 export class SessionArchiveStore {
   private entries = new Map<string, ArchivedSession>();
+  private projects = new Map<string, ArchivedProject>();
   private readonly loaded: Promise<void>;
   private mutationTail: Promise<void> = Promise.resolve();
 
@@ -68,43 +99,79 @@ export class SessionArchiveStore {
     return this.loaded;
   }
 
-  /** When the session was archived, or undefined when it is not. Synchronous: read per row. */
+  /** When the session itself was archived, or undefined when it is not. Synchronous: read per row. */
   archivedAt(source: string, sessionId: string): number | undefined {
     return this.entries.get(archiveKey(source, sessionId))?.archivedAt;
   }
 
+  /** When the project folder was archived, or undefined when it is not. */
+  projectArchivedAt(projectPath: string): number | undefined {
+    return this.projects.get(projectPath)?.archivedAt;
+  }
+
   /** Archives a session, keeping the first timestamp when it already was. */
-  archive(ref: BotSessionRef, now = Date.now()): Promise<number> {
-    return this.mutate((sessions) => {
-      const existing = sessions.find((entry) => archiveKey(entry.source, entry.sessionId) === archiveKey(ref.source, ref.sessionId));
-      if (existing) return { sessions, value: existing.archivedAt };
-      return {
-        sessions: [...sessions, { source: ref.source, sessionId: ref.sessionId, archivedAt: now }],
-        value: now,
-      };
+  async archive(ref: BotSessionRef, now = Date.now()): Promise<number> {
+    await this.archiveMany([ref], now);
+    return this.archivedAt(ref.source, ref.sessionId) ?? now;
+  }
+
+  /** Archives every session named, in one write. Answers how many were not archived already. */
+  archiveMany(refs: readonly BotSessionRef[], now = Date.now()): Promise<number> {
+    return this.mutate((archive) => {
+      const known = new Set(archive.sessions.map((entry) => archiveKey(entry.source, entry.sessionId)));
+      const added: ArchivedSession[] = [];
+      for (const ref of refs) {
+        const key = archiveKey(ref.source, ref.sessionId);
+        if (known.has(key)) continue;
+        known.add(key);
+        added.push({ source: ref.source, sessionId: ref.sessionId, archivedAt: now });
+      }
+      if (added.length === 0) return { archive, value: 0 };
+      return { archive: { ...archive, sessions: [...archive.sessions, ...added] }, value: added.length };
     });
   }
 
   /** Unarchives a session. True when it was archived. */
   unarchive(ref: BotSessionRef): Promise<boolean> {
-    return this.mutate((sessions) => {
+    return this.mutate((archive) => {
       const key = archiveKey(ref.source, ref.sessionId);
-      const kept = sessions.filter((entry) => archiveKey(entry.source, entry.sessionId) !== key);
-      return kept.length === sessions.length ? { sessions, value: false } : { sessions: kept, value: true };
+      const kept = archive.sessions.filter((entry) => archiveKey(entry.source, entry.sessionId) !== key);
+      return kept.length === archive.sessions.length
+        ? { archive, value: false }
+        : { archive: { ...archive, sessions: kept }, value: true };
     });
   }
 
-  private mutate<T>(change: (sessions: ArchivedSession[]) => { sessions: ArchivedSession[]; value: T }): Promise<T> {
+  /** Archives a project folder, keeping the first timestamp when it already was. */
+  archiveProject(projectPath: string, now = Date.now()): Promise<number> {
+    return this.mutate((archive) => {
+      const existing = archive.projects.find((entry) => entry.projectPath === projectPath);
+      if (existing) return { archive, value: existing.archivedAt };
+      return { archive: { ...archive, projects: [...archive.projects, { projectPath, archivedAt: now }] }, value: now };
+    });
+  }
+
+  /** Unarchives a project folder. True when it was archived. */
+  unarchiveProject(projectPath: string): Promise<boolean> {
+    return this.mutate((archive) => {
+      const kept = archive.projects.filter((entry) => entry.projectPath !== projectPath);
+      return kept.length === archive.projects.length
+        ? { archive, value: false }
+        : { archive: { ...archive, projects: kept }, value: true };
+    });
+  }
+
+  private mutate<T>(
+    change: (archive: StoredSessionArchive) => { archive: StoredSessionArchive; value: T },
+  ): Promise<T> {
     const run = this.mutationTail.then(async () => {
       await this.loaded.catch(() => {});
       const release = await acquireFileLock(this.path);
       try {
         const latest = await this.readFile();
-        const result = change(latest.sessions);
-        if (result.sessions !== latest.sessions) {
-          await writeJsonAtomically(this.path, { version: SESSION_ARCHIVE_VERSION, sessions: result.sessions });
-        }
-        this.adopt({ version: SESSION_ARCHIVE_VERSION, sessions: result.sessions });
+        const result = change(latest);
+        if (result.archive !== latest) await writeJsonAtomically(this.path, result.archive);
+        this.adopt(result.archive);
         return result.value;
       } finally {
         await release();
@@ -116,6 +183,7 @@ export class SessionArchiveStore {
 
   private adopt(archive: StoredSessionArchive): void {
     this.entries = new Map(archive.sessions.map((entry) => [archiveKey(entry.source, entry.sessionId), entry]));
+    this.projects = new Map(archive.projects.map((entry) => [entry.projectPath, entry]));
   }
 
   private async readFile(): Promise<StoredSessionArchive> {
@@ -123,9 +191,7 @@ export class SessionArchiveStore {
     try {
       text = await readFile(this.path, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return { version: SESSION_ARCHIVE_VERSION, sessions: [] };
-      }
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return EMPTY_ARCHIVE;
       throw new Error(`failed to read session-archive.json at ${this.path}`, { cause: error });
     }
     let parsed: unknown;
@@ -152,6 +218,14 @@ export function installSessionArchive(store: SessionArchiveStore | null): void {
   installed = store;
 }
 
-export function sessionArchivedAt(source: string, sessionId: string): number | undefined {
-  return installed?.archivedAt(source, sessionId);
+/**
+ * When a session reads as archived: its own entry, or else its project folder's. A session inside
+ * an archived folder is archived whether or not it has an entry of its own.
+ */
+export function sessionArchivedAt(session: { source: string; sessionId: string; project: string }): number | undefined {
+  return installed?.archivedAt(session.source, session.sessionId) ?? installed?.projectArchivedAt(session.project);
+}
+
+export function projectArchivedAt(projectPath: string): number | undefined {
+  return installed?.projectArchivedAt(projectPath);
 }
