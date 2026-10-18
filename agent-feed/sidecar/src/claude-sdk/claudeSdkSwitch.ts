@@ -10,8 +10,13 @@
 // approval waiting, a background shell or agent alive inside the process (it dies with it), more
 // than one process already, or a pane this sidecar did not start (respawning it would end
 // somebody's own shell).
+//
+// The same move from SDK to SDK is how a stale runner is brought up to date (ADR-0144): a runner
+// whose code is older than what is on disk is relaunched with `resume` the first time its session
+// is idle, and left alone until then.
 
 import type { ClaudeRunMode, ClaudeSdkSessionState } from "@agentdesk/agent-feed-wire";
+import { findSession } from "@/transcripts/catalog/transcriptCatalog";
 import { liveSessionProcesses, type ClaudeSessionProcess } from "@/tasks/sessionRegistry";
 import { currentProcessTable } from "@/tasks/processProbe";
 import {
@@ -22,7 +27,8 @@ import {
 } from "@/terminal/tmux/tmuxSessions";
 import type { ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
 import { resumeCommandFor } from "@/claude-sdk/claudeSdkLaunch";
-import { isClaudeSdkRunnerCommand, type RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
+import { isClaudeSdkRunnerCommand } from "@/claude-sdk/claudeSdkProtocol";
+import type { SessionReply } from "@/claude-sdk/claudeSdkSession";
 
 export type SwitchRefusal =
   /** No process holds the session; opening it starts it, in the mode it last ran in. */
@@ -44,7 +50,7 @@ export interface SwitchSteps {
   processes(sessionId: string): Promise<ClaudeSessionProcess[]>;
   /** The runner's state, connecting to ask; `connected: false` when none answers. */
   runnerState(sessionId: string): Promise<ClaudeSdkSessionState>;
-  stopRunner(sessionId: string): Promise<RunnerReply>;
+  stopRunner(sessionId: string): Promise<SessionReply>;
   /** Ends a terminal session's `claude` the way closing its pane does, so it writes its exit records. */
   hangUp(pid: number): void;
   /** The stamped tmux session of this session, if any. */
@@ -92,19 +98,49 @@ export async function switchRunMode(
     return { ok: false, reason: "not-ours", message: "this session is running outside the terminal and the SDK runner, so it can't be switched from here" };
   }
   if (current === mode) return { ok: false, reason: "already", message: `this session already runs ${mode === "sdk" ? "through the SDK" : "in the terminal"}` };
+  return moveInPane(session, process, current, mode, steps);
+}
 
-  // Idle, asked of whoever knows: the runner for an SDK session, the registry row for a terminal one.
-  if (current === "sdk") {
-    const state = await steps.runnerState(sessionId);
-    const busy = !state.connected
-      ? "its runner is not answering"
-      : state.status !== "idle"
-        ? "a turn is running"
-        : state.pending.length > 0
-          ? "a question or approval is waiting"
-          : state.backgroundTasks > 0
-            ? "a background shell or agent is running, and it would end with the process"
-            : null;
+/**
+ * Restarts an SDK session's runner on the code on disk now, resuming the same conversation in the
+ * same pane. Refused for the reasons a switch is, and for a session not running through the SDK.
+ */
+export async function restartRunner(
+  session: { sessionId: string; cwd: string; title: string },
+  steps: SwitchSteps,
+): Promise<SwitchOutcome> {
+  const live = await steps.processes(session.sessionId);
+  if (live.length !== 1) {
+    return live.length === 0
+      ? { ok: false, reason: "not-running", message: "this session is not running" }
+      : { ok: false, reason: "several-processes", message: `${live.length} processes are running this session` };
+  }
+  const process = live[0]!;
+  if (modeOf(process) !== "sdk") return { ok: false, reason: "not-ours", message: "this session is not running through the SDK" };
+  return moveInPane(session, process, "sdk", "sdk", steps);
+}
+
+/** Stops the process in its pane once it is idle, and starts the session again there in `mode`. */
+async function moveInPane(
+  session: { sessionId: string; cwd: string; title: string },
+  process: ClaudeSessionProcess,
+  current: ClaudeRunMode,
+  mode: ClaudeRunMode,
+  steps: SwitchSteps,
+): Promise<SwitchOutcome> {
+  const { sessionId } = session;
+  // Idle, asked of whoever knows: the runner for an SDK session, the registry row for a terminal
+  // one -- and for an SDK session whose runner does not answer, such as one still speaking an older
+  // protocol, the registry row too, which the CLI keeps whoever holds it.
+  const state = current === "sdk" ? await steps.runnerState(sessionId) : null;
+  if (state?.connected) {
+    const busy = state.status !== "idle"
+      ? "a turn is running"
+      : state.pending.length > 0
+        ? "a question or approval is waiting"
+        : state.backgroundTasks > 0
+          ? "a background shell or agent is running, and it would end with the process"
+          : null;
     if (busy) return { ok: false, reason: "busy", message: `not switched: ${busy}` };
   } else if (process.activity !== "idle") {
     return { ok: false, reason: "busy", message: `not switched: ${NOT_IDLE[process.activity ?? ""] ?? "it is not known to be idle"}` };
@@ -120,10 +156,12 @@ export async function switchRunMode(
     return { ok: false, reason: "not-ours", message: "this session's pane was not started by this panel, so switching would end someone's shell" };
   }
 
-  if (current === "sdk") {
+  if (state?.connected) {
     const stopped = await steps.stopRunner(sessionId);
     if (!stopped.ok) return { ok: false, reason: "failed", message: `the runner would not stop: ${stopped.message}` };
   } else {
+    // A terminal's `claude`, or one under a runner that does not answer: a hangup ends it the way
+    // closing its pane does, and a runner whose `claude` has gone ends with it.
     steps.hangUp(process.pid);
   }
   // Polled, and bounded: the old process is not this sidecar's child, so its exit raises no event
@@ -143,6 +181,74 @@ export async function switchRunMode(
     return { ok: false, reason: "failed", message: `the session stopped, but starting it again failed (${why}); open it to resume it` };
   }
   return { ok: true };
+}
+
+/** Sessions whose stale runner is being relaunched now, or was tried lately and refused. */
+const relaunching = new Map<string, number>();
+/** The one retry waiting for each session whose runner cannot say when it is idle. */
+const retrying = new Map<string, ReturnType<typeof setTimeout>>();
+/** How long a refused relaunch waits before it is tried again on a later state. */
+const RELAUNCH_RETRY_MS = 60_000;
+
+/**
+ * Relaunches a stale runner the first time its session is idle: no turn, nothing waiting, nothing
+ * running in the background that would die with it. Called on every state such a runner sends,
+ * which is how it notices the session going idle; anything short of that leaves it running.
+ */
+export function relaunchStaleRunner(
+  client: ClaudeSdkClient,
+  sessionId: string,
+  state: ClaudeSdkSessionState,
+  steps: SwitchSteps = liveSwitchSteps(client),
+  now: () => number = Date.now,
+  log: (line: string) => void = (line) => console.log(`[claude-sdk] ${line}`),
+): Promise<SwitchOutcome | null> {
+  // A runner that answers is judged by its state, here and again by the restart; one that does not
+  // (an older protocol) is judged by its registry row inside the restart, which refuses while busy.
+  if (state.connected && (state.status !== "idle" || state.pending.length > 0 || state.backgroundTasks > 0)) {
+    return Promise.resolve(null);
+  }
+  const last = relaunching.get(sessionId);
+  if (last !== undefined && now() - last < RELAUNCH_RETRY_MS) return Promise.resolve(null);
+  relaunching.set(sessionId, now());
+  return relaunchFromRow(client, sessionId, state, steps, now, log);
+}
+
+/**
+ * The relaunch itself, where the session is and what it is called taken from its registry row: the
+ * running process's own account, which the catalog may not have read yet.
+ */
+async function relaunchFromRow(
+  client: ClaudeSdkClient,
+  sessionId: string,
+  state: ClaudeSdkSessionState,
+  steps: SwitchSteps,
+  now: () => number,
+  log: (line: string) => void,
+): Promise<SwitchOutcome | null> {
+  const [row] = await steps.processes(sessionId);
+  if (!row) {
+    log(`${sessionId}: not relaunched: no process is running it`);
+    return null;
+  }
+  const title = row.name ?? findSession("claude", sessionId)?.title ?? sessionId;
+  log(`${sessionId}: relaunching its stale runner while it is idle`);
+  return restartRunner({ sessionId, cwd: row.cwd, title }, steps).then((outcome) => {
+    if (outcome.ok) relaunching.delete(sessionId);
+    else log(`${sessionId}: not relaunched: ${outcome.message}`);
+    // A runner that answers says when it goes idle, and this is called again then. One on an older
+    // protocol says nothing this sidecar can hear, and its registry row is a file the CLI rewrites
+    // without an event held here, so a busy one is asked again after a while, until it is idle.
+    if (!state.connected && !outcome.ok && outcome.reason === "busy" && !retrying.has(sessionId)) {
+      const timer = setTimeout(() => {
+        retrying.delete(sessionId);
+        void relaunchStaleRunner(client, sessionId, state, steps, now, log);
+      }, RELAUNCH_RETRY_MS);
+      timer.unref?.();
+      retrying.set(sessionId, timer);
+    }
+    return outcome;
+  });
 }
 
 /** The steps against this machine: its registry, the runner's socket, tmux, and signals. */

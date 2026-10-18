@@ -1,40 +1,18 @@
 // One Claude session held through the Agent SDK: the part of the runner that is not a socket.
 //
-// It owns one long-lived `query()` for the whole session, fed by a queue, so `claude` stays up
-// between prompts the way a terminal session does (t3code's shape; see ADR-0143). It owns every
-// tool call the session is waiting on -- an AskUserQuestion, an approval the permission mode did
-// not settle -- and holds each one open until somebody answers. Nothing here times a request out:
-// waiting for the reader is the whole point, and a sidecar restart in between must lose nothing.
+// A pipe, on purpose (ADR-0144). It owns the one long-lived `query()` the session runs in, fed by a
+// queue so `claude` stays up between prompts, and it holds every permission callback open until a
+// sidecar settles it -- the two things that must live in the process that owns `claude`. What any
+// of it means -- the session's status, its mode, which call is a question -- is the sidecar's to
+// read, because the sidecar reloads on a save and this process must not restart.
+//
+// It keeps the latest record of each kind (a message per type and subtype, a call per method) so a
+// sidecar that connects late is handed enough to rebuild the session's state, and never more.
 //
 // Pure of I/O beyond the injected query, so its tests drive it with a fake SDK and no CLI.
 
-import type {
-  CanUseTool,
-  ModelInfo,
-  Options,
-  PermissionResult,
-  SDKMessage,
-  SDKUserMessage,
-} from "@anthropic-ai/claude-agent-sdk";
-import type {
-  ClaudeEffortLevel,
-  ClaudePermissionMode,
-  ClaudeSdkApprovalRequest,
-  ClaudeSdkModel,
-  ClaudeSdkPendingRequest,
-  ClaudeSdkQuestionRequest,
-  ClaudeSdkRunStatus,
-  TmuxQuestionAnswer,
-} from "@agentdesk/agent-feed-wire";
-import { askedQuestions, sdkAnswers, type AnswersFit } from "@/claude-sdk/claudeSdkAnswers";
-import {
-  cliPermissionMode,
-  sdkPermissionMode,
-  type PromptImage,
-  type RunnerReply,
-  type RunnerState,
-  type RunnerStreamFrame,
-} from "@/claude-sdk/claudeSdkProtocol";
+import type { CanUseTool, Options, PermissionMode, PermissionResult, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { RunnerCallback, RunnerRecord, RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
 
 /** What the sidecar decided about this session before the runner started. */
 export interface RunnerPlan {
@@ -46,7 +24,8 @@ export interface RunnerPlan {
   /** For a fork: the session it branches from, and the record its history is cut at, if any. */
   forkFrom?: string;
   resumeAt?: string;
-  permissionMode: ClaudePermissionMode;
+  /** In the SDK's spelling: the CLI's `manual` is the SDK's `default`. */
+  permissionMode: PermissionMode;
   allowBypass: boolean;
   pluginDirectories: string[];
   /** The installed `claude` this session runs. */
@@ -55,23 +34,16 @@ export interface RunnerPlan {
   firstTurn?: string;
 }
 
-/** The part of the SDK's `Query` the runner uses. */
-export interface RunnerQuery extends AsyncIterable<SDKMessage> {
-  setPermissionMode(mode: "default" | Exclude<ClaudePermissionMode, "manual">): Promise<void>;
-  interrupt(): Promise<unknown>;
-  setModel(model?: string): Promise<void>;
-  supportedModels(): Promise<ModelInfo[]>;
-  /** The flag settings layer, mid-session; the runner sets only `effortLevel` through it. */
-  applyFlagSettings(settings: { effortLevel?: ClaudeEffortLevel | null }): Promise<void>;
-  /**
-   * The CLI's `rename_session` control request, as a user rename (`source: "host"`). On the SDK's
-   * `Query` though not in its typed interface (0.3.302), so it is checked for at the call rather
-   * than assumed: a later SDK without it is a loud refusal, not a quiet half-rename.
-   */
-  renameSession?(title: string, sessionId?: string): Promise<void>;
-}
+/** The SDK's `Query`, as far as the runner relies on it: messages out, and methods by name. */
+export type RunnerQuery = AsyncIterable<SDKMessage> & { interrupt(): Promise<unknown> };
 
 export type QueryFactory = (params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => RunnerQuery;
+
+/** What the runner tells whoever is listening, in the order it happens. */
+export type RunnerEvent =
+  | { type: "record"; record: RunnerRecord }
+  | { type: "callback"; callback: RunnerCallback }
+  | { type: "settled"; callback: string };
 
 /** A pushed-to async iterable: the session's input, which stays open until `close`. */
 class PromptQueue implements AsyncIterable<SDKUserMessage> {
@@ -108,19 +80,6 @@ class PromptQueue implements AsyncIterable<SDKUserMessage> {
   }
 }
 
-interface Pending {
-  request: ClaudeSdkPendingRequest;
-  settle: (result: PermissionResult) => void;
-}
-
-const DENIED_IN_PANEL = "The person denied this from the agent panel.";
-
-const SESSION_STATES: Record<string, ClaudeSdkRunStatus> = {
-  idle: "idle",
-  running: "running",
-  requires_action: "requires-action",
-};
-
 /** Which conversation the query opens: a new one, this session's own, or a fork of another's. */
 function startOptions(plan: RunnerPlan): Options {
   switch (plan.start) {
@@ -143,19 +102,37 @@ function startOptions(plan: RunnerPlan): Options {
   }
 }
 
+/** Which record a new one replaces: one message per type and subtype, one call per method. */
+function recordKey(record: RunnerRecord): string {
+  switch (record.kind) {
+    case "message":
+      return `message:${record.message.type}:${String(record.message.subtype ?? "")}`;
+    case "called":
+      return `called:${record.method}`;
+    default:
+      return record.kind;
+  }
+}
+
+function isSettings(args: unknown[]): args is [Record<string, unknown>] {
+  return args.length === 1 && args[0] !== null && typeof args[0] === "object" && !Array.isArray(args[0]);
+}
+
+/** Only what survives JSON: `canUseTool`'s signal is the runner's to watch, not the sidecar's. */
+function plainOptions(options: Parameters<CanUseTool>[2]): RunnerCallback["options"] {
+  const { signal: _signal, ...rest } = options;
+  return JSON.parse(JSON.stringify(rest)) as RunnerCallback["options"];
+}
+
 export class ClaudeSdkRunner {
-  private status: ClaudeSdkRunStatus = "starting";
-  private permissionMode: ClaudePermissionMode | null = null;
-  private claudeCodeVersion: string | null = null;
-  private model: string | null = null;
-  private models: ClaudeSdkModel[] = [];
-  private effort: ClaudeEffortLevel | null = null;
-  private backgroundTasks = 0;
-  private readonly pending = new Map<string, Pending>();
-  private readonly listeners = new Set<(state: RunnerState) => void>();
-  private readonly streamListeners = new Set<(frame: RunnerStreamFrame) => void>();
+  /** The latest record of each key, in the order each was last replaced. */
+  private readonly records = new Map<string, RunnerRecord>();
+  private readonly callbacks = new Map<string, { callback: RunnerCallback; settle: (result: PermissionResult) => void }>();
+  private readonly listeners = new Set<(event: RunnerEvent) => void>();
   private readonly prompts = new PromptQueue();
   private query: RunnerQuery | null = null;
+  private ended = false;
+  private nextCallback = 0;
 
   constructor(
     private readonly plan: RunnerPlan,
@@ -170,7 +147,7 @@ export class ClaudeSdkRunner {
       cwd: plan.cwd,
       ...startOptions(plan),
       pathToClaudeCodeExecutable: plan.claudePath,
-      permissionMode: sdkPermissionMode(plan.permissionMode),
+      permissionMode: plan.permissionMode,
       ...(plan.allowBypass ? { allowDangerouslySkipPermissions: true } : {}),
       plugins: plan.pluginDirectories.map((path) => ({ type: "local" as const, path })),
       // Without it Opus streams and stores its thinking empty, and the grey lines a terminal
@@ -184,312 +161,120 @@ export class ClaudeSdkRunner {
     };
   }
 
-  state(): RunnerState {
-    return {
-      // A turn holding a request open is waiting on the reader, whatever else it is doing.
-      status: this.pending.size > 0 && this.status === "running" ? "requires-action" : this.status,
-      permissionMode: this.permissionMode,
-      allowBypass: this.plan.allowBypass,
-      pending: [...this.pending.values()].map((entry) => entry.request),
-      backgroundTasks: this.backgroundTasks,
-      claudeCodeVersion: this.claudeCodeVersion,
-      model: this.model,
-      models: this.models,
-      effort: this.effort,
-    };
+  get allowBypass(): boolean {
+    return this.plan.allowBypass;
   }
 
-  subscribe(listener: (state: RunnerState) => void): () => void {
+  /** Everything a connection arriving now is handed: the kept records, then the open callbacks. */
+  snapshot(): { records: RunnerRecord[]; callbacks: RunnerCallback[] } {
+    return { records: [...this.records.values()], callbacks: [...this.callbacks.values()].map((entry) => entry.callback) };
+  }
+
+  subscribe(listener: (event: RunnerEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  /** Every streamed event of the session's messages, as it arrives, for the live mirror. */
-  onStream(listener: (frame: RunnerStreamFrame) => void): () => void {
-    this.streamListeners.add(listener);
-    return () => this.streamListeners.delete(listener);
-  }
-
   /** Runs the session until its input closes and `claude` exits. Resolves; never rejects. */
   async run(log: (line: string) => void): Promise<void> {
-    const query = this.createQuery({ prompt: this.prompts, options: this.options() });
-    this.query = query;
-    void this.loadModels(query, log);
-    if (this.plan.firstTurn) this.prompts.push(this.userMessage(this.plan.firstTurn));
+    this.query = this.createQuery({ prompt: this.prompts, options: this.options() });
+    if (this.plan.firstTurn) {
+      this.input({ type: "user", message: { role: "user", content: this.plan.firstTurn }, parent_tool_use_id: null, origin: { kind: "human" } });
+    }
     try {
-      for await (const message of query) this.handle(message);
+      for await (const message of this.query) {
+        this.keep({ kind: "message", message: message as unknown as Record<string, unknown> & { type: string } });
+      }
     } catch (error) {
       log(`the session ended with an error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.query = null;
+      this.ended = true;
       this.prompts.close();
-      for (const entry of this.pending.values()) entry.settle({ behavior: "deny", message: "The session ended." });
-      this.pending.clear();
-      this.status = "exited";
-      this.publish();
+      for (const id of [...this.callbacks.keys()]) this.settle(id, { behavior: "deny", message: "The session ended." });
+      this.keep({ kind: "ended" });
     }
   }
 
-  prompt(text: string, images: readonly PromptImage[] = []): RunnerReply {
-    if (this.status === "exited") return { ok: false, reason: "failed", message: "the session has ended" };
-    this.prompts.push(this.userMessage(text, images));
-    this.becomes("running");
-    return { ok: true };
+  /** Queues a turn, in the SDK's shape as the sidecar built it. */
+  input(message: SDKUserMessage): RunnerReply {
+    if (this.ended) return { ok: false, message: "the session has ended" };
+    this.prompts.push(message);
+    this.keep({ kind: "input" });
+    return { ok: true, value: null };
   }
 
-  answer(answers: readonly TmuxQuestionAnswer[]): RunnerReply {
-    const questions = [...this.pending.values()].filter(
-      (entry): entry is Pending & { request: ClaudeSdkQuestionRequest } => entry.request.kind === "question",
-    );
-    if (questions.length === 0) return { ok: false, reason: "no-dialog", message: "no question is waiting" };
-    let refusal: Extract<AnswersFit, { ok: false }> | null = null;
-    for (const entry of questions) {
-      const fit = sdkAnswers(entry.request.questions, answers);
-      if (!fit.ok) {
-        // A wrong option on the right call says more than a wrong call does, so it is kept.
-        if (!refusal || fit.refused === "wrong-option") refusal = fit;
-        continue;
-      }
-      this.settle(entry.request.toolUseId, {
-        behavior: "allow",
-        updatedInput: { questions: entry.request.questions, answers: fit.answers },
-      });
-      return { ok: true };
-    }
-    return { ok: false, reason: refusal!.refused, message: refusal!.message };
-  }
-
-  decide(toolUseId: string, allow: boolean, message?: string): RunnerReply {
-    const entry = this.pending.get(toolUseId);
-    if (!entry || entry.request.kind !== "approval") {
-      return { ok: false, reason: "not-pending", message: "that approval is no longer waiting" };
-    }
-    this.settle(toolUseId, allow
-      ? { behavior: "allow", updatedInput: entry.request.input }
-      : { behavior: "deny", message: message?.trim() || DENIED_IN_PANEL });
-    return { ok: true };
-  }
-
-  async setMode(mode: ClaudePermissionMode): Promise<RunnerReply> {
-    if (!this.query) return { ok: false, reason: "failed", message: "the session is not running" };
-    if (mode === "bypassPermissions" && !this.plan.allowBypass) {
-      return { ok: false, reason: "invalid", message: "bypass permissions is not allowed for this session" };
-    }
+  /** Calls one control method of the `Query` by name, with whatever the sidecar sent. */
+  async call(method: string, args: unknown[]): Promise<RunnerReply> {
+    const query = this.query as unknown as Record<string, unknown> | null;
+    if (!query) return { ok: false, message: "the session is not running" };
+    const fn = query[method];
+    if (typeof fn !== "function") return { ok: false, message: `this SDK has no ${method}` };
     try {
-      await this.query.setPermissionMode(sdkPermissionMode(mode));
+      const value: unknown = await (fn as (...values: unknown[]) => unknown).apply(query, args);
+      this.keep({ kind: "called", method, args });
+      return { ok: true, value: value ?? null };
     } catch (error) {
-      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
-    this.permissionMode = mode;
-    this.publish();
-    return { ok: true };
+  }
+
+  /** Resolves one held callback, as the sidecar decided. */
+  resolve(id: string, result: PermissionResult): RunnerReply {
+    if (!this.callbacks.has(id)) return { ok: false, message: "that request is no longer waiting" };
+    this.settle(id, result);
+    return { ok: true, value: null };
   }
 
   /**
-   * Renames the session the way `/rename` does -- registry name, title and agent name together
-   * (measured 2026-10-17) -- through a control request rather than a turn, so it does not wait
-   * behind a turn that is running.
-   */
-  async rename(title: string): Promise<RunnerReply> {
-    if (!this.query) return { ok: false, reason: "failed", message: "the session is not running" };
-    if (typeof this.query.renameSession !== "function") {
-      return { ok: false, reason: "failed", message: "this SDK has no rename control request" };
-    }
-    try {
-      await this.query.renameSession(title, this.plan.sessionId);
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  /** Switches the model the session answers with, from its next turn. */
-  async setModel(model: string): Promise<RunnerReply> {
-    if (!this.query) return { ok: false, reason: "failed", message: "the session is not running" };
-    try {
-      await this.query.setModel(model);
-    } catch (error) {
-      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
-    }
-    // The CLI names the model it now answers with on the next turn's init; until then the choice is
-    // the best account, resolved to its full id where the list says what an alias stands for.
-    this.model = this.models.find((entry) => entry.value === model)?.resolvedModel ?? model;
-    this.publish();
-    return { ok: true };
-  }
-
-  /**
-   * Sets how much the session thinks, from its next request, the way `/effort` does: through the
-   * flag settings layer, so it lasts the session and is written to no settings file.
-   */
-  async setEffort(effort: ClaudeEffortLevel): Promise<RunnerReply> {
-    if (!this.query) return { ok: false, reason: "failed", message: "the session is not running" };
-    try {
-      await this.query.applyFlagSettings({ effortLevel: effort });
-    } catch (error) {
-      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
-    }
-    this.effort = effort;
-    this.publish();
-    return { ok: true };
-  }
-
-  /**
-   * The models this `claude` offers, asked once the query is open. A failure leaves the list empty,
-   * which the panel reads as nothing to switch to rather than as an error to show.
-   */
-  private async loadModels(query: RunnerQuery, log: (line: string) => void): Promise<void> {
-    try {
-      this.models = (await query.supportedModels()).map((entry) => ({
-        value: entry.value,
-        ...(entry.resolvedModel ? { resolvedModel: entry.resolvedModel } : {}),
-        displayName: entry.displayName,
-        description: entry.description,
-        ...(entry.supportsEffort && entry.supportedEffortLevels?.length
-          ? { effortLevels: entry.supportedEffortLevels }
-          : {}),
-      }));
-      this.publish();
-    } catch (error) {
-      log(`could not list the models: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  async interrupt(): Promise<RunnerReply> {
-    if (!this.query) return { ok: false, reason: "failed", message: "the session is not running" };
-    try {
-      await this.query.interrupt();
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  /**
-   * Ends the session the way a terminal does when its pane is closed: the turn in progress is
+   * Ends the session the way a terminal does when its pane is closed: a turn in progress is
    * interrupted, the input closes, and `claude` writes its exit records before it goes -- the
    * records a later resume picks its branch by.
    */
   async stop(): Promise<void> {
-    if (this.status === "running" || this.status === "requires-action") await this.interrupt();
+    await this.query?.interrupt().catch(() => undefined);
     this.prompts.close();
   }
 
-  private readonly canUseTool: CanUseTool = (toolName, input, options) => {
-    const toolUseId = options.toolUseID;
-    if (toolName === "AskUserQuestion") {
-      const questions = askedQuestions(input);
-      if (!questions) {
-        return Promise.resolve({ behavior: "deny", message: "AskUserQuestion arrived without questions the panel can show." });
-      }
-      return this.hold({ kind: "question", toolUseId, questions, openedAt: this.now() }, options.signal);
-    }
-    const approval: ClaudeSdkApprovalRequest = {
-      kind: "approval",
-      toolUseId,
-      toolName,
-      input,
-      openedAt: this.now(),
-      ...(options.title ? { title: options.title } : {}),
-      ...(options.displayName ? { displayName: options.displayName } : {}),
-      ...(options.description ? { description: options.description } : {}),
-      ...(options.decisionReason ? { decisionReason: options.decisionReason } : {}),
-      ...(options.blockedPath ? { blockedPath: options.blockedPath } : {}),
-      ...(options.defaultToNo ? { defaultToNo: true } : {}),
-    };
-    return this.hold(approval, options.signal);
-  };
-
-  private hold(request: ClaudeSdkPendingRequest, signal: AbortSignal): Promise<PermissionResult> {
-    return new Promise((resolve) => {
-      this.pending.set(request.toolUseId, { request, settle: resolve });
+  private readonly canUseTool: CanUseTool = (toolName, input, options) =>
+    new Promise((resolve) => {
+      const callback: RunnerCallback = {
+        id: `cb${++this.nextCallback}`,
+        toolName,
+        input,
+        options: plainOptions(options),
+        openedAt: this.now(),
+      };
+      this.callbacks.set(callback.id, { callback, settle: resolve });
       // The SDK gives up on a request when the turn is interrupted, and nothing will answer it then.
-      signal.addEventListener("abort", () => this.settle(request.toolUseId, { behavior: "deny", message: "Cancelled." }), {
+      options.signal.addEventListener("abort", () => this.settle(callback.id, { behavior: "deny", message: "Cancelled." }), {
         once: true,
       });
-      this.publish();
+      this.emit({ type: "callback", callback });
     });
-  }
 
-  private settle(toolUseId: string, result: PermissionResult): void {
-    const entry = this.pending.get(toolUseId);
+  private settle(id: string, result: PermissionResult): void {
+    const entry = this.callbacks.get(id);
     if (!entry) return;
-    this.pending.delete(toolUseId);
+    this.callbacks.delete(id);
     entry.settle(result);
-    this.publish();
+    this.emit({ type: "settled", callback: id });
   }
 
-  /**
-   * The status, from what `claude` sends. Worked out here rather than read from the CLI's
-   * `session_state_changed`, which the SDK documents and the CLI did not send in any run measured
-   * on 2026-10-17 (2.1.302): a turn is running from its first streamed byte to its result.
-   */
-  private handle(message: SDKMessage): void {
-    if (message.type === "stream_event") {
-      const frame: RunnerStreamFrame = {
-        type: "stream",
-        event: message.event as unknown as RunnerStreamFrame["event"],
-        parentToolUseId: message.parent_tool_use_id,
-      };
-      for (const listener of this.streamListeners) listener(frame);
+  private keep(record: RunnerRecord): void {
+    const key = recordKey(record);
+    const before = this.records.get(key);
+    // A method that takes one settings object layers its calls, as `applyFlagSettings` does, so the
+    // kept call is all of them merged rather than only the last.
+    if (record.kind === "called" && before?.kind === "called" && isSettings(record.args) && isSettings(before.args)) {
+      record = { ...record, args: [{ ...before.args[0], ...record.args[0] }] };
     }
-    if (message.type === "stream_event" || message.type === "assistant") {
-      this.becomes("running");
-      return;
-    }
-    if (message.type === "result") {
-      this.becomes("idle");
-      return;
-    }
-    if (message.type !== "system") return;
-    switch (message.subtype) {
-      case "init":
-        this.permissionMode = cliPermissionMode(message.permissionMode);
-        this.claudeCodeVersion = message.claude_code_version;
-        this.model = message.model;
-        // Said only by a CLI that publishes it; otherwise the level chosen here stands.
-        if (message.effort !== undefined) this.effort = message.effort;
-        if (this.status === "starting") this.status = "idle";
-        break;
-      case "status":
-        if (message.permissionMode) this.permissionMode = cliPermissionMode(message.permissionMode) ?? this.permissionMode;
-        break;
-      case "session_state_changed":
-        this.status = SESSION_STATES[message.state] ?? this.status;
-        break;
-      case "background_tasks_changed":
-        this.backgroundTasks = message.tasks.length;
-        break;
-      default:
-        return;
-    }
-    this.publish();
+    this.records.delete(key);
+    this.records.set(key, record);
+    this.emit({ type: "record", record });
   }
 
-  private becomes(status: ClaudeSdkRunStatus): void {
-    if (this.status === status || this.status === "exited") return;
-    this.status = status;
-    this.publish();
-  }
-
-  private userMessage(text: string, images: readonly PromptImage[] = []): SDKUserMessage {
-    // Images ahead of the words, which is how the API reads a picture followed by a question about it.
-    const content = images.length === 0
-      ? text
-      : [
-        ...images.map((image) => ({
-          type: "image" as const,
-          source: { type: "base64" as const, media_type: image.mediaType, data: image.data },
-        })),
-        { type: "text" as const, text },
-      ];
-    // `human` because the panel's composer is somebody at a keyboard; an unstamped message is
-    // treated as unattributed and fails the CLI's isHuman() gates closed (the SDK's own note).
-    return { type: "user", message: { role: "user", content }, parent_tool_use_id: null, origin: { kind: "human" } };
-  }
-
-  private publish(): void {
-    const state = this.state();
-    for (const listener of this.listeners) listener(state);
+  private emit(event: RunnerEvent): void {
+    for (const listener of this.listeners) listener(event);
   }
 }

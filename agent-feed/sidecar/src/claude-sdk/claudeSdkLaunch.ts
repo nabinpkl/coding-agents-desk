@@ -27,6 +27,7 @@ import {
   type StartedClaudeSession,
 } from "@/terminal/session-panes/claudeSessionLaunch";
 import { RUNNER_ENTRY_FILE } from "@/claude-sdk/claudeSdkProtocol";
+import { sdkPermissionMode } from "@/claude-sdk/claudeSdkSession";
 import { createTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { adoptTitleName } from "@/terminal/tmux/tmuxRelabel";
 
@@ -74,7 +75,7 @@ export function claudeSdkRunnerCommand(options: {
     "--cwd", options.cwd,
     "--name", options.title,
     "--start", options.start,
-    "--permission-mode", claudeLaunchPermission.mode,
+    "--permission-mode", sdkPermissionMode(claudeLaunchPermission.mode),
     ...(claudeLaunchPermission.allowBypass ? ["--allow-bypass"] : []),
     ...claudeLaunchModDirectories.flatMap((directory) => ["--plugin-dir", directory]),
     "--claude", claude,

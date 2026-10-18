@@ -13,7 +13,7 @@ function recording() {
 }
 
 const frame = (type: string, parentToolUseId: string | null = null): RunnerStreamFrame =>
-  ({ type: "stream", event: { type }, parentToolUseId });
+  ({ event: { type }, parentToolUseId });
 
 describe("a runner's stream, into the live mirror", () => {
   test("is one flow per message, from its start to its stop", () => {

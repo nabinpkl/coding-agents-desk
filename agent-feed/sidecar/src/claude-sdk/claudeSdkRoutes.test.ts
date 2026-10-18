@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import type { ClaudeSdkClient, RunnerCommand } from "@/claude-sdk/claudeSdkClient";
+import type { ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
+import type { SessionCommand } from "@/claude-sdk/claudeSdkSession";
 import { createClaudeSdkRoutes } from "@/claude-sdk/claudeSdkRoutes";
 
 const ID = "11111111-2222-4333-8444-555555555555";
 const server = { timeout() {} } as never;
 
 function routes() {
-  const sent: RunnerCommand[] = [];
+  const sent: SessionCommand[] = [];
   const client = {
-    command: async (_sessionId: string, command: RunnerCommand) => {
+    command: async (_sessionId: string, command: SessionCommand) => {
       sent.push(command);
       return { ok: true as const };
     },

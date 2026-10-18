@@ -1,13 +1,15 @@
-// The runner's side of the socket: one session's state out, the sidecar's commands in.
+// The runner's side of the socket: what the session says out, the sidecar's inputs and calls in.
 //
 // Any number of connections, because more than one sidecar can be looking -- the one that started
-// the runner, the one it restarted into, a second panel's. Each is sent `hello` and the whole state
-// the moment it connects, and the whole state again on every change, so a sidecar that missed
-// everything while it restarted is current from its first read.
+// the runner, the one it restarted into, a second panel's. Each is sent `hello`, then on its own
+// `hello` everything the runner keeps (the latest records and the open callbacks), then every event
+// as it happens, so a sidecar that missed everything while it restarted is current from its first
+// read.
 
 import { lstat, mkdir, unlink } from "node:fs/promises";
 import type { Socket, TCPSocketListener } from "bun";
 import type { ClaudeSdkRunner } from "@/claude-sdk/claudeSdkRunner";
+import type { PermissionResult, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   encodeLine,
   LineReader,
@@ -19,8 +21,8 @@ import {
 } from "@/claude-sdk/claudeSdkProtocol";
 
 /**
- * Unsent bytes one connection may hold before it is closed. What a runner sends is state and stream
- * frames, never the images a prompt carries the other way, so this stays well under the line cap.
+ * Unsent bytes one connection may hold before it is closed. What a runner sends is what `claude`
+ * says, never the images a prompt carries the other way, so this stays well under the line cap.
  */
 const MAXIMUM_BACKLOG_BYTES = 16 * 1024 * 1024;
 
@@ -71,7 +73,7 @@ export interface RunnerServer {
 
 export async function serveRunner(
   runner: ClaudeSdkRunner,
-  identity: { sessionId: string; socketPath: string },
+  identity: { sessionId: string; socketPath: string; build: string },
   log: (line: string) => void,
 ): Promise<RunnerServer> {
   await claimSocketPath(identity.socketPath);
@@ -82,7 +84,7 @@ export async function serveRunner(
     data.backlog = Buffer.concat([data.backlog, Buffer.from(encodeLine(message))]);
     flush(socket);
     // A sidecar that stopped reading is let go rather than buffered for without bound. It loses
-    // nothing it cannot have back: a connection is handed the whole state again on arrival.
+    // nothing it cannot have back: a connection is handed everything kept again on arrival.
     if (data.backlog.length > MAXIMUM_BACKLOG_BYTES) {
       log("closed a connection that stopped reading");
       socket.end();
@@ -96,34 +98,22 @@ export async function serveRunner(
     data.backlog = written >= data.backlog.length ? Buffer.alloc(0) : data.backlog.subarray(Math.max(0, written));
   };
 
-  const unsubscribe = runner.subscribe((state) => {
-    for (const socket of connections) if (socket.data.greeted) send(socket, { type: "state", state });
-  });
-  const unstream = runner.onStream((frame) => {
-    for (const socket of connections) if (socket.data.greeted) send(socket, frame);
+  const unsubscribe = runner.subscribe((event) => {
+    const message: RunnerToSidecar = event.type === "record" ? { ...event, replay: false } : event;
+    for (const socket of connections) if (socket.data.greeted) send(socket, message);
   });
 
   const execute = async (message: Exclude<SidecarToRunner, { type: "hello" }>): Promise<RunnerReply> => {
     switch (message.type) {
-      case "prompt":
-        return runner.prompt(message.text, message.images);
-      case "answer":
-        return runner.answer(message.answers);
-      case "decide":
-        return runner.decide(message.toolUseId, message.allow, message.message);
-      case "set-mode":
-        return runner.setMode(message.mode);
-      case "set-model":
-        return runner.setModel(message.model);
-      case "set-effort":
-        return runner.setEffort(message.effort);
-      case "interrupt":
-        return runner.interrupt();
-      case "rename":
-        return runner.rename(message.title);
+      case "input":
+        return runner.input(message.message as unknown as SDKUserMessage);
+      case "call":
+        return runner.call(message.method, message.args);
+      case "settle":
+        return runner.resolve(message.callback, message.result as unknown as PermissionResult);
       case "stop":
         await runner.stop();
-        return { ok: true };
+        return { ok: true, value: null };
       default: {
         const unhandled: never = message;
         throw new Error(`unhandled runner command ${JSON.stringify(unhandled)}`);
@@ -144,7 +134,10 @@ export async function serveRunner(
         return;
       }
       socket.data.greeted = true;
-      send(socket, { type: "state", state: runner.state() });
+      const { records, callbacks } = runner.snapshot();
+      for (const record of records) send(socket, { type: "record", record, replay: true });
+      for (const callback of callbacks) send(socket, { type: "callback", callback });
+      send(socket, { type: "replayed" });
       return;
     }
     if (!socket.data.greeted) {
@@ -156,7 +149,7 @@ export async function serveRunner(
       (error: unknown) => send(socket, {
         type: "reply",
         id: message.id,
-        reply: { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) },
+        reply: { ok: false, message: error instanceof Error ? error.message : String(error) },
       }),
     );
   };
@@ -167,7 +160,14 @@ export async function serveRunner(
       open(socket) {
         socket.data = { reader: new LineReader(), backlog: Buffer.alloc(0), greeted: false };
         connections.add(socket);
-        send(socket, { type: "hello", version: PROTOCOL_VERSION, sessionId: identity.sessionId, pid: process.pid });
+        send(socket, {
+          type: "hello",
+          version: PROTOCOL_VERSION,
+          sessionId: identity.sessionId,
+          pid: process.pid,
+          build: identity.build,
+          allowBypass: runner.allowBypass,
+        });
       },
       data(socket, chunk) {
         let lines: string[];
@@ -196,7 +196,6 @@ export async function serveRunner(
   return {
     async close() {
       unsubscribe();
-      unstream();
       for (const socket of connections) socket.end();
       listener.stop(true);
       await unlink(identity.socketPath).catch(() => {});

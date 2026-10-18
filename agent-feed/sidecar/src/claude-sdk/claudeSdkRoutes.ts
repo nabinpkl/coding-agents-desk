@@ -21,8 +21,9 @@ import type {
   TmuxQuestionOutcome,
   TmuxQuestionRefusal,
 } from "@agentdesk/agent-feed-wire";
-import { NO_RUNNER, sharedClaudeSdkClient, type ClaudeSdkClient, type RunnerCommand } from "@/claude-sdk/claudeSdkClient";
-import { isPromptImageType, parseSidecarMessage, type RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
+import { NO_RUNNER, sharedClaudeSdkClient, type ClaudeSdkClient } from "@/claude-sdk/claudeSdkClient";
+import { isPromptImageType } from "@/claude-sdk/claudeSdkProtocol";
+import { parseSessionCommand, type SessionCommand, type SessionReply } from "@/claude-sdk/claudeSdkSession";
 import { ClaudeSdkLiveFeed, type RunnerStreamTarget } from "@/claude-sdk/claudeSdkLiveFeed";
 import { liveSwitchSteps, switchRunMode, type SwitchSteps } from "@/claude-sdk/claudeSdkSwitch";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
@@ -84,15 +85,11 @@ async function body(request: Request, limit = MAXIMUM_BODY_BYTES): Promise<Recor
 }
 
 /**
- * The command a request describes, validated by the same parser the runner applies, so the two
- * can never disagree about what a valid command is.
+ * The command a request describes, validated field by field before anything reaches a runner.
  */
-function runnerCommand(action: string, fields: Record<string, unknown>): RunnerCommand | null {
+function sessionCommand(action: string, fields: Record<string, unknown>): SessionCommand | null {
   const type = action === "mode" || action === "model" || action === "effort" ? `set-${action}` : action;
-  const parsed = parseSidecarMessage(JSON.stringify({ ...fields, type, id: "request" }));
-  if (!parsed || parsed.type === "hello") return null;
-  const { id: _id, ...command } = parsed;
-  return command as RunnerCommand;
+  return parseSessionCommand({ ...fields, type });
 }
 
 async function command(client: ClaudeSdkClient, request: Request, sessionId: string, action: string): Promise<Response> {
@@ -110,7 +107,7 @@ async function command(client: ClaudeSdkClient, request: Request, sessionId: str
     fields.images = files.map((file) => ({ mediaType: file.mime, data: file.data.replace(/\s+/g, "") }));
     delete fields.files;
   }
-  const parsed = fields ? runnerCommand(action, fields) : null;
+  const parsed = fields ? sessionCommand(action, fields) : null;
   if (action === "answer") {
     if (!parsed || parsed.type !== "answer") return errorResponse("invalid-request", "answers must describe every question", 400);
     return jsonResponse(answerOutcome(parsed.answers, await client.command(sessionId, parsed)));
@@ -121,7 +118,7 @@ async function command(client: ClaudeSdkClient, request: Request, sessionId: str
 
 const COMMAND_REFUSALS: ReadonlySet<string> = new Set<ClaudeSdkRefusal>(["not-pending", "invalid", "failed"]);
 
-export function commandOutcome(reply: RunnerReply): ClaudeSdkCommandOutcome {
+export function commandOutcome(reply: SessionReply): ClaudeSdkCommandOutcome {
   if (reply.ok) return { ok: true };
   if (reply === NO_RUNNER) return { ok: false, reason: "no-runner", message: reply.message };
   const reason = COMMAND_REFUSALS.has(reply.reason) ? reply.reason as ClaudeSdkRefusal : "failed";
@@ -135,7 +132,7 @@ export function commandOutcome(reply: RunnerReply): ClaudeSdkCommandOutcome {
  * when the reply never came, which cannot be told apart from one that landed; that is the
  * dialog's own "what landed cannot be established".
  */
-export function answerOutcome(answers: readonly TmuxQuestionAnswer[], reply: RunnerReply): TmuxQuestionOutcome {
+export function answerOutcome(answers: readonly TmuxQuestionAnswer[], reply: SessionReply): TmuxQuestionOutcome {
   if (reply.ok) return { answered: true };
   const keptText = answers.filter((answer) => answer.other.trim()).map((answer) => ({ question: answer.question, text: answer.other }));
   const reason: TmuxQuestionRefusal = reply === NO_RUNNER

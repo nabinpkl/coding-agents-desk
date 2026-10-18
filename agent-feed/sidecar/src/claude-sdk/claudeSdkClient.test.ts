@@ -4,7 +4,7 @@ import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSdkSessionState } from "@agentdesk/agent-feed-wire";
 import { ClaudeSdkClient, NO_RUNNER } from "@/claude-sdk/claudeSdkClient";
 import { FakeQuery } from "@/claude-sdk/claudeSdkHarness";
-import { runnerSocketPath } from "@/claude-sdk/claudeSdkProtocol";
+import { PROTOCOL_VERSION, runnerBuild, runnerSocketPath } from "@/claude-sdk/claudeSdkProtocol";
 import { ClaudeSdkRunner, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";
 import { serveRunner } from "@/claude-sdk/claudeSdkRunnerServer";
 import { answerOutcome, commandOutcome } from "@/claude-sdk/claudeSdkRoutes";
@@ -16,8 +16,9 @@ afterAll(() => rmSync(work, { recursive: true, force: true }));
 
 let sessionCounter = 0;
 const quiet = () => {};
+const BUILD = runnerBuild();
 
-async function runnerFor() {
+async function runnerFor(build = BUILD) {
   const sessionId = `aaaaaaaa-bbbb-4ccc-8ddd-${String(++sessionCounter).padStart(12, "0")}`;
   const plan: RunnerPlan = {
     sessionId,
@@ -31,7 +32,7 @@ async function runnerFor() {
   };
   let fake!: FakeQuery;
   const runner = new ClaudeSdkRunner(plan, ({ prompt, options }) => (fake = new FakeQuery(options, prompt)));
-  const server = await serveRunner(runner, { sessionId, socketPath: runnerSocketPath(work, sessionId) }, quiet);
+  const server = await serveRunner(runner, { sessionId, socketPath: runnerSocketPath(work, sessionId), build }, quiet);
   const done = runner.run(quiet);
   const stop = async () => {
     fake.end();
@@ -152,6 +153,45 @@ describe("what a runner streams", () => {
   });
 });
 
+describe("a runner on older code", () => {
+  test("is said to be stale on every state, and is read as usual meanwhile", async () => {
+    const session = await runnerFor("0.0.1+older");
+    const stale: boolean[] = [];
+    const client = new ClaudeSdkClient(work, quiet, null, (_client, _sessionId, state) => void stale.push(state.connected));
+    const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
+    session.fake().send({ type: "system", subtype: "init", permissionMode: "auto" });
+    for (let tries = 0; stale.length < 2 && tries < 50; tries += 1) await Bun.sleep(10);
+    expect(stale.length).toBeGreaterThanOrEqual(2);
+    expect(stale.every(Boolean)).toBe(true);
+    expect(await client.command(session.sessionId, { type: "set-mode", mode: "plan" })).toEqual({ ok: true });
+    followed.stop();
+    await session.stop();
+  });
+
+  test("one speaking an older protocol reads as not connected, and is said to be stale", async () => {
+    const sessionId = "aaaaaaaa-bbbb-4ccc-8ddd-666666666666";
+    const path = runnerSocketPath(work, sessionId);
+    const older = Bun.listen({
+      unix: path,
+      socket: {
+        open(socket) {
+          socket.write(`${JSON.stringify({ type: "hello", version: PROTOCOL_VERSION - 1, sessionId, pid: 1 })}\n`);
+        },
+        data() {},
+      },
+    });
+    try {
+      const stale: string[] = [];
+      const client = new ClaudeSdkClient(work, quiet, null, (_client, id, state) => void stale.push(`${id} ${state.connected}`));
+      expect(await client.isServing(sessionId)).toBe(false);
+      expect(stale).toEqual([`${sessionId} false`]);
+    } finally {
+      older.stop(true);
+      rmSync(path, { force: true });
+    }
+  });
+});
+
 describe("one runner per session", () => {
   test("a second runner for the same session refuses to start", async () => {
     const session = await runnerFor();
@@ -159,7 +199,7 @@ describe("one runner per session", () => {
       { sessionId: session.sessionId, cwd: work, name: "x", start: "resume", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false" },
       () => { throw new Error("must not start"); },
     );
-    expect(serveRunner(second, { sessionId: session.sessionId, socketPath: runnerSocketPath(work, session.sessionId) }, quiet))
+    expect(serveRunner(second, { sessionId: session.sessionId, socketPath: runnerSocketPath(work, session.sessionId), build: BUILD }, quiet))
       .rejects.toThrow("already serving");
     await session.stop();
   });
@@ -175,7 +215,7 @@ describe("who the client will believe", () => {
         { sessionId, cwd: open, name: "x", start: "new", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false" },
         () => { throw new Error("unused"); },
       );
-      const server = await serveRunner(runner, { sessionId, socketPath: runnerSocketPath(open, sessionId) }, quiet);
+      const server = await serveRunner(runner, { sessionId, socketPath: runnerSocketPath(open, sessionId), build: BUILD }, quiet);
       expect(await new ClaudeSdkClient(open, quiet).isServing(sessionId)).toBe(false);
       await server.close();
     } finally {

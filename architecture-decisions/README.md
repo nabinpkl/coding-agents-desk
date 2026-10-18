@@ -174,3 +174,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0141 | The arena's judge becomes its manager, which plans the lanes and runs them through the arena's own API | accepted | 2026-10-16 |
 | ADR-0142 | The composer stops typing into a CLI session through its messaging socket | accepted | 2026-10-17 |
 | ADR-0143 | A Claude session can run through the Agent SDK, in a runner held by its tmux pane | accepted | 2026-10-17 |
+| ADR-0144 | An SDK session's runner is a pipe, and a stale one relaunches with resume when idle | accepted | 2026-10-18 |

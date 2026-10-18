@@ -1,5 +1,6 @@
-// An AskUserQuestion call as the runner holds it: the questions it asks, and whether a reader's
-// answers fit them, in the shape the SDK takes back. Pure, so its rules are tested without a runner.
+// An AskUserQuestion call as the sidecar reads it from the callback its runner holds: the questions
+// it asks, and whether a reader's answers fit them, in the shape the SDK takes back. Pure, so its
+// rules are tested without a runner.
 
 import type { ClaudeSdkQuestion, TmuxQuestionAnswer } from "@agentdesk/agent-feed-wire";
 

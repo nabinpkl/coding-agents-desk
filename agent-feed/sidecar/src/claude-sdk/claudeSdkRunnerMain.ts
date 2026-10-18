@@ -12,11 +12,10 @@ import { spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
-import { query, type SpawnedProcess, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
-import { CLAUDE_PERMISSION_MODES, type ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
+import { query, type PermissionMode, type SpawnedProcess, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeSdkRunner, type RunnerPlan, type RunnerQuery } from "@/claude-sdk/claudeSdkRunner";
 import { privateSocketDirectory, serveRunner } from "@/claude-sdk/claudeSdkRunnerServer";
-import { runnerSocketPath } from "@/claude-sdk/claudeSdkProtocol";
+import { runnerBuild, runnerSocketPath } from "@/claude-sdk/claudeSdkProtocol";
 
 /** How long a stop waits for `claude` to write its exit records before the runner leaves anyway. */
 const STOP_GRACE_MS = 15_000;
@@ -55,11 +54,14 @@ function spawnProcessGroup(options: SpawnOptions): SpawnedProcess {
   return child as unknown as SpawnedProcess;
 }
 
-function permissionMode(value: string | undefined): ClaudePermissionMode {
-  if (!(CLAUDE_PERMISSION_MODES as readonly (string | undefined)[]).includes(value)) {
-    throw new Error(`--permission-mode must be one of ${CLAUDE_PERMISSION_MODES.join(", ")}`);
+/** The SDK's names for the modes, which the launch passes: the CLI's `manual` is `default` here. */
+const SDK_PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
+
+function permissionMode(value: string | undefined): PermissionMode {
+  if (!(SDK_PERMISSION_MODES as readonly (string | undefined)[]).includes(value)) {
+    throw new Error(`--permission-mode must be one of ${SDK_PERMISSION_MODES.join(", ")}`);
   }
-  return value as ClaudePermissionMode;
+  return value as PermissionMode;
 }
 
 function required(name: string, value: string | undefined): string {
@@ -118,13 +120,15 @@ export async function planFromArguments(argv: string[]): Promise<{ plan: RunnerP
 
 async function main(): Promise<number> {
   const { plan, socketDirectory } = await planFromArguments(process.argv.slice(2));
+  // Read before anything else, so it names the code this process loaded rather than a later save.
+  const build = runnerBuild();
   await using stack = new AsyncDisposableStack();
   const runner = new ClaudeSdkRunner(plan, ({ prompt, options }) =>
     query({ prompt, options: { ...options, spawnClaudeCodeProcess: spawnProcessGroup } }) as RunnerQuery);
 
   await privateSocketDirectory(socketDirectory);
   const socketPath = runnerSocketPath(socketDirectory, plan.sessionId);
-  const server = await serveRunner(runner, { sessionId: plan.sessionId, socketPath }, log);
+  const server = await serveRunner(runner, { sessionId: plan.sessionId, socketPath, build }, log);
   stack.defer(() => server.close());
 
   // A closed pane is a hangup and a killed one a terminate. Either way the session ends the way a
@@ -143,7 +147,7 @@ async function main(): Promise<number> {
   for (const signal of ["SIGHUP", "SIGTERM", "SIGINT"] as const) process.on(signal, () => stop(signal));
 
   log(`${plan.start === "new" ? "starting" : "resuming"} ${plan.sessionId} "${plan.name}" in ${plan.cwd}`);
-  log(`claude ${plan.claudePath}, ${plan.permissionMode} mode, listening at ${socketPath}`);
+  log(`claude ${plan.claudePath}, ${plan.permissionMode} mode, build ${build}, listening at ${socketPath}`);
   await runner.run(log);
   log(`session ${plan.sessionId} has ended`);
   return 0;

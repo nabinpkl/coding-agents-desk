@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { FakeQuery } from "@/claude-sdk/claudeSdkHarness";
-import { sdkAnswers } from "@/claude-sdk/claudeSdkAnswers";
-import { ClaudeSdkRunner, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";
+import { ClaudeSdkRunner, type RunnerEvent, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";
+import { RUNNER_SOURCE_FILES, runnerBuild } from "@/claude-sdk/claudeSdkProtocol";
 
 const PLAN: RunnerPlan = {
   sessionId: "11111111-2222-4333-8444-555555555555",
@@ -21,17 +24,6 @@ function started(plan: RunnerPlan = PLAN) {
   const done = runner.run(() => {});
   return { runner, fake: () => fake, done };
 }
-
-const ask = {
-  questions: [
-    {
-      question: "Which tree do you prefer?",
-      header: "Tree",
-      multiSelect: false,
-      options: [{ label: "Oak", description: "Sturdy" }, { label: "Birch", description: "White bark" }],
-    },
-  ],
-};
 
 function call(fake: FakeQuery, toolName: string, input: Record<string, unknown>, toolUseID: string, extra = {}) {
   const abort = new AbortController();
@@ -56,8 +48,8 @@ describe("the options a plan comes to", () => {
     expect(options.resume).toBeUndefined();
   });
 
-  test("a resume names the session to resume, keeps its name, and says the CLI's manual as default", () => {
-    const options = new ClaudeSdkRunner({ ...PLAN, start: "resume", permissionMode: "manual", allowBypass: false }, () => {
+  test("a resume names the session to resume, keeps its name, and takes the mode in the SDK's spelling", () => {
+    const options = new ClaudeSdkRunner({ ...PLAN, start: "resume", permissionMode: "default", allowBypass: false }, () => {
       throw new Error("unused");
     }).options();
     expect(options.resume).toBe(PLAN.sessionId);
@@ -83,259 +75,140 @@ describe("a fork's options", () => {
   });
 });
 
-describe("a session's state", () => {
-  test("follows the CLI's own messages, in the CLI's names for modes", async () => {
+describe("what the runner keeps", () => {
+  test("the latest message of each type and subtype, in the order each was last replaced", async () => {
     const { runner, fake, done } = started();
-    const seen: string[] = [];
-    runner.subscribe((state) => seen.push(`${state.status}/${state.permissionMode}`));
-    fake().send({ type: "system", subtype: "init", permissionMode: "default", claude_code_version: "2.1.302" });
-    fake().send({ type: "system", subtype: "session_state_changed", state: "running" });
-    fake().send({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "a" }, { task_id: "b" }] });
-    fake().send({ type: "system", subtype: "status", status: null, permissionMode: "plan" });
-    fake().send({ type: "system", subtype: "session_state_changed", state: "idle" });
+    fake().send({ type: "system", subtype: "init", model: "a" });
+    fake().send({ type: "stream_event", event: { type: "message_start" } });
+    fake().send({ type: "system", subtype: "status", permissionMode: "plan" });
+    fake().send({ type: "system", subtype: "init", model: "b" });
     await Bun.sleep(5);
-    // The first is the model list arriving, which the SDK answers as soon as the query is open.
-    expect(seen).toEqual(["starting/null", "idle/manual", "running/manual", "running/manual", "running/plan", "idle/plan"]);
-    expect(runner.state()).toMatchObject({ backgroundTasks: 2, claudeCodeVersion: "2.1.302" });
+    expect(runner.snapshot().records).toEqual([
+      { kind: "message", message: { type: "stream_event", event: { type: "message_start" } } },
+      { kind: "message", message: { type: "system", subtype: "status", permissionMode: "plan" } },
+      { kind: "message", message: { type: "system", subtype: "init", model: "b" } },
+    ]);
     fake().end();
     await done;
-    expect(runner.state().status).toBe("exited");
+    expect(runner.snapshot().records.at(-1)).toEqual({ kind: "ended" });
   });
 
-  test("is running from a prompt or the first streamed byte to the result, and waiting while a call is held", async () => {
+  test("tells its listeners every record and callback as it happens", async () => {
     const { runner, fake, done } = started();
-    fake().send({ type: "system", subtype: "init", permissionMode: "auto", claude_code_version: "2.1.302" });
-    await Bun.sleep(2);
-    expect(runner.state().status).toBe("idle");
-    runner.prompt("go");
-    expect(runner.state().status).toBe("running");
+    const events: RunnerEvent["type"][] = [];
+    runner.subscribe((event) => events.push(event.type));
     fake().send({ type: "result", subtype: "success" });
     await Bun.sleep(2);
-    expect(runner.state().status).toBe("idle");
-    fake().send({ type: "stream_event", event: { type: "message_start" } });
-    await Bun.sleep(2);
-    expect(runner.state().status).toBe("running");
-    call(fake(), "Bash", {}, "toolu_1");
-    expect(runner.state().status).toBe("requires-action");
+    void call(fake(), "Bash", {}, "toolu_1");
+    runner.resolve(runner.snapshot().callbacks[0]!.id, { behavior: "allow", updatedInput: {} });
+    expect(events).toEqual(["record", "callback", "settled"]);
     fake().end();
     await done;
-    expect(runner.state().status).toBe("exited");
-  });
-
-  test("hands every streamed event on, with the subagent it belongs to when it has one", async () => {
-    const { runner, fake, done } = started();
-    const frames: unknown[] = [];
-    runner.onStream((frame) => frames.push(frame));
-    fake().send({ type: "stream_event", event: { type: "message_start" }, parent_tool_use_id: null });
-    fake().send({ type: "stream_event", event: { type: "content_block_delta" }, parent_tool_use_id: "toolu_a" });
-    await Bun.sleep(2);
-    expect(frames).toEqual([
-      { type: "stream", event: { type: "message_start" }, parentToolUseId: null },
-      { type: "stream", event: { type: "content_block_delta" }, parentToolUseId: "toolu_a" },
-    ]);
-    fake().end();
-    await done;
-  });
-
-  test("images go in ahead of the words, as the API reads a picture and then a question about it", async () => {
-    const { runner, fake, done } = started();
-    runner.prompt("what is this?", [{ mediaType: "image/png", data: "iVBORw0K" }]);
-    await Bun.sleep(5);
-    expect(fake().received[0]!.message.content).toEqual([
-      { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0K" } },
-      { type: "text", text: "what is this?" },
-    ]);
-    fake().end();
-    await done;
-  });
-
-  test("a first turn and later prompts go in as a person's own words", async () => {
-    const { runner, fake, done } = started({ ...PLAN, firstTurn: "begin" });
-    expect(runner.prompt("and then this")).toEqual({ ok: true });
-    await Bun.sleep(5);
-    expect(fake().received.map((message) => message.message.content)).toEqual(["begin", "and then this"]);
-    expect(fake().received.every((message) => message.origin?.kind === "human")).toBe(true);
-    await runner.stop();
-    await done;
-    expect(runner.prompt("too late")).toMatchObject({ ok: false, reason: "failed" });
   });
 });
 
-describe("a question", () => {
-  test("is held until answered, then resolves the call with the SDK's answers", async () => {
+describe("a call", () => {
+  test("runs the named method on the query with the arguments sent, and keeps it", async () => {
     const { runner, fake, done } = started();
-    const { result } = call(fake(), "AskUserQuestion", ask, "toolu_1");
-    expect(runner.state().pending).toEqual([{ kind: "question", toolUseId: "toolu_1", questions: ask.questions, openedAt: 1000 }]);
-    expect(runner.answer([{ question: "Which tree do you prefer?", chosen: [{ index: 1, label: "Birch" }], other: "" }]))
-      .toEqual({ ok: true });
-    expect(await result).toEqual({
-      behavior: "allow",
-      updatedInput: { questions: ask.questions, answers: { "Which tree do you prefer?": "Birch" } },
-    });
-    expect(runner.state().pending).toEqual([]);
+    await Bun.sleep(1);
+    expect(await runner.call("setModel", ["haiku"])).toEqual({ ok: true, value: null });
+    expect(fake().models).toEqual(["haiku"]);
+    const listed = await runner.call("supportedModels", []);
+    expect(listed.ok && (listed.value as { value: string }[]).map((entry) => entry.value)).toEqual(["opus", "haiku"]);
+    expect(runner.snapshot().records).toContainEqual({ kind: "called", method: "setModel", args: ["haiku"] });
     fake().end();
     await done;
   });
 
-  test("refuses answers for another question, or a choice whose label moved, and keeps waiting", async () => {
+  test("layers the calls of a method that takes one settings object, as the flag layer does", async () => {
     const { runner, fake, done } = started();
-    expect(runner.answer([{ question: "Q", chosen: [], other: "x" }])).toMatchObject({ ok: false, reason: "no-dialog" });
-    call(fake(), "AskUserQuestion", ask, "toolu_1");
-    expect(runner.answer([{ question: "Which bush?", chosen: [], other: "x" }])).toMatchObject({ reason: "wrong-dialog" });
-    expect(runner.answer([{ question: "Which tree do you prefer?", chosen: [{ index: 0, label: "Birch" }], other: "" }]))
-      .toMatchObject({ reason: "wrong-option" });
-    expect(runner.state().pending).toHaveLength(1);
+    await Bun.sleep(1);
+    await runner.call("applyFlagSettings", [{ effortLevel: "high" }]);
+    await runner.call("applyFlagSettings", [{ fastMode: true }]);
+    expect(fake().flagSettings).toEqual([{ effortLevel: "high" }, { fastMode: true }]);
+    expect(runner.snapshot().records).toEqual([
+      { kind: "called", method: "applyFlagSettings", args: [{ effortLevel: "high", fastMode: true }] },
+    ]);
+    fake().end();
+    await done;
+  });
+
+  test("says so for a method the SDK has not, or one that throws, and keeps neither", async () => {
+    const { runner, fake, done } = started();
+    await Bun.sleep(1);
+    expect(await runner.call("renameSessionLater", [])).toEqual({ ok: false, message: "this SDK has no renameSessionLater" });
+    (fake() as unknown as { setModel: () => Promise<void> }).setModel = async () => { throw new Error("no such model"); };
+    expect(await runner.call("setModel", ["x"])).toEqual({ ok: false, message: "no such model" });
+    expect(runner.snapshot().records).toEqual([]);
+    fake().end();
+    await done;
+    expect(await runner.call("setModel", ["opus"])).toEqual({ ok: false, message: "the session is not running" });
+  });
+});
+
+describe("the session's input", () => {
+  test("a first turn and later inputs go in as they were built, and none after the end", async () => {
+    const { runner, fake, done } = started({ ...PLAN, firstTurn: "begin" });
+    const later = { type: "user" as const, message: { role: "user" as const, content: "and then this" }, parent_tool_use_id: null };
+    expect(runner.input(later)).toEqual({ ok: true, value: null });
+    await Bun.sleep(5);
+    expect(fake().received.map((message) => message.message.content)).toEqual(["begin", "and then this"]);
+    expect(fake().received[0]!.origin?.kind).toBe("human");
+    expect(runner.snapshot().records).toEqual([{ kind: "input" }]);
+    await runner.stop();
+    await done;
+    expect(runner.input(later)).toMatchObject({ ok: false });
+  });
+});
+
+describe("a permission callback", () => {
+  test("is held with the CLI's wording until resolved, and resolves with what the sidecar sent", async () => {
+    const { runner, fake, done } = started();
+    const input = { command: "rm -rf build" };
+    const { result } = call(fake(), "Bash", input, "toolu_9", { title: "Claude wants to run rm -rf build", defaultToNo: true });
+    const [held] = runner.snapshot().callbacks;
+    expect(held).toEqual({
+      id: "cb1",
+      toolName: "Bash",
+      input,
+      options: { toolUseID: "toolu_9", requestId: "req-toolu_9", title: "Claude wants to run rm -rf build", defaultToNo: true },
+      openedAt: 1000,
+    });
+    expect(runner.resolve("cb1", { behavior: "deny", message: "not now" })).toEqual({ ok: true, value: null });
+    expect(await result).toEqual({ behavior: "deny", message: "not now" });
+    expect(runner.resolve("cb1", { behavior: "allow", updatedInput: input })).toMatchObject({ ok: false });
+    expect(runner.snapshot().callbacks).toEqual([]);
     fake().end();
     await done;
   });
 
   test("an interrupted turn cancels it, and a session that ends denies what is left", async () => {
     const { runner, fake, done } = started();
-    const first = call(fake(), "AskUserQuestion", ask, "toolu_1");
+    const first = call(fake(), "AskUserQuestion", { questions: [] }, "toolu_1");
     first.abort.abort();
     expect(await first.result).toEqual({ behavior: "deny", message: "Cancelled." });
-    const second = call(fake(), "AskUserQuestion", ask, "toolu_2");
+    const second = call(fake(), "Bash", {}, "toolu_2");
     fake().end();
     await done;
-    expect(await second.result).toMatchObject({ behavior: "deny" });
-    expect(runner.state().pending).toEqual([]);
+    expect(await second.result).toEqual({ behavior: "deny", message: "The session ended." });
+    expect(runner.snapshot().callbacks).toEqual([]);
   });
 });
 
-describe("the answers the SDK takes", () => {
-  const multi = [{ question: "Which?", header: "", multiSelect: true, options: [{ label: "A", description: "" }, { label: "B", description: "" }] }];
-
-  test("join several choices and free text, in order", () => {
-    expect(sdkAnswers(multi, [{ question: "Which?", chosen: [{ index: 0, label: "A" }, { index: 1, label: "B" }], other: " C " }]))
-      .toEqual({ ok: true, answers: { "Which?": "A, B, C" } });
-  });
-
-  test("take free text alone, and refuse an empty answer", () => {
-    expect(sdkAnswers(multi, [{ question: "Which?", chosen: [], other: "neither" }])).toEqual({ ok: true, answers: { "Which?": "neither" } });
-    expect(sdkAnswers(multi, [{ question: "Which?", chosen: [], other: "  " }])).toMatchObject({ ok: false, refused: "wrong-option" });
-  });
-});
-
-describe("an approval", () => {
-  test("carries the CLI's own wording, and an allow passes the input through", async () => {
-    const { runner, fake, done } = started();
-    const input = { command: "rm -rf build" };
-    const { result } = call(fake(), "Bash", input, "toolu_9", {
-      title: "Claude wants to run rm -rf build",
-      displayName: "Run command",
-      decisionReason: "outside the allow list",
-      defaultToNo: true,
-    });
-    expect(runner.state().pending).toEqual([{
-      kind: "approval",
-      toolUseId: "toolu_9",
-      toolName: "Bash",
-      input,
-      title: "Claude wants to run rm -rf build",
-      displayName: "Run command",
-      decisionReason: "outside the allow list",
-      defaultToNo: true,
-      openedAt: 1000,
-    }]);
-    expect(runner.decide("toolu_9", true)).toEqual({ ok: true });
-    expect(await result).toEqual({ behavior: "allow", updatedInput: input });
-    expect(runner.decide("toolu_9", true)).toMatchObject({ ok: false, reason: "not-pending" });
-    fake().end();
-    await done;
-  });
-
-  test("a deny tells the model why, in the reader's words when there are some", async () => {
-    const { runner, fake, done } = started();
-    const plain = call(fake(), "Bash", {}, "toolu_1");
-    const said = call(fake(), "Write", {}, "toolu_2");
-    runner.decide("toolu_1", false);
-    runner.decide("toolu_2", false, "use the scratch directory instead");
-    expect(await plain.result).toEqual({ behavior: "deny", message: "The person denied this from the agent panel." });
-    expect(await said.result).toEqual({ behavior: "deny", message: "use the scratch directory instead" });
-    fake().end();
-    await done;
-  });
-
-  test("an answer is not a decision, and a decision is not an answer", async () => {
-    const { runner, fake, done } = started();
-    call(fake(), "AskUserQuestion", ask, "toolu_q");
-    expect(runner.decide("toolu_q", true)).toMatchObject({ ok: false, reason: "not-pending" });
-    fake().end();
-    await done;
-  });
-});
-
-describe("the permission mode", () => {
-  test("is set live, in the SDK's name, and bypass only when the launch allowed it", async () => {
-    const { runner, fake, done } = started({ ...PLAN, allowBypass: false });
-    await Bun.sleep(1);
-    expect(await runner.setMode("manual")).toEqual({ ok: true });
-    expect(fake().modes).toEqual(["default"]);
-    expect(runner.state().permissionMode).toBe("manual");
-    expect(await runner.setMode("bypassPermissions")).toMatchObject({ ok: false, reason: "invalid" });
-    fake().end();
-    await done;
-    expect(await runner.setMode("plan")).toMatchObject({ ok: false, reason: "failed" });
-  });
-});
-
-describe("the model", () => {
-  test("is named by the CLI's init, offered from the SDK's list, and switched live", async () => {
-    const { runner, fake, done } = started();
-    fake().send({ type: "system", subtype: "init", permissionMode: "auto", claude_code_version: "2.1.302", model: "claude-opus-5-5" });
-    await Bun.sleep(5);
-    expect(runner.state().model).toBe("claude-opus-5-5");
-    expect(runner.state().models.map((entry) => entry.value)).toEqual(["opus", "haiku"]);
-    expect(await runner.setModel("haiku")).toEqual({ ok: true });
-    expect(fake().models).toEqual(["haiku"]);
-    // Shown as the full id the alias stands for, which is how the CLI names it on the next turn.
-    expect(runner.state().model).toBe("claude-haiku-4-5");
-    fake().end();
-    await done;
-    expect(await runner.setModel("opus")).toMatchObject({ ok: false, reason: "failed" });
-  });
-});
-
-describe("the effort", () => {
-  test("offers each model's levels, sets one live through the flag layer, and takes the CLI's word", async () => {
-    const { runner, fake, done } = started();
-    fake().send({ type: "system", subtype: "init", permissionMode: "auto", claude_code_version: "2.1.302", model: "claude-opus-5-5" });
-    await Bun.sleep(5);
-    expect(runner.state().effort).toBeNull();
-    expect(runner.state().models.map((entry) => entry.effortLevels)).toEqual([["low", "medium", "high", "max"], undefined]);
-    expect(await runner.setEffort("max")).toEqual({ ok: true });
-    expect(fake().flagSettings).toEqual([{ effortLevel: "max" }]);
-    expect(runner.state().effort).toBe("max");
-    // A CLI that names its effort on init (after a downgrade, say) is the better account.
-    fake().send({ type: "system", subtype: "init", permissionMode: "auto", claude_code_version: "2.1.302", model: "claude-opus-5-5", effort: "high" });
-    await Bun.sleep(5);
-    expect(runner.state().effort).toBe("high");
-    fake().end();
-    await done;
-    expect(await runner.setEffort("low")).toMatchObject({ ok: false, reason: "failed" });
-  });
-});
-
-describe("renaming", () => {
-  test("asks the CLI's own rename for this session, and says so when the SDK has none", async () => {
-    const { runner, fake, done } = started();
-    await Bun.sleep(1);
-    expect(await runner.rename("Garden notes")).toEqual({ ok: true });
-    expect(fake().renamed).toEqual([`Garden notes ${PLAN.sessionId}`]);
-    (fake() as { renameSession?: unknown }).renameSession = undefined;
-    expect(await runner.rename("Other")).toMatchObject({ ok: false, reason: "failed" });
-    fake().end();
-    await done;
-  });
-});
-
-describe("stopping", () => {
-  test("interrupts a turn in progress before closing the input", async () => {
-    const { runner, fake, done } = started();
-    fake().send({ type: "system", subtype: "session_state_changed", state: "running" });
-    await Bun.sleep(5);
-    await runner.stop();
-    await done;
-    expect(fake().interrupts).toBe(1);
+describe("the runner's build", () => {
+  test("names the SDK and hashes every file of ours the runner process loads", () => {
+    expect(runnerBuild()).toMatch(/^\d+\.\d+\.\d+\+[0-9a-f]{16}$/);
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const file of RUNNER_SOURCE_FILES) {
+      const source = readFileSync(join(here, file), "utf8");
+      // Only a value import loads a module; a type import is gone once the file is transpiled.
+      const loaded = [...source.matchAll(/^import (?!type )[^;]*?from "([^"]+)";/gms)].map((match) => match[1]!);
+      for (const specifier of loaded) {
+        expect(specifier.startsWith("@agentdesk/")).toBe(false);
+        if (specifier.startsWith("@/")) {
+          expect(RUNNER_SOURCE_FILES as readonly string[]).toContain(`${specifier.slice("@/claude-sdk/".length)}.ts`);
+        }
+      }
+    }
   });
 });

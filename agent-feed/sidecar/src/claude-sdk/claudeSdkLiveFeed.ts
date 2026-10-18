@@ -1,7 +1,8 @@
 // An SDK session's streamed messages, into the live mirror (ADR-0143).
 //
-// The runner hands over every Anthropic stream event of the session's messages -- text, thinking,
-// tool input -- in the shape the proxy capture decodes, so the mirror applies them the same way.
+// The runner forwards every message `claude` sends, and the stream events among them -- text,
+// thinking, tool input -- are in the shape the proxy capture decodes, so the mirror applies them the
+// same way (`SdkSession.fold` picks them out).
 // This is the session's own account rather than a copy read off the network: it cannot be dropped
 // by a capture that dies mid-turn, which is the failure the capture path documents. While a runner
 // feeds a session the mirror drops that session's captured flows rather than racing two writers
