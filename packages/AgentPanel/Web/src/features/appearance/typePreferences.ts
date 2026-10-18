@@ -103,9 +103,7 @@ export function loadTypePreference(): TypePreference {
     const family = TYPE_FAMILIES.some((known) => known.id === record.family)
       ? (record.family as string)
       : DEFAULT_TYPE.family;
-    const weight = TYPE_WEIGHTS.includes(record.weight as number)
-      ? (record.weight as number)
-      : DEFAULT_TYPE.weight;
+    const weight = TYPE_WEIGHTS.includes(record.weight as number) ? (record.weight as number) : DEFAULT_TYPE.weight;
     return { family, weight };
   } catch {
     return DEFAULT_TYPE;

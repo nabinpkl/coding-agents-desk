@@ -41,22 +41,28 @@ export function useRunModeSwitch(
     timers.current = [];
   });
 
-  const switchTo = useCallback(async (mode: ClaudeRunMode) => {
-    setPending(true);
-    setError(null);
-    return runWithFinally(async () => {
-      try {
-        const outcome = await feed.switchClaudeRunMode({ source, sessionId }, mode);
-        if (!outcome.ok) {
-          setError(sentence(outcome.message));
-          return;
-        }
-        timers.current = REREADS.map((delay) => setTimeout(refresh, delay));
-      } catch (failure) {
-        setError(failure instanceof Error ? failure.message : String(failure));
-      }
-    }, () => setPending(false));
-  }, [feed, refresh, sessionId, source, setError]);
+  const switchTo = useCallback(
+    async (mode: ClaudeRunMode) => {
+      setPending(true);
+      setError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            const outcome = await feed.switchClaudeRunMode({ source, sessionId }, mode);
+            if (!outcome.ok) {
+              setError(sentence(outcome.message));
+              return;
+            }
+            timers.current = REREADS.map((delay) => setTimeout(refresh, delay));
+          } catch (failure) {
+            setError(failure instanceof Error ? failure.message : String(failure));
+          }
+        },
+        () => setPending(false),
+      );
+    },
+    [feed, refresh, sessionId, source, setError],
+  );
 
   return { pending, error, switchTo };
 }

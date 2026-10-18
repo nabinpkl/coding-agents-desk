@@ -12,11 +12,7 @@
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
-import {
-  terminalPaneKey,
-  terminalWindowKey,
-  tmuxTarget,
-} from "@/features/terminal/canvas/terminalGroups";
+import { terminalPaneKey, terminalWindowKey, tmuxTarget } from "@/features/terminal/canvas/terminalGroups";
 
 export function TerminalWindowRows({
   machineId,
@@ -42,10 +38,7 @@ export function TerminalWindowRows({
         aria-label={`${session.windowList.length} windows in ${session.name}`}
         className="flex min-h-7 w-full cursor-pointer items-center gap-1 rounded-md px-2 text-left text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
       >
-        <ChevronDown
-          className={`size-3.5 shrink-0 transition-transform ${expanded ? "" : "-rotate-90"}`}
-          aria-hidden
-        />
+        <ChevronDown className={`size-3.5 shrink-0 transition-transform ${expanded ? "" : "-rotate-90"}`} aria-hidden />
         {session.windowList.length} windows
         {session.windowList.some((window) => window.active)
           ? ` · ${session.windowList.find((window) => window.active)!.index} active`
@@ -120,10 +113,7 @@ function TerminalWindowRow({
             aria-label={`${paneCount} panes in ${target}`}
             className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
           >
-            <ChevronDown
-              className={`size-3.5 transition-transform ${panesOpen ? "" : "-rotate-90"}`}
-              aria-hidden
-            />
+            <ChevronDown className={`size-3.5 transition-transform ${panesOpen ? "" : "-rotate-90"}`} aria-hidden />
           </button>
         ) : null}
         <button
@@ -134,7 +124,11 @@ function TerminalWindowRow({
           className="flex min-h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
         >
           {active ? (
-            <span aria-label="Active window" title="Active window" className="size-2 shrink-0 rounded-full bg-green-500" />
+            <span
+              aria-label="Active window"
+              title="Active window"
+              className="size-2 shrink-0 rounded-full bg-green-500"
+            />
           ) : (
             <span aria-hidden className="size-2 shrink-0 rounded-full border border-border" />
           )}
@@ -166,7 +160,11 @@ function TerminalWindowRow({
                   className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
                 >
                   {pane.active ? (
-                    <span aria-label="Active pane" title="Active pane" className="size-1.5 shrink-0 rounded-full bg-green-500" />
+                    <span
+                      aria-label="Active pane"
+                      title="Active pane"
+                      className="size-1.5 shrink-0 rounded-full bg-green-500"
+                    />
                   ) : (
                     <span aria-hidden className="size-1.5 shrink-0 rounded-full border border-border" />
                   )}

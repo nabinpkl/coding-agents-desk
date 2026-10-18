@@ -21,12 +21,26 @@ function state(overrides: Partial<ParkStateResponse> = {}): ParkStateResponse {
     counts: { tracked: 4, parkable: 2, alreadyHere: 1, elsewhere: 1 },
     windows: [
       {
-        id: 11, app: "ChatGPT", title: "Review latency", pid: 900, space: 1, display: 1,
-        frame: { x: 100, y: 100, w: 600, h: 877 }, onActiveSpace: true, isVisible: true,
+        id: 11,
+        app: "ChatGPT",
+        title: "Review latency",
+        pid: 900,
+        space: 1,
+        display: 1,
+        frame: { x: 100, y: 100, w: 600, h: 877 },
+        onActiveSpace: true,
+        isVisible: true,
       },
       {
-        id: 22, app: "Code", title: "evals", pid: 901, space: 4, display: 1,
-        frame: { x: 20, y: 60, w: 900, h: 700 }, onActiveSpace: false, isVisible: false,
+        id: 22,
+        app: "Code",
+        title: "evals",
+        pid: 901,
+        space: 4,
+        display: 1,
+        frame: { x: 20, y: 60, w: 900, h: 700 },
+        onActiveSpace: false,
+        isVisible: false,
       },
     ],
     ...overrides,
@@ -43,14 +57,28 @@ function plan(overrides: Partial<ParkPlanResponse> = {}): ParkPlanResponse {
     starved: [],
     moves: [
       {
-        id: 11, app: "ChatGPT", title: "Review latency", side: "right", depth: 0, rung: 0,
-        from: { space: 1, x: 100, y: 100 }, to: { space: 1, x: 1760, y: 39 },
-        exposedPt2: 35080, noop: false,
+        id: 11,
+        app: "ChatGPT",
+        title: "Review latency",
+        side: "right",
+        depth: 0,
+        rung: 0,
+        from: { space: 1, x: 100, y: 100 },
+        to: { space: 1, x: 1760, y: 39 },
+        exposedPt2: 35080,
+        noop: false,
       },
       {
-        id: 22, app: "Code", title: "evals", side: "left", depth: 1, rung: 0,
-        from: { space: 4, x: 20, y: 60 }, to: { space: 1, x: -860, y: 39 },
-        exposedPt2: 28000, noop: false,
+        id: 22,
+        app: "Code",
+        title: "evals",
+        side: "left",
+        depth: 1,
+        rung: 0,
+        from: { space: 4, x: 20, y: 60 },
+        to: { space: 1, x: -860, y: 39 },
+        exposedPt2: 28000,
+        noop: false,
       },
     ],
     ...overrides,
@@ -208,18 +236,21 @@ describe("the WebRTC tile", () => {
   it("records receiver stats, times out stalled peers, and cleans up its timers", async () => {
     vi.useFakeTimers();
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      requests.push({ url, body });
-      if (url.endsWith("/telemetry")) return new Response(null, { status: 204 });
-      return Response.json({
-        type: "answer",
-        sdp: "answer",
-        codec: "h265",
-        source: { width: 1800, height: 1169, cursor: { x: 900, y: 584 } },
-      });
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        requests.push({ url, body });
+        if (url.endsWith("/telemetry")) return new Response(null, { status: 204 });
+        return Response.json({
+          type: "answer",
+          sdp: "answer",
+          codec: "h265",
+          source: { width: 1800, height: 1169, cursor: { x: 900, y: 584 } },
+        });
+      }),
+    );
 
     class ConnectingPeer {
       static last: ConnectingPeer | undefined;
@@ -254,51 +285,60 @@ describe("the WebRTC tile", () => {
       async setRemoteDescription() {}
       async getStats(): Promise<RTCStatsReport> {
         return new Map<string, RTCStats>([
-          ["inbound", {
-            id: "inbound",
-            type: "inbound-rtp",
-            timestamp: 0,
-            kind: "video",
-            ssrc: 1,
-            trackIdentifier: "video",
-            packetsReceived: 120,
-            bytesReceived: 12_000,
-            packetsLost: 2,
-            packetsRepaired: 1,
-            packetsDiscarded: 3,
-            jitter: 0.012,
-            framesReceived: 60,
-            framesDecoded: 58,
-            framesDropped: 2,
-            jitterBufferDelay: 1.16,
-            jitterBufferTargetDelay: 2.32,
-            jitterBufferEmittedCount: 58,
-            totalDecodeTime: 0.58,
-            nackCount: 4,
-            pliCount: 1,
-            decoderImplementation: "VideoToolbox",
-            powerEfficientDecoder: true,
-          } as RTCInboundRtpStreamStats],
-          ["transport", {
-            id: "transport",
-            type: "transport",
-            timestamp: 0,
-            dtlsState: "connected",
-            selectedCandidatePairId: "pair",
-          } as RTCTransportStats],
-          ["pair", {
-            id: "pair",
-            type: "candidate-pair",
-            timestamp: 0,
-            localCandidateId: "local",
-            remoteCandidateId: "remote",
-            state: "succeeded",
-            nominated: true,
-            bytesReceived: 12_000,
-            bytesSent: 2_000,
-            currentRoundTripTime: 0.08,
-            availableIncomingBitrate: 1_500_000,
-          } as RTCIceCandidatePairStats],
+          [
+            "inbound",
+            {
+              id: "inbound",
+              type: "inbound-rtp",
+              timestamp: 0,
+              kind: "video",
+              ssrc: 1,
+              trackIdentifier: "video",
+              packetsReceived: 120,
+              bytesReceived: 12_000,
+              packetsLost: 2,
+              packetsRepaired: 1,
+              packetsDiscarded: 3,
+              jitter: 0.012,
+              framesReceived: 60,
+              framesDecoded: 58,
+              framesDropped: 2,
+              jitterBufferDelay: 1.16,
+              jitterBufferTargetDelay: 2.32,
+              jitterBufferEmittedCount: 58,
+              totalDecodeTime: 0.58,
+              nackCount: 4,
+              pliCount: 1,
+              decoderImplementation: "VideoToolbox",
+              powerEfficientDecoder: true,
+            } as RTCInboundRtpStreamStats,
+          ],
+          [
+            "transport",
+            {
+              id: "transport",
+              type: "transport",
+              timestamp: 0,
+              dtlsState: "connected",
+              selectedCandidatePairId: "pair",
+            } as RTCTransportStats,
+          ],
+          [
+            "pair",
+            {
+              id: "pair",
+              type: "candidate-pair",
+              timestamp: 0,
+              localCandidateId: "local",
+              remoteCandidateId: "remote",
+              state: "succeeded",
+              nominated: true,
+              bytesReceived: 12_000,
+              bytesSent: 2_000,
+              currentRoundTripTime: 0.08,
+              availableIncomingBitrate: 1_500_000,
+            } as RTCIceCandidatePairStats,
+          ],
         ]) as RTCStatsReport;
       }
       addEventListener() {}
@@ -311,9 +351,7 @@ describe("the WebRTC tile", () => {
     vi.stubGlobal("RTCPeerConnection", ConnectingPeer);
     vi.stubGlobal("crypto", { randomUUID: () => "test-attempt" });
 
-    const { unmount } = render(
-      <TileStreamRtc windowID="display" width={1800} height={1169} />,
-    );
+    const { unmount } = render(<TileStreamRtc windowID="display" width={1800} height={1169} />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(ICE_SETUP_TIMEOUT_MS);
     });
@@ -331,9 +369,7 @@ describe("the WebRTC tile", () => {
     unmount();
 
     requests.length = 0;
-    const second = render(
-      <TileStreamRtc windowID="display" width={1800} height={1169} />,
-    );
+    const second = render(<TileStreamRtc windowID="display" width={1800} height={1169} />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -344,9 +380,7 @@ describe("the WebRTC tile", () => {
     expect(requests.some(({ body }) => body.phase === "setup-timeout")).toBe(false);
 
     requests.length = 0;
-    const third = render(
-      <TileStreamRtc windowID="display" width={1800} height={1169} />,
-    );
+    const third = render(<TileStreamRtc windowID="display" width={1800} height={1169} />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -401,24 +435,19 @@ describe("the WebRTC tile", () => {
     third.unmount();
 
     const onState = vi.fn();
-    const fourth = render(
-      <TileStreamRtc
-        windowID="display"
-        width={1800}
-        height={1169}
-        onState={onState}
-      />,
-    );
+    const fourth = render(<TileStreamRtc windowID="display" width={1800} height={1169} onState={onState} />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     const playing = document.querySelector("video");
     expect(playing).not.toBeNull();
     act(() => playing!.dispatchEvent(new Event("loadeddata")));
-    expect(onState).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "playing",
-      codec: "webrtc/h265",
-    }));
+    expect(onState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "playing",
+        codec: "webrtc/h265",
+      }),
+    );
     fourth.unmount();
   });
 });

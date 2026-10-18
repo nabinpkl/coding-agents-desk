@@ -51,13 +51,11 @@ export function useFolderGitStatus<Status extends FolderGitStatus>(
   const visible = usePageVisible();
 
   useSubscription(subscribe && visible ? `folder-git:${sourceKey(subscribe)}` : null, () =>
-    subscribe?.(
-      (answer) => {
-        setStatus(answer);
-        setError(null);
-      },
-      setError,
-    ));
+    subscribe?.((answer) => {
+      setStatus(answer);
+      setError(null);
+    }, setError),
+  );
 
   return { status, error };
 }

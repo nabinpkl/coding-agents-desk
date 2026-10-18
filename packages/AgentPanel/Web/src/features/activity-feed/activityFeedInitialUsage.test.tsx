@@ -10,11 +10,11 @@ import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream
 
 // Same jsdom-unsafe deps the app tests stub.
 vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
-  Markdown: ({ content }: { content: string }) => (
-    <div data-testid="markdown-view">{content}</div>
-  ),
+  Markdown: ({ content }: { content: string }) => <div data-testid="markdown-view">{content}</div>,
 }));
-vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({
+  DiffBlock: () => <div data-testid="diff-block" />,
+}));
 
 // The feed's stick-to-bottom machinery observes the scroller; jsdom has none.
 class MockResizeObserver {
@@ -84,9 +84,7 @@ describe("initial usage, full feed chain", () => {
     });
 
     await waitFor(() => expect(seen?.current).toBe(125_219));
-    expect(
-      await screen.findByRole("progressbar", { name: "Context: 63% of 200,000 tokens" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("progressbar", { name: "Context: 63% of 200,000 tokens" })).toBeInTheDocument();
   });
 
   it("initializes from the transcript's last reading when the snapshot carries none", async () => {

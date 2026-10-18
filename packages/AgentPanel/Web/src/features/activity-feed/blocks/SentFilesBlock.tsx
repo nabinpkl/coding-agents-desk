@@ -39,9 +39,7 @@ export function SentFilesBlock({
       className="space-y-1.5 rounded-sm border border-border/50 bg-muted/30 px-2 py-1.5"
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
-      {caption ? (
-        <p className="leading-(--agent-panel-prose-leading) text-foreground">{caption}</p>
-      ) : null}
+      {caption ? <p className="leading-(--agent-panel-prose-leading) text-foreground">{caption}</p> : null}
       <ul className="flex flex-wrap gap-2">
         {files.map((path, fileIndex) => {
           const name = fileName(path);
@@ -103,9 +101,8 @@ function SentFileName({
   name: string;
 }) {
   const dataSource = useDataSource();
-  const url = ctx.rawSource === "addressable"
-    ? dataSource.eventFileUrl(ctx.session, eventIndex, blockIndex, fileIndex)
-    : null;
+  const url =
+    ctx.rawSource === "addressable" ? dataSource.eventFileUrl(ctx.session, eventIndex, blockIndex, fileIndex) : null;
   if (url === null) return <div className="truncate font-mono text-foreground/70">{name}</div>;
   return (
     <a

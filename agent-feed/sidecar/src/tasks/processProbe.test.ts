@@ -73,9 +73,7 @@ describe("parseLsofDescriptors", () => {
 
 describe("taskShellsFromDescriptors", () => {
   test("recovers the task id from the descriptor itself", () => {
-    const shells = taskShellsFromDescriptors([
-      { pid: 63854, fd: "1", access: "w", name: CAPTURE },
-    ]);
+    const shells = taskShellsFromDescriptors([{ pid: 63854, fd: "1", access: "w", name: CAPTURE }]);
     expect(shells).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
   });
 
@@ -105,8 +103,7 @@ describe("taskShellsFromDescriptors", () => {
   test("a process only reading a capture is not its shell", () => {
     // The agent's own `cat` on a finished task's output. Counting it would resurrect that task as
     // running, which is the false positive accepting every descriptor number opens up.
-    expect(taskShellsFromDescriptors([{ pid: 700, fd: "3", access: "r", name: CAPTURE }]))
-      .toEqual([]);
+    expect(taskShellsFromDescriptors([{ pid: 700, fd: "3", access: "r", name: CAPTURE }])).toEqual([]);
   });
 
   test("a capture path outside the task root is refused", () => {
@@ -119,8 +116,7 @@ describe("taskShellsFromDescriptors", () => {
   });
 
   test("ordinary files the shell happens to hold are ignored", () => {
-    expect(taskShellsFromDescriptors([{ pid: 1, fd: "1", access: "w", name: "/dev/null" }]))
-      .toEqual([]);
+    expect(taskShellsFromDescriptors([{ pid: 1, fd: "1", access: "w", name: "/dev/null" }])).toEqual([]);
   });
 });
 
@@ -132,8 +128,7 @@ describe("taskShellsByOwner", () => {
   test("finds the running task among a session's other children", async () => {
     // A real session's children are mostly MCP servers and a language server.
     const run = fakeRunner({
-      "/usr/sbin/lsof -p 61794,61796,63854 -F pfan":
-        `p61794\nf1\naw\nn/dev/null\np63854\nf1\naw\nn${CAPTURE}\nf2\naw\nn${CAPTURE}\n`,
+      "/usr/sbin/lsof -p 61794,61796,63854 -F pfan": `p61794\nf1\naw\nn/dev/null\np63854\nf1\naw\nn${CAPTURE}\nf2\naw\nn${CAPTURE}\n`,
     });
     const shells = await taskShellsByOwner(run, [61308], childrenOf(61308, [61794, 61796, 63854]));
     expect(shells.get(61308)).toEqual([{ taskId: "bukxtjy7e", pid: 63854, capturePath: CAPTURE }]);
@@ -210,8 +205,7 @@ describe("outputTargetsOf", () => {
     // The whole point: the capture is 0 bytes because the command redirected, and the work is
     // going to a log file a descendant holds open.
     const run = fakeRunner({
-      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=":
-        `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n63891 63854 Mon Aug 17 01:02:03 2026 0:00.01 make all\n`,
+      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=": `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n63891 63854 Mon Aug 17 01:02:03 2026 0:00.01 make all\n`,
       "/usr/sbin/lsof -p 63891 -a -d 1 -F pfan": `p63891\nf1\naw\nn${REAL_LOG}\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([REAL_LOG]);
@@ -231,8 +225,7 @@ describe("outputTargetsOf", () => {
 
   test("the capture itself is not reported as a redirect target", async () => {
     const run = fakeRunner({
-      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=":
-        `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n63891 63854 Mon Aug 17 01:02:03 2026 0:00.01 make all\n`,
+      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=": `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n63891 63854 Mon Aug 17 01:02:03 2026 0:00.01 make all\n`,
       "/usr/sbin/lsof -p 63891 -a -d 1 -F pfan": `p63891\nf1\naw\nn${CAPTURE}\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([]);
@@ -241,8 +234,7 @@ describe("outputTargetsOf", () => {
   test("a task that streams normally has no separate target", async () => {
     // No descendants at all: the shell itself is doing the work, so there is nowhere else to look.
     const run = fakeRunner({
-      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=":
-        `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n`,
+      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=": `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([]);
   });

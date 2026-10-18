@@ -35,7 +35,10 @@ describe("terminal canvas preferences", () => {
   });
 
   it("drops a hand-edited entry without costing the ones beside it", () => {
-    localStorage.setItem("agent-panel.terminal-canvas.off-strip-children", JSON.stringify([":a", "no-colon", ":a:1.x", ":"]));
+    localStorage.setItem(
+      "agent-panel.terminal-canvas.off-strip-children",
+      JSON.stringify([":a", "no-colon", ":a:1.x", ":"]),
+    );
     expect(loadOffStripTerminalChildren()).toEqual(new Set([":a"]));
     // A second colon is a window key now, not hand-edited: sessions keep their own rows.
     localStorage.setItem("agent-panel.terminal-canvas.open-children", JSON.stringify([":harbor:1", ":harbor:1.2"]));

@@ -20,11 +20,7 @@ import {
   sessionSummaries,
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
-import type {
-  ActivityEvent,
-  EventMode,
-  TranscriptSourceId,
-} from "@/transcripts/transcriptTypes";
+import type { ActivityEvent, EventMode, TranscriptSourceId } from "@/transcripts/transcriptTypes";
 import {
   eventsPageAtFromQuery,
   type EventsPage,
@@ -55,8 +51,7 @@ import {
 } from "@/http/session-routes/forkAnchorRoutes";
 
 const EVENT_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events$/i;
-const RAW_EVENT_ROUTE =
-  /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events\/(\d+)\/raw$/i;
+const RAW_EVENT_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events\/(\d+)\/raw$/i;
 // Claude only, in the pattern rather than in a branch: Codex titles live in a database this does
 // not write, so a Codex path here would be a 404 dressed as a route that exists.
 const TITLE_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/title$/i;
@@ -78,12 +73,7 @@ function modeQuery(url: URL): EventMode | null {
   return raw === "raw" || raw === "nice" ? raw : null;
 }
 
-function integerQuery(
-  url: URL,
-  name: string,
-  defaultValue: number,
-  maximum?: number,
-): number | null {
+function integerQuery(url: URL, name: string, defaultValue: number, maximum?: number): number | null {
   const raw = url.searchParams.get(name);
   if (raw === null) return defaultValue;
   if (!/^\d+$/.test(raw)) return null;
@@ -92,9 +82,7 @@ function integerQuery(
   return maximum === undefined ? value : Math.min(value, maximum);
 }
 
-async function selectedProject(url: URL): Promise<
-  { projectPath: string } | { response: Response }
-> {
+async function selectedProject(url: URL): Promise<{ projectPath: string } | { response: Response }> {
   const requested = url.searchParams.get("projectPath");
   if (!requested) return { response: jsonResponse({ error: "invalid projectPath" }, 400) };
   const canonical = await canonicalProjectPath(requested);
@@ -136,16 +124,15 @@ export async function readTranscriptPage(
   const session = findSession(source, sessionId);
   if (!session || !session.transcriptPath) return null;
   const path = session.transcriptPath;
-  const page = "after" in at
-    ? await readPageAfter(source, sessionId, path, at.after, limit, mode)
-    : "around" in at
-      ? await readPageAround(source, sessionId, path, at.around, limit, mode)
-      : await readPageBefore(source, sessionId, path, at.before, limit, mode);
+  const page =
+    "after" in at
+      ? await readPageAfter(source, sessionId, path, at.after, limit, mode)
+      : "around" in at
+        ? await readPageAround(source, sessionId, path, at.around, limit, mode)
+        : await readPageBefore(source, sessionId, path, at.before, limit, mode);
   // The meter is the session's, not the page's, so only the newest page reads it: any other page
   // is scrollback, and the end of the file is a read of its own.
-  const meter = "before" in at && at.before === null
-    ? await readSessionMeter(source, path, page.end)
-    : null;
+  const meter = "before" in at && at.before === null ? await readSessionMeter(source, path, page.end) : null;
   return {
     events: page.events,
     windowStart: page.windowStart,
@@ -174,11 +161,7 @@ async function paginatedEvents(
   }
 }
 
-async function rawEvent(
-  source: TranscriptSourceId,
-  sessionId: string,
-  position: number,
-): Promise<Response> {
+async function rawEvent(source: TranscriptSourceId, sessionId: string, position: number): Promise<Response> {
   const session = findSession(source, sessionId);
   if (!session || !session.transcriptPath) return jsonResponse({ error: "session not found" }, 404);
   try {
@@ -348,11 +331,7 @@ async function renameSession(
  * endpoint: forking is something you do to a session, and a reader deciding to branch is looking
  * at a transcript rather than at a roster.
  */
-async function forkSession(
-  sessionId: string,
-  request: Request,
-  fork: SessionRouteActions["fork"],
-): Promise<Response> {
+async function forkSession(sessionId: string, request: Request, fork: SessionRouteActions["fork"]): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -379,11 +358,7 @@ async function forkSession(
     // 502 rather than 500, for the reason the Bot launch route gives: the request was valid and
     // what failed is the thing this sidecar delegates to -- tmux, or the CLI it starts.
     console.error("Session fork failed", error);
-    return errorResponse(
-      "fork-failed",
-      error instanceof Error ? error.message : String(error),
-      502,
-    );
+    return errorResponse("fork-failed", error instanceof Error ? error.message : String(error), 502);
   }
 }
 

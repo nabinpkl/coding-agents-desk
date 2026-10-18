@@ -2,15 +2,8 @@
 
 import { useCallback, useRef, useState, type RefObject } from "react";
 import type { ComposerPaste, TmuxComposerState } from "@agentdesk/agent-feed-wire";
-import type {
-  SessionAddress,
-  SidecarDataSource,
-} from "@/features/activity-feed/data-source/SidecarDataSource";
-import {
-  composerImageIds,
-  composerPasteTokens,
-  type ComposerImage,
-} from "@/features/cli-input/tmuxComposerHandle";
+import type { SessionAddress, SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { composerImageIds, composerPasteTokens, type ComposerImage } from "@/features/cli-input/tmuxComposerHandle";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 
 /**
@@ -91,9 +84,10 @@ export function useComposerAttachments({
     for (const id of ids) {
       if (previews.current.has(id)) continue;
       const file = imageFiles.current.get(id);
-      const renumbered = file === undefined
-        ? undefined
-        : [...previews.current.keys()].find((was) => !ids.includes(was) && imageFiles.current.get(was) === file);
+      const renumbered =
+        file === undefined
+          ? undefined
+          : [...previews.current.keys()].find((was) => !ids.includes(was) && imageFiles.current.get(was) === file);
       if (renumbered !== undefined) {
         previews.current.set(id, previews.current.get(renumbered)!);
         previews.current.delete(renumbered);
@@ -120,22 +114,22 @@ export function useComposerAttachments({
       setImages(next);
     }
 
-  /**
-   * Keeps the paste chips agreeing with the handles in the field.
-   *
-   * A handle the field is carrying that no reading has described yet is shown as one whose words
-   * are not held, which is the honest answer until a reading says otherwise: the alternative is
-   * offering a preview that then cannot be produced.
-   */
-    const pasted = composerPasteTokens(draft).map((token) => reported.current.get(token)
-      ?? { token, id: Number(/#(\d+)/.exec(token)?.[1] ?? 0), held: null });
-    setPastes((was) => (
-      was.length === pasted.length
-        && was.every((had, at) => had.token === pasted[at]?.token
-          && had.held?.chars === pasted[at]?.held?.chars)
+    /**
+     * Keeps the paste chips agreeing with the handles in the field.
+     *
+     * A handle the field is carrying that no reading has described yet is shown as one whose words
+     * are not held, which is the honest answer until a reading says otherwise: the alternative is
+     * offering a preview that then cannot be produced.
+     */
+    const pasted = composerPasteTokens(draft).map(
+      (token) => reported.current.get(token) ?? { token, id: Number(/#(\d+)/.exec(token)?.[1] ?? 0), held: null },
+    );
+    setPastes((was) =>
+      was.length === pasted.length &&
+      was.every((had, at) => had.token === pasted[at]?.token && had.held?.chars === pasted[at]?.held?.chars)
         ? was
-        : pasted
-    ));
+        : pasted,
+    );
   }, []);
 
   // Every preview is an object URL, which the document holds until it is told otherwise.
@@ -190,14 +184,17 @@ export function useComposerAttachments({
    * but it is also the rarest request this surface makes, and a cache of sixteen-kilobyte strings
    * kept alive for the life of a session buys one round trip nobody is waiting on.
    */
-  const previewPaste = useCallback(async (token: string): Promise<string | null> => {
-    try {
-      return await feed.readTmuxComposerPaste(session.current, token);
-    } catch (failure) {
-      report(String((failure as Error).message ?? failure));
-      return null;
-    }
-  }, [feed, report, session]);
+  const previewPaste = useCallback(
+    async (token: string): Promise<string | null> => {
+      try {
+        return await feed.readTmuxComposerPaste(session.current, token);
+      } catch (failure) {
+        report(String((failure as Error).message ?? failure));
+        return null;
+      }
+    },
+    [feed, report, session],
+  );
 
   /**
    * Puts the words behind a handle back in the field, so they can be edited again.
@@ -210,11 +207,14 @@ export function useComposerAttachments({
    * new one, so this does not escape the collapse and is not trying to. What it moves is which
    * side holds the copy a reader can work on.
    */
-  const expandPaste = useCallback(async (token: string) => {
-    const text = await previewPaste(token);
-    if (text === null) return;
-    edit(draftRef.current.replace(token, text));
-  }, [draftRef, edit, previewPaste]);
+  const expandPaste = useCallback(
+    async (token: string) => {
+      const text = await previewPaste(token);
+      if (text === null) return;
+      edit(draftRef.current.replace(token, text));
+    },
+    [draftRef, edit, previewPaste],
+  );
 
   /**
    * Takes one attachment back out, which is deleting its token from the text.
@@ -224,20 +224,30 @@ export function useComposerAttachments({
    * not leave the text starting with a space. The ordinary push carries the change, so there is
    * no second way into somebody's pane.
    */
-  const removeToken = useCallback((token: string | RegExp) => {
-    edit(draftRef.current.replace(
-      token instanceof RegExp ? token : spacedToken(token),
-      (taken) => (taken.startsWith(" ") && taken.endsWith(" ") ? " " : ""),
-    ));
-  }, [draftRef, edit]);
+  const removeToken = useCallback(
+    (token: string | RegExp) => {
+      edit(
+        draftRef.current.replace(token instanceof RegExp ? token : spacedToken(token), (taken) =>
+          taken.startsWith(" ") && taken.endsWith(" ") ? " " : "",
+        ),
+      );
+    },
+    [draftRef, edit],
+  );
 
-  const removeImage = useCallback((id: number) => {
-    removeToken(new RegExp(` ?\\[Image #${id}\\] ?`));
-  }, [removeToken]);
+  const removeImage = useCallback(
+    (id: number) => {
+      removeToken(new RegExp(` ?\\[Image #${id}\\] ?`));
+    },
+    [removeToken],
+  );
 
-  const removePaste = useCallback((token: string) => {
-    removeToken(token);
-  }, [removeToken]);
+  const removePaste = useCallback(
+    (token: string) => {
+      removeToken(token);
+    },
+    [removeToken],
+  );
 
   return {
     follow,

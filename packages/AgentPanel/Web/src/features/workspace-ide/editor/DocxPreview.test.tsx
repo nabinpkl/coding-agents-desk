@@ -32,7 +32,8 @@ it("keeps only links a document may open, and sends those to a new tab", () => {
   expect(documentLink("#")).toBeNull();
 
   const root = document.createElement("div");
-  root.innerHTML = '<a href="javascript:alert(1)" target="_top">x</a><a href="https://example.com">y</a><a href="#here">z</a>';
+  root.innerHTML =
+    '<a href="javascript:alert(1)" target="_top">x</a><a href="https://example.com">y</a><a href="#here">z</a>';
   confineLinks(root);
   const [bad, outside, within] = [...root.querySelectorAll("a")];
   expect(bad!.hasAttribute("href")).toBe(false);
@@ -80,7 +81,10 @@ it("writes a frame whose styles cannot close themselves and whose links are conf
 });
 
 it("shows the document in a frame that may open tabs and nothing else", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([80, 75]))));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(new Uint8Array([80, 75]))),
+  );
   renderAsync.mockImplementation(async (_bytes, body: HTMLElement) => {
     body.textContent = "Quarterly report";
   });
@@ -94,9 +98,18 @@ it("shows the document in a frame that may open tabs and nothing else", async ()
 });
 
 it("says what the sidecar refused", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-    error: { code: "bot-file-unreadable", message: "File is too large to open here." },
-  }), { status: 422 })));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: { code: "bot-file-unreadable", message: "File is too large to open here." },
+          }),
+          { status: 422 },
+        ),
+    ),
+  );
 
   render(<DocxPreview name="huge.docx" url="/x" revision="r1" />);
 

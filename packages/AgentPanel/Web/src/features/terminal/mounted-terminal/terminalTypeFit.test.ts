@@ -3,7 +3,12 @@
 // is silent -- a screen that scrolls or a screen in the corner of its own box.
 
 import { expect, test } from "vitest";
-import { fittedFontSize, preferredScreenHeight, surfaceInset, viewerSetsGrid } from "@/features/terminal/mounted-terminal/terminalTypeFit";
+import {
+  fittedFontSize,
+  preferredScreenHeight,
+  surfaceInset,
+  viewerSetsGrid,
+} from "@/features/terminal/mounted-terminal/terminalTypeFit";
 
 const reading = (available: { width: number; height: number }) => ({
   baseFontSize: 13,
@@ -56,8 +61,7 @@ test("stops shrinking at the floor, and lets the screen overflow instead", () =>
 test("sizes to a tenth of a point, and never past what fits", () => {
   // Every tenth in the range is a size the font actually renders differently -- measured, the cell
   // moved at each of 8.0, 8.1, 8.2 -- so the finer step buys width rather than the same layout.
-  const sizes = [235, 236, 237, 238, 239, 240].map((height) =>
-    fittedFontSize(reading({ width: 942, height })));
+  const sizes = [235, 236, 237, 238, 239, 240].map((height) => fittedFontSize(reading({ width: 942, height })));
   expect(sizes).toEqual([9.5, 9.5, 9.6, 9.6, 9.7, 9.7]);
   for (const [index, size] of sizes.entries()) {
     expect(size! * (16 / 13) * 20).toBeLessThanOrEqual(235 + index);
@@ -70,10 +74,8 @@ test("stops growing before a small screen stops looking like a terminal", () => 
 
 test("answers nothing for a box or a grid it cannot measure", () => {
   expect(fittedFontSize(reading({ width: 0, height: 320 }))).toBeNull();
-  expect(fittedFontSize({ ...reading({ width: 308, height: 320 }), grid: { columns: 41, rows: 0 } }))
-    .toBeNull();
-  expect(fittedFontSize({ ...reading({ width: 308, height: 320 }), cell: { width: 0, height: 16 } }))
-    .toBeNull();
+  expect(fittedFontSize({ ...reading({ width: 308, height: 320 }), grid: { columns: 41, rows: 0 } })).toBeNull();
+  expect(fittedFontSize({ ...reading({ width: 308, height: 320 }), cell: { width: 0, height: 16 } })).toBeNull();
 });
 
 const wanting = (availableWidth: number) => ({

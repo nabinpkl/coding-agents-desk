@@ -50,15 +50,7 @@ export function UsageModal({
   );
 }
 
-function UsageModalBody({
-  state,
-  onClose,
-  now,
-}: {
-  state: UsageState;
-  onClose: () => void;
-  now: () => number;
-}) {
+function UsageModalBody({ state, onClose, now }: { state: UsageState; onClose: () => void; now: () => number }) {
   const [weeks, setWeeks] = useState(DEFAULT_WEEKS);
   const [activeDate, setActiveDate] = useState<string | null>(null);
   // Which vendor's grid is showing. React state and nothing more: choosing a tab is one click,
@@ -68,10 +60,11 @@ function UsageModalBody({
   const vendors = state.kind === "ready" ? state.report.vendors : [];
   // Falls back to the first INSTALLED vendor rather than the first listed, so a machine with only
   // one of the two opens on the tab that has something to show.
-  const vendor = vendors.find((entry) => entry.vendor === chosenVendor)
-    ?? vendors.find((entry) => entry.installed)
-    ?? vendors[0]
-    ?? null;
+  const vendor =
+    vendors.find((entry) => entry.vendor === chosenVendor) ??
+    vendors.find((entry) => entry.installed) ??
+    vendors[0] ??
+    null;
   // The first sweep on a cold cache reads gigabytes and takes seconds. The panel is drawn at its
   // final size throughout and withholds the figures rather than the layout, so nothing moves when
   // the report finally lands.
@@ -92,11 +85,13 @@ function UsageModalBody({
                   type="button"
                   aria-pressed={selected}
                   onClick={() => setWeeks(value)}
-                  className={"rounded-md px-2 py-1 text-xs transition-colors "
-                    + "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary "
-                    + (selected
+                  className={
+                    "rounded-md px-2 py-1 text-xs transition-colors " +
+                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary " +
+                    (selected
                       ? "bg-secondary text-secondary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")}
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")
+                  }
                 >
                   {range.label}
                 </button>
@@ -193,18 +188,18 @@ function VendorTabs({
             role="tab"
             aria-selected={active}
             onClick={() => onSelect(vendor.vendor)}
-            className={"-mb-px border-b-2 px-2 text-xs transition-colors "
-              + "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary "
-              + (active
+            className={
+              "-mb-px border-b-2 px-2 text-xs transition-colors " +
+              "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary " +
+              (active
                 ? "border-primary font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground active:text-foreground/80")}
+                : "border-transparent text-muted-foreground hover:text-foreground active:text-foreground/80")
+            }
           >
             {vendor.displayName}
             {/* Said on the tab, not only inside it, so a reader can see which vendor has records
                 without opening each one. */}
-            {vendor.installed ? null : (
-              <span className="ml-1 text-muted-foreground/70">not found</span>
-            )}
+            {vendor.installed ? null : <span className="ml-1 text-muted-foreground/70">not found</span>}
           </button>
         );
       })}

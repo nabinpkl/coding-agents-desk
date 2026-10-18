@@ -14,8 +14,7 @@ const env = { HOME: home, ZDOTDIR: home, PATH: "/usr/bin:/bin" };
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
-const run = (argv: string[]): string =>
-  new TextDecoder().decode(Bun.spawnSync(argv, { env, stdin: "ignore" }).stdout);
+const run = (argv: string[]): string => new TextDecoder().decode(Bun.spawnSync(argv, { env, stdin: "ignore" }).stdout);
 
 test("a login shell that is not interactive misses what only ~/.zshrc puts on PATH", () => {
   // The gap itself, so the test below is answering the question that was actually broken.

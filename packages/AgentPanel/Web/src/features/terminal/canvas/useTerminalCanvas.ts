@@ -97,10 +97,12 @@ export function useTerminalCanvas(
           machine.feed.listWorkspaces().catch(() => []),
         ]);
         if (!live.on) return;
-        setSnapshots((previous) => new Map(previous).set(key, {
-          sessions,
-          workspaceRoots: workspaces.map((workspace) => workspace.root),
-        }));
+        setSnapshots((previous) =>
+          new Map(previous).set(key, {
+            sessions,
+            workspaceRoots: workspaces.map((workspace) => workspace.root),
+          }),
+        );
         setSnapshotErrors((previous) => {
           if (!previous.has(key)) return previous;
           const next = new Map(previous);
@@ -135,19 +137,20 @@ export function useTerminalCanvas(
   const refresh = useCallback(() => setRevision((now) => now + 1), []);
 
   const sources = useMemo(
-    () => all.map((machine) => {
-      const key = machineKey(machine);
-      const snapshot = snapshots.get(key);
-      return {
-        machineId: machine.id,
-        machineLabel: machine.label,
-        sessions: snapshot?.sessions ?? [],
-        workspaceRoots: snapshot?.workspaceRoots ?? [],
-        botDirs: roster.bots
-          .filter((bot) => roster.machineIndex.bot.get(bot.botId) === machine)
-          .map((bot) => bot.environment.path),
-      };
-    }),
+    () =>
+      all.map((machine) => {
+        const key = machineKey(machine);
+        const snapshot = snapshots.get(key);
+        return {
+          machineId: machine.id,
+          machineLabel: machine.label,
+          sessions: snapshot?.sessions ?? [],
+          workspaceRoots: snapshot?.workspaceRoots ?? [],
+          botDirs: roster.bots
+            .filter((bot) => roster.machineIndex.bot.get(bot.botId) === machine)
+            .map((bot) => bot.environment.path),
+        };
+      }),
     [all, snapshots, roster.bots, roster.machineIndex],
   );
   const grouping: TerminalGrouping = useMemo(() => groupTerminalsByDirectory(sources), [sources]);
@@ -155,12 +158,16 @@ export function useTerminalCanvas(
   // Active-only hides the empty parents -- workspace roots and Bot directories with nothing
   // running in them -- while the hues and ranks below still read the whole roster, so toggling
   // never repaints a face. Residue groups always stand: a pathless session is running work.
-  const visibleGrouping: TerminalGrouping = useMemo(() => activeOnly
-    ? {
-      parents: grouping.parents.filter((parent) => parent.children.length > 0),
-      residue: grouping.residue,
-    }
-    : grouping, [activeOnly, grouping]);
+  const visibleGrouping: TerminalGrouping = useMemo(
+    () =>
+      activeOnly
+        ? {
+            parents: grouping.parents.filter((parent) => parent.children.length > 0),
+            residue: grouping.residue,
+          }
+        : grouping,
+    [activeOnly, grouping],
+  );
   const identities = useMemo(
     () => [
       ...grouping.parents.map((parent) => ({ key: parent.key, path: parent.path })),
@@ -179,24 +186,34 @@ export function useTerminalCanvas(
   // session on one reload.
   const settled = all.every((machine) => snapshots.has(machineKey(machine)));
   const loading = !settled && snapshotErrors.size === 0;
-  const machineErrors = useMemo(
-    () => {
-      const rosterReasons = new Map(roster.machineErrors.map((entry) => [entry.label, entry.reason]));
-      return all.flatMap((machine) => {
-        const reason = snapshotErrors.get(machineKey(machine)) ?? rosterReasons.get(machine.label);
-        return reason === undefined ? [] : [{ label: machine.label, reason }];
-      });
-    },
-    [all, snapshotErrors, roster.machineErrors],
-  );
-  const error = !loading && settled === false && machineErrors.length === all.length && all.length > 0
-    ? machineErrors[0]!.reason
-    : null;
+  const machineErrors = useMemo(() => {
+    const rosterReasons = new Map(roster.machineErrors.map((entry) => [entry.label, entry.reason]));
+    return all.flatMap((machine) => {
+      const reason = snapshotErrors.get(machineKey(machine)) ?? rosterReasons.get(machine.label);
+      return reason === undefined ? [] : [{ label: machine.label, reason }];
+    });
+  }, [all, snapshotErrors, roster.machineErrors]);
+  const error =
+    !loading && settled === false && machineErrors.length === all.length && all.length > 0
+      ? machineErrors[0]!.reason
+      : null;
 
-  const [hiddenMachines, setHiddenMachines] = usePersistentState<ReadonlySet<string>>(loadHiddenMachines, storeHiddenMachines);
-  const [hiddenParents, setHiddenParents] = usePersistentState<ReadonlySet<string>>(loadHiddenTerminalParents, storeHiddenTerminalParents);
-  const [offStripChildren, setOffStripChildren] = usePersistentState<ReadonlySet<string>>(loadOffStripTerminalChildren, storeOffStripTerminalChildren);
-  const [openChildren, setOpenChildren] = usePersistentState<ReadonlySet<string>>(loadOpenTerminalChildren, storeOpenTerminalChildren);
+  const [hiddenMachines, setHiddenMachines] = usePersistentState<ReadonlySet<string>>(
+    loadHiddenMachines,
+    storeHiddenMachines,
+  );
+  const [hiddenParents, setHiddenParents] = usePersistentState<ReadonlySet<string>>(
+    loadHiddenTerminalParents,
+    storeHiddenTerminalParents,
+  );
+  const [offStripChildren, setOffStripChildren] = usePersistentState<ReadonlySet<string>>(
+    loadOffStripTerminalChildren,
+    storeOffStripTerminalChildren,
+  );
+  const [openChildren, setOpenChildren] = usePersistentState<ReadonlySet<string>>(
+    loadOpenTerminalChildren,
+    storeOpenTerminalChildren,
+  );
 
   // Drawn whole or drawn at its own size, and how much room the fitted canvas gets to be
   // scrolled around in. The same arrangement the Bot canvas keeps, under this canvas's own
@@ -225,17 +242,14 @@ export function useTerminalCanvas(
     return keys;
   }, [grouping]);
   if (settled) {
-    const next = new Set(
-      [...openChildren].filter((key) => parseTerminalChildKey(key) !== null && liveKeys.has(key)),
-    );
+    const next = new Set([...openChildren].filter((key) => parseTerminalChildKey(key) !== null && liveKeys.has(key)));
     // The setter writes the store; only when something actually went.
     if (next.size !== openChildren.size) setOpenChildren(next);
   }
 
   const feedFor = useCallback(
-    (machineId: string | undefined): SidecarDataSource => (
-      all.find((machine) => (machine.id ?? "") === (machineId ?? ""))?.feed ?? feed
-    ),
+    (machineId: string | undefined): SidecarDataSource =>
+      all.find((machine) => (machine.id ?? "") === (machineId ?? ""))?.feed ?? feed,
     [all, feed],
   );
 
@@ -250,59 +264,65 @@ export function useTerminalCanvas(
    * is the backstop for a caller that skipped the form: a stale default that collided since
    * the listing arrived would otherwise join that session instead of starting one here.
    */
-  const onAddTerminal = useCallback((parent: TerminalParentGroup, session: string) => {
-    const name = session.trim();
-    // Machine-wide, not just this directory's: names are per-server, so a name standing
-    // anywhere on this machine is a join, wherever the form offered it from.
-    const standing = [...grouping.parents, ...grouping.residue]
-      .filter((each) => (each.machineId ?? "") === (parent.machineId ?? ""))
-      .flatMap((each) => each.children.map((child) => child.name));
-    const invalid = terminalSessionNameError(name, standing);
-    if (invalid) {
-      setAddErrors((previous) => new Map(previous).set(parent.key, invalid));
-      return;
-    }
-    setAddingKeys((previous) => new Set(previous).add(parent.key));
-    setAddErrors((previous) => {
-      if (!previous.has(parent.key)) return previous;
-      const next = new Map(previous);
-      next.delete(parent.key);
-      return next;
-    });
-    void runWithFinally(async () => {
-      try {
-        const target = feedFor(parent.machineId);
-        // Created and immediately released: the listing reports the session from here on, and a
-        // tile the canvas opens joins it the way it joins any other. Holding the attach would
-        // steal the pane's one pipe from the tile that is about to open it.
-        const descriptor = await target.openTerminal(
-          { kind: "tmux-new", session: name, directory: parent.path },
-          DEFAULT_TILE_GRID.columns,
-          DEFAULT_TILE_GRID.rows,
-        );
-        await target.closeTerminal(descriptor.terminalId, "detach");
-        // Awaited rather than fired: the key below is opened only once the grouping holds it,
-        // which is what keeps the prune from closing what was just opened.
-        await reload(all, { on: true });
-        refresh();
-        const key = terminalChildKey(parent.machineId, name);
-        setOpenChildren((previous) => {
-          const next = new Set(previous).add(key);
-          storeOpenTerminalChildren(next);
-          return next;
-        });
-      } catch (cause) {
-        const message = cause instanceof Error ? cause.message : String(cause);
-        setAddErrors((previous) => new Map(previous).set(parent.key, message));
+  const onAddTerminal = useCallback(
+    (parent: TerminalParentGroup, session: string) => {
+      const name = session.trim();
+      // Machine-wide, not just this directory's: names are per-server, so a name standing
+      // anywhere on this machine is a join, wherever the form offered it from.
+      const standing = [...grouping.parents, ...grouping.residue]
+        .filter((each) => (each.machineId ?? "") === (parent.machineId ?? ""))
+        .flatMap((each) => each.children.map((child) => child.name));
+      const invalid = terminalSessionNameError(name, standing);
+      if (invalid) {
+        setAddErrors((previous) => new Map(previous).set(parent.key, invalid));
+        return;
       }
-    }, () => {
-      setAddingKeys((previous) => {
-        const next = new Set(previous);
+      setAddingKeys((previous) => new Set(previous).add(parent.key));
+      setAddErrors((previous) => {
+        if (!previous.has(parent.key)) return previous;
+        const next = new Map(previous);
         next.delete(parent.key);
         return next;
       });
-    });
-  }, [all, feedFor, grouping, refresh, reload, setOpenChildren]);
+      void runWithFinally(
+        async () => {
+          try {
+            const target = feedFor(parent.machineId);
+            // Created and immediately released: the listing reports the session from here on, and a
+            // tile the canvas opens joins it the way it joins any other. Holding the attach would
+            // steal the pane's one pipe from the tile that is about to open it.
+            const descriptor = await target.openTerminal(
+              { kind: "tmux-new", session: name, directory: parent.path },
+              DEFAULT_TILE_GRID.columns,
+              DEFAULT_TILE_GRID.rows,
+            );
+            await target.closeTerminal(descriptor.terminalId, "detach");
+            // Awaited rather than fired: the key below is opened only once the grouping holds it,
+            // which is what keeps the prune from closing what was just opened.
+            await reload(all, { on: true });
+            refresh();
+            const key = terminalChildKey(parent.machineId, name);
+            setOpenChildren((previous) => {
+              const next = new Set(previous).add(key);
+              storeOpenTerminalChildren(next);
+              return next;
+            });
+          } catch (cause) {
+            const message = cause instanceof Error ? cause.message : String(cause);
+            setAddErrors((previous) => new Map(previous).set(parent.key, message));
+          }
+        },
+        () => {
+          setAddingKeys((previous) => {
+            const next = new Set(previous);
+            next.delete(parent.key);
+            return next;
+          });
+        },
+      );
+    },
+    [all, feedFor, grouping, refresh, reload, setOpenChildren],
+  );
 
   /**
    * Picks a child from the roster, the way the Bot sidebar opens a session on its canvas.
@@ -312,44 +332,50 @@ export function useTerminalCanvas(
    * which is what closes an open tile from the list. The card's scroll-into-view effect fires
    * off the open set, so no scroll is aimed from here.
    */
-  const onSelectChild = useCallback((parentKey: string, childKey: string) => {
-    const returning = hiddenParents.has(parentKey) || offStripChildren.has(childKey);
-    if (hiddenParents.has(parentKey)) {
-      setHiddenParents((previous) => {
+  const onSelectChild = useCallback(
+    (parentKey: string, childKey: string) => {
+      const returning = hiddenParents.has(parentKey) || offStripChildren.has(childKey);
+      if (hiddenParents.has(parentKey)) {
+        setHiddenParents((previous) => {
+          const next = new Set(previous);
+          next.delete(parentKey);
+          return next;
+        });
+      }
+      if (offStripChildren.has(childKey)) {
+        setOffStripChildren((previous) => {
+          const next = new Set(previous);
+          next.delete(childKey);
+          return next;
+        });
+      }
+      setOpenChildren((previous) => {
         const next = new Set(previous);
-        next.delete(parentKey);
+        if (returning) next.add(childKey);
+        else if (next.has(childKey)) next.delete(childKey);
+        else next.add(childKey);
+        storeOpenTerminalChildren(next);
         return next;
       });
-    }
-    if (offStripChildren.has(childKey)) {
-      setOffStripChildren((previous) => {
-        const next = new Set(previous);
-        next.delete(childKey);
-        return next;
-      });
-    }
-    setOpenChildren((previous) => {
-      const next = new Set(previous);
-      if (returning) next.add(childKey);
-      else if (next.has(childKey)) next.delete(childKey);
-      else next.add(childKey);
-      storeOpenTerminalChildren(next);
-      return next;
-    });
-  }, [hiddenParents, offStripChildren, setHiddenParents, setOffStripChildren, setOpenChildren]);
+    },
+    [hiddenParents, offStripChildren, setHiddenParents, setOffStripChildren, setOpenChildren],
+  );
 
-  const onKillChild = useCallback((key: string) => {
-    const parsed = parseTerminalChildKey(key);
-    if (!parsed) return Promise.reject(new Error(`not a terminal on this canvas: ${key}`));
-    // The rejection travels back to the card that asked, which renders it where it was pressed.
-    // Success needs nothing said: the awaited reload drops the session from the listing, the
-    // prune drops its open key, and the row goes with both.
-    return (async () => {
-      await feedFor(parsed.machineId).killTmuxSession(parsed.session);
-      await reload(all, { on: true });
-      refresh();
-    })();
-  }, [all, feedFor, refresh, reload]);
+  const onKillChild = useCallback(
+    (key: string) => {
+      const parsed = parseTerminalChildKey(key);
+      if (!parsed) return Promise.reject(new Error(`not a terminal on this canvas: ${key}`));
+      // The rejection travels back to the card that asked, which renders it where it was pressed.
+      // Success needs nothing said: the awaited reload drops the session from the listing, the
+      // prune drops its open key, and the row goes with both.
+      return (async () => {
+        await feedFor(parsed.machineId).killTmuxSession(parsed.session);
+        await reload(all, { on: true });
+        refresh();
+      })();
+    },
+    [all, feedFor, refresh, reload],
+  );
 
   return {
     all,
@@ -359,45 +385,45 @@ export function useTerminalCanvas(
     loading,
     error,
     machineErrors,
-    machines: all.length > 1
-      ? all.map((machine) => ({ key: machineKey(machine), label: machine.label }))
-      : [],
+    machines: all.length > 1 ? all.map((machine) => ({ key: machineKey(machine), label: machine.label })) : [],
     hiddenMachines,
-    onToggleMachine: (key: string) => setHiddenMachines((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    }),
+    onToggleMachine: (key: string) =>
+      setHiddenMachines((previous) => {
+        const next = new Set(previous);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
     feedFor,
     hiddenParents,
     onHideParent: (key: string) => setHiddenParents((previous) => new Set(previous).add(key)),
-    onShowParent: (key: string) => setHiddenParents((previous) => {
-      const next = new Set(previous);
-      next.delete(key);
-      return next;
-    }),
+    onShowParent: (key: string) =>
+      setHiddenParents((previous) => {
+        const next = new Set(previous);
+        next.delete(key);
+        return next;
+      }),
     offStripChildren,
     onHideChild: (key: string) => setOffStripChildren((previous) => new Set(previous).add(key)),
-    onShowHiddenChildren: (parentKey: string) => setOffStripChildren((previous) => {
-      // Resolved against the grouping rather than by prefix: a `machine:` prefix would also
-      // match the machine's other parents, and the key being shown back is this parent's.
-      const parent = [...grouping.parents, ...grouping.residue].find((each) => each.key === parentKey);
-      if (!parent) return previous;
-      const shown = new Set(
-        parent.children.map((child) => terminalChildKey(parent.machineId, child.name)),
-      );
-      const next = new Set([...previous].filter((key) => !shown.has(key)));
-      return next.size === previous.size ? previous : next;
-    }),
+    onShowHiddenChildren: (parentKey: string) =>
+      setOffStripChildren((previous) => {
+        // Resolved against the grouping rather than by prefix: a `machine:` prefix would also
+        // match the machine's other parents, and the key being shown back is this parent's.
+        const parent = [...grouping.parents, ...grouping.residue].find((each) => each.key === parentKey);
+        if (!parent) return previous;
+        const shown = new Set(parent.children.map((child) => terminalChildKey(parent.machineId, child.name)));
+        const next = new Set([...previous].filter((key) => !shown.has(key)));
+        return next.size === previous.size ? previous : next;
+      }),
     openChildren,
-    onToggleChild: (key: string) => setOpenChildren((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      storeOpenTerminalChildren(next);
-      return next;
-    }),
+    onToggleChild: (key: string) =>
+      setOpenChildren((previous) => {
+        const next = new Set(previous);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        storeOpenTerminalChildren(next);
+        return next;
+      }),
     onKillChild,
     onSelectChild,
     activeOnly,
@@ -409,11 +435,12 @@ export function useTerminalCanvas(
     addingKeys,
     addErrors,
     onAddTerminal,
-    onDismissAddError: (parentKey: string) => setAddErrors((previous) => {
-      const next = new Map(previous);
-      next.delete(parentKey);
-      return next;
-    }),
+    onDismissAddError: (parentKey: string) =>
+      setAddErrors((previous) => {
+        const next = new Map(previous);
+        next.delete(parentKey);
+        return next;
+      }),
     onRefresh: refresh,
   };
 }

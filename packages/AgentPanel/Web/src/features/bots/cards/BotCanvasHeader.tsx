@@ -82,11 +82,7 @@ export function BotCanvasHeader({
   // One subscription for the header: the git button counts from it, and the code button re-reads
   // what it shows whenever it moves. From the card's own feed, because a peer's Bot is a directory
   // on the peer, and asking this Mac's git about it would answer about a path it may not have.
-  const git = useBotGitStatus(
-    feed,
-    bot.botId,
-    bot.environmentAvailability === "available",
-  );
+  const git = useBotGitStatus(feed, bot.botId, bot.environmentAvailability === "available");
   const header = useRef<HTMLDivElement | null>(null);
   const narrow = useNarrowHeader(header);
   // Only the narrow path opens dialogs from here, and only one at a time. The wide path's dialogs
@@ -105,16 +101,18 @@ export function BotCanvasHeader({
     : !hasDirectory
       ? []
       : [
-        { label: "Browse code", icon: CodeXml, onSelect: () => setDialog("code") },
-        ...(gitAction.kind === "changes"
-          ? [{
-            label: gitAction.count > 0 ? `Show git changes (${gitAction.label})` : "Show git changes",
-            icon: GitBranch,
-            onSelect: () => setDialog("git"),
-          }]
-          : []),
-        { label: "Open terminal", icon: Terminal, onSelect: () => setDialog("terminal") },
-      ];
+          { label: "Browse code", icon: CodeXml, onSelect: () => setDialog("code") },
+          ...(gitAction.kind === "changes"
+            ? [
+                {
+                  label: gitAction.count > 0 ? `Show git changes (${gitAction.label})` : "Show git changes",
+                  icon: GitBranch,
+                  onSelect: () => setDialog("git"),
+                },
+              ]
+            : []),
+          { label: "Open terminal", icon: Terminal, onSelect: () => setDialog("terminal") },
+        ];
   // A press on the header is a click until it has travelled far enough to be a carry. Without that
   // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
   // pixels while clicking "Add sessions" would reorder the canvas.
@@ -146,7 +144,7 @@ export function BotCanvasHeader({
   };
   return (
     <>
-    {/* `w-0 min-w-full` is what stops the header deciding how wide the card is. A card is
+      {/* `w-0 min-w-full` is what stops the header deciding how wide the card is. A card is
         sized by its contents, and contents are measured at MAX-content -- so the Bot's full
         name and full project path were setting a width the sessions never asked for, and
         `truncate` never engaged because nothing was ever constraining it. A percentage
@@ -154,23 +152,23 @@ export function BotCanvasHeader({
         as zero then and stretches to the answer afterwards. It is also what makes this header
         measureable at all: its own box is the card's width rather than anything this row chose,
         which is the number `useNarrowHeader` reads. */}
-    <div
-      ref={header}
-      // No background of its own. It had `bg-card` from when the card was `bg-card`, which was
-      // the same colour and so invisible; now that the card carries a hue, repainting the band
-      // that holds the Bot's name would be the one part of the card not wearing it.
-      className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border py-2 pr-3 pl-1 select-none active:cursor-grabbing"
-      onPointerDown={grabHeader}
-      onPointerMove={carryHeader}
-      onPointerUp={dropHeader}
-      onPointerCancel={dropHeader}
-    >
-      <BotAvatar bot={bot} hue={hue} rank={rank} size="size-11" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
-          {bot.name}
-        </span>
-        {/* The chip tier, not the meta tier, and that is the whole hierarchy fix on this card.
+      <div
+        ref={header}
+        // No background of its own. It had `bg-card` from when the card was `bg-card`, which was
+        // the same colour and so invisible; now that the card carries a hue, repainting the band
+        // that holds the Bot's name would be the one part of the card not wearing it.
+        className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border py-2 pr-3 pl-1 select-none active:cursor-grabbing"
+        onPointerDown={grabHeader}
+        onPointerMove={carryHeader}
+        onPointerUp={dropHeader}
+        onPointerCancel={dropHeader}
+      >
+        <BotAvatar bot={bot} hue={hue} rank={rank} size="size-11" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
+            {bot.name}
+          </span>
+          {/* The chip tier, not the meta tier, and that is the whole hierarchy fix on this card.
             This line is a caption bound to the name above it -- where the Bot runs and what it
             is pointed at -- while the session titles below it are the card's content, the
             thing a reader scans a canvas for. Both were 13px, so the only separation was
@@ -178,79 +176,77 @@ export function BotCanvasHeader({
             "dev · agent-desk" and "AD Project manager" sat at the same optical level.
             11px also puts this line where the SIDEBAR has always drawn it, so one Bot now
             reads the same way in both places instead of two. */}
-        <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-          {bot.metadata.role ? `${bot.metadata.role} · ` : ""}
-          {machineLabel ? <span className="font-medium">{machineLabel}</span> : null}
-          {machineLabel ? " · " : ""}
-          <span className="font-mono">{projectName}</span>
-          {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
+          <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+            {bot.metadata.role ? `${bot.metadata.role} · ` : ""}
+            {machineLabel ? <span className="font-medium">{machineLabel}</span> : null}
+            {machineLabel ? " · " : ""}
+            <span className="font-mono">{projectName}</span>
+            {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
+          </span>
         </span>
-      </span>
-      {/*
+        {/*
         The three directory controls, in the row while it has room and in the more menu while it
         does not. The git mark is the exception and stays in the row either way: it is a fact about
         the Bot rather than a way in, and a row that cannot spare a control can still spare a fact.
       */}
-      {gitAction.kind === "unreadable" ? (
-        <BotGitUnavailable error={gitAction.error} />
-      ) : narrow ? null : (
-        <>
-          <BotCodeButton bot={bot} feed={feed} git={git} />
-          {/* Nothing to say for a directory with no repository, which the button decides itself. */}
-          <BotGitButton bot={bot} feed={feed} git={git} />
-          <BotTerminalButton bot={bot} feed={feed} />
-        </>
-      )}
-      <button
-        type="button"
-        onClick={() => onAddSession(bot)}
-        disabled={bot.environmentAvailability === "missing"}
-        // Named for its Bot: a canvas of eight cards would otherwise give a screen reader eight
-        // identically named buttons with no way to tell which card it is on.
-        aria-label={`Add sessions to ${bot.name}`}
-        title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "Add sessions"}
-        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Plus className="size-4" aria-hidden />
-      </button>
-      {/* Beside the add button rather than in it: one adds sessions to the Bot, the other
+        {gitAction.kind === "unreadable" ? (
+          <BotGitUnavailable error={gitAction.error} />
+        ) : narrow ? null : (
+          <>
+            <BotCodeButton bot={bot} feed={feed} git={git} />
+            {/* Nothing to say for a directory with no repository, which the button decides itself. */}
+            <BotGitButton bot={bot} feed={feed} git={git} />
+            <BotTerminalButton bot={bot} feed={feed} />
+          </>
+        )}
+        <button
+          type="button"
+          onClick={() => onAddSession(bot)}
+          disabled={bot.environmentAvailability === "missing"}
+          // Named for its Bot: a canvas of eight cards would otherwise give a screen reader eight
+          // identically named buttons with no way to tell which card it is on.
+          aria-label={`Add sessions to ${bot.name}`}
+          title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "Add sessions"}
+          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="size-4" aria-hidden />
+        </button>
+        {/* Beside the add button rather than in it: one adds sessions to the Bot, the other
           takes the whole Bot off the canvas, and they are not the same scale of act. */}
-      <BotCardMenu
-        bot={bot}
-        overflow={overflow}
-        onDetach={() => onDetachBot(bot)}
-        onMoveLeft={canMoveLeft ? () => onMoveBySteps(-1) : undefined}
-        onMoveRight={canMoveRight ? () => onMoveBySteps(1) : undefined}
-        onRenameBot={() => onRenameBot(bot)}
-        onDeleteBot={() => onDeleteBot(bot)}
-      />
-    </div>
-    {/* The dialogs a narrow card opened from its menu, which the row's own buttons do not own
+        <BotCardMenu
+          bot={bot}
+          overflow={overflow}
+          onDetach={() => onDetachBot(bot)}
+          onMoveLeft={canMoveLeft ? () => onMoveBySteps(-1) : undefined}
+          onMoveRight={canMoveRight ? () => onMoveBySteps(1) : undefined}
+          onRenameBot={() => onRenameBot(bot)}
+          onDeleteBot={() => onDeleteBot(bot)}
+        />
+      </div>
+      {/* The dialogs a narrow card opened from its menu, which the row's own buttons do not own
         there. One of the two paths is ever mounted: `narrow` decides which. */}
-    {dialog === "code" || dialog === "git" ? (
-      <BotCodeDialog
-        bot={bot}
-        feed={feed}
-        git={git}
-        initialSection={dialog === "git" ? "sourceControl" : "explorer"}
-        onClose={closeDialog}
-      />
-    ) : null}
-    {fileRequest !== null ? (
-      <BotCodeDialog
-        // A different file is a fresh look, opened where that file is.
-        key={`${fileRequest.path}:${fileRequest.line ?? ""}`}
-        bot={bot}
-        feed={feed}
-        git={git}
-        initialSection="explorer"
-        initialFile={fileRequest}
-        onClose={onCloseFile}
-      />
-    ) : null}
-    {dialog === "terminal" ? (
-      <BotTerminalDialog bot={bot} feed={feed} onClose={closeDialog} />
-    ) : null}
+      {dialog === "code" || dialog === "git" ? (
+        <BotCodeDialog
+          bot={bot}
+          feed={feed}
+          git={git}
+          initialSection={dialog === "git" ? "sourceControl" : "explorer"}
+          onClose={closeDialog}
+        />
+      ) : null}
+      {fileRequest !== null ? (
+        <BotCodeDialog
+          // A different file is a fresh look, opened where that file is.
+          key={`${fileRequest.path}:${fileRequest.line ?? ""}`}
+          bot={bot}
+          feed={feed}
+          git={git}
+          initialSection="explorer"
+          initialFile={fileRequest}
+          onClose={onCloseFile}
+        />
+      ) : null}
+      {dialog === "terminal" ? <BotTerminalDialog bot={bot} feed={feed} onClose={closeDialog} /> : null}
     </>
   );
 }

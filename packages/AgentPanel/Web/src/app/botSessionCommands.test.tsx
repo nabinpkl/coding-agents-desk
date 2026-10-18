@@ -14,9 +14,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -68,20 +66,22 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          sessionAnchors: { "claude:sid-claude-01": "Aaron" },
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            sessionAnchors: { "claude:sid-claude-01": "Aaron" },
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -122,25 +122,29 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "opencode", sessionId: "sid-opencode-01" }],
-          sessionAnchors: { "opencode:sid-opencode-01": "Aaron" },
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [{
-            ...FIXTURE_SESSIONS[0]!,
-            sessionId: "sid-opencode-01",
-            source: "opencode" as const,
-            title: "Session Opencode 01",
-          }],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "opencode", sessionId: "sid-opencode-01" }],
+            sessionAnchors: { "opencode:sid-opencode-01": "Aaron" },
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [
+              {
+                ...FIXTURE_SESSIONS[0]!,
+                sessionId: "sid-opencode-01",
+                source: "opencode" as const,
+                title: "Session Opencode 01",
+              },
+            ],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -183,19 +187,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -219,19 +225,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [{ source: "codex", sessionId: "sid-forgotten" }],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [{ source: "codex", sessionId: "sid-forgotten" }],
+          },
+        ],
       });
     });
     transport.responses.set("DELETE /api/bots/bot-1/sessions", {
@@ -262,9 +270,7 @@ describe("App shell", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
     });
-    expect(
-      transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions").at(-1)?.body,
-    ).toEqual({
+    expect(transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions").at(-1)?.body).toEqual({
       requestId: expect.any(String),
       sessionRefs: [{ source: "codex", sessionId: "sid-forgotten" }],
     });
@@ -279,19 +285,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-beta",
-          name: "Beta Curator",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
-          sessionRefs: [],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-beta",
+            name: "Beta Curator",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
+            sessionRefs: [],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -365,8 +373,7 @@ describe("App shell", () => {
     // Created in the Bot's directory, attached by reference, then named onto the anchor the attach
     // spent -- in that order, because the name needs the anchor.
     await waitFor(() => {
-      expect(transport.requests.some((request) => request.path === "/api/sessions/opencode/oc-1/bracket"))
-        .toBe(true);
+      expect(transport.requests.some((request) => request.path === "/api/sessions/opencode/oc-1/bracket")).toBe(true);
     });
     const asked = transport.requests
       .filter((request) => request.method === "POST")
@@ -399,11 +406,13 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 2,
-        bots: [{
-          ...BOT_WITH_ONE_SESSION,
-          sessionRefs: [...BOT_WITH_ONE_SESSION.sessionRefs, { source: "opencode", sessionId: "oc-1" }],
-          sessions: [...BOT_WITH_ONE_SESSION.sessions, opencodeSession],
-        }],
+        bots: [
+          {
+            ...BOT_WITH_ONE_SESSION,
+            sessionRefs: [...BOT_WITH_ONE_SESSION.sessionRefs, { source: "opencode", sessionId: "oc-1" }],
+            sessions: [...BOT_WITH_ONE_SESSION.sessions, opencodeSession],
+          },
+        ],
       });
     });
     await waitFor(() => {
@@ -411,5 +420,4 @@ describe("App shell", () => {
     });
     unmount();
   });
-
 });

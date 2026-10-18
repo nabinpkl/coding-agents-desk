@@ -78,10 +78,7 @@ test("a session running past midnight lands on both days", async () => {
   ]);
 
   const scanned = await scanCodexSession(path);
-  expect(Object.keys(scanned.days).sort()).toEqual([
-    localDayKey(beforeMs),
-    localDayKey(midnight.getTime()),
-  ]);
+  expect(Object.keys(scanned.days).sort()).toEqual([localDayKey(beforeMs), localDayKey(midnight.getTime())]);
 });
 
 test("usage is attributed to the model the transcript last named", async () => {

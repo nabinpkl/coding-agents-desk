@@ -22,7 +22,11 @@ vi.mock("@/features/desktop-viewer/tile-stream/TileStreamRtc", async (importOrig
   const actual = await importOriginal<typeof import("@/features/desktop-viewer/tile-stream/TileStreamRtc")>();
   return {
     ...actual,
-    TileStreamRtc: ({ onState, onControlTransport, onSourceMetadata }: {
+    TileStreamRtc: ({
+      onState,
+      onControlTransport,
+      onSourceMetadata,
+    }: {
       onState?: (state: unknown) => void;
       onControlTransport?: (transport: { send: (input: DesktopControlInput) => "sent" }) => void;
       onSourceMetadata?: (metadata: unknown) => void;
@@ -37,10 +41,12 @@ vi.mock("@/features/desktop-viewer/tile-stream/TileStreamRtc", async (importOrig
           });
         }
         onState?.({ kind: "playing", codec: "webrtc/h264", firstFrameMs: 12 });
-        onControlTransport?.({ send: (input) => {
-          tileMock.sent.push(input);
-          return "sent";
-        } });
+        onControlTransport?.({
+          send: (input) => {
+            tileMock.sent.push(input);
+            return "sent";
+          },
+        });
       }, [onControlTransport, onSourceMetadata, onState]);
       return <div data-testid="desktop-video" />;
     },
@@ -49,10 +55,13 @@ vi.mock("@/features/desktop-viewer/tile-stream/TileStreamRtc", async (importOrig
 
 beforeEach(() => {
   tileMock.sent = [];
-  vi.stubGlobal("ResizeObserver", class {
-    observe() {}
-    disconnect() {}
-  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   localStorage.clear();
   useDeckHeight.getState().resetDeckShare();
 });
@@ -70,11 +79,19 @@ function transport(): AgentHttpTransport {
 
 describe("DesktopViewer trackpad deck", () => {
   function coarsePointer(coarse: boolean) {
-    return vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-      matches: coarse && query === "(pointer: coarse)",
-      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
-      addListener() {}, removeListener() {}, dispatchEvent: () => false,
-    }) as MediaQueryList);
+    return vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: coarse && query === "(pointer: coarse)",
+          media: query,
+          onchange: null,
+          addEventListener() {},
+          removeEventListener() {},
+          addListener() {},
+          removeListener() {},
+          dispatchEvent: () => false,
+        }) as MediaQueryList,
+    );
   }
 
   it("offers the deck on a touch device, puts it under the picture, and gives it back to the keyboard", async () => {
@@ -120,8 +137,7 @@ describe("DesktopViewer trackpad deck", () => {
   it("sizes the deck to the share of the viewer chosen in Tuning, and keeps that share", async () => {
     const media = coarsePointer(true);
     // jsdom lays nothing out, so give the viewer a height for the share to be a share of.
-    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue({ height: 800 } as DOMRect);
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 800 } as DOMRect);
     try {
       localStorage.setItem("agentdesk.desktop.trackpadDeck", "true");
       tileMock.publishSource = true;
@@ -140,8 +156,9 @@ describe("DesktopViewer trackpad deck", () => {
       // The picture gives up exactly what the deck took.
       expect(Number.parseFloat(box.style.bottom)).toBe(before + 96);
       expect(screen.getByText("50%")).toBeInTheDocument();
-      expect(JSON.parse(localStorage.getItem("agentdesk.desktop.trackpadDeckHeight")!).state)
-        .toEqual({ deckShare: 0.5 });
+      expect(JSON.parse(localStorage.getItem("agentdesk.desktop.trackpadDeckHeight")!).state).toEqual({
+        deckShare: 0.5,
+      });
 
       fireEvent.click(screen.getByRole("button", { name: "Reset" }));
       expect(deck.style.height).toBe("304px");
@@ -183,7 +200,9 @@ describe("DesktopViewer trackpad deck", () => {
         const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y });
         Object.defineProperty(event, "pointerId", { value: 1 });
         Object.defineProperty(event, "pointerType", { value: "touch" });
-        act(() => { picture.dispatchEvent(event); });
+        act(() => {
+          picture.dispatchEvent(event);
+        });
       };
       at("pointerdown", 100, 100);
       at("pointermove", 160, 140);

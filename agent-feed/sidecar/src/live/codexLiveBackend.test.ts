@@ -22,7 +22,11 @@ function loadFixtureEvents(): ObserverEvent[] {
   return events;
 }
 
-function messageEvent(flowId: string, payload: unknown, direction = "TRAFFIC_DIRECTION_SERVER_TO_CLIENT"): ObserverEvent {
+function messageEvent(
+  flowId: string,
+  payload: unknown,
+  direction = "TRAFFIC_DIRECTION_SERVER_TO_CLIENT",
+): ObserverEvent {
   return {
     observedAt: new Date().toISOString(),
     websocketMessageObserved: {
@@ -81,13 +85,15 @@ describe("CodexLiveBackend fixture ingest", () => {
 
     // The turn's user prompt rides in response.create input.
     const promptRow = userRows.find((event) =>
-      event.blocks.some((block) => block.kind === "text" && block.text === "stream\n"));
+      event.blocks.some((block) => block.kind === "text" && block.text === "stream\n"),
+    );
     expect(promptRow).toBeDefined();
     expect(promptRow!.phase).toBe("complete");
 
     // Tool results ride in the follow-up response.create input and pair by callId.
     const resultRow = userRows.find((event) =>
-      event.blocks.some((block) => block.kind === "tool_result" && block.callId === "call_XSwFAAx1PgHxPOBunSaT89tH"));
+      event.blocks.some((block) => block.kind === "tool_result" && block.callId === "call_XSwFAAx1PgHxPOBunSaT89tH"),
+    );
     expect(resultRow).toBeDefined();
     const resultBlock = resultRow!.blocks[0]!;
     expect(resultBlock.kind).toBe("tool_result");
@@ -100,19 +106,26 @@ describe("CodexLiveBackend fixture ingest", () => {
     const events = page.events;
 
     const reasoning = events.find((event) =>
-      event.blocks.some((block) => block.kind === "reasoning" && block.text === "**Investigating user intent for streaming**"));
+      event.blocks.some(
+        (block) => block.kind === "reasoning" && block.text === "**Investigating user intent for streaming**",
+      ),
+    );
     expect(reasoning).toBeDefined();
     expect(reasoning!.phase).toBe("complete");
 
     const text = events.find((event) =>
-      event.blocks.some((block) => block.kind === "text" && block.text!.startsWith("I’m checking the current workspace state")));
+      event.blocks.some(
+        (block) => block.kind === "text" && block.text!.startsWith("I’m checking the current workspace state"),
+      ),
+    );
     expect(text).toBeDefined();
     expect(text!.phase).toBe("complete");
     // Accumulated from many deltas.
     expect(text!.revision).toBeGreaterThan(0);
 
     const tool = events.find((event) =>
-      event.blocks.some((block) => block.kind === "tool_use" && block.callId === "call_XSwFAAx1PgHxPOBunSaT89tH"));
+      event.blocks.some((block) => block.kind === "tool_use" && block.callId === "call_XSwFAAx1PgHxPOBunSaT89tH"),
+    );
     expect(tool).toBeDefined();
     const toolBlock = tool!.blocks[0]!;
     expect(toolBlock.kind).toBe("tool_use");
@@ -151,10 +164,9 @@ describe("CodexLiveBackend fixture ingest", () => {
     const page = await backend.page(SESSION_ID, 0, 100, "nice");
     const events = page.events;
     const promptIndex = events.findIndex((event) =>
-      event.blocks.some((block) => block.kind === "text" && block.text === "stream\n"));
-    const firstAssistantAfterPrompt = events
-      .slice(promptIndex)
-      .findIndex((event) => event.type === "assistant");
+      event.blocks.some((block) => block.kind === "text" && block.text === "stream\n"),
+    );
+    const firstAssistantAfterPrompt = events.slice(promptIndex).findIndex((event) => event.type === "assistant");
     expect(firstAssistantAfterPrompt).toBeGreaterThan(0);
   });
 
@@ -216,15 +228,23 @@ describe("CodexLiveBackend targeted ingest", () => {
         }
       }
     });
-    backend.acceptObserverEvent(messageEvent("f1", {
-      type: "response.create",
-      model: "gpt-5.4-mini",
-      input: [{ type: "message", id: "msg_123", role: "user", content: [{ type: "input_text", text: "hi\n" }] }],
-    }));
+    backend.acceptObserverEvent(
+      messageEvent("f1", {
+        type: "response.create",
+        model: "gpt-5.4-mini",
+        input: [{ type: "message", id: "msg_123", role: "user", content: [{ type: "input_text", text: "hi\n" }] }],
+      }),
+    );
     backend.acceptObserverEvent(messageEvent("f1", { type: "response.created" }));
-    backend.acceptObserverEvent(messageEvent("f1", { type: "response.output_item.added", item: { id: "msg_456", type: "message" } }));
-    backend.acceptObserverEvent(messageEvent("f1", { type: "response.output_text.delta", item_id: "msg_456", delta: "Hel" }));
-    backend.acceptObserverEvent(messageEvent("f1", { type: "response.output_text.delta", item_id: "msg_456", delta: "lo" }));
+    backend.acceptObserverEvent(
+      messageEvent("f1", { type: "response.output_item.added", item: { id: "msg_456", type: "message" } }),
+    );
+    backend.acceptObserverEvent(
+      messageEvent("f1", { type: "response.output_text.delta", item_id: "msg_456", delta: "Hel" }),
+    );
+    backend.acceptObserverEvent(
+      messageEvent("f1", { type: "response.output_text.delta", item_id: "msg_456", delta: "lo" }),
+    );
     await flush();
     expect(texts.at(-1)).toBe("Hello");
     expect(phases.at(-1)).toBe("streaming");
@@ -232,7 +252,8 @@ describe("CodexLiveBackend targeted ingest", () => {
     await flush();
     const page = await backend.page(SESSION_ID, 0, 10, "nice");
     const textRow = page.events.find((event) =>
-      event.blocks.some((block) => block.kind === "text" && block.text === "Hello"));
+      event.blocks.some((block) => block.kind === "text" && block.text === "Hello"),
+    );
     expect(textRow).toBeDefined();
     expect(textRow!.phase).toBe("complete");
     await backend.dispose();
@@ -241,19 +262,24 @@ describe("CodexLiveBackend targeted ingest", () => {
   test("tool results ride in the follow-up create and pair by callId", async () => {
     const backend = new CodexLiveBackend(new URL("http://127.0.0.1:9"), true, 8);
     backend.acceptObserverEvent(upsertEvent("g1"));
-    backend.acceptObserverEvent(messageEvent("g1", {
-      type: "response.create",
-      input: [{
-        type: "function_call_output",
-        id: "fco_1",
-        call_id: "call_abc",
-        output: "file.txt\nreadme.md",
-      }],
-    }));
+    backend.acceptObserverEvent(
+      messageEvent("g1", {
+        type: "response.create",
+        input: [
+          {
+            type: "function_call_output",
+            id: "fco_1",
+            call_id: "call_abc",
+            output: "file.txt\nreadme.md",
+          },
+        ],
+      }),
+    );
     await flush();
     const page = await backend.page(SESSION_ID, 0, 10, "nice");
     const row = page.events.find((event) =>
-      event.blocks.some((block) => block.kind === "tool_result" && block.callId === "call_abc"));
+      event.blocks.some((block) => block.kind === "tool_result" && block.callId === "call_abc"),
+    );
     expect(row).toBeDefined();
     expect(row!.blocks[0]!.preview).toBe("file.txt\nreadme.md");
     await backend.dispose();
@@ -262,9 +288,15 @@ describe("CodexLiveBackend targeted ingest", () => {
   test("live assistant rows carry the codex item id as messageId for tail handoff", async () => {
     const backend = new CodexLiveBackend(new URL("http://127.0.0.1:9"), true, 8);
     backend.acceptObserverEvent(upsertEvent("h1"));
-    backend.acceptObserverEvent(messageEvent("h1", { type: "response.output_item.added", item: { id: "msg_abc", type: "message" } }));
-    backend.acceptObserverEvent(messageEvent("h1", { type: "response.output_text.delta", item_id: "msg_abc", delta: "hi" }));
-    backend.acceptObserverEvent(messageEvent("h1", { type: "response.output_text.done", item_id: "msg_abc", text: "hi" }));
+    backend.acceptObserverEvent(
+      messageEvent("h1", { type: "response.output_item.added", item: { id: "msg_abc", type: "message" } }),
+    );
+    backend.acceptObserverEvent(
+      messageEvent("h1", { type: "response.output_text.delta", item_id: "msg_abc", delta: "hi" }),
+    );
+    backend.acceptObserverEvent(
+      messageEvent("h1", { type: "response.output_text.done", item_id: "msg_abc", text: "hi" }),
+    );
     await flush();
     const page = await backend.page(SESSION_ID, 0, 10, "nice");
     const row = page.events.find((event) => event.messageId === "msg_abc");
@@ -306,8 +338,12 @@ describe("CodexLiveBackend lazy attach", () => {
       }
     });
     backend.acceptObserverEvent(upsertEvent("j1"));
-    backend.acceptObserverEvent(messageEvent("j1", { type: "response.output_item.added", item: { id: "msg_j1", type: "message" } }));
-    backend.acceptObserverEvent(messageEvent("j1", { type: "response.output_text.delta", item_id: "msg_j1", delta: "attached" }));
+    backend.acceptObserverEvent(
+      messageEvent("j1", { type: "response.output_item.added", item: { id: "msg_j1", type: "message" } }),
+    );
+    backend.acceptObserverEvent(
+      messageEvent("j1", { type: "response.output_text.delta", item_id: "msg_j1", delta: "attached" }),
+    );
     await flush();
     expect(received).toEqual(["attached"]);
     await backend.dispose();

@@ -19,7 +19,10 @@ import { useFontStore } from "@/features/activity-feed/reading-preferences/fontS
 export function DiffLane({ contestant }: { contestant: ArenaContestantDetail }) {
   const parts = useMemo(() => splitDiff(contestant.gitDiff ?? ""), [contestant.gitDiff]);
   return (
-    <section aria-label={`${contestant.contestantId} diff`} className="flex min-w-0 flex-col gap-2 bg-background px-4 py-3">
+    <section
+      aria-label={`${contestant.contestantId} diff`}
+      className="flex min-w-0 flex-col gap-2 bg-background px-4 py-3"
+    >
       {parts.length === 0 ? (
         <p className={`py-4 ${TEXT.meta} text-muted-foreground`}>
           {contestant.status === "closed"
@@ -60,8 +63,12 @@ function FileDiff({ part }: { part: DiffFilePart }) {
       <summary
         className={`flex cursor-pointer list-none items-center gap-2 bg-muted/40 px-2.5 py-1.5 ${TEXT.meta} outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring`}
       >
-        <span aria-hidden className="text-muted-foreground transition-transform duration-150 group-open:rotate-90">›</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-foreground" title={part.path}>{part.path}</span>
+        <span aria-hidden className="text-muted-foreground transition-transform duration-150 group-open:rotate-90">
+          ›
+        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-foreground" title={part.path}>
+          {part.path}
+        </span>
         <span className="shrink-0 tabular-nums text-arena-added">+{part.added}</span>
         <span className="shrink-0 tabular-nums text-arena-removed">−{part.removed}</span>
       </summary>

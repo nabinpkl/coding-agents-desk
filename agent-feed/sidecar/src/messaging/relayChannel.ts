@@ -100,7 +100,8 @@ export async function runChannelLoop(deps: ChannelLoopDeps, signal: AbortSignal)
     signal.addEventListener("abort", abort, { once: true });
     const watcher = setInterval(() => {
       const now = deps.readSession();
-      if (typeof now === "string" || now.sessionId !== session.sessionId || now.title !== session.title) connection.abort();
+      if (typeof now === "string" || now.sessionId !== session.sessionId || now.title !== session.title)
+        connection.abort();
     }, SESSION_RECHECK_MS);
     let opened = false;
     try {
@@ -128,7 +129,8 @@ export async function runChannelLoop(deps: ChannelLoopDeps, signal: AbortSignal)
       );
       deps.log("hub stream ended");
     } catch (error) {
-      if (!connection.signal.aborted) deps.log(`hub stream failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (!connection.signal.aborted)
+        deps.log(`hub stream failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       clearInterval(watcher);
       signal.removeEventListener("abort", abort);

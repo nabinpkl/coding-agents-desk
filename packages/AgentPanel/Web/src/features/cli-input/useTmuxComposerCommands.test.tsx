@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import {
-  holding,
-  pane,
-  Probe,
-  type,
-} from "@/features/cli-input/useTmuxComposerHarness";
+import { holding, pane, Probe, type } from "@/features/cli-input/useTmuxComposerHarness";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -29,7 +24,8 @@ describe("the commands a session offers", () => {
           { name: "/recap", description: "Generate a one-line session recap now", selected: true },
           { name: "/rename", description: "Rename the current conversation", selected: false },
         ],
-        pastes: [], images: [],
+        pastes: [],
+        images: [],
       });
     });
     expect(screen.getByTestId("commands").textContent).toBe(">/recap /rename");
@@ -54,7 +50,8 @@ describe("the commands a session offers", () => {
         reason: null,
         exact: true,
         commands: [{ name: "/recap", description: "one line", selected: true }],
-        pastes: [], images: [],
+        pastes: [],
+        images: [],
       });
     });
     await type("/rec");
@@ -97,7 +94,9 @@ describe("the commands a session offers", () => {
         hint: null,
         reason: null,
         exact: false,
-        commands: [], pastes: [], images: [],
+        commands: [],
+        pastes: [],
+        images: [],
       });
     });
     expect(screen.getByTestId("draft").textContent).toBe("/rename ");

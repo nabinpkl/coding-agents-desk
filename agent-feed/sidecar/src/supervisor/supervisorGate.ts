@@ -99,7 +99,7 @@ export function createSupervisorGate(io: SupervisorGateIO, options: SupervisorGa
 
   const state = (): SupervisorState => {
     const first = [...broken.entries()][0];
-    return { held: dirty, blocked: first ? `${base(first[0])}: ${first[1]}` : unlinked ?? waitingOn, mode };
+    return { held: dirty, blocked: first ? `${base(first[0])}: ${first[1]}` : (unlinked ?? waitingOn), mode };
   };
 
   const publish = () => io.publish(state());

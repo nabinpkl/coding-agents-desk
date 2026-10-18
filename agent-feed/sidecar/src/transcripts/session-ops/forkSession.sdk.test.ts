@@ -77,27 +77,38 @@ test("an SDK fork from a message starts already cut there, its brief riding alon
     newForkId,
     neverRewinds,
   );
-  expect(asked).toEqual([{
-    kind: "fork",
-    cwd: checkout,
-    sessionId: SESSION_ID,
-    forkId: FORK_ID,
-    title: "Branch",
-    brief: "take the other road",
-    mode: "sdk",
-    resumeAt: "uuid-before-bravo",
-  }]);
+  expect(asked).toEqual([
+    {
+      kind: "fork",
+      cwd: checkout,
+      sessionId: SESSION_ID,
+      forkId: FORK_ID,
+      title: "Branch",
+      brief: "take the other road",
+      mode: "sdk",
+      resumeAt: "uuid-before-bravo",
+    },
+  ]);
   expect(started.rewindFailed).toBeUndefined();
 });
 
 test("an SDK fork from the first message is refused before anything is started", async () => {
   const checkout = await directory();
-  await expect(launchSession(
-    { checkout, from: SESSION_ID, anchor: { fromEnd: 1, text: "ALPHA one" }, title: "Branch", claudeMode: "sdk", worktree: {} },
-    launcher,
-    newForkId,
-    neverRewinds,
-  )).rejects.toBeInstanceOf(SessionForkInvalidError);
+  await expect(
+    launchSession(
+      {
+        checkout,
+        from: SESSION_ID,
+        anchor: { fromEnd: 1, text: "ALPHA one" },
+        title: "Branch",
+        claudeMode: "sdk",
+        worktree: {},
+      },
+      launcher,
+      newForkId,
+      neverRewinds,
+    ),
+  ).rejects.toBeInstanceOf(SessionForkInvalidError);
   expect(asked).toEqual([]);
 });
 
@@ -111,20 +122,25 @@ test("a fork of a session that last ran through the SDK runs through it too, cut
     lastEventAt: 1_000,
     lastEntrypoint: "sdk-cli",
   });
-  const line = (uuid: string, parentUuid: string | null, type: "user" | "assistant", text: string) => JSON.stringify({
-    type,
-    uuid,
-    parentUuid,
-    cwd: project,
-    timestamp: "2026-10-17T05:00:00.000Z",
-    message: type === "user" ? { role: "user", content: text } : { role: "assistant", content: [{ type: "text", text }] },
-  });
-  await writeFile(join(project, `${SESSION_ID}.jsonl`), `${[
-    line("u1", null, "user", "ALPHA one"),
-    line("u2", "u1", "assistant", "OK"),
-    line("u3", "u2", "user", "BRAVO two"),
-    line("u4", "u3", "assistant", "OK"),
-  ].join("\n")}\n`);
+  const line = (uuid: string, parentUuid: string | null, type: "user" | "assistant", text: string) =>
+    JSON.stringify({
+      type,
+      uuid,
+      parentUuid,
+      cwd: project,
+      timestamp: "2026-10-17T05:00:00.000Z",
+      message:
+        type === "user" ? { role: "user", content: text } : { role: "assistant", content: [{ type: "text", text }] },
+    });
+  await writeFile(
+    join(project, `${SESSION_ID}.jsonl`),
+    `${[
+      line("u1", null, "user", "ALPHA one"),
+      line("u2", "u1", "assistant", "OK"),
+      line("u3", "u2", "user", "BRAVO two"),
+      line("u4", "u3", "assistant", "OK"),
+    ].join("\n")}\n`,
+  );
 
   const started = await forkClaudeSession(
     SESSION_ID,
@@ -135,10 +151,12 @@ test("a fork of a session that last ran through the SDK runs through it too, cut
   );
 
   expect(started.rewindFailed).toBeUndefined();
-  expect(asked).toEqual([expect.objectContaining({
-    kind: "fork",
-    mode: "sdk",
-    resumeAt: "u2",
-    brief: "the sibling task",
-  })]);
+  expect(asked).toEqual([
+    expect.objectContaining({
+      kind: "fork",
+      mode: "sdk",
+      resumeAt: "u2",
+      brief: "the sibling task",
+    }),
+  ]);
 });

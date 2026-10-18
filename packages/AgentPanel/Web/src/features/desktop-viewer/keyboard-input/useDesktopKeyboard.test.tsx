@@ -16,7 +16,9 @@ describe("useDesktopKeyboard", () => {
   it("pre-arms synchronously, buffers input, then flushes one ordered batch", () => {
     const harness = setup();
     let requestID: string | undefined;
-    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    act(() => {
+      requestID = harness.controller.beforeRemoteClick();
+    });
     expect(requestID).toBeTruthy();
     expect(document.activeElement).toBe(harness.capture);
     expect(harness.controller.presentation.presentation).toBe("pending");
@@ -24,33 +26,41 @@ describe("useDesktopKeyboard", () => {
     beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertText", "Ab");
     expect(harness.sent).toEqual([]);
     act(() => editableFocus(harness.controller, requestID!));
-    expect(harness.sent).toEqual([{
-      type: "key-batch",
-      sequence: 1,
-      keys: [
-        { code: "ansi-A", modifiers: ["shift"] },
-        { code: "ansi-B", modifiers: [] },
-      ],
-    }]);
+    expect(harness.sent).toEqual([
+      {
+        type: "key-batch",
+        sequence: 1,
+        keys: [
+          { code: "ansi-A", modifiers: ["shift"] },
+          { code: "ansi-B", modifiers: [] },
+        ],
+      },
+    ]);
   });
 
   it("replaces a pending tap, discards its keys, and ignores its focus result", () => {
     const harness = setup();
     let first: string | undefined;
     let second: string | undefined;
-    act(() => { first = harness.controller.beforeRemoteClick(); });
+    act(() => {
+      first = harness.controller.beforeRemoteClick();
+    });
     beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertText", "a");
-    act(() => { second = harness.controller.beforeRemoteClick(); });
+    act(() => {
+      second = harness.controller.beforeRemoteClick();
+    });
     beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertText", "b");
 
     act(() => editableFocus(harness.controller, first!));
     expect(harness.sent).toEqual([]);
     act(() => editableFocus(harness.controller, second!));
-    expect(harness.sent).toEqual([{
-      type: "key-batch",
-      sequence: 1,
-      keys: [{ code: "ansi-B", modifiers: [] }],
-    }]);
+    expect(harness.sent).toEqual([
+      {
+        type: "key-batch",
+        sequence: 1,
+        keys: [{ code: "ansi-B", modifiers: [] }],
+      },
+    ]);
   });
 
   it("discards pending keys and blurs when focus times out", () => {
@@ -71,7 +81,9 @@ describe("useDesktopKeyboard", () => {
   it("leaves the keyboard alone when the tap lands under a non-text cursor", () => {
     const harness = setup(() => "arrow");
     let requestID: string | undefined;
-    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    act(() => {
+      requestID = harness.controller.beforeRemoteClick();
+    });
     // No request id means the click still reaches the Mac but carries no focus correlation, so the
     // helper never probes and nothing here has to be undone a moment later.
     expect(requestID).toBeUndefined();
@@ -88,7 +100,9 @@ describe("useDesktopKeyboard", () => {
   it("still primes before the cursor mirror has named a shape", () => {
     const harness = setup(() => "unknown");
     let requestID: string | undefined;
-    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    act(() => {
+      requestID = harness.controller.beforeRemoteClick();
+    });
     expect(requestID).toBeTruthy();
     expect(document.activeElement).toBe(harness.capture);
     expect(harness.controller.presentation.presentation).toBe("pending");

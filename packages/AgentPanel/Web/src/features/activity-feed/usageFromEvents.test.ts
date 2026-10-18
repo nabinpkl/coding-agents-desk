@@ -6,9 +6,7 @@ function event(index: number, blocks: ActivityEvent["blocks"], ts = 1000 + index
   return { index, id: `e-${index}`, revision: 0, phase: "complete", ts, type: "assistant", blocks };
 }
 
-const tokenUsage = (text: string): ActivityEvent["blocks"] => [
-  { kind: "metadata", label: "Token Usage", text },
-];
+const tokenUsage = (text: string): ActivityEvent["blocks"] => [{ kind: "metadata", label: "Token Usage", text }];
 
 describe("parseUsageText", () => {
   it("parses Claude's current-only rendering", () => {
@@ -45,10 +43,7 @@ describe("parseUsageText", () => {
 
 describe("lastUsageFromEvents", () => {
   it("takes the newest usage-bearing entry", () => {
-    const events = [
-      event(0, tokenUsage("40,000 tokens"), 1000),
-      event(1, tokenUsage("52,000 tokens"), 2000),
-    ];
+    const events = [event(0, tokenUsage("40,000 tokens"), 1000), event(1, tokenUsage("52,000 tokens"), 2000)];
     expect(lastUsageFromEvents(events)).toEqual({
       current: 52_000,
       limit: null,

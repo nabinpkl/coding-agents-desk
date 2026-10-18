@@ -39,11 +39,18 @@ export function ArenaFilesMatrix({ contestants }: { contestants: readonly ArenaC
       <table className="w-full min-w-max border-separate border-spacing-0">
         <thead>
           <tr>
-            <th scope="col" className={`sticky left-0 z-10 bg-background pb-2 pr-6 text-left ${TEXT.meta} font-medium text-muted-foreground`}>
+            <th
+              scope="col"
+              className={`sticky left-0 z-10 bg-background pb-2 pr-6 text-left ${TEXT.meta} font-medium text-muted-foreground`}
+            >
               File
             </th>
             {contestants.map((contestant) => (
-              <th key={contestant.contestantId} scope="col" className={`min-w-28 pb-2 pr-4 text-left ${TEXT.meta} font-medium text-muted-foreground`}>
+              <th
+                key={contestant.contestantId}
+                scope="col"
+                className={`min-w-28 pb-2 pr-4 text-left ${TEXT.meta} font-medium text-muted-foreground`}
+              >
                 <span className="font-mono">{contestant.contestantId}</span> {SOURCE_LABEL[contestant.source]}
               </th>
             ))}
@@ -114,7 +121,9 @@ function OutsideReaches({ contestants }: { contestants: readonly ArenaContestant
                     {hows ? (
                       <span className={row.rival ? "text-destructive" : "text-foreground"}>{[...hows].join(", ")}</span>
                     ) : (
-                      <span aria-label="not reached" className="text-muted-foreground">·</span>
+                      <span aria-label="not reached" className="text-muted-foreground">
+                        ·
+                      </span>
                     )}
                   </td>
                 );
@@ -148,7 +157,9 @@ function MatrixGroup({ rows, lanes }: { rows: readonly FileRow[]; lanes: number 
                     {TOUCH[touch].word}
                   </span>
                 ) : (
-                  <span aria-label="not touched" className={`${TEXT.meta} text-muted-foreground`}>·</span>
+                  <span aria-label="not touched" className={`${TEXT.meta} text-muted-foreground`}>
+                    ·
+                  </span>
                 )}
               </td>
             );

@@ -32,14 +32,30 @@ const SCROLL_PHASES = new Set<DesktopScrollPhase>([
 ]);
 const MODIFIERS = new Set<RemoteModifier>(["cmd", "ctrl", "option", "shift"]);
 const CONTROL_KEYS = new Set<RemoteKeyCode>([
-  "escape", "tab", "return", "delete", "space", "left", "right", "up", "down",
-  "ansi-comma", "ansi-period", "ansi-slash", "ansi-semicolon", "ansi-quote",
-  "ansi-leftbracket", "ansi-rightbracket", "ansi-backslash", "ansi-minus", "ansi-equal",
+  "escape",
+  "tab",
+  "return",
+  "delete",
+  "space",
+  "left",
+  "right",
+  "up",
+  "down",
+  "ansi-comma",
+  "ansi-period",
+  "ansi-slash",
+  "ansi-semicolon",
+  "ansi-quote",
+  "ansi-leftbracket",
+  "ansi-rightbracket",
+  "ansi-backslash",
+  "ansi-minus",
+  "ansi-equal",
   "ansi-grave",
 ]);
 
 function record(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function boundedDelta(value: unknown): value is number {
@@ -52,10 +68,7 @@ function boundedCoordinate(value: unknown): value is number {
 }
 
 function positiveUint32(value: unknown): value is number {
-  return typeof value === "number"
-    && Number.isSafeInteger(value)
-    && value > 0
-    && value <= MAX_SEQUENCE;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= MAX_SEQUENCE;
 }
 
 function focusRequestId(value: unknown): value is string {
@@ -96,14 +109,14 @@ export function desktopControlInput(data: string | Buffer): DesktopControlInput 
     case "space-gesture":
       return desktopNavigationInput(input);
     case "configure":
-      return typeof input.initialFocusDelayMs === "number"
-        && Number.isInteger(input.initialFocusDelayMs)
-        && input.initialFocusDelayMs >= 0
-        && input.initialFocusDelayMs <= 1_000
-        && typeof input.settleFocusDelayMs === "number"
-        && Number.isInteger(input.settleFocusDelayMs)
-        && input.settleFocusDelayMs >= 0
-        && input.settleFocusDelayMs <= 1_000
+      return typeof input.initialFocusDelayMs === "number" &&
+        Number.isInteger(input.initialFocusDelayMs) &&
+        input.initialFocusDelayMs >= 0 &&
+        input.initialFocusDelayMs <= 1_000 &&
+        typeof input.settleFocusDelayMs === "number" &&
+        Number.isInteger(input.settleFocusDelayMs) &&
+        input.settleFocusDelayMs >= 0 &&
+        input.settleFocusDelayMs <= 1_000
         ? {
             type: "configure",
             initialFocusDelayMs: input.initialFocusDelayMs,
@@ -128,19 +141,22 @@ export function desktopControlInput(data: string | Buffer): DesktopControlInput 
       };
     case "mouse-down":
     case "mouse-up":
-      return input.button === "left" || input.button === "right"
-        ? { type: input.type, button: input.button }
-        : null;
+      return input.button === "left" || input.button === "right" ? { type: input.type, button: input.button } : null;
     case "scroll":
-      return boundedDelta(input.dx)
-        && boundedDelta(input.dy)
-        && typeof input.phase === "string"
-        && SCROLL_PHASES.has(input.phase as DesktopScrollPhase)
+      return boundedDelta(input.dx) &&
+        boundedDelta(input.dy) &&
+        typeof input.phase === "string" &&
+        SCROLL_PHASES.has(input.phase as DesktopScrollPhase)
         ? { type: "scroll", dx: input.dx, dy: input.dy, phase: input.phase as DesktopScrollPhase }
         : null;
     case "key-batch": {
-      if (!positiveUint32(input.sequence) || !Array.isArray(input.keys)
-          || input.keys.length === 0 || input.keys.length > MAX_DESKTOP_KEY_BATCH) return null;
+      if (
+        !positiveUint32(input.sequence) ||
+        !Array.isArray(input.keys) ||
+        input.keys.length === 0 ||
+        input.keys.length > MAX_DESKTOP_KEY_BATCH
+      )
+        return null;
       const keys: RemoteKeyEvent[] = [];
       for (const value of input.keys) {
         const key = remoteKey(value);
@@ -152,10 +168,10 @@ export function desktopControlInput(data: string | Buffer): DesktopControlInput 
     case "text":
       // Only the length is checked. Which characters are typeable is not this layer's business:
       // the helper types the string as itself, so there is no vocabulary here to validate against.
-      return positiveUint32(input.sequence)
-        && typeof input.text === "string"
-        && input.text.length > 0
-        && input.text.length <= MAX_DESKTOP_TEXT_UNITS
+      return positiveUint32(input.sequence) &&
+        typeof input.text === "string" &&
+        input.text.length > 0 &&
+        input.text.length <= MAX_DESKTOP_TEXT_UNITS
         ? { type: "text", sequence: input.sequence, text: input.text }
         : null;
     case "focus-query":
@@ -169,18 +185,14 @@ export function desktopControlInput(data: string | Buffer): DesktopControlInput 
   }
 }
 
-export function desktopControlRejectionReason(
-  data: string | Buffer,
-): "malformed" | "oversized" {
+export function desktopControlRejectionReason(data: string | Buffer): "malformed" | "oversized" {
   if (Buffer.byteLength(data) > MAX_DESKTOP_CONTROL_MESSAGE_BYTES) return "oversized";
   try {
     const value = JSON.parse(data.toString()) as { type?: unknown; keys?: unknown; text?: unknown };
-    if (value.type === "key-batch"
-        && Array.isArray(value.keys)
-        && value.keys.length > MAX_DESKTOP_KEY_BATCH) return "oversized";
-    if (value.type === "text"
-        && typeof value.text === "string"
-        && value.text.length > MAX_DESKTOP_TEXT_UNITS) return "oversized";
+    if (value.type === "key-batch" && Array.isArray(value.keys) && value.keys.length > MAX_DESKTOP_KEY_BATCH)
+      return "oversized";
+    if (value.type === "text" && typeof value.text === "string" && value.text.length > MAX_DESKTOP_TEXT_UNITS)
+      return "oversized";
   } catch {
     return "malformed";
   }

@@ -122,9 +122,9 @@ function firstUserPrompt(lines: string[]): string | undefined {
 function messageText(value: unknown): string {
   if (typeof value === "string") return value;
   if (!Array.isArray(value)) return "";
-  return value.flatMap((item) =>
-    isRecord(item) && item.type === "text" && typeof item.text === "string" ? [item.text] : []
-  ).join(" ");
+  return value
+    .flatMap((item) => (isRecord(item) && item.type === "text" && typeof item.text === "string" ? [item.text] : []))
+    .join(" ");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

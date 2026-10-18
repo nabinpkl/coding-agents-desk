@@ -3,30 +3,34 @@ import { normalizeActivityEvent } from "@/features/activity-feed/activityNormali
 
 describe("normalizeActivityEvent", () => {
   it("preserves supported system blocks and labels", () => {
-    expect(normalizeActivityEvent({
-      index: 4,
-      ts: 5,
-      type: "system",
-      blocks: [{ kind: "metadata", label: "Token Usage", text: "42" }],
-    })).toEqual({
+    expect(
+      normalizeActivityEvent({
+        index: 4,
+        ts: 5,
+        type: "system",
+        blocks: [{ kind: "metadata", label: "Token Usage", text: "42" }],
+      }),
+    ).toEqual({
       index: 4,
       ts: 5,
       type: "system",
       // Null, not absent: this function rebuilds the event field by field, so an
       // input without a counterpart index has to come out saying so explicitly.
       otherModeIndex: null,
-      blocks: [{
-        kind: "metadata",
-        label: "Token Usage",
-        text: "42",
-        tool: undefined,
-        summary: undefined,
-        input: undefined,
-        preview: undefined,
-        hiddenChars: undefined,
-        hiddenLines: undefined,
-        callId: undefined,
-      }],
+      blocks: [
+        {
+          kind: "metadata",
+          label: "Token Usage",
+          text: "42",
+          tool: undefined,
+          summary: undefined,
+          input: undefined,
+          preview: undefined,
+          hiddenChars: undefined,
+          hiddenLines: undefined,
+          callId: undefined,
+        },
+      ],
     });
   });
 

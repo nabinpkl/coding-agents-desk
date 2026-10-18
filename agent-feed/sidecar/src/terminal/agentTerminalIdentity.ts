@@ -166,10 +166,7 @@ function identifyTmux(deps: TerminalIdentityDeps, context: TmuxTerminalContext):
  * browser tab and the check is what makes the request safe rather than the caller being well
  * behaved. An empty command is the login shell itself, resolved in `open`.
  */
-async function identifyNewTmux(
-  deps: TerminalIdentityDeps,
-  context: NewTmuxTerminalContext,
-): Promise<TerminalIdentity> {
+async function identifyNewTmux(deps: TerminalIdentityDeps, context: NewTmuxTerminalContext): Promise<TerminalIdentity> {
   const session = tmuxSessionName(context.session);
   const cwd = await projectDirectory(deps, context.directory);
   return {
@@ -259,10 +256,7 @@ async function identifyWorkspace(
  * Every machine answers tmux now; the PTY arm stays for sidecars older than the switch, which
  * still answer it. An empty command is the login shell on either.
  */
-async function identifyMachine(
-  deps: TerminalIdentityDeps,
-  context: MachineTerminalContext,
-): Promise<TerminalIdentity> {
+async function identifyMachine(deps: TerminalIdentityDeps, context: MachineTerminalContext): Promise<TerminalIdentity> {
   let home: string;
   try {
     home = await realpath(resolve(deps.userHomeDirectory));
@@ -305,9 +299,10 @@ async function identifyAgentSession(
   if (context.source !== "claude" && context.source !== "codex" && context.source !== "opencode") {
     throw new AgentTerminalInvalidError("terminal source must be claude, codex or opencode");
   }
-  const sessionId = context.source === "opencode"
-    ? requiredOpencodeSessionId(context.sessionId, "terminal session id")
-    : requiredSessionUuid(context.sessionId, "terminal session id");
+  const sessionId =
+    context.source === "opencode"
+      ? requiredOpencodeSessionId(context.sessionId, "terminal session id")
+      : requiredSessionUuid(context.sessionId, "terminal session id");
   const projectPath = await projectDirectory(deps, context.projectPath);
 
   const session = deps.resolveSession(context.source, sessionId);
@@ -357,10 +352,7 @@ async function projectDirectory(deps: TerminalIdentityDeps, path: string): Promi
   let projectPath: string;
   let homePath: string;
   try {
-    [projectPath, homePath] = await Promise.all([
-      realpath(resolve(path)),
-      realpath(resolve(deps.userHomeDirectory)),
-    ]);
+    [projectPath, homePath] = await Promise.all([realpath(resolve(path)), realpath(resolve(deps.userHomeDirectory))]);
     if (!(await stat(projectPath)).isDirectory()) {
       throw new AgentTerminalInvalidError("terminal project path must be a directory");
     }
@@ -409,9 +401,10 @@ async function identifySessionTmux(
   if (context.source !== "claude" && context.source !== "codex" && context.source !== "opencode") {
     throw new AgentTerminalInvalidError("terminal source must be claude, codex or opencode");
   }
-  const sessionId = context.source === "opencode"
-    ? requiredOpencodeSessionId(context.sessionId, "terminal session id")
-    : requiredSessionUuid(context.sessionId, "terminal session id");
+  const sessionId =
+    context.source === "opencode"
+      ? requiredOpencodeSessionId(context.sessionId, "terminal session id")
+      : requiredSessionUuid(context.sessionId, "terminal session id");
   const session = deps.resolveSession(context.source, sessionId);
   if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
   let projectPath: string;
@@ -446,7 +439,9 @@ async function identifySessionTmux(
   if (context.source === "opencode") {
     const tui = opencodeTuiCommand(sessionId);
     if (!tui) {
-      throw new AgentTerminalUnavailableError("opencode is not installed on this machine, so the session has no TUI to open");
+      throw new AgentTerminalUnavailableError(
+        "opencode is not installed on this machine, so the session has no TUI to open",
+      );
     }
     const pane = opencodeSessionPaneName(sessionId);
     return {
@@ -463,7 +458,7 @@ async function identifySessionTmux(
 
   // A live process this sidecar has no pane for -- a Desktop window, a terminal somebody opened by
   // hand -- holds the transcript already, and resuming beside it would fork it (ADR-0143).
-  if (context.source === "claude" && await deps.claudeRunning(sessionId)) {
+  if (context.source === "claude" && (await deps.claudeRunning(sessionId))) {
     throw new AgentTerminalConflictError(
       "this session is already running somewhere the panel cannot attach to, so opening it here would start a second process on it",
     );
@@ -478,9 +473,10 @@ async function identifySessionTmux(
     createTmux: {
       cwd: projectPath,
       // The way it last ran, so a session switched to the SDK reopens through its runner.
-      command: context.source === "claude"
-        ? resumeCommandFor(lastRunMode(session), { sessionId, cwd: projectPath, title: session.title ?? sessionId })
-        : ["codex", "resume", sessionId],
+      command:
+        context.source === "claude"
+          ? resumeCommandFor(lastRunMode(session), { sessionId, cwd: projectPath, title: session.title ?? sessionId })
+          : ["codex", "resume", sessionId],
     },
     // Resuming, not creating: the session already exists and already has whatever name it has.
     stampSession: sessionId,

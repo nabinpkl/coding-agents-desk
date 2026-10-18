@@ -32,13 +32,13 @@ export interface SubagentForkOrigin {
  */
 export type SubagentTranscriptMessage =
   | {
-    kind: "snapshot";
-    agentId: string;
-    events: ActivityEvent[];
-    total: number;
-    /** Present only for a fork, and only when its first record was still readable. */
-    forkOrigin?: SubagentForkOrigin;
-  }
+      kind: "snapshot";
+      agentId: string;
+      events: ActivityEvent[];
+      total: number;
+      /** Present only for a fork, and only when its first record was still readable. */
+      forkOrigin?: SubagentForkOrigin;
+    }
   /** One event appended since the snapshot. Never a replacement for one already sent. */
   | { kind: "append"; event: ActivityEvent }
   /** No transcript exists at the derived path. A run can be launched and not yet have written. */

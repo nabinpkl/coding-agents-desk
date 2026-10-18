@@ -8,9 +8,7 @@ const THEIRS = { id: 4, url: null };
 
 describe("the composer's image strip", () => {
   it("shows nothing at all when the composer is holding no images", () => {
-    const { container } = render(
-      <ComposerImageStrip images={[]} onRemove={() => {}} disabled={false} />,
-    );
+    const { container } = render(<ComposerImageStrip images={[]} onRemove={() => {}} disabled={false} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -49,9 +47,7 @@ describe("the composer's image strip", () => {
   it("closes the opened view when its image leaves the composer some other way", () => {
     // Submitted in the pane, or removed from the strip behind it. Either way the composer is no
     // longer carrying what is on screen.
-    const { rerender } = render(
-      <ComposerImageStrip images={[SENT]} onRemove={() => {}} disabled={false} />,
-    );
+    const { rerender } = render(<ComposerImageStrip images={[SENT]} onRemove={() => {}} disabled={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Open image #1 larger" }));
     rerender(<ComposerImageStrip images={[]} onRemove={() => {}} disabled={false} />);
     expect(screen.queryByRole("img", { name: "Image #1 in the composer" })).toBeNull();

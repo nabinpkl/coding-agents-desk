@@ -9,10 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-  opencodeCommandRows,
-  parseOpencodeCommand,
-} from "@/features/session-view/composer/useOpencodeCommands";
+import { opencodeCommandRows, parseOpencodeCommand } from "@/features/session-view/composer/useOpencodeCommands";
 
 const COMMANDS = [
   { name: "review", description: "review changes" },

@@ -64,28 +64,29 @@ const forked: { cwd: string; sessionId: string; forkId: string; title: string; b
 let forkFailure: Error | null = null;
 
 /** The real fork, with only the two things that would touch a machine stood in for. */
-const forkAction: typeof forkClaudeSession = (sessionId, command) => forkClaudeSession(
-  sessionId,
-  command,
-  {
-    start: async () => {
-      throw new Error("a fork must never start a session with no history");
+const forkAction: typeof forkClaudeSession = (sessionId, command) =>
+  forkClaudeSession(
+    sessionId,
+    command,
+    {
+      start: async () => {
+        throw new Error("a fork must never start a session with no history");
+      },
+      end: async () => {
+        throw new Error("a fork must never end a session");
+      },
+      fork: async (options) => {
+        forked.push(options);
+        if (forkFailure) throw forkFailure;
+        return { tmuxSession: `fork-pane-${options.forkId}` };
+      },
     },
-    end: async () => {
-      throw new Error("a fork must never end a session");
+    () => FORK_ID,
+    async ({ sessionId: forkId, anchor }) => {
+      rewound.push({ sessionId: forkId, ...anchor });
+      return rewindOutcome;
     },
-    fork: async (options) => {
-      forked.push(options);
-      if (forkFailure) throw forkFailure;
-      return { tmuxSession: `fork-pane-${options.forkId}` };
-    },
-  },
-  () => FORK_ID,
-  async ({ sessionId: forkId, anchor }) => {
-    rewound.push({ sessionId: forkId, ...anchor });
-    return rewindOutcome;
-  },
-);
+  );
 
 const route = createSessionRoutes(undefined, { rename: renameAction, fork: forkAction });
 
@@ -124,9 +125,7 @@ function answered(root: string, text: string): string {
 }
 
 /** A transcript the catalog knows about, holding whatever `lines` writes into it. */
-async function transcriptHolding(
-  lines: (root: string) => readonly string[],
-): Promise<void> {
+async function transcriptHolding(lines: (root: string) => readonly string[]): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "agent-feed-rename-"));
   roots.push(root);
   const transcript = join(root, `${SESSION_ID}.jsonl`);
@@ -152,7 +151,7 @@ async function sessionTranscript(): Promise<void> {
 
 /** The reason a refusal gave, which is the half of it a reader can act on. */
 async function errorMessage(response: Response): Promise<string> {
-  const payload = await response.json() as { error?: { message?: string } };
+  const payload = (await response.json()) as { error?: { message?: string } };
   return payload.error?.message ?? "";
 }
 
@@ -241,11 +240,17 @@ test("reads a page before, after or around a position, and refuses two at once",
   const lines = (await Bun.file(state.sessions.get(`claude:${SESSION_ID}`)!.transcriptPath!).text()).split("\n");
   const starts = lines.map((_, n) => lines.slice(0, n).reduce((sum, line) => sum + Buffer.byteLength(line) + 1, 0));
   const texts = async (response: Response) =>
-    ((await response.json()) as { events: { blocks: { text?: string }[] }[] }).events.map((event) =>
-      event.blocks.find((block) => block.text)?.text);
+    ((await response.json()) as { events: { blocks: { text?: string }[] }[] }).events.map(
+      (event) => event.blocks.find((block) => block.text)?.text,
+    );
 
   expect(await texts(await eventsPage(`after=${starts[2]}&limit=3`))).toEqual(["turn 3", "turn 4", "turn 5"]);
-  expect(await texts(await eventsPage(`around=${starts[4]}&limit=4`))).toEqual(["turn 2", "turn 3", "turn 4", "turn 5"]);
+  expect(await texts(await eventsPage(`around=${starts[4]}&limit=4`))).toEqual([
+    "turn 2",
+    "turn 3",
+    "turn 4",
+    "turn 5",
+  ]);
   expect(await texts(await eventsPage(`before=${starts[2]}&limit=5`))).toEqual(["turn 0", "turn 1"]);
   expect((await eventsPage(`after=1&before=2`)).status).toBe(400);
   expect((await eventsPage(`around=${starts[4]! + 1}`)).status).toBe(400);
@@ -276,6 +281,6 @@ test("declines a Codex path, which has no fork to feed", async () => {
   const request = new Request(`http://localhost/api/sessions/codex/${SESSION_ID}/last-message`);
   // Not undefined: `/api/sessions/...` with an unrecognized shape is this handler's 400, and that
   // is what the existing GET routes answer too.
-  const response = await route(request, new URL(request.url), server) as Response;
+  const response = (await route(request, new URL(request.url), server)) as Response;
   expect(response.status).toBe(400);
 });

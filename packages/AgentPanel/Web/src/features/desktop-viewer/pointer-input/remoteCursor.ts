@@ -87,7 +87,10 @@ export class RemoteCursor {
    */
   move(dx: number, dy: number): boolean {
     const sent = this.sendTracked({ kind: "move", dx, dy }, (revision) => ({
-      type: "pointer-move", revision, dx, dy,
+      type: "pointer-move",
+      revision,
+      dx,
+      dy,
     }));
     if (sent && this.width > 0 && this.height > 0) {
       this.point = this.clamp({ x: this.point.x + dx, y: this.point.y + dy });
@@ -100,10 +103,13 @@ export class RemoteCursor {
   warp(to: CursorPoint): boolean {
     if (this.width <= 0 || this.height <= 0) return false;
     const target = this.clamp(to);
-    if (Math.round(target.x) === Math.round(this.point.x)
-        && Math.round(target.y) === Math.round(this.point.y)) return false;
+    if (Math.round(target.x) === Math.round(this.point.x) && Math.round(target.y) === Math.round(this.point.y))
+      return false;
     const sent = this.sendTracked({ kind: "set", to: target }, (revision) => ({
-      type: "pointer-warp", revision, x: target.x, y: target.y,
+      type: "pointer-warp",
+      revision,
+      x: target.x,
+      y: target.y,
     }));
     if (sent) {
       this.point = target;
@@ -136,10 +142,7 @@ export class RemoteCursor {
     this.listeners.clear();
   }
 
-  private sendTracked(
-    operation: CursorOperation,
-    input: (revision: number) => DesktopPointerInput,
-  ): boolean {
+  private sendTracked(operation: CursorOperation, input: (revision: number) => DesktopPointerInput): boolean {
     const now = this.now();
     const revision = this.reconciliation.record(operation, now);
     if (revision === null) {
@@ -162,13 +165,16 @@ export class RemoteCursor {
     if (this.reconciliation.confidence === "ghost") return;
     const deadline = this.reconciliation.ghostDeadline;
     if (deadline === null) return;
-    this.deadlineTimer = this.setTimer(() => {
-      this.deadlineTimer = 0;
-      const before = this.reconciliation.confidence;
-      this.reconciliation.advance(this.now());
-      if (this.reconciliation.confidence !== before) this.notify("confidence");
-      this.scheduleDeadline();
-    }, Math.max(0, deadline - this.now()));
+    this.deadlineTimer = this.setTimer(
+      () => {
+        this.deadlineTimer = 0;
+        const before = this.reconciliation.confidence;
+        this.reconciliation.advance(this.now());
+        if (this.reconciliation.confidence !== before) this.notify("confidence");
+        this.scheduleDeadline();
+      },
+      Math.max(0, deadline - this.now()),
+    );
   }
 
   private cancelDeadline(): void {

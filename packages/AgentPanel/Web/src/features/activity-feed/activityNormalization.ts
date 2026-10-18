@@ -12,17 +12,10 @@ const KNOWN_BLOCK_KINDS = new Set<ActivityBlock["kind"]>([
   "image",
 ]);
 
-const KNOWN_EVENT_TYPES = new Set<ActivityEvent["type"]>([
-  "user",
-  "assistant",
-  "reasoning",
-  "system",
-]);
+const KNOWN_EVENT_TYPES = new Set<ActivityEvent["type"]>(["user", "assistant", "reasoning", "system"]);
 
 function record(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : null;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -78,9 +71,7 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
     // Kept rather than dropped, for the reason `otherModeIndex` below gives: this rebuilds the
     // event field by field, and without it a transcript's rows could no longer say which of them
     // are neighbours.
-    ...(source?.previous === null || typeof source?.previous === "number"
-      ? { previous: source.previous }
-      : {}),
+    ...(source?.previous === null || typeof source?.previous === "number" ? { previous: source.previous } : {}),
     revision: typeof source?.revision === "number" ? source.revision : undefined,
     phase:
       source?.phase === "streaming" || source?.phase === "complete" || source?.phase === "error"
@@ -97,8 +88,7 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
     // predates modes. This function rebuilds the event field by field, so a field it
     // does not name is silently dropped -- which for this one would leave the mode
     // toggle with nothing to map the viewer's position through.
-    otherModeIndex:
-      typeof source?.otherModeIndex === "number" ? source.otherModeIndex : null,
+    otherModeIndex: typeof source?.otherModeIndex === "number" ? source.otherModeIndex : null,
     messageId: typeof source?.messageId === "string" ? source.messageId : undefined,
     // A cache summary is only meaningful with both counts present and sane; a
     // peer that emits one half is treated as reporting nothing.
@@ -111,9 +101,7 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
 
 export function normalizeEventsPage(value: unknown): { events: ActivityEvent[]; windowStart: number } {
   const source = record(value);
-  const events = Array.isArray(source?.events)
-    ? source.events.map(normalizeActivityEvent)
-    : [];
+  const events = Array.isArray(source?.events) ? source.events.map(normalizeActivityEvent) : [];
   return {
     events,
     windowStart: typeof source?.windowStart === "number" ? source.windowStart : 0,

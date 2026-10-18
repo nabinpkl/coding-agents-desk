@@ -32,24 +32,31 @@ function isOptionalString(value: unknown): boolean {
 }
 
 function isSessionRef(value: unknown): boolean {
-  return isRecord(value)
-    && (value.source === "claude" || value.source === "codex" || value.source === "pi" || value.source === "opencode")
-    && typeof value.sessionId === "string";
+  return (
+    isRecord(value) &&
+    (value.source === "claude" || value.source === "codex" || value.source === "pi" || value.source === "opencode") &&
+    typeof value.sessionId === "string"
+  );
 }
 
 function isSessionSlots(value: unknown): value is Record<string, number> | undefined {
   if (value === undefined) return true;
-  return isRecord(value)
-    && Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key))
-    && Object.values(value).every((slot) => Number.isSafeInteger(slot) && Number(slot) >= 0);
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key)) &&
+    Object.values(value).every((slot) => Number.isSafeInteger(slot) && Number(slot) >= 0)
+  );
 }
 
 function isSessionAnchors(value: unknown): value is Record<string, string> | undefined {
   if (value === undefined) return true;
-  return isRecord(value)
-    && Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key))
-    && Object.values(value).every((anchor) =>
-      typeof anchor === "string" && anchor.length >= 1 && anchor.length <= 64 && !/[\n\r()]/.test(anchor));
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key)) &&
+    Object.values(value).every(
+      (anchor) => typeof anchor === "string" && anchor.length >= 1 && anchor.length <= 64 && !/[\n\r()]/.test(anchor),
+    )
+  );
 }
 
 function isBotRecord(value: unknown): value is BotRecord {
@@ -57,41 +64,36 @@ function isBotRecord(value: unknown): value is BotRecord {
     return false;
   }
   const custom = value.metadata.custom;
-  return typeof value.botId === "string"
-    && typeof value.name === "string"
-    && isOptionalString(value.iconUrl)
-    && value.environment.kind === "directory"
-    && typeof value.environment.path === "string"
-    && Array.isArray(value.sessionRefs)
-    && value.sessionRefs.every(isSessionRef)
-    && isSessionSlots(value.sessionSlots)
-    && isSessionAnchors(value.sessionAnchors)
-    && (value.nextSessionSlot === undefined
-      || (Number.isSafeInteger(value.nextSessionSlot) && Number(value.nextSessionSlot) >= 0))
-    && isOptionalString(value.metadata.role)
-    && isOptionalString(value.metadata.description)
-    && Array.isArray(value.metadata.labels)
-    && value.metadata.labels.every((label) => typeof label === "string")
-    && isRecord(custom)
-    && Object.values(custom).every((entry) => typeof entry === "string")
-    && Array.isArray(value.grants)
-    && value.grants.every((grant) => grant === "add_bot")
-    && typeof value.createdAt === "number"
-    && Number.isFinite(value.createdAt)
-    && (value.offCanvas === undefined || typeof value.offCanvas === "boolean")
-    && (
-      value.canvasPosition === undefined
-      || (Number.isSafeInteger(value.canvasPosition) && Number(value.canvasPosition) >= 0)
-    )
-    && (
-      value.offCanvasSessionRefs === undefined
-      || (Array.isArray(value.offCanvasSessionRefs) && value.offCanvasSessionRefs.every(isSessionRef))
-    )
-    && (value.fatherSession === undefined || isSessionRef(value.fatherSession))
-    && (
-      value.createdBy.kind === "user"
-      || (value.createdBy.kind === "bot" && typeof value.createdBy.botId === "string")
-    );
+  return (
+    typeof value.botId === "string" &&
+    typeof value.name === "string" &&
+    isOptionalString(value.iconUrl) &&
+    value.environment.kind === "directory" &&
+    typeof value.environment.path === "string" &&
+    Array.isArray(value.sessionRefs) &&
+    value.sessionRefs.every(isSessionRef) &&
+    isSessionSlots(value.sessionSlots) &&
+    isSessionAnchors(value.sessionAnchors) &&
+    (value.nextSessionSlot === undefined ||
+      (Number.isSafeInteger(value.nextSessionSlot) && Number(value.nextSessionSlot) >= 0)) &&
+    isOptionalString(value.metadata.role) &&
+    isOptionalString(value.metadata.description) &&
+    Array.isArray(value.metadata.labels) &&
+    value.metadata.labels.every((label) => typeof label === "string") &&
+    isRecord(custom) &&
+    Object.values(custom).every((entry) => typeof entry === "string") &&
+    Array.isArray(value.grants) &&
+    value.grants.every((grant) => grant === "add_bot") &&
+    typeof value.createdAt === "number" &&
+    Number.isFinite(value.createdAt) &&
+    (value.offCanvas === undefined || typeof value.offCanvas === "boolean") &&
+    (value.canvasPosition === undefined ||
+      (Number.isSafeInteger(value.canvasPosition) && Number(value.canvasPosition) >= 0)) &&
+    (value.offCanvasSessionRefs === undefined ||
+      (Array.isArray(value.offCanvasSessionRefs) && value.offCanvasSessionRefs.every(isSessionRef))) &&
+    (value.fatherSession === undefined || isSessionRef(value.fatherSession)) &&
+    (value.createdBy.kind === "user" || (value.createdBy.kind === "bot" && typeof value.createdBy.botId === "string"))
+  );
 }
 
 function validateSnapshot(value: unknown): StoredBotSnapshot {
@@ -112,7 +114,7 @@ function validateSnapshot(value: unknown): StoredBotSnapshot {
     // migration changes the stored shape and nothing the reader sees.
     bot.sessionSlots === undefined && bot.nextSessionSlot === undefined
       ? { ...bot, ...ensureSessionSlots(bot, bot.sessionRefs) }
-      : bot
+      : bot,
   );
   const botIds = new Set(bots.map((bot) => bot.botId));
   if (botIds.size !== bots.length) {
@@ -123,15 +125,23 @@ function validateSnapshot(value: unknown): StoredBotSnapshot {
   if (bots.filter((bot) => bot.fatherSession !== undefined).length > 1) {
     throw new Error("bots.json names more than one Father");
   }
-  if (!Object.values(value.idempotency).every((entry) =>
-    isRecord(entry)
-    && typeof entry.signature === "string"
-    && typeof entry.botId === "string"
-    && botIds.has(entry.botId)
-  )) {
+  if (
+    !Object.values(value.idempotency).every(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.signature === "string" &&
+        typeof entry.botId === "string" &&
+        botIds.has(entry.botId),
+    )
+  ) {
     throw new Error("bots.json contains an invalid idempotency record");
   }
-  return { version: BOT_STORE_VERSION, revision: value.revision, bots, idempotency: value.idempotency } as unknown as StoredBotSnapshot;
+  return {
+    version: BOT_STORE_VERSION,
+    revision: value.revision,
+    bots,
+    idempotency: value.idempotency,
+  } as unknown as StoredBotSnapshot;
 }
 
 /**
@@ -256,7 +266,10 @@ export class BotStore {
         await release();
       }
     });
-    this.mutationTail = run.then(() => {}, () => {});
+    this.mutationTail = run.then(
+      () => {},
+      () => {},
+    );
     return run;
   }
 

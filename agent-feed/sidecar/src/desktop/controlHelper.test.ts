@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  ControlHelperError,
-  createControlHelper,
-  type HelperProcess,
-} from "@/desktop/controlHelper";
+import { ControlHelperError, createControlHelper, type HelperProcess } from "@/desktop/controlHelper";
 import type { HelperBinary } from "@/desktop/helperBinary";
 
 const KIND_META = 0;

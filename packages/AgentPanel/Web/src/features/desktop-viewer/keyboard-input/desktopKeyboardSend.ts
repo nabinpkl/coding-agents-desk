@@ -84,8 +84,10 @@ export function sendText(ctx: KeyboardContext, text: string): boolean {
   const secure = ctx.presentationRef.current.secure;
   const sequence = nextInputSequence(ctx);
   const input: DesktopControlInput = { type: "text", sequence, text };
-  if (text.length > DESKTOP_CONTROL_MAX_TEXT_UNITS
-      || new TextEncoder().encode(JSON.stringify(input)).byteLength > DESKTOP_CONTROL_MAX_MESSAGE_BYTES) {
+  if (
+    text.length > DESKTOP_CONTROL_MAX_TEXT_UNITS ||
+    new TextEncoder().encode(JSON.stringify(input)).byteLength > DESKTOP_CONTROL_MAX_MESSAGE_BYTES
+  ) {
     ctx.setDeliveryStatus("Text not sent: too long for one send");
     ctx.report({
       phase: "keyboard-input-rejected",
@@ -192,8 +194,7 @@ export function acceptEncodedKeys(ctx: KeyboardContext, keys: RemoteKeyEvent[]):
   }
   const state = ctx.presentationRef.current;
   if (state.presentation !== "pending" && state.presentation !== "shown") return false;
-  if (state.presentation === "pending"
-      && ctx.pendingKeys.current.length + keys.length > MAX_PENDING_KEY_EVENTS) {
+  if (state.presentation === "pending" && ctx.pendingKeys.current.length + keys.length > MAX_PENDING_KEY_EVENTS) {
     ctx.setDeliveryStatus("Input not sent: focus buffer full");
     ctx.report({
       phase: "keyboard-buffer-overflow",
@@ -264,7 +265,10 @@ export function sendDeckCharacter(ctx: KeyboardContext, character: string): bool
 export function sendDeckCursorDelta(ctx: KeyboardContext, delta: number) {
   const code: RemoteKeyCode = delta > 0 ? "right" : "left";
   const steps = Math.min(Math.abs(delta), DESKTOP_CONTROL_MAX_KEY_BATCH);
-  acceptEncodedKeys(ctx, Array.from({ length: steps }, () => ({ code, modifiers: [] })));
+  acceptEncodedKeys(
+    ctx,
+    Array.from({ length: steps }, () => ({ code, modifiers: [] })),
+  );
 }
 
 export function sendChromeKey(ctx: KeyboardContext, code: RemoteKeyCode) {

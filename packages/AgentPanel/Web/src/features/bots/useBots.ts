@@ -79,11 +79,7 @@ export interface BotRosterState {
   machineErrors: MachineError[];
 }
 
-
-function withoutAbsent<T>(
-  current: ReadonlyMap<string, T>,
-  machines: readonly BotMachine[],
-): ReadonlyMap<string, T> {
+function withoutAbsent<T>(current: ReadonlyMap<string, T>, machines: readonly BotMachine[]): ReadonlyMap<string, T> {
   const live = new Set(machines.map(machineKey));
   if ([...current.keys()].every((key) => live.has(key))) return current;
   return new Map([...current].filter(([key]) => live.has(key)));

@@ -27,7 +27,12 @@ interface SessionTrack {
  * order in both. `otherModeIndex = index` makes a mode toggle a no-op instead of an empty
  * cross-reference.
  */
-export function livePage(projection: LiveAgentProjection, offset: number, limit: number, mode: EventMode): AgentTimelinePage {
+export function livePage(
+  projection: LiveAgentProjection,
+  offset: number,
+  limit: number,
+  mode: EventMode,
+): AgentTimelinePage {
   return {
     events: projection.page(offset, limit).map((event) => ({ ...event, otherModeIndex: event.index })),
     total: projection.total,
@@ -71,9 +76,7 @@ export class LiveSessionRegistry {
   require(sessionId: string): LiveAgentProjection {
     const projection = this.projections.get(sessionId);
     if (!projection) {
-      throw new AgentSessionNotFoundError(
-        `${this.options.vendor} live session "${sessionId}" was not found`,
-      );
+      throw new AgentSessionNotFoundError(`${this.options.vendor} live session "${sessionId}" was not found`);
     }
     return projection;
   }

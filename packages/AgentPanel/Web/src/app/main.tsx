@@ -114,9 +114,7 @@ if (entry === "ide") {
       </StrictMode>,
     );
   };
-  const transport: AgentHttpTransport = hasNativeHost()
-    ? new RelayHttpTransport(bridge)
-    : new FetchHttpTransport();
+  const transport: AgentHttpTransport = hasNativeHost() ? new RelayHttpTransport(bridge) : new FetchHttpTransport();
   renderPanel(transport, new SidecarDataSource(transport));
 
   // An edit to the data source, its layers or the transport -- or to the wire beneath them --
@@ -146,10 +144,12 @@ if (entry === "ide") {
         }
         if (!nextDataSource && !nextTransport) return;
         build = {
-          SidecarDataSource: (nextDataSource as typeof import("@/features/activity-feed/data-source/SidecarDataSource") | undefined)
-            ?.SidecarDataSource ?? build.SidecarDataSource,
-          FetchHttpTransport: (nextTransport as typeof import("@/features/activity-feed/transport/AgentHttpTransport") | undefined)
-            ?.FetchHttpTransport ?? build.FetchHttpTransport,
+          SidecarDataSource:
+            (nextDataSource as typeof import("@/features/activity-feed/data-source/SidecarDataSource") | undefined)
+              ?.SidecarDataSource ?? build.SidecarDataSource,
+          FetchHttpTransport:
+            (nextTransport as typeof import("@/features/activity-feed/transport/AgentHttpTransport") | undefined)
+              ?.FetchHttpTransport ?? build.FetchHttpTransport,
         };
         const next = new build.FetchHttpTransport();
         renderPanel(next, new build.SidecarDataSource(next));

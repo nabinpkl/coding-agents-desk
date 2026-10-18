@@ -77,6 +77,5 @@ test("clamps a pointer outside the grid instead of refusing the wheel", () => {
 });
 
 test("answers nothing when the cell has not been measured yet", () => {
-  expect(wheelCell({ clientX: 108, clientY: 54 }, { ...grid, cell: { width: 0, height: 0 } }))
-    .toBeNull();
+  expect(wheelCell({ clientX: 108, clientY: 54 }, { ...grid, cell: { width: 0, height: 0 } })).toBeNull();
 });

@@ -18,8 +18,7 @@ describe("sidebar route", () => {
   it("names the view without disturbing the rest of the address", () => {
     // `entry` is the surface and belongs to another owner; writing the view must not drop it.
     expect(searchWithSidebarMode("?entry=feed", "canvas")).toBe("?entry=feed&view=canvas");
-    expect(searchWithSidebarMode("?entry=feed&view=bots", "sessions"))
-      .toBe("?entry=feed&view=sessions");
+    expect(searchWithSidebarMode("?entry=feed&view=bots", "sessions")).toBe("?entry=feed&view=sessions");
     expect(searchWithSidebarMode("", "bots")).toBe("?view=bots");
   });
 });

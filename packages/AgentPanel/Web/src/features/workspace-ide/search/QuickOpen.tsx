@@ -44,7 +44,9 @@ export function QuickOpen({
   const files = listing.data?.files ?? null;
   const truncated = listing.data?.truncated ?? false;
   const error = listing.error
-    ? listing.error instanceof WorkspaceRequestError ? listing.error.message : "The file list could not be loaded."
+    ? listing.error instanceof WorkspaceRequestError
+      ? listing.error.message
+      : "The file list could not be loaded."
     : null;
   const [value, setValue] = useState("");
   const list = useRef<HTMLUListElement | null>(null);
@@ -73,7 +75,8 @@ export function QuickOpen({
   const selected = held.query === query ? held.index : 0;
   const select = (index: number, reveal: boolean) => {
     setHeld({ query, index });
-    if (reveal) list.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
+    if (reveal)
+      list.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
   };
 
   const choose = (match: FuzzyMatch | undefined) => {
@@ -113,7 +116,8 @@ export function QuickOpen({
             autoCorrect="off"
             onChange={(event) => {
               setValue(event.target.value);
-              if (selected !== 0) list.current?.querySelector<HTMLElement>(`[data-index="0"]`)?.scrollIntoView({ block: "nearest" });
+              if (selected !== 0)
+                list.current?.querySelector<HTMLElement>(`[data-index="0"]`)?.scrollIntoView({ block: "nearest" });
             }}
             onKeyDown={(event) => {
               if (event.key === "ArrowDown") {
@@ -133,9 +137,9 @@ export function QuickOpen({
             className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none
               placeholder:text-muted-foreground"
           />
-          {files === null && !error
-            ? <Loader2 aria-label="Loading files" className="size-4 shrink-0 animate-spin text-muted-foreground" />
-            : null}
+          {files === null && !error ? (
+            <Loader2 aria-label="Loading files" className="size-4 shrink-0 animate-spin text-muted-foreground" />
+          ) : null}
         </div>
         <ul
           ref={list}
@@ -166,7 +170,8 @@ export function QuickOpen({
                 <span className="shrink-0 whitespace-nowrap">
                   <Highlighted text={name} ranges={positionRanges(match.positions, slash + 1)} />
                 </span>
-                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs
+                <span
+                  className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs
                   text-muted-foreground"
                 >
                   <Highlighted
@@ -178,16 +183,14 @@ export function QuickOpen({
             );
           })}
         </ul>
-        {error || truncated || (files !== null && matches.length === 0)
-          ? (
-            <p className="m-0 shrink-0 border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
-              {error
-                ?? (matches.length === 0
-                  ? "No file matches."
-                  : "This workspace has more files than quick open lists; the rest are not offered.")}
-            </p>
-          )
-          : null}
+        {error || truncated || (files !== null && matches.length === 0) ? (
+          <p className="m-0 shrink-0 border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
+            {error ??
+              (matches.length === 0
+                ? "No file matches."
+                : "This workspace has more files than quick open lists; the rest are not offered.")}
+          </p>
+        ) : null}
       </div>
     </div>,
     document.body,

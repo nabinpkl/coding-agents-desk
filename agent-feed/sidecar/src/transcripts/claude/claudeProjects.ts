@@ -2,8 +2,8 @@
 // learn from its edges without reading it whole, and the sidecar file a large tool
 // result was persisted to.
 
-import { open } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { open } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 import { config } from "@/config/config";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
 import type { Header, LastSelection } from "@/transcripts/transcriptTypes";
@@ -39,7 +39,11 @@ const RECENT_CWD_SCAN_BYTES = 1024 * 1024;
  */
 export async function* cwdsFromEnd(filePath: string): AsyncGenerator<string> {
   let fh: Awaited<ReturnType<typeof open>>;
-  try { fh = await open(filePath, 'r'); } catch { return; }
+  try {
+    fh = await open(filePath, "r");
+  } catch {
+    return;
+  }
   try {
     const size = (await fh.stat()).size;
     const stop = Math.max(0, size - RECENT_CWD_SCAN_BYTES);
@@ -62,12 +66,19 @@ export async function* cwdsFromEnd(filePath: string): AsyncGenerator<string> {
         continue;
       }
       carry = window.subarray(0, first + 1);
-      const lines = window.toString('utf-8', first + 1).split('\n').reverse();
+      const lines = window
+        .toString("utf-8", first + 1)
+        .split("\n")
+        .reverse();
       for (const line of lines) {
         if (!line) continue;
         let cwd: unknown;
-        try { cwd = (JSON.parse(line) as Record<string, unknown> | null)?.cwd; } catch { continue; }
-        if (typeof cwd !== 'string' || seen.has(cwd)) continue;
+        try {
+          cwd = (JSON.parse(line) as Record<string, unknown> | null)?.cwd;
+        } catch {
+          continue;
+        }
+        if (typeof cwd !== "string" || seen.has(cwd)) continue;
         seen.add(cwd);
         yield cwd;
       }
@@ -79,7 +90,7 @@ export async function* cwdsFromEnd(filePath: string): AsyncGenerator<string> {
 
 export async function readSidecar(sidecarPath: string): Promise<string | null> {
   const abs = resolve(sidecarPath);
-  if (!abs.startsWith(config.claudeProjectsDirectory + '/')) return null;
+  if (!abs.startsWith(config.claudeProjectsDirectory + "/")) return null;
   try {
     return await Bun.file(abs).text();
   } catch {
@@ -89,16 +100,16 @@ export async function readSidecar(sidecarPath: string): Promise<string | null> {
 
 /** The prose of a user message, whose content is either a string or a block list. */
 export function userText(message: unknown): string | undefined {
-  if (typeof message === 'string') return message.trim() || undefined;
-  if (!message || typeof message !== 'object' || Array.isArray(message)) return undefined;
+  if (typeof message === "string") return message.trim() || undefined;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return undefined;
   const content = (message as Record<string, unknown>).content;
-  if (typeof content === 'string') return content.trim() || undefined;
+  if (typeof content === "string") return content.trim() || undefined;
   if (!Array.isArray(content)) return undefined;
   for (const block of content) {
-    if (!block || typeof block !== 'object') continue;
+    if (!block || typeof block !== "object") continue;
     const record = block as Record<string, unknown>;
-    if (record.type !== 'text') continue;
-    if (typeof record.text === 'string' && record.text.trim()) return record.text.trim();
+    if (record.type !== "text") continue;
+    if (typeof record.text === "string" && record.text.trim()) return record.text.trim();
   }
   return undefined;
 }
@@ -115,7 +126,7 @@ export function userText(message: unknown): string | undefined {
  * a person asked for, and it is long, so it makes a uniquely bad title.
  */
 export function promptText(ev: Record<string, unknown>): string | undefined {
-  if (ev.type === 'user') {
+  if (ev.type === "user") {
     if (ev.isCompactSummary === true) return undefined;
     // A line Claude marks `isMeta` it wrote itself, whatever the text: an image's size note, a Stop
     // hook's feedback, a skill's preamble.
@@ -126,8 +137,8 @@ export function promptText(ev: Record<string, unknown>): string | undefined {
     if (text && isHarnessUserText(text)) return undefined;
     return text;
   }
-  if (ev.type === 'queue-operation' && ev.operation === 'enqueue') {
-    return typeof ev.content === 'string' ? ev.content.trim() || undefined : undefined;
+  if (ev.type === "queue-operation" && ev.operation === "enqueue") {
+    return typeof ev.content === "string" ? ev.content.trim() || undefined : undefined;
   }
   return undefined;
 }
@@ -150,7 +161,7 @@ export function promptFromOversizedRecord(text: string): string | undefined {
   const match = /"content":"((?:[^"\\]|\\.){0,400})/.exec(text);
   if (!match?.[1]) return undefined;
   // The capture can end mid-escape, which is not a valid string body. Drop the stub.
-  const body = match[1].replace(/\\u[0-9a-fA-F]{0,3}$|\\$/, '');
+  const body = match[1].replace(/\\u[0-9a-fA-F]{0,3}$|\\$/, "");
   try {
     return (JSON.parse(`"${body}"`) as string).trim() || undefined;
   } catch {
@@ -189,17 +200,17 @@ async function scanForOpeningCwd(
     const window = Buffer.concat([pending, buf.subarray(0, bytesRead)]);
     let start = 0;
     for (let br = window.indexOf(0x0a); br !== -1; br = window.indexOf(0x0a, start)) {
-      const line = window.toString('utf-8', start, br);
+      const line = window.toString("utf-8", start, br);
       start = br + 1;
       if (line) {
         try {
           const ev = JSON.parse(line) as Record<string, unknown>;
-          if (ev && typeof ev === 'object' && typeof ev.cwd === 'string') {
-            return typeof ev.entrypoint === 'string'
-              ? { cwd: ev.cwd, entrypoint: ev.entrypoint }
-              : { cwd: ev.cwd };
+          if (ev && typeof ev === "object" && typeof ev.cwd === "string") {
+            return typeof ev.entrypoint === "string" ? { cwd: ev.cwd, entrypoint: ev.entrypoint } : { cwd: ev.cwd };
           }
-        } catch { /* a line this scan cannot read is one it does not need */ }
+        } catch {
+          /* a line this scan cannot read is one it does not need */
+        }
       }
     }
     pending = window.subarray(start);
@@ -219,9 +230,8 @@ async function scanForOpeningCwd(
  * sessions, quiet since 06:42 and earlier, to 07:48 and "ready" on every card at once.
  */
 function movesLastActivity(ev: Record<string, unknown>): boolean {
-  return !(ev.type === 'system' && ev.subtype === 'informational');
+  return !(ev.type === "system" && ev.subtype === "informational");
 }
-
 
 /**
  * Folds one record into the session's last selection, read forward so the newest record wins.
@@ -238,7 +248,11 @@ function selectionOf(ev: Record<string, unknown>, into: LastSelection): void {
     if (typeof model === "string" && !model.startsWith("<")) into.model = model;
     if (typeof ev.effort === "string") into.effort = ev.effort;
   }
-  if (typeof ev.permissionMode === "string" && ev.isSidechain !== true && (ev.type === "user" || ev.type === "permission-mode")) {
+  if (
+    typeof ev.permissionMode === "string" &&
+    ev.isSidechain !== true &&
+    (ev.type === "user" || ev.type === "permission-mode")
+  ) {
     into.permissionMode = ev.permissionMode;
   }
 }
@@ -254,15 +268,20 @@ function selectionOf(ev: Record<string, unknown>, into: LastSelection): void {
  */
 export async function readHeader(filePath: string): Promise<Header | null> {
   let fh: Awaited<ReturnType<typeof open>>;
-  try { fh = await open(filePath, 'r'); } catch { return null; }
+  try {
+    fh = await open(filePath, "r");
+  } catch {
+    return null;
+  }
   try {
     const metadata = await fh.stat();
-    const ranges = metadata.size <= HEADER_EDGE_BYTES * 2
-      ? [{ start: 0, length: metadata.size }]
-      : [
-        { start: 0, length: HEADER_EDGE_BYTES },
-        { start: metadata.size - HEADER_EDGE_BYTES, length: HEADER_EDGE_BYTES },
-      ];
+    const ranges =
+      metadata.size <= HEADER_EDGE_BYTES * 2
+        ? [{ start: 0, length: metadata.size }]
+        : [
+            { start: 0, length: HEADER_EDGE_BYTES },
+            { start: metadata.size - HEADER_EDGE_BYTES, length: HEADER_EDGE_BYTES },
+          ];
     const out: Header = {};
     // Kept apart and ranked at the end rather than overwriting each other in file
     // order, because file order gives the wrong answer: the harness re-emits its
@@ -291,13 +310,13 @@ export async function readHeader(filePath: string): Promise<Header | null> {
       const isTail = index === ranges.length - 1;
       const buf = Buffer.alloc(range.length);
       const { bytesRead } = await fh.read(buf, 0, buf.length, range.start);
-      const window = buf.toString('utf-8', 0, bytesRead);
+      const window = buf.toString("utf-8", 0, bytesRead);
       if (isTail) {
         // In bytes, not characters: these are file offsets a later read resumes from.
         tailFrom = range.start > 0 ? range.start + buf.indexOf(0x0a) + 1 : 0;
         through = range.start + buf.lastIndexOf(0x0a, bytesRead - 1) + 1;
       }
-      const lines = window.split('\n');
+      const lines = window.split("\n");
       // A window that starts mid-file almost certainly starts mid-line.
       if (range.start > 0) lines.shift();
       for (const line of lines) {
@@ -305,20 +324,22 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         let ev: Record<string, unknown>;
         try {
           const parsed = JSON.parse(line);
-          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
           ev = parsed as Record<string, unknown>;
-        } catch { continue; }
+        } catch {
+          continue;
+        }
         // Two different questions, and they had one answer between them until a `cd` proved
         // otherwise. `cwd` is where the session OPENED, which is its project; `recentCwds` are
         // wherever the agent's shell has wandered to since, which is not.
         // `cwd` from the HEAD only. The tail's is wherever the agent's shell has wandered to,
         // and taking it is how a live session gets filed under one of its own subfolders.
-        if (typeof ev.cwd === 'string') {
+        if (typeof ev.cwd === "string") {
           if (isHead) out.cwd ??= ev.cwd;
           wandered.push(ev.cwd);
         }
-        if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
-        if (typeof ev.entrypoint === 'string') {
+        if (typeof ev.gitBranch === "string") out.gitBranch = ev.gitBranch;
+        if (typeof ev.entrypoint === "string") {
           if (isHead) out.entrypoint ??= ev.entrypoint;
           else tailEntrypoint = ev.entrypoint;
           // Read forward, so the last one in the tail window is the newest record's.
@@ -332,7 +353,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
         if (isTail) {
           const closed = turnClosedFor(ev);
           if (closed !== undefined) out.lastTurnClosed = closed;
-          const at = typeof ev.timestamp === 'string' && movesLastActivity(ev) ? Date.parse(ev.timestamp) : NaN;
+          const at = typeof ev.timestamp === "string" && movesLastActivity(ev) ? Date.parse(ev.timestamp) : NaN;
           if (Number.isFinite(at) && at > (out.lastRecordAt ?? -Infinity)) out.lastRecordAt = at;
         }
         if (isHead) out.firstPrompt ??= promptText(ev);
@@ -340,7 +361,7 @@ export async function readHeader(filePath: string): Promise<Header | null> {
       // Nothing in the head window parsed and there was no line break in it: one
       // record overran the whole window. What is visible of it is still its front,
       // which is where the prompt is.
-      if (isHead && !out.firstPrompt && !window.includes('\n')) {
+      if (isHead && !out.firstPrompt && !window.includes("\n")) {
         out.firstPrompt = promptFromOversizedRecord(window);
       }
     }
@@ -373,11 +394,11 @@ export async function readHeader(filePath: string): Promise<Header | null> {
 }
 
 export function filePathToSessionId(p: string): string | null {
-  if (!p.endsWith('.jsonl')) return null;
+  if (!p.endsWith(".jsonl")) return null;
   // Require the path to be under the projects root so the watcher does not claim
   // a Codex rollout that happens to live at <something>/foo.jsonl.
   if (!p.startsWith(config.claudeProjectsDirectory)) return null;
-  const sid = basename(p, '.jsonl');
-  if (sid.startsWith('_')) return null;
+  const sid = basename(p, ".jsonl");
+  if (sid.startsWith("_")) return null;
   return sid;
 }

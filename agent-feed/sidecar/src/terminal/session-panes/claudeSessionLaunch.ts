@@ -86,9 +86,7 @@ export function claudeSessionPaneName(sessionId: string): string {
  * from `configClaudeLaunch.ts`: the permission flags, so a session opens in one mode however it was
  * started, and the mods it loads.
  */
-export function newClaudeSessionCommand(
-  options: { sessionId: string; title: string; prompt?: string },
-): string[] {
+export function newClaudeSessionCommand(options: { sessionId: string; title: string; prompt?: string }): string[] {
   const command = ["claude", ...claudeLaunchArgs, "--session-id", options.sessionId, "-n", options.title];
   if (options.prompt) command.push(options.prompt);
   return command;
@@ -152,14 +150,20 @@ export function lastResumeSelection(sessionId: string, choices: RunnerChoices = 
  * with, so what was chosen for a session stays the session's however often it restarts, and
  * otherwise as a fresh one opens.
  */
-export function resumeClaudeSessionCommand(sessionId: string, selection: ResumeSelection = lastResumeSelection(sessionId)): string[] {
+export function resumeClaudeSessionCommand(
+  sessionId: string,
+  selection: ResumeSelection = lastResumeSelection(sessionId),
+): string[] {
   return ["claude", ...launchFlags(selection), "--resume", sessionId, ...selectionFlags(selection)];
 }
 
 /** The launch's flags, in the selection's permission mode where it has one. */
 function launchFlags(selection: ResumeSelection): string[] {
   return [
-    ...claudePermissionArgs(selection.permissionMode ?? claudeLaunchPermission.mode, claudeLaunchPermission.allowBypass),
+    ...claudePermissionArgs(
+      selection.permissionMode ?? claudeLaunchPermission.mode,
+      claudeLaunchPermission.allowBypass,
+    ),
     ...claudeLaunchModArgs,
   ];
 }
@@ -216,12 +220,7 @@ export function firstTurnFromFile(command: readonly string[], file: string): str
  * one that is exercised daily and a long one that is not. The file is the pane's to delete; this
  * deletes it only when tmux never started the pane that would have.
  */
-async function createLaunchPane(
-  session: string,
-  cwd: string,
-  command: string[],
-  hasFirstTurn: boolean,
-): Promise<void> {
+async function createLaunchPane(session: string, cwd: string, command: string[], hasFirstTurn: boolean): Promise<void> {
   const pane = { session, cwd, columns: UNATTENDED_COLUMNS, rows: UNATTENDED_ROWS };
   if (!hasFirstTurn) {
     await createTmuxSession({ ...pane, command });
@@ -295,8 +294,7 @@ export function claudeForkPaneName(forkId: string): string {
  * fork" is not enough, because a fork that knows it is a fork still has the parent's unfinished
  * work in front of it and no instruction to leave it alone.
  */
-export const FORK_HANDOFF_PREAMBLE =
-  `You are a fork of the session whose context you are holding.
+export const FORK_HANDOFF_PREAMBLE = `You are a fork of the session whose context you are holding.
 
 Everything above this turn is that session's work, not yours. You did not start it, and the
 session it came from is still running and still has it.
@@ -397,11 +395,9 @@ export async function endClaudeSession(options: { sessionId: string }): Promise<
   const stamped = await findTmuxSessionByIdentity(sessionId);
   // Both derived names, because this file starts sessions under two of them and the registry does
   // not record which: a fork's pane is named for the fork, a fresh session's for the session.
-  const candidates = stamped
-    ? [stamped]
-    : [claudeSessionPaneName(sessionId), claudeForkPaneName(sessionId)];
+  const candidates = stamped ? [stamped] : [claudeSessionPaneName(sessionId), claudeForkPaneName(sessionId)];
   for (const session of candidates) {
-    if (!await tmuxSessionExists(session)) continue;
+    if (!(await tmuxSessionExists(session))) continue;
     await killTmuxSession(session);
     return session;
   }
@@ -464,7 +460,10 @@ export async function launchedClaudePane(
   if (!session) return { kind: "no-pane" };
   // A runner's pane names the session and "claude" too, and restarting it here would put the TUI
   // in place of a live SDK session (ADR-0143), so it reads as somebody else's pane.
-  const launched = (await tmux.paneStarts(session)).find(({ command }) =>
-    command.includes(sessionId) && /\bclaude\b/.test(command) && !isClaudeSdkRunnerCommand(command));
-  return launched ? { kind: "pane", pane: launched.pane, startCommand: launched.command } : { kind: "not-ours", session };
+  const launched = (await tmux.paneStarts(session)).find(
+    ({ command }) => command.includes(sessionId) && /\bclaude\b/.test(command) && !isClaudeSdkRunnerCommand(command),
+  );
+  return launched
+    ? { kind: "pane", pane: launched.pane, startCommand: launched.command }
+    : { kind: "not-ours", session };
 }

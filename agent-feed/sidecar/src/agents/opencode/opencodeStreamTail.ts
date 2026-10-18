@@ -95,9 +95,7 @@ interface RunningMessage {
  * row under a key the next delta does not read, and the text that followed would land in a second
  * block.
  */
-function* namedParts(
-  message: SessionMessage | null,
-): Generator<{ part: ContentPart; key: string | null }> {
+function* namedParts(message: SessionMessage | null): Generator<{ part: ContentPart; key: string | null }> {
   const counts = new Map<string, number>();
   for (const part of (message as { content?: ContentPart[] } | null)?.content ?? []) {
     if (part.type !== "text" && part.type !== "reasoning") {
@@ -155,10 +153,7 @@ function seededFrom(durable: SessionMessage): RunningMessage {
  * still supplies the page around it, so every other message, the tokens and the tool parts are the
  * serve's own.
  */
-export function mergedRead(
-  read: readonly SessionMessage[],
-  streamed: SessionMessage,
-): SessionMessage[] {
+export function mergedRead(read: readonly SessionMessage[], streamed: SessionMessage): SessionMessage[] {
   const drawn = read.map((message) => (message.id === streamed.id ? streamed : message));
   return drawn.some((message) => message.id === streamed.id) ? drawn : [...drawn, streamed];
 }
@@ -189,11 +184,7 @@ export class OpencodeStreamTail {
    * provider that keeps its thinking encrypted, which is a part that exists and reads empty,
    * the same thing the durable mapper draws for it.
    */
-  apply(
-    sessionId: string,
-    part: OpencodeStreamedPart,
-    now: number,
-  ): SessionMessage | null {
+  apply(sessionId: string, part: OpencodeStreamedPart, now: number): SessionMessage | null {
     const message = this.messageFor(sessionId, part, now);
     const key = `${part.kind}:${part.ordinal}`;
     const streamed = message.byKey.get(key);
@@ -237,7 +228,9 @@ export class OpencodeStreamTail {
       emitted.add(key);
       const streamed = message.byKey.get(key);
       if (!streamed) {
-        throw new Error(`opencode stream tail: the read names part ${key} of ${message.id} that the stream never opened`);
+        throw new Error(
+          `opencode stream tail: the read names part ${key} of ${message.id} that the stream never opened`,
+        );
       }
       content.push({ type: part.type, text: streamed.text });
     }
@@ -352,11 +345,7 @@ export class OpencodeStreamTail {
     this.running.clear();
   }
 
-  private messageFor(
-    sessionId: string,
-    part: OpencodeStreamedPart,
-    now: number,
-  ): RunningMessage {
+  private messageFor(sessionId: string, part: OpencodeStreamedPart, now: number): RunningMessage {
     const existing = this.running.get(sessionId);
     if (existing && existing.id === part.messageId) return existing;
     // One running message per session, because a session runs one turn at a time. A new

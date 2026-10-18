@@ -38,11 +38,7 @@ import {
 import { claimRunFolder, nextRunName, releaseRunFolder, runNameFor } from "@/arena/arenaRunFolders";
 import { ArenaStore } from "@/arena/arenaStore";
 import { LIVE_WORKTREE_STEPS, undoWorktrees, type ArenaWorktreeSteps } from "@/arena/arenaWorktrees";
-import {
-  StartLine,
-  type ContestantDrivers,
-  type ContestantResume,
-} from "@/arena/contestants/contestantDriver";
+import { StartLine, type ContestantDrivers, type ContestantResume } from "@/arena/contestants/contestantDriver";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
 import { ArenaNextPromptError, nextPromptContestants } from "@/arena/arenaTurns";
 import { driveContestant } from "@/arena/arenaDrive";
@@ -122,7 +118,10 @@ export class ArenaService {
 
   /** What a run asked for with nothing filled in would get here, right now. */
   newRunDefaults(): ArenaNewRunDefaults {
-    const nextName = nextRunName(this.arenaHome, this.registry.list().map((run) => run.name));
+    const nextName = nextRunName(
+      this.arenaHome,
+      this.registry.list().map((run) => run.name),
+    );
     return { modes: this.modes(), arenaHome: this.arenaHome, nextName };
   }
 
@@ -184,7 +183,11 @@ export class ArenaService {
     const { prompt, namedRepo, baseRef, mode, drivers, lanes, manager } = checked;
     if (manager && !this.managers) throw new ArenaBadRequestError("this machine has no tmux for a manager to run in");
 
-    const naming = runNameFor(request.name, this.arenaHome, this.registry.list().map((run) => run.name));
+    const naming = runNameFor(
+      request.name,
+      this.arenaHome,
+      this.registry.list().map((run) => run.name),
+    );
     if ("problem" in naming) throw new ArenaBadRequestError(naming.problem);
     const { name, folderName } = naming;
     // No repository named means the run gets one of its own, made in its folder below.
@@ -243,7 +246,14 @@ export class ArenaService {
       createdAt: Date.now(),
       contestants: records,
       manager: manager
-        ? { source: manager, status: "starting", folder: join(folder, MANAGER_FOLDER), sessionId: null, tmuxSession: null, error: null }
+        ? {
+            source: manager,
+            status: "starting",
+            folder: join(folder, MANAGER_FOLDER),
+            sessionId: null,
+            tmuxSession: null,
+            error: null,
+          }
         : null,
     };
     this.registry.add(run);
@@ -255,7 +265,10 @@ export class ArenaService {
     // records its failure rather than surfacing as an unhandled rejection.
     const startLine = mode === "terminals" ? new StartLine(records.length, prompt || null) : null;
     if (startLine) this.lines.set(runId, startLine);
-    this.drives.set(runId, records.map((record) => this.driveOne(run, record, drivers, startLine)));
+    this.drives.set(
+      runId,
+      records.map((record) => this.driveOne(run, record, drivers, startLine)),
+    );
     return runSummary(run);
   }
 
@@ -273,7 +286,8 @@ export class ArenaService {
     const tooLong = promptProblem(prompt);
     if (tooLong) throw new ArenaBadRequestError(tooLong);
     const line = this.lines.get(runId);
-    if (run.contestants.length === 0) throw new ArenaBadRequestError("this run has no lanes yet: add them before its prompt");
+    if (run.contestants.length === 0)
+      throw new ArenaBadRequestError("this run has no lanes yet: add them before its prompt");
     if (!run.prompt && line && !line.prompted) {
       this.registry.updateRun(runId, (one) => {
         one.prompt = prompt;
@@ -296,7 +310,8 @@ export class ArenaService {
     if (!run) throw new ArenaRunNotFoundError(`no arena run "${runId}"`);
     const line = this.lines.get(runId);
     const drivers = this.terminalDrivers;
-    const closed = (): boolean => run.mode !== "terminals" || !drivers || !line || line.prompted || !this.registry.get(runId);
+    const closed = (): boolean =>
+      run.mode !== "terminals" || !drivers || !line || line.prompted || !this.registry.get(runId);
     if (closed()) throw new ArenaRunBusyError("lanes are added only to a terminals run before its first prompt");
     if (this.adding.has(runId)) throw new ArenaRunBusyError("this run is already adding lanes");
     const lanes = checkLanes(raw, drivers!, run.contestants.length);
@@ -305,7 +320,8 @@ export class ArenaService {
     const records = newLaneRecords(run.folder, lanes, run.contestants.length);
     this.adding.add(runId);
     try {
-      for (const record of records) await this.worktrees.add({ repoPath: run.repoPath, path: record.worktreePath, ref: run.baseRef });
+      for (const record of records)
+        await this.worktrees.add({ repoPath: run.repoPath, path: record.worktreePath, ref: run.baseRef });
       // The prompt may have been given while the worktrees were made; these lanes missed it.
       if (closed()) throw new ArenaRunBusyError("the run was given its prompt while its lanes were being added");
     } catch (error) {
@@ -349,11 +365,18 @@ export class ArenaService {
     });
     const line = terminals ? new StartLine(continuing.length, prompt) : null;
     if (line) this.lines.set(run.runId, line);
-    this.drives.set(run.runId, continuing.map((record) =>
-      terminals
-        ? this.driveOne(run, record, drivers, line, { pane: record.tmuxSession!, sessionId: record.sessionId!, prompted: false })
-        : this.driveOne(run, record, drivers, null, undefined, record.sessionId!)
-    ));
+    this.drives.set(
+      run.runId,
+      continuing.map((record) =>
+        terminals
+          ? this.driveOne(run, record, drivers, line, {
+              pane: record.tmuxSession!,
+              sessionId: record.sessionId!,
+              prompted: false,
+            })
+          : this.driveOne(run, record, drivers, null, undefined, record.sessionId!),
+      ),
+    );
   }
 
   /**
@@ -414,7 +437,12 @@ export class ArenaService {
     resume?: ContestantResume,
     continues?: string,
   ): Promise<void> {
-    const steps = { registry: this.registry, store: this.store, worktrees: this.worktrees, turnTimeoutMs: this.turnTimeoutMs };
+    const steps = {
+      registry: this.registry,
+      store: this.store,
+      worktrees: this.worktrees,
+      turnTimeoutMs: this.turnTimeoutMs,
+    };
     return driveContestant(steps, run, record, drivers, startLine, resume, continues);
   }
 }

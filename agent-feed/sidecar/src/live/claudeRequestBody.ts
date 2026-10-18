@@ -10,10 +10,7 @@
 // unreadable field is absent rather than a throw, and each fallback says which way it fails.
 
 /** Fetches a retained request body and returns the claude `session_id` it names, if any. */
-export async function fetchSessionIdFromBody(
-  endpoint: URL,
-  bodyReference: string,
-): Promise<string | null> {
+export async function fetchSessionIdFromBody(endpoint: URL, bodyReference: string): Promise<string | null> {
   const response = await fetch(new URL(`/v1/bodies/${bodyReference}`, endpoint), {
     headers: { accept: "application/octet-stream" },
   });
@@ -58,10 +55,7 @@ export interface ToolResultItem {
 
 /** Fetches a retained request body and returns the claude session id and any
  *  `tool_result` payloads it carries in its final user message. */
-export async function fetchRequestMetadata(
-  endpoint: URL,
-  bodyReference: string,
-): Promise<RequestMetadata> {
+export async function fetchRequestMetadata(endpoint: URL, bodyReference: string): Promise<RequestMetadata> {
   const response = await fetch(new URL(`/v1/bodies/${bodyReference}`, endpoint), {
     headers: { accept: "application/octet-stream" },
   });
@@ -179,7 +173,6 @@ function systemPromptText(requestBody: string): string {
     })
     .join("\n");
 }
-
 
 /**
  * Reads tool results out of a `/v1/messages` request body. When a model calls a
@@ -337,8 +330,10 @@ function lastUserText(requestBody: string): string {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
   const messages = (parsed as Record<string, unknown>).messages;
   if (!Array.isArray(messages)) return "";
-  const last = messages.findLast((message: unknown) =>
-    Boolean(message) && typeof message === "object" && (message as Record<string, unknown>).role === "user");
+  const last = messages.findLast(
+    (message: unknown) =>
+      Boolean(message) && typeof message === "object" && (message as Record<string, unknown>).role === "user",
+  );
   if (last === undefined) return "";
   const content = (last as Record<string, unknown>).content;
   if (typeof content === "string") return content;

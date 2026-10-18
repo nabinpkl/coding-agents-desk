@@ -28,13 +28,16 @@ test("follows local imports as far as they go", () => {
   const root = tree({
     "supervisor.ts": 'import { a } from "@/gate";\nimport chokidar from "chokidar";\n',
     "gate.ts": 'import { b } from "@/registry";\nexport const a = b;\n',
-    "registry.ts": 'export const b = 1;\n',
+    "registry.ts": "export const b = 1;\n",
     // Watched by this process, but not part of it: replacing the child is what covers this one.
     "server.ts": 'import { a } from "@/gate";\n',
   });
   const own = ownSources(join(root, "supervisor.ts"), root);
-  expect([...own].map((file) => file.slice(root.length + 1)).sort())
-    .toEqual(["gate.ts", "registry.ts", "supervisor.ts"]);
+  expect([...own].map((file) => file.slice(root.length + 1)).sort()).toEqual([
+    "gate.ts",
+    "registry.ts",
+    "supervisor.ts",
+  ]);
 });
 
 test("stops rather than looping when two files import each other", () => {
@@ -55,7 +58,7 @@ test("ignores packages, which it could not replace itself over anyway", () => {
 test("finds a .tsx module too, since the alias carries no extension", () => {
   const root = tree({
     "supervisor.ts": 'import "@/view";\n',
-    "view.tsx": 'export const View = 1;\n',
+    "view.tsx": "export const View = 1;\n",
   });
   expect([...ownSources(join(root, "supervisor.ts"), root)]).toContain(join(root, "view.tsx"));
 });
@@ -70,7 +73,7 @@ test("an import that resolves to nothing is skipped rather than thrown over", ()
 test("a file caught half-written contributes what it can", () => {
   const root = tree({
     "supervisor.ts": 'import "@/gate";\n',
-    "gate.ts": 'export const a = {\n',
+    "gate.ts": "export const a = {\n",
   });
   const own = ownSources(join(root, "supervisor.ts"), root);
   expect(own.has(join(root, "gate.ts"))).toBe(true);

@@ -2,13 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  gitStatus,
-  parsePorcelain,
-  readGitStatus,
-  statusForPath,
-  workingTreeFileDiff,
-} from "@/workspace/workspaceGit";
+import { gitStatus, parsePorcelain, readGitStatus, statusForPath, workingTreeFileDiff } from "@/workspace/workspaceGit";
 
 const roots: string[] = [];
 
@@ -46,8 +40,10 @@ test("reports a rename at its new path and skips the source record", () => {
 });
 
 test("keeps a path that contains a space or a newline intact", () => {
-  expect(parsePorcelain("M  a file.ts\0?? with\nnewline.ts\0").map((e) => e.relativePath))
-    .toEqual(["a file.ts", "with\nnewline.ts"]);
+  expect(parsePorcelain("M  a file.ts\0?? with\nnewline.ts\0").map((e) => e.relativePath)).toEqual([
+    "a file.ts",
+    "with\nnewline.ts",
+  ]);
 });
 
 test("ignores an empty trailing record", () => {
@@ -77,14 +73,11 @@ test("reads real status and branch out of a real repository", async () => {
 
   const status = await gitStatus("w1", root);
   expect(status.branch).toBe("main");
-  expect(status.entries).toEqual([
-    { relativePath: "src/main.ts", indexStatus: "?", workTreeStatus: "?" },
-  ]);
+  expect(status.entries).toEqual([{ relativePath: "src/main.ts", indexStatus: "?", workTreeStatus: "?" }]);
 });
 
 async function run(root: string, ...args: string[]): Promise<void> {
-  const code = await Bun.spawn(["git", ...args], { cwd: root, stdout: "ignore", stderr: "ignore" })
-    .exited;
+  const code = await Bun.spawn(["git", ...args], { cwd: root, stdout: "ignore", stderr: "ignore" }).exited;
   if (code !== 0) throw new Error(`git ${args.join(" ")} exited ${code}`);
 }
 

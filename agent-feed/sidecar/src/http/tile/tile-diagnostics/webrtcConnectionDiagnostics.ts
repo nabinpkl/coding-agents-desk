@@ -61,25 +61,23 @@ export class WebrtcDeliveryDiagnostics {
   sample(server: WebrtcDeliveryServerSample, client: WebrtcDeliveryClientSample) {
     const previous = this.previous;
     if (previous && client.sample <= previous.client.sample) return null;
-    if (
-      previous
-      && client.elapsedMs - previous.client.elapsedMs < DELIVERY_CORRELATION_MIN_INTERVAL_MS
-    ) return null;
+    if (previous && client.elapsedMs - previous.client.elapsedMs < DELIVERY_CORRELATION_MIN_INTERVAL_MS) return null;
 
     const pairChanged = previous !== null && client.pair !== previous.client.pair;
-    const counterReset = previous !== null && !pairChanged && (
-      server.sentRtpPackets < previous.server.sentRtpPackets
-      || server.sentRtpBytes < previous.server.sentRtpBytes
-      || server.retransmittedPacketsSent < previous.server.retransmittedPacketsSent
-      || server.retransmittedBytesSent < previous.server.retransmittedBytesSent
-      || server.nackPacketsRequested < previous.server.nackPacketsRequested
-      || server.nackCacheHits < previous.server.nackCacheHits
-      || server.nackCacheMisses < previous.server.nackCacheMisses
-      || client.inboundRtpPackets < previous.client.inboundRtpPackets
-      || client.inboundRtpBytes < previous.client.inboundRtpBytes
-      || client.candidateBytesReceived < previous.client.candidateBytesReceived
-      || client.candidateBytesSent < previous.client.candidateBytesSent
-    );
+    const counterReset =
+      previous !== null &&
+      !pairChanged &&
+      (server.sentRtpPackets < previous.server.sentRtpPackets ||
+        server.sentRtpBytes < previous.server.sentRtpBytes ||
+        server.retransmittedPacketsSent < previous.server.retransmittedPacketsSent ||
+        server.retransmittedBytesSent < previous.server.retransmittedBytesSent ||
+        server.nackPacketsRequested < previous.server.nackPacketsRequested ||
+        server.nackCacheHits < previous.server.nackCacheHits ||
+        server.nackCacheMisses < previous.server.nackCacheMisses ||
+        client.inboundRtpPackets < previous.client.inboundRtpPackets ||
+        client.inboundRtpBytes < previous.client.inboundRtpBytes ||
+        client.candidateBytesReceived < previous.client.candidateBytesReceived ||
+        client.candidateBytesSent < previous.client.candidateBytesSent);
     this.previous = { server, client };
 
     if (!previous || pairChanged || counterReset) {
@@ -112,21 +110,13 @@ export class WebrtcDeliveryDiagnostics {
 
     const senderMediaPackets = server.sentRtpPackets - previous.server.sentRtpPackets;
     const senderMediaBytes = server.sentRtpBytes - previous.server.sentRtpBytes;
-    const senderRepairPackets = server.retransmittedPacketsSent
-      - previous.server.retransmittedPacketsSent;
-    const senderRepairBytes = server.retransmittedBytesSent
-      - previous.server.retransmittedBytesSent;
+    const senderRepairPackets = server.retransmittedPacketsSent - previous.server.retransmittedPacketsSent;
+    const senderRepairBytes = server.retransmittedBytesSent - previous.server.retransmittedBytesSent;
     const receiverMediaPackets = client.inboundRtpPackets - previous.client.inboundRtpPackets;
     const receiverMediaBytes = client.inboundRtpBytes - previous.client.inboundRtpBytes;
     const backlogPacketDelta = senderMediaPackets - receiverMediaPackets;
-    const recoveredPendingMediaPackets = Math.min(
-      this.estimatedPendingMediaPackets,
-      Math.max(0, -backlogPacketDelta),
-    );
-    this.estimatedPendingMediaPackets = Math.max(
-      0,
-      this.estimatedPendingMediaPackets + backlogPacketDelta,
-    );
+    const recoveredPendingMediaPackets = Math.min(this.estimatedPendingMediaPackets, Math.max(0, -backlogPacketDelta));
+    this.estimatedPendingMediaPackets = Math.max(0, this.estimatedPendingMediaPackets + backlogPacketDelta);
 
     return {
       event: "sample",
@@ -138,8 +128,7 @@ export class WebrtcDeliveryDiagnostics {
       path: {
         state: client.pathState,
         rttMs: client.rttMs,
-        bytesReceivedDelta: client.candidateBytesReceived
-          - previous.client.candidateBytesReceived,
+        bytesReceivedDelta: client.candidateBytesReceived - previous.client.candidateBytesReceived,
         bytesSentDelta: client.candidateBytesSent - previous.client.candidateBytesSent,
       },
       sender: {
@@ -155,8 +144,7 @@ export class WebrtcDeliveryDiagnostics {
         mediaBytesDelta: receiverMediaBytes,
       },
       repair: {
-        nackPacketsRequestedDelta: server.nackPacketsRequested
-          - previous.server.nackPacketsRequested,
+        nackPacketsRequestedDelta: server.nackPacketsRequested - previous.server.nackPacketsRequested,
         cacheHitsDelta: server.nackCacheHits - previous.server.nackCacheHits,
         cacheMissesDelta: server.nackCacheMisses - previous.server.nackCacheMisses,
       },
@@ -170,9 +158,7 @@ export class WebrtcDeliveryDiagnostics {
 }
 
 function nonnegativeCounter(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.round(value)
-    : null;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
 }
 
 export function parseWebrtcDeliveryClientSample(
@@ -190,12 +176,7 @@ export function parseWebrtcDeliveryClientSample(
   const report = value as Record<string, unknown>;
   const inbound = report.inbound;
   const path = report.path;
-  if (
-    typeof inbound !== "object"
-    || inbound === null
-    || typeof path !== "object"
-    || path === null
-  ) return null;
+  if (typeof inbound !== "object" || inbound === null || typeof path !== "object" || path === null) return null;
   const inboundStats = inbound as Record<string, unknown>;
   const pathStats = path as Record<string, unknown>;
   const sample = nonnegativeCounter(report.sample);
@@ -205,14 +186,15 @@ export function parseWebrtcDeliveryClientSample(
   const candidateBytesReceived = nonnegativeCounter(pathStats.bytesReceived);
   const candidateBytesSent = nonnegativeCounter(pathStats.bytesSent);
   if (
-    sample === null
-    || sample < 1
-    || atMs === null
-    || inboundRtpPackets === null
-    || inboundRtpBytes === null
-    || candidateBytesReceived === null
-    || candidateBytesSent === null
-  ) return null;
+    sample === null ||
+    sample < 1 ||
+    atMs === null ||
+    inboundRtpPackets === null ||
+    inboundRtpBytes === null ||
+    candidateBytesReceived === null ||
+    candidateBytesSent === null
+  )
+    return null;
   return {
     sample,
     elapsedMs: atMs,
@@ -254,14 +236,11 @@ const CONNECTION_DIAGNOSTIC_LIMIT = 64;
 
 export function pruneConnectionDiagnostics(nowMs = Date.now()) {
   for (const [attempt, connection] of connectionDiagnostics) {
-    if (
-      connection.closedAtMs !== null
-      && nowMs - connection.closedAtMs > CONNECTION_DIAGNOSTIC_TTL_MS
-    ) connectionDiagnostics.delete(attempt);
+    if (connection.closedAtMs !== null && nowMs - connection.closedAtMs > CONNECTION_DIAGNOSTIC_TTL_MS)
+      connectionDiagnostics.delete(attempt);
   }
   while (connectionDiagnostics.size > CONNECTION_DIAGNOSTIC_LIMIT) {
-    const oldestClosed = [...connectionDiagnostics.entries()]
-      .find(([, connection]) => connection.closedAtMs !== null);
+    const oldestClosed = [...connectionDiagnostics.entries()].find(([, connection]) => connection.closedAtMs !== null);
     const oldest = oldestClosed ?? connectionDiagnostics.entries().next().value;
     if (!oldest) break;
     connectionDiagnostics.delete(oldest[0]);
@@ -285,9 +264,7 @@ export function serverConnectionSnapshot(attempt: string, nowMs = Date.now()): s
     sentRtpPackets: connection.sentRtpPackets,
     sentRtpBytes: connection.sentRtpBytes,
     lastSentAgeMs: connection.lastSentAtMs === null ? -1 : nowMs - connection.lastSentAtMs,
-    disconnectedAgeMs: connection.disconnectedAtMs === null
-      ? -1
-      : nowMs - connection.disconnectedAtMs,
+    disconnectedAgeMs: connection.disconnectedAtMs === null ? -1 : nowMs - connection.disconnectedAtMs,
     nackReports: repair.nackReports,
     nackPacketsRequested: repair.packetsRequested,
     nackCacheHits: repair.cacheHits,
@@ -300,9 +277,8 @@ export function serverConnectionSnapshot(attempt: string, nowMs = Date.now()): s
     retransmissionSendFailures: repair.sendFailures,
     pliRequests: connection.pliRequests,
     encoderAccessUnits: encoder?.accessUnits,
-    encoderLastAccessUnitAgeMs: !encoder || encoder.lastAccessUnitAtMs === null
-      ? -1
-      : nowMs - encoder.lastAccessUnitAtMs,
+    encoderLastAccessUnitAgeMs:
+      !encoder || encoder.lastAccessUnitAtMs === null ? -1 : nowMs - encoder.lastAccessUnitAtMs,
     encoderSubscribers: encoder?.subscribers.size,
     encoderDead: encoder?.dead,
   })}`;
@@ -358,15 +334,12 @@ export function recordClientTelemetry(
   recordDiagnostic: (line: string) => void,
 ): Response {
   if (
-    typeof body.attempt !== "string"
-    || !/^[a-zA-Z0-9-]{1,80}$/.test(body.attempt)
-    || typeof body.phase !== "string"
-    || !CLIENT_PHASES.has(body.phase)
+    typeof body.attempt !== "string" ||
+    !/^[a-zA-Z0-9-]{1,80}$/.test(body.attempt) ||
+    typeof body.phase !== "string" ||
+    !CLIENT_PHASES.has(body.phase)
   ) {
-    return jsonResponse(
-      { code: "webrtc-bad-telemetry", message: "invalid attempt or phase" },
-      400,
-    );
+    return jsonResponse({ code: "webrtc-bad-telemetry", message: "invalid attempt or phase" }, 400);
   }
   const detail = typeof body.detail === "string" ? body.detail.slice(0, 2_048) : undefined;
   const elapsedMs = bounded(body.elapsedMs, 0, 604_800_000);
@@ -383,25 +356,24 @@ export function recordClientTelemetry(
   if (connection && (body.phase === "receiver-stats" || body.phase === "presentation-gap")) {
     const clientSample = parseWebrtcDeliveryClientSample(body.detail, elapsedMs);
     if (clientSample) {
-      const correlation = connection.deliveryDiagnostics.sample(
-        serverDeliverySample(connection),
-        clientSample,
-      );
+      const correlation = connection.deliveryDiagnostics.sample(serverDeliverySample(connection), clientSample);
       if (correlation) {
-        recordDiagnostic(`delivery-correlation ${JSON.stringify({
-          attempt: body.attempt,
-          connection: connection.connection,
-          windowID,
-          ...correlation,
-        })}`);
+        recordDiagnostic(
+          `delivery-correlation ${JSON.stringify({
+            attempt: body.attempt,
+            connection: connection.connection,
+            windowID,
+            ...correlation,
+          })}`,
+        );
       }
     }
   }
   if (
-    body.phase === "receiver-stats"
-    || body.phase === "presentation-gap"
-    || body.phase === "ice-state"
-    || body.phase === "connection-state"
+    body.phase === "receiver-stats" ||
+    body.phase === "presentation-gap" ||
+    body.phase === "ice-state" ||
+    body.phase === "connection-state"
   ) {
     const snapshot = serverConnectionSnapshot(body.attempt);
     if (snapshot) recordDiagnostic(snapshot);

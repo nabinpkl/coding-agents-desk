@@ -15,10 +15,7 @@ const EMPTY: BackgroundTaskSnapshot = { running: [], finished: [], ownerAlive: f
  * sitting on a single long task is quiet on the wire -- which matters, because this stream runs to
  * a phone over a tailnet.
  */
-export function useBackgroundTasks(
-  source: AgentDataSource,
-  session: SessionReference | null,
-): BackgroundTaskSnapshot {
+export function useBackgroundTasks(source: AgentDataSource, session: SessionReference | null): BackgroundTaskSnapshot {
   const sessionId = session?.sessionId ?? null;
   const sessionSource = session?.source ?? null;
   // Keyed by identity, not by object: the session reference is rebuilt on every render of the

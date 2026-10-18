@@ -10,20 +10,13 @@
 // named, cleared, or forgotten on any machine reaches the home without a reload.
 
 import { useCallback, useState } from "react";
-import type {
-  AgentSessionDescriptor,
-  BotSessionRef,
-  BotView,
-} from "@agentdesk/agent-feed-wire";
+import type { AgentSessionDescriptor, BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import { useBots } from "@/features/bots/useBots";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
-import {
-  loadEventMode,
-  storeEventMode,
-} from "@/features/activity-feed/reading-preferences/eventModeStore";
+import { loadEventMode, storeEventMode } from "@/features/activity-feed/reading-preferences/eventModeStore";
 import {
   loadCacheHitsVisible,
   storeCacheHitsVisible,
@@ -159,9 +152,9 @@ export function useFatherScope({
    */
   const onDetachSession = useCallback(
     (bot: BotView, ref: BotSessionRef) => {
-      const label = bot.sessions
-        .find((session) => session.source === ref.source && session.sessionId === ref.sessionId)
-        ?.title || ref.sessionId;
+      const label =
+        bot.sessions.find((session) => session.source === ref.source && session.sessionId === ref.sessionId)?.title ||
+        ref.sessionId;
       const target: BotSessionRef = { source: ref.source, sessionId: ref.sessionId };
       setBotError(null);
       const feedFor = roster.machineOf(bot.botId)?.feed ?? feed;

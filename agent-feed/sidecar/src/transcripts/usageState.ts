@@ -14,18 +14,12 @@ import type { DeclaredModel, TokenUsage } from "@/transcripts/transcriptTypes";
  * per-session accumulation lives in the transcript reads: the meter read back from the end when a
  * thread opens, and the follow that folds each line it reads after that.
  */
-export function mergeUsage(
-  previous: TokenUsage | undefined,
-  next: TokenUsage,
-): TokenUsage {
+export function mergeUsage(previous: TokenUsage | undefined, next: TokenUsage): TokenUsage {
   const model = next.model ?? previous?.model;
   // A named model owns its own limit, INCLUDING when that limit is null: a
   // switch to a model this build has no window for has to show a bare count,
   // not the previous model's window applied to a different context size.
-  const limit =
-    next.model === undefined
-      ? next.limit ?? previous?.limit ?? null
-      : next.limit;
+  const limit = next.model === undefined ? (next.limit ?? previous?.limit ?? null) : next.limit;
   // Sticky without the model's exception, because a cache lifetime is a property of the
   // client rather than of the model: switching model mid-session does not move it, and
   // the records that name no lifetime are the ones that wrote nothing to the cache --
@@ -61,10 +55,7 @@ export function mergeUsage(
  * this keeps on the larger window. That is the cheaper error: the alternative is the meter
  * demanding a compaction at a sixth of the occupancy it claims.
  */
-export function mergeDeclaredModel(
-  previous: DeclaredModel | undefined,
-  next: DeclaredModel,
-): DeclaredModel {
+export function mergeDeclaredModel(previous: DeclaredModel | undefined, next: DeclaredModel): DeclaredModel {
   if (!previous) return next;
   return previous.model.startsWith(`${next.model}[`) ? previous : next;
 }
@@ -82,10 +73,7 @@ export function mergeDeclaredModel(
  * and its limit, which by then is the declared one, and claiming the declaration for a line that
  * did not name a model would be asserting something the line does not say.
  */
-export function withDeclaredModel(
-  usage: TokenUsage,
-  declared: DeclaredModel | undefined,
-): TokenUsage {
+export function withDeclaredModel(usage: TokenUsage, declared: DeclaredModel | undefined): TokenUsage {
   if (!declared || usage.model === undefined) return usage;
   if (declared.model === usage.model) return usage;
   if (!declared.model.startsWith(`${usage.model}[`)) return usage;

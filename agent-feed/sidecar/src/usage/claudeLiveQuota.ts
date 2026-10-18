@@ -105,10 +105,12 @@ function movedVisibly(before: QuotaSample[], after: QuotaSample[]): boolean {
   if (before.length !== after.length) return true;
   return after.some((sample, index) => {
     const previous = before[index]!;
-    return previous.usedPercent !== sample.usedPercent
-      || previous.resetsAtMs !== sample.resetsAtMs
-      || previous.windowMinutes !== sample.windowMinutes
-      || (previous.scope ?? null) !== (sample.scope ?? null);
+    return (
+      previous.usedPercent !== sample.usedPercent ||
+      previous.resetsAtMs !== sample.resetsAtMs ||
+      previous.windowMinutes !== sample.windowMinutes ||
+      (previous.scope ?? null) !== (sample.scope ?? null)
+    );
   });
 }
 

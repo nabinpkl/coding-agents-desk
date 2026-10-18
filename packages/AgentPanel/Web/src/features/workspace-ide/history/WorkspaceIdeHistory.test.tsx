@@ -8,11 +8,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
-import {
-  CLEAN_STATE,
-  GIT,
-  mountWorkspaceIde as mounted,
-} from "@/features/workspace-ide/workspaceIdeHarness";
+import { CLEAN_STATE, GIT, mountWorkspaceIde as mounted } from "@/features/workspace-ide/workspaceIdeHarness";
 
 // The terminal pane is a whole other surface with an xterm inside it; this file is about history.
 vi.mock("@/features/workspace-ide/WorkspaceTerminal", () => ({
@@ -39,48 +35,44 @@ function historyAnswers(transport: FakeHttpTransport): void {
   transport.responses.set("GET /api/workspaces/w-1/commits?limit=50", {
     status: 200,
     body: JSON.stringify({
-      commits: [{
-        hash: "1111111111111111111111111111111111111111",
-        shortHash: "1111111",
-        subject: "teach the bar to look backwards",
-        author: "Ada",
-        committedAt: Math.round(Date.now() / 1000) - 3600,
-        parentCount: 1,
-      }],
+      commits: [
+        {
+          hash: "1111111111111111111111111111111111111111",
+          shortHash: "1111111",
+          subject: "teach the bar to look backwards",
+          author: "Ada",
+          committedAt: Math.round(Date.now() / 1000) - 3600,
+          parentCount: 1,
+        },
+      ],
     }),
   });
-  transport.responses.set(
-    "GET /api/workspaces/w-1/commit?hash=1111111111111111111111111111111111111111",
-    {
-      status: 200,
-      body: JSON.stringify({
-        detail: {
-          workspaceId: "w-1",
-          hash: "1111111111111111111111111111111111111111",
-          body: BODY,
-          files: [
-            { path: "src/main.ts", status: "M", additions: 2, deletions: 1, previousPath: null },
-            { path: "README.md", status: "M", additions: 1, deletions: 0, previousPath: null },
-          ],
-        },
-      }),
-    },
-  );
-  transport.responses.set(
-    "GET /api/workspaces/w-1/diff?hash=1111111111111111111111111111111111111111&path=README.md",
-    {
-      status: 200,
-      body: JSON.stringify({
-        diff: {
-          workspaceId: "w-1",
-          hash: "1111111111111111111111111111111111111111",
-          path: "README.md",
-          patch: ["@@ -1,1 +1,2 @@", " # Title", "+a second line", ""].join("\n"),
-          truncated: false,
-        },
-      }),
-    },
-  );
+  transport.responses.set("GET /api/workspaces/w-1/commit?hash=1111111111111111111111111111111111111111", {
+    status: 200,
+    body: JSON.stringify({
+      detail: {
+        workspaceId: "w-1",
+        hash: "1111111111111111111111111111111111111111",
+        body: BODY,
+        files: [
+          { path: "src/main.ts", status: "M", additions: 2, deletions: 1, previousPath: null },
+          { path: "README.md", status: "M", additions: 1, deletions: 0, previousPath: null },
+        ],
+      },
+    }),
+  });
+  transport.responses.set("GET /api/workspaces/w-1/diff?hash=1111111111111111111111111111111111111111&path=README.md", {
+    status: 200,
+    body: JSON.stringify({
+      diff: {
+        workspaceId: "w-1",
+        hash: "1111111111111111111111111111111111111111",
+        path: "README.md",
+        patch: ["@@ -1,1 +1,2 @@", " # Title", "+a second line", ""].join("\n"),
+        truncated: false,
+      },
+    }),
+  });
   transport.responses.set(
     "GET /api/workspaces/w-1/diff?hash=1111111111111111111111111111111111111111&path=src%2Fmain.ts",
     {
@@ -135,16 +127,14 @@ it("opens a commit's file as a diff in the editor, and stays open for the next o
   const commit = await within(popup).findByRole("button", { name: /teach the bar to look backwards/ });
   // Nothing below the log is fetched until it is asked for: a panel that read every commit's file
   // list to draw a list of subjects would read the whole repository.
-  expect(transport.requests.some((request) => request.path.startsWith("/api/workspaces/w-1/commit?")))
-    .toBe(false);
+  expect(transport.requests.some((request) => request.path.startsWith("/api/workspaces/w-1/commit?"))).toBe(false);
 
   fireEvent.click(commit);
   fireEvent.click(await within(popup).findByRole("button", { name: "Open the diff of src/main.ts" }));
 
   // A tab of its own, named for the file and the commit rather than for the file alone, because
   // every other tab in that strip is a file.
-  expect(await screen.findByRole("tab", { name: "Show the diff of main.ts in 1111111" }))
-    .toBeInTheDocument();
+  expect(await screen.findByRole("tab", { name: "Show the diff of main.ts in 1111111" })).toBeInTheDocument();
 
   // The patch's own header is dropped -- it restates the tab above it -- and the changed lines are
   // what is left, without the markers that classified them.
@@ -161,8 +151,10 @@ it("opens a commit's file as a diff in the editor, and stays open for the next o
 
   // The panel is still there, on the same commit, with the row it opened marked -- a reader who
   // has found the commit is usually reading more than one of its files.
-  expect(within(popup).getByRole("button", { name: "Open the diff of src/main.ts" }))
-    .toHaveAttribute("aria-current", "true");
+  expect(within(popup).getByRole("button", { name: "Open the diff of src/main.ts" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
   fireEvent.click(within(popup).getByRole("button", { name: "Open the diff of README.md" }));
   expect(await screen.findByLabelText("Diff of README.md")).toBeInTheDocument();
   // One diff tab, pointed somewhere else, rather than a strip of near-identical tabs.
@@ -225,10 +217,13 @@ it("comes back to the commit it was reading, with the row that opened the diff m
   // the status bar, so dismissing the panel does not throw it away. Without that, coming back to
   // the commit a reader was in the middle of would mean scrolling and re-expanding every time.
   const reopened = await screen.findByRole("dialog", { name: "Commit history" });
-  expect(within(reopened).getByRole("button", { name: "Open the diff of src/main.ts" }))
-    .toHaveAttribute("aria-current", "true");
-  expect(transport.requests.filter((request) => request.path.startsWith("/api/workspaces/w-1/commits")))
-    .toHaveLength(1);
+  expect(within(reopened).getByRole("button", { name: "Open the diff of src/main.ts" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  expect(transport.requests.filter((request) => request.path.startsWith("/api/workspaces/w-1/commits"))).toHaveLength(
+    1,
+  );
 });
 
 it("keeps the history up while the editor is in use, and drops it on a click elsewhere", async () => {
@@ -287,8 +282,7 @@ it("opens a source-control row as its uncommitted diff, and reads it again as gi
     }),
   });
   const asked = () =>
-    transport.requests.filter((request) => request.path === "/api/workspaces/w-1/change?path=src%2Fmain.ts")
-      .length;
+    transport.requests.filter((request) => request.path === "/api/workspaces/w-1/change?path=src%2Fmain.ts").length;
   transport.responses.set("GET /api/workspaces/w-1/change?path=src%2Fmain.ts", change("first edit"));
 
   fireEvent.click(screen.getByRole("button", { name: /^Show Source Control/ }));
@@ -306,7 +300,6 @@ it("opens a source-control row as its uncommitted diff, and reads it again as gi
   act(() => {
     transport.deliver("/api/workspaces/w-1/stream", { type: "git", status: { ...GIT } });
   });
-  await waitFor(() =>
-    expect(screen.getByLabelText("Diff of src/main.ts").textContent).toContain("second edit"));
+  await waitFor(() => expect(screen.getByLabelText("Diff of src/main.ts").textContent).toContain("second edit"));
   expect(asked()).toBe(2);
 });

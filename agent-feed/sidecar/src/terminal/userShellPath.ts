@@ -34,7 +34,9 @@ export function userShellPath(): Promise<string | undefined> {
 export async function resolveUserShellPath({
   env = process.env,
   timeoutMs = TIMEOUT_MS,
-}: { env?: Record<string, string | undefined>; timeoutMs?: number } = {}): Promise<{ path: string } | { failed: string }> {
+}: { env?: Record<string, string | undefined>; timeoutMs?: number } = {}): Promise<
+  { path: string } | { failed: string }
+> {
   let child;
   try {
     child = Bun.spawn([SHELL, "-l", "-i", "-c", `print -rn -- "${OPEN}$PATH${CLOSE}"`], {

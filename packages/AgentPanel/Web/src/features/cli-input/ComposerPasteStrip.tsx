@@ -50,10 +50,7 @@ export function ComposerPasteStrip({
       <ul className="flex flex-wrap gap-3 px-3 pt-3">
         {pastes.map((paste) => (
           <li key={paste.token} className="relative">
-            <PasteChip
-              paste={paste}
-              onOpen={paste.held === null ? null : () => setOpened(paste.token)}
-            />
+            <PasteChip paste={paste} onOpen={paste.held === null ? null : () => setOpened(paste.token)} />
             <button
               type="button"
               onClick={() => onRemove(paste.token)}
@@ -72,14 +69,22 @@ export function ComposerPasteStrip({
           paste={shown}
           read={onPreview}
           onClose={() => setOpened(null)}
-          onExpand={disabled ? null : () => {
-            void onExpand(shown.token);
-            setOpened(null);
-          }}
-          onRemove={disabled ? null : () => {
-            onRemove(shown.token);
-            setOpened(null);
-          }}
+          onExpand={
+            disabled
+              ? null
+              : () => {
+                  void onExpand(shown.token);
+                  setOpened(null);
+                }
+          }
+          onRemove={
+            disabled
+              ? null
+              : () => {
+                  onRemove(shown.token);
+                  setOpened(null);
+                }
+          }
         />
       ) : null}
     </>
@@ -95,11 +100,12 @@ export function ComposerPasteStrip({
  * because then the number is genuinely all there is.
  */
 function PasteChip({ paste, onOpen }: { paste: ComposerPaste; onOpen: (() => void) | null }) {
-  const shape = paste.held === null
-    ? `#${paste.id}`
-    : paste.held.lines > 1
-      ? `${paste.held.lines} lines`
-      : `${paste.held.chars} characters`;
+  const shape =
+    paste.held === null
+      ? `#${paste.id}`
+      : paste.held.lines > 1
+        ? `${paste.held.lines} lines`
+        : `${paste.held.chars} characters`;
   const body = (
     <>
       <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -163,7 +169,9 @@ function PastePreview({
     <dialog
       ref={modalWhileMounted}
       onClose={onClose}
-      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
       aria-label={`Pasted text #${paste.id}`}
       className="m-auto max-h-[85dvh] w-[min(46rem,92vw)] rounded-xl border border-border bg-card p-0 text-foreground backdrop:bg-black/60"
     >
@@ -189,9 +197,7 @@ function PastePreview({
           </pre>
         ) : (
           <p className="text-sm text-muted-foreground">
-            {failed
-              ? "Claude is holding these words inside the session, so the panel cannot show them."
-              : "Reading…"}
+            {failed ? "Claude is holding these words inside the session, so the panel cannot show them." : "Reading…"}
           </p>
         )}
       </div>

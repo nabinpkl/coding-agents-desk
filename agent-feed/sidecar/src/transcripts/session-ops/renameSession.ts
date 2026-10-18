@@ -73,7 +73,8 @@ async function renameThroughProcess(sessionId: string, title: string, steps: Ren
   const { sdk } = steps;
   if (await sdk.isServing(sessionId)) {
     const reply = await sdk.command(sessionId, { type: "rename", title });
-    if (!reply.ok) throw new SessionRenameUnavailableError(`this session's runner did not take the rename: ${reply.message}`);
+    if (!reply.ok)
+      throw new SessionRenameUnavailableError(`this session's runner did not take the rename: ${reply.message}`);
     return;
   }
   const outcome = await steps.inPane(sessionId, title);

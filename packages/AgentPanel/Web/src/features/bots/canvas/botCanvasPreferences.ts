@@ -197,9 +197,7 @@ export function loadCanvasOpenKeys(): ReadonlySet<string> {
     if (!Array.isArray(parsed)) return new Set();
     // Each entry checked for the shape it is written in, so a hand-edited value cannot become a
     // lookup for a key no session could ever have.
-    return new Set(
-      parsed.filter((key): key is string => typeof key === "string" && key.includes(":")),
-    );
+    return new Set(parsed.filter((key): key is string => typeof key === "string" && key.includes(":")));
   } catch {
     return new Set();
   }
@@ -355,10 +353,14 @@ export function loadCanvasScroll(): CanvasScroll {
 export function storeCanvasScroll(scroll: CanvasScroll): void {
   try {
     if (scroll.left === 0 && scroll.top === 0) localStorage.removeItem(SCROLL_KEY);
-    else localStorage.setItem(SCROLL_KEY, JSON.stringify({
-      left: Math.round(offset(scroll.left)),
-      top: Math.round(offset(scroll.top)),
-    }));
+    else
+      localStorage.setItem(
+        SCROLL_KEY,
+        JSON.stringify({
+          left: Math.round(offset(scroll.left)),
+          top: Math.round(offset(scroll.top)),
+        }),
+      );
   } catch {
     // The canvas still scrolls; it just opens at the left edge next time.
   }
@@ -373,9 +375,7 @@ export function storeCanvasScroll(scroll: CanvasScroll): void {
  * machines and no one `bots.json` holds them all. Stable, so Bots that share a position -- or have
  * none, and stand after every Bot that does -- keep the order the roster arrived in.
  */
-export function botCanvasPositionOrder(
-  bots: readonly { botId: string; canvasPosition?: number }[],
-): string[] {
+export function botCanvasPositionOrder(bots: readonly { botId: string; canvasPosition?: number }[]): string[] {
   return [...bots]
     .sort((a, b) => (a.canvasPosition ?? Infinity) - (b.canvasPosition ?? Infinity))
     .map((bot) => bot.botId);
@@ -456,4 +456,3 @@ export function storeHiddenMachines(keys: ReadonlySet<string>): void {
     // The canvas still hides and shows machines; it just forgets which by the next visit.
   }
 }
-

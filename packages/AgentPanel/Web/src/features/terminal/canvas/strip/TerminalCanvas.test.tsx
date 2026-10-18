@@ -6,12 +6,13 @@ import { TerminalCanvas } from "@/features/terminal/canvas/strip/TerminalCanvas"
 import { groupTerminalsByDirectory } from "@/features/terminal/canvas/terminalGroups";
 import { terminalParentHues, terminalParentRanks } from "@/features/terminal/canvas/terminalSurface";
 
-
 class FakeTerminal {
   readonly dimensions = { css: { cell: { width: 8, height: 16 } } };
   readonly options: Record<string, unknown>;
   readonly writes: string[] = [];
-  readonly buffer = { active: { type: "normal" as "normal" | "alternate", cursorY: 0, viewportY: 0, getLine: () => undefined } };
+  readonly buffer = {
+    active: { type: "normal" as "normal" | "alternate", cursorY: 0, viewportY: 0, getLine: () => undefined },
+  };
   element: HTMLElement | undefined;
   textarea: HTMLTextAreaElement | undefined;
   wheel: ((event: WheelEvent) => boolean) | null = null;
@@ -23,21 +24,31 @@ class FakeTerminal {
     this.textarea = element.ownerDocument.createElement("textarea");
     element.append(this.textarea);
   }
-  attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) { this.wheel = handler; }
+  attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) {
+    this.wheel = handler;
+  }
   scrollLines() {}
   clear() {}
   reset() {}
   resize() {}
-  focus() { this.textarea?.focus(); }
+  focus() {
+    this.textarea?.focus();
+  }
   dispose() {}
   write(bytes: Uint8Array, done: () => void) {
     this.writes.push(new TextDecoder().decode(bytes));
     done();
   }
-  onData() { return { dispose: () => {} }; }
+  onData() {
+    return { dispose: () => {} };
+  }
   // Nothing renders in jsdom; the pane's watch on the last drawn row only needs the hook.
-  onRender() { return { dispose: () => {} }; }
-  onBinary() { return { dispose: () => {} }; }
+  onRender() {
+    return { dispose: () => {} };
+  }
+  onBinary() {
+    return { dispose: () => {} };
+  }
 }
 
 vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
@@ -73,12 +84,14 @@ function feedFake(overrides: Partial<SidecarDataSource> = {}) {
 }
 
 function canvasProps(feed: SidecarDataSource, overrides: Record<string, unknown> = {}) {
-  const grouping = groupTerminalsByDirectory([{
-    machineLabel: "mac",
-    sessions: [session("a", "/proj"), session("b", "/proj", 2), session("solo", "/other")],
-    workspaceRoots: ["/empty"],
-    botDirs: [],
-  }]);
+  const grouping = groupTerminalsByDirectory([
+    {
+      machineLabel: "mac",
+      sessions: [session("a", "/proj"), session("b", "/proj", 2), session("solo", "/other")],
+      workspaceRoots: ["/empty"],
+      botDirs: [],
+    },
+  ]);
   const hues = terminalParentHues([
     ...grouping.parents.map((parent) => ({ key: parent.key, path: parent.path })),
     ...grouping.residue.map((parent) => ({ key: parent.key, path: parent.path })),
@@ -163,9 +176,13 @@ it("opens a row's tile on its own tmux attach, and closes it back to a row", asy
 
 it("kills only through the confirmed menu, and reports the failure on the card", async () => {
   const feed = feedFake({
-    killTmuxSession: vi.fn(async () => { throw new Error("tmux: no such session"); }),
+    killTmuxSession: vi.fn(async () => {
+      throw new Error("tmux: no such session");
+    }),
   });
-  const onKillChild = vi.fn(async () => { await feed.killTmuxSession("a"); });
+  const onKillChild = vi.fn(async () => {
+    await feed.killTmuxSession("a");
+  });
   render(<TerminalCanvas {...canvasProps(feed, { onKillChild })} />);
 
   // Mere menu does not kill.
@@ -241,10 +258,14 @@ it("hides a parent off the strip and brings it back from the strip's end", () =>
 it("names hidden children in the parent and shows them back on one press", () => {
   const feed = feedFake();
   const onShowHiddenChildren = vi.fn();
-  render(<TerminalCanvas {...canvasProps(feed, {
-    offStripChildren: new Set([":b"]),
-    onShowHiddenChildren,
-  })} />);
+  render(
+    <TerminalCanvas
+      {...canvasProps(feed, {
+        offStripChildren: new Set([":b"]),
+        onShowHiddenChildren,
+      })}
+    />,
+  );
 
   expect(screen.queryByText("b")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Show 1 hidden session" }));
@@ -295,10 +316,9 @@ it("refuses an oversize image on the card and sends nothing", async () => {
   render(<TerminalCanvas {...canvasProps(feed)} />);
 
   const file = new File(["x".repeat(10 * 1024 * 1024 + 1)], "big.png", { type: "image/png" });
-  fireEvent.drop(
-    screen.getByRole("button", { name: "a unattached · 1 window" }),
-    { dataTransfer: { files: [file], types: ["Files"] } },
-  );
+  fireEvent.drop(screen.getByRole("button", { name: "a unattached · 1 window" }), {
+    dataTransfer: { files: [file], types: ["Files"] },
+  });
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(screen.getByText("An image has to be under 10 MB.")).toBeTruthy();
   expect(dropTmuxSessionImage).not.toHaveBeenCalled();
@@ -324,21 +344,35 @@ it("attaches through the menu picker, reporting a refusal on the card", async ()
 
 it("lists a multi-window session's windows with the active one marked, and opens one on its target", async () => {
   const feed = feedFake();
-  const grouping = groupTerminalsByDirectory([{
-    machineLabel: "mac",
-    sessions: [{
-      name: "harbor",
-      windows: 4,
-      attachedClients: 0,
-      path: "/proj",
-      windowList: [
-        { index: 0, name: "zsh", active: false, panes: [{ index: 0, active: true, command: "zsh", path: "/proj" }] },
-        { index: 1, name: "backend", active: true, panes: [{ index: 0, active: true, command: "node", path: "/proj" }] },
+  const grouping = groupTerminalsByDirectory([
+    {
+      machineLabel: "mac",
+      sessions: [
+        {
+          name: "harbor",
+          windows: 4,
+          attachedClients: 0,
+          path: "/proj",
+          windowList: [
+            {
+              index: 0,
+              name: "zsh",
+              active: false,
+              panes: [{ index: 0, active: true, command: "zsh", path: "/proj" }],
+            },
+            {
+              index: 1,
+              name: "backend",
+              active: true,
+              panes: [{ index: 0, active: true, command: "node", path: "/proj" }],
+            },
+          ],
+        },
       ],
-    }],
-    workspaceRoots: [],
-    botDirs: [],
-  }]);
+      workspaceRoots: [],
+      botDirs: [],
+    },
+  ]);
   const props = canvasProps(feed, { grouping });
   const view = render(<TerminalCanvas {...props} />);
 

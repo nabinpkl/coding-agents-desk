@@ -119,7 +119,8 @@ export function linkFilePaths(el: Element, root: string): boolean {
     changed = true;
   }
   const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => (node.parentElement?.closest(NOT_PROSE) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    acceptNode: (node) =>
+      node.parentElement?.closest(NOT_PROSE) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
   });
   const texts: Text[] = [];
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) texts.push(node as Text);

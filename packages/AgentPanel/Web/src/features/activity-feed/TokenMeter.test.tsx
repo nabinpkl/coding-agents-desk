@@ -5,11 +5,7 @@ import { newerUsage } from "@/features/activity-feed/usageFromEvents";
 
 describe("TokenMeter", () => {
   it("renders a fill bar sized to the fraction of the known window", () => {
-    render(
-      <TokenMeter
-        usage={{ current: 150_000, limit: 200_000, updatedAt: 1, model: "claude-opus-5" }}
-      />,
-    );
+    render(<TokenMeter usage={{ current: 150_000, limit: 200_000, updatedAt: 1, model: "claude-opus-5" }} />);
 
     const bar = screen.getByRole("progressbar", {
       name: "Context: 75% of 200,000 tokens",
@@ -44,21 +40,13 @@ describe("TokenMeter", () => {
   });
 
   it("sets the session spend beside the count the way the TUI does", () => {
-    render(
-      <TokenMeter
-        usage={{ current: 214_800, limit: 1_048_576, updatedAt: 1, cost: 1.691467206 }}
-      />,
-    );
+    render(<TokenMeter usage={{ current: 214_800, limit: 1_048_576, updatedAt: 1, cost: 1.691467206 }} />);
 
     expect(screen.getByLabelText("Session cost $1.69").textContent).toBe("$1.69");
   });
 
   it("shows no dollar figure where no backend reported one", () => {
-    render(
-      <TokenMeter
-        usage={{ current: 214_800, limit: 1_048_576, updatedAt: 1 }}
-      />,
-    );
+    render(<TokenMeter usage={{ current: 214_800, limit: 1_048_576, updatedAt: 1 }} />);
 
     expect(screen.queryByLabelText(/Session cost/)).toBeNull();
   });
@@ -117,9 +105,7 @@ describe("cache countdown", () => {
 
   it("holds at zero once expired rather than going negative", () => {
     render(
-      <TokenMeter
-        usage={{ current: 500_000, limit: null, updatedAt: Date.now() - 3 * HOUR, cacheTtlMs: HOUR }}
-      />,
+      <TokenMeter usage={{ current: 500_000, limit: null, updatedAt: Date.now() - 3 * HOUR, cacheTtlMs: HOUR }} />,
     );
 
     expect(screen.getByLabelText("Prompt cache: 0 minutes left").textContent).toBe("0m");
@@ -157,9 +143,7 @@ describe("cost threshold", () => {
   it("warns on a context big enough that compacting pays, long before the window is full", () => {
     // 300k of a 1M window is 30% full and grey by every fraction rule, and it is also the range
     // where one more turn of work costs several times what compacting it would.
-    render(
-      <TokenMeter usage={{ current: 300_000, limit: 1_000_000, updatedAt: 1, model: "claude-opus-5" }} />,
-    );
+    render(<TokenMeter usage={{ current: 300_000, limit: 1_000_000, updatedAt: 1, model: "claude-opus-5" }} />);
 
     const bar = screen.getByRole("progressbar");
     expect(bar.getAttribute("aria-label")).toContain("Compacting now pays for itself");
@@ -200,9 +184,7 @@ describe("cost threshold", () => {
 
 describe("model name", () => {
   it("names the model in the one word the footer has room for", () => {
-    render(
-      <TokenMeter usage={{ current: 150_000, limit: 1_000_000, updatedAt: 1, model: "claude-opus-5[1m]" }} />,
-    );
+    render(<TokenMeter usage={{ current: 150_000, limit: 1_000_000, updatedAt: 1, model: "claude-opus-5[1m]" }} />);
 
     // The tier suffix is what makes this the 1M run rather than the 200k one, so it stays on the
     // title where the exact answer belongs. What the row shows is the word a reader is checking.

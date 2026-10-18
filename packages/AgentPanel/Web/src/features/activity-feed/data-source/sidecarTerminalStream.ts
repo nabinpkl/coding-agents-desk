@@ -4,10 +4,7 @@
 // part of that class with state to keep: three fields that have to agree about whether a stream
 // is open, and a map whose emptiness is what closes it. Everything else there is a route call.
 
-import type {
-  AgentTerminalStreamEnvelope,
-  AgentTerminalStreamMessage,
-} from "@agentdesk/agent-feed-wire";
+import type { AgentTerminalStreamEnvelope, AgentTerminalStreamMessage } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 
 export interface TerminalViewer {
@@ -61,11 +58,7 @@ export class TerminalViewers {
    * then asked for a replay would watch its own history erased. Off, the screen it already wrote
    * stands and the live output continues it.
    */
-  subscribe(
-    terminalId: string,
-    handlers: TerminalViewer,
-    { replay = true }: { replay?: boolean } = {},
-  ): () => void {
+  subscribe(terminalId: string, handlers: TerminalViewer, { replay = true }: { replay?: boolean } = {}): () => void {
     const viewers = this.terminalViewers.get(terminalId) ?? new Set<TerminalViewer>();
     viewers.add(handlers);
     this.terminalViewers.set(terminalId, viewers);
@@ -74,8 +67,7 @@ export class TerminalViewers {
     // After the viewer is registered AND the stream is carrying, never before: the replay is what
     // paints the screen that was already there, and it is published once to whoever is listening.
     void streaming
-      .then(() => this.transport
-        .request("POST", `/api/terminals/${encodeURIComponent(terminalId)}/checkpoint`))
+      .then(() => this.transport.request("POST", `/api/terminals/${encodeURIComponent(terminalId)}/checkpoint`))
       .then((response) => {
         if (response.status >= 200 && response.status < 300) return;
         handlers.onError?.(`Terminal replay was refused with ${response.status}`);
@@ -97,7 +89,9 @@ export class TerminalViewers {
   private open(): Promise<void> {
     if (this.terminalStreamOpen) return this.terminalStreamOpen;
     let carrying = (): void => {};
-    this.terminalStreamOpen = new Promise<void>((resolve) => { carrying = resolve; });
+    this.terminalStreamOpen = new Promise<void>((resolve) => {
+      carrying = resolve;
+    });
     // A stream that never opens is the failure this whole class of bug hides behind, and it is
     // silent by construction: no error, no log, no frame -- just a terminal that says it is opening
     // forever. It cost an evening once, when the dev server served HTTP/1.1 and this stream, being
@@ -105,14 +99,18 @@ export class TerminalViewers {
     // streams already held. Whatever the cause, the viewer is told rather than left reading a
     // label that is technically true.
     this.terminalStreamStall = setTimeout(
-      () => this.fail(
-        "Terminal stream did not open. The panel holds an event stream per surface, so this is"
-        + " usually the origin refusing another connection -- check that it negotiates HTTP/2.",
-      ),
+      () =>
+        this.fail(
+          "Terminal stream did not open. The panel holds an event stream per surface, so this is" +
+            " usually the origin refusing another connection -- check that it negotiates HTTP/2.",
+        ),
       TERMINAL_STREAM_OPEN_TIMEOUT_MS,
     );
     this.terminalStream = this.transport.subscribe("/api/terminals/stream", {
-      onOpen: () => { this.clearStall(); carrying(); },
+      onOpen: () => {
+        this.clearStall();
+        carrying();
+      },
       onMessage: (payload) => {
         let envelope: AgentTerminalStreamEnvelope;
         try {

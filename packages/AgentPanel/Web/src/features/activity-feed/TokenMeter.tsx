@@ -56,21 +56,24 @@ function useHoverOpen() {
     cancel();
     setOpen(false);
   }, [cancel]);
-  const handlers = useMemo<HoverHandlers>(() => ({
-    onPointerEnter: (event) => {
-      if (event.pointerType === "touch") return;
-      cancel();
-      setOpen(true);
-    },
-    onPointerLeave: (event) => {
-      if (event.pointerType === "touch") return;
-      cancel();
-      timer.current = setTimeout(() => {
-        timer.current = null;
-        setOpen(false);
-      }, HOVER_CLOSE_MS);
-    },
-  }), [cancel]);
+  const handlers = useMemo<HoverHandlers>(
+    () => ({
+      onPointerEnter: (event) => {
+        if (event.pointerType === "touch") return;
+        cancel();
+        setOpen(true);
+      },
+      onPointerLeave: (event) => {
+        if (event.pointerType === "touch") return;
+        cancel();
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          setOpen(false);
+        }, HOVER_CLOSE_MS);
+      },
+    }),
+    [cancel],
+  );
   return useMemo(() => ({ open, close, handlers }), [open, close, handlers]);
 }
 
@@ -143,18 +146,11 @@ function CacheCountdown({ usage }: { usage: TokenUsage }) {
   const minutes = minutesOfCacheLeft(usage, now);
   if (minutes === null) return null;
   const tone =
-    minutes === 0
-      ? "text-destructive"
-      : minutes <= CACHE_WARN_MINUTES
-        ? "text-amber-500"
-        : "text-muted-foreground/70";
+    minutes === 0 ? "text-destructive" : minutes <= CACHE_WARN_MINUTES ? "text-amber-500" : "text-muted-foreground/70";
   return (
     <span
       aria-label={`Prompt cache: ${minutes} minutes left`}
-      className={
-        "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
-        tone
-      }
+      className={"font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " + tone}
     >
       {minutes}m
     </span>
@@ -281,9 +277,7 @@ export function TokenMeter({
   // window at all: what compacting saves is a property of the context's SIZE, not of how much room
   // is left beside it.
   const costly = usage.current >= COMPACTION_PAYS_ABOVE;
-  const fraction = usage.limit === null
-    ? null
-    : Math.min(1, Math.max(0, usage.current / usage.limit));
+  const fraction = usage.limit === null ? null : Math.min(1, Math.max(0, usage.current / usage.limit));
   const percent = fraction === null ? null : Math.round(fraction * 100);
   const tone =
     fraction !== null && fraction >= CRITICAL_FRACTION
@@ -338,7 +332,10 @@ export function TokenMeter({
       >
         {showModel ? <ModelChip model={usage.model} /> : null}
         <CacheCountdown usage={usage} />
-        <LimitChips quotas={accountWide(limits)} unavailable={limits.kind === "ready" ? limits.unavailable : undefined} />
+        <LimitChips
+          quotas={accountWide(limits)}
+          unavailable={limits.kind === "ready" ? limits.unavailable : undefined}
+        />
         <span className="flex flex-col items-end gap-[2px]">
           <span
             className={
@@ -346,10 +343,13 @@ export function TokenMeter({
               tone
             }
             {...(usage.limit === null
-              ? { "aria-label": `Context: ${usage.current.toLocaleString()} tokens${costly ? ` · ${COSTLY_NOTE}` : ""}` }
+              ? {
+                  "aria-label": `Context: ${usage.current.toLocaleString()} tokens${costly ? ` · ${COSTLY_NOTE}` : ""}`,
+                }
               : {})}
           >
-            {count}{percent === null ? "" : ` (${percent}%)`}
+            {count}
+            {percent === null ? "" : ` (${percent}%)`}
           </span>
           {/* The track carries the role and the accessible name, not the wrapper: the bar IS the
               fraction, and naming it here is what makes the readout addressable rather than a
@@ -365,10 +365,7 @@ export function TokenMeter({
               aria-valuemax={100}
               className="h-[3px] w-full overflow-hidden rounded-full bg-muted"
             >
-              <span
-                className={"block h-full rounded-full " + fill}
-                style={{ width: `${percent}%` }}
-              />
+              <span className={"block h-full rounded-full " + fill} style={{ width: `${percent}%` }} />
             </span>
           )}
         </span>
@@ -440,7 +437,10 @@ function LimitChips({ quotas, unavailable }: { quotas: UsageQuota[]; unavailable
 function LimitChipList({ quotas }: { quotas: UsageQuota[] }) {
   // Read afresh with each new reading, and every minute while one is shown: a reading turns stale
   // by sitting on screen, which nothing reports.
-  const at = useNow(quotas.reduce((latest, quota) => Math.max(latest, quota.sampledAt), 0), 60_000);
+  const at = useNow(
+    quotas.reduce((latest, quota) => Math.max(latest, quota.sampledAt), 0),
+    60_000,
+  );
   return (
     <span className="flex shrink-0 items-center gap-1.5">
       {quotas.map((quota) => {
@@ -456,9 +456,9 @@ function LimitChipList({ quotas }: { quotas: UsageQuota[] }) {
               // between one chip and the next. The window and its percentage were further apart
               // than `5h: 1%` and `7d: 69%` were, so the row read as four loose things rather
               // than two pairs. In em, so it holds when the reader scales the panel's type.
-              "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums "
-              + "[word-spacing:-0.35em] "
-              + chipTone(quota.usedPercent, stale)
+              "font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums " +
+              "[word-spacing:-0.35em] " +
+              chipTone(quota.usedPercent, stale)
             }
           >
             {formatWindow(quota.windowMinutes)}: {quota.usedPercent}%

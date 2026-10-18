@@ -114,10 +114,11 @@ export function BotSidebarPanel({
   const detachedBotIds = canvas?.detachedBotIds;
   const machineHiddenBotIds = canvas?.machineHiddenBotIds;
   const ordered = useMemo(
-    () => withOffCanvasLast(
-      bots,
-      detachedBotIds && machineHiddenBotIds ? { detachedBotIds, machineHiddenBotIds } : undefined,
-    ),
+    () =>
+      withOffCanvasLast(
+        bots,
+        detachedBotIds && machineHiddenBotIds ? { detachedBotIds, machineHiddenBotIds } : undefined,
+      ),
     [bots, detachedBotIds, machineHiddenBotIds],
   );
   const faces = useBotFaces();
@@ -149,7 +150,10 @@ export function BotSidebarPanel({
       </div>
       {status}
       {loading ? (
-        <div role="status" className="flex min-h-28 items-center justify-center gap-2 p-4 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+        <div
+          role="status"
+          className="flex min-h-28 items-center justify-center gap-2 p-4 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
+        >
           <LoaderCircle className="size-4 animate-spin" aria-hidden />
           Loading Bots…
         </div>
@@ -158,7 +162,10 @@ export function BotSidebarPanel({
           Bots unavailable: {error}
         </div>
       ) : bots.length === 0 ? (
-        <div role="status" className="flex min-h-28 flex-col items-center justify-center gap-2 p-4 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+        <div
+          role="status"
+          className="flex min-h-28 flex-col items-center justify-center gap-2 p-4 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
+        >
           <Bot className="size-5" aria-hidden />
           No bots yet
         </div>

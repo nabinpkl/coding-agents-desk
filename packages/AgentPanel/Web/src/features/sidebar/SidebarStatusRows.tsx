@@ -8,7 +8,10 @@ import { ReconnectingChip } from "@/features/activity-feed/ReconnectingNotice";
 
 export function SidebarStatus({ children }: { children: string }) {
   return (
-    <div role="status" className="flex min-h-28 items-center justify-center p-4 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+    <div
+      role="status"
+      className="flex min-h-28 items-center justify-center p-4 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
+    >
       {children}
     </div>
   );
@@ -22,13 +25,7 @@ export function InlineStatus({ children }: { children: string }) {
   );
 }
 
-export function SidebarError({
-  message,
-  retrying,
-}: {
-  message: string;
-  retrying: boolean;
-}) {
+export function SidebarError({ message, retrying }: { message: string; retrying: boolean }) {
   return (
     <div role="alert" className="p-4 text-(length:--agent-panel-fs-sidebar-meta,13px)">
       <p className="text-destructive">{message}</p>

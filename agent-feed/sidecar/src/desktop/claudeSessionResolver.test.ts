@@ -74,7 +74,10 @@ function window(
 function snapshot(
   activeSpaceID: number | null,
   windows: DesktopWindow[],
-  { diagnostic = null, screenRecordingTrusted = true }: {
+  {
+    diagnostic = null,
+    screenRecordingTrusted = true,
+  }: {
     diagnostic?: string | null;
     screenRecordingTrusted?: boolean;
   } = {},
@@ -89,11 +92,7 @@ function snapshot(
 }
 
 /** A `~/.claude/sessions/<pid>.json` row in the shape Claude Code writes. */
-function registryJSON(
-  pid: number,
-  sessionId: string,
-  entrypoint: string | null = "claude-desktop",
-): string {
+function registryJSON(pid: number, sessionId: string, entrypoint: string | null = "claude-desktop"): string {
   const fields = [
     `"pid":${pid}`,
     `"sessionId":"${sessionId}"`,
@@ -144,8 +143,7 @@ describe("process table", () => {
     // pid 610 resumes "<desktopSession>-archived". A substring match would have returned it here
     // and resolved this session to the wrong Claude window.
     expect(resumePids(`${DESKTOP_SESSION}-archived`, FIXTURE, FLAG)).toEqual([610]);
-    expect([...resumedSessionIds("claude --resume=abc --resume=def", FLAG)].sort())
-      .toEqual(["abc", "def"]);
+    expect([...resumedSessionIds("claude --resume=abc --resume=def", FLAG)].sort()).toEqual(["abc", "def"]);
   });
 });
 
@@ -251,9 +249,10 @@ describe("registry resolver", () => {
     // The live file carries pid, sessionId, cwd, startedAt, procStart, version, peerProtocol, kind,
     // entrypoint, name, and nameSource. Decoding keeps what resolution needs and ignores the rest.
     const directory = registryDirectory({
-      "90906.json": `{"pid":90906,"sessionId":"${DESKTOP_SESSION}","cwd":"/Users/dev/p",`
-        + `"startedAt":1786078983531,"procStart":"Fri Aug  7 05:03:00 2026","version":"2.1.222",`
-        + `"peerProtocol":1,"kind":"interactive","entrypoint":"claude-desktop","name":"agent-desk"}`,
+      "90906.json":
+        `{"pid":90906,"sessionId":"${DESKTOP_SESSION}","cwd":"/Users/dev/p",` +
+        `"startedAt":1786078983531,"procStart":"Fri Aug  7 05:03:00 2026","version":"2.1.222",` +
+        `"peerProtocol":1,"kind":"interactive","entrypoint":"claude-desktop","name":"agent-desk"}`,
     });
 
     const entries = registryEntries(directory);
@@ -342,11 +341,7 @@ describe("window targeting", () => {
   });
 
   test("prefers the window already on the active Desktop", () => {
-    const resolved = target(
-      DESKTOP_SESSION,
-      400,
-      snapshot(1, [window(42, 400, [4]), window(43, 400, [1])]),
-    );
+    const resolved = target(DESKTOP_SESSION, 400, snapshot(1, [window(42, 400, [4]), window(43, 400, [1])]));
 
     expect(resolved.ok && resolved.target.windowID).toBe(43);
   });
@@ -360,11 +355,7 @@ describe("window targeting", () => {
     const resolved = target(
       DESKTOP_SESSION,
       400,
-      snapshot(1, [
-        window(10, 400, [1], { title: "" }),
-        window(11, 400, [1], { title: "" }),
-        window(12, 400, [4]),
-      ]),
+      snapshot(1, [window(10, 400, [1], { title: "" }), window(11, 400, [1], { title: "" }), window(12, 400, [4])]),
     );
 
     expect(resolved.ok && resolved.target.windowID).toBe(12);

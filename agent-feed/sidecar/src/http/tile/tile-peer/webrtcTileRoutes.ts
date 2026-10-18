@@ -31,7 +31,11 @@ import type { WebrtcSessionsClose } from "@/http/tile/tile-peer/webrtcSessions";
 export { WebrtcEncoderDiagnostics } from "@/http/tile/tile-diagnostics/webrtcDiagnosticsLog";
 export { writeEncoderControl } from "@/http/tile/tile-encoder/webrtcEncoderPool";
 export { isTerminalWebrtcConnectionState } from "@/http/tile/tile-peer/webrtcConnectionState";
-export { encoderDisposition, encoderStreamKey, type EncoderDisposition } from "@/http/tile/tile-encoder/webrtcEncoderIdentity";
+export {
+  encoderDisposition,
+  encoderStreamKey,
+  type EncoderDisposition,
+} from "@/http/tile/tile-encoder/webrtcEncoderIdentity";
 export { encoderSourceRect } from "@/http/tile/tile-peer/webrtcTileOffer";
 export {
   parseWebrtcDeliveryClientSample,
@@ -48,8 +52,7 @@ export {
 
 /** The target is a window id, or the literal `display` for the whole screen. */
 const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc$/;
-const WEBRTC_TILE_TELEMETRY_ROUTE =
-  /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc\/telemetry$/;
+const WEBRTC_TILE_TELEMETRY_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc\/telemetry$/;
 // Who is watching and what is capturing, and a way to end either. `GET` lists, `POST .../close`
 // takes `{attempt}`, `{encoderPid}` or `{all: true}`. The viewer posts its own attempt here when
 // it closes a peer: a browser-side close sends nothing on the wire, so without it the sidecar
@@ -58,9 +61,7 @@ const WEBRTC_TILE_TELEMETRY_ROUTE =
 const WEBRTC_SESSIONS_ROUTE = "/api/park/webrtc/sessions";
 const WEBRTC_SESSIONS_CLOSE_ROUTE = "/api/park/webrtc/sessions/close";
 
-export function createWebrtcTileRoutes(
-  recordClientDiagnostic: (line: string) => void = diag,
-): RouteHandler {
+export function createWebrtcTileRoutes(recordClientDiagnostic: (line: string) => void = diag): RouteHandler {
   return (request, url) => {
     if (request.method === "GET" && url.pathname === WEBRTC_SESSIONS_ROUTE) {
       return jsonResponse(webrtcSessionsSnapshot());
@@ -76,16 +77,17 @@ export function createWebrtcTileRoutes(
         }
         const named = body.attempt !== undefined || body.encoderPid !== undefined || body.all === true;
         if (
-          !named
-          || (body.attempt !== undefined && !ATTEMPT_PATTERN.test(String(body.attempt)))
-          || (body.encoderPid !== undefined && !Number.isInteger(body.encoderPid))
+          !named ||
+          (body.attempt !== undefined && !ATTEMPT_PATTERN.test(String(body.attempt))) ||
+          (body.encoderPid !== undefined && !Number.isInteger(body.encoderPid))
         ) {
           return jsonResponse(
             { code: "webrtc-bad-close", message: "body must name an attempt, an encoderPid, or all" },
             400,
           );
         }
-        const reason = body.all === true ? "closed-all" : body.attempt !== undefined ? "viewer-closed" : "encoder-closed";
+        const reason =
+          body.all === true ? "closed-all" : body.attempt !== undefined ? "viewer-closed" : "encoder-closed";
         return jsonResponse(closeWebrtcSessions(body, reason));
       })();
     }
@@ -96,10 +98,7 @@ export function createWebrtcTileRoutes(
         try {
           body = (await request.json()) as TileTelemetry;
         } catch {
-          return jsonResponse(
-            { code: "webrtc-bad-telemetry", message: "body was not JSON" },
-            400,
-          );
+          return jsonResponse({ code: "webrtc-bad-telemetry", message: "body was not JSON" }, 400);
         }
         return recordClientTelemetry(telemetry[1]!, body, recordClientDiagnostic);
       })();

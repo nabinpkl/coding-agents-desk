@@ -41,11 +41,7 @@ export function NewSessionDialog({
   const [error, setError] = useStateFor<string | null>(open, () => null);
 
   const browse = useCallback((path: string | null) => machine.feed.browseDirectories(path), [machine]);
-  const createFolder = useCallback(
-    (path: string, name: string) => machine.feed.createDirectory(path, name),
-    [machine],
-  );
-
+  const createFolder = useCallback((path: string, name: string) => machine.feed.createDirectory(path, name), [machine]);
 
   useModal(dialogRef, Boolean(open), { attributeFallback: true });
 
@@ -85,7 +81,9 @@ export function NewSessionDialog({
     >
       <section className="flex max-h-[min(720px,92dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card text-foreground shadow-2xl">
         <header className="flex min-h-12 shrink-0 items-center border-b border-border px-4">
-          <h2 id="new-session-title" className="min-w-0 flex-1 truncate text-base font-semibold">New session</h2>
+          <h2 id="new-session-title" className="min-w-0 flex-1 truncate text-base font-semibold">
+            New session
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -163,7 +161,11 @@ export function NewSessionDialog({
                 className="mt-1 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
               />
             </label>
-            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
             <div className="mt-auto flex justify-end gap-2">
               <button
                 type="button"
@@ -179,9 +181,11 @@ export function NewSessionDialog({
                 aria-busy={pending || undefined}
                 className="flex min-h-10 min-w-28 cursor-pointer items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {pending
-                  ? <LoaderCircle className="size-4 animate-spin" aria-hidden />
-                  : <SquareTerminal className="size-4" aria-hidden />}
+                {pending ? (
+                  <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <SquareTerminal className="size-4" aria-hidden />
+                )}
                 {pending ? "Starting…" : "Start session"}
               </button>
             </div>

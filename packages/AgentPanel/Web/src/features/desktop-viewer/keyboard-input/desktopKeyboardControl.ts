@@ -2,11 +2,12 @@
 // keys already sent it has acknowledged.
 
 import type { DesktopControlEvent } from "@agentdesk/agent-feed-wire";
+import { appendLocalEcho, MAX_RECEIPT_EVENTS } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardModel";
 import {
-  appendLocalEcho,
-  MAX_RECEIPT_EVENTS,
-} from "@/features/desktop-viewer/keyboard-input/desktopKeyboardModel";
-import { clearFocusTimer, clearLocalState, updatePresentation } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSession";
+  clearFocusTimer,
+  clearLocalState,
+  updatePresentation,
+} from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSession";
 import { sendBatch } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardSend";
 import type { KeyboardContext } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardContext";
 
@@ -23,9 +24,7 @@ export function handleControlEvent(ctx: KeyboardContext, event: DesktopControlEv
   if (event.type === "text-focus") {
     if (ctx.presentationRef.current.focusRequestId !== event.focusRequestId) return;
     clearFocusTimer(ctx);
-    const started = ctx.focusStarted.current?.requestID === event.focusRequestId
-      ? ctx.focusStarted.current.at
-      : null;
+    const started = ctx.focusStarted.current?.requestID === event.focusRequestId ? ctx.focusStarted.current.at : null;
     ctx.focusStarted.current = null;
     const before = ctx.presentationRef.current.presentation;
     const next = updatePresentation(ctx, { type: "focus-result", event });
@@ -65,9 +64,7 @@ export function handleControlEvent(ctx: KeyboardContext, event: DesktopControlEv
     return;
   }
   if (event.type === "input-rejected") {
-    const delivery = event.sequence === undefined
-      ? undefined
-      : ctx.pendingDeliveries.current.get(event.sequence);
+    const delivery = event.sequence === undefined ? undefined : ctx.pendingDeliveries.current.get(event.sequence);
     if (event.sequence !== undefined) ctx.pendingDeliveries.current.delete(event.sequence);
     ctx.setLocalEcho([]);
     ctx.setDeliveryStatus(`Input rejected: ${event.reason}`);
@@ -80,9 +77,11 @@ export function handleControlEvent(ctx: KeyboardContext, event: DesktopControlEv
         secure: delivery?.secure ?? ctx.presentationRef.current.secure,
       },
     });
-    if (ctx.presentationRef.current.presentation === "pending"
-        || event.reason === "accessibility-denied"
-        || event.reason === "not-owner") {
+    if (
+      ctx.presentationRef.current.presentation === "pending" ||
+      event.reason === "accessibility-denied" ||
+      event.reason === "not-owner"
+    ) {
       clearLocalState(ctx, "hide", event.reason);
     }
   }

@@ -6,17 +6,15 @@
 // inside the registry, which stays the thin dispatcher that checks the actor and hands over.
 
 import { stat } from "node:fs/promises";
-import type {
-  BotRecord,
-  BotSnapshot,
-  BotView,
-} from "@agentdesk/agent-feed-wire";
-import { noteBotSessionOutcomes, resolveBotSessions, type BotSessionOutcome } from "@/bots/sessions/botSessionResolution";
+import type { BotRecord, BotSnapshot, BotView } from "@agentdesk/agent-feed-wire";
+import {
+  noteBotSessionOutcomes,
+  resolveBotSessions,
+  type BotSessionOutcome,
+} from "@/bots/sessions/botSessionResolution";
 import { viewSignature, type BotSubscribeOptions } from "@/bots/botSubscriptionChanges";
 import { type BotStore, type StoredBotSnapshot } from "@/bots/botStore";
-import {
-  type BotRegistryCatalog,
-} from "@/bots/botTypes";
+import { type BotRegistryCatalog } from "@/bots/botTypes";
 import { nextAnchor, spentAnchors } from "@/bots/sessions/botSessionLaunch";
 
 async function directoryAvailability(path: string): Promise<"available" | "missing"> {
@@ -62,22 +60,23 @@ export class BotViewer {
     // `force` is for the first snapshot, which nobody has emitted yet. Everything after that goes
     // through the change check, which is the whole point of having one.
     const emit = (force = false): void => {
-      tail = tail.then(async () => {
-        const snapshot = await this.snapshot();
-        if (closed) return;
-        // Only for a subscriber that reads it. The hub's emits are the frequent ones and the
-        // signature is two sorts per Bot, which is nothing -- but nothing on the hottest path in
-        // the product is better spent on a value that is then discarded.
-        const visible = onChange === "view" ? viewSignature(snapshot) : lastVisible;
-        const unchanged = snapshot.revision === lastRevision
-          && (onChange === "store" || visible === lastVisible);
-        if (!force && unchanged) return;
-        lastRevision = snapshot.revision;
-        lastVisible = visible;
-        listener(snapshot);
-      }).catch((error) => {
-        if (!closed) onError?.(error);
-      });
+      tail = tail
+        .then(async () => {
+          const snapshot = await this.snapshot();
+          if (closed) return;
+          // Only for a subscriber that reads it. The hub's emits are the frequent ones and the
+          // signature is two sorts per Bot, which is nothing -- but nothing on the hottest path in
+          // the product is better spent on a value that is then discarded.
+          const visible = onChange === "view" ? viewSignature(snapshot) : lastVisible;
+          const unchanged = snapshot.revision === lastRevision && (onChange === "store" || visible === lastVisible);
+          if (!force && unchanged) return;
+          lastRevision = snapshot.revision;
+          lastVisible = visible;
+          listener(snapshot);
+        })
+        .catch((error) => {
+          if (!closed) onError?.(error);
+        });
     };
     // Both signals go unforced, and the catalog one matters most. Which of them is worth answering
     // is `onChange`, and the whole reason there are two answers is in `botSubscriptionChanges.ts` --
@@ -140,10 +139,7 @@ export class BotViewer {
     record: BotRecord,
     next: string,
   ): Promise<{ view: BotView; outcomes: BotSessionOutcome[] }> {
-    const { outcomes, ...split } = await resolveBotSessions(
-      record,
-      (ref) => this.catalog.resolveSession(ref),
-    );
+    const { outcomes, ...split } = await resolveBotSessions(record, (ref) => this.catalog.resolveSession(ref));
     return {
       view: {
         ...record,

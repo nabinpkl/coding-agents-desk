@@ -60,11 +60,7 @@ function MarkdownDocument({ text }: { text: string }) {
 }
 
 function PlainText({ text }: { text: string }) {
-  return (
-    <pre className="h-full overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-xs">
-      {text}
-    </pre>
-  );
+  return <pre className="h-full overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-xs">{text}</pre>;
 }
 
 interface NotebookCell {
@@ -93,16 +89,18 @@ function NotebookPreview({ text }: { text: string }) {
   } catch {
     return <PlainText text={text} />;
   }
-  const document = cells.map((cell) => {
-    const source = joined(cell.source);
-    if (cell.cell_type === "markdown") return source;
-    const outputs = (cell.outputs ?? [])
-      .map((output) => joined(output.text))
-      .filter(Boolean)
-      .join("");
-    const code = ["```python", source, "```"].join("\n");
-    return outputs ? `${code}\n\n\`\`\`\n${outputs}\n\`\`\`` : code;
-  }).join("\n\n");
+  const document = cells
+    .map((cell) => {
+      const source = joined(cell.source);
+      if (cell.cell_type === "markdown") return source;
+      const outputs = (cell.outputs ?? [])
+        .map((output) => joined(output.text))
+        .filter(Boolean)
+        .join("");
+      const code = ["```python", source, "```"].join("\n");
+      return outputs ? `${code}\n\n\`\`\`\n${outputs}\n\`\`\`` : code;
+    })
+    .join("\n\n");
   return <MarkdownDocument text={document} />;
 }
 

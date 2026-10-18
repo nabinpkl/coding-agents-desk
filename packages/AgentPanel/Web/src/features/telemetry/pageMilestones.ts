@@ -24,7 +24,10 @@ let waiting: { pending: Set<Milestone>; span: Span } | null = null;
 export function awaitMilestones(names: readonly Milestone[]): void {
   const pending = new Set(names.filter((name) => !reached.has(name)));
   if (pending.size === 0) return;
-  waiting = { pending, span: startInactiveSpan({ name: "panel ready", op: "ui.load", startTime: performance.timeOrigin }) };
+  waiting = {
+    pending,
+    span: startInactiveSpan({ name: "panel ready", op: "ui.load", startTime: performance.timeOrigin }),
+  };
 }
 
 /** Adds one to what the page load is waiting for, while it still is. */

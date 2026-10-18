@@ -80,7 +80,10 @@ export interface ManagerSteps {
 }
 
 /** The live steps, over this machine's tmux, CLIs and serve. */
-export function liveManagerSteps(backend: ManagerOpencodeBackend, storedDiff: ManagerSteps["storedDiff"]): ManagerSteps {
+export function liveManagerSteps(
+  backend: ManagerOpencodeBackend,
+  storedDiff: ManagerSteps["storedDiff"],
+): ManagerSteps {
   return {
     startClaude: async (options) => (await startClaudeSession(options)).tmuxSession,
     openOpencode: async (requestId, cwd) =>
@@ -153,7 +156,11 @@ export class ArenaManagers {
     for (const run of this.registry.list()) {
       if (run.manager?.status !== "starting") continue;
       this.registry.updateRun(run.runId, (one) => {
-        one.manager = { ...one.manager!, status: "failed", error: "the sidecar restarted while the manager was starting" };
+        one.manager = {
+          ...one.manager!,
+          status: "failed",
+          error: "the sidecar restarted while the manager was starting",
+        };
       });
     }
     for (const run of this.registry.list()) {
@@ -201,7 +208,11 @@ export class ArenaManagers {
     } catch (error) {
       this.registry.updateRun(runId, (one) => {
         if (one.manager) {
-          one.manager = { ...one.manager, status: "failed", error: error instanceof Error ? error.message : String(error) };
+          one.manager = {
+            ...one.manager,
+            status: "failed",
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
       });
     }
@@ -260,7 +271,9 @@ export class ArenaManagers {
       written.settled.set(contestant.contestantId, turn);
     }
     // Stamped with the time of writing, so it is compared without one.
-    const key = JSON.stringify(renderManagerBrief(withDiffs, { nonce: written.nonce, now: 0, managerFolder: folder, api: this.api }));
+    const key = JSON.stringify(
+      renderManagerBrief(withDiffs, { nonce: written.nonce, now: 0, managerFolder: folder, api: this.api }),
+    );
     if (key === written.brief) return;
     await mkdir(folder, { recursive: true });
     await writeWhole(

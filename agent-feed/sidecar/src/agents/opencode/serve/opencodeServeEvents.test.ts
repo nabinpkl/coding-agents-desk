@@ -42,18 +42,21 @@ function harness(events: V2Event[], ui: AgentUiBroker | null = null) {
     compactionDeltaForSession: (sessionId, text) => void calls.push(`sessdelta:${sessionId}:${text}`),
     compactionSettled: (sessionId) => void calls.push(`settled:${sessionId}`),
     streamPart: (sessionId, streamed) =>
-      void calls.push(`part:${sessionId}:${streamed.kind}:${streamed.phase}:${streamed.messageId}:${streamed.chunk ?? ""}`),
+      void calls.push(
+        `part:${sessionId}:${streamed.kind}:${streamed.phase}:${streamed.messageId}:${streamed.chunk ?? ""}`,
+      ),
   };
   const client = {
     event: {
-      subscribe: ({ signal }: { signal?: AbortSignal } = {}) => (async function* () {
-        for (const event of events) yield event;
-        // Hold the stream open the way the real one does; abort ends it.
-        await new Promise<void>((_, reject) => {
-          if (signal?.aborted) reject(new Error("aborted"));
-          else signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-        });
-      })(),
+      subscribe: ({ signal }: { signal?: AbortSignal } = {}) =>
+        (async function* () {
+          for (const event of events) yield event;
+          // Hold the stream open the way the real one does; abort ends it.
+          await new Promise<void>((_, reject) => {
+            if (signal?.aborted) reject(new Error("aborted"));
+            else signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          });
+        })(),
     },
     permission: { reply: async (input: unknown) => void replies.push({ permission: input }) },
     session: { form: { reply: async (input: unknown) => void replies.push({ form: input }) } },
@@ -107,7 +110,12 @@ test("a turn's words go to the projection, and only the step ending buys a read"
   const { calls, stream } = harness([
     part("session.reasoning.started", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0 }),
     part("session.reasoning.delta", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, delta: "weighing" }),
-    part("session.reasoning.ended", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, text: "weighing it up" }),
+    part("session.reasoning.ended", {
+      sessionID: "ses-1",
+      assistantMessageID: "msg-1",
+      ordinal: 0,
+      text: "weighing it up",
+    }),
     part("session.text.started", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0 }),
     part("session.text.delta", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, delta: "the answer" }),
     part("session.text.ended", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, text: "the answer" }),
@@ -139,12 +147,7 @@ test("a tool lifecycle is not a word, so it leaves to the read that has the whol
   await stream.dispose();
   // A partial tool row is a call with no result under it; the read that ends the step brings
   // the input, the output and the state together. These four do coalesce into one read.
-  expect(calls).toEqual([
-    "refresh:ses-1",
-    "refresh:ses-1",
-    "refresh:ses-1",
-    "refresh:ses-1",
-  ]);
+  expect(calls).toEqual(["refresh:ses-1", "refresh:ses-1", "refresh:ses-1", "refresh:ses-1"]);
 });
 
 test("a word event this shape cannot draw is dropped rather than read", async () => {
@@ -166,22 +169,30 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 test("a permission the serve asks is asked of the reader, and the answer is its decision", async () => {
   const asked: unknown[] = [];
-  const { replies, stream } = harness([
-    part("permission.asked", { id: "per-1", sessionID: "ses-1", action: "bash", resources: ["rm -rf build"] }),
-  ], scriptedBroker(["always"], asked));
+  const { replies, stream } = harness(
+    [part("permission.asked", { id: "per-1", sessionID: "ses-1", action: "bash", resources: ["rm -rf build"] })],
+    scriptedBroker(["always"], asked),
+  );
   stream.setWanted(true);
   await settle();
   await stream.dispose();
   expect(asked).toEqual([
-    { kind: "select", title: "Allow bash?", message: "rm -rf build", options: ["once", "always", "reject"], key: "permission:per-1" },
+    {
+      kind: "select",
+      title: "Allow bash?",
+      message: "rm -rf build",
+      options: ["once", "always", "reject"],
+      key: "permission:per-1",
+    },
   ]);
   expect(replies).toEqual([{ permission: { sessionID: "ses-1", requestID: "per-1", decision: "always" } }]);
 });
 
 test("a reader who never answers a permission rejects it rather than leaving the turn hanging", async () => {
-  const { replies, stream } = harness([
-    part("permission.asked", { id: "per-2", sessionID: "ses-1", action: "edit", resources: ["/a"] }),
-  ], scriptedBroker([undefined], []));
+  const { replies, stream } = harness(
+    [part("permission.asked", { id: "per-2", sessionID: "ses-1", action: "edit", resources: ["/a"] })],
+    scriptedBroker([undefined], []),
+  );
   stream.setWanted(true);
   await settle();
   await stream.dispose();
@@ -195,20 +206,37 @@ test("a form asks each field the closest way the broker can, and replies with th
     sessionID: "ses-1",
     title: "Before I start",
     fields: [
-      { key: "target", type: "string", title: "Which target?", options: [{ value: "web", label: "Web" }, { value: "ios", label: "iOS" }] },
+      {
+        key: "target",
+        type: "string",
+        title: "Which target?",
+        options: [
+          { value: "web", label: "Web" },
+          { value: "ios", label: "iOS" },
+        ],
+      },
       { key: "tests", type: "boolean", title: "Run the tests?" },
       { key: "note", type: "string", title: "Anything else?" },
       { key: "retries", type: "integer", title: "Retries" },
       { key: "docs", type: "external", url: "https://example.com", title: "Read this" },
     ],
   };
-  const { replies, stream } = harness([part("form.created", { form })], scriptedBroker(["iOS", true, "be quick", "3.7"], asked));
+  const { replies, stream } = harness(
+    [part("form.created", { form })],
+    scriptedBroker(["iOS", true, "be quick", "3.7"], asked),
+  );
   stream.setWanted(true);
   await settle();
   await stream.dispose();
   expect(asked.map((one) => (one as { kind: string }).kind)).toEqual(["select", "confirm", "input", "input"]);
   expect(replies).toEqual([
-    { form: { sessionID: "ses-1", formID: "form-1", answer: { target: "ios", tests: true, note: "be quick", retries: 3 } } },
+    {
+      form: {
+        sessionID: "ses-1",
+        formID: "form-1",
+        answer: { target: "ios", tests: true, note: "be quick", retries: 3 },
+      },
+    },
   ]);
 });
 

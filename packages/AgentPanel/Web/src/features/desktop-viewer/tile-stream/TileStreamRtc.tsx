@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type {
-  DesktopControlEvent,
-  WebrtcTileSourceMetadata,
-} from "@agentdesk/agent-feed-wire";
+import type { DesktopControlEvent, WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 import type { CapturePlan } from "@/features/desktop-viewer/zoom/tileCapturePlan";
@@ -16,14 +13,15 @@ import {
 } from "@/features/desktop-viewer/tile-stream/tileStreamSession";
 import { createVideoPresentationWatch } from "@/features/desktop-viewer/tile-stream/tileVideoPresentation";
 import { tileCaptureSize } from "@/features/desktop-viewer/tile-stream/webrtcTileCapture";
-import {
-  postWebrtcClose,
-  type DesktopControlTransport,
-} from "@/features/desktop-viewer/tile-stream/webrtcTileWire";
+import { postWebrtcClose, type DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/webrtcTileWire";
 
 // Re-exported: the surfaces that render a tile import this component, and these are what
 // they hand it or read from it. The declarations live in the modules named.
-export { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN, tileCaptureSize } from "@/features/desktop-viewer/tile-stream/webrtcTileCapture";
+export {
+  CAPTURE_SCALE_MAX,
+  CAPTURE_SCALE_MIN,
+  tileCaptureSize,
+} from "@/features/desktop-viewer/tile-stream/webrtcTileCapture";
 export {
   classifyReceiverProgress,
   receiverProgressDelta,
@@ -126,14 +124,16 @@ export function TileStreamRtc({
   // The plan by value: a new one must renegotiate, an equal one must not, and display points are
   // whole, so rounding keeps sub-pixel gesture arithmetic from restarting the stream.
   const capturePlanKey = capturePlan
-    ? `${Math.round(capturePlan.region.x)},${Math.round(capturePlan.region.y)},`
-      + `${Math.round(capturePlan.region.width)},${Math.round(capturePlan.region.height)}`
-      + `@${capturePlan.pixelWidth}x${capturePlan.pixelHeight}`
+    ? `${Math.round(capturePlan.region.x)},${Math.round(capturePlan.region.y)},` +
+      `${Math.round(capturePlan.region.width)},${Math.round(capturePlan.region.height)}` +
+      `@${capturePlan.pixelWidth}x${capturePlan.pixelHeight}`
     : "";
   // A webview without WebRTC is known before anything is tried, so it starts in the state it ends in.
-  const [state, setState] = useState<DesktopStreamState>(() => typeof RTCPeerConnection === "undefined"
-    ? { kind: "unsupported", message: "this webview has no RTCPeerConnection" }
-    : { kind: "connecting" });
+  const [state, setState] = useState<DesktopStreamState>(() =>
+    typeof RTCPeerConnection === "undefined"
+      ? { kind: "unsupported", message: "this webview has no RTCPeerConnection" }
+      : { kind: "connecting" },
+  );
   const onControlTransportRef = useLatestRef(onControlTransport);
   const onControlEventRef = useLatestRef(onControlEvent);
   const onSourceMetadataRef = useLatestRef(onSourceMetadata);
@@ -150,9 +150,6 @@ export function TileStreamRtc({
   const retiring = useRef<{ peer: RTCPeerConnection; attempt: string; timer: number } | null>(null);
   const [hasPicture, setHasPicture] = useState(false);
   const onDisplayUnavailableRef = useLatestRef(onDisplayUnavailable);
-
-
-
 
   useNotify(state, (next) => onState?.(next));
 
@@ -194,11 +191,8 @@ export function TileStreamRtc({
         }, RETIRE_TIMEOUT_MS),
       };
     };
-    const presentation = createVideoPresentationWatch(
-      element,
-      windowID,
-      httpTransport,
-      () => onFirstFrameRef.current?.(),
+    const presentation = createVideoPresentationWatch(element, windowID, httpTransport, () =>
+      onFirstFrameRef.current?.(),
     );
 
     const publishControlTransport = (transport: DesktopControlTransport | null) => {
@@ -213,16 +207,16 @@ export function TileStreamRtc({
       // every 476 KB keyframe and reconnected every twelve seconds. A frame with no width yet (a
       // display handover mounts the new stream before its box is laid out) falls back to the
       // window for the same reason: an unsized offer is the whole display.
-      const shown = frame.current?.closest<HTMLElement>("[data-desktop-viewport]")?.clientWidth
-        || frame.current?.clientWidth
-        || window.innerWidth;
+      const shown =
+        frame.current?.closest<HTMLElement>("[data-desktop-viewport]")?.clientWidth ||
+        frame.current?.clientWidth ||
+        window.innerWidth;
       if (capturePlan) {
         // Bitrate follows the pixels actually encoded, at the rate the whole display would get,
         // rather than shrinking with the region: the region is the part being read. The plan
         // already fixed the pixels; the resolution knob has nothing to add here.
-        const share = width && height
-          ? Math.min(1, (capturePlan.pixelWidth * capturePlan.pixelHeight) / (width * height))
-          : 1;
+        const share =
+          width && height ? Math.min(1, (capturePlan.pixelWidth * capturePlan.pixelHeight) / (width * height)) : 1;
         return {
           width: capturePlan.pixelWidth,
           height: capturePlan.pixelHeight,
@@ -252,7 +246,6 @@ export function TileStreamRtc({
       onControlEventRef,
       onDisplayUnavailableRef,
     };
-
 
     const delay = (ms: number) =>
       new Promise<void>((resolve) => {
@@ -329,17 +322,9 @@ export function TileStreamRtc({
     <div
       ref={frame}
       className={`relative bg-black ${fill ? "size-full" : ""}`}
-      style={fill || width === undefined || height === undefined
-        ? undefined
-        : { aspectRatio: `${width} / ${height}` }}
+      style={fill || width === undefined || height === undefined ? undefined : { aspectRatio: `${width} / ${height}` }}
     >
-      <video
-        ref={video}
-        muted
-        autoPlay
-        playsInline
-        className="size-full object-contain"
-      />
+      <video ref={video} muted autoPlay playsInline className="size-full object-contain" />
       {(state.kind === "connecting" && !hasPicture) || state.kind === "unsupported" || state.kind === "error" ? (
         <p
           className={`absolute inset-0 grid place-items-center px-3 text-center font-mono text-[11px]
@@ -349,9 +334,7 @@ export function TileStreamRtc({
         </p>
       ) : null}
       {state.kind === "reconnecting" ? (
-        <p className="absolute bottom-1 right-2 font-mono text-[10px] text-muted-foreground">
-          reconnecting…
-        </p>
+        <p className="absolute bottom-1 right-2 font-mono text-[10px] text-muted-foreground">reconnecting…</p>
       ) : null}
     </div>
   );

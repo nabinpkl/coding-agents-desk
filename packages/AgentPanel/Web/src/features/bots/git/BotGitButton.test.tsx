@@ -68,8 +68,9 @@ it("counts the changed files and opens them as a list and a diff", async () => {
   await waitFor(() => expect(within(dialog).getByLabelText("Diff of src/a.ts")).toBeTruthy());
   expect(within(dialog).getByLabelText("Diff of src/a.ts").textContent).toContain("new line");
   expect(botGitDiff).toHaveBeenCalledWith("bot-1", "src/a.ts");
-  expect(within(files).getByRole("button", { name: "Show the diff of src/a.ts" }).getAttribute("aria-current"))
-    .toBe("true");
+  expect(within(files).getByRole("button", { name: "Show the diff of src/a.ts" }).getAttribute("aria-current")).toBe(
+    "true",
+  );
 
   fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -91,15 +92,12 @@ it("says why when git cannot be read, instead of showing a zero", async () => {
     }),
   } as unknown as SidecarDataSource;
   render(<Following bot={bot} feed={feed} />);
-  expect(await screen.findByRole("img", { name: "Git changes unavailable: the sidecar answered 500" }))
-    .toBeTruthy();
+  expect(await screen.findByRole("img", { name: "Git changes unavailable: the sidecar answered 500" })).toBeTruthy();
 });
 
 it("follows nothing for a Bot whose directory is missing", () => {
   const { feed } = feedAnswering({ botId: "bot-1", repository: true, branch: "main", entries: [] });
-  const { container } = render(
-    <Following bot={{ ...bot, environmentAvailability: "missing" }} feed={feed} />,
-  );
+  const { container } = render(<Following bot={{ ...bot, environmentAvailability: "missing" }} feed={feed} />);
   expect(feed.subscribeBotGit).not.toHaveBeenCalled();
   expect(container.innerHTML).toBe("");
 });

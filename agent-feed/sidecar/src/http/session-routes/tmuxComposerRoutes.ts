@@ -56,9 +56,7 @@ const RETRY = new TextEncoder().encode("retry: 20000\n\n");
  * next to the route that checks it, and kept in step by the test that asserts every member maps to
  * bytes.
  */
-const RAIL_KEYS = new Set<string>(
-  ["escape", "tab", "up", "down", "left", "right"] satisfies RailKey[],
-);
+const RAIL_KEYS = new Set<string>(["escape", "tab", "up", "down", "left", "right"] satisfies RailKey[]);
 
 /** Whether what arrived names a rail key, and narrows it to one when it does. */
 function isRailKey(value: unknown): value is RailKey {
@@ -82,22 +80,14 @@ export interface TmuxComposerDependencies {
    * -- it may not even be on a Mac -- so a path it chose would name nothing, and a path it was
    * handed would be a filesystem it has no business knowing.
    */
-  drop: (
-    sessionId: string,
-    image: Uint8Array,
-    mediaType: ComposerImageMediaType,
-  ) => Promise<TmuxComposerState>;
+  drop: (sessionId: string, image: Uint8Array, mediaType: ComposerImageMediaType) => Promise<TmuxComposerState>;
   /**
    * Presses one key rail key, for a phone whose keyboard does not have it.
    *
    * Named rather than sent as bytes: this is not a second way to write anything into a pane, and
    * the mapping from key to escape sequence has one home on the wire.
    */
-  key: (
-    sessionId: string,
-    key: RailKey,
-    held: RailModifiers,
-  ) => Promise<TmuxComposerState>;
+  key: (sessionId: string, key: RailKey, held: RailModifiers) => Promise<TmuxComposerState>;
   /**
    * The text one `[Pasted text #N]` handle stands for, or null when this side is not holding it.
    *
@@ -122,9 +112,7 @@ export interface TmuxComposerDependencies {
  * a pane has one pipe and that service owns it, so this module setting its own would replace the
  * terminal viewer's rather than joining it.
  */
-export function liveTmuxComposerDependencies(
-  watch: TmuxComposerWatchRuntime["watch"],
-): TmuxComposerDependencies {
+export function liveTmuxComposerDependencies(watch: TmuxComposerWatchRuntime["watch"]): TmuxComposerDependencies {
   const runtime = liveTmuxComposerRuntime(watch);
   return {
     observe: (sessionId, listener) => observeTmuxComposer(sessionId, listener, runtime),
@@ -138,7 +126,7 @@ export function liveTmuxComposerDependencies(
     paste: async (sessionId, token) => {
       // Resolved through the same held pane the pushes use, so a fetch never costs the session
       // lookup a live watch has already paid for.
-      const pane = runtime.panes.get(sessionId) ?? await runtime.pane(sessionId);
+      const pane = runtime.panes.get(sessionId) ?? (await runtime.pane(sessionId));
       if (pane === null) return null;
       // A pane tmux cannot name any more holds nothing this side can vouch for.
       const key = await runtime.paneKey(pane).catch(() => null);
@@ -205,11 +193,7 @@ export function createTmuxComposerRoutes(composer: TmuxComposerDependencies): Ro
  * rather than a missing address, and the panel draws a chip either way: one that opens, and one
  * that says the words are inside Claude.
  */
-async function readPaste(
-  composer: TmuxComposerDependencies,
-  sessionId: string,
-  token: string,
-): Promise<Response> {
+async function readPaste(composer: TmuxComposerDependencies, sessionId: string, token: string): Promise<Response> {
   if (token.length === 0 || token.length > 64) {
     return errorResponse("invalid-token", "that is not a paste handle", 400);
   }
@@ -224,23 +208,15 @@ async function readPaste(
  * and not a best effort: a rail that grows a key the sidecar has not learned should fail where a
  * reader can see it, not send an escape that means something else.
  */
-async function pressKey(
-  composer: TmuxComposerDependencies,
-  request: Request,
-  sessionId: string,
-): Promise<Response> {
+async function pressKey(composer: TmuxComposerDependencies, request: Request, sessionId: string): Promise<Response> {
   let body: { key?: unknown; modifiers?: unknown };
   try {
-    body = await request.json() as typeof body;
+    body = (await request.json()) as typeof body;
   } catch {
     return errorResponse("body-unreadable", "a key press must carry a JSON body", 400);
   }
   if (!isRailKey(body.key)) {
-    return errorResponse(
-      "key-unknown",
-      `a key press must name one of ${[...RAIL_KEYS].join(", ")}`,
-      400,
-    );
+    return errorResponse("key-unknown", `a key press must name one of ${[...RAIL_KEYS].join(", ")}`, 400);
   }
   const held = body.modifiers;
   const modifiers: RailModifiers = {
@@ -256,14 +232,10 @@ async function pressKey(
  * Moves the session to one permission mode. A refusal is a 200 carrying the reason, like the SDK's
  * commands: the request was understood, and the session simply could not be put there.
  */
-async function setMode(
-  composer: TmuxComposerDependencies,
-  request: Request,
-  sessionId: string,
-): Promise<Response> {
+async function setMode(composer: TmuxComposerDependencies, request: Request, sessionId: string): Promise<Response> {
   let body: { mode?: unknown };
   try {
-    body = await request.json() as typeof body;
+    body = (await request.json()) as typeof body;
   } catch {
     return errorResponse("body-unreadable", "a mode change must carry a JSON body", 400);
   }
@@ -280,21 +252,18 @@ function heldFlag(held: unknown, modifier: RailModifier): boolean {
   return (held as Record<string, unknown>)[modifier] === true;
 }
 
-async function sync(
-  composer: TmuxComposerDependencies,
-  request: Request,
-  sessionId: string,
-): Promise<Response> {
+async function sync(composer: TmuxComposerDependencies, request: Request, sessionId: string): Promise<Response> {
   let body: { text?: unknown };
   try {
-    body = await request.json() as typeof body;
+    body = (await request.json()) as typeof body;
   } catch {
     return errorResponse("invalid-body", "the request body was not JSON", 400);
   }
   // An empty string is a legitimate ask -- it is what clearing the field means -- so this checks
   // the type and not the length. That is the one place this route differs from the inbox next
   // door, which refuses a blank turn because delivering one would cost a model call.
-  if (typeof body.text !== "string") return errorResponse("text-required", "a push must carry the text the composer should hold", 400);
+  if (typeof body.text !== "string")
+    return errorResponse("text-required", "a push must carry the text the composer should hold", 400);
   if (Buffer.byteLength(body.text, "utf8") > MAXIMUM_COMPOSER_BYTES) {
     return errorResponse("text-too-large", "that is more text than a composer will take", 413);
   }
@@ -311,14 +280,10 @@ async function sync(
  * bytes would produce a name Claude accepts and content it then refuses, and the failure would
  * surface as the file's path appearing in somebody's composer rather than as this 415.
  */
-async function drop(
-  composer: TmuxComposerDependencies,
-  request: Request,
-  sessionId: string,
-): Promise<Response> {
+async function drop(composer: TmuxComposerDependencies, request: Request, sessionId: string): Promise<Response> {
   let body: { data?: unknown };
   try {
-    body = await request.json() as typeof body;
+    body = (await request.json()) as typeof body;
   } catch {
     return errorResponse("invalid-body", "the request body was not JSON", 400);
   }
@@ -329,14 +294,11 @@ async function drop(
   // the only thing this can say about the encoding, and the sniff below judges the rest.
   const bytes = Uint8Array.from(Buffer.from(body.data, "base64"));
   if (bytes.length === 0) return errorResponse("image-not-base64", "the image did not decode as base64", 400);
-  if (bytes.length > MAXIMUM_COMPOSER_IMAGE_BYTES) return errorResponse("image-too-large", "that image is larger than a composer will take", 413);
+  if (bytes.length > MAXIMUM_COMPOSER_IMAGE_BYTES)
+    return errorResponse("image-too-large", "that image is larger than a composer will take", 413);
   const mediaType = imageMediaType(bytes);
   if (mediaType === null) {
-    return errorResponse(
-      "image-unsupported",
-      "a terminal composer takes png, jpeg, gif and webp",
-      415,
-    );
+    return errorResponse("image-unsupported", "a terminal composer takes png, jpeg, gif and webp", 415);
   }
   return jsonResponse(await composer.drop(sessionId, bytes, mediaType));
 }

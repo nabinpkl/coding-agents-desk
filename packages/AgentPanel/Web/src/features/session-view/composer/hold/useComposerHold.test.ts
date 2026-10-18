@@ -33,7 +33,10 @@ vi.mock("@/features/session-view/composer/hold/heldImagesStore", () => ({
   }),
   readHeldImages: vi.fn(async (key: string) => stored.get(key) ?? []),
   removeHeldImage: vi.fn(async (key: string, id: number) => {
-    stored.set(key, (stored.get(key) ?? []).filter((image) => image.id !== id));
+    stored.set(
+      key,
+      (stored.get(key) ?? []).filter((image) => image.id !== id),
+    );
   }),
   clearHeldImages: vi.fn(async (key: string) => {
     stored.delete(key);
@@ -123,10 +126,9 @@ describe("useSendAttachments", () => {
 
   it("does not show one session's staged images on another", async () => {
     stubObjectUrls();
-    const { result, rerender } = renderHook(
-      ({ key }: { key: string }) => useSendAttachments(key),
-      { initialProps: { key: "opencode/s1" } },
-    );
+    const { result, rerender } = renderHook(({ key }: { key: string }) => useSendAttachments(key), {
+      initialProps: { key: "opencode/s1" },
+    });
     await act(async () => {
       await result.current.attach([png("mine.png")]);
     });
@@ -155,13 +157,15 @@ describe("useSendAttachments", () => {
   });
 
   it("re-mints a restored strip's ids beside the stored ones rather than over them", async () => {
-    stored.set("opencode/s1", [{
-      id: 4,
-      name: "old.png",
-      mime: "image/png",
-      blob: png("old.png"),
-      addedAt: 1,
-    }]);
+    stored.set("opencode/s1", [
+      {
+        id: 4,
+        name: "old.png",
+        mime: "image/png",
+        blob: png("old.png"),
+        addedAt: 1,
+      },
+    ]);
     stubObjectUrls();
     const { result } = renderHook(() => useSendAttachments("opencode/s1"));
     await act(async () => {
@@ -217,10 +221,9 @@ describe("useComposerDraft", () => {
   });
 
   it("does not carry one session's words into another", () => {
-    const { result, rerender } = renderHook(
-      ({ key }: { key: string }) => useComposerDraft(key),
-      { initialProps: { key: "opencode/s1" } },
-    );
+    const { result, rerender } = renderHook(({ key }: { key: string }) => useComposerDraft(key), {
+      initialProps: { key: "opencode/s1" },
+    });
     act(() => result.current[1]("mine"));
     act(() => rerender({ key: "opencode/s2" }));
     // Empty, not "mine": the field beside a Send that would deliver it somewhere else.
@@ -236,10 +239,18 @@ describe("useComposerDraft", () => {
     // whole object rather than by spying on Storage.prototype, which jsdom's localStorage does
     // not route through.
     vi.stubGlobal("localStorage", {
-      getItem: () => { throw new Error("storage disabled"); },
-      setItem: () => { throw new Error("storage disabled"); },
-      removeItem: () => { throw new Error("storage disabled"); },
-      clear: () => { throw new Error("storage disabled"); },
+      getItem: () => {
+        throw new Error("storage disabled");
+      },
+      setItem: () => {
+        throw new Error("storage disabled");
+      },
+      removeItem: () => {
+        throw new Error("storage disabled");
+      },
+      clear: () => {
+        throw new Error("storage disabled");
+      },
     });
     try {
       const { result } = renderHook(() => useComposerDraft("opencode/s1"));

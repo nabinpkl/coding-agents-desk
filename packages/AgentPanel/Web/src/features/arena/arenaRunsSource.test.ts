@@ -68,22 +68,32 @@ describe("parseRunsStreamFrame", () => {
   });
 
   test("reads a Claude contestant, and refuses a harness it does not know", () => {
-    const claude = parseRunsStreamFrame(JSON.stringify({
-      type: "runs",
-      runs: [run({ contestants: [contestant({ source: "claude" })] })],
-    }));
+    const claude = parseRunsStreamFrame(
+      JSON.stringify({
+        type: "runs",
+        runs: [run({ contestants: [contestant({ source: "claude" })] })],
+      }),
+    );
     expect(claude?.[0]?.contestants[0]?.source).toBe("claude");
-    expect(parseRunsStreamFrame(JSON.stringify({
-      type: "runs",
-      runs: [run({ contestants: [contestant({ source: "pi" })] })],
-    }))).toBeNull();
+    expect(
+      parseRunsStreamFrame(
+        JSON.stringify({
+          type: "runs",
+          runs: [run({ contestants: [contestant({ source: "pi" })] })],
+        }),
+      ),
+    ).toBeNull();
   });
 
   test("refuses a run whose contestants carry a status it does not know", () => {
-    expect(parseRunsStreamFrame(JSON.stringify({
-      type: "runs",
-      runs: [run({ contestants: [contestant({ status: "vibing" })] })],
-    }))).toBeNull();
+    expect(
+      parseRunsStreamFrame(
+        JSON.stringify({
+          type: "runs",
+          runs: [run({ contestants: [contestant({ status: "vibing" })] })],
+        }),
+      ),
+    ).toBeNull();
   });
 });
 
@@ -98,16 +108,20 @@ describe("parseRunSummary", () => {
 
 describe("parseRunDetail", () => {
   test("reads the facts a closed contestant carries", () => {
-    const detail = parseRunDetail(run({
-      contestants: [contestant({
-        status: "closed",
-        contextTokens: 1234,
-        costUsd: 0.02,
-        filesRead: ["/repo/README"],
-        filesWritten: ["/repo/new.ts"],
-        gitDiff: "diff --git a/README",
-      })],
-    }));
+    const detail = parseRunDetail(
+      run({
+        contestants: [
+          contestant({
+            status: "closed",
+            contextTokens: 1234,
+            costUsd: 0.02,
+            filesRead: ["/repo/README"],
+            filesWritten: ["/repo/new.ts"],
+            gitDiff: "diff --git a/README",
+          }),
+        ],
+      }),
+    );
     expect(detail?.contestants[0]?.filesRead).toEqual(["/repo/README"]);
     expect(detail?.contestants[0]?.gitDiff).toBe("diff --git a/README");
     expect(detail?.contestants[0]?.costUsd).toBe(0.02);
@@ -117,11 +131,20 @@ describe("parseRunDetail", () => {
 describe("requests", () => {
   test("creates a run with one contestant entry per lineup slot, in order", async () => {
     const { transport, calls } = transportOf((method) =>
-      method === "POST"
-        ? { status: 201, body: JSON.stringify(run()) }
-        : { status: 500, body: "" }
+      method === "POST" ? { status: 201, body: JSON.stringify(run()) } : { status: 500, body: "" },
     );
-    const answer = await createArenaRun(transport, { name: "", prompt: "say one word", repoPath: "/repos/one", mode: "terminals", contestants: [{ source: "opencode", model: "" }, { source: "claude", model: " sonnet " }, { source: "opencode", model: "opencode/big-pickle" }], manager: null });
+    const answer = await createArenaRun(transport, {
+      name: "",
+      prompt: "say one word",
+      repoPath: "/repos/one",
+      mode: "terminals",
+      contestants: [
+        { source: "opencode", model: "" },
+        { source: "claude", model: " sonnet " },
+        { source: "opencode", model: "opencode/big-pickle" },
+      ],
+      manager: null,
+    });
     expect("run" in answer && answer.run.runId).toBe(run().runId);
     expect((calls[0]?.body as { contestants: unknown[] }).contestants).toEqual([
       { source: "opencode", model: null },
@@ -135,7 +158,14 @@ describe("requests", () => {
       status: 400,
       body: JSON.stringify({ error: { code: "arena-bad-request", message: "a run needs a prompt" } }),
     }));
-    const answer = await createArenaRun(transport, { name: "", prompt: "", repoPath: "/x", mode: "headless", contestants: [{ source: "opencode", model: "" }], manager: null });
+    const answer = await createArenaRun(transport, {
+      name: "",
+      prompt: "",
+      repoPath: "/x",
+      mode: "headless",
+      contestants: [{ source: "opencode", model: "" }],
+      manager: null,
+    });
     expect("message" in answer && answer.message).toBe("a run needs a prompt");
   });
 
@@ -163,13 +193,15 @@ describe("requests", () => {
 
 describe("the terminals mode", () => {
   test("a run carries its mode, and a contestant its pane and its terminal statuses", () => {
-    const summary = parseRunSummary(run({
-      mode: "terminals",
-      contestants: [
-        contestant({ status: "starting", tmuxSession: "arena-c1-11111111" }),
-        contestant({ contestantId: "c2", status: "ready", tmuxSession: "arena-c2-11111111" }),
-      ],
-    }));
+    const summary = parseRunSummary(
+      run({
+        mode: "terminals",
+        contestants: [
+          contestant({ status: "starting", tmuxSession: "arena-c1-11111111" }),
+          contestant({ contestantId: "c2", status: "ready", tmuxSession: "arena-c2-11111111" }),
+        ],
+      }),
+    );
     expect(summary?.mode).toBe("terminals");
     expect(summary?.contestants.map((c) => [c.status, c.tmuxSession])).toEqual([
       ["starting", "arena-c1-11111111"],
@@ -187,7 +219,14 @@ describe("the terminals mode", () => {
 
   test("the mode the reader chose and the name they gave ride the create request", async () => {
     const { transport, calls } = transportOf(() => ({ status: 201, body: JSON.stringify(run()) }));
-    await createArenaRun(transport, { name: "duel", prompt: "p", repoPath: "", mode: "terminals", contestants: [{ source: "claude", model: "" }], manager: "claude" });
+    await createArenaRun(transport, {
+      name: "duel",
+      prompt: "p",
+      repoPath: "",
+      mode: "terminals",
+      contestants: [{ source: "claude", model: "" }],
+      manager: "claude",
+    });
     expect(calls[0]?.body).toMatchObject({ name: "duel", repoPath: "", mode: "terminals", manager: "claude" });
   });
 

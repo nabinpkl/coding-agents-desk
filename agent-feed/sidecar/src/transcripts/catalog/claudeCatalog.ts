@@ -12,16 +12,8 @@ import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 import { cwdsFromEnd } from "@/transcripts/claude/claudeProjects";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
-import {
-  CLAUDE_SESSION_PATTERN,
-  scheduleBroadcast,
-  sessionKey,
-} from "@/transcripts/catalog/catalogState";
-import {
-  canonicalDirectory,
-  isClaudeSessionCandidate,
-  makeSession,
-} from "@/transcripts/catalog/catalogRecords";
+import { CLAUDE_SESSION_PATTERN, scheduleBroadcast, sessionKey } from "@/transcripts/catalog/catalogState";
+import { canonicalDirectory, isClaudeSessionCandidate, makeSession } from "@/transcripts/catalog/catalogRecords";
 
 async function enumerateClaudeCandidates(): Promise<string[]> {
   let slugNames: string[];
@@ -111,12 +103,14 @@ export async function refreshClaudeSession(filePath: string): Promise<void> {
   else {
     // Said out loud rather than swallowed: a transcript this reader cannot make a session out of
     // is the shape of bug that otherwise only shows as a row that never updates.
-    console.log(JSON.stringify({
-      event: "agent-feed-catalog-unreadable",
-      source: "claude",
-      sessionId,
-      held: state.sessions.has(key),
-    }));
+    console.log(
+      JSON.stringify({
+        event: "agent-feed-catalog-unreadable",
+        source: "claude",
+        sessionId,
+        held: state.sessions.has(key),
+      }),
+    );
     return;
   }
   scheduleBroadcast();
@@ -175,13 +169,15 @@ async function readClaudeCandidate(filePath: string): Promise<ClaudeCandidate> {
 export async function reconcileClaude(): Promise<void> {
   const startedAt = performance.now();
   const candidates = await enumerateClaudeCandidates();
-  const scanned = await Promise.all(candidates.map(async (path) => ({
-    path,
-    ...await readClaudeCandidate(path),
-  })));
+  const scanned = await Promise.all(
+    candidates.map(async (path) => ({
+      path,
+      ...(await readClaudeCandidate(path)),
+    })),
+  );
   const next = new Map(
     scanned.flatMap((read) =>
-      read.session ? [[sessionKey("claude", read.session.sessionId), read.session] as const] : []
+      read.session ? [[sessionKey("claude", read.session.sessionId), read.session] as const] : [],
     ),
   );
   // A candidate this reader could not make a session of keeps whatever record it already had,
@@ -200,12 +196,14 @@ export async function reconcileClaude(): Promise<void> {
     }
   }
   for (const [key, session] of next) state.sessions.set(key, session);
-  console.log(JSON.stringify({
-    event: "agent-feed-catalog-source-ready",
-    source: "claude",
-    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
-    candidates: candidates.length,
-    sessions: next.size,
-    unreadable: unreadable.size,
-  }));
+  console.log(
+    JSON.stringify({
+      event: "agent-feed-catalog-source-ready",
+      source: "claude",
+      durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+      candidates: candidates.length,
+      sessions: next.size,
+      unreadable: unreadable.size,
+    }),
+  );
 }

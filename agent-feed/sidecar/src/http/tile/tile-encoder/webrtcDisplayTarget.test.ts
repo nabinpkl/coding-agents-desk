@@ -26,19 +26,30 @@ describe("desktop navigation contracts", () => {
     await expect(resolveDisplayTarget("B", read)).rejects.toThrow("display-unavailable");
   });
   test("each monitor has its own active Space, including fullscreen", () => {
-    expect(desktopNavigationEvent({
-      type: "desktop-state", revision: 1, captureDisplayId: "A",
-      displays: [
-        { id: "A", label: "Built-in", isMain: true, activeSpaceId: "1", spaces: [{ id: "1", type: 0 }] },
-        { id: "B", label: "External", isMain: false, activeSpaceId: fixture.spaceId,
-          spaces: [{ id: fixture.spaceId, type: 4 }] },
-      ],
-    })).not.toBeNull();
+    expect(
+      desktopNavigationEvent({
+        type: "desktop-state",
+        revision: 1,
+        captureDisplayId: "A",
+        displays: [
+          { id: "A", label: "Built-in", isMain: true, activeSpaceId: "1", spaces: [{ id: "1", type: 0 }] },
+          {
+            id: "B",
+            label: "External",
+            isMain: false,
+            activeSpaceId: fixture.spaceId,
+            spaces: [{ id: fixture.spaceId, type: 4 }],
+          },
+        ],
+      }),
+    ).not.toBeNull();
   });
   test("an unplug response names the replacement without silently capturing it", async () => {
     try {
-      await resolveDisplayTarget("B", async () => ({ available: true,
-        displays: [{ id: "A", isMain: true, captureId: 7 }] }));
+      await resolveDisplayTarget("B", async () => ({
+        available: true,
+        displays: [{ id: "A", isMain: true, captureId: 7 }],
+      }));
       throw new Error("missing display should reject");
     } catch (error) {
       expect(error).toBeInstanceOf(DisplayTargetUnavailable);
@@ -46,7 +57,11 @@ describe("desktop navigation contracts", () => {
     }
   });
   test("malformed discovery is unavailable rather than a truncated inventory", async () => {
-    await expect(resolveDisplayTarget(undefined, async () => ({ available: true,
-      displays: [{ id: "A", isMain: true, captureId: -1 }] }))).rejects.toThrow("navigation-unavailable");
+    await expect(
+      resolveDisplayTarget(undefined, async () => ({
+        available: true,
+        displays: [{ id: "A", isMain: true, captureId: -1 }],
+      })),
+    ).rejects.toThrow("navigation-unavailable");
   });
 });

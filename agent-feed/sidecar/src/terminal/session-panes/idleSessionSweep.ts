@@ -126,7 +126,7 @@ export function idleCandidates(input: {
   const { parentOf } = input.processes;
   const panesPerSession = new Map<string, SweepPane[]>();
   for (const pane of input.panes) {
-    panesPerSession.set(pane.session, [...panesPerSession.get(pane.session) ?? [], pane]);
+    panesPerSession.set(pane.session, [...(panesPerSession.get(pane.session) ?? []), pane]);
   }
   const candidates: IdleCandidate[] = [];
   for (const [session, panes] of panesPerSession) {
@@ -212,9 +212,13 @@ export async function sweepIdleSessions(sources: IdleSweepSources, idleAfterMs: 
       await sources.close(candidate.session);
       closed.push(candidate);
       const hours = (candidate.idleMs / 3_600_000).toFixed(1);
-      sources.log(`closed idle ${candidate.source} session ${candidate.sessionId} (tmux "${candidate.session}"): off the canvas, quiet for ${hours}h`);
+      sources.log(
+        `closed idle ${candidate.source} session ${candidate.sessionId} (tmux "${candidate.session}"): off the canvas, quiet for ${hours}h`,
+      );
     } catch (error) {
-      sources.log(`could not close idle session ${candidate.sessionId} (tmux "${candidate.session}"): ${String(error)}`);
+      sources.log(
+        `could not close idle session ${candidate.sessionId} (tmux "${candidate.session}"): ${String(error)}`,
+      );
     }
   }
   return closed;
@@ -222,15 +226,25 @@ export async function sweepIdleSessions(sources: IdleSweepSources, idleAfterMs: 
 
 /** Every pane tmux has, with the stamp and attached count of the session it is in. */
 export async function listSweepPanes(): Promise<SweepPane[]> {
-  const { out, err, code } = await tmux(["list-panes", "-a", "-F", "#{session_name}|#{@agentdesk-session}|#{session_attached}|#{pane_pid}"]);
+  const { out, err, code } = await tmux([
+    "list-panes",
+    "-a",
+    "-F",
+    "#{session_name}|#{@agentdesk-session}|#{session_attached}|#{pane_pid}",
+  ]);
   if (code !== 0) {
     if (noServerRunning(err)) return [];
     throw new Error(`tmux list-panes exited ${code}: ${err.trim() || out.trim()}`);
   }
-  return out.split("\n").filter((line) => line.trim()).flatMap((line) => {
-    const [session, stamp, attached, pid] = line.split("|");
-    return session ? [{ session, stamp: stamp?.trim() ?? "", attached: Number(attached) || 0, pid: Number(pid) || -1 }] : [];
-  });
+  return out
+    .split("\n")
+    .filter((line) => line.trim())
+    .flatMap((line) => {
+      const [session, stamp, attached, pid] = line.split("|");
+      return session
+        ? [{ session, stamp: stamp?.trim() ?? "", attached: Number(attached) || 0, pid: Number(pid) || -1 }]
+        : [];
+    });
 }
 
 /**
@@ -288,7 +302,8 @@ async function opencodeUpdatedAt(sessionId: string): Promise<number | null> {
   try {
     const answer = await serveGet(`/api/session/${encodeURIComponent(sessionId)}`);
     if (answer.status !== 200) return null;
-    const updated = (JSON.parse(answer.text) as { data?: { time?: { updated?: unknown } } } | null)?.data?.time?.updated;
+    const updated = (JSON.parse(answer.text) as { data?: { time?: { updated?: unknown } } } | null)?.data?.time
+      ?.updated;
     return typeof updated === "number" ? updated : null;
   } catch {
     return null;
@@ -297,22 +312,26 @@ async function opencodeUpdatedAt(sessionId: string): Promise<number | null> {
 
 /** The sweep over this machine, as `server.ts` starts it. Logged to the sidecar's own log. */
 export function startLiveIdleSessionSweep(botStore: Pick<BotStore, "snapshot">): () => void {
-  return startIdleSessionSweep({
-    processes: async () => {
-      const table = await currentProcessTable();
-      return {
-        live: await liveSessionProcesses(table),
-        opencodeTuis: table.filter((row) => OPENCODE_TUI.test(row.command)).map((row) => row.pid),
-        parentOf: new Map(table.map((row) => [row.pid, row.ppid])),
-      };
+  return startIdleSessionSweep(
+    {
+      processes: async () => {
+        const table = await currentProcessTable();
+        return {
+          live: await liveSessionProcesses(table),
+          opencodeTuis: table.filter((row) => OPENCODE_TUI.test(row.command)).map((row) => row.pid),
+          parentOf: new Map(table.map((row) => [row.pid, row.ppid])),
+        };
+      },
+      panes: listSweepPanes,
+      lastEventAt: async (source, sessionId) =>
+        findSession(source, sessionId)?.lastEventAt ?? (source === "opencode" ? opencodeUpdatedAt(sessionId) : null),
+      activeOpencode,
+      bots: async () => (await botStore.snapshot()).bots,
+      close: killTmuxSession,
+      now: Date.now,
+      log: (message) => console.log(`[idle-sweep] ${message}`),
     },
-    panes: listSweepPanes,
-    lastEventAt: async (source, sessionId) =>
-      findSession(source, sessionId)?.lastEventAt ?? (source === "opencode" ? opencodeUpdatedAt(sessionId) : null),
-    activeOpencode,
-    bots: async () => (await botStore.snapshot()).bots,
-    close: killTmuxSession,
-    now: Date.now,
-    log: (message) => console.log(`[idle-sweep] ${message}`),
-  }, idleCloseAfterMs, idleSweepEveryMs);
+    idleCloseAfterMs,
+    idleSweepEveryMs,
+  );
 }

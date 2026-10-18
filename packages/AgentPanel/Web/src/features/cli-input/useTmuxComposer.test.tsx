@@ -1,14 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import {
-  draft,
-  holding,
-  pane,
-  press,
-  Probe,
-  settle,
-  type,
-} from "@/features/cli-input/useTmuxComposerHarness";
+import { draft, holding, pane, press, Probe, settle, type } from "@/features/cli-input/useTmuxComposerHarness";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -32,10 +24,15 @@ describe("tmux composer", () => {
     // is the session's real terminal throughout, and a surface that drives its KEYBOARD has to be
     // told so. Latching both on the box is what left a reader who opened a session because it
     // asked them a question being told the session had no terminal.
-    const feed = pane(
-      "",
-      { text: null, hint: null, reason: "no-composer", exact: true, commands: [], pastes: [], images: [] },
-    );
+    const feed = pane("", {
+      text: null,
+      hint: null,
+      reason: "no-composer",
+      exact: true,
+      commands: [],
+      pastes: [],
+      images: [],
+    });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("false");
@@ -43,7 +40,15 @@ describe("tmux composer", () => {
   });
 
   it("does not claim a pane for a session that has none", async () => {
-    const feed = pane("", { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] });
+    const feed = pane("", {
+      text: null,
+      hint: null,
+      reason: "no-pane",
+      exact: true,
+      commands: [],
+      pastes: [],
+      images: [],
+    });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("paned").textContent).toBe("false");
@@ -71,7 +76,9 @@ describe("tmux composer", () => {
     let release: (() => void) | null = null;
     const slow = feed.syncTmuxComposer;
     feed.syncTmuxComposer = async (session, text) => {
-      const held = new Promise<void>((wake) => { release = wake; });
+      const held = new Promise<void>((wake) => {
+        release = wake;
+      });
       await held;
       return slow(session, text);
     };
@@ -94,11 +101,15 @@ describe("tmux composer", () => {
     // per keystroke that went by.
     const first = release!;
     release = null;
-    await act(async () => { first(); });
+    await act(async () => {
+      first();
+    });
     await settle(200);
     expect(feed.pushes).toEqual(["a"]);
     expect(release).not.toBeNull();
-    await act(async () => { release!(); });
+    await act(async () => {
+      release!();
+    });
     await settle(200);
     expect(feed.pushes).toEqual(["a", "abc"]);
     expect(feed.box).toBe("abc");
@@ -111,7 +122,9 @@ describe("tmux composer", () => {
     // Somebody else typed into the pane at the same moment as this reader typed here. The reader's
     // own text is newer than anything a screen can show, so the message must leave it alone.
     await type("mine");
-    await act(async () => { feed.emit(holding("theirs")); });
+    await act(async () => {
+      feed.emit(holding("theirs"));
+    });
     expect(draft()).toBe("mine");
     // And once the push lands, the pane holds the reader's text rather than the other way round.
     await settle(200);
@@ -125,7 +138,9 @@ describe("tmux composer", () => {
     render(<Probe feed={feed} />);
     await settle();
     feed.box = "typed in the pane itself";
-    await act(async () => { feed.announce(); });
+    await act(async () => {
+      feed.announce();
+    });
     expect(draft()).toBe("typed in the pane itself");
   });
 
@@ -135,11 +150,15 @@ describe("tmux composer", () => {
     const feed = pane("alpha bravo charlie");
     render(<Probe feed={feed} />);
     await settle();
-    await act(async () => { feed.announce(true); });
+    await act(async () => {
+      feed.announce(true);
+    });
     expect(draft()).toBe("alpha bravo charlie");
 
     await type("something the reader typed");
-    await act(async () => { feed.emit(holding("alpha bravo charlie", true)); });
+    await act(async () => {
+      feed.emit(holding("alpha bravo charlie", true));
+    });
     await settle(200);
     expect(draft()).toBe("something the reader typed");
   });
@@ -161,7 +180,9 @@ describe("tmux composer", () => {
     await settle(200);
     expect(feed.pushes.at(-1)).toBe(message);
 
-    await act(async () => { feed.emit(holding("[Pasted text #1]")); });
+    await act(async () => {
+      feed.emit(holding("[Pasted text #1]"));
+    });
     expect(draft()).toBe(message);
 
     // And it stays the reader's words through the next keystroke, which is what the pane is
@@ -180,7 +201,9 @@ describe("tmux composer", () => {
     await settle();
     expect(draft()).toBe("[Pasted text #3 +38 lines]");
 
-    await act(async () => { feed.emit(holding("[Pasted text #3 +38 lines] and this too")); });
+    await act(async () => {
+      feed.emit(holding("[Pasted text #3 +38 lines] and this too"));
+    });
     expect(draft()).toBe("[Pasted text #3 +38 lines] and this too");
   });
 
@@ -212,7 +235,15 @@ describe("tmux composer", () => {
     const feed = pane("");
     render(<Probe feed={feed} />);
     await settle();
-    const dialog = { text: null, hint: null, reason: "no-composer" as const, exact: true, commands: [], pastes: [], images: [] };
+    const dialog = {
+      text: null,
+      hint: null,
+      reason: "no-composer" as const,
+      exact: true,
+      commands: [],
+      pastes: [],
+      images: [],
+    };
     feed.syncTmuxComposer = async () => dialog;
     await act(async () => feed.emit(dialog));
 
@@ -267,7 +298,15 @@ describe("tmux composer", () => {
   });
 
   it("never claims a session whose first word is that it has no pane", async () => {
-    const feed = pane("", { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] });
+    const feed = pane("", {
+      text: null,
+      hint: null,
+      reason: "no-pane",
+      exact: true,
+      commands: [],
+      pastes: [],
+      images: [],
+    });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("mirrored").textContent).toBe("false");
@@ -287,13 +326,20 @@ describe("tmux composer", () => {
     // A placeholder because that is exactly what it is: shown in the empty box, taking no part in
     // the value, gone the moment the reader types. Pushing it would type Claude's own guess into
     // the session as if somebody had meant it.
-    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, exact: true, commands: [], pastes: [], images: [] });
+    const feed = pane("", {
+      text: "",
+      hint: "stop adding the three suggestions",
+      reason: null,
+      exact: true,
+      commands: [],
+      pastes: [],
+      images: [],
+    });
     render(<Probe feed={feed} />);
     await settle();
     expect(screen.getByTestId("hint").textContent).toBe("stop adding the three suggestions");
     expect(draft()).toBe("");
-    expect(screen.getByLabelText("composer").getAttribute("placeholder"))
-      .toBe("stop adding the three suggestions");
+    expect(screen.getByLabelText("composer").getAttribute("placeholder")).toBe("stop adding the three suggestions");
 
     await type("something of my own");
     expect(screen.getByTestId("hint").textContent).toBe("-");
@@ -305,16 +351,28 @@ describe("tmux composer", () => {
   it("accepts the suggestion by pressing Tab in the pane, not by typing its words", async () => {
     // What accepting means belongs to Claude. The pane redraws with the words in it and the
     // stream reports that, which is why nothing here guesses at the result.
-    const feed = pane("", { text: "", hint: "stop adding the three suggestions", reason: null, exact: true, commands: [], pastes: [], images: [] });
+    const feed = pane("", {
+      text: "",
+      hint: "stop adding the three suggestions",
+      reason: null,
+      exact: true,
+      commands: [],
+      pastes: [],
+      images: [],
+    });
     render(<Probe feed={feed} />);
     await settle();
-    await act(async () => { screen.getByText("accept").click(); });
+    await act(async () => {
+      screen.getByText("accept").click();
+    });
     expect(feed.accepts).toBe(1);
     expect(feed.pushes).toEqual([]);
 
     // The pane comes back holding it, and the field adopts it because nothing was typed here.
     feed.box = "stop adding the three suggestions";
-    await act(async () => { feed.announce(); });
+    await act(async () => {
+      feed.announce();
+    });
     expect(draft()).toBe("stop adding the three suggestions");
   });
 
@@ -322,11 +380,15 @@ describe("tmux composer", () => {
     const feed = pane("");
     render(<Probe feed={feed} />);
     await settle();
-    await act(async () => { feed.announceMode("auto"); });
+    await act(async () => {
+      feed.announceMode("auto");
+    });
     expect(screen.getByTestId("mode").textContent).toBe("auto");
 
     // An armed Ctrl is the reader's, for their next rail key, and the mode control must not spend it.
-    await act(async () => { screen.getByText("ctrl").click(); });
+    await act(async () => {
+      screen.getByText("ctrl").click();
+    });
     await press("choose-plan");
     expect(feed.modes).toEqual(["plan"]);
     expect(feed.keys).toEqual([]);
@@ -339,7 +401,9 @@ describe("tmux composer", () => {
     const feed = pane("");
     render(<Probe feed={feed} />);
     await settle();
-    await act(async () => { feed.announceMode("auto"); });
+    await act(async () => {
+      feed.announceMode("auto");
+    });
     feed.modeAnswer = {
       ok: false,
       reason: "unreachable",
@@ -373,7 +437,9 @@ describe("tmux composer", () => {
     await settle();
     await type("look at this");
     await press("drop");
-    await act(async () => { feed.emit(holding("look at this [Image #1] [Image #2]")); });
+    await act(async () => {
+      feed.emit(holding("look at this [Image #1] [Image #2]"));
+    });
     expect(draft()).toBe("look at this [Image #1] [Image #2]");
   });
 
@@ -382,7 +448,13 @@ describe("tmux composer", () => {
     render(<Probe feed={feed} />);
     await settle();
     feed.syncTmuxComposer = async () => ({
-      text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [],
+      text: null,
+      hint: null,
+      reason: "no-pane",
+      exact: true,
+      commands: [],
+      pastes: [],
+      images: [],
     });
     await type("look at this");
     await press("drop");

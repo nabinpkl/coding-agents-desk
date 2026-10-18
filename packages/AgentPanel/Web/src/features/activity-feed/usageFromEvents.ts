@@ -7,14 +7,10 @@ import type { ActivityEvent, TokenUsage } from "@/features/activity-feed/useSess
  *  lifetime, which says the request was a pure hit, not that the cache stopped
  *  having one, and picking it wholesale would drop the countdown on the rows
  *  that arrive most often. */
-export function newerUsage(
-  left: TokenUsage | null,
-  right: TokenUsage | null,
-): TokenUsage | null {
+export function newerUsage(left: TokenUsage | null, right: TokenUsage | null): TokenUsage | null {
   if (!left) return right;
   if (!right) return left;
-  const [older, newer] =
-    right.updatedAt >= left.updatedAt ? [left, right] : [right, left];
+  const [older, newer] = right.updatedAt >= left.updatedAt ? [left, right] : [right, left];
   if (newer.cacheTtlMs !== undefined || older.cacheTtlMs === undefined) return newer;
   return { ...newer, cacheTtlMs: older.cacheTtlMs };
 }

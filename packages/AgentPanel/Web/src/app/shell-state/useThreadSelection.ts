@@ -9,7 +9,10 @@ import { useCallback, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary, BotView } from "@agentdesk/agent-feed-wire";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { loadEventMode, storeEventMode } from "@/features/activity-feed/reading-preferences/eventModeStore";
-import { loadCacheHitsVisible, storeCacheHitsVisible } from "@/features/activity-feed/reading-preferences/cacheHitStore";
+import {
+  loadCacheHitsVisible,
+  storeCacheHitsVisible,
+} from "@/features/activity-feed/reading-preferences/cacheHitStore";
 import { storeSelection, type RememberedSelection } from "@/features/sidebar/selectionStore";
 import { useNotify } from "@/hooks/useNotify";
 
@@ -84,9 +87,9 @@ export function useThreadSelection({
    */
   const openSession = useCallback(
     (project: ProjectSummary, session: SessionSummary) => {
-      setEventMode((current) => session.capabilities.modes.includes(current)
-        ? current
-        : (session.capabilities.modes[0] ?? "nice"));
+      setEventMode((current) =>
+        session.capabilities.modes.includes(current) ? current : (session.capabilities.modes[0] ?? "nice"),
+      );
       setBotCommandError(null);
       setSelectedThread({ project, session });
       storeSelection({
@@ -100,36 +103,51 @@ export function useThreadSelection({
     [setSidebarOpen, usesModalSidebar, setBotCommandError, setHoverPreviewOpen],
   );
 
-  const openCatalogSession = useCallback((project: ProjectSummary, session: SessionSummary) => {
-    setSelectedBotId(null);
-    openSession(project, session);
-  }, [openSession]);
+  const openCatalogSession = useCallback(
+    (project: ProjectSummary, session: SessionSummary) => {
+      setSelectedBotId(null);
+      openSession(project, session);
+    },
+    [openSession],
+  );
 
   // A Bot's directory as a project, made up when the inventory has none for it: a peer's Bot, or a
   // directory no session has reported from yet.
-  const projectOfBot = useCallback((bot: BotView, session: SessionSummary): ProjectSummary =>
-    projects.find((candidate) => candidate.projectPath === bot.environment.path) ?? {
-      projectPath: bot.environment.path,
-      displayName: bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path,
-      sourceCounts: { [session.source]: 1 },
-      sessionCount: 1,
-      lastEventAt: session.lastEventAt,
-    }, [projects]);
+  const projectOfBot = useCallback(
+    (bot: BotView, session: SessionSummary): ProjectSummary =>
+      projects.find((candidate) => candidate.projectPath === bot.environment.path) ?? {
+        projectPath: bot.environment.path,
+        displayName: bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path,
+        sourceCounts: { [session.source]: 1 },
+        sessionCount: 1,
+        lastEventAt: session.lastEventAt,
+      },
+    [projects],
+  );
 
-  const openBotSession = useCallback((bot: BotView, session: SessionSummary) => {
-    setSelectedBotId(bot.botId);
-    openSession(projectOfBot(bot, session), session);
-  }, [openSession, projectOfBot]);
+  const openBotSession = useCallback(
+    (bot: BotView, session: SessionSummary) => {
+      setSelectedBotId(bot.botId);
+      openSession(projectOfBot(bot, session), session);
+    },
+    [openSession, projectOfBot],
+  );
 
-  const openSessionInModal = useCallback((project: ProjectSummary, session: SessionSummary) => {
-    setModalThread({ project, session });
-    setHoverPreviewOpen(false);
-    if (usesModalSidebar) setSidebarOpen(false);
-  }, [setHoverPreviewOpen, setSidebarOpen, usesModalSidebar]);
-  const openBotSessionInModal = useCallback((bot: BotView, session: SessionSummary) => {
-    setModalThread({ project: projectOfBot(bot, session), session, botId: bot.botId });
-    setHoverPreviewOpen(false);
-  }, [projectOfBot, setHoverPreviewOpen]);
+  const openSessionInModal = useCallback(
+    (project: ProjectSummary, session: SessionSummary) => {
+      setModalThread({ project, session });
+      setHoverPreviewOpen(false);
+      if (usesModalSidebar) setSidebarOpen(false);
+    },
+    [setHoverPreviewOpen, setSidebarOpen, usesModalSidebar],
+  );
+  const openBotSessionInModal = useCallback(
+    (bot: BotView, session: SessionSummary) => {
+      setModalThread({ project: projectOfBot(bot, session), session, botId: bot.botId });
+      setHoverPreviewOpen(false);
+    },
+    [projectOfBot, setHoverPreviewOpen],
+  );
   const closeSessionModal = useCallback(() => setModalThread(null), []);
 
   /**
@@ -146,14 +164,16 @@ export function useThreadSelection({
   const remembered = selectedThread ? null : rememberedSelection;
   const restorable = remembered
     ? {
-      project: projects.find((entry) => entry.projectPath === remembered.projectPath),
-      session: sessionsByProject.get(remembered.projectPath)
-        ?.find((entry) => entry.sessionId === remembered.sessionId && entry.source === remembered.source),
-    }
+        project: projects.find((entry) => entry.projectPath === remembered.projectPath),
+        session: sessionsByProject
+          .get(remembered.projectPath)
+          ?.find((entry) => entry.sessionId === remembered.sessionId && entry.source === remembered.source),
+      }
     : null;
-  const restore = restorable?.project && restorable.session
-    ? `${restorable.project.projectPath}\u0000${restorable.session.source}:${restorable.session.sessionId}`
-    : null;
+  const restore =
+    restorable?.project && restorable.session
+      ? `${restorable.project.projectPath}\u0000${restorable.session.source}:${restorable.session.sessionId}`
+      : null;
   useNotify(restore, () => {
     if (restoredSelection.current || !restorable?.project || !restorable.session) return;
     restoredSelection.current = true;

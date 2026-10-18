@@ -80,9 +80,13 @@ function load(): Anchors {
       if (typeof entry[1] !== "number" || !Number.isInteger(entry[1]) || entry[1] < 0) return false;
       if (entry.length === 2) return true;
       if (entry.length === 3) return validId(entry[2]);
-      return (entry[2] === null || validId(entry[2]))
-        && typeof entry[3] === "number" && Number.isInteger(entry[3])
-        && entry[3] > 0 && entry[3] <= MAX_OFFSET;
+      return (
+        (entry[2] === null || validId(entry[2])) &&
+        typeof entry[3] === "number" &&
+        Number.isInteger(entry[3]) &&
+        entry[3] > 0 &&
+        entry[3] <= MAX_OFFSET
+      );
     });
   } catch {
     return [];

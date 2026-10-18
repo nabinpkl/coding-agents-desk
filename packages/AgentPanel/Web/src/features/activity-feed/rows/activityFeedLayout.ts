@@ -56,9 +56,7 @@ export interface PairedToolResult {
  */
 export function pairSameEventToolResults(event: ActivityEvent): Map<string, PairedToolResult> {
   const callIds = new Set(
-    event.blocks.flatMap((block) =>
-      block.kind === "tool_use" && block.callId ? [block.callId] : [],
-    ),
+    event.blocks.flatMap((block) => (block.kind === "tool_use" && block.callId ? [block.callId] : [])),
   );
   const results = new Map<string, PairedToolResult>();
   event.blocks.forEach((block, blockIndex) => {
@@ -100,9 +98,7 @@ export function withoutPairedToolResults(
  */
 function resultImages(ev: ActivityEvent, callId: string | undefined): number[] {
   if (!callId) return [];
-  return ev.blocks.flatMap((block, index) =>
-    block.kind === "image" && block.callId === callId ? [index] : [],
-  );
+  return ev.blocks.flatMap((block, index) => (block.kind === "image" && block.callId === callId ? [index] : []));
 }
 
 /**
@@ -115,12 +111,12 @@ function resultImages(ev: ActivityEvent, callId: string | undefined): number[] {
  * trap `isResultOnly` and `isCompactionEvent` each had to be widened for.
  */
 function isHarnessUserText(ev: ActivityEvent): boolean {
-  return ev.type === "user" &&
+  return (
+    ev.type === "user" &&
     ev.humanTurn !== true &&
     ev.blocks.some((block) => block.kind === "text" && (block.text ?? "").trim() !== "") &&
-    ev.blocks.every(
-      (block) => block.kind === "text" || block.kind === "metadata" || block.kind === "raw",
-    );
+    ev.blocks.every((block) => block.kind === "text" || block.kind === "metadata" || block.kind === "raw")
+  );
 }
 
 /** Everything the feed needs to render one window of events. */
@@ -151,9 +147,8 @@ function projectIncrementalReasoning(events: ActivityEvent[]): ActivityEvent[] {
   let previousText: string | null = null;
 
   for (const event of events) {
-    const reasoningBlocks = event.type === "reasoning"
-      ? event.blocks.filter((block) => block.kind === "reasoning" && block.text)
-      : [];
+    const reasoningBlocks =
+      event.type === "reasoning" ? event.blocks.filter((block) => block.kind === "reasoning" && block.text) : [];
     if (reasoningBlocks.length !== 1) {
       previousText = null;
       projected.push(event);
@@ -180,9 +175,7 @@ function projectIncrementalReasoning(events: ActivityEvent[]): ActivityEvent[] {
     if (!suffix) continue;
     projected.push({
       ...event,
-      blocks: event.blocks.map((candidate) =>
-        candidate === block ? { ...candidate, text: suffix } : candidate
-      ),
+      blocks: event.blocks.map((candidate) => (candidate === block ? { ...candidate, text: suffix } : candidate)),
     });
   }
 
@@ -234,7 +227,7 @@ function contentOnly(events: ActivityEvent[]): ActivityEvent[] {
 function withCompactionSummary(event: ActivityEvent, summary: string): ActivityEvent {
   return {
     ...event,
-    blocks: event.blocks.map((block) => block.kind === "compaction" ? { ...block, text: summary } : block),
+    blocks: event.blocks.map((block) => (block.kind === "compaction" ? { ...block, text: summary } : block)),
   };
 }
 
@@ -243,22 +236,15 @@ function withCompactionSummary(event: ActivityEvent, summary: string): ActivityE
 // its call, which is how opencode's completed tool parts arrive. Mixed result
 // events stay independent: user prose or an unmatched result must never be
 // hidden inside someone else's row.
-export function buildFeedLayout(
-  events: ActivityEvent[],
-  options: Omit<DisplayItemOptions, "gaps"> = {},
-): FeedLayout {
+export function buildFeedLayout(events: ActivityEvent[], options: Omit<DisplayItemOptions, "gaps"> = {}): FeedLayout {
   // On every held row, before the view leaves any out: a hidden system line between two shown rows
   // is what the second one's `previous` names, and that is no gap.
   const gaps = gapsIn(events);
   const contentEvents = options.hideSystem ? contentOnly(events) : events;
-  const visibleEvents = options.incrementalReasoning
-    ? projectIncrementalReasoning(contentEvents)
-    : contentEvents;
+  const visibleEvents = options.incrementalReasoning ? projectIncrementalReasoning(contentEvents) : contentEvents;
   const toolCallIds = new Set(
     visibleEvents.flatMap((event) =>
-      event.blocks.flatMap((block) =>
-        block.kind === "tool_use" && block.callId ? [block.callId] : [],
-      ),
+      event.blocks.flatMap((block) => (block.kind === "tool_use" && block.callId ? [block.callId] : [])),
     ),
   );
   const pairedToolResults = new Map<string, PairedToolResult>();
@@ -275,7 +261,7 @@ export function buildFeedLayout(
     // under the call that produced it. Same trap as isCompactionEvent.
     // An image one of those results returned is part of that result, not more than it: a Read of a
     // screenshot is a result made of nothing else.
-    const resultCallIds = new Set(resultBlocks.flatMap(({ block }) => block.callId ? [block.callId] : []));
+    const resultCallIds = new Set(resultBlocks.flatMap(({ block }) => (block.callId ? [block.callId] : [])));
     const isResultOnly = event.blocks.every(
       (block) =>
         block.kind === "tool_result" ||
@@ -283,9 +269,7 @@ export function buildFeedLayout(
         block.kind === "metadata" ||
         (block.kind === "image" && block.callId !== undefined && resultCallIds.has(block.callId)),
     );
-    const canPairEveryResult = resultBlocks.every(
-      ({ block }) => block.callId && toolCallIds.has(block.callId),
-    );
+    const canPairEveryResult = resultBlocks.every(({ block }) => block.callId && toolCallIds.has(block.callId));
 
     if (isResultOnly && resultBlocks.length > 0 && canPairEveryResult) {
       pairedResultEventIds.add(event.index);
@@ -334,9 +318,7 @@ export function buildFeedLayout(
     // may be a line that is not held.
     if (gapBetween(gaps, visibleEvents[position - 1]!.index, body.index)) continue;
     const answered = visibleEvents[position - 1]!.blocks.flatMap((block) =>
-      block.kind === "tool_result" && block.callId && skillCallIds.has(block.callId)
-        ? [block.callId]
-        : [],
+      block.kind === "tool_result" && block.callId && skillCallIds.has(block.callId) ? [block.callId] : [],
     );
     // Exactly one: two skills answered on one line leave nothing to say which body is whose.
     if (answered.length !== 1) continue;
@@ -395,14 +377,12 @@ export interface EventBlockLayout {
 // has (Codex "Agent Message" / "Developer Message" system lines) it is the
 // content, and folding it would leave a row with nothing on it.
 export function partitionEventBlocks(ev: ActivityEvent): EventBlockLayout {
-  const hasContent = ev.blocks.some(
-    (block) => block.kind !== "metadata" && block.kind !== "raw",
-  );
+  const hasContent = ev.blocks.some((block) => block.kind !== "metadata" && block.kind !== "raw");
   const inline: { block: ActivityBlock; index: number; images?: number[] }[] = [];
   const folded: ActivityBlock[] = [];
   let hasRawJson = false;
   const resultCallIds = new Set(
-    ev.blocks.flatMap((block) => block.kind === "tool_result" && block.callId ? [block.callId] : []),
+    ev.blocks.flatMap((block) => (block.kind === "tool_result" && block.callId ? [block.callId] : [])),
   );
 
   ev.blocks.forEach((block, index) => {

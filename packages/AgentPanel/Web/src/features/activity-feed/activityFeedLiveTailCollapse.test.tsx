@@ -8,11 +8,11 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 
 // Same jsdom-unsafe deps the other feed-level tests stub.
 vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
-  Markdown: ({ content }: { content: string }) => (
-    <div data-testid="markdown-view">{content}</div>
-  ),
+  Markdown: ({ content }: { content: string }) => <div data-testid="markdown-view">{content}</div>,
 }));
-vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({
+  DiffBlock: () => <div data-testid="diff-block" />,
+}));
 
 class MockResizeObserver {
   observe() {}
@@ -26,7 +26,10 @@ beforeEach(() => {
   // rows at all -- which in jsdom is every element. These tests are about what the rows
   // do, so give the scroller a viewport to render into.
   // The virtualizer measures its scroller with `offsetHeight`, which jsdom pins at zero.
-  for (const [name, value] of [["offsetWidth", 900], ["offsetHeight", 800]] as const) {
+  for (const [name, value] of [
+    ["offsetWidth", 900],
+    ["offsetHeight", 800],
+  ] as const) {
     Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value });
   }
 });
@@ -280,8 +283,12 @@ describe("live tail collapse state", () => {
         },
       });
     });
-    act(() => { transport.deliver("sid-many", { type: "tail", event: liveRow }); });
-    act(() => { transport.deliver("sid-many", { type: "tail", event: laterLiveRow }); });
+    act(() => {
+      transport.deliver("sid-many", { type: "tail", event: liveRow });
+    });
+    act(() => {
+      transport.deliver("sid-many", { type: "tail", event: laterLiveRow });
+    });
 
     const liveToggles = await screen.findAllByLabelText(/, streaming/);
     expect(liveToggles).toHaveLength(2);

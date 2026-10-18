@@ -17,7 +17,11 @@ const dependents = (file: string) => new Set(file === HOOK ? [APP] : []);
 
 describe("which waiting files a new error holds", () => {
   it("holds a file whose importer broke, and sends one the error cannot reach", () => {
-    const { held, released } = decideTypeHolds([HOOK, OTHER], [{ file: APP, reason: "AgentPanelApp.tsx:105: wrong" }], dependents);
+    const { held, released } = decideTypeHolds(
+      [HOOK, OTHER],
+      [{ file: APP, reason: "AgentPanelApp.tsx:105: wrong" }],
+      dependents,
+    );
     expect([...held]).toEqual([[HOOK, "AgentPanelApp.tsx:105: wrong"]]);
     expect(released).toEqual([OTHER]);
   });
@@ -37,13 +41,16 @@ describe("the type hold", () => {
       const next = reports.shift()!;
       return "failed" in next ? next : { ...next, accept: accepted };
     });
-    const hold = createTypeHolds({
-      check,
-      dependents,
-      send: (files) => sent.push(files),
-      publish: (held) => published.push(held),
-      log: () => {},
-    }, 0);
+    const hold = createTypeHolds(
+      {
+        check,
+        dependents,
+        send: (files) => sent.push(files),
+        publish: (held) => published.push(held),
+        log: () => {},
+      },
+      0,
+    );
     return { hold, sent, published, accepted, check };
   }
 

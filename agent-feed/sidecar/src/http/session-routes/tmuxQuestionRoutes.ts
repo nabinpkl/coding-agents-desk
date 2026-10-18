@@ -47,10 +47,7 @@ const MAX_OTHER_BYTES = 4_000;
 
 /** The driver, injected, so the route's shape can be pinned without a tmux server. */
 export interface TmuxQuestionDependencies {
-  answer: (
-    sessionId: string,
-    answers: readonly TmuxQuestionAnswer[],
-  ) => Promise<TmuxQuestionOutcome>;
+  answer: (sessionId: string, answers: readonly TmuxQuestionAnswer[]) => Promise<TmuxQuestionOutcome>;
   point: (sessionId: string, point: TmuxQuestionPoint) => Promise<TmuxQuestionPointOutcome>;
 }
 
@@ -70,14 +67,10 @@ export function createTmuxQuestionRoutes(question: TmuxQuestionDependencies): Ro
   };
 }
 
-async function answer(
-  question: TmuxQuestionDependencies,
-  request: Request,
-  sessionId: string,
-): Promise<Response> {
+async function answer(question: TmuxQuestionDependencies, request: Request, sessionId: string): Promise<Response> {
   let body: { answers?: unknown };
   try {
-    body = await request.json() as typeof body;
+    body = (await request.json()) as typeof body;
   } catch {
     return errorResponse("invalid-body", "the request body was not JSON", 400);
   }
@@ -150,11 +143,7 @@ function readAnswer(raw: unknown): TmuxQuestionAnswer | string {
  * a mirror that is one step behind is a fact the panel can live with quietly, not a request that
  * was malformed. Nothing a reader typed is at stake here, so there is nothing to hand back.
  */
-async function point(
-  question: TmuxQuestionDependencies,
-  request: Request,
-  sessionId: string,
-): Promise<Response> {
+async function point(question: TmuxQuestionDependencies, request: Request, sessionId: string): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();

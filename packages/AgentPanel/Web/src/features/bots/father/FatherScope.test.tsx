@@ -12,10 +12,7 @@ import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { FatherScope } from "@/features/bots/father/FatherScope";
 
 vi.mock("@/features/session-view/SessionView", () => ({
-  SessionView: (props: {
-    session: SessionSummary;
-    onAttachSession?: (session: unknown) => void;
-  }) => (
+  SessionView: (props: { session: SessionSummary; onAttachSession?: (session: unknown) => void }) => (
     <div data-testid="father-session">
       {props.session.sessionId}
       <button
@@ -55,10 +52,12 @@ const HOME = { addBotSessions: vi.fn(), detachBotSessions: vi.fn() };
 
 function arrange(bots: BotView[], loading = false, machineOf: (botId: string) => unknown = () => undefined) {
   // The index is what the home reads while rendering, and `machineOf` what its commands read.
-  const bot = new Map(bots.flatMap((each) => {
-    const machine = machineOf(each.botId);
-    return machine === undefined ? [] : [[each.botId, machine] as const];
-  }));
+  const bot = new Map(
+    bots.flatMap((each) => {
+      const machine = machineOf(each.botId);
+      return machine === undefined ? [] : [[each.botId, machine] as const];
+    }),
+  );
   mockUseBots.mockReturnValue({ bots, loading, machineOf, machineIndex: { bots, bot, session: new Map() } });
 }
 
@@ -120,10 +119,8 @@ describe("FatherScope", () => {
 
   it("names a detach that failed on the session it was about", async () => {
     const failing = { ...PEER.feed, detachBotSessions: vi.fn().mockRejectedValue(new Error("gone")) };
-    arrange(
-      [bot("a", { sessions: [], fatherSession: { source: "opencode", sessionId: "s1" } })],
-      false,
-      (botId) => (botId === "a" ? { label: "oracle", feed: failing } : undefined),
+    arrange([bot("a", { sessions: [], fatherSession: { source: "opencode", sessionId: "s1" } })], false, (botId) =>
+      botId === "a" ? { label: "oracle", feed: failing } : undefined,
     );
     render(<FatherScope {...PROPS} />);
     fireEvent.click(screen.getByRole("button", { name: /Detach it/ }));

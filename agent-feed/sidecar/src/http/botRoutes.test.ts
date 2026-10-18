@@ -50,15 +50,17 @@ test("creates a Bot through the authenticated user route and returns its durable
 
   expect(response?.status).toBe(201);
   expect(await response?.json()).toEqual(bot);
-  expect(calls).toEqual([{
-    command: {
-      requestId: "request-1",
-      name: "Chief of Staff",
-      directoryPath: "/projects/chief",
-      grants: ["add_bot"],
+  expect(calls).toEqual([
+    {
+      command: {
+        requestId: "request-1",
+        name: "Chief of Staff",
+        directoryPath: "/projects/chief",
+        grants: ["add_bot"],
+      },
+      actor: { kind: "user" },
     },
-    actor: { kind: "user" },
-  }]);
+  ]);
 });
 
 test("adds sessions through the Bot-scoped route, existing or newly started", async () => {
@@ -84,14 +86,16 @@ test("adds sessions through the Bot-scoped route, existing or newly started", as
   // The envelope, not the Bot: this route can now start a session, and the caller has nowhere else
   // to read the pane it landed in from.
   expect(await response?.json()).toEqual({ bot });
-  expect(calls).toEqual([{
-    botId: "bot-1",
-    command: {
-      requestId: "attach-1",
-      sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
+  expect(calls).toEqual([
+    {
+      botId: "bot-1",
+      command: {
+        requestId: "attach-1",
+        sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
+      },
+      actor: { kind: "user" },
     },
-    actor: { kind: "user" },
-  }]);
+  ]);
 });
 
 test("places a session on its directory's Bot, 201 when the Bot is new and 200 when it was there", async () => {
@@ -173,14 +177,16 @@ test("detaches sessions with a DELETE on the sessions path", async () => {
 
   expect(response?.status).toBe(200);
   expect(await response?.json()).toEqual(bot);
-  expect(calls).toEqual([{
-    botId: "bot 1",
-    command: {
-      requestId: "detach-1",
-      sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
+  expect(calls).toEqual([
+    {
+      botId: "bot 1",
+      command: {
+        requestId: "detach-1",
+        sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
+      },
+      actor: { kind: "user" },
     },
-    actor: { kind: "user" },
-  }]);
+  ]);
 });
 
 test("reorders sessions through a path of its own, so an order is never read as an attach", async () => {
@@ -213,17 +219,19 @@ test("reorders sessions through a path of its own, so an order is never read as 
 
   expect(response?.status).toBe(200);
   expect(await response?.json()).toEqual(bot);
-  expect(calls).toEqual([{
-    botId: "bot 1",
-    command: {
-      requestId: "order-1",
-      sessionRefs: [
-        { source: "claude", sessionId: "claude-2" },
-        { source: "pi", sessionId: "pi-1" },
-      ],
+  expect(calls).toEqual([
+    {
+      botId: "bot 1",
+      command: {
+        requestId: "order-1",
+        sessionRefs: [
+          { source: "claude", sessionId: "claude-2" },
+          { source: "pi", sessionId: "pi-1" },
+        ],
+      },
+      actor: { kind: "user" },
     },
-    actor: { kind: "user" },
-  }]);
+  ]);
 });
 
 test("leaves a POST on the sessions path to the attach route rather than detaching", async () => {
@@ -263,11 +271,13 @@ test("patches one Bot's record and answers its view", async () => {
 
   expect(response?.status).toBe(200);
   expect(await response?.json()).toEqual(bot);
-  expect(calls).toEqual([{
-    botId: "bot 1",
-    command: { name: "Commodore", fatherSession: null },
-    actor: { kind: "user" },
-  }]);
+  expect(calls).toEqual([
+    {
+      botId: "bot 1",
+      command: { name: "Commodore", fatherSession: null },
+      actor: { kind: "user" },
+    },
+  ]);
 });
 
 test("deletes one Bot's record and answers what went", async () => {
@@ -346,16 +356,18 @@ test("routes a retire to its own path and hands the disposals through untouched"
     bot,
     retired: [{ source: "claude", sessionId: "c-1", endedPane: "agentdesk-c-1", failed: [] }],
   });
-  expect(calls).toEqual([{
-    botId: "bot 1",
-    command: {
-      requestId: "retire-1",
-      sessionRefs: [{ source: "claude", sessionId: "c-1" }],
-      worktree: "remove",
-      branch: "delete",
+  expect(calls).toEqual([
+    {
+      botId: "bot 1",
+      command: {
+        requestId: "retire-1",
+        sessionRefs: [{ source: "claude", sessionId: "c-1" }],
+        worktree: "remove",
+        branch: "delete",
+      },
+      actor: { kind: "user" },
     },
-    actor: { kind: "user" },
-  }]);
+  ]);
 });
 
 /** Reads server-sent events off a streamed response until `accept` takes one, then cancels. */
@@ -392,8 +404,7 @@ test("streams the Bot's directory's git status, from no repository to one", asyn
     const stream = new Request("http://localhost/api/bots/bot-1/git/stream");
     const response = await route(stream, new URL(stream.url), server);
     expect(response?.headers.get("content-type")).toContain("text/event-stream");
-    const reader = nextEvent(response, (event) =>
-      (event as { entries: unknown[] }).entries.length > 0);
+    const reader = nextEvent(response, (event) => (event as { entries: unknown[] }).entries.length > 0);
 
     await Bun.spawn(["git", "init", "--initial-branch=main"], { cwd: root, stdout: "ignore" }).exited;
     await writeFile(join(root, "new.ts"), "fresh\n");
@@ -441,13 +452,17 @@ test("reads a Bot's tree and files from its own directory, decorated from where 
       return (await route(request, new URL(request.url), server))!;
     };
 
-    const collapsed = await (await ask("/api/bots/bot-1/tree")).json() as { tree: { name: string; children: unknown[]; gitStatus: string | null }[] };
+    const collapsed = (await (await ask("/api/bots/bot-1/tree")).json()) as {
+      tree: { name: string; children: unknown[]; gitStatus: string | null }[];
+    };
     expect(collapsed.tree.map((node) => [node.name, node.gitStatus, node.children.length])).toEqual([
       ["src", "??", 0],
       ["big.txt", "??", 0],
       ["paper.pdf", "??", 0],
     ]);
-    const expanded = await (await ask("/api/bots/bot-1/tree?expanded=src")).json() as { tree: { children: { path: string }[] }[] };
+    const expanded = (await (await ask("/api/bots/bot-1/tree?expanded=src")).json()) as {
+      tree: { children: { path: string }[] }[];
+    };
     expect(expanded.tree[0]!.children.map((node) => node.path)).toEqual(["src/index.ts"]);
 
     expect(await (await ask("/api/bots/bot-1/file?path=src/index.ts")).json()).toEqual({

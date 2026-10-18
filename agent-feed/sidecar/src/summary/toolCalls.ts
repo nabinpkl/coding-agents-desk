@@ -43,10 +43,7 @@ interface FileEdit {
  * entries: the question a viewer has is "which files did this turn change", and the first action
  * is the one that says whether it was created here.
  */
-export function filesTouchedIn(
-  events: readonly ActivityEvent[],
-  project: string,
-): SummaryFileChange[] {
+export function filesTouchedIn(events: readonly ActivityEvent[], project: string): SummaryFileChange[] {
   const byPath = new Map<string, SummaryFileChange>();
   for (const event of events) {
     for (const block of event.blocks) {
@@ -77,8 +74,9 @@ function fileEditOf(block: ActivityBlock, project: string): FileEdit | null {
   const action = WRITE_TOOLS[block.tool];
   if (!action) return null;
   const input = block.input ?? {};
-  const path = PATH_KEYS.map((key) => input[key]).find((value): value is string =>
-    typeof value === "string" && value.length > 0);
+  const path = PATH_KEYS.map((key) => input[key]).find(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
   if (!path) return null;
 
   const before = stringArgument(input, ["old_string", "old_text"]);
@@ -132,8 +130,7 @@ export function describeToolCall(block: ActivityBlock): string {
   const input = block.input ?? {};
   const parts: string[] = [];
 
-  const path = PATH_KEYS.map((key) => input[key]).find((value): value is string =>
-    typeof value === "string");
+  const path = PATH_KEYS.map((key) => input[key]).find((value): value is string => typeof value === "string");
   if (path) parts.push(path);
 
   for (const key of ["command", "pattern", "query", "url", "prompt", "description"]) {

@@ -15,13 +15,15 @@ import { useStateFor } from "@/hooks/state/useStateFor";
 import { ChevronDown, ChevronUp, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import type { WorkspaceSummary } from "@agentdesk/agent-feed-wire";
 
-const CONTROL = "grid h-7 w-8 shrink-0 place-items-center rounded-md border border-border"
-  + " outline-none transition-colors hover:bg-muted/60 active:bg-muted"
-  + " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
+const CONTROL =
+  "grid h-7 w-8 shrink-0 place-items-center rounded-md border border-border" +
+  " outline-none transition-colors hover:bg-muted/60 active:bg-muted" +
+  " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
 
-const MENU_ITEM = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left outline-none"
-  + " hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-  + " disabled:opacity-40 disabled:hover:bg-transparent";
+const MENU_ITEM =
+  "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left outline-none" +
+  " hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset" +
+  " disabled:opacity-40 disabled:hover:bg-transparent";
 
 export function WorkspaceRoster({
   workspaces,
@@ -47,7 +49,6 @@ export function WorkspaceRoster({
 
   const index = workspaces.findIndex((workspace) => workspace.id === workspaceId);
   const current = index < 0 ? null : workspaces[index]!;
-
 
   function move(by: -1 | 1) {
     if (!current || index < 0) return;
@@ -76,11 +77,15 @@ export function WorkspaceRoster({
             outline-none focus-visible:ring-2 focus-visible:ring-primary
             disabled:text-muted-foreground"
         >
-          {workspaces.length === 0
-            ? <option value="">No workspaces</option>
-            : workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
-            ))}
+          {workspaces.length === 0 ? (
+            <option value="">No workspaces</option>
+          ) : (
+            workspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+              </option>
+            ))
+          )}
         </select>
         <button
           type="button"
@@ -96,108 +101,87 @@ export function WorkspaceRoster({
         >
           <MoreHorizontal className="size-4" />
         </button>
-        <button
-          type="button"
-          aria-label="Add workspace"
-          title="Add workspace"
-          onClick={onAdd}
-          className={CONTROL}
-        >
+        <button type="button" aria-label="Add workspace" title="Add workspace" onClick={onAdd} className={CONTROL}>
           <Plus className="size-4" />
         </button>
       </header>
 
-      {mode === "closed" || !current
-        ? null
-        : (
-          <div className="border-t border-border bg-muted/30 px-2 py-1.5 text-sm">
-            {mode === "renaming"
-              ? (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    commitRename();
-                  }}
-                >
-                  <input
-                    ref={selectOnMount}
-                    aria-label="Workspace name"
-                    value={draftName}
-                    onChange={(event) => setDraftName(event.target.value)}
-                    onBlur={commitRename}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") setMode("open");
-                    }}
-                    className="h-7 w-full rounded-md border border-border bg-background px-1.5
+      {mode === "closed" || !current ? null : (
+        <div className="border-t border-border bg-muted/30 px-2 py-1.5 text-sm">
+          {mode === "renaming" ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                commitRename();
+              }}
+            >
+              <input
+                ref={selectOnMount}
+                aria-label="Workspace name"
+                value={draftName}
+                onChange={(event) => setDraftName(event.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setMode("open");
+                }}
+                className="h-7 w-full rounded-md border border-border bg-background px-1.5
                       outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  />
-                </form>
-              )
-              : mode === "confirming"
-              ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Says which of the two things this is. Nothing on disk is touched, and a
+              />
+            </form>
+          ) : mode === "confirming" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Says which of the two things this is. Nothing on disk is touched, and a
                       button alone cannot carry that. */}
-                  <span className="flex-1 text-xs text-muted-foreground">
-                    Remove {current.name} from the roster? The folder stays on disk.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode("closed");
-                      onRemove(current.id);
-                    }}
-                    className="rounded-md border border-destructive px-2 py-1 text-xs
+              <span className="flex-1 text-xs text-muted-foreground">
+                Remove {current.name} from the roster? The folder stays on disk.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("closed");
+                  onRemove(current.id);
+                }}
+                className="rounded-md border border-destructive px-2 py-1 text-xs
                       text-destructive outline-none hover:bg-destructive/10
                       focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    Remove
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode("open")}
-                    className="rounded-md border border-border px-2 py-1 text-xs outline-none
+              >
+                Remove
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("open")}
+                className="rounded-md border border-border px-2 py-1 text-xs outline-none
                       hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )
-              : (
-                <div className="grid gap-0.5">
-                  <button type="button" className={MENU_ITEM} onClick={() => setMode("renaming")}>
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    className={MENU_ITEM}
-                    disabled={index <= 0}
-                    onClick={() => move(-1)}
-                  >
-                    <ChevronUp className="size-4" />
-                    Move up
-                  </button>
-                  <button
-                    type="button"
-                    className={MENU_ITEM}
-                    disabled={index < 0 || index >= workspaces.length - 1}
-                    onClick={() => move(1)}
-                  >
-                    <ChevronDown className="size-4" />
-                    Move down
-                  </button>
-                  <button
-                    type="button"
-                    className={`${MENU_ITEM} text-destructive`}
-                    onClick={() => setMode("confirming")}
-                  >
-                    <Trash2 className="size-4" />
-                    Remove
-                  </button>
-                </div>
-              )}
-          </div>
-        )}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-0.5">
+              <button type="button" className={MENU_ITEM} onClick={() => setMode("renaming")}>
+                Rename
+              </button>
+              <button type="button" className={MENU_ITEM} disabled={index <= 0} onClick={() => move(-1)}>
+                <ChevronUp className="size-4" />
+                Move up
+              </button>
+              <button
+                type="button"
+                className={MENU_ITEM}
+                disabled={index < 0 || index >= workspaces.length - 1}
+                onClick={() => move(1)}
+              >
+                <ChevronDown className="size-4" />
+                Move down
+              </button>
+              <button type="button" className={`${MENU_ITEM} text-destructive`} onClick={() => setMode("confirming")}>
+                <Trash2 className="size-4" />
+                Remove
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

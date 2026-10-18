@@ -1,207 +1,222 @@
-import { expect, test } from 'bun:test';
+import { expect, test } from "bun:test";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 import { mergeUsage } from "@/transcripts/usageState";
 
 function userLine(content: unknown): string {
   return JSON.stringify({
-    type: 'user',
-    timestamp: '2026-09-10T12:00:00.000Z',
-    message: { role: 'user', content },
+    type: "user",
+    timestamp: "2026-09-10T12:00:00.000Z",
+    message: { role: "user", content },
   });
 }
 
-test('a pasted image becomes an image block, and its bytes stay out of the event', () => {
+test("a pasted image becomes an image block, and its bytes stay out of the event", () => {
   // It used to fall through to Plain: the whole base64 payload, pretty-printed, on every page the
   // row rode in. The bytes are still reachable, as the block's raw half.
-  const data = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+  const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
   const line = userLine([
-    { type: 'text', text: '[Image #3] what about this' },
-    { type: 'image', source: { type: 'base64', media_type: 'image/png', data } },
+    { type: "text", text: "[Image #3] what about this" },
+    { type: "image", source: { type: "base64", media_type: "image/png", data } },
   ]);
 
   const event = claudeAdapter.processLine(line)?.event;
-  expect(event!.blocks[1]).toEqual({ kind: 'image', mediaType: 'image/png' });
+  expect(event!.blocks[1]).toEqual({ kind: "image", mediaType: "image/png" });
   expect(JSON.stringify(event)).not.toContain(data);
   expect(event!.humanTurn).toBe(true);
 });
 
-test('an image a tool returned follows its result, named by the same call', () => {
+test("an image a tool returned follows its result, named by the same call", () => {
   // A Read of a screenshot is a result made of nothing but the picture. Its preview used to say
   // "image" and the picture itself was nowhere.
-  const data = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
-  const event = claudeAdapter.processLine(userLine([
-    {
-      type: 'tool_result',
-      tool_use_id: 'toolu_read',
-      content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }],
-    },
-  ]))?.event;
+  const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+  const event = claudeAdapter.processLine(
+    userLine([
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_read",
+        content: [{ type: "image", source: { type: "base64", media_type: "image/png", data } }],
+      },
+    ]),
+  )?.event;
 
   expect(event!.blocks.slice(0, 2)).toEqual([
-    { kind: 'tool_result', preview: '', callId: 'toolu_read' },
-    { kind: 'image', mediaType: 'image/png', callId: 'toolu_read' },
+    { kind: "tool_result", preview: "", callId: "toolu_read" },
+    { kind: "image", mediaType: "image/png", callId: "toolu_read" },
   ]);
   expect(JSON.stringify(event)).not.toContain(data);
   expect(event!.humanTurn).toBeUndefined();
 });
 
-test('a screenshot beside text keeps the text as the result and the picture after it', () => {
-  const event = claudeAdapter.processLine(userLine([
-    {
-      type: 'tool_result',
-      tool_use_id: 'toolu_shot',
-      content: [
-        { type: 'text', text: 'Captured screenshot (1235x815, jpeg)' },
-        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/4AAQ' } },
-      ],
-    },
-  ]))?.event;
+test("a screenshot beside text keeps the text as the result and the picture after it", () => {
+  const event = claudeAdapter.processLine(
+    userLine([
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_shot",
+        content: [
+          { type: "text", text: "Captured screenshot (1235x815, jpeg)" },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "/9j/4AAQ" } },
+        ],
+      },
+    ]),
+  )?.event;
 
   expect(event!.blocks.slice(0, 2)).toEqual([
-    { kind: 'tool_result', preview: 'Captured screenshot (1235x815, jpeg)', callId: 'toolu_shot' },
-    { kind: 'image', mediaType: 'image/jpeg', callId: 'toolu_shot' },
+    { kind: "tool_result", preview: "Captured screenshot (1235x815, jpeg)", callId: "toolu_shot" },
+    { kind: "image", mediaType: "image/jpeg", callId: "toolu_shot" },
   ]);
 });
 
-test('an image in a type the panel cannot be served stays a Plain block', () => {
+test("an image in a type the panel cannot be served stays a Plain block", () => {
   // The media type becomes a response's content-type on the panel's origin, so an SVG does not
   // get to be an image block however it is labelled.
-  const line = userLine([
-    { type: 'image', source: { type: 'base64', media_type: 'image/svg+xml', data: 'PHN2Zy8+' } },
-  ]);
+  const line = userLine([{ type: "image", source: { type: "base64", media_type: "image/svg+xml", data: "PHN2Zy8+" } }]);
 
   const event = claudeAdapter.processLine(line)?.event;
-  expect(event!.blocks[0]!.kind).toBe('plain');
+  expect(event!.blocks[0]!.kind).toBe("plain");
 });
 
-test('a tool result with no text is still that call\'s result, not the reader\'s turn', () => {
+test("a tool result with no text is still that call's result, not the reader's turn", () => {
   // An MCP call answers with `tool_reference` items rather than text. Before this, the
   // envelope became a Plain block with no callId: nothing to pair it with its tool call,
   // so it took a row of its own -- and a user line carrying neither text nor a result is
   // what the feed draws as the person's own message.
-  const result = claudeAdapter.processLine(userLine([
-    {
-      type: 'tool_result',
-      tool_use_id: 'toolu_mcp',
-      content: [
-        { type: 'tool_reference', tool_name: 'mcp__chrome__navigate' },
-        { type: 'tool_reference', tool_name: 'mcp__chrome__computer' },
-      ],
-    },
-  ]));
+  const result = claudeAdapter.processLine(
+    userLine([
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_mcp",
+        content: [
+          { type: "tool_reference", tool_name: "mcp__chrome__navigate" },
+          { type: "tool_reference", tool_name: "mcp__chrome__computer" },
+        ],
+      },
+    ]),
+  );
 
   const event = result?.event;
   expect(event).toBeDefined();
   expect(event!.blocks[0]).toEqual({
-    kind: 'tool_result',
-    preview: 'mcp__chrome__navigate\nmcp__chrome__computer',
-    callId: 'toolu_mcp',
+    kind: "tool_result",
+    preview: "mcp__chrome__navigate\nmcp__chrome__computer",
+    callId: "toolu_mcp",
   });
   // The whole envelope stays reachable, so nothing is lost by not printing it.
-  expect(event!.blocks.some((block) => block.kind === 'plain')).toBe(false);
+  expect(event!.blocks.some((block) => block.kind === "plain")).toBe(false);
 });
 
-test('a tool result that returned nothing keeps its pairing rather than its envelope', () => {
-  const result = claudeAdapter.processLine(userLine([
-    { type: 'tool_result', tool_use_id: 'toolu_empty', content: [] },
-  ]));
+test("a tool result that returned nothing keeps its pairing rather than its envelope", () => {
+  const result = claudeAdapter.processLine(
+    userLine([{ type: "tool_result", tool_use_id: "toolu_empty", content: [] }]),
+  );
 
   expect(result?.event?.blocks[0]).toEqual({
-    kind: 'tool_result',
-    preview: '',
-    callId: 'toolu_empty',
+    kind: "tool_result",
+    preview: "",
+    callId: "toolu_empty",
   });
 });
 
-test('a tool result carrying text is untouched', () => {
-  const result = claudeAdapter.processLine(userLine([
-    {
-      type: 'tool_result',
-      tool_use_id: 'toolu_text',
-      content: [{ type: 'text', text: 'ok' }],
-    },
-  ]));
+test("a tool result carrying text is untouched", () => {
+  const result = claudeAdapter.processLine(
+    userLine([
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_text",
+        content: [{ type: "text", text: "ok" }],
+      },
+    ]),
+  );
 
   expect(result?.event?.blocks[0]).toEqual({
-    kind: 'tool_result',
-    preview: 'ok',
-    callId: 'toolu_text',
+    kind: "tool_result",
+    preview: "ok",
+    callId: "toolu_text",
   });
 });
 
 /** The boundary record as the CLI writes it, trimmed to the fields the adapter reads. */
 function compactBoundary(metadata: Record<string, unknown> | null): string {
   return JSON.stringify({
-    type: 'system',
-    subtype: 'compact_boundary',
-    content: 'Conversation compacted',
-    timestamp: '2026-09-14T00:55:43.983Z',
+    type: "system",
+    subtype: "compact_boundary",
+    content: "Conversation compacted",
+    timestamp: "2026-09-14T00:55:43.983Z",
     ...(metadata ? { compactMetadata: metadata } : {}),
   });
 }
 
-test('a compaction reports the context it dropped to, without waiting for the next turn', () => {
+test("a compaction reports the context it dropped to, without waiting for the next turn", () => {
   // Measured on this project's largest session: the meter otherwise held the pre-compaction
   // number for a median of 356 seconds after the boundary, and once for 8.4 hours.
-  const result = claudeAdapter.processLine(compactBoundary({
-    trigger: 'manual',
-    preTokens: 361_046,
-    postTokens: 27_741,
-    cumulativeDroppedTokens: 14_954_537,
-  }));
+  const result = claudeAdapter.processLine(
+    compactBoundary({
+      trigger: "manual",
+      preTokens: 361_046,
+      postTokens: 27_741,
+      cumulativeDroppedTokens: 14_954_537,
+    }),
+  );
   expect(result?.usage).toEqual({
     current: 27_741,
     limit: null,
-    updatedAt: Date.parse('2026-09-14T00:55:43.983Z'),
+    updatedAt: Date.parse("2026-09-14T00:55:43.983Z"),
   });
 });
 
-test('a compaction names no model, so the session keeps the window it already knew', () => {
+test("a compaction names no model, so the session keeps the window it already knew", () => {
   // Same path a Codex `token_count` and a Claude `<synthetic>` line take: `mergeUsage` inherits
   // the limit and model from the last line that named one, rather than blanking the meter.
   const result = claudeAdapter.processLine(compactBoundary({ postTokens: 20_864 }));
   expect(result?.usage?.model).toBeUndefined();
-  expect(mergeUsage({ current: 299_522, limit: 1_000_000, updatedAt: 1, model: 'claude-opus-5' }, result!.usage!))
-    .toEqual({ current: 20_864, limit: 1_000_000, updatedAt: expect.any(Number), model: 'claude-opus-5' });
+  expect(
+    mergeUsage({ current: 299_522, limit: 1_000_000, updatedAt: 1, model: "claude-opus-5" }, result!.usage!),
+  ).toEqual({ current: 20_864, limit: 1_000_000, updatedAt: expect.any(Number), model: "claude-opus-5" });
 });
 
-test('a boundary carrying no metadata leaves the meter where it was', () => {
+test("a boundary carrying no metadata leaves the meter where it was", () => {
   // An older CLI, or a record shape that moves. Reporting zero would read as an emptied context.
   expect(claudeAdapter.processLine(compactBoundary(null))?.usage).toBeUndefined();
-  expect(claudeAdapter.processLine(compactBoundary({ trigger: 'auto' }))?.usage).toBeUndefined();
+  expect(claudeAdapter.processLine(compactBoundary({ trigger: "auto" }))?.usage).toBeUndefined();
   expect(claudeAdapter.processLine(compactBoundary({ postTokens: 0 }))?.usage).toBeUndefined();
 });
 
-test('the model attachment declares this session\'s model, tier and all', () => {
+test("the model attachment declares this session's model, tier and all", () => {
   // Written near the top of a session and again after every compaction, which are the two moments
   // a context window has to be resolved. `message.model` never carries the tier.
-  const result = claudeAdapter.processLine(JSON.stringify({
-    type: 'attachment',
-    timestamp: '2026-09-14T00:55:59.000Z',
-    attachment: {
-      type: 'model',
-      identity: {
-        modelId: 'claude-opus-5[1m]',
-        marketingName: 'Opus 5 (1M context)',
-        knowledgeCutoff: 'May 2026',
+  const result = claudeAdapter.processLine(
+    JSON.stringify({
+      type: "attachment",
+      timestamp: "2026-09-14T00:55:59.000Z",
+      attachment: {
+        type: "model",
+        identity: {
+          modelId: "claude-opus-5[1m]",
+          marketingName: "Opus 5 (1M context)",
+          knowledgeCutoff: "May 2026",
+        },
       },
-    },
-  }));
-  expect(result?.declaredModel).toEqual({ model: 'claude-opus-5[1m]', limit: 1_000_000 });
+    }),
+  );
+  expect(result?.declaredModel).toEqual({ model: "claude-opus-5[1m]", limit: 1_000_000 });
   // Still the metadata row it always rendered as; the identity is read on the way past.
-  expect(result?.event?.blocks[0]).toMatchObject({ kind: 'metadata' });
+  expect(result?.event?.blocks[0]).toMatchObject({ kind: "metadata" });
 });
 
-test('an attachment that is not a model declaration declares nothing', () => {
-  const other = claudeAdapter.processLine(JSON.stringify({
-    type: 'attachment',
-    attachment: { type: 'file', path: '/tmp/x.ts' },
-  }));
+test("an attachment that is not a model declaration declares nothing", () => {
+  const other = claudeAdapter.processLine(
+    JSON.stringify({
+      type: "attachment",
+      attachment: { type: "file", path: "/tmp/x.ts" },
+    }),
+  );
   expect(other?.declaredModel).toBeUndefined();
   // And a model attachment from a build that shapes it differently is not half-read.
-  const shapeless = claudeAdapter.processLine(JSON.stringify({
-    type: 'attachment',
-    attachment: { type: 'model', identity: { marketingName: 'Opus 5' } },
-  }));
+  const shapeless = claudeAdapter.processLine(
+    JSON.stringify({
+      type: "attachment",
+      attachment: { type: "model", identity: { marketingName: "Opus 5" } },
+    }),
+  );
   expect(shapeless?.declaredModel).toBeUndefined();
 });

@@ -59,8 +59,7 @@ export const BOT_HUE_OFFSET = 24;
  * about which Bot stands where.
  */
 function orderedRoster(bots: readonly BotColourIdentity[]): BotColourIdentity[] {
-  return [...bots].sort((a, b) =>
-    a.createdAt - b.createdAt || (a.botId < b.botId ? -1 : a.botId > b.botId ? 1 : 0));
+  return [...bots].sort((a, b) => a.createdAt - b.createdAt || (a.botId < b.botId ? -1 : a.botId > b.botId ? 1 : 0));
 }
 
 /**
@@ -252,7 +251,7 @@ function walkStart(hue: number): number {
   let best = 0;
   let nearest = Infinity;
   BOT_SESSION_HUES.forEach((candidate, index) => {
-    const apart = Math.abs((((candidate - hue) % 360) + 540) % 360 - 180);
+    const apart = Math.abs(((((candidate - hue) % 360) + 540) % 360) - 180);
     if (apart < nearest) {
       nearest = apart;
       best = index;
@@ -292,10 +291,7 @@ export function botSessionHue(hue: number, slot: number): number {
  * it -- which is the Bot's, so every session on an unranked card would quietly take the colour of
  * the card beside it.
  */
-export function botSessionStyle(
-  hue: number | undefined,
-  slot: number | undefined,
-): CSSProperties | undefined {
+export function botSessionStyle(hue: number | undefined, slot: number | undefined): CSSProperties | undefined {
   if (hue === undefined || slot === undefined) return undefined;
   return {
     "--bot-hue": hue.toFixed(2),
@@ -313,9 +309,7 @@ export function botSessionStyle(
  * in session titles here, and the rule that keeps the list honest is that removing a word must
  * never leave the title meaning something else.
  */
-const CONNECTOR_WORDS = new Set([
-  "a", "an", "and", "at", "for", "from", "in", "of", "on", "or", "the", "to", "with",
-]);
+const CONNECTOR_WORDS = new Set(["a", "an", "and", "at", "for", "from", "in", "of", "on", "or", "the", "to", "with"]);
 
 /**
  * The one or two letters that stand for a session on its avatar.
@@ -343,8 +337,6 @@ export function sessionInitials(title: string): string {
   const named = words.filter((word) => !CONNECTOR_WORDS.has(word.toLowerCase()));
   const chosen = (named.length > 0 ? named : words).slice(0, 2);
   const letters =
-    chosen.length === 1
-      ? [...chosen[0]!].slice(0, 2).join("")
-      : chosen.map((word) => [...word][0]!).join("");
+    chosen.length === 1 ? [...chosen[0]!].slice(0, 2).join("") : chosen.map((word) => [...word][0]!).join("");
   return letters.toUpperCase() || "S";
 }

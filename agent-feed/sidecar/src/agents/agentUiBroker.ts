@@ -166,7 +166,7 @@ export function extensionUiContext(broker: AgentUiBroker): ExtensionUIContext {
       return typeof value === "string" && visibleOptions.includes(value) ? value : undefined;
     },
     async confirm(title, message) {
-      return await broker.request({ kind: "confirm", title, message }) === true;
+      return (await broker.request({ kind: "confirm", title, message })) === true;
     },
     async input(title, placeholder) {
       const value = await broker.request({ kind: "input", title, placeholder });
@@ -175,7 +175,9 @@ export function extensionUiContext(broker: AgentUiBroker): ExtensionUIContext {
     notify(message, level = "info") {
       broker.notify({ kind: "notify", message, level });
     },
-    onTerminalInput() { return () => {}; },
+    onTerminalInput() {
+      return () => {};
+    },
     setStatus(key, text) {
       broker.notify({ kind: "status", key, message: text });
     },
@@ -199,26 +201,44 @@ export function extensionUiContext(broker: AgentUiBroker): ExtensionUIContext {
     },
     setFooter() {},
     setHeader() {},
-    setTitle(title) { broker.notify({ kind: "status", key: "title", message: title }); },
+    setTitle(title) {
+      broker.notify({ kind: "status", key: "title", message: title });
+    },
     async custom() {
       broker.notify({ kind: "notify", level: "warning", message: "This extension requires unsupported terminal UI" });
       throw new Error("custom extension terminal UI is unsupported in AgentDesk");
     },
-    pasteToEditor(text) { editorText = appendBoundedText(editorText, text, MAXIMUM_UI_TEXT_BYTES); },
-    setEditorText(text) { editorText = boundText(text, MAXIMUM_UI_TEXT_BYTES); },
-    getEditorText() { return editorText; },
+    pasteToEditor(text) {
+      editorText = appendBoundedText(editorText, text, MAXIMUM_UI_TEXT_BYTES);
+    },
+    setEditorText(text) {
+      editorText = boundText(text, MAXIMUM_UI_TEXT_BYTES);
+    },
+    getEditorText() {
+      return editorText;
+    },
     async editor(title, prefill) {
       const value = await broker.request({ kind: "editor", title, prefill });
       return typeof value === "string" ? value : undefined;
     },
     addAutocompleteProvider() {},
     setEditorComponent() {},
-    getEditorComponent() { return undefined; },
+    getEditorComponent() {
+      return undefined;
+    },
     theme: {} as ExtensionUIContext["theme"],
-    getAllThemes() { return []; },
-    getTheme() { return undefined; },
-    setTheme() { return { success: false, error: "theme changes are unsupported in AgentDesk" }; },
-    getToolsExpanded() { return false; },
+    getAllThemes() {
+      return [];
+    },
+    getTheme() {
+      return undefined;
+    },
+    setTheme() {
+      return { success: false, error: "theme changes are unsupported in AgentDesk" };
+    },
+    getToolsExpanded() {
+      return false;
+    },
     setToolsExpanded() {},
   };
 }
@@ -241,9 +261,8 @@ function boundUiRequest(request: AgentUiRequest): AgentUiRequest {
     }
     return result;
   };
-  const key = request.key === undefined
-    ? undefined
-    : boundText(request.key, Math.min(MAXIMUM_UI_KEY_BYTES, remainingBytes));
+  const key =
+    request.key === undefined ? undefined : boundText(request.key, Math.min(MAXIMUM_UI_KEY_BYTES, remainingBytes));
   remainingBytes -= textEncoder.encode(key ?? "").byteLength;
   return {
     ...request,

@@ -13,18 +13,10 @@
 // Ordering note, the same one the timeline and task routes carry: this must be registered
 // BEFORE `createSessionRoutes`, whose catch-all rejects unknown `/api/sessions/` paths.
 
-import type {
-  AgentRunState,
-  SummaryResult,
-  SummaryStreamMessage,
-} from "@agentdesk/agent-feed-wire";
+import type { AgentRunState, SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
 import { backendPage, type AgentBackend } from "@/agents/agentBackend";
 import { config } from "@/config/config";
-import {
-  createSummaryRunner,
-  SummaryUnconfiguredError,
-  type SummaryRunner,
-} from "@/summary/summaryRuntime";
+import { createSummaryRunner, SummaryUnconfiguredError, type SummaryRunner } from "@/summary/summaryRuntime";
 import { resolveTurnWindow, type PageReader } from "@/summary/turnWindow";
 import {
   findSession,
@@ -33,16 +25,11 @@ import {
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
 import type { SourceId, TranscriptSourceId } from "@/transcripts/transcriptTypes";
-import {
-  encodeServerSentEvent,
-  jsonResponse,
-  startServerSentEventStream,
-} from "@/http/protocol/httpResponses";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 import { readTranscriptPage } from "@/http/session-routes/sessionRoutes";
 
-const SUMMARY_ROUTE =
-  /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/summary$/;
+const SUMMARY_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/summary$/;
 
 /**
  * The digest is always taken over the `nice` view.
@@ -127,9 +114,7 @@ export function createSummaryRoutes(
     // state -- the catalog derives it from transcript recency and `lastTurnClosed` -- and
     // reading only the descriptor reported every such session as finished, which is exactly
     // the case this button exists for: pressing it while the agent is still working.
-    const activity = record
-      ? summarizeSession(record, resolveAgentSession).activity
-      : descriptor?.activity;
+    const activity = record ? summarizeSession(record, resolveAgentSession).activity : descriptor?.activity;
 
     // The stream is opened before the run is joined or started, so that everything from here on
     // -- including a window that turns out to be empty -- is reported inside it. A reader that
@@ -137,19 +122,21 @@ export function createSummaryRoutes(
     return startServerSentEventStream(request, server, (write, close) => {
       const send = (message: SummaryStreamMessage): void => write(encodeServerSentEvent(message));
 
-      const run = active.get(key) ?? startRun({
-        runner,
-        project,
-        // A durable transcript answers for the events even when a live backend also knows this
-        // session, matching how the timeline route arbitrates.
-        readPage: pageReader(transcript, backend, sessionId),
-        // `Bin` is coarser than `AgentRunState`, and coarser is enough: the digest only needs to
-        // know whether the turn is still moving, not how it ended.
-        runState: activity === "live" ? "running" : "idle",
-        cache,
-        key,
-        active,
-      });
+      const run =
+        active.get(key) ??
+        startRun({
+          runner,
+          project,
+          // A durable transcript answers for the events even when a live backend also knows this
+          // session, matching how the timeline route arbitrates.
+          readPage: pageReader(transcript, backend, sessionId),
+          // `Bin` is coarser than `AgentRunState`, and coarser is enough: the digest only needs to
+          // know whether the turn is still moving, not how it ended.
+          runState: activity === "live" ? "running" : "idle",
+          cache,
+          key,
+          active,
+        });
 
       for (const message of run.history) send(message);
       run.listeners.add(send);

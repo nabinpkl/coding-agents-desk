@@ -104,12 +104,7 @@ export function BotNewSessionCard({
               {/* Live, and not a guess: this card only exists while a process this panel started
                   is running in a pane it can see. Unshaded, because a session with no transcript
                   yet has no rank on its Bot's ladder to take a colour from. */}
-              <SessionAvatar
-                title={session.title}
-                activity="live"
-                shaded={false}
-                className="mt-0.5"
-              />
+              <SessionAvatar title={session.title} activity="live" shaded={false} className="mt-0.5" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
                   {session.title}
@@ -119,9 +114,7 @@ export function BotNewSessionCard({
                     it explains why the card holds a terminal and nothing else. */}
                 <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
                   <SourceBadge source="claude" />
-                  <span>
-                    {session.forkedFrom ? `forked from ${session.forkedFrom}` : "new"}, no transcript yet
-                  </span>
+                  <span>{session.forkedFrom ? `forked from ${session.forkedFrom}` : "new"}, no transcript yet</span>
                 </span>
               </span>
               <ChevronDown
@@ -132,10 +125,7 @@ export function BotNewSessionCard({
             {/* Close, not "Remove from bot": nothing has been attached to remove. It takes the
                 card off this canvas and leaves the session running, the way closing a fork does. */}
             <span className="mt-1">
-              <RowMenu
-                label={session.title}
-                items={[{ label: "Close", icon: X, onSelect: onClose }]}
-              />
+              <RowMenu label={session.title} items={[{ label: "Close", icon: X, onSelect: onClose }]} />
             </span>
           </div>
           {open ? (
@@ -154,8 +144,8 @@ export function BotNewSessionCard({
                     way, so this says what it holds rather than offering to undo it. */}
                 {session.rewindFailed ? (
                   <p role="alert" className="text-destructive">
-                    It could not be moved back to the message you picked, so it holds the whole
-                    conversation. {session.rewindFailed}
+                    It could not be moved back to the message you picked, so it holds the whole conversation.{" "}
+                    {session.rewindFailed}
                   </p>
                 ) : null}
                 <p>
@@ -163,8 +153,7 @@ export function BotNewSessionCard({
                   <span className="font-medium text-foreground">
                     {session.projectPath.split("/").filter(Boolean).at(-1) ?? session.projectPath}
                   </span>
-                  . Type below to give it its first turn; the transcript appears here once it has
-                  one.
+                  . Type below to give it its first turn; the transcript appears here once it has one.
                 </p>
               </div>
               <AgentTerminalPane

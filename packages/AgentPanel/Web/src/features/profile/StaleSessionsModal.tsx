@@ -71,23 +71,14 @@ function readySessions(machine: MachineStaleSessions): StaleClaudeSession[] {
 }
 
 /** The body, exported apart from the dialog because jsdom cannot open a `<dialog>`. */
-export function StaleSessionsPanel({
-  restarts,
-  onClose,
-}: {
-  restarts: StaleSessionsHandle;
-  onClose: () => void;
-}) {
+export function StaleSessionsPanel({ restarts, onClose }: { restarts: StaleSessionsHandle; onClose: () => void }) {
   const { machines } = restarts;
   const [armed, setArmed] = useState(false);
   // A machine label only when there is more than one machine to tell apart.
   const labelled = machines.length > 1;
   const ready = new Map(machines.map((machine) => [machine.key, readySessions(machine)]));
   const total = [...ready.values()].reduce((sum, sessions) => sum + sessions.length, 0);
-  const restarting = machines.reduce(
-    (sum, { action }) => sum + (action.kind === "restarting" ? action.count : 0),
-    0,
-  );
+  const restarting = machines.reduce((sum, { action }) => sum + (action.kind === "restarting" ? action.count : 0), 0);
   const running = restarting > 0;
   const lone = machines.length === 1 && machines[0]!.view.kind === "ready" ? machines[0]!.view.stale : null;
 
@@ -127,10 +118,10 @@ export function StaleSessionsPanel({
           onClick={press}
           disabled={running || total === 0}
           className={
-            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors "
-            + "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary "
-            + "disabled:cursor-not-allowed disabled:opacity-50 "
-            + (armed
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors " +
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary " +
+            "disabled:cursor-not-allowed disabled:opacity-50 " +
+            (armed
               ? "bg-destructive/15 text-destructive hover:bg-destructive/25 active:bg-destructive/30"
               : "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80")
           }
@@ -153,7 +144,12 @@ export function StaleSessionsPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {machines.map((machine) => (
-          <MachineSection key={machine.key} machine={machine} labelled={labelled} ready={ready.get(machine.key) ?? []} />
+          <MachineSection
+            key={machine.key}
+            machine={machine}
+            labelled={labelled}
+            ready={ready.get(machine.key) ?? []}
+          />
         ))}
       </div>
     </div>
@@ -174,18 +170,21 @@ function MachineSection({
   const stale = view.kind === "ready" ? view.stale : null;
   const installed = stale?.installedVersion ?? null;
   const leftRunning = stale?.sessions.filter((session) => !restartable(session)) ?? [];
-  const body = view.kind === "loading" || view.kind === "idle" ? (
-    <p className="px-3 py-3 text-sm text-muted-foreground">Reading sessions…</p>
-  ) : view.kind === "failed" ? (
-    <p role="alert" className="px-3 py-3 text-sm text-destructive">Could not list sessions: {view.message}</p>
-  ) : stale && stale.sessions.length === 0 ? (
-    <p className="px-3 py-3 text-sm text-muted-foreground">Every session runs the current launch flags and CLI.</p>
-  ) : (
-    <>
-      <SessionGroup title="Will restart" sessions={ready} installed={installed} />
-      <SessionGroup title="Left running" sessions={leftRunning} installed={installed} because={leftRunningBecause} />
-    </>
-  );
+  const body =
+    view.kind === "loading" || view.kind === "idle" ? (
+      <p className="px-3 py-3 text-sm text-muted-foreground">Reading sessions…</p>
+    ) : view.kind === "failed" ? (
+      <p role="alert" className="px-3 py-3 text-sm text-destructive">
+        Could not list sessions: {view.message}
+      </p>
+    ) : stale && stale.sessions.length === 0 ? (
+      <p className="px-3 py-3 text-sm text-muted-foreground">Every session runs the current launch flags and CLI.</p>
+    ) : (
+      <>
+        <SessionGroup title="Will restart" sessions={ready} installed={installed} />
+        <SessionGroup title="Left running" sessions={leftRunning} installed={installed} because={leftRunningBecause} />
+      </>
+    );
   if (!labelled) {
     return (
       <>
@@ -198,7 +197,9 @@ function MachineSection({
     <section aria-label={machine.label} className="border-b-4 border-border/60 last:border-b-0">
       <h3 className="flex items-baseline gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-sm font-semibold">
         <span className="min-w-0 flex-1 truncate">{machine.label}</span>
-        {installed ? <span className="shrink-0 font-mono text-xs font-normal text-muted-foreground">installed {installed}</span> : null}
+        {installed ? (
+          <span className="shrink-0 font-mono text-xs font-normal text-muted-foreground">installed {installed}</span>
+        ) : null}
       </h3>
       <Outcome action={machine.action} />
       {body}
@@ -225,15 +226,25 @@ function SessionGroup({
       </h4>
       <ul>
         {sessions.map((session) => (
-          <li key={session.sessionId} className="flex min-h-9 items-center gap-2 border-b border-border/60 px-3 py-1.5 text-sm">
-            <span className="min-w-0 flex-1 truncate" title={session.sessionId}>{session.name ?? session.sessionId}</span>
+          <li
+            key={session.sessionId}
+            className="flex min-h-9 items-center gap-2 border-b border-border/60 px-3 py-1.5 text-sm"
+          >
+            <span className="min-w-0 flex-1 truncate" title={session.sessionId}>
+              {session.name ?? session.sessionId}
+            </span>
             {session.reasons.map((reason) => (
-              <span key={reason} className="shrink-0 rounded border border-border px-1.5 font-mono text-[10px] text-muted-foreground">
+              <span
+                key={reason}
+                className="shrink-0 rounded border border-border px-1.5 font-mono text-[10px] text-muted-foreground"
+              >
                 {reason === "update" ? `${session.version ?? "?"} → ${installed ?? "?"}` : "old flags"}
               </span>
             ))}
             {because ? (
-              <span className="w-28 shrink-0 text-right text-xs text-amber-600 dark:text-amber-400">{because(session)}</span>
+              <span className="w-28 shrink-0 text-right text-xs text-amber-600 dark:text-amber-400">
+                {because(session)}
+              </span>
             ) : null}
           </li>
         ))}
@@ -246,7 +257,10 @@ function SessionGroup({
 function Outcome({ action }: { action: MachineStaleSessions["action"] }) {
   if (action.kind === "failed") {
     return (
-      <p role="alert" className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+      <p
+        role="alert"
+        className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+      >
         Restart failed: {action.message}
       </p>
     );
@@ -256,12 +270,19 @@ function Outcome({ action }: { action: MachineStaleSessions["action"] }) {
   const others = action.results.filter((result) => result.outcome.kind !== "restarted");
   return (
     <div role="status" className="shrink-0 border-b border-border bg-muted/40 px-3 py-2 text-xs">
-      <p>Restarted {restarted} of {action.results.length}.</p>
+      <p>
+        Restarted {restarted} of {action.results.length}.
+      </p>
       {others.length > 0 ? (
         <ul className="mt-1 space-y-0.5">
           {others.map(({ sessionId, name, outcome }) => (
             <li key={sessionId} className={outcome.kind === "failed" ? "text-destructive" : "text-muted-foreground"}>
-              {name ?? sessionId}: {outcome.kind === "failed" ? `failed, ${outcome.message}` : outcome.kind === "skipped" ? `left running, ${outcome.reason}` : ""}
+              {name ?? sessionId}:{" "}
+              {outcome.kind === "failed"
+                ? `failed, ${outcome.message}`
+                : outcome.kind === "skipped"
+                  ? `left running, ${outcome.reason}`
+                  : ""}
             </li>
           ))}
         </ul>

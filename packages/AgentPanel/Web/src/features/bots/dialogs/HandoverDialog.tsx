@@ -42,7 +42,6 @@ export function HandoverDialog({
   const [pending, setPending] = useStateFor(request, () => false);
   const [error, setError] = useStateFor<string | null>(request, () => null);
 
-
   useModal(dialogRef, Boolean(request), { attributeFallback: true });
 
   if (!request || !destination) return null;
@@ -81,11 +80,9 @@ export function HandoverDialog({
           Hand over to {HANDOVER_LABELS[destination]}
         </h2>
         <p className="text-sm text-muted-foreground">
-          Starts {destination === "claude" ? "a" : "an"} {HANDOVER_LABELS[destination]} session on
-          this Bot carrying{" "}
+          Starts {destination === "claude" ? "a" : "an"} {HANDOVER_LABELS[destination]} session on this Bot carrying{" "}
           <span className="font-mono">{request.session.title || request.session.sessionId}</span>
-          &rsquo;s conversation, from its newest compaction if it has one. The new session opens on
-          this Bot.
+          &rsquo;s conversation, from its newest compaction if it has one. The new session opens on this Bot.
         </p>
         <label className="block text-sm font-medium">
           Message to send with it (optional)
@@ -97,7 +94,11 @@ export function HandoverDialog({
             className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
           />
         </label>
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"

@@ -64,10 +64,12 @@ export function floatingWindowPreferences(
   keyPrefix: string,
   ranges: { width: FloatingWindowRange; height: FloatingWindowRange },
 ): FloatingWindowPreferences {
-  const clamp = (range: FloatingWindowRange) => (value: number): number => {
-    const wanted = Number.isFinite(value) ? Math.round(value) : range.default;
-    return Math.min(range.max, Math.max(range.min, wanted));
-  };
+  const clamp =
+    (range: FloatingWindowRange) =>
+    (value: number): number => {
+      const wanted = Number.isFinite(value) ? Math.round(value) : range.default;
+      return Math.min(range.max, Math.max(range.min, wanted));
+    };
   const clampWidth = clamp(ranges.width);
   const clampHeight = clamp(ranges.height);
   const load = (key: string, range: FloatingWindowRange, within: (value: number) => number) => (): number => {
@@ -82,15 +84,17 @@ export function floatingWindowPreferences(
     }
   };
   // The default is stored as nothing, so a reader who never drags keeps following the default.
-  const store = (key: string, range: FloatingWindowRange, within: (value: number) => number) => (value: number): void => {
-    try {
-      const clamped = within(value);
-      if (clamped === range.default) localStorage.removeItem(key);
-      else localStorage.setItem(key, String(clamped));
-    } catch {
-      // The window still resizes; it just opens at its default next time.
-    }
-  };
+  const store =
+    (key: string, range: FloatingWindowRange, within: (value: number) => number) =>
+    (value: number): void => {
+      try {
+        const clamped = within(value);
+        if (clamped === range.default) localStorage.removeItem(key);
+        else localStorage.setItem(key, String(clamped));
+      } catch {
+        // The window still resizes; it just opens at its default next time.
+      }
+    };
   const positionKey = `${keyPrefix}-position`;
   return {
     clampWidth,

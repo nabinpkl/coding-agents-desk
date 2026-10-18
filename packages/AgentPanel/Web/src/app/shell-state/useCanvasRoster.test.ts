@@ -14,7 +14,7 @@ import { botFeeds } from "@/features/bots/botMachines";
 
 /** A stand-in Bot: only its id is under test here. */
 const bot = (botId: string) =>
-  ({ botId, name: botId, sessions: [], sessionRefs: [], missingSessionRefs: [] } as unknown as BotView);
+  ({ botId, name: botId, sessions: [], sessionRefs: [], missingSessionRefs: [] }) as unknown as BotView;
 const ids = (bots: readonly { botId: string }[]): string[] => bots.map((each) => each.botId);
 const bots = [bot("a"), bot("b"), bot("c")];
 /** Every canvas write the roster sent, in order, and the answer it is given. */
@@ -27,11 +27,17 @@ const feed = {
   },
 } as unknown as SidecarDataSource;
 const machine = { label: "this machine", feed };
-const feeds = botFeeds(feed, [machine], () => machine, () => machine, () => []);
-const roster = (initial: BotView[] = bots) => renderHook(
-  ({ roster: current }) => useCanvasRoster({ bots: current, settled: true }, feeds),
-  { initialProps: { roster: initial } },
+const feeds = botFeeds(
+  feed,
+  [machine],
+  () => machine,
+  () => machine,
+  () => [],
 );
+const roster = (initial: BotView[] = bots) =>
+  renderHook(({ roster: current }) => useCanvasRoster({ bots: current, settled: true }, feeds), {
+    initialProps: { roster: initial },
+  });
 
 describe("the canvas order both surfaces read", () => {
   beforeEach(() => {
@@ -83,7 +89,9 @@ describe("the canvas order both surfaces read", () => {
   });
 
   it("lets go of a move whose write failed, so the strip shows what the records say", async () => {
-    answer = async () => { throw new Error("bot-store-failed"); };
+    answer = async () => {
+      throw new Error("bot-store-failed");
+    };
     const { result } = roster();
     act(() => result.current.moveBot("c", "a"));
     expect(ids(result.current.orderedBots)).toEqual(["c", "a", "b"]);
@@ -128,18 +136,23 @@ describe("what is on the canvas, which the Bot's record holds", () => {
     const holding = { ...bots[2]!, sessionRefs: [{ source: "codex", sessionId: "s2" }] } as BotView;
     const { result } = roster([bots[0]!, bots[1]!, holding]);
     act(() => result.current.removeSessionFromCanvas({ source: "codex", sessionId: "s2" }));
-    expect(sent).toEqual([{
-      botId: "c",
-      command: { sessions: [{ source: "codex", sessionId: "s2", onCanvas: false }] },
-    }]);
+    expect(sent).toEqual([
+      {
+        botId: "c",
+        command: { sessions: [{ source: "codex", sessionId: "s2", onCanvas: false }] },
+      },
+    ]);
   });
 
   it("says so when the change does not land, rather than looking like a dead click", async () => {
-    answer = async () => { throw new Error("bot-store-failed"); };
+    answer = async () => {
+      throw new Error("bot-store-failed");
+    };
     const { result } = roster();
     act(() => result.current.toggleBotOnCanvas(bots[0]!));
-    await waitFor(() => expect(result.current.canvasError?.message)
-      .toBe("Could not change a on the canvas: bot-store-failed"));
+    await waitFor(() =>
+      expect(result.current.canvasError?.message).toBe("Could not change a on the canvas: bot-store-failed"),
+    );
   });
 });
 
@@ -148,19 +161,26 @@ describe("what is on the canvas, which the Bot's record holds", () => {
 describe("which open cards survive a machine coming and going", () => {
   const OPEN = "agent-panel.bot-canvas.open-session";
   const holding = (botId: string, ...sessionIds: string[]) =>
-    ({ ...bot(botId), sessionRefs: sessionIds.map((sessionId) => ({ source: "claude", sessionId })) } as BotView);
-  const machineKeys = new Map([["home", ""], ["peer", "oracle"]]);
-  const shell = (initial: { bots: BotView[]; machines: string[] }) => renderHook(
-    ({ bots: current, machines }) => useCanvasRoster({ bots: current, settled: true, machineKeys, machines }, feeds),
-    { initialProps: initial },
-  );
+    ({ ...bot(botId), sessionRefs: sessionIds.map((sessionId) => ({ source: "claude", sessionId })) }) as BotView;
+  const machineKeys = new Map([
+    ["home", ""],
+    ["peer", "oracle"],
+  ]);
+  const shell = (initial: { bots: BotView[]; machines: string[] }) =>
+    renderHook(
+      ({ bots: current, machines }) => useCanvasRoster({ bots: current, settled: true, machineKeys, machines }, feeds),
+      { initialProps: initial },
+    );
   const stored = (): string[] => JSON.parse(localStorage.getItem(OPEN) ?? "[]").sort();
 
   beforeEach(() => localStorage.clear());
 
   it("keeps a peer's open card while the peer is away, and drops it once the peer says it is gone", () => {
     localStorage.setItem(OPEN, JSON.stringify(["claude:home-1", "claude:rags-1"]));
-    const { rerender } = shell({ bots: [holding("home", "home-1"), holding("peer", "rags-1")], machines: ["", "oracle"] });
+    const { rerender } = shell({
+      bots: [holding("home", "home-1"), holding("peer", "rags-1")],
+      machines: ["", "oracle"],
+    });
     expect(stored()).toEqual(["claude:home-1", "claude:rags-1"]);
 
     // The peer's sidecar restarts: it leaves the list, and every Bot left is this machine's.

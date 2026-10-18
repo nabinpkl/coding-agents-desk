@@ -32,12 +32,12 @@ function isTileGrid(value: unknown): value is TileGrid {
   if (typeof value !== "object" || value === null) return false;
   const grid = value as Record<string, unknown>;
   return (
-    Number.isInteger(grid["columns"])
-    && Number.isInteger(grid["rows"])
-    && (grid["columns"] as number) >= TILE_GRID_BOUNDS.minColumns
-    && (grid["columns"] as number) <= TILE_GRID_BOUNDS.maxColumns
-    && (grid["rows"] as number) >= TILE_GRID_BOUNDS.minRows
-    && (grid["rows"] as number) <= TILE_GRID_BOUNDS.maxRows
+    Number.isInteger(grid["columns"]) &&
+    Number.isInteger(grid["rows"]) &&
+    (grid["columns"] as number) >= TILE_GRID_BOUNDS.minColumns &&
+    (grid["columns"] as number) <= TILE_GRID_BOUNDS.maxColumns &&
+    (grid["rows"] as number) >= TILE_GRID_BOUNDS.minRows &&
+    (grid["rows"] as number) <= TILE_GRID_BOUNDS.maxRows
   );
 }
 
@@ -110,12 +110,12 @@ function isTileBox(value: unknown): value is TileBox {
   if (typeof value !== "object" || value === null) return false;
   const box = value as Record<string, unknown>;
   return (
-    Number.isFinite(box["width"])
-    && Number.isFinite(box["height"])
-    && (box["width"] as number) >= TILE_BOX_BOUNDS.minWidth
-    && (box["width"] as number) <= TILE_BOX_BOUNDS.maxWidth
-    && (box["height"] as number) >= TILE_BOX_BOUNDS.minHeight
-    && (box["height"] as number) <= TILE_BOX_BOUNDS.maxHeight
+    Number.isFinite(box["width"]) &&
+    Number.isFinite(box["height"]) &&
+    (box["width"] as number) >= TILE_BOX_BOUNDS.minWidth &&
+    (box["width"] as number) <= TILE_BOX_BOUNDS.maxWidth &&
+    (box["height"] as number) >= TILE_BOX_BOUNDS.minHeight &&
+    (box["height"] as number) <= TILE_BOX_BOUNDS.maxHeight
   );
 }
 

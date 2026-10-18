@@ -43,7 +43,8 @@ describe("encoder slots", () => {
 
   test("a missing helper is refused rather than copied as nothing", () => {
     const root = mkdtempSync(join(tmpdir(), "encoder-slots-"));
-    expect(() => acquireEncoderSlot(helperBinary(join(root, "absent")), join(root, "slots"), () => false))
-      .toThrow(/no installed helper/);
+    expect(() => acquireEncoderSlot(helperBinary(join(root, "absent")), join(root, "slots"), () => false)).toThrow(
+      /no installed helper/,
+    );
   });
 });

@@ -8,20 +8,19 @@ import { TileViewport, type ViewportGestureTelemetry } from "@/features/desktop-
 import { tileViewportHarness } from "@/features/desktop-viewer/tile-viewport/tileViewportHarness";
 
 describe("TileViewport zoom and keyboard", () => {
-  const {
-    animationFrames,
-    frameObservers,
-    pointer,
-    renderPointerSurface,
-    scaleOf,
-  } = tileViewportHarness();
+  const { animationFrames, frameObservers, pointer, renderPointerSurface, scaleOf } = tileViewportHarness();
 
   it("fills the strip the keyboard leaves and aims it at the cursor, then puts the view back", () => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
     const surfaceFor = (keyboardPresented: boolean) => (
-      <TileViewport pointerMode keyboardPresented={keyboardPresented}
-        sourceWidth={800} sourceHeight={500} initialCursor={{ x: 200, y: 250 }}>
+      <TileViewport
+        pointerMode
+        keyboardPresented={keyboardPresented}
+        sourceWidth={800}
+        sourceHeight={500}
+        initialCursor={{ x: 200, y: 250 }}
+      >
         <div data-testid="content" />
       </TileViewport>
     );
@@ -62,8 +61,12 @@ describe("TileViewport zoom and keyboard", () => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
     const surfaceFor = (keyboardPresented: boolean) => (
-      <TileViewport keyboardPresented={keyboardPresented}
-        sourceWidth={800} sourceHeight={500} initialCursor={{ x: 200, y: 250 }}>
+      <TileViewport
+        keyboardPresented={keyboardPresented}
+        sourceWidth={800}
+        sourceHeight={500}
+        initialCursor={{ x: 200, y: 250 }}
+      >
         <div data-testid="content" />
       </TileViewport>
     );
@@ -213,11 +216,7 @@ describe("TileViewport zoom and keyboard", () => {
   it("reports bounded pinch-pan and zoomed pointer gesture lifecycles", () => {
     const telemetry: ViewportGestureTelemetry[] = [];
     const surface = render(
-      <TileViewport
-        pointerMode
-        sendPointerInput={() => true}
-        onGestureTelemetry={(event) => telemetry.push(event)}
-      >
+      <TileViewport pointerMode sendPointerInput={() => true} onGestureTelemetry={(event) => telemetry.push(event)}>
         <div data-testid="telemetry-content" />
       </TileViewport>,
     ).getByTestId("telemetry-content").parentElement!.parentElement!;

@@ -43,10 +43,7 @@ describe("event preview", () => {
         index: 4,
         ts: 1,
         type: "system",
-        blocks: [
-          { kind: "metadata", label: "Hook", text: '{"exitCode":0}' },
-          { kind: "raw" },
-        ],
+        blocks: [{ kind: "metadata", label: "Hook", text: '{"exitCode":0}' }, { kind: "raw" }],
       }),
     ).toBe('Hook: {"exitCode":0}');
 
@@ -159,8 +156,9 @@ describe("toolIntent", () => {
 
   it("reads the agent's description off a tool call", () => {
     // It rides the role heading; the command stays on the tool row, so both are visible at once.
-    expect(toolIntent(bash({ command: "just check", description: "Run 2-hour looped logger" })))
-      .toBe("Run 2-hour looped logger");
+    expect(toolIntent(bash({ command: "just check", description: "Run 2-hour looped logger" }))).toBe(
+      "Run 2-hour looped logger",
+    );
   });
 
   it("is null when the call carried no description, leaving the heading as it was", () => {
@@ -174,12 +172,14 @@ describe("toolIntent", () => {
 
   it("takes the first description when an event ran several calls at once", () => {
     // A heading is one line. The rest keep their own rows.
-    expect(toolIntent({
-      blocks: [
-        { kind: "tool_use", tool: "Read", input: { file_path: "/a" } },
-        { kind: "tool_use", tool: "Bash", input: { command: "a", description: "first" } },
-        { kind: "tool_use", tool: "Bash", input: { command: "b", description: "second" } },
-      ],
-    })).toBe("first");
+    expect(
+      toolIntent({
+        blocks: [
+          { kind: "tool_use", tool: "Read", input: { file_path: "/a" } },
+          { kind: "tool_use", tool: "Bash", input: { command: "a", description: "first" } },
+          { kind: "tool_use", tool: "Bash", input: { command: "b", description: "second" } },
+        ],
+      }),
+    ).toBe("first");
   });
 });

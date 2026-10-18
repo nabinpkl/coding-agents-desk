@@ -58,12 +58,14 @@ export const VELOCITY_WINDOW_MS = 100;
 
 /** Pointer gain for a finger speed in points per second. */
 export function pointerAccelerationGain(speed: number): number {
-  return POINTER_ACCELERATION_FLOOR
-    + Math.min(Math.max(0, speed) * POINTER_ACCELERATION_SLOPE, POINTER_ACCELERATION_CEILING);
+  return (
+    POINTER_ACCELERATION_FLOOR + Math.min(Math.max(0, speed) * POINTER_ACCELERATION_SLOPE, POINTER_ACCELERATION_CEILING)
+  );
 }
 
 /** Scroll gain for a finger speed in points per second. */
 export function scrollAccelerationGain(speed: number): number {
-  return SCROLL_ACCELERATION_FLOOR
-    + Math.min(Math.max(0, speed) * SCROLL_ACCELERATION_SLOPE, SCROLL_ACCELERATION_CEILING);
+  return (
+    SCROLL_ACCELERATION_FLOOR + Math.min(Math.max(0, speed) * SCROLL_ACCELERATION_SLOPE, SCROLL_ACCELERATION_CEILING)
+  );
 }

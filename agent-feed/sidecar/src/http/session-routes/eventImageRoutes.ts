@@ -33,11 +33,9 @@ import { adapterFor } from "@/transcripts/sourceAdapters";
 import { jsonResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 
-const EVENT_IMAGE_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/events\/(\d+)\/blocks\/(\d+)\/image$/i;
+const EVENT_IMAGE_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/events\/(\d+)\/blocks\/(\d+)\/image$/i;
 
-const EVENT_FILE_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/events\/(\d+)\/blocks\/(\d+)\/files\/(\d+)$/i;
+const EVENT_FILE_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/events\/(\d+)\/blocks\/(\d+)\/files\/(\d+)$/i;
 
 const OPENCODE_IMAGE_ROUTE =
   /^\/api\/sessions\/opencode\/([A-Za-z0-9._:-]{1,128})\/events\/(\d+)\/blocks\/(\d+)\/image$/;
@@ -126,11 +124,7 @@ function looksLikeText(bytes: Buffer): boolean {
   }
 }
 
-async function eventImage(
-  sessionId: string,
-  eventIndex: number,
-  blockIndex: number,
-): Promise<Response> {
+async function eventImage(sessionId: string, eventIndex: number, blockIndex: number): Promise<Response> {
   const session = findSession("claude", sessionId);
   if (!session || !session.transcriptPath) return jsonResponse({ error: "session not found" }, 404);
   try {
@@ -193,9 +187,7 @@ async function eventFile(
     const block = adapterFor("claude").processLine(line)?.event?.blocks[blockIndex];
     // The same rule the normalizer put on the block, applied to the same line: the panel's `k` is
     // a position in THAT list and nothing else resolves it.
-    const path = block?.kind === "tool_use"
-      ? toolFilePaths(block.input)[fileIndex]
-      : undefined;
+    const path = block?.kind === "tool_use" ? toolFilePaths(block.input)[fileIndex] : undefined;
     // Absolute only. A relative path would be resolved against whatever directory this process
     // happens to be in, which is not a place the transcript was talking about.
     if (typeof path !== "string" || !isAbsolute(path)) {
@@ -217,8 +209,7 @@ async function eventFile(
       "x-content-type-options": "nosniff",
       // So the tab, and a save from it, carry the name the reader knows the file by rather than
       // the numbered address it was fetched from.
-      "content-disposition":
-        `${served.inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(basename(path))}`,
+      "content-disposition": `${served.inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(basename(path))}`,
       // Unlike a transcript line, the file on disk can be rewritten or swept away under a
       // reader who is still scrolling, so this is cached for a while rather than forever.
       "cache-control": "private, max-age=300",
@@ -247,11 +238,7 @@ async function opencodeImage(
   sessionId: string,
   eventIndex: number,
   blockIndex: number,
-  imageFor: (
-    sessionId: string,
-    eventIndex: number,
-    blockIndex: number,
-  ) => { mediaType: string; data: string } | null,
+  imageFor: (sessionId: string, eventIndex: number, blockIndex: number) => { mediaType: string; data: string } | null,
 ): Promise<Response> {
   const picture = imageFor(sessionId, eventIndex, blockIndex);
   if (!picture || !SERVABLE_MEDIA_TYPES.has(picture.mediaType)) {
@@ -276,11 +263,7 @@ async function opencodeImage(
 }
 
 export function createEventImageRoutes(
-  imageFor?: (
-    sessionId: string,
-    eventIndex: number,
-    blockIndex: number,
-  ) => { mediaType: string; data: string } | null,
+  imageFor?: (sessionId: string, eventIndex: number, blockIndex: number) => { mediaType: string; data: string } | null,
 ): RouteHandler {
   return (request, url) => {
     if (request.method !== "GET") return undefined;
@@ -298,11 +281,6 @@ export function createEventImageRoutes(
     if (image) {
       return eventImage(image[1]!.toLowerCase(), Number(image[2]!), Number(image[3]!));
     }
-    return eventFile(
-      file![1]!.toLowerCase(),
-      Number(file![2]!),
-      Number(file![3]!),
-      Number(file![4]!),
-    );
+    return eventFile(file![1]!.toLowerCase(), Number(file![2]!), Number(file![3]!), Number(file![4]!));
   };
 }

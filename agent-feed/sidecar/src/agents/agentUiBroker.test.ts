@@ -50,9 +50,11 @@ test("keyed extension status replaces and clears one shared viewer item", () => 
   const events: Array<{ type: string; requestId: string; message?: string }> = [];
   const ui = extensionUiContext(broker);
   broker.subscribe((event) => {
-    events.push(event.type === "request"
-      ? { type: event.type, requestId: event.request.requestId, message: event.request.message }
-      : { type: event.type, requestId: event.requestId });
+    events.push(
+      event.type === "request"
+        ? { type: event.type, requestId: event.request.requestId, message: event.request.message }
+        : { type: event.type, requestId: event.requestId },
+    );
   });
 
   ui.setStatus("build", "starting");

@@ -22,7 +22,8 @@ describe("whether a press belongs to a card or to the canvas", () => {
   function decide(scroller: HTMLElement, strip: HTMLElement, target: HTMLElement) {
     const seen: { onStrip: boolean; contained: boolean }[] = [];
     scroller.addEventListener("click", (event) =>
-      seen.push({ onStrip: pressedOnStrip(event, strip), contained: strip.contains(event.target as Node) }));
+      seen.push({ onStrip: pressedOnStrip(event, strip), contained: strip.contains(event.target as Node) }),
+    );
     target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     return seen[0]!;
   }
@@ -55,7 +56,11 @@ describe("whether a press belongs to a card or to the canvas", () => {
 });
 
 describe("which card a press landed on", () => {
-  const cards = [{ left: 0, right: 100 }, { left: 112, right: 212 }, { left: 224, right: 324 }];
+  const cards = [
+    { left: 0, right: 100 },
+    { left: 112, right: 212 },
+    { left: 224, right: 324 },
+  ];
 
   it("finds the card by x alone, because the strip is one row that never wraps", () => {
     expect(cardUnder(cards, 50)).toBe(0);

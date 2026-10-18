@@ -20,11 +20,14 @@ export function startFixture(): FixtureServer {
       // A subagent's request: its parent's identity, plus the harness's billing token saying whose
       // turn it really is. Both are what the wire carries.
       return JSON.stringify({
-        system: [{
-          type: "text",
-          text: "x-anthropic-billing-header: cc_version=2.1.268.58f; cc_entrypoint=cli;"
-            + " cc_is_subagent=true; cc_prompt_id=2a5f44c0-0db0-4745-a365-df4dadab823b;",
-        }],
+        system: [
+          {
+            type: "text",
+            text:
+              "x-anthropic-billing-header: cc_version=2.1.268.58f; cc_entrypoint=cli;" +
+              " cc_is_subagent=true; cc_prompt_id=2a5f44c0-0db0-4745-a365-df4dadab823b;",
+          },
+        ],
         user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-b1" }),
       });
     }
@@ -34,15 +37,20 @@ export function startFixture(): FixtureServer {
       // instruction and all -- the instruction is what separates it from the harness's other
       // errands, which are equally not the session speaking but are over in a second.
       return JSON.stringify({
-        system: [{
-          type: "text",
-          text: "x-anthropic-billing-header: cc_version=2.1.270.d34; cc_entrypoint=cli;"
-            + " cch=014d3; cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6;",
-        }],
-        messages: [{
-          role: "user",
-          content: "Your task is to create a detailed summary of the conversation so far.",
-        }],
+        system: [
+          {
+            type: "text",
+            text:
+              "x-anthropic-billing-header: cc_version=2.1.270.d34; cc_entrypoint=cli;" +
+              " cch=014d3; cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6;",
+          },
+        ],
+        messages: [
+          {
+            role: "user",
+            content: "Your task is to create a detailed summary of the conversation so far.",
+          },
+        ],
         user: JSON.stringify({ device_id: "d", account_uuid: "a", session_id: "sess-b1" }),
       });
     }
@@ -128,4 +136,3 @@ export function delta(flowId: string, payload: unknown): ObserverEvent {
 export function ended(flowId: string): ObserverEvent {
   return { observedAt: new Date().toISOString(), streamEnded: { flowId } };
 }
-

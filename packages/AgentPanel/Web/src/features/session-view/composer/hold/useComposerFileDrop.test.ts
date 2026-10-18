@@ -9,16 +9,18 @@ import { useComposerFileDrop } from "@/features/session-view/composer/hold/useCo
 
 function hook(overrides: Partial<Parameters<typeof useComposerFileDrop>[0]> = {}) {
   const onFileDrop = vi.fn();
-  const result = renderHook(() => useComposerFileDrop({
-    isClaude: false,
-    noPane: false,
-    holdsForSend: false,
-    dropToPane: () => {},
-    holdForSend: () => {},
-    engage: () => {},
-    onFileDrop,
-    ...overrides,
-  }));
+  const result = renderHook(() =>
+    useComposerFileDrop({
+      isClaude: false,
+      noPane: false,
+      holdsForSend: false,
+      dropToPane: () => {},
+      holdForSend: () => {},
+      engage: () => {},
+      onFileDrop,
+      ...overrides,
+    }),
+  );
   return { accept: result.result.current, onFileDrop };
 }
 

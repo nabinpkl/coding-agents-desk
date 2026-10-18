@@ -86,19 +86,22 @@ export function PatchView({ diff }: { diff: PatchSource }) {
         >
           {lines.map((line, index) => {
             const place = painted?.places[index] ?? null;
-            const tokens = place === null
-              ? null
-              : (place.side === "old" ? painted!.old : painted!.fresh)[place.line] ?? null;
+            const tokens =
+              place === null ? null : ((place.side === "old" ? painted!.old : painted!.fresh)[place.line] ?? null);
             return (
               // The index is the key because a patch is a list of lines rather than of entities:
               // two identical lines are two rows, and nothing in it is reordered or removed.
               <div key={index} className={`flex ${LINE_TONE[line.kind]}`}>
-                <span aria-hidden className="w-9 shrink-0 select-none px-1 text-right
+                <span
+                  aria-hidden
+                  className="w-9 shrink-0 select-none px-1 text-right
                   text-muted-foreground/70"
                 >
                   {line.oldNumber ?? ""}
                 </span>
-                <span aria-hidden className="w-9 shrink-0 select-none px-1 text-right
+                <span
+                  aria-hidden
+                  className="w-9 shrink-0 select-none px-1 text-right
                   text-muted-foreground/70"
                 >
                   {line.newNumber ?? ""}
@@ -109,8 +112,10 @@ export function PatchView({ diff }: { diff: PatchSource }) {
                 <span className={`whitespace-pre px-2 ${tokens ? "shiki" : ""}`}>
                   {tokens
                     ? tokens.map((token, at) => (
-                      <span key={at} style={token.htmlStyle}>{token.content}</span>
-                    ))
+                        <span key={at} style={token.htmlStyle}>
+                          {token.content}
+                        </span>
+                      ))
                     : line.text}
                 </span>
               </div>
@@ -118,14 +123,14 @@ export function PatchView({ diff }: { diff: PatchSource }) {
           })}
         </pre>
       </div>
-      {diff.truncated
-        ? (
-          <p className="m-0 shrink-0 border-t border-border px-2 py-1 text-[11px]
-            text-muted-foreground">
-            This diff was cut short. Read the rest in a terminal.
-          </p>
-        )
-        : null}
+      {diff.truncated ? (
+        <p
+          className="m-0 shrink-0 border-t border-border px-2 py-1 text-[11px]
+            text-muted-foreground"
+        >
+          This diff was cut short. Read the rest in a terminal.
+        </p>
+      ) : null}
     </div>
   );
 }

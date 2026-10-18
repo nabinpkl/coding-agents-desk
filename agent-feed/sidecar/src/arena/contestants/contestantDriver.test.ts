@@ -4,11 +4,14 @@ import { StartLine } from "@/arena/contestants/contestantDriver";
 /** Whether a promise has settled, asked without waiting on it. */
 async function settled(promise: Promise<unknown>): Promise<boolean> {
   let done = false;
-  void promise.then(() => {
-    done = true;
-  }, () => {
-    done = true;
-  });
+  void promise.then(
+    () => {
+      done = true;
+    },
+    () => {
+      done = true;
+    },
+  );
   await new Promise((resolve) => setTimeout(resolve, 0));
   return done;
 }

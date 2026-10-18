@@ -8,13 +8,13 @@
 // Claude only, like the route: it is the vocabulary of Claude's own tools.
 
 /** A call that hands files over says so in a list. `SendUserFile` is the one that does. */
-const FILE_LIST_KEY = 'files';
+const FILE_LIST_KEY = "files";
 
 /** A call that works ON one file names it in one of these. */
-const SINGLE_PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const;
+const SINGLE_PATH_KEYS = ["file_path", "path", "notebook_path"] as const;
 
 /** A call that runs a command has its files inside the command string. */
-const COMMAND_KEYS = ['command', 'cmd'] as const;
+const COMMAND_KEYS = ["command", "cmd"] as const;
 
 const PICTURE_NAME = /\.(?:png|jpe?g|gif|webp)$/i;
 
@@ -50,9 +50,9 @@ export function toolFilePaths(input: Record<string, unknown> | undefined): strin
   if (!input) return [];
   const found: string[] = [];
   const add = (value: unknown, pictureOnly: boolean) => {
-    if (typeof value !== 'string') return;
+    if (typeof value !== "string") return;
     const path = value.trim();
-    if (!path.startsWith('/') || found.includes(path)) return;
+    if (!path.startsWith("/") || found.includes(path)) return;
     if (pictureOnly && !isPictureName(path)) return;
     found.push(path);
   };
@@ -64,7 +64,7 @@ export function toolFilePaths(input: Record<string, unknown> | undefined): strin
   for (const key of SINGLE_PATH_KEYS) add(input[key], true);
   for (const key of COMMAND_KEYS) {
     const command = input[key];
-    if (typeof command !== 'string') continue;
+    if (typeof command !== "string") continue;
     for (const match of command.matchAll(COMMAND_PICTURE)) add(match[1], true);
   }
   return found.slice(0, MAX_FILES);

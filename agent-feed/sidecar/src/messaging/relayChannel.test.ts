@@ -31,7 +31,15 @@ afterEach(() => fake?.stop(true));
 describe("channelNotification", () => {
   test("carries routing in identifier-only meta keys and refs in the body", () => {
     const n = channelNotification(message, "owner");
-    expect(n.meta).toEqual({ message_id: "m1", thread_id: "m1", from: "human", from_name: "owner", from_kind: "human", kind: "request", hops: "0" });
+    expect(n.meta).toEqual({
+      message_id: "m1",
+      thread_id: "m1",
+      from: "human",
+      from_name: "owner",
+      from_kind: "human",
+      kind: "request",
+      hops: "0",
+    });
     expect(Object.keys(n.meta).every((k) => /^[A-Za-z0-9_]+$/.test(k))).toBe(true);
     expect(n.content).toContain("agentdesk-annotator annotation 14 (https://example.com/)");
   });
@@ -55,31 +63,54 @@ describe("runChannelLoop", () => {
         const url = new URL(request.url);
         if (url.pathname === "/v1/stream") {
           query = url.searchParams;
-          return new Response(new ReadableStream({
-            start(c) {
-              c.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "hello", address: `claude:${SESSION}`, channel: true, streamId: "s1" })}\n\n`));
-              c.enqueue(encoder.encode(`: heartbeat\n\ndata: ${JSON.stringify({ type: "message", message, fromName: "owner", streamId: "s1" })}\n\n`));
-            },
-          }), { headers: { "content-type": "text/event-stream" } });
+          return new Response(
+            new ReadableStream({
+              start(c) {
+                c.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "hello", address: `claude:${SESSION}`, channel: true, streamId: "s1" })}\n\n`,
+                  ),
+                );
+                c.enqueue(
+                  encoder.encode(
+                    `: heartbeat\n\ndata: ${JSON.stringify({ type: "message", message, fromName: "owner", streamId: "s1" })}\n\n`,
+                  ),
+                );
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
         }
-        confirmed.push({ path: url.pathname, body: await request.json(), id: request.headers.get("cf-access-client-id") });
+        confirmed.push({
+          path: url.pathname,
+          body: await request.json(),
+          id: request.headers.get("cf-access-client-id"),
+        });
         return Response.json({ ...message, state: "delivered" });
       },
     });
-    const hub = new HubClient({ url: `http://127.0.0.1:${fake.port}`, machine: "mac", clientId: "cid", clientSecret: "secret" });
+    const hub = new HubClient({
+      url: `http://127.0.0.1:${fake.port}`,
+      machine: "mac",
+      clientId: "cid",
+      clientSecret: "secret",
+    });
     const delivered: StreamDelivery[] = [];
     const stop = new AbortController();
-    const loop = runChannelLoop({
-      hub,
-      readSession: () => ({ pid: 1, sessionId: SESSION, cwd: "/work", title: "t", channel: true }),
-      // The relay child's deliverer: notify, then confirm on the stream the message came on.
-      deliver: async (d) => {
-        delivered.push(d);
-        await confirmDelivery(hub, d.message.id, d.streamId);
+    const loop = runChannelLoop(
+      {
+        hub,
+        readSession: () => ({ pid: 1, sessionId: SESSION, cwd: "/work", title: "t", channel: true }),
+        // The relay child's deliverer: notify, then confirm on the stream the message came on.
+        deliver: async (d) => {
+          delivered.push(d);
+          await confirmDelivery(hub, d.message.id, d.streamId);
+        },
+        log: () => {},
+        sleep: async () => {},
       },
-      log: () => {},
-      sleep: async () => {},
-    }, stop.signal);
+      stop.signal,
+    );
     for (let i = 0; i < 50 && confirmed.length === 0; i++) await Bun.sleep(10);
     stop.abort();
     await loop;
@@ -99,29 +130,48 @@ describe("runChannelLoop", () => {
       async fetch(request) {
         const url = new URL(request.url);
         if (url.pathname === "/v1/stream") {
-          return new Response(new ReadableStream({
-            start(c) {
-              c.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "hello", address: `claude:${SESSION}`, channel: true, streamId: "s1" })}\n\n`));
-              c.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "directive", id: "d1", kind: "rename-bracket", task: "night shift", streamId: "s1" })}\n\n`));
-            },
-          }), { headers: { "content-type": "text/event-stream" } });
+          return new Response(
+            new ReadableStream({
+              start(c) {
+                c.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "hello", address: `claude:${SESSION}`, channel: true, streamId: "s1" })}\n\n`,
+                  ),
+                );
+                c.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "directive", id: "d1", kind: "rename-bracket", task: "night shift", streamId: "s1" })}\n\n`,
+                  ),
+                );
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
         }
         confirmed.push({ path: url.pathname, body: await request.json() });
         return Response.json({ ok: true });
       },
     });
-    const hub = new HubClient({ url: `http://127.0.0.1:${fake.port}`, machine: "mac", clientId: "cid", clientSecret: "secret" });
+    const hub = new HubClient({
+      url: `http://127.0.0.1:${fake.port}`,
+      machine: "mac",
+      clientId: "cid",
+      clientSecret: "secret",
+    });
     const delivered: StreamDelivery[] = [];
     const stop = new AbortController();
-    const loop = runChannelLoop({
-      hub,
-      readSession: () => ({ pid: 1, sessionId: SESSION, cwd: "/work", title: "t", channel: true }),
-      deliver: async (d) => {
-        delivered.push(d);
+    const loop = runChannelLoop(
+      {
+        hub,
+        readSession: () => ({ pid: 1, sessionId: SESSION, cwd: "/work", title: "t", channel: true }),
+        deliver: async (d) => {
+          delivered.push(d);
+        },
+        log: () => {},
+        sleep: async () => {},
       },
-      log: () => {},
-      sleep: async () => {},
-    }, stop.signal);
+      stop.signal,
+    );
     await Bun.sleep(100);
     stop.abort();
     await loop;

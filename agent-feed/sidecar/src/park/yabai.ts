@@ -44,9 +44,7 @@ export class YabaiUnavailable extends Error {
 async function run(args: string[]): Promise<string> {
   const bin = config.yabaiPath;
   if (!bin) {
-    throw new YabaiUnavailable(
-      "no yabai binary found; set AGENT_FEED_YABAI_PATH to an absolute path",
-    );
+    throw new YabaiUnavailable("no yabai binary found; set AGENT_FEED_YABAI_PATH to an absolute path");
   }
   const proc = Bun.spawn([bin, ...args], { stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([
@@ -227,13 +225,13 @@ export async function resizeTo(id: number, w: number, h: number): Promise<MoveOu
 export function parkable(all: readonly YabaiWindow[]): YabaiWindow[] {
   return all.filter(
     (w) =>
-      w.layer === "normal"
-      && w.subrole === "AXStandardWindow"
-      && !w.isMinimized
-      && !w.isHidden
-      && !w.isSticky
-      && w.hasAxReference
-      && w.frame.w > 0
-      && w.frame.h > 0,
+      w.layer === "normal" &&
+      w.subrole === "AXStandardWindow" &&
+      !w.isMinimized &&
+      !w.isHidden &&
+      !w.isSticky &&
+      w.hasAxReference &&
+      w.frame.w > 0 &&
+      w.frame.h > 0,
   );
 }

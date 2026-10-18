@@ -85,9 +85,7 @@ export function TerminalParentCard({
     () => terminalChildSteps(group.children.map((child) => terminalChildKey(group.machineId, child.name))),
     [group.children, group.machineId],
   );
-  const shown = group.children.filter(
-    (child) => !offStripChildren.has(terminalChildKey(group.machineId, child.name)),
-  );
+  const shown = group.children.filter((child) => !offStripChildren.has(terminalChildKey(group.machineId, child.name)));
   const hidden = group.children.length - shown.length;
   const live = shown.filter((child) => child.attachedClients > 0).length;
   const counted = `${shown.length} ${shown.length === 1 ? "session" : "sessions"}${

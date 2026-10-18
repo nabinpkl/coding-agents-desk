@@ -8,9 +8,7 @@ import { toBlocks, scrubStyle } from "@/features/activity-feed/markdown/proseBlo
 
 describe("scrubStyle", () => {
   it("strips overlay-enabling declarations (clickjacking vector)", () => {
-    const out = scrubStyle(
-      "position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:9999;background:red",
-    );
+    const out = scrubStyle("position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:9999;background:red");
     expect(out).not.toMatch(/position/i);
     expect(out).not.toMatch(/z-index/i);
     expect(out).not.toMatch(/inset/i);

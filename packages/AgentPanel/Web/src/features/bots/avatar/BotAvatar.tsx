@@ -24,7 +24,12 @@ import { useStateFor } from "@/hooks/state/useStateFor";
  * and the one that happened to declare it was not its owner. What it renders is a face, which is
  * what this directory is for.
  */
-export function BotAvatar({ bot, hue, rank, size = "size-12" }: {
+export function BotAvatar({
+  bot,
+  hue,
+  rank,
+  size = "size-12",
+}: {
   bot: Pick<BotView, "name" | "iconUrl">;
   hue?: number;
   rank?: number;
@@ -33,12 +38,13 @@ export function BotAvatar({ bot, hue, rank, size = "size-12" }: {
   // A new picture gets its own chance to load.
   const [failed, setFailed] = useStateFor(bot.iconUrl, () => false);
   const faces = useBotFaces();
-  const initials = bot.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "B";
+  const initials =
+    bot.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "B";
   if (bot.iconUrl && !failed) {
     // An uploaded picture is the identity; painting a ring of our own around it would be a second
     // opinion about who this is.

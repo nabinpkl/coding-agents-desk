@@ -17,7 +17,10 @@ function descriptor(overrides: Record<string, unknown> = {}): Record<string, unk
 describe("parseDescriptor", () => {
   it("reads a live descriptor", () => {
     expect(parseDescriptor(descriptor(), NOW)).toEqual({
-      id: "agent", label: "Agent", host: "127.0.0.1", port: 7682,
+      id: "agent",
+      label: "Agent",
+      host: "127.0.0.1",
+      port: 7682,
     });
   });
 
@@ -51,8 +54,7 @@ describe("parseDeclaredPeers", () => {
   });
 
   it("reads several, and tolerates spacing", () => {
-    expect(parseDeclaredPeers(" oracle=10.0.0.1:7682 , box=box:80 ").map((peer) => peer.id))
-      .toEqual(["oracle", "box"]);
+    expect(parseDeclaredPeers(" oracle=10.0.0.1:7682 , box=box:80 ").map((peer) => peer.id)).toEqual(["oracle", "box"]);
   });
 
   it("is empty when unset, so an origin with no peers behaves as it always did", () => {
@@ -100,7 +102,10 @@ describe("mergeSidecars", () => {
       NOW,
     );
     expect(live.get("oracle")).toEqual({
-      id: "oracle", label: "local oracle", host: "127.0.0.1", port: 9000,
+      id: "oracle",
+      label: "local oracle",
+      host: "127.0.0.1",
+      port: 9000,
     });
   });
 });

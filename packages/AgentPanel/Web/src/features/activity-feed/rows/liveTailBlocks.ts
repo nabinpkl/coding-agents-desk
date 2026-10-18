@@ -1,10 +1,7 @@
 // The live tail in the shape the transcript will give it: one row per block.
 
 import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
-import {
-  type ActivityBlock,
-  type ActivityEvent,
-} from "@/features/activity-feed/useSessionEventsStream";
+import { type ActivityBlock, type ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 /** A live row's key: the mirror's own row id, stable across the revisions that
  *  grow one message, so a delta replaces its row instead of adding one. */
@@ -66,7 +63,9 @@ export function retireLiveRows(
   }
   const paired = (row: ActivityEvent) =>
     row.blocks.length > 0 &&
-    row.blocks.every((block) => block.kind === "tool_result" && block.callId !== undefined && results.has(block.callId));
+    row.blocks.every(
+      (block) => block.kind === "tool_result" && block.callId !== undefined && results.has(block.callId),
+    );
   const kept = [...liveRows].filter(([, row]) => row.index > reached && !paired(row));
   return kept.length === liveRows.size ? liveRows : new Map(kept);
 }
@@ -153,10 +152,7 @@ export function visibleTails(
  * Each row's id is its message row's key plus the block's index, so dropping earlier blocks does not
  * rename the ones left, and a row the reader collapsed stays collapsed.
  */
-export function splitLiveTails(
-  tails: readonly ActivityEvent[],
-  durable: readonly ActivityEvent[],
-): ActivityEvent[] {
+export function splitLiveTails(tails: readonly ActivityEvent[], durable: readonly ActivityEvent[]): ActivityEvent[] {
   const written = new Map<string, number>();
   for (const event of durable) {
     if (event.messageId === undefined) continue;
@@ -170,7 +166,7 @@ export function splitLiveTails(
       continue;
     }
     const rest = tail.blocks.filter((block) => !CONTENT_KINDS.has(block.kind));
-    const held = tail.messageId === undefined ? 0 : written.get(tail.messageId) ?? 0;
+    const held = tail.messageId === undefined ? 0 : (written.get(tail.messageId) ?? 0);
     const skip = Math.min(held, content.length);
     content.forEach((blockIndex, position) => {
       if (position < skip) return;
@@ -211,8 +207,13 @@ export function queuedTails(
   if (queued.length === 0) return [];
   const landed = events.filter((event) => event.type === "user");
   return queued
-    .filter((prompt) => !landed.some((event) =>
-      (event.ts ?? 0) >= prompt.sentAt - QUEUED_CLOCK_ALLOWANCE_MS && messageWords(event) === prompt.text.trim()))
+    .filter(
+      (prompt) =>
+        !landed.some(
+          (event) =>
+            (event.ts ?? 0) >= prompt.sentAt - QUEUED_CLOCK_ALLOWANCE_MS && messageWords(event) === prompt.text.trim(),
+        ),
+    )
     .map((prompt) => ({
       id: `queued:${prompt.id}`,
       index: -1,

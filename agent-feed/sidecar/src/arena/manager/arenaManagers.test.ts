@@ -67,20 +67,27 @@ async function arena(options: { failStart?: boolean } = {}) {
     renderTranscript: async (_source, sessionId) => `the session ${sessionId} said its piece`,
     storedDiff: () => null,
   };
-  const managers = new ArenaManagers({ registry, steps, claude: { binary: "/bin/claude" }, api: "http://127.0.0.1:7682", newSessionId: () => "manager-id" });
-  /** A service over the arena's state, as a sidecar starting on it makes one. */
-  const serve = () => new ArenaService({
+  const managers = new ArenaManagers({
     registry,
-    store: new ArenaStore(join(root, "store")),
-    drivers: { opencode: closesOnPrompt, claude: closesOnPrompt },
-    terminalDrivers: { opencode: closesOnPrompt, claude: closesOnPrompt },
-    managers,
-    killPane: async () => {},
-    worktrees,
-    arenaHome: join(root, "home"),
-    turnTimeoutMs: 500,
-    newRunId: () => "33333333-3333-4333-8333-333333333333",
+    steps,
+    claude: { binary: "/bin/claude" },
+    api: "http://127.0.0.1:7682",
+    newSessionId: () => "manager-id",
   });
+  /** A service over the arena's state, as a sidecar starting on it makes one. */
+  const serve = () =>
+    new ArenaService({
+      registry,
+      store: new ArenaStore(join(root, "store")),
+      drivers: { opencode: closesOnPrompt, claude: closesOnPrompt },
+      terminalDrivers: { opencode: closesOnPrompt, claude: closesOnPrompt },
+      managers,
+      killPane: async () => {},
+      worktrees,
+      arenaHome: join(root, "home"),
+      turnTimeoutMs: 500,
+      newRunId: () => "33333333-3333-4333-8333-333333333333",
+    });
   const service = serve();
   const restarted = () => {
     const again = serve();
@@ -109,7 +116,14 @@ test("a Claude manager starts in the run's manager folder, without its edit tool
   const { service, started, home } = await arena();
   const run = await service.createRun(request());
   const folder = join(home, "arena-run-1", "manager");
-  expect(run.manager).toEqual({ source: "claude", status: "starting", folder, sessionId: null, tmuxSession: null, error: null });
+  expect(run.manager).toEqual({
+    source: "claude",
+    status: "starting",
+    folder,
+    sessionId: null,
+    tmuxSession: null,
+    error: null,
+  });
   await until(() => service.listRuns()[0]?.manager?.status === "open", "the manager to open");
   expect(service.listRuns()[0]?.manager).toMatchObject({ sessionId: "manager-id", tmuxSession: "manager-pane" });
   expect(started).toHaveLength(1);
@@ -123,7 +137,11 @@ test("an opencode manager's session is made in the folder, with its brief named 
   const { service, started, home } = await arena();
   await service.createRun(request({ manager: "opencode" }));
   await until(() => service.listRuns()[0]?.manager?.status === "open", "the manager to open");
-  expect(started[0]).toMatchObject({ harness: "opencode", cwd: join(home, "arena-run-1", "manager"), briefThere: true });
+  expect(started[0]).toMatchObject({
+    harness: "opencode",
+    cwd: join(home, "arena-run-1", "manager"),
+    briefThere: true,
+  });
   expect(service.listRuns()[0]?.manager).toMatchObject({ sessionId: "ses-manager", tmuxSession: "manager-tui" });
 });
 
@@ -193,7 +211,9 @@ test("a run with a manager may start with no lanes, and takes them, each on its 
   );
 
   const added = await service.addContestants(run.runId, [{ source: "claude", model: "haiku" }, { source: "opencode" }]);
-  expect(added.contestants.map(({ contestantId, model, worktreePath }) => ({ contestantId, model, worktreePath }))).toEqual([
+  expect(
+    added.contestants.map(({ contestantId, model, worktreePath }) => ({ contestantId, model, worktreePath })),
+  ).toEqual([
     { contestantId: "c1", model: "haiku", worktreePath: join(home, "arena-run-1", "c1") },
     { contestantId: "c2", model: null, worktreePath: join(home, "arena-run-1", "c2") },
   ]);
@@ -201,14 +221,19 @@ test("a run with a manager may start with no lanes, and takes them, each on its 
   expect(more.contestants.map((one) => one.contestantId)).toEqual(["c1", "c2", "c3"]);
 
   service.sendPrompt(run.runId, "name a tree");
-  await until(() => service.listRuns()[0]?.contestants.every((one) => one.status === "closed") ?? false, "every lane to close");
+  await until(
+    () => service.listRuns()[0]?.contestants.every((one) => one.status === "closed") ?? false,
+    "every lane to close",
+  );
   expect(plannedModels).toEqual(["haiku", null, "opencode/big-pickle"]);
   await expect(service.addContestants(run.runId, [{ source: "claude" }])).rejects.toBeInstanceOf(ArenaRunBusyError);
 });
 
 test("a run with no lanes needs a manager to add them, and no prompt it could not yet be given", async () => {
   const { service } = await arena();
-  await expect(service.createRun(request({ contestants: [], manager: null }))).rejects.toThrow("at least one contestant");
+  await expect(service.createRun(request({ contestants: [], manager: null }))).rejects.toThrow(
+    "at least one contestant",
+  );
   await expect(service.createRun(request({ contestants: [], prompt: "x" }))).rejects.toThrow("at least one contestant");
   await expect(service.createRun(request({ contestants: [{ source: "claude", model: "two words" }] }))).rejects.toThrow(
     "which is not a model name",

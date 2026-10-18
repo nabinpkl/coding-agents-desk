@@ -24,13 +24,7 @@ const CHIP_STYLE = { fontSize: "var(--agent-panel-fs-tile-chip, 12px)" };
  * scrolling a compacted session has usually already moved past, and the chevron on the chip says
  * there is something to open.
  */
-export function CompactionRow({
-  ev,
-  ctx,
-}: {
-  ev: ActivityEvent;
-  ctx: EventRowContext;
-}) {
+export function CompactionRow({ ev, ctx }: { ev: ActivityEvent; ctx: EventRowContext }) {
   const [open, setOpen] = useState(false);
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : "";
   const summary = compactionSummary(ev);
@@ -64,7 +58,9 @@ export function CompactionRow({
             />
           </button>
         ) : (
-          <span className={CHIP_CLASS} style={CHIP_STYLE}>{label}</span>
+          <span className={CHIP_CLASS} style={CHIP_STYLE}>
+            {label}
+          </span>
         )}
         <span className="h-px flex-1 bg-border" aria-hidden />
       </div>

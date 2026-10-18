@@ -10,16 +10,8 @@ import {
   type TmuxComposerState,
   type TmuxQuestionState,
 } from "@agentdesk/agent-feed-wire";
-import {
-  cycleModifier,
-  heldModifiers,
-  RAIL_MODIFIERS_OFF,
-  releaseArmed,
-} from "@/features/keyboard/modifierLatch";
-import type {
-  SessionAddress,
-  SidecarDataSource,
-} from "@/features/activity-feed/data-source/SidecarDataSource";
+import { cycleModifier, heldModifiers, RAIL_MODIFIERS_OFF, releaseArmed } from "@/features/keyboard/modifierLatch";
+import type { SessionAddress, SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { holdsFreshPaste, type TmuxComposerHandle } from "@/features/cli-input/tmuxComposerHandle";
 import { useComposerAttachments } from "@/features/cli-input/useComposerAttachments";
 import { useStateFor } from "@/hooks/state/useStateFor";
@@ -101,16 +93,22 @@ export function useTmuxComposer(
   // they exist below, because they are built from `change`, which is built from this.
   const followDraft = useRef<(text: string) => void>(() => {});
 
-  const setBoth = useCallback((text: string) => {
-    draftRef.current = text;
-    setDraft(text);
-    followDraft.current(text);
-  }, [setDraft]);
+  const setBoth = useCallback(
+    (text: string) => {
+      draftRef.current = text;
+      setDraft(text);
+      followDraft.current(text);
+    },
+    [setDraft],
+  );
 
-  const change = useCallback((value: string) => {
-    edited.current = true;
-    setBoth(value);
-  }, [setBoth]);
+  const change = useCallback(
+    (value: string) => {
+      edited.current = true;
+      setBoth(value);
+    },
+    [setBoth],
+  );
 
   /**
    * What the box is carrying that is not editable text: the images, and the collapsed pastes.
@@ -151,65 +149,71 @@ export function useTmuxComposer(
       return;
     }
     pushing.current = true;
-    return runWithFinally(async () => {
-      let sent: string;
-      do {
-        pushAgain.current = false;
-        sent = draftRef.current;
-        try {
-          const next = await feed.syncTmuxComposer(sessionRef.current, sent);
-          setState(next);
-          setError(null);
-          // Only clear the guard when the draft has not moved on underneath the request. Clearing
-          // it regardless would let the next message adopt a reading taken before the last
-          // keystroke.
-          if (next.reason === null && draftRef.current === sent) edited.current = false;
-        } catch (failure) {
-          setError(String((failure as Error).message ?? failure));
-        }
-        // Only when the draft actually moved. A flag set by a keystroke that produced the same
-        // text -- an edit and an undo inside one request -- has nothing left to send.
-      } while (pushAgain.current && draftRef.current !== sent);
-    }, () => {
-      pushing.current = false;
-    });
+    return runWithFinally(
+      async () => {
+        let sent: string;
+        do {
+          pushAgain.current = false;
+          sent = draftRef.current;
+          try {
+            const next = await feed.syncTmuxComposer(sessionRef.current, sent);
+            setState(next);
+            setError(null);
+            // Only clear the guard when the draft has not moved on underneath the request. Clearing
+            // it regardless would let the next message adopt a reading taken before the last
+            // keystroke.
+            if (next.reason === null && draftRef.current === sent) edited.current = false;
+          } catch (failure) {
+            setError(String((failure as Error).message ?? failure));
+          }
+          // Only when the draft actually moved. A flag set by a keystroke that produced the same
+          // text -- an edit and an undo inside one request -- has nothing left to send.
+        } while (pushAgain.current && draftRef.current !== sent);
+      },
+      () => {
+        pushing.current = false;
+      },
+    );
   }, [feed, sessionRef, setState, setError]);
 
   const observePastes = attachments.observe;
-  const receive = useCallback((next: TmuxComposerState) => {
-    setState(next);
-    // Only ever from the stream. A push answers with what it ASKED the box to hold, and it cannot
-    // know the menu that Claude then draws under it -- so taking the menu from a push would empty
-    // the list on every keystroke and let the stream put it back a moment later, which is a list
-    // that flickers away under the thumb reaching for it.
-    //
-    // Checked for its shape rather than taken on the type's word, for the same reason `text` is
-    // below: a sidecar that does not know this field sends a message without it.
-    setCommands(Array.isArray(next.commands) ? next.commands : []);
-    observePastes(next);
-    // Checked for the shape it is documented in rather than for `text !== null`, because the two
-    // differ exactly where it matters: a message that carries neither field -- a sidecar that does
-    // not know this route, a proxy that swallowed the body -- has an `undefined` text, which is
-    // not null, and would otherwise latch this session into a band with nothing behind it.
-    // `reason === null` is the other half of the same claim.
-    // Before the box check below, because a pane showing a dialog reports `no-composer` for the
-    // dialog's whole duration -- and that is exactly when something wants to drive its keyboard.
-    if (next.reason !== "no-pane") setPaned(true);
-    if (next.reason !== null || typeof next.text !== "string") return;
-    setMirrored(true);
-    // An unsent edit is newer than anything the pane can show, and a reading that cannot be
-    // trusted to the character may only fill a field that has nothing to lose.
-    if (edited.current) return;
-    if (!next.exact && draftRef.current.length > 0) return;
-    // A paste this panel has not been carrying is Claude collapsing the push this field just
-    // made, and the words are gone from the reading rather than late to it. Adopting it hands
-    // the reader a `[Pasted text #1]` they cannot read and cannot edit, in place of the message
-    // they are still writing -- and then pushes that token back as literal text on the next
-    // keystroke, which detaches the paste in the pane and loses the message for good. The field
-    // is the last copy of those words, so it keeps them. See `holdsFreshPaste`.
-    if (draftRef.current.length > 0 && holdsFreshPaste(next.text, draftRef.current)) return;
-    setBoth(next.text);
-  }, [observePastes, setBoth, setState, setCommands, setPaned, setMirrored]);
+  const receive = useCallback(
+    (next: TmuxComposerState) => {
+      setState(next);
+      // Only ever from the stream. A push answers with what it ASKED the box to hold, and it cannot
+      // know the menu that Claude then draws under it -- so taking the menu from a push would empty
+      // the list on every keystroke and let the stream put it back a moment later, which is a list
+      // that flickers away under the thumb reaching for it.
+      //
+      // Checked for its shape rather than taken on the type's word, for the same reason `text` is
+      // below: a sidecar that does not know this field sends a message without it.
+      setCommands(Array.isArray(next.commands) ? next.commands : []);
+      observePastes(next);
+      // Checked for the shape it is documented in rather than for `text !== null`, because the two
+      // differ exactly where it matters: a message that carries neither field -- a sidecar that does
+      // not know this route, a proxy that swallowed the body -- has an `undefined` text, which is
+      // not null, and would otherwise latch this session into a band with nothing behind it.
+      // `reason === null` is the other half of the same claim.
+      // Before the box check below, because a pane showing a dialog reports `no-composer` for the
+      // dialog's whole duration -- and that is exactly when something wants to drive its keyboard.
+      if (next.reason !== "no-pane") setPaned(true);
+      if (next.reason !== null || typeof next.text !== "string") return;
+      setMirrored(true);
+      // An unsent edit is newer than anything the pane can show, and a reading that cannot be
+      // trusted to the character may only fill a field that has nothing to lose.
+      if (edited.current) return;
+      if (!next.exact && draftRef.current.length > 0) return;
+      // A paste this panel has not been carrying is Claude collapsing the push this field just
+      // made, and the words are gone from the reading rather than late to it. Adopting it hands
+      // the reader a `[Pasted text #1]` they cannot read and cannot edit, in place of the message
+      // they are still writing -- and then pushes that token back as literal text on the next
+      // keystroke, which detaches the paste in the pane and loses the message for good. The field
+      // is the last copy of those words, so it keeps them. See `holdsFreshPaste`.
+      if (draftRef.current.length > 0 && holdsFreshPaste(next.text, draftRef.current)) return;
+      setBoth(next.text);
+    },
+    [observePastes, setBoth, setState, setCommands, setPaned, setMirrored],
+  );
 
   // The state above starts over for the next session in the render that sees it; what is held
   // outside render belongs to the session being left, and goes with it.
@@ -231,7 +235,8 @@ export function useTmuxComposer(
       onComposer: receive,
       onQuestion: setPaneQuestion,
       onPermissionMode: setPermissionMode,
-    }));
+    }),
+  );
 
   /**
    * Whether the last reading found a box that can be written to.
@@ -272,32 +277,38 @@ export function useTmuxComposer(
     };
   }, [draft, key, push, reachable]);
 
-  const submit = useCallback(async (text?: string): Promise<boolean> => {
-    if (pushTimer.current) {
-      clearTimeout(pushTimer.current);
-      pushTimer.current = null;
-    }
-    setPending(true);
-    setError(null);
-    return runWithFinally(async () => {
-      try {
-        // Brought up to date first, and awaited: Return presses whatever the box holds, so sending
-        // it while a debounced push was still in flight would submit half a sentence.
-        const synced = await feed.syncTmuxComposer(sessionRef.current, text ?? draftRef.current);
-        setState(synced);
-        if (synced.reason !== null) return false;
-        const after = await feed.submitTmuxComposer(sessionRef.current);
-        setState(after);
-        if (after.reason !== null) return false;
-        edited.current = false;
-        setBoth("");
-        return true;
-      } catch (failure) {
-        setError(String((failure as Error).message ?? failure));
-        return false;
+  const submit = useCallback(
+    async (text?: string): Promise<boolean> => {
+      if (pushTimer.current) {
+        clearTimeout(pushTimer.current);
+        pushTimer.current = null;
       }
-    }, () => setPending(false));
-  }, [feed, setBoth, setError, sessionRef, setState]);
+      setPending(true);
+      setError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            // Brought up to date first, and awaited: Return presses whatever the box holds, so sending
+            // it while a debounced push was still in flight would submit half a sentence.
+            const synced = await feed.syncTmuxComposer(sessionRef.current, text ?? draftRef.current);
+            setState(synced);
+            if (synced.reason !== null) return false;
+            const after = await feed.submitTmuxComposer(sessionRef.current);
+            setState(after);
+            if (after.reason !== null) return false;
+            edited.current = false;
+            setBoth("");
+            return true;
+          } catch (failure) {
+            setError(String((failure as Error).message ?? failure));
+            return false;
+          }
+        },
+        () => setPending(false),
+      );
+    },
+    [feed, setBoth, setError, sessionRef, setState],
+  );
 
   /**
    * Takes the suggestion, and then says nothing about the result.
@@ -325,46 +336,50 @@ export function useTmuxComposer(
    * would not against a guard that says the field is newer.
    */
   const { queue } = attachments;
-  const drop = useCallback(async (files: readonly Blob[]) => {
-    if (files.length === 0) return;
-    if (pushTimer.current) {
-      clearTimeout(pushTimer.current);
-      pushTimer.current = null;
-    }
-    setPending(true);
-    setError(null);
-    return runWithFinally(async () => {
-      try {
-        // Size is the one thing worth judging before the upload, because encoding a file this side
-        // is what the upload costs. WHETHER it is an image is not judged here at all: the sidecar
-        // sniffs the bytes, and a second opinion from the browser's own `type` -- which is empty on
-        // some platforms for files that are perfectly good images -- could only disagree with it.
-        const sendable = files.filter((file) => file.size <= MAXIMUM_COMPOSER_IMAGE_BYTES);
-        if (sendable.length < files.length) {
-          setError(
-            `An image has to be under ${MAXIMUM_COMPOSER_IMAGE_BYTES / (1024 * 1024)} MB.`,
-          );
-        }
-        if (sendable.length === 0) return;
-        if (edited.current) {
-          const synced = await feed.syncTmuxComposer(sessionRef.current, draftRef.current);
-          setState(synced);
-          if (synced.reason !== null) return;
-        }
-        for (const file of sendable) {
-          const after = await feed.dropTmuxComposerImage(sessionRef.current, file);
-          setState(after);
-          if (after.reason !== null) return;
-          // Only once the pane has it. A picture queued for an image that never landed would be
-          // shown beside the next one that did.
-          queue(file);
-        }
-        edited.current = false;
-      } catch (failure) {
-        setError(String((failure as Error).message ?? failure));
+  const drop = useCallback(
+    async (files: readonly Blob[]) => {
+      if (files.length === 0) return;
+      if (pushTimer.current) {
+        clearTimeout(pushTimer.current);
+        pushTimer.current = null;
       }
-    }, () => setPending(false));
-  }, [feed, queue, setError, sessionRef, setState]);
+      setPending(true);
+      setError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            // Size is the one thing worth judging before the upload, because encoding a file this side
+            // is what the upload costs. WHETHER it is an image is not judged here at all: the sidecar
+            // sniffs the bytes, and a second opinion from the browser's own `type` -- which is empty on
+            // some platforms for files that are perfectly good images -- could only disagree with it.
+            const sendable = files.filter((file) => file.size <= MAXIMUM_COMPOSER_IMAGE_BYTES);
+            if (sendable.length < files.length) {
+              setError(`An image has to be under ${MAXIMUM_COMPOSER_IMAGE_BYTES / (1024 * 1024)} MB.`);
+            }
+            if (sendable.length === 0) return;
+            if (edited.current) {
+              const synced = await feed.syncTmuxComposer(sessionRef.current, draftRef.current);
+              setState(synced);
+              if (synced.reason !== null) return;
+            }
+            for (const file of sendable) {
+              const after = await feed.dropTmuxComposerImage(sessionRef.current, file);
+              setState(after);
+              if (after.reason !== null) return;
+              // Only once the pane has it. A picture queued for an image that never landed would be
+              // shown beside the next one that did.
+              queue(file);
+            }
+            edited.current = false;
+          } catch (failure) {
+            setError(String((failure as Error).message ?? failure));
+          }
+        },
+        () => setPending(false),
+      );
+    },
+    [feed, queue, setError, sessionRef, setState],
+  );
 
   const onBlur = useCallback(() => {
     if (pushTimer.current) {
@@ -391,43 +406,56 @@ export function useTmuxComposer(
   const [modifiers, setModifiers] = useState(RAIL_MODIFIERS_OFF);
   const modifiersRef = useLatestRef(modifiers);
 
-  const pressKey = useCallback((key: RailKey) => {
-    const held = heldModifiers(modifiersRef.current);
-    setModifiers(releaseArmed);
-    // The pane is about to change under the field, and what it becomes is not predictable from
-    // here, so the reading that comes back is the truth rather than the draft in hand.
-    edited.current = false;
-    void feed.pressTmuxComposerKey(sessionRef.current, key, held)
-      .then((next) => setState(next))
-      .catch((failure) => setError(String((failure as Error).message ?? failure)));
-  }, [feed, modifiersRef, sessionRef, setState, setError]);
+  const pressKey = useCallback(
+    (key: RailKey) => {
+      const held = heldModifiers(modifiersRef.current);
+      setModifiers(releaseArmed);
+      // The pane is about to change under the field, and what it becomes is not predictable from
+      // here, so the reading that comes back is the truth rather than the draft in hand.
+      edited.current = false;
+      void feed
+        .pressTmuxComposerKey(sessionRef.current, key, held)
+        .then((next) => setState(next))
+        .catch((failure) => setError(String((failure as Error).message ?? failure)));
+    },
+    [feed, modifiersRef, sessionRef, setState, setError],
+  );
 
   // The sidecar presses Shift+Tab until the footer names the mode, outside the rail's latch: it
   // must not spend a modifier the reader armed for something else. Pending while it presses, so a
   // send cannot land between two presses, and the footer's answer is adopted at once rather than
   // waiting for the stream to repeat it.
-  const choosePermissionMode = useCallback(async (mode: ClaudePermissionMode) => {
-    setPending(true);
-    setError(null);
-    return runWithFinally(async () => {
-      try {
-        const outcome = await feed.setTmuxPermissionMode(sessionRef.current, mode);
-        if (outcome.mode !== null) setPermissionMode(outcome.mode);
-        if (!outcome.ok) setError(`Not switched: ${outcome.message}.`);
-      } catch (failure) {
-        setError(String((failure as Error).message ?? failure));
-      }
-    }, () => setPending(false));
-  }, [feed, setError, sessionRef, setPermissionMode]);
+  const choosePermissionMode = useCallback(
+    async (mode: ClaudePermissionMode) => {
+      setPending(true);
+      setError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            const outcome = await feed.setTmuxPermissionMode(sessionRef.current, mode);
+            if (outcome.mode !== null) setPermissionMode(outcome.mode);
+            if (!outcome.ok) setError(`Not switched: ${outcome.message}.`);
+          } catch (failure) {
+            setError(String((failure as Error).message ?? failure));
+          }
+        },
+        () => setPending(false),
+      );
+    },
+    [feed, setError, sessionRef, setPermissionMode],
+  );
 
   const toggleModifier = useCallback((modifier: RailModifier) => {
     setModifiers((current) => ({ ...current, [modifier]: cycleModifier(current[modifier]) }));
   }, []);
 
-  const chooseCommand = useCallback((name: string) => {
-    edited.current = true;
-    setBoth(`${name} `);
-  }, [setBoth]);
+  const chooseCommand = useCallback(
+    (name: string) => {
+      edited.current = true;
+      setBoth(`${name} `);
+    },
+    [setBoth],
+  );
 
   return {
     // Latched, so the band survives the session it mirrors exiting. `state` still carries the
@@ -439,7 +467,7 @@ export function useTmuxComposer(
     draft,
     // Only while the box is empty, which is the only time Claude offers one and the only time a
     // placeholder can be seen. A stale hint beside typed text would be a suggestion for nothing.
-    hint: draft.length === 0 ? state?.hint ?? null : null,
+    hint: draft.length === 0 ? (state?.hint ?? null) : null,
     change,
     submit,
     accept,

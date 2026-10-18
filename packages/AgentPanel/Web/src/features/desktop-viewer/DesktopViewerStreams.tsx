@@ -17,9 +17,7 @@ import { captureCropApplied, useCaptureCrop } from "@/features/desktop-viewer/zo
  * That matters more for the plan than for the multiplier, because the plan is produced by that
  * very effect: routing it upwards would let each settled zoom reset the view it came from.
  */
-export function DesktopStream(
-  props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale" | "capturePlan">,
-) {
+export function DesktopStream(props: Omit<Parameters<typeof TileStreamRtc>[0], "captureScale" | "capturePlan">) {
   const { onFirstFrame, ...rest } = props;
   return (
     <TileStreamRtc

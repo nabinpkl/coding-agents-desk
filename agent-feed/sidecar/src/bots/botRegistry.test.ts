@@ -1,24 +1,24 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import {
-  BotConflictError,
-  BotForbiddenError,
-  BotNotFoundError,
-} from "@/bots/botRegistry";
+import { BotConflictError, BotForbiddenError, BotNotFoundError } from "@/bots/botRegistry";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
 const { addBot, addSessions, fixture, sessions, summary } = botRegistryHarness();
 
 test("adds a user-facing Bot for an existing project directory with no sessions", async () => {
   const { project, registry } = await fixture();
-  const bot = await addBot(registry, {
-    requestId: "request-1",
-    name: "Release Captain",
-    iconUrl: "https://example.com/captain.png",
-    directoryPath: project,
-    metadata: { role: "Own releases", labels: ["release"], custom: { team: "platform" } },
-    grants: ["add_bot"],
-  }, { kind: "user" });
+  const bot = await addBot(
+    registry,
+    {
+      requestId: "request-1",
+      name: "Release Captain",
+      iconUrl: "https://example.com/captain.png",
+      directoryPath: project,
+      metadata: { role: "Own releases", labels: ["release"], custom: { team: "platform" } },
+      grants: ["add_bot"],
+    },
+    { kind: "user" },
+  );
 
   expect(bot).toMatchObject({
     botId: "bot-1",
@@ -40,12 +40,15 @@ test("retries add idempotently and enforces unique names and directories", async
   const command = { requestId: "same", name: "Captain", directoryPath: project };
   const first = await addBot(registry, command, { kind: "user" });
   expect((await addBot(registry, command, { kind: "user" })).botId).toBe(first.botId);
-  await expect(addBot(registry, { ...command, name: "Different" }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotConflictError);
-  await expect(addBot(registry, { requestId: "two", name: "captain", directoryPath: secondProject }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotConflictError);
-  await expect(addBot(registry, { requestId: "three", name: "Reviewer", directoryPath: project }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotConflictError);
+  await expect(addBot(registry, { ...command, name: "Different" }, { kind: "user" })).rejects.toBeInstanceOf(
+    BotConflictError,
+  );
+  await expect(
+    addBot(registry, { requestId: "two", name: "captain", directoryPath: secondProject }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotConflictError);
+  await expect(
+    addBot(registry, { requestId: "three", name: "Reviewer", directoryPath: project }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotConflictError);
 });
 
 test("attaches existing sessions from the Bot directory as one durable update", async () => {
@@ -97,55 +100,93 @@ test("a reorder moves the order and nothing else; detach keeps the slot for the 
 test("rejects sessions outside the Bot directory and request reuse across Bots", async () => {
   const { project, secondProject, ref, registry } = await fixture();
   const first = await addBot(registry, { requestId: "first", name: "First", directoryPath: project }, { kind: "user" });
-  const second = await addBot(registry, { requestId: "second", name: "Second", directoryPath: secondProject }, { kind: "user" });
+  const second = await addBot(
+    registry,
+    { requestId: "second", name: "Second", directoryPath: secondProject },
+    { kind: "user" },
+  );
 
-  await expect(addSessions(registry, second.botId, { requestId: "outside", sessionRefs: [ref] }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotConflictError);
+  await expect(
+    addSessions(registry, second.botId, { requestId: "outside", sessionRefs: [ref] }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotConflictError);
   await addSessions(registry, first.botId, { requestId: "shared", sessionRefs: [ref] }, { kind: "user" });
-  await expect(addSessions(registry, second.botId, { requestId: "shared", sessionRefs: [ref] }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotConflictError);
+  await expect(
+    addSessions(registry, second.botId, { requestId: "shared", sessionRefs: [ref] }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotConflictError);
 });
 
 test("permits only an attached session of a granted Bot to call add_bot", async () => {
   const { project, secondProject, ref, registry } = await fixture();
-  const chief = await addBot(registry, {
-    requestId: "chief",
-    name: "Chief of Staff",
-    directoryPath: project,
-    grants: ["add_bot"],
-  }, { kind: "user" });
+  const chief = await addBot(
+    registry,
+    {
+      requestId: "chief",
+      name: "Chief of Staff",
+      directoryPath: project,
+      grants: ["add_bot"],
+    },
+    { kind: "user" },
+  );
   await addSessions(registry, chief.botId, { requestId: "attach-chief", sessionRefs: [ref] }, { kind: "user" });
 
-  const created = await addBot(registry, { requestId: "tool-call", name: "Reviewer", directoryPath: secondProject }, {
-    kind: "agent",
-    session: ref,
-  });
+  const created = await addBot(
+    registry,
+    { requestId: "tool-call", name: "Reviewer", directoryPath: secondProject },
+    {
+      kind: "agent",
+      session: ref,
+    },
+  );
   expect(created.createdBy).toEqual({ kind: "bot", botId: chief.botId });
   expect(created.sessionRefs).toEqual([]);
   expect(created.grants).toEqual([]);
 
-  await expect(addBot(registry, { requestId: "forbidden", name: "Third", directoryPath: secondProject }, {
-    kind: "agent",
-    session: { source: "pi", sessionId: "unattached" },
-  })).rejects.toBeInstanceOf(BotForbiddenError);
-  await expect(addBot(registry, {
-    requestId: "delegate",
-    name: "Delegated",
-    directoryPath: secondProject,
-    grants: ["add_bot"],
-  }, { kind: "agent", session: ref })).rejects.toBeInstanceOf(BotForbiddenError);
+  await expect(
+    addBot(
+      registry,
+      { requestId: "forbidden", name: "Third", directoryPath: secondProject },
+      {
+        kind: "agent",
+        session: { source: "pi", sessionId: "unattached" },
+      },
+    ),
+  ).rejects.toBeInstanceOf(BotForbiddenError);
+  await expect(
+    addBot(
+      registry,
+      {
+        requestId: "delegate",
+        name: "Delegated",
+        directoryPath: secondProject,
+        grants: ["add_bot"],
+      },
+      { kind: "agent", session: ref },
+    ),
+  ).rejects.toBeInstanceOf(BotForbiddenError);
 });
 
 test("rejects directories and sessions outside the current catalog", async () => {
   const { project, registry } = await fixture();
-  await expect(addBot(registry, { requestId: "missing", name: "Missing", directoryPath: join(project, "unknown") }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(
+    addBot(
+      registry,
+      { requestId: "missing", name: "Missing", directoryPath: join(project, "unknown") },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
 
   const bot = await addBot(registry, { requestId: "known", name: "Known", directoryPath: project }, { kind: "user" });
-  await expect(addSessions(registry, bot.botId, {
-    requestId: "missing-session",
-    sessionRefs: [{ source: "claude", sessionId: "missing" }],
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(
+    addSessions(
+      registry,
+      bot.botId,
+      {
+        requestId: "missing-session",
+        sessionRefs: [{ source: "claude", sessionId: "missing" }],
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
 });
 
 test("detaches a session and leaves the rest of the projection alone", async () => {
@@ -187,15 +228,23 @@ test("refuses to detach what a Bot does not hold, and refuses agent actors entir
   const bot = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
   await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
 
-  await expect(registry.detachSessions(bot.botId, { requestId: "absent", sessionRefs: [secondRef] }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotNotFoundError);
-  await expect(registry.detachSessions("missing-bot", { requestId: "no-bot", sessionRefs: [ref] }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(
+    registry.detachSessions(bot.botId, { requestId: "absent", sessionRefs: [secondRef] }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(
+    registry.detachSessions("missing-bot", { requestId: "no-bot", sessionRefs: [ref] }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
   // Curating the roster is the user's, not a granted Bot's: `add_bot` widens what an agent may
   // create, never what it may take away.
-  await expect(registry.detachSessions(bot.botId, { requestId: "agent", sessionRefs: [ref] }, {
-    kind: "agent",
-    session: ref,
-  })).rejects.toBeInstanceOf(BotForbiddenError);
+  await expect(
+    registry.detachSessions(
+      bot.botId,
+      { requestId: "agent", sessionRefs: [ref] },
+      {
+        kind: "agent",
+        session: ref,
+      },
+    ),
+  ).rejects.toBeInstanceOf(BotForbiddenError);
   expect((await registry.snapshot()).bots[0]!.sessionRefs).toEqual([ref]);
 });

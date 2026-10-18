@@ -18,7 +18,9 @@ export function publishedBots(snapshot: BotSnapshot): PublishedBot[] {
     path: bot.environment.path,
     // Source-prefixed, because the hub resolves each id under one runtime's address and a bare
     // id would let a Claude session answer for an opencode one.
-    sessionIds: bot.sessionRefs.filter((ref) => ADDRESSABLE.has(ref.source)).map((ref) => `${ref.source}:${ref.sessionId}`),
+    sessionIds: bot.sessionRefs
+      .filter((ref) => ADDRESSABLE.has(ref.source))
+      .map((ref) => `${ref.source}:${ref.sessionId}`),
   }));
 }
 
@@ -46,7 +48,10 @@ export async function startHubBotPublisher(
       lastError = message;
     }
   };
-  const unsubscribe = await bots.subscribe((snapshot) => void publish(snapshot), (error) => log(`registry: ${String(error)}`));
+  const unsubscribe = await bots.subscribe(
+    (snapshot) => void publish(snapshot),
+    (error) => log(`registry: ${String(error)}`),
+  );
   const timer = setInterval(() => void bots.snapshot().then(publish), REPUBLISH_MS);
   return () => {
     clearInterval(timer);

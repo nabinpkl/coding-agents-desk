@@ -127,7 +127,10 @@ describe("ScrollTranslator coast", () => {
     runFrames(16);
     const v = 1_000 * Math.exp(-2.8 * 0.016);
     expect(outputs.at(-1)).toEqual({
-      type: "scroll", dx: 0, dy: v * 0.016 * scrollAccelerationGain(v), phase: "momentumBegan",
+      type: "scroll",
+      dx: 0,
+      dy: v * 0.016 * scrollAccelerationGain(v),
+      phase: "momentumBegan",
     });
     for (let frame = 2; outputs.at(-1)?.type === "scroll" && translator.scroll.isCoasting; frame += 1) {
       runFrames(frame * 16);

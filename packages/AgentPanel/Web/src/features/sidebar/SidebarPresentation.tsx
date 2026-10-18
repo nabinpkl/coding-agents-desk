@@ -1,9 +1,5 @@
 import { useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import {
-  MAX_SIDEBAR_WIDTH,
-  MIN_SIDEBAR_WIDTH,
-  clampSidebarWidth,
-} from "@/features/sidebar/sidebarPreferences";
+import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, clampSidebarWidth } from "@/features/sidebar/sidebarPreferences";
 import { useMediaQuery } from "@/hooks/dom/useMediaQuery";
 import { useCommitToRef } from "@/hooks/useLatestRef";
 
@@ -64,11 +60,7 @@ export function ResizableSidebar({
   };
 
   return (
-    <aside
-      aria-label="Agent navigation"
-      className="relative h-full shrink-0 border-r border-border"
-      style={{ width }}
-    >
+    <aside aria-label="Agent navigation" className="relative h-full shrink-0 border-r border-border" style={{ width }}>
       {children}
       <div
         role="separator"

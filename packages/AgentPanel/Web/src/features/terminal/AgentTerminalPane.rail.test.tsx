@@ -39,8 +39,14 @@ class FakeTerminal {
   scrollLines() {}
   clear() {}
   reset() {}
-  resize(columns: number, rows: number) { this.cols = columns; this.rows = rows; }
-  focus() { this.focuses++; this.textarea?.focus(); }
+  resize(columns: number, rows: number) {
+    this.cols = columns;
+    this.rows = rows;
+  }
+  focus() {
+    this.focuses++;
+    this.textarea?.focus();
+  }
   dispose() {}
   write(bytes: Uint8Array, done: () => void) {
     this.writes.push([...bytes]);
@@ -48,16 +54,30 @@ class FakeTerminal {
   }
   onData(listener: (data: string) => void) {
     this.dataListener = listener;
-    return { dispose: () => { this.dataListener = null; } };
+    return {
+      dispose: () => {
+        this.dataListener = null;
+      },
+    };
   }
   // Nothing renders in jsdom; the pane's watch on the last drawn row only needs the hook.
-  onRender() { return { dispose: () => {} }; }
+  onRender() {
+    return { dispose: () => {} };
+  }
   onBinary(listener: (data: string) => void) {
     this.binaryListener = listener;
-    return { dispose: () => { this.binaryListener = null; } };
+    return {
+      dispose: () => {
+        this.binaryListener = null;
+      },
+    };
   }
-  emitData(data: string) { this.dataListener?.(data); }
-  emitBinary(data: string) { this.binaryListener?.(data); }
+  emitData(data: string) {
+    this.dataListener?.(data);
+  }
+  emitBinary(data: string) {
+    this.binaryListener?.(data);
+  }
 }
 
 vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));

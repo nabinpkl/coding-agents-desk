@@ -1,11 +1,7 @@
 import { expect, test } from "bun:test";
 import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 import { CAPTURES } from "@/input/question/questionCaptures";
-import {
-  isPlaceholder,
-  otherRowIndex,
-  questionDialog,
-} from "@/input/question/questionDialog";
+import { isPlaceholder, otherRowIndex, questionDialog } from "@/input/question/questionDialog";
 
 function pane(screen: string): TmuxPaneView {
   return { screen, cursor: { row: 0, column: 0 } };
@@ -55,12 +51,12 @@ test("keeps what is drawn under each option as its detail, and the question whol
   // A description that wraps comes back as one line, its rows joined.
   const tall = questionDialog(pane(capture("a question taller than the pane")))!;
   expect(tall.rows[3]!.detail).toBe(
-    "This option preserves the current behavior where the panel draws content solely from the"
-      + " transcript and commits answers written in the panel directly to the pane, but never"
-      + " observes or reflects back what someone does in the terminal itself. The mirror remains"
-      + " unidirectional, keeping the implementation simple and avoiding any new resource costs,"
-      + " though the panel will not show cursor position or real-time changes made directly in"
-      + " the terminal.",
+    "This option preserves the current behavior where the panel draws content solely from the" +
+      " transcript and commits answers written in the panel directly to the pane, but never" +
+      " observes or reflects back what someone does in the terminal itself. The mirror remains" +
+      " unidirectional, keeping the implementation simple and avoiding any new resource costs," +
+      " though the panel will not show cursor position or real-time changes made directly in" +
+      " the terminal.",
   );
   // The inline button is a control, and nothing under it is anybody's detail.
   const multi = questionDialog(pane(capture("one multi-select question")))!;
@@ -73,9 +69,9 @@ test("reads a question drawn behind a bar as the words alone, wrapped rows joine
     "Where do the secrets you want to store usually come from? You may pick every source that applies.",
   );
   expect(dialog.rows[1]!.detail).toBe(
-    "Secrets are stored in password managers like 1Password, LastPass, or macOS Keychain and"
-      + " accessed when needed. You retrieve them manually or through automation tools that"
-      + " integrate with these managers.",
+    "Secrets are stored in password managers like 1Password, LastPass, or macOS Keychain and" +
+      " accessed when needed. You retrieve them manually or through automation tools that" +
+      " integrate with these managers.",
   );
 });
 
@@ -151,24 +147,28 @@ test("the review screen is found without a footer or a closing rule", () => {
 test("a wrapped label is read as its start, because the rest is indistinguishable from prose", () => {
   // Taken at 60 columns off the same session: the label continues on a row indented exactly like
   // the description under it, so nothing can separate them and only the prefix is recoverable.
-  const dialog = questionDialog(pane([
-    "────────────────────────────────────────────────────────────",
-    " ☐ Long",
-    "",
-    "Pick one?",
-    "",
-    "❯ 1. INDIA a deliberately very long option label written out",
-    "     at length so that it certainly exceeds the width of a",
-    "     terminal pane and has to wrap or truncate",
-    "     Extensive option requiring careful layout handling.",
-    "  2. JULIETT",
-    "     Concise alternative for comparison.",
-    "  3. Type something.",
-    "────────────────────────────────────────────────────────────",
-    "  4. Chat about this",
-    "",
-    "Enter to select · ↑/↓ to navigate · Esc to cancel",
-  ].join("\n")))!;
+  const dialog = questionDialog(
+    pane(
+      [
+        "────────────────────────────────────────────────────────────",
+        " ☐ Long",
+        "",
+        "Pick one?",
+        "",
+        "❯ 1. INDIA a deliberately very long option label written out",
+        "     at length so that it certainly exceeds the width of a",
+        "     terminal pane and has to wrap or truncate",
+        "     Extensive option requiring careful layout handling.",
+        "  2. JULIETT",
+        "     Concise alternative for comparison.",
+        "  3. Type something.",
+        "────────────────────────────────────────────────────────────",
+        "  4. Chat about this",
+        "",
+        "Enter to select · ↑/↓ to navigate · Esc to cancel",
+      ].join("\n"),
+    ),
+  )!;
   expect(dialog.rows).toHaveLength(3);
   expect(dialog.rows[0]!.text).toBe("INDIA a deliberately very long option label written out");
   expect(dialog.rows[1]!.text).toBe("JULIETT");
@@ -242,8 +242,10 @@ test("a two-column question's rows are its labels, not the panel drawn beside th
 test("a two-column answer is a tick inside the band rather than at the end of the line", () => {
   const dialog = questionDialog(pane(capture("a two-column question answered, with a note")))!;
 
-  expect(dialog.rows.map((row) => `${row.text}:${row.chosen}`))
-    .toEqual(["A short one:false", "A deliberately very:true"]);
+  expect(dialog.rows.map((row) => `${row.text}:${row.chosen}`)).toEqual([
+    "A short one:false",
+    "A deliberately very:true",
+  ]);
   expect(dialog.notes!.text).toBe("combo note");
   expect(isPlaceholder(dialog.notes!.text)).toBe(false);
 });

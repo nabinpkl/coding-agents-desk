@@ -115,9 +115,7 @@ export function loadTerminalZoomScale(): number {
   try {
     const raw = localStorage.getItem(TERMINAL_ZOOM_SCALE_KEY);
     const parsed = raw === null ? NaN : Number(raw);
-    return Number.isFinite(parsed) && parsed >= MIN_CANVAS_ZOOM && parsed <= 1
-      ? parsed
-      : MIN_CANVAS_ZOOM;
+    return Number.isFinite(parsed) && parsed >= MIN_CANVAS_ZOOM && parsed <= 1 ? parsed : MIN_CANVAS_ZOOM;
   } catch {
     return MIN_CANVAS_ZOOM;
   }

@@ -33,8 +33,9 @@ export interface ProjectArchiveRouteDependencies {
 
 export function createProjectArchiveRoutes(dependencies: ProjectArchiveRouteDependencies): RouteHandler {
   const announce = dependencies.announce ?? broadcast;
-  const sessionsIn = dependencies.sessionsIn
-    ?? ((projectPath: string) => getSnapshot().filter((session) => session.project === projectPath));
+  const sessionsIn =
+    dependencies.sessionsIn ??
+    ((projectPath: string) => getSnapshot().filter((session) => session.project === projectPath));
   const catalogReady = dependencies.catalogReady ?? (() => getWatcherState() === "live");
   return (request, url) => {
     if (request.method !== "POST") return undefined;
@@ -105,7 +106,9 @@ export function createProjectArchiveRoutes(dependencies: ProjectArchiveRouteDepe
   }
 
   async function runningSessions(sessions: Session[]): Promise<Session[]> {
-    const checks = await Promise.all(sessions.map(async (session) => [session, await dependencies.isRunning(session)] as const));
+    const checks = await Promise.all(
+      sessions.map(async (session) => [session, await dependencies.isRunning(session)] as const),
+    );
     return checks.filter(([, running]) => running).map(([session]) => session);
   }
 }

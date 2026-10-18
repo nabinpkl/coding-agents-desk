@@ -21,26 +21,26 @@ function processLine(line: string): LineResult | null {
 }
 
 function snippetFor(parsed: ParsedLine): string {
-  if (parsed.type === 'assistant') {
+  if (parsed.type === "assistant") {
     for (let i = parsed.blocks.length - 1; i >= 0; i--) {
       const b = parsed.blocks[i]!;
-      if (b.kind === 'text' && b.text && b.text.trim()) return truncate(b.text, 800);
+      if (b.kind === "text" && b.text && b.text.trim()) return truncate(b.text, 800);
     }
     for (let i = parsed.blocks.length - 1; i >= 0; i--) {
       const b = parsed.blocks[i]!;
-      if (b.kind === 'tool_use' && b.tool) return truncate(arrowToolUse(b.tool, b.input), 200);
+      if (b.kind === "tool_use" && b.tool) return truncate(arrowToolUse(b.tool, b.input), 200);
     }
-    return '';
+    return "";
   }
-  if (parsed.type === 'user') {
+  if (parsed.type === "user") {
     for (const b of parsed.blocks) {
-      if (b.kind === 'text' && b.text && b.text.trim()) {
-        if (isHarnessUserText(b.text)) return '';
+      if (b.kind === "text" && b.text && b.text.trim()) {
+        if (isHarnessUserText(b.text)) return "";
         return truncate(`→ ${b.text}`, 800);
       }
     }
   }
-  return '';
+  return "";
 }
 
 // Re-walk the line's content array the same way parseBlocks does, but
@@ -56,12 +56,12 @@ async function extractBlockRaw(line: string, blockIndex: number): Promise<string
   const normalized = normalizedLine(line);
   const selected = normalized?.rawBlocks[blockIndex];
   if (!selected) return null;
-  if (selected.sidecarPath) return await readSidecar(selected.sidecarPath) ?? selected.raw;
+  if (selected.sidecarPath) return (await readSidecar(selected.sidecarPath)) ?? selected.raw;
   return selected.raw;
 }
 
 export const claudeAdapter = {
-  id: 'claude',
+  id: "claude",
   filePathToSessionId,
   readHeader,
   processLine,

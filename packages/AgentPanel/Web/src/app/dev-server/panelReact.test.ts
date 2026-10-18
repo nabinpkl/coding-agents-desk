@@ -47,7 +47,7 @@ describe("React Compiler over the panel", () => {
     for (const path of sourceFiles(SOURCE)) {
       const code = readFileSync(path, "utf8");
       if (code.includes('"use no memo"')) continue;
-      skips.push(...await skipsIn(path, code));
+      skips.push(...(await skipsIn(path, code)));
     }
     expect(skips).toEqual([]);
   }, 60_000);

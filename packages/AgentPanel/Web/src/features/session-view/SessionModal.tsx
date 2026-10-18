@@ -20,8 +20,10 @@ import { useMountEffect } from "@/hooks/useMountEffect";
 
 /** Escape belongs to whatever is being typed in, which may be a session's own composer. */
 function isEditable(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]") !== null);
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]") !== null)
+  );
 }
 
 export function SessionModal({
@@ -63,9 +65,10 @@ export function SessionModal({
   const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
   const contextFork = context.onForkFromMessage;
   const forkFromMessage = useMemo(
-    () => contextFork === undefined || botId === undefined
-      ? contextFork
-      : (request: Parameters<typeof contextFork>[0]) => contextFork({ ...request, botId }),
+    () =>
+      contextFork === undefined || botId === undefined
+        ? contextFork
+        : (request: Parameters<typeof contextFork>[0]) => contextFork({ ...request, botId }),
     [botId, contextFork],
   );
   const [moving, setMoving] = useState(false);
@@ -131,9 +134,11 @@ export function SessionModal({
               aria-busy={moving || undefined}
               className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {moving
-                ? <LoaderCircle className="size-4 animate-spin" aria-hidden />
-                : <LayoutDashboard className="size-4" aria-hidden />}
+              {moving ? (
+                <LoaderCircle className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <LayoutDashboard className="size-4" aria-hidden />
+              )}
               Move to canvas
             </button>
           ) : null}
@@ -150,7 +155,10 @@ export function SessionModal({
           </button>
         </header>
         {moveError ? (
-          <p role="alert" className="shrink-0 border-b border-border px-4 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
+          <p
+            role="alert"
+            className="shrink-0 border-b border-border px-4 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive"
+          >
             Could not move this session to the canvas: {moveError}
           </p>
         ) : null}

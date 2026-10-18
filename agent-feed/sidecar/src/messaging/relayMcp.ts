@@ -30,7 +30,9 @@ export const RELAY_INSTRUCTIONS = [
 ].join("\n");
 
 function text(value: unknown) {
-  return { content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 1) }] };
+  return {
+    content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 1) }],
+  };
 }
 
 function failure(error: unknown) {
@@ -38,7 +40,17 @@ function failure(error: unknown) {
 }
 
 function compactMessage(m: Message) {
-  return { id: m.id, threadId: m.threadId, from: m.from, to: m.to, kind: m.kind, state: m.state, body: m.body, refs: m.refs, createdAt: m.createdAt };
+  return {
+    id: m.id,
+    threadId: m.threadId,
+    from: m.from,
+    to: m.to,
+    kind: m.kind,
+    state: m.state,
+    body: m.body,
+    refs: m.refs,
+    createdAt: m.createdAt,
+  };
 }
 
 export interface RelayMcpOptions {
@@ -82,7 +94,11 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
     const entries = await client.request<DirectoryEntry[]>("GET", "/v1/directory");
     const matches = entries.filter((e) => e.name.toLowerCase() === to.toLowerCase());
     if (matches.length === 1) return matches[0]!.address;
-    throw new Error(matches.length === 0 ? `no directory entry is named "${to}"` : `"${to}" names ${matches.length} entries; use the address`);
+    throw new Error(
+      matches.length === 0
+        ? `no directory entry is named "${to}"`
+        : `"${to}" names ${matches.length} entries; use the address`,
+    );
   };
 
   /** Which session a message was delivered to. The hub stamps it on the message, so a reply learns the sender it has to speak as from the message it answers. */
@@ -98,9 +114,14 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
   server.registerTool(
     "hub_send",
     {
-      description: "Agent messaging hub. Start a conversation: a request, a question or a report (see kind). To the owner, address \"human\". To another agent, address its Bot: \"bot:<id>\". That is the ONLY kind of address, because a Bot is the unit the owner curates and a session in no Bot takes no part in messaging at all. If the Bot curates one session, \"bot:<id>\" is that session; if it curates several, the hub will not guess which one you meant and you must say \"bot:<id>/<sessionId>\" -- hub_directory lists the members and their addresses under each Bot. A directory name is accepted and resolved to one address. To answer a message you received, use hub_reply instead, which needs no address.",
+      description:
+        'Agent messaging hub. Start a conversation: a request, a question or a report (see kind). To the owner, address "human". To another agent, address its Bot: "bot:<id>". That is the ONLY kind of address, because a Bot is the unit the owner curates and a session in no Bot takes no part in messaging at all. If the Bot curates one session, "bot:<id>" is that session; if it curates several, the hub will not guess which one you meant and you must say "bot:<id>/<sessionId>" -- hub_directory lists the members and their addresses under each Bot. A directory name is accepted and resolved to one address. To answer a message you received, use hub_reply instead, which needs no address.',
       inputSchema: {
-        to: z.string().describe("\"human\", or a Bot address: \"bot:<id>\", or \"bot:<id>/<sessionId>\" when the Bot curates several sessions. A bare session id is not an address and is refused."),
+        to: z
+          .string()
+          .describe(
+            '"human", or a Bot address: "bot:<id>", or "bot:<id>/<sessionId>" when the Bot curates several sessions. A bare session id is not an address and is refused.',
+          ),
         body: z.string().describe("Message text."),
         kind: z.enum(SENT_MESSAGE_KINDS).describe(SENT_MESSAGE_KIND_HELP),
       },
@@ -121,7 +142,8 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
   server.registerTool(
     "hub_reply",
     {
-      description: "Agent messaging hub. Answer a message you received (a <channel source=\"agentdesk-relay\"> event), in its thread, to its sender. No session_id is needed: the hub knows which session the message reached.",
+      description:
+        'Agent messaging hub. Answer a message you received (a <channel source="agentdesk-relay"> event), in its thread, to its sender. No session_id is needed: the hub knows which session the message reached.',
       inputSchema: {
         message_id: z.string().describe("The message_id of the message you are answering."),
         body: z.string().describe("Reply text."),
@@ -130,7 +152,11 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
     async ({ message_id, body }) => {
       try {
         if (!hub) throw new Error(settings as string);
-        const sent = await hub.request<Message>("POST", "/v1/messages", { as: `claude:${await replyingSessionId(hub, message_id)}`, inReplyTo: message_id, body });
+        const sent = await hub.request<Message>("POST", "/v1/messages", {
+          as: `claude:${await replyingSessionId(hub, message_id)}`,
+          inReplyTo: message_id,
+          body,
+        });
         return text(compactMessage(sent));
       } catch (error) {
         return failure(error);
@@ -159,14 +185,23 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
   server.registerTool(
     "hub_directory",
     {
-      description: "Who can be messaged. Agent to agent is Bot to Bot: the active Bots are the recipients, a Bot is active when some machine is publishing it, and only Bots can take part, so a session that belongs to no Bot cannot open or receive an agent-to-agent conversation (it can still ask the owner, and still answer the owner). Also lists the owner and every session, which the human surfaces use. Each entry carries whether it is reachable now; a message to an unreachable address waits for it.",
+      description:
+        "Who can be messaged. Agent to agent is Bot to Bot: the active Bots are the recipients, a Bot is active when some machine is publishing it, and only Bots can take part, so a session that belongs to no Bot cannot open or receive an agent-to-agent conversation (it can still ask the owner, and still answer the owner). Also lists the owner and every session, which the human surfaces use. Each entry carries whether it is reachable now; a message to an unreachable address waits for it.",
       inputSchema: {},
     },
     async () => {
       try {
         if (!hub) throw new Error(settings as string);
         const entries = await hub.request<DirectoryEntry[]>("GET", "/v1/directory");
-        return text(entries.map((e) => ({ address: e.address, name: e.name, machine: e.machine, reachability: e.reachability, cwd: e.cwd })));
+        return text(
+          entries.map((e) => ({
+            address: e.address,
+            name: e.name,
+            machine: e.machine,
+            reachability: e.reachability,
+            cwd: e.cwd,
+          })),
+        );
       } catch (error) {
         return failure(error);
       }
@@ -191,7 +226,10 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
         readSession,
         deliver: async ({ message, fromName, streamId }) => {
           const notification = channelNotification(message, fromName);
-          await server.server.notification({ method: "notifications/claude/channel", params: { content: notification.content, meta: notification.meta } });
+          await server.server.notification({
+            method: "notifications/claude/channel",
+            params: { content: notification.content, meta: notification.meta },
+          });
           await confirmDelivery(hub, message.id, streamId);
         },
         log: (line) => console.error(`[${RELAY_SERVER_NAME}] ${line}`),

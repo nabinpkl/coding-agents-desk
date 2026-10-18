@@ -6,19 +6,10 @@
 // a different status code. What it delegates is what has a life of its own: the encoder pool,
 // the control channel, and the diagnostics record for this attempt.
 
-import type {
-  WebrtcTileAnswer,
-  WebrtcTileSourceMetadata,
-} from "@agentdesk/agent-feed-wire";
+import type { WebrtcTileAnswer, WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import { networkInterfaces } from "node:os";
 import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
-import {
-  MediaStreamTrack,
-  RTCPeerConnection,
-  RTCRtpCodecParameters,
-  RtpHeader,
-  RtpPacket,
-} from "werift";
+import { MediaStreamTrack, RTCPeerConnection, RTCRtpCodecParameters, RtpHeader, RtpPacket } from "werift";
 import { config } from "@/config/config";
 import { controlHelper } from "@/desktop/controlHelper";
 import { helperBinary, missingHelperMessage } from "@/desktop/helperBinary";
@@ -27,11 +18,7 @@ import { packetizeH264 } from "@/http/tile/tile-codec/h264Packetizer";
 import { packetizeH265 } from "@/http/tile/tile-codec/h265Packetizer";
 import { resolveDisplayTarget, DisplayTargetUnavailable } from "@/http/tile/tile-encoder/webrtcDisplayTarget";
 import { chooseTileVideoCodec } from "@/http/tile/tile-codec/webrtcTileCodec";
-import {
-  candidateLines,
-  diag,
-  nextDiagSequence,
-} from "@/http/tile/tile-diagnostics/webrtcDiagnosticsLog";
+import { candidateLines, diag, nextDiagSequence } from "@/http/tile/tile-diagnostics/webrtcDiagnosticsLog";
 import {
   connectionDiagnostics,
   pruneConnectionDiagnostics,
@@ -51,12 +38,7 @@ import {
 } from "@/http/tile/tile-encoder/webrtcEncoderPool";
 import { encoderStreamKey } from "@/http/tile/tile-encoder/webrtcEncoderIdentity";
 import { createTileControl } from "@/http/tile/tile-control/webrtcTileControl";
-import {
-  ATTEMPT_PATTERN,
-  bounded,
-  encoderSourceRect,
-  type TileOffer,
-} from "@/http/tile/tile-peer/webrtcTileOffer";
+import { ATTEMPT_PATTERN, bounded, encoderSourceRect, type TileOffer } from "@/http/tile/tile-peer/webrtcTileOffer";
 import { isTerminalWebrtcConnectionState } from "@/http/tile/tile-peer/webrtcConnectionState";
 import { releaseSupersededViewer } from "@/http/tile/tile-peer/webrtcSessions";
 
@@ -99,11 +81,7 @@ function tailnetIPv4(): string | null {
 // REMB, its own receiver-side estimator telling us a number directly, which is
 // both the more battle-tested estimator and the more minimal arrangement: the
 // receiver decides, the encoder obeys.
-const RTCP_FEEDBACK = [
-  { type: "nack" },
-  { type: "nack", parameter: "pli" },
-  { type: "goog-remb" },
-];
+const RTCP_FEEDBACK = [{ type: "nack" }, { type: "nack", parameter: "pli" }, { type: "goog-remb" }];
 
 const H265 = new RTCRtpCodecParameters({
   mimeType: "video/H265",
@@ -124,10 +102,7 @@ const H264 = new RTCRtpCodecParameters({
 export async function answer(windowID: string, offer: TileOffer, signal: AbortSignal): Promise<Response> {
   const { path: binary, mtimeMs: binaryMtimeMs, exists } = helperBinary();
   if (!exists) {
-    return jsonResponse(
-      { code: "tile-encoder-missing", message: missingHelperMessage(binary) },
-      503,
-    );
+    return jsonResponse({ code: "tile-encoder-missing", message: missingHelperMessage(binary) }, 503);
   }
   if (!offer.sdp || offer.type !== "offer") {
     return jsonResponse({ code: "webrtc-bad-offer", message: "body must carry an SDP offer" }, 400);
@@ -146,9 +121,16 @@ export async function answer(windowID: string, offer: TileOffer, signal: AbortSi
       captureDisplayId = target.displayId;
     } catch (error) {
       const code = error instanceof DisplayTargetUnavailable ? error.code : "navigation-unavailable";
-      return jsonResponse({ code, message: code,
-        ...(error instanceof DisplayTargetUnavailable && error.replacementDisplayId
-          ? { replacementDisplayId: error.replacementDisplayId } : {}) }, 409);
+      return jsonResponse(
+        {
+          code,
+          message: code,
+          ...(error instanceof DisplayTargetUnavailable && error.replacementDisplayId
+            ? { replacementDisplayId: error.replacementDisplayId }
+            : {}),
+        },
+        409,
+      );
     }
   }
   if (offer.attempt !== undefined && !ATTEMPT_PATTERN.test(offer.attempt)) {
@@ -204,9 +186,11 @@ export async function answer(windowID: string, offer: TileOffer, signal: AbortSi
   diag(`c${connection} window=${windowID} offer candidates: ${candidateLines(offer.sdp).join(" | ") || "NONE"}`);
 
   await peer.setRemoteDescription({ type: "offer", sdp: offer.sdp });
-  diag(`c${connection} offered-codecs=${transceiver.codecs.map(
-    (codec) => `${codec.mimeType}:${codec.payloadType}:${codec.parameters ?? ""}`,
-  ).join(" | ")}`);
+  diag(
+    `c${connection} offered-codecs=${transceiver.codecs
+      .map((codec) => `${codec.mimeType}:${codec.payloadType}:${codec.parameters ?? ""}`)
+      .join(" | ")}`,
+  );
   // Every encoder of one target shares a codec: the hardware encoder is one resource, and a
   // viewer running a coarse and a sharp stream of the same display should not pay for two.
   const activeCodec = liveEncodersForTarget(captureKey)[0]?.codec;
@@ -214,12 +198,15 @@ export async function answer(windowID: string, offer: TileOffer, signal: AbortSi
   if (!choice) {
     closeConnectionDiagnostic();
     void peer.close();
-    return jsonResponse({
-      code: "webrtc-codec-unavailable",
-      message: activeCodec
-        ? `browser did not offer the active ${activeCodec} shared-stream codec`
-        : "browser did not offer supported H.265 SRST or H.264 packetization-mode=1",
-    }, 415);
+    return jsonResponse(
+      {
+        code: "webrtc-codec-unavailable",
+        message: activeCodec
+          ? `browser did not offer the active ${activeCodec} shared-stream codec`
+          : "browser did not offer supported H.265 SRST or H.264 packetization-mode=1",
+      },
+      415,
+    );
   }
   transceiver.sender.codec = choice.negotiated;
   track.codec = choice.negotiated;
@@ -246,10 +233,13 @@ export async function answer(windowID: string, offer: TileOffer, signal: AbortSi
     if (!activeChoice) {
       closeConnectionDiagnostic();
       void peer.close();
-      return jsonResponse({
-        code: "webrtc-codec-unavailable",
-        message: `browser did not offer the active ${nowActiveCodec} shared-stream codec`,
-      }, 415);
+      return jsonResponse(
+        {
+          code: "webrtc-codec-unavailable",
+          message: `browser did not offer the active ${nowActiveCodec} shared-stream codec`,
+        },
+        415,
+      );
     }
     choice = activeChoice;
     transceiver.sender.codec = choice.negotiated;
@@ -257,11 +247,14 @@ export async function answer(windowID: string, offer: TileOffer, signal: AbortSi
   }
 
   const profile = choice.h264Profile ?? "main";
-  diag(`c${connection} codec=${choice.kind} pt=${choice.negotiated.payloadType} profile=${profile} size=${offer.width}x${offer.height} bitrate=${offer.bitrate} rtpHistoryPackets=${config.webrtcRtpHistoryPackets}`);
+  diag(
+    `c${connection} codec=${choice.kind} pt=${choice.negotiated.payloadType} profile=${profile} size=${offer.width}x${offer.height} bitrate=${offer.bitrate} rtpHistoryPackets=${config.webrtcRtpHistoryPackets}`,
+  );
 
   const args = [
     ...(windowID === "display" ? ["--display", String(captureId)] : ["--window", windowID]),
-    "--codec", choice.kind === "h265" ? "h265-annexb" : "h264-annexb",
+    "--codec",
+    choice.kind === "h265" ? "h265-annexb" : "h264-annexb",
     // RTP has no segment boundary to satisfy. A joining viewer receives the
     // retained bootstrap and requests a fresh keyframe; loss recovery does the
     // same through PLI. VideoToolbox's low-latency mode keeps that GOP infinite,
@@ -309,14 +302,18 @@ export async function answer(windowID: string, offer: TileOffer, signal: AbortSi
       killSharedEncoder(shared, "source-metadata-unavailable");
       // Only a capture that never spoke is worth starting again. A display that answered with the
       // wrong identity, or a cancelled offer, would fail the same way twice.
-      const retryable = attempt === 1 && !signal.aborted && !(error instanceof Error
-        && error.message.startsWith("capture display identity"));
+      const retryable =
+        attempt === 1 &&
+        !signal.aborted &&
+        !(error instanceof Error && error.message.startsWith("capture display identity"));
       if (!retryable) {
         closeConnectionDiagnostic();
         void peer.close();
         throw error;
       }
-      diag(`c${connection} encoder key=${captureKey} retrying after ${error instanceof Error ? error.message : String(error)}`);
+      diag(
+        `c${connection} encoder key=${captureKey} retrying after ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
   let dead = false;
@@ -385,11 +382,9 @@ export async function answer(windowID: string, offer: TileOffer, signal: AbortSi
       }
       const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
       const ptsMicros = view.getBigUint64(0);
-      const timestamp = Number((BigInt(timestampOffset) + ((ptsMicros * 9n) / 100n)) & 0xffff_ffffn);
+      const timestamp = Number((BigInt(timestampOffset) + (ptsMicros * 9n) / 100n) & 0xffff_ffffn);
       const accessUnit = payload.subarray(9);
-      const rtpPayloads = choice.kind === "h265"
-        ? packetizeH265(accessUnit)
-        : packetizeH264(accessUnit);
+      const rtpPayloads = choice.kind === "h265" ? packetizeH265(accessUnit) : packetizeH264(accessUnit);
       for (const { payload: rtpPayload, last } of rtpPayloads) {
         const packet = new RtpPacket(
           new RtpHeader({

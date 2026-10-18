@@ -122,7 +122,7 @@ export async function planSessionRetirement(options: {
       remote: await remoteToDelete(options, branch),
       // Read here for the same reason the delete's remote is: `git branch -d` takes the branch's
       // config with it, so after the act there is nothing left to ask.
-      tracked: branch && disposals.branch === "delete" ? await branchRemote({ checkout, branch }) ?? "" : "",
+      tracked: branch && disposals.branch === "delete" ? ((await branchRemote({ checkout, branch })) ?? "") : "",
     },
   };
 }
@@ -153,7 +153,7 @@ async function remoteToDelete(
       `"${branch}" tracks no remote, so there is no remote branch this call can prove is the same one`,
     );
   }
-  if (!await branchMergedIntoHead({ checkout, branch })) {
+  if (!(await branchMergedIntoHead({ checkout, branch }))) {
     throw new WorktreeError(
       `"${branch}" is not contained in HEAD, so deleting it on "${remote}" would remove the only copy`,
     );
@@ -228,11 +228,7 @@ export async function disposeSessionWorktree(
 }
 
 /** The steps that never got their turn, so `failed` answers for everything that was asked for. */
-function blocked(
-  disposals: SessionDisposals,
-  outcome: SessionRetirementOutcome,
-  because: string,
-): void {
+function blocked(disposals: SessionDisposals, outcome: SessionRetirementOutcome, because: string): void {
   if (disposals.branch === "delete") outcome.failed.push({ step: "branch", reason: because });
   if (disposals.remote === "delete") outcome.failed.push({ step: "remote", reason: because });
 }

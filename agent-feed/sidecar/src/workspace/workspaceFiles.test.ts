@@ -79,8 +79,9 @@ test("a nested listing carries the path a client can ask for next", async () => 
   await writeFile(join(root, "src", "app", "main.tsx"), "");
 
   const entries = await listDirectory(root, "src/app");
-  expect(entries.map(({ name, path, isDirectory }) => ({ name, path, isDirectory })))
-    .toEqual([{ name: "main.tsx", path: "src/app/main.tsx", isDirectory: false }]);
+  expect(entries.map(({ name, path, isDirectory }) => ({ name, path, isDirectory }))).toEqual([
+    { name: "main.tsx", path: "src/app/main.tsx", isDirectory: false },
+  ]);
   expect(entries[0]!.modifiedAt).toBeGreaterThan(0);
 });
 
@@ -176,18 +177,15 @@ test("refuses to write a read-only kind", async () => {
   const root = await workspace();
   await writeFile(join(root, "report.docx"), "");
 
-  expect((await refusal(() => writeTextFile(root, "report.docx", "any", "x", MAX))).code)
-    .toBe("readOnly");
+  expect((await refusal(() => writeTextFile(root, "report.docx", "any", "x", MAX))).code).toBe("readOnly");
 });
 
 test("refuses a write that is too large, or carries a NUL, before touching the file", async () => {
   const root = await workspace();
   await writeFile(join(root, "main.ts"), "old\n");
 
-  expect((await refusal(() => writeTextFile(root, "main.ts", "any", "x".repeat(16), 8))).code)
-    .toBe("tooLarge");
-  expect((await refusal(() => writeTextFile(root, "main.ts", "any", "a\0b", MAX))).code)
-    .toBe("binary");
+  expect((await refusal(() => writeTextFile(root, "main.ts", "any", "x".repeat(16), 8))).code).toBe("tooLarge");
+  expect((await refusal(() => writeTextFile(root, "main.ts", "any", "a\0b", MAX))).code).toBe("binary");
   expect(await readFile(join(root, "main.ts"), "utf8")).toBe("old\n");
 });
 
@@ -197,7 +195,6 @@ test("refuses to write through a symlink", async () => {
   await writeFile(join(outside, "target.ts"), "outside\n");
   await symlink(join(outside, "target.ts"), join(root, "link.ts"));
 
-  expect((await refusal(() => writeTextFile(root, "link.ts", "any", "x", MAX))).code)
-    .toBe("forbidden");
+  expect((await refusal(() => writeTextFile(root, "link.ts", "any", "x", MAX))).code).toBe("forbidden");
   expect(await readFile(join(outside, "target.ts"), "utf8")).toBe("outside\n");
 });

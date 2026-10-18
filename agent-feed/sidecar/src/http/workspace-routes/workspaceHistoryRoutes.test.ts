@@ -45,7 +45,8 @@ async function harness(): Promise<{ routes: RouteHandler; workspaceId: string; r
     ["init", "--initial-branch=main"],
     ["config", "user.email", "test@example.com"],
     ["config", "user.name", "Test"],
-  ]) await run(root, args);
+  ])
+    await run(root, args);
   await writeFile(join(root, "main.ts"), "export {};\n");
   await run(root, ["add", "."]);
   await run(root, ["commit", "-m", "first"]);
@@ -70,15 +71,13 @@ function call(routes: RouteHandler, path: string): Promise<Response | undefined>
 
 async function json<T>(response: Response | undefined): Promise<T> {
   expect(response).toBeDefined();
-  return await response!.json() as T;
+  return (await response!.json()) as T;
 }
 
 test("answers the log, one commit's files, and one file's patch", async () => {
   const { routes, workspaceId } = await harness();
 
-  const log = await json<{ commits: WorkspaceCommit[] }>(
-    await call(routes, `/api/workspaces/${workspaceId}/commits`),
-  );
+  const log = await json<{ commits: WorkspaceCommit[] }>(await call(routes, `/api/workspaces/${workspaceId}/commits`));
   expect(log.commits.map((commit) => commit.subject)).toEqual(["second", "first"]);
 
   const hash = log.commits[0]!.hash;

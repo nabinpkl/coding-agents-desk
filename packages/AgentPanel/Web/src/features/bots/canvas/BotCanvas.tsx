@@ -41,7 +41,11 @@ export type { BotCommandError };
  * Bot and each session card inside has one too (`cards/BotCanvasList`, `cards/BotCanvasCard`).
  */
 export function BotCanvas(props: ComponentProps<typeof CanvasContent>) {
-  return <PanelErrorBoundary surface="Bot canvas"><CanvasContent {...props} /></PanelErrorBoundary>;
+  return (
+    <PanelErrorBoundary surface="Bot canvas">
+      <CanvasContent {...props} />
+    </PanelErrorBoundary>
+  );
 }
 
 function CanvasContent({
@@ -252,14 +256,7 @@ function CanvasContent({
   // strip, and no offset to come back to. The condition stays here rather than inside the
   // placeholder so a reader of the canvas can see when it does not draw one.
   if (loading || error !== null || bots.length === 0) {
-    return (
-      <CanvasPlaceholder
-        loading={loading}
-        error={error}
-        detachedCount={detachedCount}
-        onAddBot={onAddBot}
-      />
-    );
+    return <CanvasPlaceholder loading={loading} error={error} detachedCount={detachedCount} onAddBot={onAddBot} />;
   }
 
   return (

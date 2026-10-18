@@ -236,14 +236,7 @@ export interface AgentCommandReceipt {
   session?: AgentSessionDescriptor;
 }
 
-export type AgentUiRequestKind =
-  | "select"
-  | "confirm"
-  | "input"
-  | "editor"
-  | "notify"
-  | "status"
-  | "widget";
+export type AgentUiRequestKind = "select" | "confirm" | "input" | "editor" | "notify" | "status" | "widget";
 
 export interface AgentUiRequest {
   requestId: string;
@@ -260,9 +253,7 @@ export interface AgentUiRequest {
 }
 
 /** Each message of `GET /api/agent-sessions/{source}/{sessionId}/ui/stream`. */
-export type AgentUiEvent =
-  | { type: "request"; request: AgentUiRequest }
-  | { type: "dismiss"; requestId: string };
+export type AgentUiEvent = { type: "request"; request: AgentUiRequest } | { type: "dismiss"; requestId: string };
 
 /**
  * A failure body.

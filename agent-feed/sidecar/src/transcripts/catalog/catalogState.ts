@@ -5,10 +5,7 @@
 // finished changing `state.sessions`.
 
 import type { ProjectSummary } from "@agentdesk/agent-feed-wire";
-import type {
-  AgentSessionCapabilities,
-  AgentSessionDescriptor,
-} from "@/agents/agentBackend";
+import type { AgentSessionCapabilities, AgentSessionDescriptor } from "@/agents/agentBackend";
 import { state, type WatcherState } from "@/transcripts/transcriptState";
 import type { Session, SourceId } from "@/transcripts/transcriptTypes";
 
@@ -72,9 +69,7 @@ export function getWatcherState(): WatcherState {
 }
 
 export function getSnapshot(): Session[] {
-  return [...state.sessions.values()].sort((left, right) =>
-    right.lastEventAt - left.lastEventAt
-  );
+  return [...state.sessions.values()].sort((left, right) => right.lastEventAt - left.lastEventAt);
 }
 
 export function findSession(source: SourceId, sessionId: string): Session | undefined {

@@ -59,54 +59,65 @@ test("a finished turn carries text, thinking, and a paired tool call", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([
     user("msg-u", "run it"),
-    assistant("msg-a", [
-      { type: "text", text: "on it" },
-      { type: "reasoning", text: "" },
-      {
-        type: "tool",
-        id: "c1",
-        name: "shell",
-        state: { status: "completed", input: { command: "ls" }, content: [{ type: "text", text: "ok" }] },
-        time: { created: 1, ran: 2, completed: 3 },
-      },
-    ], 300),
+    assistant(
+      "msg-a",
+      [
+        { type: "text", text: "on it" },
+        { type: "reasoning", text: "" },
+        {
+          type: "tool",
+          id: "c1",
+          name: "shell",
+          state: { status: "completed", input: { command: "ls" }, content: [{ type: "text", text: "ok" }] },
+          time: { created: 1, ran: 2, completed: 3 },
+        },
+      ],
+      300,
+    ),
   ]);
   const rows = projection.page(0, 10);
-  expect(rows[1]).toEqual(expect.objectContaining({
-    id: "opencode:msg-a",
-    type: "assistant",
-    phase: "complete",
-    blocks: [
-      { kind: "text", text: "on it" },
-      // Encrypted thinking is present-but-empty, never dropped.
-      { kind: "reasoning", text: "" },
-      {
-        kind: "tool_use",
-        tool: "shell",
-        callId: "c1",
-        input: { command: "ls" },
-        // The chip already says shell, so the summary names the action.
-        summary: "List files",
-        files: undefined,
-      },
-      { kind: "tool_result", callId: "c1", text: "ok", preview: "ok" },
-    ],
-  }));
+  expect(rows[1]).toEqual(
+    expect.objectContaining({
+      id: "opencode:msg-a",
+      type: "assistant",
+      phase: "complete",
+      blocks: [
+        { kind: "text", text: "on it" },
+        // Encrypted thinking is present-but-empty, never dropped.
+        { kind: "reasoning", text: "" },
+        {
+          kind: "tool_use",
+          tool: "shell",
+          callId: "c1",
+          input: { command: "ls" },
+          // The chip already says shell, so the summary names the action.
+          summary: "List files",
+          files: undefined,
+        },
+        { kind: "tool_result", callId: "c1", text: "ok", preview: "ok" },
+      ],
+    }),
+  );
 });
 
 test("file, pattern, and web call summaries name what they acted on", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([
-    assistant("msg-a", [
-      toolPart("r1", "read", { path: "/repo/FEATURE-MAP.md" }),
-      toolPart("r2", "edit", { path: "/repo/a.ts", oldString: "x", newString: "y" }),
-      toolPart("r3", "glob", { pattern: "**/TerminalTile*" }),
-      toolPart("r4", "grep", { pattern: "scroll", path: "/repo" }),
-      toolPart("r5", "webfetch", { url: "https://example.com/docs" }),
-    ], 300),
+    assistant(
+      "msg-a",
+      [
+        toolPart("r1", "read", { path: "/repo/FEATURE-MAP.md" }),
+        toolPart("r2", "edit", { path: "/repo/a.ts", oldString: "x", newString: "y" }),
+        toolPart("r3", "glob", { pattern: "**/TerminalTile*" }),
+        toolPart("r4", "grep", { pattern: "scroll", path: "/repo" }),
+        toolPart("r5", "webfetch", { url: "https://example.com/docs" }),
+      ],
+      300,
+    ),
   ]);
-  const summaries = projection.page(0, 10)[0]!.blocks
-    .filter((block) => block.kind === "tool_use")
+  const summaries = projection
+    .page(0, 10)[0]!
+    .blocks.filter((block) => block.kind === "tool_use")
     .map((block) => (block as { summary?: string }).summary);
   expect(summaries).toEqual([
     "read FEATURE-MAP.md",
@@ -117,10 +128,7 @@ test("file, pattern, and web call summaries name what they acted on", () => {
   ]);
 });
 
-type AssistantToolPart = Extract<
-  Extract<SessionMessage, { type: "assistant" }>["content"][number],
-  { type: "tool" }
->;
+type AssistantToolPart = Extract<Extract<SessionMessage, { type: "assistant" }>["content"][number], { type: "tool" }>;
 
 function toolPart(id: string, name: string, input: Record<string, JsonValue>): AssistantToolPart {
   return {
@@ -135,15 +143,19 @@ function toolPart(id: string, name: string, input: Record<string, JsonValue>): A
 test("a shell call without a command falls back to the tool name", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([
-    assistant("msg-a", [
-      {
-        type: "tool",
-        id: "c1",
-        name: "shell",
-        state: { status: "completed", input: {}, content: [{ type: "text", text: "ok" }] },
-        time: { created: 1, ran: 2, completed: 3 },
-      },
-    ], 300),
+    assistant(
+      "msg-a",
+      [
+        {
+          type: "tool",
+          id: "c1",
+          name: "shell",
+          state: { status: "completed", input: {}, content: [{ type: "text", text: "ok" }] },
+          time: { created: 1, ran: 2, completed: 3 },
+        },
+      ],
+      300,
+    ),
   ]);
   const call = projection.page(0, 10)[0]!.blocks[0]!;
   expect(call.kind).toBe("tool_use");
@@ -153,15 +165,19 @@ test("a shell call without a command falls back to the tool name", () => {
 test("an edit call without input leaves its summary off", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([
-    assistant("msg-a", [
-      {
-        type: "tool",
-        id: "c1",
-        name: "edit",
-        state: { status: "running", input: {}, metadata: {} },
-        time: { created: 1, ran: 2 },
-      },
-    ], 300),
+    assistant(
+      "msg-a",
+      [
+        {
+          type: "tool",
+          id: "c1",
+          name: "edit",
+          state: { status: "running", input: {}, metadata: {} },
+          time: { created: 1, ran: 2 },
+        },
+      ],
+      300,
+    ),
   ]);
   const call = projection.page(0, 10)[0]!.blocks[0]!;
   expect(call.kind).toBe("tool_use");
@@ -192,19 +208,23 @@ test("a re-sync that changed nothing publishes nothing", () => {
 test("short tool results carry a preview, which is what the panel renders", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([
-    assistant("msg-a", [
-      {
-        type: "tool",
-        id: "c1",
-        name: "shell",
-        state: {
-          status: "completed",
-          input: { command: "echo hi" },
-          content: [{ type: "text", text: "hi\n" }],
+    assistant(
+      "msg-a",
+      [
+        {
+          type: "tool",
+          id: "c1",
+          name: "shell",
+          state: {
+            status: "completed",
+            input: { command: "echo hi" },
+            content: [{ type: "text", text: "hi\n" }],
+          },
+          time: { created: 1, ran: 2, completed: 3 },
         },
-        time: { created: 1, ran: 2, completed: 3 },
-      },
-    ], 300),
+      ],
+      300,
+    ),
   ]);
   const result = projection.page(0, 10)[0]!.blocks.at(-1)!;
   expect(result.kind).toBe("tool_result");
@@ -217,19 +237,23 @@ test("short tool results carry a preview, which is what the panel renders", () =
 test("long tool output is capped with a footer", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([
-    assistant("msg-a", [
-      {
-        type: "tool",
-        id: "c1",
-        name: "shell",
-        state: {
-          status: "completed",
-          input: {},
-          content: [{ type: "text", text: `${"x".repeat(TOOL_RESULT_PREVIEW_CAP)}\nline2\nline3` }],
+    assistant(
+      "msg-a",
+      [
+        {
+          type: "tool",
+          id: "c1",
+          name: "shell",
+          state: {
+            status: "completed",
+            input: {},
+            content: [{ type: "text", text: `${"x".repeat(TOOL_RESULT_PREVIEW_CAP)}\nline2\nline3` }],
+          },
+          time: { created: 1, ran: 2, completed: 3 },
         },
-        time: { created: 1, ran: 2, completed: 3 },
-      },
-    ], 300),
+      ],
+      300,
+    ),
   ]);
   const result = projection.page(0, 10)[0]!.blocks.at(-1)!;
   expect(result.kind).toBe("tool_result");
@@ -325,7 +349,8 @@ test("a cancelled compaction draws nothing; a failed one names its error", () =>
   expect(rows[0]!.blocks).toEqual([{ kind: "text", text: "Compaction failed: no summary" }]);
 });
 
-const PNG_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const PNG_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 function imageToolPart(id: string, uri: string, mime = "image/png"): AssistantToolPart {
   return {
@@ -335,7 +360,10 @@ function imageToolPart(id: string, uri: string, mime = "image/png"): AssistantTo
     state: {
       status: "completed",
       input: { path: "/tmp/shot.png" },
-      content: [{ type: "text", text: "Image read successfully" }, { type: "file", uri, mime }],
+      content: [
+        { type: "text", text: "Image read successfully" },
+        { type: "file", uri, mime },
+      ],
     },
     time: { created: 1, ran: 2, completed: 3 },
   };
@@ -363,7 +391,11 @@ test("a picture a call returned is drawn, not named", () => {
 test("a non-picture file keeps its placeholder line", () => {
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync([
-    assistant("msg-a", [imageToolPart("c1", PNG_DATA_URL.replace("image/png", "application/pdf"), "application/pdf")], 300),
+    assistant(
+      "msg-a",
+      [imageToolPart("c1", PNG_DATA_URL.replace("image/png", "application/pdf"), "application/pdf")],
+      300,
+    ),
   ]);
   const blocks = projection.page(0, 10)[0]!.blocks;
   expect(blocks.some((block) => block.kind === "image")).toBe(false);
@@ -395,7 +427,5 @@ test("a picture attached to a user message draws as its own block", () => {
     { kind: "text", text: "what about this" },
     { kind: "image", mediaType: "image/png" },
   ]);
-  expect(result.images).toEqual([
-    { eventId: "opencode:msg-u", ordinal: 0, mediaType: "image/png", data: "aVZCT1I=" },
-  ]);
+  expect(result.images).toEqual([{ eventId: "opencode:msg-u", ordinal: 0, mediaType: "image/png", data: "aVZCT1I=" }]);
 });

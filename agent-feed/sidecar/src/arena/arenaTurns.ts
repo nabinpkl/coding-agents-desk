@@ -14,7 +14,10 @@ import { filesFromEvents, outsideReaches } from "@/arena/arenaFacts";
 
 /** Why a run cannot take its next prompt right now, said to the reader as the route's answer. */
 export class ArenaNextPromptError extends Error {
-  constructor(message: string, readonly busy: boolean) {
+  constructor(
+    message: string,
+    readonly busy: boolean,
+  ) {
     super(message);
   }
 }
@@ -31,8 +34,8 @@ export function nextPromptContestants(run: ArenaRunRecord): ArenaContestantRecor
   if (run.contestants.some(isLiveContestant)) {
     throw new ArenaNextPromptError("the lanes are still on the last prompt; send the next one once they settle", true);
   }
-  const continuing = run.contestants.filter((contestant) =>
-    contestant.sessionId !== null && (run.mode === "headless" || contestant.tmuxSession !== null)
+  const continuing = run.contestants.filter(
+    (contestant) => contestant.sessionId !== null && (run.mode === "headless" || contestant.tmuxSession !== null),
   );
   if (continuing.length === 0) {
     throw new ArenaNextPromptError("no contestant has a session to continue", false);
@@ -48,7 +51,10 @@ export function nextPromptContestants(run: ArenaRunRecord): ArenaContestantRecor
  * from its whole transcript, the serve's from the turn alone. A union is the same answer either way.
  */
 export function factsAfterTurn(
-  record: Pick<ArenaContestantRecord, "filesRead" | "filesWritten" | "outsideReached" | "worktreePath" | "contestantId">,
+  record: Pick<
+    ArenaContestantRecord,
+    "filesRead" | "filesWritten" | "outsideReached" | "worktreePath" | "contestantId"
+  >,
   events: readonly ActivityEvent[],
   run: Pick<ArenaRunRecord, "contestants">,
   home: string,
@@ -63,9 +69,6 @@ export function factsAfterTurn(
   return {
     filesRead: [...new Set([...record.filesRead, ...turn.filesRead])],
     filesWritten: [...new Set([...record.filesWritten, ...turn.filesWritten])],
-    outsideReached: [
-      ...record.outsideReached,
-      ...reached.filter((reach) => !seen.has(`${reach.how}\0${reach.path}`)),
-    ],
+    outsideReached: [...record.outsideReached, ...reached.filter((reach) => !seen.has(`${reach.how}\0${reach.path}`))],
   };
 }

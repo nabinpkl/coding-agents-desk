@@ -64,10 +64,12 @@ test("a vendor with no records reports itself uninstalled rather than empty", as
   // Two different facts, and the panel says different things about them: "Codex is not on this
   // machine" is not "Codex ran nothing".
   expect(codex.coverage.sessions).toBe(0);
-  expect(detectUsageVendors({
-    codexHome: join(root, "nothing-here"),
-    claudeProjects: join(root, "nothing-here"),
-  })).toEqual([]);
+  expect(
+    detectUsageVendors({
+      codexHome: join(root, "nothing-here"),
+      claudeProjects: join(root, "nothing-here"),
+    }),
+  ).toEqual([]);
 });
 
 test("days carry a total and a per-model split, heaviest model first", async () => {
@@ -145,8 +147,7 @@ test("a file whose bytes did not move is trusted even when its contents did", as
   const before = await createUsageScanner(context).scan();
   await utimes(path, stamp, stamp);
   const after = await createUsageScanner(context).scan();
-  expect(after.vendors[0]!.days[0]!.totals.inputTokens)
-    .toBe(before.vendors[0]!.days[0]!.totals.inputTokens);
+  expect(after.vendors[0]!.days[0]!.totals.inputTokens).toBe(before.vendors[0]!.days[0]!.totals.inputTokens);
 });
 
 test("a deleted session stops counting and leaves the cache", async () => {
@@ -205,22 +206,30 @@ test("the quota is the newest reading across every session", async () => {
     primary: { used_percent: percent, window_minutes: minutes, resets_at: 1_787_801_862 },
   });
   await context.write("a.jsonl", [
-    { ...usage("2026-08-13T04:00:00.000Z", 1, 0), payload: { ...usage("x", 1, 0).payload, rate_limits: limits(58, 10_080) } },
+    {
+      ...usage("2026-08-13T04:00:00.000Z", 1, 0),
+      payload: { ...usage("x", 1, 0).payload, rate_limits: limits(58, 10_080) },
+    },
   ]);
   await context.write("b.jsonl", [
-    { ...usage("2026-08-13T09:00:00.000Z", 1, 0), payload: { ...usage("x", 1, 0).payload, rate_limits: limits(12, 10_080) } },
+    {
+      ...usage("2026-08-13T09:00:00.000Z", 1, 0),
+      payload: { ...usage("x", 1, 0).payload, rate_limits: limits(12, 10_080) },
+    },
   ]);
 
   const report = await createUsageScanner(context).scan();
-  expect(report.vendors[0]!.quotas).toEqual([{
-    label: "Weekly limit",
-    usedPercent: 12,
-    windowMinutes: 10_080,
-    resetsAt: 1_787_801_862_000,
-    scope: null,
-    planType: "prolite",
-    sampledAt: Date.parse("2026-08-13T09:00:00.000Z"),
-  }]);
+  expect(report.vendors[0]!.quotas).toEqual([
+    {
+      label: "Weekly limit",
+      usedPercent: 12,
+      windowMinutes: 10_080,
+      resetsAt: 1_787_801_862_000,
+      scope: null,
+      planType: "prolite",
+      sampledAt: Date.parse("2026-08-13T09:00:00.000Z"),
+    },
+  ]);
 });
 
 test("a five-hour window is named for what it is", async () => {
@@ -305,11 +314,7 @@ test("a forked session does not count its parent's requests a second time", asyn
   // file and adding the sums would report a machine's whole history at 283% of its real size.
   const context = await claudeFixture();
   await context.write("parent.jsonl", [claudeUsage("msg_a", 100), claudeUsage("msg_b", 200)]);
-  await context.write("fork.jsonl", [
-    claudeUsage("msg_a", 100),
-    claudeUsage("msg_b", 200),
-    claudeUsage("msg_c", 400),
-  ]);
+  await context.write("fork.jsonl", [claudeUsage("msg_a", 100), claudeUsage("msg_b", 200), claudeUsage("msg_c", 400)]);
 
   const report = await createUsageScanner(context).scan();
   const claude = report.vendors.find((vendor) => vendor.vendor === "claude")!;
@@ -353,15 +358,19 @@ test("every Claude window reaches the report, stamped with when it was taken", a
   resetLiveQuotas();
   const context = await claudeFixture();
   await context.write("a.jsonl", [claudeUsage("msg_a", 100)]);
-  await writeFile(context.claudeConfig, JSON.stringify({
-    cachedUsageUtilization: {
-      fetchedAtMs: 1_788_687_158_244,
-      utilization: {
-        five_hour: { utilization: 0.92, resets_at: "2026-09-06T10:30:00.000Z" },
-        seven_day: { utilization: 0.36, resets_at: "2026-09-06T16:00:00.000Z" },
+  await writeFile(
+    context.claudeConfig,
+    JSON.stringify({
+      cachedUsageUtilization: {
+        fetchedAtMs: 1_788_687_158_244,
+        utilization: {
+          five_hour: { utilization: 0.92, resets_at: "2026-09-06T10:30:00.000Z" },
+          seven_day: { utilization: 0.36, resets_at: "2026-09-06T16:00:00.000Z" },
+        },
       },
-    },
-  }), "utf8");
+    }),
+    "utf8",
+  );
 
   const report = await createUsageScanner(context).scan();
   expect(report.vendors[1]!.quotas).toEqual([
@@ -391,6 +400,5 @@ test("days carry the model id and the alias, not one instead of the other", asyn
   await context.write("a.jsonl", [claudeUsage("msg_a", 100)]);
 
   const report = await createUsageScanner(context).scan();
-  expect(report.vendors[1]!.days[0]!.byModel[0])
-    .toMatchObject({ model: "claude-opus-5", alias: "opus 5" });
+  expect(report.vendors[1]!.days[0]!.byModel[0]).toMatchObject({ model: "claude-opus-5", alias: "opus 5" });
 });

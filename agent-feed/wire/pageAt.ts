@@ -10,10 +10,7 @@
  * - `after`: the oldest rows above the row at that position, not including it.
  * - `around`: the row at that position with rows either side, for landing on it (ADR-0125).
  */
-export type EventsPageAt =
-  | { before: number | null }
-  | { after: number }
-  | { around: number };
+export type EventsPageAt = { before: number | null } | { after: number } | { around: number };
 
 /** The query parameter that says where, or "" for the newest page. */
 export function eventsPageAtQuery(at: EventsPageAt): string {

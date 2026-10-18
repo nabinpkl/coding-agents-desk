@@ -36,15 +36,13 @@ export function createReceiverStatsSampler({
   let lastCandidatePairID: string | null = null;
   let receiverStatsSample = 0;
   const rounded = (value: unknown, scale = 1) =>
-    typeof value === "number" && Number.isFinite(value)
-      ? Math.round(value * scale)
-      : undefined;
+    typeof value === "number" && Number.isFinite(value) ? Math.round(value * scale) : undefined;
   const averageMilliseconds = (total: unknown, count: unknown) =>
-    typeof total === "number"
-    && Number.isFinite(total)
-    && typeof count === "number"
-    && Number.isFinite(count)
-    && count > 0
+    typeof total === "number" &&
+    Number.isFinite(total) &&
+    typeof count === "number" &&
+    Number.isFinite(count) &&
+    count > 0
       ? Math.round((total * 1_000) / count)
       : undefined;
   const candidateDescription = (candidate: CandidateStats | undefined) => {
@@ -55,17 +53,18 @@ export function createReceiverStatsSampler({
       candidate.networkType,
       candidate.relayProtocol,
       candidate.tcpType,
-    ].filter(Boolean).join("/");
+    ]
+      .filter(Boolean)
+      .join("/");
   };
   const sampleReceiverStats = async (reason = "interval", gapMs?: number) => {
     if (isFinished()) return;
     if (statsInFlight) {
-      const isGapReason = reason === "detected"
-        || reason === "progress"
-        || reason === "recovered";
-      const pendingIsGap = pendingStatsReason?.reason === "detected"
-        || pendingStatsReason?.reason === "progress"
-        || pendingStatsReason?.reason === "recovered";
+      const isGapReason = reason === "detected" || reason === "progress" || reason === "recovered";
+      const pendingIsGap =
+        pendingStatsReason?.reason === "detected" ||
+        pendingStatsReason?.reason === "progress" ||
+        pendingStatsReason?.reason === "recovered";
       if (!pendingIsGap || isGapReason) pendingStatsReason = { reason, gapMs };
       return;
     }
@@ -76,10 +75,7 @@ export function createReceiverStatsSampler({
       let inbound: ReceiverVideoStats | undefined;
       let transport: RTCTransportStats | undefined;
       stats.forEach((entry) => {
-        if (
-          entry.type === "inbound-rtp"
-          && (entry.kind === "video" || entry.mediaType === "video")
-        ) {
+        if (entry.type === "inbound-rtp" && (entry.kind === "video" || entry.mediaType === "video")) {
           inbound = entry as ReceiverVideoStats;
         } else if (entry.type === "transport") {
           transport = entry as RTCTransportStats;
@@ -90,25 +86,21 @@ export function createReceiverStatsSampler({
         return;
       }
       const candidatePair = transport?.selectedCandidatePairId
-        ? stats.get(transport.selectedCandidatePairId) as CandidatePairStats | undefined
+        ? (stats.get(transport.selectedCandidatePairId) as CandidatePairStats | undefined)
         : undefined;
       let selectedPair = candidatePair;
       if (!selectedPair) {
         stats.forEach((entry) => {
           const pair = entry as CandidatePairStats;
-          if (
-            !selectedPair
-            && pair.type === "candidate-pair"
-            && pair.state === "succeeded"
-            && pair.nominated
-          ) selectedPair = pair;
+          if (!selectedPair && pair.type === "candidate-pair" && pair.state === "succeeded" && pair.nominated)
+            selectedPair = pair;
         });
       }
       const localCandidate = selectedPair?.localCandidateId
-        ? stats.get(selectedPair.localCandidateId) as CandidateStats | undefined
+        ? (stats.get(selectedPair.localCandidateId) as CandidateStats | undefined)
         : undefined;
       const remoteCandidate = selectedPair?.remoteCandidateId
-        ? stats.get(selectedPair.remoteCandidateId) as CandidateStats | undefined
+        ? (stats.get(selectedPair.remoteCandidateId) as CandidateStats | undefined)
         : undefined;
       const now = performance.now();
       const owner = presentation.owner?.attempt === attempt ? presentation.owner : null;
@@ -128,81 +120,74 @@ export function createReceiverStatsSampler({
       receiverStatsSample += 1;
       const pairID = selectedPair?.id ?? null;
       const pairChanged = lastCandidatePairID !== null && pairID !== lastCandidatePairID;
-      const presentationGapEvent = reason === "detected"
-        || reason === "progress"
-        || reason === "recovered";
+      const presentationGapEvent = reason === "detected" || reason === "progress" || reason === "recovered";
       lastReceiverSample = current;
       lastCandidatePairID = pairID;
       if (owner && presentationGapEvent) owner.lastGapClassification = progress;
-      report(presentationGapEvent ? "presentation-gap" : "receiver-stats", JSON.stringify({
-        event: reason,
-        sample: receiverStatsSample,
-        gapMs,
-        progress,
-        delta,
-        peer: {
-          connection: peer.connectionState,
-          ice: peer.iceConnectionState,
-          signaling: peer.signalingState,
-          gathering: peer.iceGatheringState,
-        },
-        presentation: {
-          document: document.visibilityState,
-          presented: current.presentedSamples,
-          ageMs: owner?.lastPresentedAt === null || owner?.lastPresentedAt === undefined
-            ? -1
-            : Math.round(now - owner.lastPresentedAt),
-          readyState: element.readyState,
-          paused: element.paused,
-          ended: element.ended,
-        },
-        inbound: {
-          bytes: current.bytesReceived,
-          packets: current.packetsReceived,
-          lost: rounded(inbound.packetsLost),
-          repaired: rounded(inbound.packetsRepaired),
-          discarded: rounded(inbound.packetsDiscarded),
-          jitterMs: rounded(inbound.jitter, 1_000),
-          received: current.framesReceived,
-          decoded: current.framesDecoded,
-          dropped: current.framesDropped,
-          fps: rounded(inbound.framesPerSecond),
-          keyframes: rounded(inbound.keyFramesDecoded),
-          freezes: rounded(inbound.freezeCount),
-          freezeMs: rounded(inbound.totalFreezesDuration, 1_000),
-          jitterBufferMs: averageMilliseconds(
-            inbound.jitterBufferDelay,
-            inbound.jitterBufferEmittedCount,
-          ),
-          jitterTargetMs: averageMilliseconds(
-            inbound.jitterBufferTargetDelay,
-            inbound.jitterBufferEmittedCount,
-          ),
-          decodeMs: averageMilliseconds(inbound.totalDecodeTime, inbound.framesDecoded),
-          nack: rounded(inbound.nackCount),
-          pli: rounded(inbound.pliCount),
-          decoder: inbound.decoderImplementation,
-          powerEfficient: inbound.powerEfficientDecoder,
-        },
-        path: {
-          pair: pairID?.slice(0, 16),
-          changed: pairChanged,
-          state: selectedPair?.state,
-          nominated: selectedPair?.nominated,
-          local: candidateDescription(localCandidate),
-          remote: candidateDescription(remoteCandidate),
-          bytesReceived: rounded(selectedPair?.bytesReceived),
-          bytesSent: rounded(selectedPair?.bytesSent),
-          rttMs: rounded(selectedPair?.currentRoundTripTime, 1_000),
-          incomingKbps: rounded(selectedPair?.availableIncomingBitrate, 1 / 1_000),
-        },
-      }));
+      report(
+        presentationGapEvent ? "presentation-gap" : "receiver-stats",
+        JSON.stringify({
+          event: reason,
+          sample: receiverStatsSample,
+          gapMs,
+          progress,
+          delta,
+          peer: {
+            connection: peer.connectionState,
+            ice: peer.iceConnectionState,
+            signaling: peer.signalingState,
+            gathering: peer.iceGatheringState,
+          },
+          presentation: {
+            document: document.visibilityState,
+            presented: current.presentedSamples,
+            ageMs:
+              owner?.lastPresentedAt === null || owner?.lastPresentedAt === undefined
+                ? -1
+                : Math.round(now - owner.lastPresentedAt),
+            readyState: element.readyState,
+            paused: element.paused,
+            ended: element.ended,
+          },
+          inbound: {
+            bytes: current.bytesReceived,
+            packets: current.packetsReceived,
+            lost: rounded(inbound.packetsLost),
+            repaired: rounded(inbound.packetsRepaired),
+            discarded: rounded(inbound.packetsDiscarded),
+            jitterMs: rounded(inbound.jitter, 1_000),
+            received: current.framesReceived,
+            decoded: current.framesDecoded,
+            dropped: current.framesDropped,
+            fps: rounded(inbound.framesPerSecond),
+            keyframes: rounded(inbound.keyFramesDecoded),
+            freezes: rounded(inbound.freezeCount),
+            freezeMs: rounded(inbound.totalFreezesDuration, 1_000),
+            jitterBufferMs: averageMilliseconds(inbound.jitterBufferDelay, inbound.jitterBufferEmittedCount),
+            jitterTargetMs: averageMilliseconds(inbound.jitterBufferTargetDelay, inbound.jitterBufferEmittedCount),
+            decodeMs: averageMilliseconds(inbound.totalDecodeTime, inbound.framesDecoded),
+            nack: rounded(inbound.nackCount),
+            pli: rounded(inbound.pliCount),
+            decoder: inbound.decoderImplementation,
+            powerEfficient: inbound.powerEfficientDecoder,
+          },
+          path: {
+            pair: pairID?.slice(0, 16),
+            changed: pairChanged,
+            state: selectedPair?.state,
+            nominated: selectedPair?.nominated,
+            local: candidateDescription(localCandidate),
+            remote: candidateDescription(remoteCandidate),
+            bytesReceived: rounded(selectedPair?.bytesReceived),
+            bytesSent: rounded(selectedPair?.bytesSent),
+            rttMs: rounded(selectedPair?.currentRoundTripTime, 1_000),
+            incomingKbps: rounded(selectedPair?.availableIncomingBitrate, 1 / 1_000),
+          },
+        }),
+      );
     } catch (error) {
       if (!isFinished()) {
-        report(
-          "receiver-stats-error",
-          error instanceof Error ? error.message : String(error),
-        );
+        report("receiver-stats-error", error instanceof Error ? error.message : String(error));
       }
     } finally {
       statsInFlight = false;

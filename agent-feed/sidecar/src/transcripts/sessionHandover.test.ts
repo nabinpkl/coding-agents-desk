@@ -27,7 +27,12 @@ function sessionId(): string {
 }
 
 function line(record: Record<string, unknown>): string {
-  return JSON.stringify({ cwd: "/tmp/project", timestamp: "2026-09-09T05:00:00.000Z", uuid: crypto.randomUUID(), ...record });
+  return JSON.stringify({
+    cwd: "/tmp/project",
+    timestamp: "2026-09-09T05:00:00.000Z",
+    uuid: crypto.randomUUID(),
+    ...record,
+  });
 }
 
 function said(text: string): string {

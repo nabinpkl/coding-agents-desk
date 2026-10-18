@@ -4,18 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composerPastes, meaning, pasteTokens } from "@/input/composer/composerPastes";
 
-const look = (store: ReturnType<typeof composerPastes>, pane: string) =>
-  (token: string) => store.textFor(pane, token);
+const look = (store: ReturnType<typeof composerPastes>, pane: string) => (token: string) => store.textFor(pane, token);
 
 test("reads both spellings Claude writes, and neither of an image's", () => {
   // One line collapses with no count; more than one carries `+N lines`. Both are the same paste
   // as far as this is concerned, and an image token is a different thing entirely -- its token IS
   // the canonical text of what the box holds, so expanding it would be inventing content.
-  expect(pasteTokens("a [Pasted text #1] b [Pasted text #12 +38 lines] c [Image #3]"))
-    .toEqual([
-      { token: "[Pasted text #1]", id: 1 },
-      { token: "[Pasted text #12 +38 lines]", id: 12 },
-    ]);
+  expect(pasteTokens("a [Pasted text #1] b [Pasted text #12 +38 lines] c [Image #3]")).toEqual([
+    { token: "[Pasted text #1]", id: 1 },
+    { token: "[Pasted text #12 +38 lines]", id: 12 },
+  ]);
 });
 
 test("expands only handles this side pasted, and leaves the rest exactly as they are", () => {

@@ -56,7 +56,10 @@ export function screenWith(
 export function paneShowing(screen: string, cursor?: { row: number; column: number }): TmuxPaneView {
   const lines = screen.split("\n");
   const head = lines.findLastIndex((line) => line.replace(/\u001b\[[0-9;]*m/g, "").startsWith("❯"));
-  const text = (lines[head] ?? "").replace(/\u001b\[[0-9;]*m/g, "").slice(1).replace(/^[ \u00a0]/, "");
+  const text = (lines[head] ?? "")
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .slice(1)
+    .replace(/^[ \u00a0]/, "");
   const at = cursor ?? { row: 0, column: text.length };
   return { screen, cursor: { row: head + at.row, column: BOX_COLUMN + at.column } };
 }

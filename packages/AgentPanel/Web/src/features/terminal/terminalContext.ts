@@ -50,7 +50,11 @@ export function terminalContextLabel(context: AgentTerminalContext): string {
  * has a pane name the pane already exists.
  */
 export function isTmuxAttach(context: AgentTerminalContext): boolean {
-  return context.kind === "tmux" || context.kind === "session-tmux" || context.kind === "tmux-new"
+  return (
+    context.kind === "tmux" ||
+    context.kind === "session-tmux" ||
+    context.kind === "tmux-new" ||
     // A machine with no PTY manager carries its shell in tmux, and says so on the context.
-    || (context.kind === "machine" && context.via === "tmux");
+    (context.kind === "machine" && context.via === "tmux")
+  );
 }

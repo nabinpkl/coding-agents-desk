@@ -27,10 +27,7 @@ describe("packetizeH264", () => {
     expect(payloads[1]!.payload[1]).toBe(type);
     expect(payloads[2]!.payload[1]).toBe(0x40 | type);
     // Reassembly: header byte plus fragments equals the original NALU.
-    const reassembled = [
-      0x65,
-      ...payloads.flatMap((p) => [...p.payload.subarray(2)]),
-    ];
+    const reassembled = [0x65, ...payloads.flatMap((p) => [...p.payload.subarray(2)])];
     expect(reassembled).toEqual(big);
   });
 

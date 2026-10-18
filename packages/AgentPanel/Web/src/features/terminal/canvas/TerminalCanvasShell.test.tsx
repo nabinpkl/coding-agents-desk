@@ -3,11 +3,12 @@ import { expect, it, vi } from "vitest";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { TerminalCanvasShell } from "@/features/terminal/canvas/TerminalCanvasShell";
 
-
 class FakeTerminal {
   readonly dimensions = { css: { cell: { width: 8, height: 16 } } };
   readonly options: Record<string, unknown>;
-  readonly buffer = { active: { type: "normal" as "normal" | "alternate", cursorY: 0, viewportY: 0, getLine: () => undefined } };
+  readonly buffer = {
+    active: { type: "normal" as "normal" | "alternate", cursorY: 0, viewportY: 0, getLine: () => undefined },
+  };
   element: HTMLElement | undefined;
   textarea: HTMLTextAreaElement | undefined;
   wheel: ((event: WheelEvent) => boolean) | null = null;
@@ -19,18 +20,30 @@ class FakeTerminal {
     this.textarea = element.ownerDocument.createElement("textarea");
     element.append(this.textarea);
   }
-  attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) { this.wheel = handler; }
+  attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) {
+    this.wheel = handler;
+  }
   scrollLines() {}
   clear() {}
   reset() {}
   resize() {}
-  focus() { this.textarea?.focus(); }
+  focus() {
+    this.textarea?.focus();
+  }
   dispose() {}
-  write(_bytes: Uint8Array, done: () => void) { done(); }
-  onData() { return { dispose: () => {} }; }
+  write(_bytes: Uint8Array, done: () => void) {
+    done();
+  }
+  onData() {
+    return { dispose: () => {} };
+  }
   // Nothing renders in jsdom; the pane's watch on the last drawn row only needs the hook.
-  onRender() { return { dispose: () => {} }; }
-  onBinary() { return { dispose: () => {} }; }
+  onRender() {
+    return { dispose: () => {} };
+  }
+  onBinary() {
+    return { dispose: () => {} };
+  }
 }
 
 vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
@@ -66,13 +79,15 @@ function machineFeed(sessions: unknown[], roots: string[] = [], bots: unknown[] 
 it("stands every machine's directories on one strip", async () => {
   const home = machineFeed([session("a", "/proj")], ["/proj", "/empty"]);
   const peer = machineFeed([session("b", "/proj")], []);
-  render(<TerminalCanvasShell
-    feed={home}
-    machines={[
-      { label: "mac", feed: home },
-      { id: "peer", label: "peer", feed: peer },
-    ]}
-  />);
+  render(
+    <TerminalCanvasShell
+      feed={home}
+      machines={[
+        { label: "mac", feed: home },
+        { id: "peer", label: "peer", feed: peer },
+      ]}
+    />,
+  );
 
   // The same path on two machines stands twice, labelled; the empty root stands as a starter.
   const canvas = await screen.findByRole("list", { name: "Terminal canvas" });
@@ -125,18 +140,12 @@ it("starts a shell in the parent's directory and opens it", async () => {
   fireEvent.click(canvasScope.getByRole("button", { name: "Start" }));
   // Created as a login shell in that directory, and immediately released so the tile
   // joining it does not fight the create for the pane's one pipe.
-  await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith(
-    { kind: "tmux-new", session: "proj-2", directory: "/proj" },
-    60,
-    30,
-  ));
+  await waitFor(() =>
+    expect(home.openTerminal).toHaveBeenCalledWith({ kind: "tmux-new", session: "proj-2", directory: "/proj" }, 60, 30),
+  );
   expect(home.closeTerminal).toHaveBeenCalledWith("terminal-9", "detach");
   // The new session opens itself once the listing reports it -- no refresh pressed.
-  await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith(
-    { kind: "tmux", session: "proj-2" },
-    60,
-    30,
-  ));
+  await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith({ kind: "tmux", session: "proj-2" }, 60, 30));
 });
 
 it("starts a shell from the roster under a typed name", async () => {
@@ -165,11 +174,13 @@ it("starts a shell from the roster under a typed name", async () => {
   fireEvent.click(rosterScope.getByRole("button", { name: "Start a shell in proj" }));
   fireEvent.change(rosterScope.getByLabelText("Name the new shell"), { target: { value: "my-shell" } });
   fireEvent.click(rosterScope.getByRole("button", { name: "Start" }));
-  await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith(
-    { kind: "tmux-new", session: "my-shell", directory: "/proj" },
-    60,
-    30,
-  ));
+  await waitFor(() =>
+    expect(home.openTerminal).toHaveBeenCalledWith(
+      { kind: "tmux-new", session: "my-shell", directory: "/proj" },
+      60,
+      30,
+    ),
+  );
 });
 
 it("kills through the owning machine and drops the row with the listing", async () => {
@@ -195,13 +206,15 @@ it("says which machine is not answering instead of showing its sessions as gone"
   const home = machineFeed([session("a", "/proj")], ["/proj"]);
   const peer = machineFeed([], []);
   vi.mocked(peer.listTmuxSessions).mockRejectedValue(new Error("connection refused"));
-  render(<TerminalCanvasShell
-    feed={home}
-    machines={[
-      { label: "mac", feed: home },
-      { id: "peer", label: "peer", feed: peer },
-    ]}
-  />);
+  render(
+    <TerminalCanvasShell
+      feed={home}
+      machines={[
+        { label: "mac", feed: home },
+        { id: "peer", label: "peer", feed: peer },
+      ]}
+    />,
+  );
 
   // Both surfaces say it, in their own words: the strip and the roster each read the shell's
   // machine errors rather than one deriving from the other.
@@ -220,11 +233,7 @@ it("opens a session on the canvas from the roster", async () => {
   fireEvent.click(within(roster).getByRole("button", { name: "a unattached · 1 window" }));
 
   // Joining the standing session, the way opening from a card does.
-  await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith(
-    { kind: "tmux", session: "a" },
-    60,
-    30,
-  ));
+  await waitFor(() => expect(home.openTerminal).toHaveBeenCalledWith({ kind: "tmux", session: "a" }, 60, 30));
 });
 
 it("takes a parent off the strip from the roster and puts it back", async () => {

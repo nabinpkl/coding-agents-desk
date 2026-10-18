@@ -47,15 +47,24 @@ const transactionEnvelope = [
 
 test("summarizes streamed spans by their segment, and a transaction by its own name", () => {
   expect(summarizeEnvelope(spanEnvelope)).toEqual({
-    types: ["span"], traceId: TRACE, name: "GET /api/bots", op: "http.server", durationMs: 250,
+    types: ["span"],
+    traceId: TRACE,
+    name: "GET /api/bots",
+    op: "http.server",
+    durationMs: 250,
   });
-  const children = spanEnvelope.replace('"is_segment":true', '"is_segment":false')
+  const children = spanEnvelope
+    .replace('"is_segment":true', '"is_segment":false')
     .replace('"name":"inner work"', '"name":"inner work","attributes":{"sentry.segment.name":{"value":"Pageload"}}');
   // A batch of a load's children names the load it belongs to, and claims neither its name nor
   // its duration: that is the segment's own envelope to say.
   expect(summarizeEnvelope(children)).toEqual({ types: ["span"], traceId: TRACE, segment: "Pageload" });
   expect(summarizeEnvelope(transactionEnvelope)).toEqual({
-    types: ["transaction"], traceId: TRACE, name: "/", op: "pageload", durationMs: 3500,
+    types: ["transaction"],
+    traceId: TRACE,
+    name: "/",
+    op: "pageload",
+    durationMs: 3500,
   });
   expect(summarizeEnvelope("not json")).toEqual({ types: [] });
 });

@@ -21,11 +21,7 @@
 import { realpathSync } from "node:fs";
 import { config } from "@/config/config";
 import { LSOF_BINARY, type CommandRunner } from "@/tasks/commandRunner";
-import {
-  currentProcessTable,
-  descendantsOf,
-  type ProcessRow,
-} from "@/tasks/processTable";
+import { currentProcessTable, descendantsOf, type ProcessRow } from "@/tasks/processTable";
 
 // Re-exported because this is the address every caller of the task probe already has, and
 // the two halves are one reading of one machine. The declarations live in the modules named.

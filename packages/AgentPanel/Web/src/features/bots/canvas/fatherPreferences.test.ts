@@ -91,9 +91,7 @@ describe("where the Father drawer stands", () => {
     expect(loadFatherPosition()).toBeNull();
     storeFatherPosition({ x: 300, y: 40 });
     expect(loadFatherPosition()).toEqual({ x: 300, y: 40 });
-    expect(localStorage.getItem("agent-panel.bot-canvas.father-position")).toBe(
-      JSON.stringify({ x: 300, y: 40 }),
-    );
+    expect(localStorage.getItem("agent-panel.bot-canvas.father-position")).toBe(JSON.stringify({ x: 300, y: 40 }));
   });
 
   it("refuses a stand it cannot read rather than stranding the drawer", () => {
@@ -101,11 +99,7 @@ describe("where the Father drawer stands", () => {
     expect(loadFatherPosition()).toBeNull();
     localStorage.setItem("agent-panel.bot-canvas.father-position", JSON.stringify({ x: 300 }));
     expect(loadFatherPosition()).toBeNull();
-    localStorage.setItem(
-      "agent-panel.bot-canvas.father-position",
-      JSON.stringify({ x: Number.NaN, y: 40 }),
-    );
+    localStorage.setItem("agent-panel.bot-canvas.father-position", JSON.stringify({ x: Number.NaN, y: 40 }));
     expect(loadFatherPosition()).toBeNull();
   });
-
 });

@@ -24,18 +24,10 @@ import {
   createAgentSessionFromServices,
   createAgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
-import type {
-  SummaryPhase,
-  SummaryResult,
-  SummaryStreamMessage,
-} from "@agentdesk/agent-feed-wire";
+import type { SummaryPhase, SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import type { AgentRunState } from "@agentdesk/agent-feed-wire";
-import {
-  buildSummaryPrompt,
-  composeSummaryResult,
-  parseSummaryPayload,
-} from "@/summary/summaryPrompt";
+import { buildSummaryPrompt, composeSummaryResult, parseSummaryPayload } from "@/summary/summaryPrompt";
 import type { TurnWindow } from "@/summary/turnWindow";
 
 /**
@@ -275,9 +267,7 @@ const createPiSummarySession: SummarySessionFactory = async (project) => {
   const modelRuntime = await summaryModelRuntime();
   const model = modelRuntime.getModel(config.summaryProvider, config.summaryModel);
   if (!model) {
-    throw new Error(
-      `summarizer model ${config.summaryProvider}/${config.summaryModel} is not in Pi's catalog`,
-    );
+    throw new Error(`summarizer model ${config.summaryProvider}/${config.summaryModel} is not in Pi's catalog`);
   }
   const services = await createAgentSessionServices({ cwd: project, modelRuntime });
   const created = await createAgentSessionFromServices({
@@ -303,10 +293,13 @@ function assistantText(messages: readonly unknown[]): string | null {
     const message = messages[i] as { role?: string; content?: unknown };
     if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
     const text = message.content
-      .filter((block): block is { type: string; text: string } =>
-        typeof block === "object" && block !== null
-        && (block as { type?: unknown }).type === "text"
-        && typeof (block as { text?: unknown }).text === "string")
+      .filter(
+        (block): block is { type: string; text: string } =>
+          typeof block === "object" &&
+          block !== null &&
+          (block as { type?: unknown }).type === "text" &&
+          typeof (block as { text?: unknown }).text === "string",
+      )
       .map((block) => block.text)
       .join("");
     if (text.trim()) return text;

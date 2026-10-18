@@ -25,11 +25,7 @@
 import { useId, useState } from "react";
 import { focusOnMount } from "@/hooks/dom/refCallbacks";
 import { ChevronDown, ChevronRight, GitCommitHorizontal, Loader2, X } from "lucide-react";
-import type {
-  WorkspaceCommit,
-  WorkspaceCommitDetail,
-  WorkspaceCommitFile,
-} from "@agentdesk/agent-feed-wire";
+import type { WorkspaceCommit, WorkspaceCommitDetail, WorkspaceCommitFile } from "@agentdesk/agent-feed-wire";
 import type { CommitDiffTarget } from "@/features/workspace-ide/history/CommitDiff";
 import type { CommitHistory } from "@/features/workspace-ide/history/useCommitHistory";
 import { PAGE } from "@/features/workspace-ide/history/useCommitHistory";
@@ -37,8 +33,9 @@ import { FileIcon } from "@/features/workspace-ide/sidebar/FileIcon";
 import { gitStatusTone, TONE_BADGE } from "@/features/workspace-ide/sidebar/gitTones";
 import { useNow } from "@/hooks/useNow";
 
-const ROW = "flex w-full items-center gap-2 px-2 text-left outline-none transition-colors"
-  + " hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
+const ROW =
+  "flex w-full items-center gap-2 px-2 text-left outline-none transition-colors" +
+  " hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
 
 /**
  * How old a commit is, in the unit a reader would say it in.
@@ -109,57 +106,52 @@ export function WorkspaceIdeHistory({
         </button>
       </header>
 
-      {failure
-        ? (
-          <p role="status" className="m-0 shrink-0 border-b border-border bg-destructive/10 px-2.5
+      {failure ? (
+        <p
+          role="status"
+          className="m-0 shrink-0 border-b border-border bg-destructive/10 px-2.5
             py-1.5 text-xs text-destructive"
-          >
-            {failure}
-          </p>
-        )
-        : null}
+        >
+          {failure}
+        </p>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {commits === null
-          ? <Waiting label="Reading the history…" />
-          : commits.length === 0
-            ? (
-              // A directory git does not track and a repository with no commits land here alike:
-              // `git log` answers nothing for both, and neither is a failure to report.
-              <p className="m-0 px-4 py-8 text-center text-sm text-muted-foreground">
-                No commits to show. This workspace is either not a git repository or has nothing
-                committed yet.
-              </p>
-            )
-            : (
-              <ul className="m-0 list-none p-0">
-                {commits.map((commit) => (
-                  <Commit
-                    key={commit.hash}
-                    commit={commit}
-                    now={now}
-                    expanded={commit.hash === openHash}
-                    detail={details[commit.hash]}
-                    showing={showing?.commit?.hash === commit.hash ? showing.path : null}
-                    onToggle={() => history.toggleCommit(commit.hash)}
-                    onSelectFile={(file) => onOpenDiff(commit, file)}
-                  />
-                ))}
-              </ul>
-            )}
-        {commits !== null && commits.length >= limit
-          ? (
-            <button
-              type="button"
-              onClick={history.showMore}
-              className="w-full px-2 py-2 text-center text-xs text-muted-foreground outline-none
+        {commits === null ? (
+          <Waiting label="Reading the history…" />
+        ) : commits.length === 0 ? (
+          // A directory git does not track and a repository with no commits land here alike:
+          // `git log` answers nothing for both, and neither is a failure to report.
+          <p className="m-0 px-4 py-8 text-center text-sm text-muted-foreground">
+            No commits to show. This workspace is either not a git repository or has nothing committed yet.
+          </p>
+        ) : (
+          <ul className="m-0 list-none p-0">
+            {commits.map((commit) => (
+              <Commit
+                key={commit.hash}
+                commit={commit}
+                now={now}
+                expanded={commit.hash === openHash}
+                detail={details[commit.hash]}
+                showing={showing?.commit?.hash === commit.hash ? showing.path : null}
+                onToggle={() => history.toggleCommit(commit.hash)}
+                onSelectFile={(file) => onOpenDiff(commit, file)}
+              />
+            ))}
+          </ul>
+        )}
+        {commits !== null && commits.length >= limit ? (
+          <button
+            type="button"
+            onClick={history.showMore}
+            className="w-full px-2 py-2 text-center text-xs text-muted-foreground outline-none
                 transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2
                 focus-visible:ring-primary focus-visible:ring-inset"
-            >
-              Show {PAGE} more
-            </button>
-          )
-          : null}
+          >
+            Show {PAGE} more
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -212,48 +204,44 @@ function Commit({
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="font-mono">{commit.shortHash}</span>
             <span className="truncate">{commit.author}</span>
-            {commit.parentCount > 1
+            {commit.parentCount > 1 ? (
               // A merge's file list is read against its first parent, so what it shows is what the
               // merge brought in rather than everything both sides did. Said here because the
               // number of files would otherwise be surprising.
-              ? <span className="shrink-0 rounded bg-muted px-1 text-[10px]">merge</span>
-              : null}
+              <span className="shrink-0 rounded bg-muted px-1 text-[10px]">merge</span>
+            ) : null}
           </span>
         </span>
-        <span className="shrink-0 self-start pt-0.5 text-xs text-muted-foreground">
-          {age(commit.committedAt, now)}
-        </span>
+        <span className="shrink-0 self-start pt-0.5 text-xs text-muted-foreground">{age(commit.committedAt, now)}</span>
       </button>
 
-      {expanded
-        ? detail === undefined
-          ? <Waiting label="Reading what it changed…" />
-          : (
-            <>
-              {/* Above the files, because it is why they changed. A commit with no message below
+      {expanded ? (
+        detail === undefined ? (
+          <Waiting label="Reading what it changed…" />
+        ) : (
+          <>
+            {/* Above the files, because it is why they changed. A commit with no message below
                   its subject draws nothing here rather than an empty block. */}
-              {detail.body === "" ? null : <CommitMessage body={detail.body} />}
-              {detail.files.length === 0
-                ? (
-                  <p className="m-0 px-9 py-2 text-xs text-muted-foreground">
-                    No file changes against the previous commit.
-                  </p>
-                )
-                : (
-                  <ul aria-label={`Files in ${commit.shortHash}`} className="m-0 list-none p-0 pb-1">
-                    {detail.files.map((file) => (
-                      <ChangedFile
-                        key={file.path}
-                        file={file}
-                        showing={file.path === showing}
-                        onOpen={() => onSelectFile(file)}
-                      />
-                    ))}
-                  </ul>
-                )}
-            </>
-          )
-        : null}
+            {detail.body === "" ? null : <CommitMessage body={detail.body} />}
+            {detail.files.length === 0 ? (
+              <p className="m-0 px-9 py-2 text-xs text-muted-foreground">
+                No file changes against the previous commit.
+              </p>
+            ) : (
+              <ul aria-label={`Files in ${commit.shortHash}`} className="m-0 list-none p-0 pb-1">
+                {detail.files.map((file) => (
+                  <ChangedFile
+                    key={file.path}
+                    file={file}
+                    showing={file.path === showing}
+                    onOpen={() => onSelectFile(file)}
+                  />
+                ))}
+              </ul>
+            )}
+          </>
+        )
+      ) : null}
     </li>
   );
 }
@@ -287,9 +275,8 @@ function CommitMessage({ body }: { body: string }) {
   const id = useId();
   const lines = body.split("\n");
   const long = lines.length > MESSAGE_LINES || body.length > MESSAGE_CHARACTERS;
-  const shown = !long || whole
-    ? body
-    : `${lines.slice(0, MESSAGE_LINES).join("\n").slice(0, MESSAGE_CHARACTERS).trimEnd()}…`;
+  const shown =
+    !long || whole ? body : `${lines.slice(0, MESSAGE_LINES).join("\n").slice(0, MESSAGE_CHARACTERS).trimEnd()}…`;
   return (
     // Indented to the subject above it rather than to the panel, so the eye reads one block.
     <div className="grid justify-items-start gap-0.5 py-1 pl-8 pr-2">
@@ -301,21 +288,19 @@ function CommitMessage({ body }: { body: string }) {
       >
         {shown}
       </p>
-      {long
-        ? (
-          <button
-            type="button"
-            aria-expanded={whole}
-            aria-controls={id}
-            onClick={() => setWhole((current) => !current)}
-            className="rounded px-1 py-0.5 text-[11px] text-muted-foreground outline-none
+      {long ? (
+        <button
+          type="button"
+          aria-expanded={whole}
+          aria-controls={id}
+          onClick={() => setWhole((current) => !current)}
+          className="rounded px-1 py-0.5 text-[11px] text-muted-foreground outline-none
               transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2
               focus-visible:ring-primary active:bg-muted/70"
-          >
-            {whole ? "Show less" : "Show the whole message"}
-          </button>
-        )
-        : null}
+        >
+          {whole ? "Show less" : "Show the whole message"}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -353,24 +338,19 @@ function ChangedFile({
           {file.status}
         </span>
         <FileIcon name={name} />
-        <span className={`shrink-0 truncate ${tone === "deleted" ? "line-through" : ""}`}>
-          {name}
-        </span>
-        <span className="min-w-0 flex-1 basis-0 truncate text-[11px] text-muted-foreground">
-          {directory}
-        </span>
+        <span className={`shrink-0 truncate ${tone === "deleted" ? "line-through" : ""}`}>{name}</span>
+        <span className="min-w-0 flex-1 basis-0 truncate text-[11px] text-muted-foreground">{directory}</span>
         {/* Null counts mean git could not count them, which is what a binary file gets. Saying
             "binary" is the honest version of the two zeroes that would otherwise be drawn. */}
         <span className="shrink-0 font-mono text-[11px]">
-          {file.additions === null || file.deletions === null
-            ? <span className="text-muted-foreground">binary</span>
-            : (
-              <>
-                <span className="text-emerald-600 dark:text-emerald-400">+{file.additions}</span>
-                {" "}
-                <span className="text-rose-600 dark:text-rose-400">-{file.deletions}</span>
-              </>
-            )}
+          {file.additions === null || file.deletions === null ? (
+            <span className="text-muted-foreground">binary</span>
+          ) : (
+            <>
+              <span className="text-emerald-600 dark:text-emerald-400">+{file.additions}</span>{" "}
+              <span className="text-rose-600 dark:text-rose-400">-{file.deletions}</span>
+            </>
+          )}
         </span>
       </button>
     </li>

@@ -10,12 +10,14 @@ import { orderedPathsAfterMove } from "@/features/workspace-ide/editor/orderedPa
 
 const TAB = "flex min-w-[100px] max-w-[210px] shrink-0 items-stretch border-r border-border";
 const SELECTED = "bg-muted shadow-[inset_0_2px_var(--color-primary)]";
-const LABEL = "flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap pl-2.5"
-  + " pr-1 text-ellipsis outline-none hover:bg-muted/60 focus-visible:ring-2"
-  + " focus-visible:ring-primary focus-visible:ring-inset";
-const CLOSE = "grid w-7 shrink-0 place-items-center text-muted-foreground outline-none"
-  + " hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
-  + " focus-visible:ring-inset";
+const LABEL =
+  "flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap pl-2.5" +
+  " pr-1 text-ellipsis outline-none hover:bg-muted/60 focus-visible:ring-2" +
+  " focus-visible:ring-primary focus-visible:ring-inset";
+const CLOSE =
+  "grid w-7 shrink-0 place-items-center text-muted-foreground outline-none" +
+  " hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary" +
+  " focus-visible:ring-inset";
 
 export function EditorTabs({
   paths,
@@ -84,12 +86,7 @@ export function EditorTabs({
               <span className={`overflow-hidden text-ellipsis ${previewing ? "italic" : ""}`}>{name}</span>
               <TabState file={file} />
             </button>
-            <button
-              type="button"
-              aria-label={`Close ${name}`}
-              onClick={() => onClose(path)}
-              className={CLOSE}
-            >
+            <button type="button" aria-label={`Close ${name}`} onClick={() => onClose(path)} className={CLOSE}>
               <X className="size-3.5" />
             </button>
           </div>
@@ -118,25 +115,20 @@ function DiffTab({ diff }: { diff: CommitDiffTab }) {
         aria-selected={diff.active}
         // Named for what it shows rather than for the file alone, because the strip beside it is
         // full of tabs named for files and this one is not showing a file.
-        aria-label={target.commit
-          ? `Show the diff of ${name} in ${target.commit.shortHash}`
-          : `Show the uncommitted diff of ${name}`}
+        aria-label={
+          target.commit
+            ? `Show the diff of ${name} in ${target.commit.shortHash}`
+            : `Show the uncommitted diff of ${name}`
+        }
         title={`${target.path} · ${diffTargetLabel(target)}`}
         onClick={diff.show}
         className={LABEL}
       >
         <GitCompare aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="overflow-hidden text-ellipsis">{name}</span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-          {diffTargetLabel(target)}
-        </span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{diffTargetLabel(target)}</span>
       </button>
-      <button
-        type="button"
-        aria-label={`Close the diff of ${name}`}
-        onClick={diff.close}
-        className={CLOSE}
-      >
+      <button type="button" aria-label={`Close the diff of ${name}`} onClick={diff.close} className={CLOSE}>
         <X className="size-3.5" />
       </button>
     </div>
@@ -147,10 +139,18 @@ function DiffTab({ diff }: { diff: CommitDiffTab }) {
 function TabState({ file }: { file: OpenFile | undefined }) {
   if (!file || file.saveState === "clean") return null;
   if (file.saveState === "conflict") {
-    return <span aria-label="Conflicted" className="font-bold text-destructive">!</span>;
+    return (
+      <span aria-label="Conflicted" className="font-bold text-destructive">
+        !
+      </span>
+    );
   }
   if (file.saveState === "saving") {
     return <span className="text-[9px] text-muted-foreground">saving</span>;
   }
-  return <span aria-label="Unsaved" className="text-[9px] text-primary">●</span>;
+  return (
+    <span aria-label="Unsaved" className="text-[9px] text-primary">
+      ●
+    </span>
+  );
 }

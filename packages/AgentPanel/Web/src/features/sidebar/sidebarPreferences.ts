@@ -71,13 +71,12 @@ export function loadSidebarPreferences(): SidebarPreferences {
       mode: SIDEBAR_MODES.includes(parsed.mode as AgentSidebarMode)
         ? (parsed.mode as AgentSidebarMode)
         : DEFAULT_SIDEBAR_PREFERENCES.mode,
-      botFaces: typeof parsed.botFaces === "boolean"
-        ? parsed.botFaces
-        : DEFAULT_SIDEBAR_PREFERENCES.botFaces,
+      botFaces: typeof parsed.botFaces === "boolean" ? parsed.botFaces : DEFAULT_SIDEBAR_PREFERENCES.botFaces,
       canvasView: parsed.canvasView === "sessions" ? "sessions" : "bots",
-      canvasSessionsGrouped: typeof parsed.canvasSessionsGrouped === "boolean"
-        ? parsed.canvasSessionsGrouped
-        : DEFAULT_SIDEBAR_PREFERENCES.canvasSessionsGrouped,
+      canvasSessionsGrouped:
+        typeof parsed.canvasSessionsGrouped === "boolean"
+          ? parsed.canvasSessionsGrouped
+          : DEFAULT_SIDEBAR_PREFERENCES.canvasSessionsGrouped,
     };
   } catch {
     return DEFAULT_SIDEBAR_PREFERENCES;
@@ -86,14 +85,17 @@ export function loadSidebarPreferences(): SidebarPreferences {
 
 export function storeSidebarPreferences(preferences: SidebarPreferences): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      open: preferences.open,
-      width: clampSidebarWidth(preferences.width),
-      mode: preferences.mode,
-      botFaces: preferences.botFaces === true,
-      canvasView: preferences.canvasView,
-      canvasSessionsGrouped: preferences.canvasSessionsGrouped,
-    }));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        open: preferences.open,
+        width: clampSidebarWidth(preferences.width),
+        mode: preferences.mode,
+        botFaces: preferences.botFaces === true,
+        canvasView: preferences.canvasView,
+        canvasSessionsGrouped: preferences.canvasSessionsGrouped,
+      }),
+    );
   } catch {
     // The panel remains usable with in-memory state when WebKit storage is disabled.
   }

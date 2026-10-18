@@ -171,9 +171,10 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
         if (command !== null) {
           monitors.set(watcher.taskId, {
             taskId: watcher.taskId,
-            description: typeof call?.input.description === "string" && call.input.description.trim()
-              ? call.input.description.trim()
-              : command.slice(0, 200),
+            description:
+              typeof call?.input.description === "string" && call.input.description.trim()
+                ? call.input.description.trim()
+                : command.slice(0, 200),
             command,
             startedAt: call?.at ?? timestamp,
             timeoutMs: watcher.timeoutMs,
@@ -190,11 +191,12 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
         // The agent's `description` is written for a human and is what the panel shows. Falling
         // back to the command keeps a row legible when the tool_use half of the pair fell outside
         // the window, which is normal at a window's edge.
-        description: typeof input?.description === "string" && input.description.trim()
-          ? input.description.trim()
-          : typeof input?.command === "string"
-          ? input.command.trim().slice(0, 200)
-          : started.taskId,
+        description:
+          typeof input?.description === "string" && input.description.trim()
+            ? input.description.trim()
+            : typeof input?.command === "string"
+              ? input.command.trim().slice(0, 200)
+              : started.taskId,
         command: typeof input?.command === "string" ? input.command : null,
         startedAt: call?.at ?? timestamp,
         capturePath: started.capturePath,
@@ -220,9 +222,10 @@ function recordAgent(
   timestamp: number | null,
 ): void {
   const asked = call?.input;
-  const description = (typeof asked?.description === "string" && asked.description.trim()
-    ? asked.description.trim()
-    : launch.description) ?? launch.agentId;
+  const description =
+    (typeof asked?.description === "string" && asked.description.trim()
+      ? asked.description.trim()
+      : launch.description) ?? launch.agentId;
   agents.set(launch.agentId, {
     agentId: launch.agentId,
     description,
@@ -359,11 +362,7 @@ export function forgetSessionScan(sessionId: string): void {
  * it would advance the offset past a record that was never parsed, losing it permanently; leaving
  * it unconsumed means the next tick reads it whole.
  */
-async function readForward(
-  path: string,
-  from: number,
-  to: number,
-): Promise<{ text: string; consumed: number }> {
+async function readForward(path: string, from: number, to: number): Promise<{ text: string; consumed: number }> {
   const handle = await open(path, "r");
   try {
     const buffer = Buffer.alloc(to - from);

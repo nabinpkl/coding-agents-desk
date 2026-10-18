@@ -8,7 +8,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import type { Virtualizer } from "@tanstack/react-virtual";
-import { isEventItem, leadEvent, type DisplayItem, type FeedItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import {
+  isEventItem,
+  leadEvent,
+  type DisplayItem,
+  type FeedItem,
+} from "@/features/activity-feed/rows/activityDisplayItems";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import {
   forgetTranscriptAnchor,
@@ -60,7 +65,7 @@ function findAnchorRow(
   read: boolean,
 ): number {
   const durable = rowItems
-    .map((item, index) => item.kind === "tail" || !isEventItem(item) ? null : { item, index })
+    .map((item, index) => (item.kind === "tail" || !isEventItem(item) ? null : { item, index }))
     .filter((entry): entry is { item: DisplayItem; index: number } => entry !== null);
   if (durable.length === 0) return -1;
   if (anchor.eventId) {
@@ -138,7 +143,7 @@ export function useTranscriptScrollRestore({
       // The restore's state is set from this effect because whether it can land is layout: the
       // virtualiser measures the anchor's row only after a commit.
       // oxlint-disable-next-line react/set-state-in-effect
-      setPendingAnchor((current) => current === null ? current : null);
+      setPendingAnchor((current) => (current === null ? current : null));
       restoredFor.current = key;
       return;
     }
@@ -149,17 +154,15 @@ export function useTranscriptScrollRestore({
       // newest rows, then read the rows around the anchor once.
       pause();
       setPendingAnchor((current) =>
-        current?.index === anchor.index && current?.eventId === anchor.eventId
-          ? current
-          : anchor,
+        current?.index === anchor.index && current?.eventId === anchor.eventId ? current : anchor,
       );
       if (around?.key !== key) {
         setAround({ key, read: false });
         loadAround(anchor.index).then(
-          () => setAround((current) => current?.key === key ? { key, read: true } : current),
+          () => setAround((current) => (current?.key === key ? { key, read: true } : current)),
           (error: unknown) => {
             console.error(`[restore] could not read the rows around ${anchor.eventId ?? anchor.index}`, error);
-            setAround((current) => current?.key === key ? { key, read: true } : current);
+            setAround((current) => (current?.key === key ? { key, read: true } : current));
           },
         );
       }
@@ -170,13 +173,11 @@ export function useTranscriptScrollRestore({
     if (!rowVirtualizer.measurementsCache[rowIndex] || !parentRef.current) {
       pause();
       setPendingAnchor((current) =>
-        current?.index === anchor.index && current?.eventId === anchor.eventId
-          ? current
-          : anchor,
+        current?.index === anchor.index && current?.eventId === anchor.eventId ? current : anchor,
       );
       return;
     }
-    setPendingAnchor((current) => current === null ? current : null);
+    setPendingAnchor((current) => (current === null ? current : null));
     restoredFor.current = key;
     pause();
     setHoldingEvent(anchor);

@@ -32,10 +32,7 @@ import type { ClaudeSdkSessionState, TmuxQuestionRefusal, TmuxQuestionState } fr
 import type { SdkSessionHandle } from "@/features/cli-input/useSdkSession";
 import type { AskUserQuestionItem, OpenAskUserQuestion } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
-import {
-  useTmuxQuestion,
-  type TmuxQuestionSender,
-} from "@/features/session-view/composer/question/useTmuxQuestion";
+import { useTmuxQuestion, type TmuxQuestionSender } from "@/features/session-view/composer/question/useTmuxQuestion";
 import { useWindowQuestion } from "@/features/session-view/composer/question/useWindowQuestion";
 import { usePaneQuestion } from "@/features/session-view/composer/question/questionFromPane";
 
@@ -172,7 +169,7 @@ export function useQuestionMirror({
   sdk?: SdkSessionHandle | null;
 }): QuestionMirrorModel | null {
   const fromPane = usePaneQuestion(sdk ? null : paneQuestion);
-  const shown = sdk ? runnerQuestion(sdk.state) : question ?? fromPane;
+  const shown = sdk ? runnerQuestion(sdk.state) : (question ?? fromPane);
   const tmuxQuestion = useTmuxQuestion(
     sdk ? sdk.questions : feed,
     session,
@@ -195,9 +192,10 @@ export function useQuestionMirror({
       pending: tmuxQuestion.pending,
       disabled: unseen > 0,
       error: tmuxQuestion.error,
-      notice: unseen > 0
-        ? `The terminal is asking ${unseen + 1} questions and shows one at a time, so answer them there`
-        : null,
+      notice:
+        unseen > 0
+          ? `The terminal is asking ${unseen + 1} questions and shows one at a time, so answer them there`
+          : null,
       canSubmit: unseen === 0 && tmuxQuestion.canSubmit,
       onChoose: (at, option) => {
         engage();
@@ -226,11 +224,12 @@ export function useQuestionMirror({
     pending: windowQuestion.pending,
     disabled: !windowQuestion.enabled,
     error: windowQuestion.error,
-    notice: windowQuestion.unreachable > 0
-      ? `${windowQuestion.unreachable} more question${
-        windowQuestion.unreachable > 1 ? "s" : ""
-      } in this call can only be answered in the app`
-      : null,
+    notice:
+      windowQuestion.unreachable > 0
+        ? `${windowQuestion.unreachable} more question${
+            windowQuestion.unreachable > 1 ? "s" : ""
+          } in this call can only be answered in the app`
+        : null,
     canSubmit: windowQuestion.canSubmit,
     // This half mirrors ONE question, so the index is always zero and is dropped here rather than
     // threaded through a hook that has nowhere to put it.

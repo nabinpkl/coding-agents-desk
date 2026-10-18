@@ -8,11 +8,11 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 
 // Same jsdom-unsafe deps the other feed-level tests stub.
 vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
-  Markdown: ({ content }: { content: string }) => (
-    <div data-testid="markdown-view">{content}</div>
-  ),
+  Markdown: ({ content }: { content: string }) => <div data-testid="markdown-view">{content}</div>,
 }));
-vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({
+  DiffBlock: () => <div data-testid="diff-block" />,
+}));
 
 const VIEWPORT = 800;
 /** What an expanded row estimates to, and what every row here stays at: nothing re-measures. */
@@ -117,7 +117,8 @@ function mountFeed(
 /** Where the virtualiser has placed the row carrying this text. */
 function rowTop(text: string): number {
   // The row itself, not the sticky bar that repeats a row the top of the viewport is partway into.
-  const row = screen.getAllByText(text)
+  const row = screen
+    .getAllByText(text)
     .map((each) => each.closest<HTMLElement>("[data-index]"))
     .find((each) => each !== null);
   if (!row) throw new Error(`no row is rendering ${text}`);
@@ -201,16 +202,20 @@ describe("where a session was left being read", () => {
     scrollTo(scroller, rowTop("line 8"));
     scrollTo(scroller, rowTop("line 4") + 30);
     await waitFor(
-      () => expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]"))
-        .toEqual([[`claude:${SESSION}`, 4, "claude:line:4", 30]]),
+      () =>
+        expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]")).toEqual([
+          [`claude:${SESSION}`, 4, "claude:line:4", 30],
+        ]),
       { timeout: 2000 },
     );
 
     // Further down the same row: the top line has not changed, so only the scroll can say so.
     scrollTo(scroller, rowTop("line 4") + 60);
     await waitFor(
-      () => expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]"))
-        .toEqual([[`claude:${SESSION}`, 4, "claude:line:4", 60]]),
+      () =>
+        expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]")).toEqual([
+          [`claude:${SESSION}`, 4, "claude:line:4", 60],
+        ]),
       { timeout: 2000 },
     );
     view.unmount();
@@ -221,10 +226,7 @@ describe("where a session was left being read", () => {
     const { scroller, view, transport } = mountFeed(events);
     await screen.findByText("line 0");
 
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify([[`claude:${SESSION}`, 100, "claude:line:4"]]),
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([[`claude:${SESSION}`, 100, "claude:line:4"]]));
     fireEvent.wheel(scroller, { deltaY: -240 });
     scrollTo(scroller, rowTop("line 4"));
 
@@ -264,17 +266,16 @@ describe("where a session was left being read", () => {
     scrollTo(scroller, rowTop("line 4"));
 
     await waitFor(
-      () => expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]"))
-        .toEqual([[`claude:${SESSION}`, 4, "claude:line:4"]]),
+      () =>
+        expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]")).toEqual([
+          [`claude:${SESSION}`, 4, "claude:line:4"],
+        ]),
       { timeout: 2000 },
     );
 
     // Back at the end, which is where a session opens anyway, so the entry goes with it.
     scrollTo(scroller, CONTENT - VIEWPORT);
-    await waitFor(
-      () => expect(localStorage.getItem(STORAGE_KEY)).toBeNull(),
-      { timeout: 2000 },
-    );
+    await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).toBeNull(), { timeout: 2000 });
     view.unmount();
   });
 
@@ -291,20 +292,14 @@ describe("where a session was left being read", () => {
         { kind: "tool_result", callId, text: output, preview: output },
       ],
     });
-    const { view } = mountFeed([
-      shell(0, "shell-old", "old output"),
-      shell(1, "shell-new", "new output"),
-    ]);
+    const { view } = mountFeed([shell(0, "shell-old", "old output"), shell(1, "shell-new", "new output")]);
     expect(screen.queryByText("new output")).toBeNull();
     expect(screen.queryByText("old output")).toBeNull();
     view.unmount();
   });
 
   it("does not present the first loaded row while an older anchor is still paging in", async () => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify([[`claude:${SESSION}`, 3, "claude:line:3"]]),
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([[`claude:${SESSION}`, 3, "claude:line:3"]]));
     const { view } = mountFeed(
       Array.from({ length: 20 }, (_, index) => durable(index + 40)),
       40,

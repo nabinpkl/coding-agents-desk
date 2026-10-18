@@ -180,7 +180,11 @@ function revealInStrip(tab: HTMLButtonElement | null | undefined): void {
 
 /** Behind its own boundary, so a sidebar that throws leaves the canvas beside it standing. */
 export function AgentSidebar(props: AgentSidebarProps) {
-  return <PanelErrorBoundary surface="sidebar" compact><SidebarContent {...props} /></PanelErrorBoundary>;
+  return (
+    <PanelErrorBoundary surface="sidebar" compact>
+      <SidebarContent {...props} />
+    </PanelErrorBoundary>
+  );
 }
 
 function SidebarContent(props: AgentSidebarProps) {
@@ -252,7 +256,9 @@ function SidebarContent(props: AgentSidebarProps) {
           {SIDEBAR_MODES.map(({ mode, label }) => (
             <button
               key={mode}
-              ref={(node) => { tabRefs.current.set(mode, node); }}
+              ref={(node) => {
+                tabRefs.current.set(mode, node);
+              }}
               id={tabId(mode)}
               type="button"
               role="tab"
@@ -423,12 +429,7 @@ interface AgentSidebarDialogProps extends AgentSidebarProps {
   onRequestClose: () => void;
 }
 
-export function AgentSidebarDialog({
-  open,
-  triggerRef,
-  onRequestClose,
-  ...sidebarProps
-}: AgentSidebarDialogProps) {
+export function AgentSidebarDialog({ open, triggerRef, onRequestClose, ...sidebarProps }: AgentSidebarDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useModal(dialogRef, open, { attributeFallback: true });
@@ -467,11 +468,7 @@ export function AgentSidebarDialog({
         if (event.target === event.currentTarget) closeDialog();
       }}
     >
-      <AgentSidebar
-        {...sidebarProps}
-        onClose={closeDialog}
-        ownsWindowTitlebar
-      />
+      <AgentSidebar {...sidebarProps} onClose={closeDialog} ownsWindowTitlebar />
     </dialog>
   );
 }

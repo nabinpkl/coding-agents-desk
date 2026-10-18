@@ -78,9 +78,7 @@ describe("fileMatrix", () => {
   });
 
   test("files outside the repository sort after the ones inside it", () => {
-    const rows = fileMatrix([
-      contestant({ filesRead: ["/home/me/notes.md", "/arena/run/c1/z.ts"] }),
-    ]);
+    const rows = fileMatrix([contestant({ filesRead: ["/home/me/notes.md", "/arena/run/c1/z.ts"] })]);
     expect(rows.map((row) => [row.path, row.inRepository])).toEqual([
       ["z.ts", true],
       ["/home/me/notes.md", false],

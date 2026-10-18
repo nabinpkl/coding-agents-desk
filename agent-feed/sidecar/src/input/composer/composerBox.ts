@@ -85,8 +85,6 @@ const MENU_ENTRY = /^ {2}(\/[A-Za-z0-9][A-Za-z0-9:_.-]*) {2,}(\S.*)$/;
  */
 const MENU_WRAP = /^ {3,}(\S.*)$/;
 
-
-
 /** What the box is showing: what is in it, and what Claude is offering to put there. */
 export interface ComposerBox {
   /**
@@ -232,10 +230,7 @@ export function composerBox(view: TmuxPaneView): ComposerBox | null {
     commands: menuUnder(raw, lines, below),
     // What this text would need if the pane narrowed to the floor before the keystrokes arrived,
     // never fewer than the rows actually seen.
-    clearPresses: Math.max(
-      rows.length,
-      Math.ceil([...composerText(rows)].length / NARROWEST_PANE),
-    ),
+    clearPresses: Math.max(rows.length, Math.ceil([...composerText(rows)].length / NARROWEST_PANE)),
   };
 }
 

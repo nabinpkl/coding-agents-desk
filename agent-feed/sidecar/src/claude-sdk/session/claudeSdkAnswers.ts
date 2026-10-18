@@ -53,7 +53,11 @@ export function sdkAnswers(
     }
     for (const pick of answer.chosen) {
       if (asked.options[pick.index]?.label !== pick.label) {
-        return { ok: false, refused: "wrong-option", message: `"${pick.label}" is not option ${pick.index + 1} of "${asked.question}"` };
+        return {
+          ok: false,
+          refused: "wrong-option",
+          message: `"${pick.label}" is not option ${pick.index + 1} of "${asked.question}"`,
+        };
       }
     }
     const said = [...answer.chosen.map((pick) => pick.label), ...(answer.other.trim() ? [answer.other.trim()] : [])];

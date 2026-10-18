@@ -5,7 +5,14 @@ import { StaleSessionsPanel } from "@/features/profile/StaleSessionsModal";
 import type { MachineStaleSessions, StaleSessionsHandle } from "@/features/profile/useStaleSessions";
 
 function session(overrides: Partial<StaleClaudeSession> & { sessionId: string }): StaleClaudeSession {
-  return { name: overrides.sessionId, version: "2.1.296", activity: "idle", reasons: ["update"], ownLaunch: false, ...overrides };
+  return {
+    name: overrides.sessionId,
+    version: "2.1.296",
+    activity: "idle",
+    reasons: ["update"],
+    ownLaunch: false,
+    ...overrides,
+  };
 }
 
 const SESSIONS = [
@@ -108,19 +115,25 @@ describe("StaleSessionsPanel", () => {
   });
 
   it("lists each machine under its own name, and restarts each machine's own sessions", () => {
-    const restarts = handle({}, {
-      machines: [
-        machine({ key: "", label: "dev" }),
-        machine({
-          key: "oracle",
-          label: "oracle",
-          view: {
-            kind: "ready",
-            stale: { installedVersion: "2.1.296", sessions: [session({ sessionId: "acacia", name: "Acacia", version: "2.1.285" })] },
-          },
-        }),
-      ],
-    });
+    const restarts = handle(
+      {},
+      {
+        machines: [
+          machine({ key: "", label: "dev" }),
+          machine({
+            key: "oracle",
+            label: "oracle",
+            view: {
+              kind: "ready",
+              stale: {
+                installedVersion: "2.1.296",
+                sessions: [session({ sessionId: "acacia", name: "Acacia", version: "2.1.285" })],
+              },
+            },
+          }),
+        ],
+      },
+    );
     render(<StaleSessionsPanel restarts={restarts} onClose={() => {}} />);
     const oracle = within(screen.getByRole("region", { name: "oracle" }));
     expect(oracle.getByText("installed 2.1.296")).toBeTruthy();
@@ -129,23 +142,32 @@ describe("StaleSessionsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Restart 3$/ }));
     fireEvent.click(screen.getByRole("button", { name: /Press again to restart 3/ }));
-    expect(restarts.restart).toHaveBeenCalledWith(new Map([["", ["alan", "brian"]], ["oracle", ["acacia"]]]));
+    expect(restarts.restart).toHaveBeenCalledWith(
+      new Map([
+        ["", ["alan", "brian"]],
+        ["oracle", ["acacia"]],
+      ]),
+    );
   });
 
   it("says one machine could not be listed without hiding the others", () => {
     render(
       <StaleSessionsPanel
-        restarts={handle({}, {
-          machines: [
-            machine({ key: "", label: "dev" }),
-            machine({ key: "oracle", label: "oracle", view: { kind: "failed", message: "sidecar did not answer" } }),
-          ],
-        })}
+        restarts={handle(
+          {},
+          {
+            machines: [
+              machine({ key: "", label: "dev" }),
+              machine({ key: "oracle", label: "oracle", view: { kind: "failed", message: "sidecar did not answer" } }),
+            ],
+          },
+        )}
         onClose={() => {}}
       />,
     );
-    expect(within(screen.getByRole("region", { name: "oracle" })).getByRole("alert").textContent)
-      .toContain("sidecar did not answer");
+    expect(within(screen.getByRole("region", { name: "oracle" })).getByRole("alert").textContent).toContain(
+      "sidecar did not answer",
+    );
     expect(screen.getByRole("button", { name: /^Restart 2$/ })).toBeTruthy();
   });
 });

@@ -104,11 +104,14 @@ export function useSendAttachments(sessionKey: string) {
     void readHeldImages(sessionKey).then(
       (restored) => {
         if (!current || keyRef.current !== sessionKey) return;
-        setStrip({ key: sessionKey, images: restored.map((image) => {
-          const url = URL.createObjectURL(image.blob);
-          minted.current.add(url);
-          return { id: image.id, blob: image.blob, name: image.name, url };
-        }) });
+        setStrip({
+          key: sessionKey,
+          images: restored.map((image) => {
+            const url = URL.createObjectURL(image.blob);
+            minted.current.add(url);
+            return { id: image.id, blob: image.blob, name: image.name, url };
+          }),
+        });
       },
       (error: unknown) => {
         if (!current) return;
@@ -123,59 +126,67 @@ export function useSendAttachments(sessionKey: string) {
     };
   });
 
-  const attach = useCallback(async (files: readonly File[]) => {
-    const picked = files.filter((file) => file.type.startsWith("image/"));
-    if (picked.length === 0) return;
-    const key = keyRef.current;
-    const staged = await Promise.all(picked.map(async (blob) => {
-      const name = blob.name || "image.png";
-      const url = URL.createObjectURL(blob);
-      try {
-        // The id comes back from the store rather than from a counter here: it is allocated
-        // beside the ones already stored, so a restored image and a newly picked one cannot land
-        // on the same id and remove the wrong photo.
-        const held = await appendHeldImage(key, { name, mime: blob.type || "image/png", blob });
-        return { id: held.id, blob, name, url };
-      } catch (error) {
-        reportStorageRefusal("storing a staged image", error);
-        // Still staged, still sendable: only its survival across a reload is gone.
-        unstored.current += 1;
-        return { id: -unstored.current, blob, name, url };
-      }
-    }));
-    // The reader moved on while the store was answering. These belong to the session they were
-    // picked for, which already read its own strip, so they are dropped rather than shown here;
-    // their stored copies stay for when that session is opened again.
-    if (keyRef.current !== key) {
-      for (const image of staged) URL.revokeObjectURL(image.url);
-      return;
-    }
-    for (const image of staged) minted.current.add(image.url);
-    setStrip((current) => ({ key, images: [...current.images, ...staged] }));
-  }, [keyRef]);
-
-  const remove = useCallback((id: number) => {
-    // Both effects live here rather than inside the state updater: an updater is meant to be
-    // pure, and React may run it more than once for one change.
-    setStrip((current) => ({
-      key: current.key,
-      images: current.images.filter((image) => image.id !== id),
-    }));
-    for (const image of held.current) {
-      if (image.id !== id) continue;
-      URL.revokeObjectURL(image.url);
-      void removeHeldImage(keyRef.current, id).catch(
-        (error: unknown) => reportStorageRefusal("forgetting a staged image", error),
+  const attach = useCallback(
+    async (files: readonly File[]) => {
+      const picked = files.filter((file) => file.type.startsWith("image/"));
+      if (picked.length === 0) return;
+      const key = keyRef.current;
+      const staged = await Promise.all(
+        picked.map(async (blob) => {
+          const name = blob.name || "image.png";
+          const url = URL.createObjectURL(blob);
+          try {
+            // The id comes back from the store rather than from a counter here: it is allocated
+            // beside the ones already stored, so a restored image and a newly picked one cannot land
+            // on the same id and remove the wrong photo.
+            const held = await appendHeldImage(key, { name, mime: blob.type || "image/png", blob });
+            return { id: held.id, blob, name, url };
+          } catch (error) {
+            reportStorageRefusal("storing a staged image", error);
+            // Still staged, still sendable: only its survival across a reload is gone.
+            unstored.current += 1;
+            return { id: -unstored.current, blob, name, url };
+          }
+        }),
       );
-    }
-  }, [held, keyRef]);
+      // The reader moved on while the store was answering. These belong to the session they were
+      // picked for, which already read its own strip, so they are dropped rather than shown here;
+      // their stored copies stay for when that session is opened again.
+      if (keyRef.current !== key) {
+        for (const image of staged) URL.revokeObjectURL(image.url);
+        return;
+      }
+      for (const image of staged) minted.current.add(image.url);
+      setStrip((current) => ({ key, images: [...current.images, ...staged] }));
+    },
+    [keyRef],
+  );
+
+  const remove = useCallback(
+    (id: number) => {
+      // Both effects live here rather than inside the state updater: an updater is meant to be
+      // pure, and React may run it more than once for one change.
+      setStrip((current) => ({
+        key: current.key,
+        images: current.images.filter((image) => image.id !== id),
+      }));
+      for (const image of held.current) {
+        if (image.id !== id) continue;
+        URL.revokeObjectURL(image.url);
+        void removeHeldImage(keyRef.current, id).catch((error: unknown) =>
+          reportStorageRefusal("forgetting a staged image", error),
+        );
+      }
+    },
+    [held, keyRef],
+  );
 
   /** Forgets the whole strip, in memory and in the store: a send, or a discarded draft. */
   const clear = useCallback(() => {
     setStrip((current) => (current.images.length === 0 ? current : { key: current.key, images: [] }));
     for (const image of held.current) URL.revokeObjectURL(image.url);
-    void clearHeldImages(keyRef.current).catch(
-      (error: unknown) => reportStorageRefusal("forgetting staged images", error),
+    void clearHeldImages(keyRef.current).catch((error: unknown) =>
+      reportStorageRefusal("forgetting staged images", error),
     );
   }, [held, keyRef]);
 
@@ -259,11 +270,14 @@ export function useComposerDraft(
   // already holds text.
   const draftRef = useRef(held.draft);
   useCommitToRef(draftRef, held.draft);
-  const setDraft = useCallback((value: string | ((current: string) => string)) => {
-    const next = typeof value === "function" ? value(draftRef.current) : value;
-    draftRef.current = next;
-    setHeld((current) => ({ key: current.key, draft: next }));
-    writeStoredDraft(keyRef.current, next);
-  }, [keyRef]);
+  const setDraft = useCallback(
+    (value: string | ((current: string) => string)) => {
+      const next = typeof value === "function" ? value(draftRef.current) : value;
+      draftRef.current = next;
+      setHeld((current) => ({ key: current.key, draft: next }));
+      writeStoredDraft(keyRef.current, next);
+    },
+    [keyRef],
+  );
   return [held.draft, setDraft];
 }

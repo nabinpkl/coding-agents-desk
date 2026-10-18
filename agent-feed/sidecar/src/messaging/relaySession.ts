@@ -55,8 +55,13 @@ export function argvLoadsChannel(argv: readonly string[], name: string = RELAY_S
 
 /** Whether an argv loads a plugin directory named `agentdesk-hub`, the way `--plugin-dir` takes one. */
 export function argvLoadsHubMod(argv: readonly string[]): boolean {
-  const named = (path: string | undefined) => path !== undefined && path.replace(/\/+$/, "").split("/").pop() === HUB_MOD_NAME;
-  return argv.some((arg, i) => (arg === PLUGIN_DIR_FLAG && named(argv[i + 1])) || (arg.startsWith(`${PLUGIN_DIR_FLAG}=`) && named(arg.slice(PLUGIN_DIR_FLAG.length + 1))));
+  const named = (path: string | undefined) =>
+    path !== undefined && path.replace(/\/+$/, "").split("/").pop() === HUB_MOD_NAME;
+  return argv.some(
+    (arg, i) =>
+      (arg === PLUGIN_DIR_FLAG && named(argv[i + 1])) ||
+      (arg.startsWith(`${PLUGIN_DIR_FLAG}=`) && named(arg.slice(PLUGIN_DIR_FLAG.length + 1))),
+  );
 }
 
 /** The argv of a process, split on whitespace (`ps` joins it; entries here never contain spaces). */

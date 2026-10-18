@@ -5,15 +5,40 @@ import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
 function fakeBackend(): AgentBackend {
   return {
     id: "pi",
-    capabilities: { modes: ["nice"], canSend: true, canSteer: true, canAbort: true, canFetchRaw: false, canOpenTerminal: false, supportsExtensionUi: true, canStreamLive: false },
-    describeSession() { return undefined; },
-    async createSession() { throw new Error("not used"); },
-    async page() { return { events: [], total: 0, mode: "nice", sequence: 0, runState: "idle", queue: { steer: 0, followUp: 0 } }; },
-    async subscribe() { return () => {}; },
-    async send(sessionId, requestId, _text, delivery) { return { requestId, delivery: delivery === "steer" ? "steer" : "immediate" }; },
-    async abort(_sessionId, requestId) { return { requestId, delivery: "abort" }; },
-    async subscribeUi() { return () => {}; },
-    async respondToUi() { return "accepted"; },
+    capabilities: {
+      modes: ["nice"],
+      canSend: true,
+      canSteer: true,
+      canAbort: true,
+      canFetchRaw: false,
+      canOpenTerminal: false,
+      supportsExtensionUi: true,
+      canStreamLive: false,
+    },
+    describeSession() {
+      return undefined;
+    },
+    async createSession() {
+      throw new Error("not used");
+    },
+    async page() {
+      return { events: [], total: 0, mode: "nice", sequence: 0, runState: "idle", queue: { steer: 0, followUp: 0 } };
+    },
+    async subscribe() {
+      return () => {};
+    },
+    async send(sessionId, requestId, _text, delivery) {
+      return { requestId, delivery: delivery === "steer" ? "steer" : "immediate" };
+    },
+    async abort(_sessionId, requestId) {
+      return { requestId, delivery: "abort" };
+    },
+    async subscribeUi() {
+      return () => {};
+    },
+    async respondToUi() {
+      return "accepted";
+    },
     async dispose() {},
   };
 }
@@ -22,7 +47,7 @@ const server = { timeout() {} } as never;
 
 test("message routes validate and return a correlated accepted receipt", async () => {
   const backend = fakeBackend();
-  const route = createAgentRoutes((id) => id === "pi" ? backend : undefined);
+  const route = createAgentRoutes((id) => (id === "pi" ? backend : undefined));
   const request = new Request("http://localhost/api/agent-sessions/pi/s1/messages", {
     method: "POST",
     body: JSON.stringify({ requestId: "r1", text: "hello", delivery: "next" }),
@@ -40,7 +65,13 @@ test("message routes carry image attachments to an opencode backend and refuse t
     return {
       ...base,
       id,
-      send: async (sessionId: string, requestId: string, _text: string, delivery: "next" | "steer", attachments?: readonly unknown[]) => {
+      send: async (
+        sessionId: string,
+        requestId: string,
+        _text: string,
+        delivery: "next" | "steer",
+        attachments?: readonly unknown[],
+      ) => {
         received.push({ attachments });
         return { requestId, delivery: "followUp" as const };
       },
@@ -118,7 +149,7 @@ test("a live page carries the runtime projection identity", async () => {
       projectionId: "projection-live",
     }),
   };
-  const route = createAgentRoutes((id) => id === "opencode" ? backend : undefined);
+  const route = createAgentRoutes((id) => (id === "opencode" ? backend : undefined));
   const request = new Request("http://localhost/api/agent-sessions/opencode/s1/events?mode=nice");
   const response = await route(request, new URL(request.url), server);
   expect(await response?.json()).toMatchObject({ projectionId: "projection-live" });
@@ -142,7 +173,7 @@ test("a live page is read before, after or around an ordinal by arithmetic", asy
       };
     },
   };
-  const route = createAgentRoutes((id) => id === "opencode" ? backend : undefined);
+  const route = createAgentRoutes((id) => (id === "opencode" ? backend : undefined));
   const page = async (query: string) => {
     const request = new Request(`http://localhost/api/agent-sessions/opencode/s1/events?mode=nice&${query}`);
     return (await route(request, new URL(request.url), server))!;

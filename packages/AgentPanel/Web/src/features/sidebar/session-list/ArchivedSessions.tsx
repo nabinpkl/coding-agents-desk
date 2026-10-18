@@ -37,22 +37,25 @@ function keyOf(session: SessionSummary): string {
 export function useSessionArchiveCommand(setArchived: SetSessionArchived | undefined) {
   const [pending, setPending] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
-  const run = useCallback((session: SessionSummary, archived: boolean) => {
-    if (!setArchived) return;
-    const key = keyOf(session);
-    setFailure(null);
-    setPending(key);
-    void setArchived(session, archived)
-      .catch((error: unknown) => {
-        setFailure({
-          key,
-          message: `Could not ${archived ? "archive" : "unarchive"} ${session.title || session.sessionId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        });
-      })
-      .finally(() => setPending((current) => (current === key ? null : current)));
-  }, [setArchived]);
+  const run = useCallback(
+    (session: SessionSummary, archived: boolean) => {
+      if (!setArchived) return;
+      const key = keyOf(session);
+      setFailure(null);
+      setPending(key);
+      void setArchived(session, archived)
+        .catch((error: unknown) => {
+          setFailure({
+            key,
+            message: `Could not ${archived ? "archive" : "unarchive"} ${session.title || session.sessionId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
+        })
+        .finally(() => setPending((current) => (current === key ? null : current)));
+    },
+    [setArchived],
+  );
   const failureFor = (session: SessionSummary): string | null =>
     failure?.key === keyOf(session) ? failure.message : null;
   const isPending = (session: SessionSummary): boolean => pending === keyOf(session);
@@ -107,7 +110,11 @@ export function ArchivedSessions({
                     <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
                       {title}
                     </span>
-                    <SessionMeta source={session.source} lastEventAt={session.lastEventAt} activity={session.activity} />
+                    <SessionMeta
+                      source={session.source}
+                      lastEventAt={session.lastEventAt}
+                      activity={session.activity}
+                    />
                   </span>
                   <button
                     type="button"
@@ -117,9 +124,11 @@ export function ArchivedSessions({
                     title="Unarchive"
                     className="mr-1 flex min-h-9 shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary outline-none hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-default disabled:opacity-60"
                   >
-                    {pending
-                      ? <LoaderCircle className="size-3.5 motion-safe:animate-spin" aria-hidden />
-                      : <ArchiveRestore className="size-3.5" aria-hidden />}
+                    {pending ? (
+                      <LoaderCircle className="size-3.5 motion-safe:animate-spin" aria-hidden />
+                    ) : (
+                      <ArchiveRestore className="size-3.5" aria-hidden />
+                    )}
                     Unarchive
                   </button>
                 </div>

@@ -12,11 +12,7 @@
  * test in the run, so a route test that stood in for the composer's verbs silently answered the
  * composer's own tests too, and nineteen of them started passing for the wrong reason.
  */
-import {
-  awaitComposer,
-  submitTmuxComposer,
-  syncTmuxComposer,
-} from "@/input/tmuxComposer";
+import { awaitComposer, submitTmuxComposer, syncTmuxComposer } from "@/input/tmuxComposer";
 import { rewindTmuxSession } from "@/input/rewindPicker";
 import { forkFirstTurn } from "@/terminal/session-panes/claudeSessionLaunch";
 import type { RewindRefusal } from "@/input/rewindPicker";
@@ -57,12 +53,15 @@ export async function LIVE_FORK_REWINDER(options: {
   prompt?: string;
 }): Promise<{ done: true } | { done: false; reason: string }> {
   const { sessionId, anchor, prompt } = options;
-  if (!await awaitComposer(sessionId, FORK_READY_LIMIT_MS)) {
+  if (!(await awaitComposer(sessionId, FORK_READY_LIMIT_MS))) {
     return { done: false, reason: "the fork did not finish starting in time" };
   }
   const outcome = await rewindTmuxSession(sessionId, anchor);
   if (!outcome.rewound) {
-    return { done: false, reason: `rewind refused: ${outcome.reason}${await keepBrief(sessionId, prompt, outcome.reason)}` };
+    return {
+      done: false,
+      reason: `rewind refused: ${outcome.reason}${await keepBrief(sessionId, prompt, outcome.reason)}`,
+    };
   }
   if (!prompt) return { done: true };
   // Through the composer's own path, which replaces whatever the box holds rather than appending
@@ -82,11 +81,7 @@ export async function LIVE_FORK_REWINDER(options: {
  * happens after `drive` has already established the box was empty, so the worst it holds by then
  * is the `/rewind` this typed, which the composer's own path replaces rather than appends to.
  */
-async function keepBrief(
-  sessionId: string,
-  prompt: string | undefined,
-  reason: RewindRefusal,
-): Promise<string> {
+async function keepBrief(sessionId: string, prompt: string | undefined, reason: RewindRefusal): Promise<string> {
   if (!prompt) return "";
   if (reason === "composer-busy" || reason === "no-pane" || reason === "tmux-unavailable") {
     return ", and your message could not be put anywhere, so it is in this dialog only";

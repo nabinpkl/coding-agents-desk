@@ -10,7 +10,12 @@ import {
 } from "@/features/desktop-viewer/pointer-input/pointerInputSession";
 import { VelocityTracker } from "@/features/desktop-viewer/pointer-input/velocityTracker";
 import { createZoomView, type SettleOutcome } from "@/features/desktop-viewer/zoom/zoomModels";
-import { getCaptureCrop, onCaptureCropApplied, onOverviewReady, setCaptureCrop } from "@/features/desktop-viewer/zoom/captureCrop";
+import {
+  getCaptureCrop,
+  onCaptureCropApplied,
+  onOverviewReady,
+  setCaptureCrop,
+} from "@/features/desktop-viewer/zoom/captureCrop";
 import { useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
 import { useOverviewLayer } from "@/features/desktop-viewer/zoom/overviewLayer";
 import { CursorImageCache } from "@/features/desktop-viewer/tile-viewport/cursorImageCache";
@@ -36,25 +41,27 @@ export type ViewportGestureOutcome =
   | "superseded"
   | "cancelled";
 
-export type ViewportGestureTelemetry = {
-  gestureId: string;
-  phase: "viewport-gesture-start" | "viewport-gesture-end";
-  elapsedMs: number;
-  detail: {
-    kind: ViewportGestureKind;
-    scale: number;
-    tx: number;
-    ty: number;
-    outcome?: ViewportGestureOutcome;
-    inputAccepted?: boolean;
-    edgeFollowed?: boolean;
-  };
-} | {
-  gestureId: string;
-  phase: "viewport-settle";
-  elapsedMs: number;
-  detail: SettleOutcome;
-};
+export type ViewportGestureTelemetry =
+  | {
+      gestureId: string;
+      phase: "viewport-gesture-start" | "viewport-gesture-end";
+      elapsedMs: number;
+      detail: {
+        kind: ViewportGestureKind;
+        scale: number;
+        tx: number;
+        ty: number;
+        outcome?: ViewportGestureOutcome;
+        inputAccepted?: boolean;
+        edgeFollowed?: boolean;
+      };
+    }
+  | {
+      gestureId: string;
+      phase: "viewport-settle";
+      elapsedMs: number;
+      detail: SettleOutcome;
+    };
 
 /**
  * A map-style viewport around a live tile, or a relative Mac pointer surface.
@@ -328,7 +335,6 @@ export function TileViewport({
     zoomMode,
     overviewLayer,
   ]);
-
 
   return (
     <div

@@ -120,19 +120,19 @@ export type RunnerReply = { ok: true; value: unknown } | { ok: false; message: s
 
 export type RunnerToSidecar =
   | {
-    type: "hello";
-    version: number;
-    sessionId: string;
-    pid: number;
-    build: string;
-    allowBypass: boolean;
-    choices: RunnerChoices;
-    /**
-     * The mode the runner launched `claude` in, in the SDK's spelling. The CLI names its mode only
-     * once a turn starts (`system/init`), so until then this is the only account of it.
-     */
-    permissionMode: string | null;
-  }
+      type: "hello";
+      version: number;
+      sessionId: string;
+      pid: number;
+      build: string;
+      allowBypass: boolean;
+      choices: RunnerChoices;
+      /**
+       * The mode the runner launched `claude` in, in the SDK's spelling. The CLI names its mode only
+       * once a turn starts (`system/init`), so until then this is the only account of it.
+       */
+      permissionMode: string | null;
+    }
   /** `replay` is true for what a connection is handed on arrival rather than as it happens. */
   | { type: "record"; record: RunnerRecord; replay: boolean }
   | { type: "callback"; callback: RunnerCallback }
@@ -209,7 +209,7 @@ export class LineReader {
 type Fields = Record<string, unknown>;
 
 function object(value: unknown): Fields | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Fields : null;
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Fields) : null;
 }
 
 function line(text: string): Fields | null {
@@ -243,7 +243,12 @@ export function parseSidecarMessage(text: string): SidecarToRunner | null {
     case "settle": {
       const result = object(fields.result);
       return isId(fields.id) && isId(fields.callback) && (result?.behavior === "allow" || result?.behavior === "deny")
-        ? { type: "settle", id: fields.id, callback: fields.callback, result: result as Fields & { behavior: "allow" | "deny" } }
+        ? {
+            type: "settle",
+            id: fields.id,
+            callback: fields.callback,
+            result: result as Fields & { behavior: "allow" | "deny" },
+          }
         : null;
     }
     case "stop":
@@ -258,10 +263,14 @@ function record(value: unknown): RunnerRecord | null {
   switch (fields?.kind) {
     case "message": {
       const message = object(fields.message);
-      return message && isString(message.type) ? { kind: "message", message: message as Fields & { type: string } } : null;
+      return message && isString(message.type)
+        ? { kind: "message", message: message as Fields & { type: string } }
+        : null;
     }
     case "called":
-      return isString(fields.method) && Array.isArray(fields.args) ? { kind: "called", method: fields.method, args: fields.args } : null;
+      return isString(fields.method) && Array.isArray(fields.args)
+        ? { kind: "called", method: fields.method, args: fields.args }
+        : null;
     case "input":
       return { kind: "input" };
     case "ended":
@@ -275,7 +284,8 @@ function callback(value: unknown): RunnerCallback | null {
   const fields = object(value);
   const input = object(fields?.input);
   const options = object(fields?.options);
-  if (!fields || !input || !options || !isId(fields.id) || !isString(fields.toolName) || !isId(options.toolUseID)) return null;
+  if (!fields || !input || !options || !isId(fields.id) || !isString(fields.toolName) || !isId(options.toolUseID))
+    return null;
   if (typeof fields.openedAt !== "number") return null;
   return {
     id: fields.id,
@@ -304,23 +314,28 @@ export function parseRunnerMessage(text: string): RunnerToSidecar | null {
   if (!fields) return null;
   switch (fields.type) {
     case "hello":
-      return Number.isInteger(fields.version) && isId(fields.sessionId) && Number.isInteger(fields.pid)
-          && isString(fields.build) && typeof fields.allowBypass === "boolean"
+      return Number.isInteger(fields.version) &&
+        isId(fields.sessionId) &&
+        Number.isInteger(fields.pid) &&
+        isString(fields.build) &&
+        typeof fields.allowBypass === "boolean"
         ? {
-          type: "hello",
-          version: fields.version as number,
-          sessionId: fields.sessionId,
-          pid: fields.pid as number,
-          build: fields.build,
-          allowBypass: fields.allowBypass,
-          choices: runnerChoices(fields.choices),
-          // Absent from a runner started before it was reported, which then says nothing until init.
-          permissionMode: isString(fields.permissionMode) ? fields.permissionMode : null,
-        }
+            type: "hello",
+            version: fields.version as number,
+            sessionId: fields.sessionId,
+            pid: fields.pid as number,
+            build: fields.build,
+            allowBypass: fields.allowBypass,
+            choices: runnerChoices(fields.choices),
+            // Absent from a runner started before it was reported, which then says nothing until init.
+            permissionMode: isString(fields.permissionMode) ? fields.permissionMode : null,
+          }
         : null;
     case "record": {
       const parsed = record(fields.record);
-      return parsed && typeof fields.replay === "boolean" ? { type: "record", record: parsed, replay: fields.replay } : null;
+      return parsed && typeof fields.replay === "boolean"
+        ? { type: "record", record: parsed, replay: fields.replay }
+        : null;
     }
     case "callback": {
       const parsed = callback(fields.callback);
@@ -342,4 +357,3 @@ export function parseRunnerMessage(text: string): RunnerToSidecar | null {
       return null;
   }
 }
-

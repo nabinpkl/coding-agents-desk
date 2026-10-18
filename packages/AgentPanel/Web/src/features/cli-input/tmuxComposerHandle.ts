@@ -248,7 +248,9 @@ export function tmuxComposerReasonText(reason: TmuxComposerUnavailableReason): s
     // because it is: a push that lands on this reason sends nothing and `submit` refuses to send
     // after it, so the text stays in the field and the next push or send puts it in the box.
     case "no-composer":
-      return "This session's terminal is not showing its composer, usually because a dialog is "
-        + "open in it. What you have typed is kept here.";
+      return (
+        "This session's terminal is not showing its composer, usually because a dialog is " +
+        "open in it. What you have typed is kept here."
+      );
   }
 }

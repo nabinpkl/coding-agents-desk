@@ -17,17 +17,18 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { BotSidebarPanel } from "@/features/bots/BotSidebarPanel";
 import { setBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 
-const bot = (botId: string, name: string, createdAt = 0): BotView => ({
-  botId,
-  name,
-  createdAt,
-  sessionRefs: [],
-  sessions: [],
-  missingSessionRefs: [],
-  environment: { path: `/Users/dev/${name}` },
-  environmentAvailability: "available",
-  metadata: {},
-} as unknown as BotView);
+const bot = (botId: string, name: string, createdAt = 0): BotView =>
+  ({
+    botId,
+    name,
+    createdAt,
+    sessionRefs: [],
+    sessions: [],
+    missingSessionRefs: [],
+    environment: { path: `/Users/dev/${name}` },
+    environmentAvailability: "available",
+    metadata: {},
+  }) as unknown as BotView;
 
 const HOME = bot("b-home", "Home bot", 100);
 const PEER = bot("b-peer", "Peer bot", 200);
@@ -43,7 +44,10 @@ const WORK = {
     { source: "claude", sessionId: "s-2", title: "Second session", activity: "cold", lastEventAt: 500 },
   ],
 } as unknown as BotView;
-const LABELS = new Map([["b-home", "dev"], ["b-peer", "oracle"]]);
+const LABELS = new Map([
+  ["b-home", "dev"],
+  ["b-peer", "oracle"],
+]);
 /** A Bot with more sessions than the roster will draw once they are off the canvas. */
 const MANY = {
   ...bot("b-many", "Many bot", 400),
@@ -56,7 +60,6 @@ const MANY = {
     lastEventAt: index,
   })),
 } as unknown as BotView;
-
 
 function panel(canvas: {
   detachedBotIds: ReadonlySet<string>;
@@ -323,8 +326,7 @@ describe("BotSidebarPanel session rows", () => {
       detachedSessionKeys: new Set(["claude:s-1"]),
     });
     // First session is off the canvas and was listed first; it now sits under its sibling.
-    expect(titles("Work bot", ["First session", "Second session"]))
-      .toEqual(["Second session", "First session"]);
+    expect(titles("Work bot", ["First session", "Second session"])).toEqual(["Second session", "First session"]);
   });
 
   it("lists a few off-canvas sessions rather than folding them", () => {
@@ -348,8 +350,7 @@ describe("BotSidebarPanel session rows", () => {
     expect(screen.getByText("Many session 4")).toBeDefined();
 
     fireEvent.click(fold);
-    expect(screen.getByRole("button", { name: "Hide 4 off the canvas" }))
-      .toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Hide 4 off the canvas" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Many session 0")).toBeDefined();
   });
 
@@ -392,23 +393,24 @@ describe("BotSidebarPanel folded sessions", () => {
 
 describe("BotSidebarPanel terminal buttons", () => {
   const feed = {} as unknown as SidecarDataSource;
-  const withFeed = () => render(
-    <BotSidebarPanel
-      bots={[HOME, PEER]}
-      machineLabels={LABELS}
-      feedForBot={() => feed}
-      loading={false}
-      error={null}
-      selectedBotIds={new Set()}
-      selectedSessionKeys={new Set()}
-      onSelectSession={() => undefined}
-      onAddSession={() => undefined}
-      onRenameSession={() => undefined}
-      onDetachSession={() => undefined}
-      onSetFatherSession={() => undefined}
-      onAddBot={() => undefined}
-    />,
-  );
+  const withFeed = () =>
+    render(
+      <BotSidebarPanel
+        bots={[HOME, PEER]}
+        machineLabels={LABELS}
+        feedForBot={() => feed}
+        loading={false}
+        error={null}
+        selectedBotIds={new Set()}
+        selectedSessionKeys={new Set()}
+        onSelectSession={() => undefined}
+        onAddSession={() => undefined}
+        onRenameSession={() => undefined}
+        onDetachSession={() => undefined}
+        onSetFatherSession={() => undefined}
+        onAddBot={() => undefined}
+      />,
+    );
 
   it("offers a directory shell in each Bot header when the shell names a feed", () => {
     withFeed();

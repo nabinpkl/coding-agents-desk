@@ -9,12 +9,7 @@
 
 import { FolderTree, Plus } from "lucide-react";
 import { useMemo } from "react";
-import type {
-  ProjectSummary,
-  RecentSession,
-  RecentSessionsPayload,
-  SessionSummary,
-} from "@agentdesk/agent-feed-wire";
+import type { ProjectSummary, RecentSession, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
 import { SecurityReviewFold } from "@/features/sidebar/session-list/SecurityReviewSessions";
 import {
@@ -147,9 +142,9 @@ function RecentSessionList({ list, sessions }: { list: ProjectListProps; session
             {securityReviews.recent.map(row)}
           </ul>
         )}
-        {securityReviews.more && securityReviews.recent.length > 0
-          ? <ShowMore onClick={sessions.reviews.onShowMore} />
-          : null}
+        {securityReviews.more && securityReviews.recent.length > 0 ? (
+          <ShowMore onClick={sessions.reviews.onShowMore} />
+        ) : null}
       </SecurityReviewFold>
     </>
   );

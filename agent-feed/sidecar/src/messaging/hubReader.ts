@@ -41,7 +41,13 @@ export interface HubReaderOptions {
  * with the channel on so the hub chooses it for delivery.
  */
 export function runHubReader(options: HubReaderOptions, signal: AbortSignal): Promise<void> {
-  const session = { pid: process.ppid, sessionId: options.sessionId, cwd: options.cwd, title: options.title, channel: true };
+  const session = {
+    pid: process.ppid,
+    sessionId: options.sessionId,
+    cwd: options.cwd,
+    title: options.title,
+    channel: true,
+  };
   return runChannelLoop(
     {
       hub: options.hub,
@@ -61,9 +67,7 @@ export function runHubReader(options: HubReaderOptions, signal: AbortSignal): Pr
  * because nothing tells a process its parent died: the write that fails is the other half, and it
  * only fires when there is something to write.
  */
-export function watchParent(
-  options: { parentPid: () => number; intervalMs: number; gone: () => void },
-): () => void {
+export function watchParent(options: { parentPid: () => number; intervalMs: number; gone: () => void }): () => void {
   const started = options.parentPid();
   const timer = setInterval(() => {
     if (options.parentPid() !== started) {

@@ -4,10 +4,7 @@
 // `scheduleSettle` is where the re-aim budget lives: a pinch that ends in a dozen frames
 // must ask the sidecar for a sharper capture once, not a dozen times.
 
-import {
-  VIEW_REAIM_INTERVAL_MS,
-  VIEW_SETTLE_MS,
-} from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
+import { VIEW_REAIM_INTERVAL_MS, VIEW_SETTLE_MS } from "@/features/desktop-viewer/tile-viewport/tileViewportConstants";
 import type { DesktopPointerInput } from "@agentdesk/agent-feed-wire";
 import type { ViewportRuntime } from "@/features/desktop-viewer/tile-viewport/tileViewportRuntime";
 

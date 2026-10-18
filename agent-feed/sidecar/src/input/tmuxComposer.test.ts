@@ -14,25 +14,34 @@ import {
   screenWith,
   typed,
 } from "@/input/tmuxComposerHarness";
-import {
-  composerBox,
-  composerText,
-  keystrokesFor,
-} from "@/input/tmuxComposer";
+import { composerBox, composerText, keystrokesFor } from "@/input/tmuxComposer";
 
 test("reads the composer box, and an empty one as empty rather than as absent", () => {
-  expect(composerBox(screenWith(["make the hover ring stronger"])))
-    .toEqual({ rows: ["make the hover ring stronger"], hint: null, exact: true, commands: [], clearPresses: clearPressesFor(["make the hover ring stronger"]) });
+  expect(composerBox(screenWith(["make the hover ring stronger"]))).toEqual({
+    rows: ["make the hover ring stronger"],
+    hint: null,
+    exact: true,
+    commands: [],
+    clearPresses: clearPressesFor(["make the hover ring stronger"]),
+  });
   // The distinction the whole reconciliation rests on: "" is adopted into the field, null is not.
-  expect(composerBox(screenWith([]))).toEqual({ rows: [""], hint: null, exact: true, commands: [], clearPresses: clearPressesFor([""]) });
+  expect(composerBox(screenWith([]))).toEqual({
+    rows: [""],
+    hint: null,
+    exact: true,
+    commands: [],
+    clearPresses: clearPressesFor([""]),
+  });
 });
 
 test("keeps every wrapped row, because the row count is what clearing costs", () => {
-  const box = composerBox(screenWith([
-    "the quick brown fox jumps over the lazy dog the quick",
-    "brown fox jumps over the lazy dog the quick brown fox",
-    "jumps over the lazy dog",
-  ]));
+  const box = composerBox(
+    screenWith([
+      "the quick brown fox jumps over the lazy dog the quick",
+      "brown fox jumps over the lazy dog the quick brown fox",
+      "jumps over the lazy dog",
+    ]),
+  );
   expect(box!.rows).toHaveLength(3);
   // Rejoined with the space the wrap consumed, which is what makes this a hypothesis and not a
   // reading. Measured on a live pane: neither row carries that space.
@@ -88,15 +97,16 @@ test("reads Claude's own hint as an empty box holding a suggestion", () => {
   // a reader having typed those words, and the mirror would have filled their field with it and
   // then typed it back into the session. Faint is the only thing that says otherwise -- and the
   // suggestion is worth keeping rather than discarding, because Tab is what turns it into text.
-  const screen = [
-    RULE,
-    "\u001b[39m❯\u00a0\u001b[2mstop adding the three suggestions\u001b[0m",
-    RULE,
-  ].join("\n");
+  const screen = [RULE, "\u001b[39m❯\u00a0\u001b[2mstop adding the three suggestions\u001b[0m", RULE].join("\n");
   // The caret at the START of the marker row, which is where an empty box keeps it: measured
   // 2026-09-09, an empty composer reports column 2 and a typed one reports further along.
-  expect(composerBox(paneShowing(screen, { row: 0, column: 0 })))
-    .toEqual({ rows: [""], hint: "stop adding the three suggestions", exact: true, commands: [], clearPresses: 1 });
+  expect(composerBox(paneShowing(screen, { row: 0, column: 0 }))).toEqual({
+    rows: [""],
+    hint: "stop adding the three suggestions",
+    exact: true,
+    commands: [],
+    clearPresses: 1,
+  });
 });
 
 test("will not call a faint row exact when the caret says somebody is typing in it", () => {
@@ -110,23 +120,15 @@ test("will not call a faint row exact when the caret says somebody is typing in 
   // suggestion into somebody's field, which is the older and worse bug; inexact only sends this
   // down the clear-and-retype path. So the check costs a retype when it is wrong, where its
   // absence cost a reader their sentence.
-  const screen = [
-    RULE,
-    "\u001b[39m❯\u00a0\u001b[2mwhat the reader is typing\u001b[0m",
-    RULE,
-  ].join("\n");
+  const screen = [RULE, "\u001b[39m❯\u00a0\u001b[2mwhat the reader is typing\u001b[0m", RULE].join("\n");
   const typing = composerBox(paneShowing(screen, { row: 0, column: 25 }))!;
   expect(typing.exact).toBe(false);
   expect(keystrokesFor(typing, "replaced")).toContain(KILL);
   // And the clear is sized for the rows the box DRAWS, not for the one row a suggestion needs,
   // so a wrong reading is cleared out of the way rather than pasted on top of.
-  const tall = [
-    RULE,
-    "\u001b[39m❯\u00a0\u001b[2malpha bravo\u001b[0m",
-    "  charlie delta",
-    "  echo foxtrot",
-    RULE,
-  ].join("\n");
+  const tall = [RULE, "\u001b[39m❯\u00a0\u001b[2malpha bravo\u001b[0m", "  charlie delta", "  echo foxtrot", RULE].join(
+    "\n",
+  );
   expect(composerBox(paneShowing(tall, { row: 0, column: 11 }))!.clearPresses).toBe(3);
 });
 
@@ -155,7 +157,13 @@ test("reads the queued-message placeholder a busy session draws, and keeps it ex
 
 test("keeps text that merely sits under a colour, because only faint means a hint", () => {
   const screen = [RULE, "\u001b[39m❯\u00a0\u001b[1mtyped in bold\u001b[0m", RULE].join("\n");
-  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["typed in bold"], hint: null, exact: true, commands: [], clearPresses: clearPressesFor(["typed in bold"]) });
+  expect(composerBox(paneShowing(screen))).toEqual({
+    rows: ["typed in bold"],
+    hint: null,
+    exact: true,
+    commands: [],
+    clearPresses: clearPressesFor(["typed in bold"]),
+  });
 });
 
 test("reads a colour that merely contains a 2 as a colour, not as faint", () => {
@@ -171,8 +179,11 @@ test("reads a colour that merely contains a 2 as a colour, not as faint", () => 
   ]) {
     const screen = [RULE, `\u001b[39m❯\u00a0${colour}what the reader typed\u001b[0m`, RULE].join("\n");
     const box = composerBox(paneShowing(screen));
-    expect({ colour, rows: box?.rows, hint: box?.hint })
-      .toEqual({ colour, rows: ["what the reader typed"], hint: null });
+    expect({ colour, rows: box?.rows, hint: box?.hint }).toEqual({
+      colour,
+      rows: ["what the reader typed"],
+      hint: null,
+    });
   }
   // Still a hint when the run really does turn faint on, including after a reset.
   for (const faint of ["\u001b[2m", "\u001b[0;2m", "\u001b[;2m", "\u001b[1;2m"]) {
@@ -204,15 +215,25 @@ test("takes the last box, not a turn the transcript echoed with the same marker"
     "❯\u00a0what is being typed now",
     RULE,
   ].join("\n");
-  expect(composerBox(paneShowing(screen))).toEqual({ rows: ["what is being typed now"], hint: null, exact: true, commands: [], clearPresses: clearPressesFor(["what is being typed now"]) });
+  expect(composerBox(paneShowing(screen))).toEqual({
+    rows: ["what is being typed now"],
+    hint: null,
+    exact: true,
+    commands: [],
+    clearPresses: clearPressesFor(["what is being typed now"]),
+  });
 });
 
 test("answers nothing for a screen mid-redraw, which is retryable rather than broken", () => {
   // The composer box genuinely vanishes between frames; measured on a live pane right after a
   // Ctrl+U. Reporting "" here would push an empty composer into the reader's field.
-  expect(composerBox({ screen: ["  adprobe  Opus 5", "  ⏵⏵ auto mode on"].join("\n"), cursor: { row: 1, column: 2 } })).toBeNull();
+  expect(
+    composerBox({ screen: ["  adprobe  Opus 5", "  ⏵⏵ auto mode on"].join("\n"), cursor: { row: 1, column: 2 } }),
+  ).toBeNull();
   // A marker with no rule above it is transcript text, not a box.
-  expect(composerBox({ screen: ["  output", "❯\u00a0quoted, in a message"].join("\n"), cursor: { row: 1, column: 2 } })).toBeNull();
+  expect(
+    composerBox({ screen: ["  output", "❯\u00a0quoted, in a message"].join("\n"), cursor: { row: 1, column: 2 } }),
+  ).toBeNull();
 });
 
 /**
@@ -296,13 +317,25 @@ const WRAPPED_ROWS = [
 test("finds the box under a title cut short for a narrow pane", () => {
   // Curtis's pane on 2026-10-17, which read as `no-composer` until this.
   const empty = [CUT_TITLE, "\u001b[39m❯ ", FULL_RULE, "  gitlab-transcend-hackathon  Opus 5.5"].join("\n");
-  expect(composerBox({ screen: empty, cursor: { row: 1, column: BOX_COLUMN } })).toEqual({ rows: [""], hint: null, exact: true, commands: [], clearPresses: 1 });
+  expect(composerBox({ screen: empty, cursor: { row: 1, column: BOX_COLUMN } })).toEqual({
+    rows: [""],
+    hint: null,
+    exact: true,
+    commands: [],
+    clearPresses: 1,
+  });
 });
 
 test("reads every row of a wrapped box under a cut title, and trusts it only with the caret at the end", () => {
   // Measured: the caret sat at (5, 25) after typing, and Up moved it to (4, 25).
   const atEnd = composerBox({ screen: WRAPPED_UNDER_CUT_TITLE, cursor: { row: 5, column: 25 } })!;
-  expect(atEnd).toEqual({ rows: WRAPPED_ROWS, hint: null, exact: true, commands: [], clearPresses: clearPressesFor(WRAPPED_ROWS) });
+  expect(atEnd).toEqual({
+    rows: WRAPPED_ROWS,
+    hint: null,
+    exact: true,
+    commands: [],
+    clearPresses: clearPressesFor(WRAPPED_ROWS),
+  });
   const mid = composerBox({ screen: WRAPPED_UNDER_CUT_TITLE, cursor: { row: 4, column: 25 } })!;
   expect(mid.rows).toEqual(WRAPPED_ROWS);
   expect(mid.exact).toBe(false);
@@ -357,15 +390,18 @@ test("clears for the narrowest pane the box could reflow into, not the one it wa
   // turn and pushed "replaced entirely", came back holding the whole original sentence with
   // "replaced entirely" on the end. Overshooting is what fixes it, and overshooting is free --
   // twenty Ctrl+U against a three-character box and against an empty one both left it empty.
-  const wide = composerBox(screenWith([
-    "the quick brown fox jumps over the lazy dog and then keeps running well past the end",
-    "of any one line at all",
-  ]))!;
+  const wide = composerBox(
+    screenWith([
+      "the quick brown fox jumps over the lazy dog and then keeps running well past the end",
+      "of any one line at all",
+    ]),
+  )!;
   expect(wide.rows).toHaveLength(2);
   // 105 characters would need six rows at the twenty-column floor, so two is not enough to send.
   expect(wide.clearPresses).toBeGreaterThan(wide.rows.length);
-  expect(keystrokesFor(wide, "replaced entirely"))
-    .toBe(`${END}${KILL.repeat(wide.clearPresses)}${OPEN}replaced entirely${CLOSE}`);
+  expect(keystrokesFor(wide, "replaced entirely")).toBe(
+    `${END}${KILL.repeat(wide.clearPresses)}${OPEN}replaced entirely${CLOSE}`,
+  );
 
   // A short box needs no more than the rows it has, so the common case pays nothing.
   const small = composerBox(screenWith(["one", "two"]))!;
@@ -377,8 +413,7 @@ test("retypes rather than edits when the reading is only a lower bound", () => {
   // visible text would rub out one character too few. Ctrl+U needs neither: it kills a whole
   // visual row whatever is in it, and the row COUNT is exact even when the text is not.
   const inexact = { rows: ["hello"], hint: null, exact: false, commands: [], clearPresses: 1 };
-  expect(keystrokesFor(inexact, "hello world"))
-    .toBe(`${END}${KILL}${OPEN}hello world${CLOSE}`);
+  expect(keystrokesFor(inexact, "hello world")).toBe(`${END}${KILL}${OPEN}hello world${CLOSE}`);
   // Including when the box already reads the way it is being asked to: what it reads is not all
   // it holds, so "nothing to do" would leave the invisible tail in place.
   expect(keystrokesFor(inexact, "hello")).toBe(`${END}${KILL}${OPEN}hello${CLOSE}`);

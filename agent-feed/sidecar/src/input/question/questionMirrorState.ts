@@ -13,11 +13,7 @@
  * the panel never received; see `TmuxQuestionState`.
  */
 import type { TmuxQuestionState } from "@agentdesk/agent-feed-wire";
-import {
-  isPlaceholder,
-  otherRowIndex,
-  type QuestionDialog,
-} from "@/input/question/questionDialog";
+import { isPlaceholder, otherRowIndex, type QuestionDialog } from "@/input/question/questionDialog";
 
 export function questionStateFrom(dialog: QuestionDialog): TmuxQuestionState {
   const other = otherRowIndex(dialog);
@@ -46,9 +42,7 @@ export function questionStateFrom(dialog: QuestionDialog): TmuxQuestionState {
     multiSelect: dialog.multiSelect,
     // The Submit entry is dropped: it is a control, not a question, and a panel counting tabs
     // against the call's own questions would be one out on every multi-question dialog.
-    tabs: dialog.tabs
-      .filter((tab) => !tab.submit)
-      .map((tab) => ({ label: tab.label, answered: tab.answered })),
+    tabs: dialog.tabs.filter((tab) => !tab.submit).map((tab) => ({ label: tab.label, answered: tab.answered })),
     options,
     // Claude's own prompt is not somebody's words, and a panel that adopted it would put
     // "Type something." in a reader's field.

@@ -41,7 +41,11 @@ const STATUS_LINE: Record<ArenaManagerSummary["status"], string> = {
  * The switch that opens and puts away the manager, standing in the run's header beside its other
  * controls: put away, the manager takes no room over the lanes at all.
  */
-export function ManagerSwitch({ manager, open, onToggle }: {
+export function ManagerSwitch({
+  manager,
+  open,
+  onToggle,
+}: {
   manager: ArenaManagerSummary;
   open: boolean;
   onToggle: () => void;
@@ -77,7 +81,13 @@ export function ArenaManagerWindow({
   onClose: () => void;
 }) {
   return (
-    <OpenManager manager={manager} listed={listed} context={context} label={`Manager · ${SOURCE_LABEL[manager.source]}`} onClose={onClose} />
+    <OpenManager
+      manager={manager}
+      listed={listed}
+      context={context}
+      label={`Manager · ${SOURCE_LABEL[manager.source]}`}
+      onClose={onClose}
+    />
   );
 }
 
@@ -104,9 +114,10 @@ function OpenManager({
   );
   const drop = useFileDropTarget<HTMLElement>(acceptFiles);
   const awaited = useMemo(
-    () => (manager.sessionId !== null && manager.tmuxSession !== null
-      ? { session: awaitedSession(manager.source, manager.sessionId, label, null), projectPath: manager.folder }
-      : null),
+    () =>
+      manager.sessionId !== null && manager.tmuxSession !== null
+        ? { session: awaitedSession(manager.source, manager.sessionId, label, null), projectPath: manager.folder }
+        : null,
     [manager.sessionId, manager.tmuxSession, manager.source, manager.folder, label],
   );
   const shown = listed ?? awaited;
@@ -150,7 +161,9 @@ function OpenManager({
           role={manager.status === "failed" ? "alert" : undefined}
           className={`px-4 py-6 ${TEXT.body} ${manager.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}
         >
-          {manager.status === "failed" ? `The manager did not start: ${manager.error ?? "no reason was given"}` : "Starting the manager."}
+          {manager.status === "failed"
+            ? `The manager did not start: ${manager.error ?? "no reason was given"}`
+            : "Starting the manager."}
         </p>
       )}
       <FileDropOverlay

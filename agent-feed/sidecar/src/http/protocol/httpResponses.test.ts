@@ -10,10 +10,7 @@ async function readFor(response: Response, ms: number): Promise<string> {
   let text = "";
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    const next = await Promise.race([
-      reader.read(),
-      Bun.sleep(Math.max(0, deadline - Date.now())).then(() => null),
-    ]);
+    const next = await Promise.race([reader.read(), Bun.sleep(Math.max(0, deadline - Date.now())).then(() => null)]);
     if (next === null || next.done) break;
     text += decoder.decode(next.value, { stream: true });
   }
@@ -25,12 +22,9 @@ test("a stream that asks for a heartbeat message beats with it rather than a com
   // A comment is invisible to `EventSource`, so a reader timing silence needs the beat to be a
   // message it actually receives.
   const bytes = encodeServerSentEvent({ type: "heartbeat" });
-  const response = startServerSentEventStream(
-    new Request("http://localhost/stream"),
-    server,
-    () => () => {},
-    { heartbeat: { bytes, intervalMs: 20 } },
-  );
+  const response = startServerSentEventStream(new Request("http://localhost/stream"), server, () => () => {}, {
+    heartbeat: { bytes, intervalMs: 20 },
+  });
 
   const text = await readFor(response, 70);
 

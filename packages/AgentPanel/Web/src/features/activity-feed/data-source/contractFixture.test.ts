@@ -17,7 +17,10 @@ import { buildUsageGrid, cachedShare, uncachedInput } from "@/features/usage/usa
 import fixture from "@repo/agent-feed/wire/contract-fixture.json";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
-import type { SessionEventsHandlers, SessionEventsSnapshot } from "@/features/activity-feed/data-source/AgentDataSource";
+import type {
+  SessionEventsHandlers,
+  SessionEventsSnapshot,
+} from "@/features/activity-feed/data-source/AgentDataSource";
 // The panel's own event type, not the wire's. They are deliberately different: this one is the
 // normalization target `activityNormalization.ts` rebuilds every event into, and it is looser
 // (optional `id`, an extra `"error"` phase) because a malformed event still has to render.
@@ -54,9 +57,7 @@ describe("the shared wire contract", () => {
     expect(sink.snapshots).toHaveLength(1);
     const snapshot = sink.snapshots[0]!;
     expect(snapshot.windowStart).toBe(fixture.timelineSnapshot.envelope.windowStart);
-    expect(snapshot.events.map((e) => e.id)).toEqual(
-      fixture.timelineSnapshot.envelope.events.map((e) => e.id),
-    );
+    expect(snapshot.events.map((e) => e.id)).toEqual(fixture.timelineSnapshot.envelope.events.map((e) => e.id));
     // Not merged into the snapshot: run state and queue depth are session state, and the view
     // reads them separately from the rows.
     expect(snapshot.state.runState).toBe("idle");
@@ -161,10 +162,13 @@ describe("the shared wire contract", () => {
       onSessions: (_path, sessions, archived) =>
         lists.push({ sessions: sessions.map((s) => s.sessionId), archived: archived.map((s) => s.sessionId) }),
     });
-    transport.deliver("/api/inventory/stream", JSON.stringify({
-      projectPath: fixture.sessions.projectPath,
-      sessions: [first, { ...(second ?? first), sessionId: "filed", archivedAt: 5 }],
-    }));
+    transport.deliver(
+      "/api/inventory/stream",
+      JSON.stringify({
+        projectPath: fixture.sessions.projectPath,
+        sessions: [first, { ...(second ?? first), sessionId: "filed", archivedAt: 5 }],
+      }),
+    );
     expect(lists).toEqual([{ sessions: [first!.sessionId], archived: ["filed"] }]);
 
     transport.responses.set("POST /api/sessions/claude/abc/archive", { status: 200, body: "{}" });
@@ -173,8 +177,10 @@ describe("the shared wire contract", () => {
       status: 409,
       body: JSON.stringify({ error: { code: "session-running", message: "still running" } }),
     });
-    await expect(source.setSessionArchived({ source: "claude", sessionId: "abc" }, false))
-      .rejects.toMatchObject({ code: "session-running", message: "still running" });
+    await expect(source.setSessionArchived({ source: "claude", sessionId: "abc" }, false)).rejects.toMatchObject({
+      code: "session-running",
+      message: "still running",
+    });
   });
 
   it("preserves the sidecar's error code, because the panel acts on it", async () => {
@@ -230,10 +236,12 @@ describe("the summary contract", () => {
       error: { code: "summary-unconfigured", message: "no model credential", retryable: false },
     });
 
-    expect(messages).toEqual([{
-      type: "error",
-      error: { code: "summary-unconfigured", message: "no model credential", retryable: false },
-    }]);
+    expect(messages).toEqual([
+      {
+        type: "error",
+        error: { code: "summary-unconfigured", message: "no model credential", retryable: false },
+      },
+    ]);
   });
 
   it("streams the reasoning before the digest", () => {
@@ -247,8 +255,7 @@ describe("the summary contract", () => {
     transport.deliver("/summary", { type: "thinking-delta", text: "the runtime." });
     transport.deliver("/summary", { type: "reasoning", text: "Read the runtime." });
 
-    expect(messages.map((message) => message.type))
-      .toEqual(["thinking-delta", "thinking-delta", "reasoning"]);
+    expect(messages.map((message) => message.type)).toEqual(["thinking-delta", "thinking-delta", "reasoning"]);
   });
 
   it("reads the config body the summarize button gates on", async () => {
@@ -256,9 +263,13 @@ describe("the summary contract", () => {
     transport.responses.set("GET /api/config", {
       status: 200,
       body: JSON.stringify({
-        staleThresholdMs: 1, readyThresholdMs: 1, liveWindowMs: 1,
-        watcherState: "live", sessionCount: 3,
-        summaryEnabled: true, summaryModel: "opencode-go/deepseek-v4-flash",
+        staleThresholdMs: 1,
+        readyThresholdMs: 1,
+        liveWindowMs: 1,
+        watcherState: "live",
+        sessionCount: 3,
+        summaryEnabled: true,
+        summaryModel: "opencode-go/deepseek-v4-flash",
         usageVendors: ["codex"],
       }),
     });

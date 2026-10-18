@@ -105,8 +105,9 @@ export function FloatingWindow({
     setPosition((placed) =>
       placed
         ? clampFloatingPosition(placed, sizeNow.current, { width: window.innerWidth, height: window.innerHeight })
-        : placed
-    ));
+        : placed,
+    ),
+  );
 
   // How far down it hangs before a hand has carried it anywhere: just below its switch, measured
   // because a switch stands wherever its surface put it. A layout effect settles the measurement
@@ -132,9 +133,10 @@ export function FloatingWindow({
     from: FloatingWindowPosition;
     carrying: boolean;
   } | null>(null);
-  const viewport = typeof window === "undefined"
-    ? { width: 1440, height: 900 }
-    : { width: window.innerWidth, height: window.innerHeight };
+  const viewport =
+    typeof window === "undefined"
+      ? { width: 1440, height: 900 }
+      : { width: window.innerWidth, height: window.innerHeight };
   const placed = position ? clampFloatingPosition(position, size, viewport) : null;
   const carriedTo = (held: NonNullable<typeof carry.current>, event: PointerEvent<HTMLDivElement>) =>
     clampFloatingPosition(
@@ -158,7 +160,11 @@ export function FloatingWindow({
     const held = carry.current;
     if (!held || held.pointerId !== event.pointerId) return;
     if (!held.carrying) {
-      if (Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD && Math.abs(event.clientY - held.startY) < MOVE_THRESHOLD) return;
+      if (
+        Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD &&
+        Math.abs(event.clientY - held.startY) < MOVE_THRESHOLD
+      )
+        return;
       held.carrying = true;
     }
     setPosition(carriedTo(held, event));
@@ -186,11 +192,12 @@ export function FloatingWindow({
   useEventListener<globalThis.PointerEvent>(closeOnOutsidePress ? document : null, "pointerdown", (event) => {
     const target = event.target as Element | null;
     if (sectionRef.current?.contains(event.target as Node)) return;
-    if (target?.closest?.(`[data-portal-menu], [role="menu"], [role="dialog"], [role="listbox"], ${switchSelector}`)) return;
+    if (target?.closest?.(`[data-portal-menu], [role="menu"], [role="dialog"], [role="listbox"], ${switchSelector}`))
+      return;
     onClose();
   });
 
-  const top = placed ? placed.y : restTop ?? 0;
+  const top = placed ? placed.y : (restTop ?? 0);
   return (
     <section
       ref={sectionRef}

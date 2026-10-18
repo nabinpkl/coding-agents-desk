@@ -15,13 +15,17 @@ import {
 describe("WebRTC encoder diagnostics", () => {
   test("flushes each control command instead of waiting for a full pipe buffer", () => {
     const calls: string[] = [];
-    const accepted = writeEncoderControl({
-      write: (line) => calls.push(`write:${line}`),
-      flush: () => {
-        calls.push("flush");
-        return 2;
+    const accepted = writeEncoderControl(
+      {
+        write: (line) => calls.push(`write:${line}`),
+        flush: () => {
+          calls.push("flush");
+          return 2;
+        },
       },
-    }, "K\n", (error) => calls.push(`error:${String(error)}`));
+      "K\n",
+      (error) => calls.push(`error:${String(error)}`),
+    );
 
     expect(accepted).toBe(true);
     expect(calls).toEqual(["write:K\n", "flush"]);
@@ -61,13 +65,11 @@ describe("WebRTC connection lifecycle", () => {
 
 describe("encoderSourceRect", () => {
   test("formats a usable crop the way the helper parses it", () => {
-    expect(encoderSourceRect({ x: 2400, y: 1200, width: 1920, height: 1080 }))
-      .toBe("2400,1200,1920,1080");
+    expect(encoderSourceRect({ x: 2400, y: 1200, width: 1920, height: 1080 })).toBe("2400,1200,1920,1080");
   });
 
   test("rounds, because the viewport's arithmetic is fractional and display points are not", () => {
-    expect(encoderSourceRect({ x: 100.4, y: 200.6, width: 640.5, height: 480.2 }))
-      .toBe("100,201,641,480");
+    expect(encoderSourceRect({ x: 100.4, y: 200.6, width: 640.5, height: 480.2 })).toBe("100,201,641,480");
   });
 
   test("drops the whole crop when any part of it is unusable", () => {
@@ -109,8 +111,9 @@ describe("one encoder per capture stream", () => {
   });
 
   test("an unwatched stream is retasked, so the resolution knob still moves", () => {
-    expect(encoderDisposition(running({ identity: "--display 224 --width 990", subscribers: 0 }), wanted))
-      .toBe("retask");
+    expect(encoderDisposition(running({ identity: "--display 224 --width 990", subscribers: 0 }), wanted)).toBe(
+      "retask",
+    );
   });
 });
 
@@ -118,19 +121,21 @@ describe("what counts as a separate capture stream", () => {
   const args = (...rest: string[]) => ["--display", "224", "--codec", "h265-annexb", ...rest];
 
   test("a crop is its own stream, because the overview and the detail are different pixels", () => {
-    expect(encoderStreamKey("display:A", args("--source-rect", "0,0,800,600")))
-      .not.toBe(encoderStreamKey("display:A", args()));
-    expect(encoderStreamKey("display:A", args("--source-rect", "0,0,800,600")))
-      .not.toBe(encoderStreamKey("display:A", args("--source-rect", "10,0,800,600")));
+    expect(encoderStreamKey("display:A", args("--source-rect", "0,0,800,600"))).not.toBe(
+      encoderStreamKey("display:A", args()),
+    );
+    expect(encoderStreamKey("display:A", args("--source-rect", "0,0,800,600"))).not.toBe(
+      encoderStreamKey("display:A", args("--source-rect", "10,0,800,600")),
+    );
   });
 
   test("a resolution is not, because that is the same pixels twice", () => {
-    expect(encoderStreamKey("display:A", args("--width", "5776", "--fps", "15")))
-      .toBe(encoderStreamKey("display:A", args("--width", "990", "--fps", "8")));
+    expect(encoderStreamKey("display:A", args("--width", "5776", "--fps", "15"))).toBe(
+      encoderStreamKey("display:A", args("--width", "990", "--fps", "8")),
+    );
   });
 
   test("targets never share a stream, whatever they ask for", () => {
     expect(encoderStreamKey("display:A", args())).not.toBe(encoderStreamKey("display:B", args()));
   });
 });
-

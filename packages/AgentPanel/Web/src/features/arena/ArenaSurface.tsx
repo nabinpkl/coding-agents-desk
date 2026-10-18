@@ -109,7 +109,8 @@ export function ArenaSurface({
       // A dropped stream is EventSource's to reconnect, and the one-shot fetch below re-reads
       // the list on any later remount -- so there is nothing here to say to a reader.
       onError: () => {},
-    }));
+    }),
+  );
 
   // What a run with nothing filled in gets, re-read whenever a run is made or removed (here or
   // anywhere), since the next free name moves with them. A draft still on a mode this machine
@@ -156,9 +157,7 @@ export function ArenaSurface({
   // A detail read for the run the reader just left is not this run's.
   const shownDetail = detail && detail.runId === selectedRunId ? detail : null;
 
-  const anyLive = runs.some((run) =>
-    run.contestants.some(isLive),
-  );
+  const anyLive = runs.some((run) => run.contestants.some(isLive));
   // Read afresh whenever a lane starts or stops running, and ticked each second while one runs.
   const now = useNow(anyLive, anyLive ? 1000 : null);
 
@@ -188,13 +187,16 @@ export function ArenaSurface({
     setProblem(answer.message);
   }, [transport, draft, showRun]);
 
-  const sendPrompt = useCallback(async (prompt: string): Promise<string | null> => {
-    if (!selectedRunId) return "no run is selected";
-    const answer = await sendArenaPrompt(transport, selectedRunId, prompt);
-    if ("message" in answer) return answer.message;
-    setRuns((current) => current.map((run) => (run.runId === answer.run.runId ? answer.run : run)));
-    return null;
-  }, [transport, selectedRunId]);
+  const sendPrompt = useCallback(
+    async (prompt: string): Promise<string | null> => {
+      if (!selectedRunId) return "no run is selected";
+      const answer = await sendArenaPrompt(transport, selectedRunId, prompt);
+      if ("message" in answer) return answer.message;
+      setRuns((current) => current.map((run) => (run.runId === answer.run.runId ? answer.run : run)));
+      return null;
+    },
+    [transport, selectedRunId],
+  );
 
   const tearDown = useCallback(async () => {
     if (!selectedRunId) return;
@@ -237,14 +239,16 @@ export function ArenaSurface({
     [feed, host, eventMode, showCacheHits, windowComposers],
   );
 
-  const selectRun = useCallback((runId: string) => {
-    showRun(runId);
-    setProblem(null);
-  }, [showRun]);
+  const selectRun = useCallback(
+    (runId: string) => {
+      showRun(runId);
+      setProblem(null);
+    },
+    [showRun],
+  );
 
   // A lane's composer sits at the foot of a column taller than a phone with its keyboard up, so
   // shortening the page does not lift it: the column has to scroll to it.
-
 
   return (
     <div ref={surface} data-arena-surface className="@container flex h-full min-h-0 bg-background text-foreground">
@@ -260,15 +264,17 @@ export function ArenaSurface({
             selectedRunId={selectedRunId}
             composing={composing}
             now={now}
-            browse={defaults ? (
-              <ArenaCodeButton
-                transport={transport}
-                place={{}}
-                label="Browse the arena folder"
-                title="Arena"
-                path={defaults.arenaHome}
-              />
-            ) : null}
+            browse={
+              defaults ? (
+                <ArenaCodeButton
+                  transport={transport}
+                  place={{}}
+                  label="Browse the arena folder"
+                  title="Arena"
+                  path={defaults.arenaHome}
+                />
+              ) : null
+            }
             onSelect={selectRun}
             onCompose={() => {
               showRun(null);

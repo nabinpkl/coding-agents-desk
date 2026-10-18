@@ -136,8 +136,7 @@ export function parseAgentLaunch(toolUseResult: unknown): AgentLaunch | null {
   // The presence of an agent id is what makes this an Agent result at all. Every other tool's
   // `toolUseResult` is a different shape entirely, so no further discrimination is needed.
   if (typeof agentId !== "string" || agentId.length === 0) return null;
-  const text = (value: unknown): string | null =>
-    typeof value === "string" && value.trim() ? value.trim() : null;
+  const text = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
   return {
     agentId,
     description: text(record.description),
@@ -155,24 +154,24 @@ export function parseAgentLaunch(toolUseResult: unknown): AgentLaunch | null {
  */
 export type TaskNotification =
   | {
-    kind: "completion";
-    taskId: string;
-    /** The harness's own word. `failed` still means the task is over. */
-    status: "completed" | "failed";
-    summary: string;
-    /**
-     * The exit code, when the summary names one -- it reads `... completed (exit code 0)`.
-     * Null when it does not, which is not the same as zero and must not be rendered as success.
-     */
-    exitCode: number | null;
-    /** Subagent notifications carry usage and duration; plain shells do not. */
-    taskKind: BackgroundTaskKind;
-  }
+      kind: "completion";
+      taskId: string;
+      /** The harness's own word. `failed` still means the task is over. */
+      status: "completed" | "failed";
+      summary: string;
+      /**
+       * The exit code, when the summary names one -- it reads `... completed (exit code 0)`.
+       * Null when it does not, which is not the same as zero and must not be rendered as success.
+       */
+      exitCode: number | null;
+      /** Subagent notifications carry usage and duration; plain shells do not. */
+      taskKind: BackgroundTaskKind;
+    }
   | {
-    kind: "progress";
-    taskId: string;
-    summary: string;
-  };
+      kind: "progress";
+      taskId: string;
+      summary: string;
+    };
 
 function tagValue(source: string, tag: string): string | null {
   // Non-greedy and dot-all: a summary can and does run across lines.
@@ -206,10 +205,8 @@ export function parseTaskNotification(prompt: string): TaskNotification | null {
     return { kind: "progress", taskId, summary };
   }
   if (status !== "completed" && status !== "failed") return null;
-  const taskKind: BackgroundTaskKind = tagValue(prompt, "subagent_tokens") !== null ||
-      tagValue(prompt, "tool_uses") !== null
-    ? "agent"
-    : "bash";
+  const taskKind: BackgroundTaskKind =
+    tagValue(prompt, "subagent_tokens") !== null || tagValue(prompt, "tool_uses") !== null ? "agent" : "bash";
   const codeMatch = /exit code (-?\d+)/.exec(summary);
   const exitCode = codeMatch && Number.isSafeInteger(Number(codeMatch[1])) ? Number(codeMatch[1]) : null;
   return { kind: "completion", taskId, status, summary, exitCode, taskKind };
@@ -232,13 +229,11 @@ export function parseTaskNotification(prompt: string): TaskNotification | null {
  * `failed` still resolves to `exited`, because a task that failed has ended. Only the code is in
  * doubt, and it travels as null rather than being flattened to a zero that would read as success.
  */
-export function resolveTaskState(
-  evidence: {
-    holdsOutputOpen: boolean;
-    marker: BackgroundTaskState | null;
-    notification: TaskNotification | null;
-  },
-): BackgroundTaskState {
+export function resolveTaskState(evidence: {
+  holdsOutputOpen: boolean;
+  marker: BackgroundTaskState | null;
+  notification: TaskNotification | null;
+}): BackgroundTaskState {
   if (evidence.holdsOutputOpen) return { status: "running" };
   if (evidence.marker) return evidence.marker;
   const notification = evidence.notification;

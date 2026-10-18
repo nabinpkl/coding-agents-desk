@@ -14,7 +14,11 @@ import type { BotSessionRef, HubStreamEvent, Message, MessageRef, RenamedBracket
 import { opencodeClient, resetOpencodeClient, serveRequest } from "@/agents/opencode/serve/opencodeClient";
 import { subscribeCatalog } from "@/transcripts/catalog/catalogState";
 import type { HubClient } from "@/messaging/hubClient";
-import { agentKindLine, agentPreamble, ownerKindLine } from "@repo/agent-feed/sidecar/mods/agentdesk-hub/hooks/hubKindWording.ts";
+import {
+  agentKindLine,
+  agentPreamble,
+  ownerKindLine,
+} from "@repo/agent-feed/sidecar/mods/agentdesk-hub/hooks/hubKindWording.ts";
 
 /** One opencode session as the hub stream needs it. */
 export interface OpencodeSessionRef {
@@ -212,7 +216,10 @@ export class HubOpencodeAdapter {
         if (signal.aborted) return;
         this.deps.log(`opencode stream ended for ${current.sessionId}`);
       } catch (error) {
-        if (!signal.aborted) this.deps.log(`opencode stream failed for ${current.sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+        if (!signal.aborted)
+          this.deps.log(
+            `opencode stream failed for ${current.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
       }
       if (signal.aborted) return;
       if (!openedThisTry) failures += 1;
@@ -225,7 +232,11 @@ export class HubOpencodeAdapter {
 
   /** Writes the message as a prompt, then confirms it. A failed write leaves it for redelivery. */
   private async deliver(message: Message, fromName: string, streamId: string): Promise<void> {
-    await this.deps.serve.prompt(message.deliveredTo?.replace(/^opencode:/, "") ?? "", message.id, messagePrompt(message, fromName));
+    await this.deps.serve.prompt(
+      message.deliveredTo?.replace(/^opencode:/, "") ?? "",
+      message.id,
+      messagePrompt(message, fromName),
+    );
     await this.deps.hub.request("POST", `/v1/messages/${message.id}/delivered`, { stream: streamId });
   }
 
@@ -269,7 +280,11 @@ export function liveOpencodeServePort(): OpencodeServePort {
     async prompt(sessionId, requestId, text) {
       // The message id is the request id, so a redelivery of the same message after a dropped
       // stream is one prompt the serve's own ledger recognises rather than a second turn.
-      const answered = await serveRequest(`/api/session/${sessionId}/prompt`, { text, delivery: "queue", requestID: requestId });
+      const answered = await serveRequest(`/api/session/${sessionId}/prompt`, {
+        text,
+        delivery: "queue",
+        requestID: requestId,
+      });
       if (answered.status === 401) {
         resetOpencodeClient();
         throw new Error(`prompt: unauthorized (${answered.status})`);

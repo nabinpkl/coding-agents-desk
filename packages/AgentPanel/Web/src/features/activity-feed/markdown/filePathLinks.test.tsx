@@ -50,10 +50,7 @@ function renderWith(content: string, open: (target: FilePathTarget) => void) {
 describe("paths in a message", () => {
   it("opens inline code, links and prose paths, each with its line", () => {
     const open = vi.fn();
-    renderWith(
-      "Changed `src/app.ts:42`, see [the plan](docs/plan.md) and tools/check.sh:3 for more.",
-      open,
-    );
+    renderWith("Changed `src/app.ts:42`, see [the plan](docs/plan.md) and tools/check.sh:3 for more.", open);
 
     fireEvent.click(screen.getByText("src/app.ts:42"));
     fireEvent.click(screen.getByText("the plan"));

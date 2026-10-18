@@ -6,7 +6,7 @@ import type { ClaudeRunMode } from "./claudeSdk.ts";
 // How recently a session was active, derived at read time rather than stored:
 // a selected-project probe combines transcript recency with the latest bounded
 // turn signal.
-export type Bin = 'live' | 'ready' | 'paused' | 'cold';
+export type Bin = "live" | "ready" | "paused" | "cold";
 
 export type AgentRunState = "idle" | "running" | "ended" | "error";
 

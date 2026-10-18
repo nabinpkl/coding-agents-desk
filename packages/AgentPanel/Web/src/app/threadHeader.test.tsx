@@ -15,9 +15,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -61,10 +59,7 @@ describe("App shell", () => {
     const { transport, unmount } = setup();
     openClaudeThread(transport);
 
-    expect(screen.getByTestId("activity-feed")).toHaveAttribute(
-      "data-controls-host",
-      "attached",
-    );
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-controls-host", "attached");
     unmount();
   });
 
@@ -162,8 +157,7 @@ describe("App shell", () => {
       source: "claude",
       sessionId: "sid-claude-01",
     });
-    expect(fake.posted.some((message) =>
-      (message as { t?: string }).t?.startsWith("agent-terminal-"))).toBe(false);
+    expect(fake.posted.some((message) => (message as { t?: string }).t?.startsWith("agent-terminal-"))).toBe(false);
     expect(screen.getByRole("status")).toHaveTextContent("Opening Claude");
     const terminal = screen.getByRole("region", { name: "Claude terminal" });
     // The pane belongs to the session's own column, which fills `main`, rather than being a band
@@ -216,8 +210,7 @@ describe("App shell", () => {
     expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Hide the terminal" }));
-    expect(screen.queryByRole("region", { name: "Claude session terminal" }))
-      .not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Claude session terminal" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
     unmount();
   });
@@ -321,8 +314,8 @@ describe("App shell", () => {
     // Exactly one. The composer box used to carry its own copy of these handlers, and a drop that
     // landed on it would now be taken by the box AND again by the card it bubbled up to, which
     // puts the same image in the composer twice.
-    const drops = transport.requests.filter((request) =>
-      request.method === "POST" && request.path.endsWith("/composer/image")
+    const drops = transport.requests.filter(
+      (request) => request.method === "POST" && request.path.endsWith("/composer/image"),
     );
     expect(drops).toHaveLength(1);
     expect(drops[0]!.path).toContain("sid-claude-01");
@@ -345,8 +338,7 @@ describe("App shell", () => {
       drop(card, [new File(["png"], "shot.png", { type: "image/png" })]);
     });
 
-    expect(transport.requests.filter((request) => request.path.endsWith("/composer/image")))
-      .toHaveLength(0);
+    expect(transport.requests.filter((request) => request.path.endsWith("/composer/image"))).toHaveLength(0);
     unmount();
   });
 
@@ -418,5 +410,4 @@ describe("App shell", () => {
     expect(screen.getByText("Open to drop an image")).toBeInTheDocument();
     unmount();
   });
-
 });

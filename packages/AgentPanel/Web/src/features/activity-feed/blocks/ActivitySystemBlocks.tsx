@@ -17,8 +17,7 @@ import { runWithFinally } from "@/hooks/state/runWithFinally";
  * these as openable.
  */
 const DRAWER_CLASS = "text-(length:--agent-panel-fs-tile-chip,12px)";
-const DRAWER_SUMMARY_CLASS =
-  "cursor-pointer py-0.5 font-mono leading-none text-muted-foreground hover:text-foreground";
+const DRAWER_SUMMARY_CLASS = "cursor-pointer py-0.5 font-mono leading-none text-muted-foreground hover:text-foreground";
 
 /**
  * Pretty-print a raw transcript line when it is JSON, untouched otherwise.
@@ -107,21 +106,13 @@ export function RawDetails({
         {metadata.map((block, index) => (
           <LabeledTextBlock key={index} block={block} />
         ))}
-        {includesRawJson ? (
-          <RawJsonBlock session={session} eventIndex={eventIndex} />
-        ) : null}
+        {includesRawJson ? <RawJsonBlock session={session} eventIndex={eventIndex} /> : null}
       </div>
     </details>
   );
 }
 
-export function RawJsonBlock({
-  session,
-  eventIndex,
-}: {
-  session: SessionReference;
-  eventIndex: number;
-}) {
+export function RawJsonBlock({ session, eventIndex }: { session: SessionReference; eventIndex: number }) {
   const dataSource = useDataSource();
   const [raw, setRaw] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -131,13 +122,16 @@ export function RawJsonBlock({
     if (raw !== null || loading) return;
     setLoading(true);
     setError(null);
-    return runWithFinally(async () => {
-      try {
-        setRaw(await dataSource.fetchRawEvent(session, eventIndex));
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "raw event fetch failed");
-      }
-    }, () => setLoading(false));
+    return runWithFinally(
+      async () => {
+        try {
+          setRaw(await dataSource.fetchRawEvent(session, eventIndex));
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : "raw event fetch failed");
+        }
+      },
+      () => setLoading(false),
+    );
   }, [dataSource, eventIndex, loading, raw, session]);
 
   const pretty = useMemo(() => (raw !== null ? formatRawJson(raw) : null), [raw]);
@@ -176,10 +170,7 @@ export function RawJsonBlock({
               wrapper reuses the code-block classes so the dual-theme token
               colors and the scroll container come along unchanged. */}
           {html ? (
-            <div
-              className="agent-panel-code__body max-h-80"
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
+            <div className="agent-panel-code__body max-h-80" dangerouslySetInnerHTML={{ __html: html }} />
           ) : (
             <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-foreground/75">
               {pretty}

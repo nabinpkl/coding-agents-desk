@@ -124,9 +124,7 @@ describe("FatherOverlay", () => {
     );
     expect(screen.getByTestId("father-session")).toHaveAttribute("data-error", "detach failed");
 
-    rerender(
-      <FatherOverlay {...PROPS} botError={{ session: "claude:s2", message: "detach failed" }} />,
-    );
+    rerender(<FatherOverlay {...PROPS} botError={{ session: "claude:s2", message: "detach failed" }} />);
     expect(screen.getByTestId("father-session")).toHaveAttribute("data-error", "");
   });
 
@@ -144,9 +142,7 @@ describe("FatherOverlay", () => {
     fireEvent.pointerUp(header, { pointerId: 2, clientX: 160, clientY: 70, bubbles: true });
     // jsdom measures nothing, so the stand starts at the origin and follows the pointer.
     expect(screen.getByRole("region", { name: "Father home" }).style.left).toBe("60px");
-    expect(localStorage.getItem("agent-panel.bot-canvas.father-position")).toBe(
-      JSON.stringify({ x: 60, y: 50 }),
-    );
+    expect(localStorage.getItem("agent-panel.bot-canvas.father-position")).toBe(JSON.stringify({ x: 60, y: 50 }));
   });
 
   it("never carries a press that began on a control", () => {

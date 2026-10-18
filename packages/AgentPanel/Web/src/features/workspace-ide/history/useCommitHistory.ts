@@ -64,8 +64,7 @@ export function useCommitHistory(
     queryFn: () => client.commits(workspaceId!, limit).then((answer) => answer.commits),
     enabled: enabled && workspaceId !== null,
     // "Show more" asks again with a longer limit; the shorter log stays on screen meanwhile.
-    placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[2] === workspaceId ? previous : undefined,
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === workspaceId ? previous : undefined),
   });
   const detail = usePanelQuery({
     queryKey: ["workspace-commit", clientKey, workspaceId, openHash],

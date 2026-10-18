@@ -51,7 +51,6 @@ export function rememberedSession(): string | undefined {
   }
 }
 
-
 /** Remember which machine this panel is pointed at, or forget it for the default. */
 export function storeSession(id: string | undefined): void {
   try {

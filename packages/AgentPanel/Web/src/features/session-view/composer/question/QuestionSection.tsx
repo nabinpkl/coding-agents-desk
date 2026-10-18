@@ -66,9 +66,7 @@ export function QuestionSection({
           {question.multiSelect ? " \u00b7 choose any" : ""}
         </p>
       ) : question.multiSelect ? (
-        <p className="mt-0.5 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-          Choose any
-        </p>
+        <p className="mt-0.5 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">Choose any</p>
       ) : null}
       <div className="mt-2 space-y-1">
         {question.options.map((option, index) => {
@@ -84,7 +82,9 @@ export function QuestionSection({
               // radio already checked fires no change event, so re-picking the option this panel
               // already shows reached nothing -- and that is precisely the gesture for pulling the
               // terminal back when it has drifted somewhere else.
-              onClick={() => { if (!inert) onPoint(index); }}
+              onClick={() => {
+                if (!inert) onPoint(index);
+              }}
               className={`flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50 ${
                 cursor === index ? "bg-primary/5 ring-1 ring-primary/40" : ""
               }`}

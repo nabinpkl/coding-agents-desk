@@ -1,9 +1,9 @@
 // Where Codex keeps its rollouts and its state database, and how to ask a rollout
 // whether its last turn finished without reading the whole thing.
 
-import { join } from 'node:path';
-import { readdirSync } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { join } from "node:path";
+import { readdirSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { config } from "@/config/config";
 import { turnClosedFor } from "@/transcripts/codex/codexPayloads";
 
@@ -14,7 +14,11 @@ const CODEX_HOME = config.codexHomeDirectory;
 // without a code change as long as the columns we read remain present.
 export function resolveStateDbPath(): string | null {
   let entries: string[] = [];
-  try { entries = readdirSync(CODEX_HOME); } catch { return null; }
+  try {
+    entries = readdirSync(CODEX_HOME);
+  } catch {
+    return null;
+  }
   let best: { n: number; path: string } | null = null;
   for (const name of entries) {
     const m = /^state_(\d+)\.sqlite$/.exec(name);
@@ -38,13 +42,17 @@ export function resolveStateDbPath(): string | null {
  */
 export async function readTail(filePath: string, bytes: number): Promise<boolean | undefined> {
   let fh: Awaited<ReturnType<typeof open>>;
-  try { fh = await open(filePath, 'r'); } catch { return undefined; }
+  try {
+    fh = await open(filePath, "r");
+  } catch {
+    return undefined;
+  }
   try {
     const { size } = await fh.stat();
     const start = Math.max(0, size - bytes);
     const buf = Buffer.alloc(Math.min(size, bytes));
     const { bytesRead } = await fh.read(buf, 0, buf.length, start);
-    const lines = buf.toString('utf-8', 0, bytesRead).split('\n');
+    const lines = buf.toString("utf-8", 0, bytesRead).split("\n");
     // A window that starts mid-file almost certainly starts mid-line.
     if (start > 0) lines.shift();
     let closed: boolean | undefined;
@@ -52,12 +60,14 @@ export async function readTail(filePath: string, bytes: number): Promise<boolean
       if (!line.trim()) continue;
       try {
         const parsed = JSON.parse(line);
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
         // Last one in the window wins: this is the turn state as of the most
         // recent line that spoke to it.
         const next = turnClosedFor(parsed as { type?: string; payload?: Record<string, unknown> });
         if (next !== undefined) closed = next;
-      } catch { continue; }
+      } catch {
+        continue;
+      }
     }
     return closed;
   } finally {

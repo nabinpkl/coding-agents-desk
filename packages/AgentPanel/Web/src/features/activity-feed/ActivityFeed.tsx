@@ -4,25 +4,14 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
-import {
-  useSessionEventsStream,
-  type TokenUsage,
-} from "@/features/activity-feed/useSessionEventsStream";
+import { useSessionEventsStream, type TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { liveRowKey, queuedTails } from "@/features/activity-feed/rows/liveTailBlocks";
 import { CompactingNotice } from "@/features/activity-feed/blocks/CompactingNotice";
 import { ReconnectingNotice } from "@/features/activity-feed/ReconnectingNotice";
 import { useStickToBottom } from "@/features/activity-feed/scroll-position/useStickToBottom";
-import {
-  isEventItem,
-  itemKey,
-  leadEvent,
-} from "@/features/activity-feed/rows/activityDisplayItems";
-import {
-  jumpScrollTop,
-} from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
-import {
-  type EventRowContext,
-} from "@/features/activity-feed/blocks/ActivityEventRows";
+import { isEventItem, itemKey, leadEvent } from "@/features/activity-feed/rows/activityDisplayItems";
+import { jumpScrollTop } from "@/features/activity-feed/sticky-headers/activityStickyHeaders";
+import { type EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
 import { openAskUserQuestion, type OpenAskUserQuestion } from "@/app/askUserQuestion";
@@ -131,23 +120,31 @@ export function ActivityFeed({
   // incompatible, and skips the feed on its own; this says so where it applies.
   "use no memo";
   const {
-    events, loadOlder, fillGap, loadAround, windowStart, usage, sessionModel, loading, error, runState, queue, snapshotCount, liveTails, compactionSummary, reconnecting,
+    events,
+    loadOlder,
+    fillGap,
+    loadAround,
+    windowStart,
+    usage,
+    sessionModel,
+    loading,
+    error,
+    runState,
+    queue,
+    snapshotCount,
+    liveTails,
+    compactionSummary,
+    reconnecting,
   } = useSessionEventsStream(source, sessionId, mode);
   // What the stream says about the session, for the card around this feed. Keyed on the counts,
   // not the queue object, which is rebuilt on every state message.
-  const sessionState = useMemo(
-    () => ({ runState, queue }),
-    [runState, queue.followUp, queue.steer],
-  );
+  const sessionState = useMemo(() => ({ runState, queue }), [runState, queue.followUp, queue.steer]);
   useNotify(sessionState, (state) => onSessionState?.(state));
   useNotify(usage, (reading) => onUsage?.(reading));
   useNotify(sessionModel, (model) => onSessionModel?.(model));
   // The open AskUserQuestion derives from the stream the feed owns. Memoized so
   // the shell's mirror only re-renders when the answer actually changes it.
-  const openQuestion = useMemo(
-    () => openAskUserQuestion(events, liveTails),
-    [events, liveTails],
-  );
+  const openQuestion = useMemo(() => openAskUserQuestion(events, liveTails), [events, liveTails]);
   useNotify(openQuestion, (question) => onOpenQuestion?.(question));
   // The queued prompts the transcript does not hold yet, after the live tails: the feed's end is
   // where they will land, and each goes the moment its own message arrives, ahead of the turn's end.
@@ -205,7 +202,6 @@ export function ActivityFeed({
     toggleTool,
   } = useFeedRows({ events, liveTails: tails, mode, pause, source });
 
-
   // Without the paired results, which go to each row on their own so a new pairing re-renders only
   // the row whose call it answers (`ActivityFeedRow`).
   const rowContext: Omit<EventRowContext, "pairedToolResults"> = useMemo(
@@ -218,15 +214,7 @@ export function ActivityFeed({
       showCacheHits,
       ...(onForkFromMessage === undefined ? {} : { onForkFromMessage }),
     }),
-    [
-      source,
-      sessionId,
-      mode,
-      expandedTools,
-      toggleTool,
-      showCacheHits,
-      onForkFromMessage,
-    ],
+    [source, sessionId, mode, expandedTools, toggleTool, showCacheHits, onForkFromMessage],
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -399,18 +387,17 @@ export function ActivityFeed({
         >
           {virtualItems.map((virtualRow) => {
             const it = rowItems[virtualRow.index];
-            const own = it !== undefined && it.kind !== "tail" && it.kind !== "cluster" && it.kind !== "gap"
-              ? it.ev.index
-              : null;
+            const own =
+              it !== undefined && it.kind !== "tail" && it.kind !== "cluster" && it.kind !== "gap" ? it.ev.index : null;
             return (
               <ActivityFeedRow
-                key={it?.kind === "tail"
-                  ? `live-tail:${liveRowKey(it.ev)}`
-                  : it ? itemKey(it) : virtualRow.index}
+                key={it?.kind === "tail" ? `live-tail:${liveRowKey(it.ev)}` : it ? itemKey(it) : virtualRow.index}
                 expandCluster={expandCluster}
                 gapFailed={it?.kind === "gap" && failedGaps.has(gapIdentity(it))}
                 index={virtualRow.index}
-                isCollapsed={it?.kind === "tail" ? collapsedTails.has(liveRowKey(it.ev)) : own !== null && collapsed.has(own)}
+                isCollapsed={
+                  it?.kind === "tail" ? collapsedTails.has(liveRowKey(it.ev)) : own !== null && collapsed.has(own)
+                }
                 isHighlighted={own !== null && highlightedEvIdx === own}
                 it={it}
                 measureElement={rowVirtualizer.measureElement}
@@ -439,7 +426,7 @@ export function ActivityFeed({
           </span>
         </div>
       ) : null}
-      {(stickyUser || remoteMessage || stickyCurrent) ? (
+      {stickyUser || remoteMessage || stickyCurrent ? (
         <div className="absolute inset-x-0 top-0 z-20 flex flex-col">
           {stickyUser && stickyUserIndex !== null ? (
             <StickyUserHeader

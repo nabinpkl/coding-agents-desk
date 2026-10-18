@@ -18,8 +18,9 @@ export const DOUBLE_SHIFT_MS = 350;
  * Both presses must be a bare Shift -- not held (a key repeat is not a second press) and with no
  * other key between them, so typing `A` and then `B` with Shift held twice in a row never counts.
  */
-export function doubleShiftDetector(): (event: Pick<KeyboardEvent, "key" | "repeat" | "timeStamp"
-  | "metaKey" | "ctrlKey" | "altKey">) => boolean {
+export function doubleShiftDetector(): (
+  event: Pick<KeyboardEvent, "key" | "repeat" | "timeStamp" | "metaKey" | "ctrlKey" | "altKey">,
+) => boolean {
   let lastShift: number | null = null;
   return (event) => {
     if (event.key !== "Shift" || event.repeat || event.metaKey || event.ctrlKey || event.altKey) {
@@ -35,29 +36,28 @@ export function doubleShiftDetector(): (event: Pick<KeyboardEvent, "key" | "repe
   };
 }
 
-export function useSearchShortcuts({
-  onQuickOpen,
-  onSearch,
-}: {
-  onQuickOpen: () => void;
-  onSearch: () => void;
-}): void {
+export function useSearchShortcuts({ onQuickOpen, onSearch }: { onQuickOpen: () => void; onSearch: () => void }): void {
   const [detect] = useState(doubleShiftDetector);
-  useEventListener<KeyboardEvent>(window, "keydown", (event) => {
-    const command = event.metaKey || event.ctrlKey;
-    const key = event.key.toLowerCase();
-    // Cmd+P is the browser's Print, and taken over on purpose: it is the quick open every editor
-    // reader already has in their fingers.
-    if (command && !event.shiftKey && !event.altKey && key === "p") {
-      event.preventDefault();
-      onQuickOpen();
-      return;
-    }
-    if (command && event.shiftKey && !event.altKey && key === "f") {
-      event.preventDefault();
-      onSearch();
-      return;
-    }
-    if (detect(event)) onQuickOpen();
-  }, { capture: true });
+  useEventListener<KeyboardEvent>(
+    window,
+    "keydown",
+    (event) => {
+      const command = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      // Cmd+P is the browser's Print, and taken over on purpose: it is the quick open every editor
+      // reader already has in their fingers.
+      if (command && !event.shiftKey && !event.altKey && key === "p") {
+        event.preventDefault();
+        onQuickOpen();
+        return;
+      }
+      if (command && event.shiftKey && !event.altKey && key === "f") {
+        event.preventDefault();
+        onSearch();
+        return;
+      }
+      if (detect(event)) onQuickOpen();
+    },
+    { capture: true },
+  );
 }

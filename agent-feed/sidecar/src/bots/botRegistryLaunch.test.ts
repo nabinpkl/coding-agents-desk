@@ -11,21 +11,27 @@ test("creating a Bot with launch starts a session in its directory and attaches 
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
 
-  const bot = await addBot(registry, {
-    requestId: "request-1",
-    name: "OSS agent",
-    directoryPath: project,
-    launch: { prompt: "Familiarize yourself with the repo." },
-  }, { kind: "user" });
+  const bot = await addBot(
+    registry,
+    {
+      requestId: "request-1",
+      name: "OSS agent",
+      directoryPath: project,
+      launch: { prompt: "Familiarize yourself with the repo." },
+    },
+    { kind: "user" },
+  );
 
   // The title is the first free anchor, bare: names come from the pool, never from the Bot.
-  expect(launched).toEqual([{
-    kind: "start",
-    cwd: project,
-    sessionId: "started-1",
-    title: "Aaron",
-    prompt: "Familiarize yourself with the repo.",
-  }]);
+  expect(launched).toEqual([
+    {
+      kind: "start",
+      cwd: project,
+      sessionId: "started-1",
+      title: "Aaron",
+      prompt: "Familiarize yourself with the repo.",
+    },
+  ]);
   expect(bot.sessionRefs).toEqual([{ source: "claude", sessionId: "started-1" }]);
   // Not in `sessions` yet: the catalog cannot resolve a session whose transcript does not exist,
   // and saying so is more honest than pretending it is live.
@@ -37,48 +43,66 @@ test("a launch title brackets as the task after the allocated anchor, and a prom
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
 
-  await addBot(registry, {
-    requestId: "request-1",
-    name: "OSS agent",
-    directoryPath: project,
-    launch: { title: "familiarization" },
-  }, { kind: "user" });
+  await addBot(
+    registry,
+    {
+      requestId: "request-1",
+      name: "OSS agent",
+      directoryPath: project,
+      launch: { title: "familiarization" },
+    },
+    { kind: "user" },
+  );
 
   // The anchor is stable and the request is the bracket: the `-n` name is both halves at once.
-  expect(launched).toEqual([{
-    kind: "start",
-    cwd: project,
-    sessionId: "started-1",
-    title: "Aaron (familiarization)",
-    prompt: undefined,
-  }]);
+  expect(launched).toEqual([
+    {
+      kind: "start",
+      cwd: project,
+      sessionId: "started-1",
+      title: "Aaron (familiarization)",
+      prompt: undefined,
+    },
+  ]);
 });
 
 test("a launch can ask for SDK mode, and nothing that is neither mode", async () => {
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
 
-  await addBot(registry, {
-    requestId: "request-1",
-    name: "OSS agent",
-    directoryPath: project,
-    launch: { title: "probe", claudeMode: "sdk" },
-  }, { kind: "user" });
-  expect(launched).toEqual([{
-    kind: "start",
-    cwd: project,
-    sessionId: "started-1",
-    title: "Aaron (probe)",
-    prompt: undefined,
-    mode: "sdk",
-  }]);
+  await addBot(
+    registry,
+    {
+      requestId: "request-1",
+      name: "OSS agent",
+      directoryPath: project,
+      launch: { title: "probe", claudeMode: "sdk" },
+    },
+    { kind: "user" },
+  );
+  expect(launched).toEqual([
+    {
+      kind: "start",
+      cwd: project,
+      sessionId: "started-1",
+      title: "Aaron (probe)",
+      prompt: undefined,
+      mode: "sdk",
+    },
+  ]);
 
-  await expect(addBot(registry, {
-    requestId: "request-2",
-    name: "Other",
-    directoryPath: project,
-    launch: { claudeMode: "headless" as "sdk" },
-  }, { kind: "user" })).rejects.toThrow(/terminal or sdk/);
+  await expect(
+    addBot(
+      registry,
+      {
+        requestId: "request-2",
+        name: "Other",
+        directoryPath: project,
+        launch: { claudeMode: "headless" as "sdk" },
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toThrow(/terminal or sdk/);
   expect(launched).toHaveLength(1);
 });
 
@@ -104,12 +128,18 @@ test("a launch failure leaves the Bot behind and says so", async () => {
   const { launched, launcher } = recordingLauncher(new Error("tmux is not installed"));
   const { project, registry } = await fixture(launcher);
 
-  await expect(addBot(registry, {
-    requestId: "request-1",
-    name: "OSS agent",
-    directoryPath: project,
-    launch: {},
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotLaunchError);
+  await expect(
+    addBot(
+      registry,
+      {
+        requestId: "request-1",
+        name: "OSS agent",
+        directoryPath: project,
+        launch: {},
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotLaunchError);
 
   expect(launched).toHaveLength(1);
   const snapshot = await registry.snapshot();
@@ -121,20 +151,30 @@ test("a launch failure leaves the Bot behind and says so", async () => {
 test("an agent may add a Bot but may not start a session for it", async () => {
   const { launched, launcher } = recordingLauncher();
   const { project, ref, registry } = await fixture(launcher);
-  await addBot(registry, {
-    requestId: "request-1",
-    name: "Owner",
-    directoryPath: project,
-    grants: ["add_bot"],
-  }, { kind: "user" });
+  await addBot(
+    registry,
+    {
+      requestId: "request-1",
+      name: "Owner",
+      directoryPath: project,
+      grants: ["add_bot"],
+    },
+    { kind: "user" },
+  );
   await addSessions(registry, "bot-1", { requestId: "attach-1", sessionRefs: [ref] }, { kind: "user" });
 
-  await expect(addBot(registry, {
-    requestId: "request-2",
-    name: "Spawned",
-    directoryPath: project,
-    launch: { prompt: "do the thing" },
-  }, { kind: "agent", session: ref })).rejects.toBeInstanceOf(BotForbiddenError);
+  await expect(
+    addBot(
+      registry,
+      {
+        requestId: "request-2",
+        name: "Spawned",
+        directoryPath: project,
+        launch: { prompt: "do the thing" },
+      },
+      { kind: "agent", session: ref },
+    ),
+  ).rejects.toBeInstanceOf(BotForbiddenError);
 
   expect(launched).toEqual([]);
 });
@@ -143,12 +183,18 @@ test("refuses a launch title that would not survive being one argument", async (
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
 
-  await expect(addBot(registry, {
-    requestId: "request-1",
-    name: "OSS agent",
-    directoryPath: project,
-    launch: { title: "line\nbreak" },
-  }, { kind: "user" })).rejects.toThrow(/line break/);
+  await expect(
+    addBot(
+      registry,
+      {
+        requestId: "request-1",
+        name: "OSS agent",
+        directoryPath: project,
+        launch: { title: "line\nbreak" },
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toThrow(/line break/);
 
   expect(launched).toEqual([]);
   expect((await registry.snapshot()).bots).toEqual([]);
@@ -164,7 +210,9 @@ test("resending a request whose launch failed starts the session it still owes",
       if (broken) throw failure;
       return { tmuxSession: `agentdesk-${options.sessionId}` };
     },
-    fork: async () => { throw new Error("unreached"); },
+    fork: async () => {
+      throw new Error("unreached");
+    },
     end: async () => null,
   };
   const { project, registry } = await fixture(launcher);

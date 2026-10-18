@@ -7,30 +7,33 @@ const server = { timeout() {} } as never;
 
 function report(inputTokens: number): UsageReport {
   return {
-    vendors: [{
-      vendor: "codex",
-      displayName: "Codex",
-      installed: true,
-      days: [{
-        date: "2026-08-13",
-        totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
-        byModel: [{
-          model: "gpt-5.6-sol",
-          alias: null,
-          totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
-        }],
-      }],
-      quotas: [],
-      coverage: { from: "2026-08-13", to: "2026-08-13", sessions: 1, unreadable: 0 },
-      scannedAt: 1_750_000_000_000,
-    }],
+    vendors: [
+      {
+        vendor: "codex",
+        displayName: "Codex",
+        installed: true,
+        days: [
+          {
+            date: "2026-08-13",
+            totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
+            byModel: [
+              {
+                model: "gpt-5.6-sol",
+                alias: null,
+                totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
+              },
+            ],
+          },
+        ],
+        quotas: [],
+        coverage: { from: "2026-08-13", to: "2026-08-13", sessions: 1, unreadable: 0 },
+        scannedAt: 1_750_000_000_000,
+      },
+    ],
   };
 }
 
-function scanner(options: {
-  cached?: UsageReport | null;
-  scan: () => Promise<UsageReport>;
-}): UsageScanner {
+function scanner(options: { cached?: UsageReport | null; scan: () => Promise<UsageReport> }): UsageScanner {
   return { cached: () => options.cached ?? null, scan: options.scan };
 }
 
@@ -77,11 +80,7 @@ test("a warm reader is painted from cache first, then corrected", async () => {
   const route = createUsageRoutes(scanner({ cached: stale, scan: async () => fresh }));
 
   const messages = await collect(await route(...get(), server)!);
-  expect(messages).toEqual([
-    { type: "report", report: stale },
-    { type: "report", report: fresh },
-    { type: "settled" },
-  ]);
+  expect(messages).toEqual([{ type: "report", report: stale }, { type: "report", report: fresh }, { type: "settled" }]);
 });
 
 test("a sweep that changed nothing does not make the panel render twice", async () => {
@@ -99,27 +98,33 @@ test("a sweep that changed nothing does not make the panel render twice", async 
 });
 
 test("a failed sweep is reported in the stream, since the status is already committed", async () => {
-  const route = createUsageRoutes(scanner({
-    scan: async () => {
-      throw new Error("disk went away");
-    },
-  }));
+  const route = createUsageRoutes(
+    scanner({
+      scan: async () => {
+        throw new Error("disk went away");
+      },
+    }),
+  );
 
   const messages = await collect(await route(...get(), server)!);
-  expect(messages).toEqual([{
-    type: "error",
-    error: { code: "usage-scan-failed", message: "disk went away", retryable: true },
-  }]);
+  expect(messages).toEqual([
+    {
+      type: "error",
+      error: { code: "usage-scan-failed", message: "disk went away", retryable: true },
+    },
+  ]);
 });
 
 test("a failed sweep still shows what the cache had", async () => {
   const stale = report(100);
-  const route = createUsageRoutes(scanner({
-    cached: stale,
-    scan: async () => {
-      throw new Error("nope");
-    },
-  }));
+  const route = createUsageRoutes(
+    scanner({
+      cached: stale,
+      scan: async () => {
+        throw new Error("nope");
+      },
+    }),
+  );
 
   const messages = await collect(await route(...get(), server)!);
   expect(messages[0]).toEqual({ type: "report", report: stale });

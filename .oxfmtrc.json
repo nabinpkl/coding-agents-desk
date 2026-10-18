@@ -1,0 +1,8 @@
+{
+  "$schema": "./packages/AgentPanel/Web/node_modules/oxfmt/configuration_schema.json",
+  // 120 rather than oxfmt's 100: the tree was written near 120, so this moved the fewest lines,
+  // and at 100 the reflow pushed 47 files past the 500-line cap (18 at 120, split before this).
+  // Everything else is oxfmt's default. Run it with tools/format.sh; check 9 of
+  // tools/agent-feed-fitness.sh fails on any file it would change.
+  "printWidth": 120
+}

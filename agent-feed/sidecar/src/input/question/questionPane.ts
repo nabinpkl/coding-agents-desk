@@ -94,9 +94,7 @@ export class QuestionPane {
   }
 
   private tabRow(): string {
-    const entries = this.questions.map((question, at) =>
-      `${this.answered[at] ? "☒" : "☐"} ${question.header}`
-    );
+    const entries = this.questions.map((question, at) => `${this.answered[at] ? "☒" : "☐"} ${question.header}`);
     if (!this.hasSubmitTab) return ` ${entries[0]}`;
     return `←  ${[...entries, "✔ Submit"].join("  ")}  →`;
   }
@@ -125,8 +123,7 @@ export class QuestionPane {
       `\u2502 a preview${" ".repeat(32)}\u2502`,
       `\u2514${"\u2500".repeat(42)}\u2518`,
     ];
-    const held = this.notes[at]!
-      || (this.noteCaret === null ? NOTE_PROMPT.idle : NOTE_PROMPT.open);
+    const held = this.notes[at]! || (this.noteCaret === null ? NOTE_PROMPT.idle : NOTE_PROMPT.open);
     const rows: string[] = [];
     for (let line = 0; line < Math.max(band.length, panel.length); line += 1) {
       rows.push(`${band[line] ?? " ".repeat(BAND)}${panel[line] ?? ""}`.trimEnd());
@@ -163,8 +160,7 @@ export class QuestionPane {
     });
     const other = this.otherRow(at);
     const box = question.multiSelect ? (this.otherTicked[at] ? "[✔] " : "[ ] ") : "";
-    const held = this.other[at] ||
-      (question.multiSelect ? PLACEHOLDER.multi : PLACEHOLDER.single);
+    const held = this.other[at] || (question.multiSelect ? PLACEHOLDER.multi : PLACEHOLDER.single);
     const tick = !question.multiSelect && this.chosen[at] === -1 ? " ✔" : "";
     lines.push(`${mark(other)}${other + 1}. ${box}${held}${tick}`);
     if (question.multiSelect) {

@@ -121,10 +121,7 @@ describe("useSessionEventsStream live tail", () => {
       }),
     );
     expect(view.result.current.liveTails).toEqual([]);
-    expect(view.result.current.events.map((value) => value.id)).toEqual([
-      "result-1",
-      "row-later",
-    ]);
+    expect(view.result.current.events.map((value) => value.id)).toEqual(["result-1", "row-later"]);
   });
 
   it("keeps the whole turn previewed while the transcript is behind", async () => {
@@ -143,11 +140,7 @@ describe("useSessionEventsStream live tail", () => {
     act(() => handlers?.onLiveTail?.(tailEvent(1, "msg_b", 200)));
     act(() => handlers?.onLiveTail?.({ ...tailEvent(1, "msg_b", 200), phase: "complete" }));
     act(() => handlers?.onLiveTail?.(tailEvent(2, "msg_c", 300)));
-    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual([
-      "msg_a",
-      "msg_b",
-      "msg_c",
-    ]);
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_a", "msg_b", "msg_c"]);
 
     // The file finally catches up on the FIRST of them. Its row is stamped when the
     // message was written, which is after the next one began streaming -- so a rule
@@ -165,10 +158,7 @@ describe("useSessionEventsStream live tail", () => {
         blocks: [{ kind: "text", text: "a" }],
       }),
     );
-    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual([
-      "msg_b",
-      "msg_c",
-    ]);
+    expect(view.result.current.liveTails.map((row) => row.messageId)).toEqual(["msg_b", "msg_c"]);
 
     // Reaching a later message retires everything the mirror published before it,
     // whether or not the panel's window still holds those rows.
@@ -190,12 +180,23 @@ describe("useSessionEventsStream live tail", () => {
   // Either side can be the late one, and the handoff used to run only when the file's row arrived.
   describe("whichever side lands last", () => {
     const line = (index: number, messageId: string): ActivityEvent => ({
-      index, id: `row-${index}`, revision: 0, phase: "complete", ts: index, type: "assistant", messageId,
+      index,
+      id: `row-${index}`,
+      revision: 0,
+      phase: "complete",
+      ts: index,
+      type: "assistant",
+      messageId,
       blocks: [{ kind: "text", text: "Done." }],
     });
     /** The mirror's row for a follow-up request's tool results: no message, one result per call. */
     const results = (index: number, ...callIds: string[]): ActivityEvent => ({
-      index, id: `claude-live:user:flow-${index}`, revision: 0, phase: "complete", ts: index, type: "user",
+      index,
+      id: `claude-live:user:flow-${index}`,
+      revision: 0,
+      phase: "complete",
+      ts: index,
+      type: "user",
       blocks: callIds.map((callId) => ({ kind: "tool_result", callId, preview: "contents" })),
     });
 
@@ -246,7 +247,8 @@ describe("useSessionEventsStream live tail", () => {
       await waitFor(() => expect(view.result.current.loading).toBe(false));
       const handlers = session.handlers();
       const paired = (index: number, callId: string): ActivityEvent => ({
-        ...results(index, callId), id: `row-${index}`,
+        ...results(index, callId),
+        id: `row-${index}`,
       });
 
       act(() => handlers.onLiveTail?.(results(0, "call-a", "call-b")));

@@ -43,8 +43,8 @@ export async function claudeSessionRunning(
 export async function liveTmuxSession(
   source: "claude" | "codex" | "opencode",
   sessionId: string,
-  processes: () => Promise<{ sessionId: string; tmuxSession: string | null }[]> =
-    async () => liveSessionProcesses(await currentProcessTable()),
+  processes: () => Promise<{ sessionId: string; tmuxSession: string | null }[]> = async () =>
+    liveSessionProcesses(await currentProcessTable()),
   stamped: (sessionId: string) => Promise<string | null> = findTmuxSessionByIdentity,
 ): Promise<string | null> {
   if (source === "codex") return null;

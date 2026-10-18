@@ -7,7 +7,10 @@
 export type SearchFailureCode = "searchUnavailable" | "searchBusy" | "invalidQuery";
 
 export class SearchFailure extends Error {
-  constructor(readonly code: SearchFailureCode, message: string) {
+  constructor(
+    readonly code: SearchFailureCode,
+    message: string,
+  ) {
     super(message);
     this.name = "SearchFailure";
   }
@@ -99,9 +102,15 @@ export async function runRipgrep(
     if (!stopped && code === 2 && /regex parse error|error parsing glob|unrecognized/i.test(message)) {
       // rg draws a caret under the offending column, which means nothing once the lines are
       // folded, so only its first line and its verdict travel: "regex parse error: unclosed group".
-      const lines = message.replace(/^rg: /, "").split("\n").map((line) => line.trim());
-      const verdict = lines.findLast((line) => line.startsWith("error:"))?.slice(6).trim();
-      throw new SearchFailure("invalidQuery", verdict ? `${lines[0]} ${verdict}` : lines[0] ?? message);
+      const lines = message
+        .replace(/^rg: /, "")
+        .split("\n")
+        .map((line) => line.trim());
+      const verdict = lines
+        .findLast((line) => line.startsWith("error:"))
+        ?.slice(6)
+        .trim();
+      throw new SearchFailure("invalidQuery", verdict ? `${lines[0]} ${verdict}` : (lines[0] ?? message));
     }
     return { stopped };
   } finally {

@@ -74,7 +74,12 @@ test("spends anchors a record predates and renames every session it can", async 
   const { project, ref, secondRef, claudeRef, registry, store } = await fixture();
   sessions.set("pi:session-1", { projectPath: project, summary: { ...summary(ref), title: "Windows canvas" } });
   const bot = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
-  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref, secondRef, claudeRef] }, { kind: "user" });
+  await addSessions(
+    registry,
+    bot.botId,
+    { requestId: "attach", sessionRefs: [ref, secondRef, claudeRef] },
+    { kind: "user" },
+  );
   // As a record written before anchors existed.
   await store.mutate((snapshot) => {
     const next = {
@@ -168,16 +173,29 @@ test("no rename for a source without a mechanism, a session two Bots hold, or on
   const { project, ref, secondRef, claudeRef, secondProject, registry, store } = await fixture();
   sessions.set("claude:session-3", { projectPath: project, summary: { ...summary(claudeRef), title: "Alan" } });
   const bot = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
-  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref, secondRef, claudeRef] }, { kind: "user" });
+  await addSessions(
+    registry,
+    bot.botId,
+    { requestId: "attach", sessionRefs: [ref, secondRef, claudeRef] },
+    { kind: "user" },
+  );
   // The pi session also joins a second Bot, so it has two anchors.
   sessions.set("pi:session-1", { projectPath: secondProject, summary: summary(ref) });
-  const other = await addBot(registry, { requestId: "add-2", name: "Second", directoryPath: secondProject }, { kind: "user" });
+  const other = await addBot(
+    registry,
+    { requestId: "add-2", name: "Second", directoryPath: secondProject },
+    { kind: "user" },
+  );
   await addSessions(registry, other.botId, { requestId: "attach-2", sessionRefs: [ref] }, { kind: "user" });
 
   const asked: string[] = [];
-  const { queue } = startQueue(store, async (at) => {
-    asked.push(`${at.source}:${at.sessionId}`);
-  }, (source) => source !== "codex");
+  const { queue } = startQueue(
+    store,
+    async (at) => {
+      asked.push(`${at.source}:${at.sessionId}`);
+    },
+    (source) => source !== "codex",
+  );
   await queue.settled();
   expect(asked).toEqual([]);
 });
@@ -190,10 +208,18 @@ test("a session reopened in a pane is renamed once it is ready, without waiting 
   let running = false;
   let ready: (value: boolean) => void = () => {};
   const asked: string[] = [];
-  const { queue, paneStarted } = startQueue(store, async (_at, title) => {
-    asked.push(title);
-    if (!running) throw new Error("this session is not running, and only a running session can rename itself");
-  }, () => true, () => new Promise<boolean>((resolve) => { ready = resolve; }));
+  const { queue, paneStarted } = startQueue(
+    store,
+    async (_at, title) => {
+      asked.push(title);
+      if (!running) throw new Error("this session is not running, and only a running session can rename itself");
+    },
+    () => true,
+    () =>
+      new Promise<boolean>((resolve) => {
+        ready = resolve;
+      }),
+  );
   await queue.settled();
   expect(asked).toHaveLength(1);
 
@@ -217,13 +243,18 @@ test("a pane that never came up, or one no Bot holds, asks nothing", async () =>
 
   const asked: string[] = [];
   const waited: string[] = [];
-  const { queue, paneStarted } = startQueue(store, async (_at, title) => {
-    asked.push(title);
-    throw new Error("this session is not running, and only a running session can rename itself");
-  }, () => true, async (at) => {
-    waited.push(at.sessionId);
-    return false;
-  });
+  const { queue, paneStarted } = startQueue(
+    store,
+    async (_at, title) => {
+      asked.push(title);
+      throw new Error("this session is not running, and only a running session can rename itself");
+    },
+    () => true,
+    async (at) => {
+      waited.push(at.sessionId);
+      return false;
+    },
+  );
   await queue.settled();
   paneStarted("session-1");
   paneStarted("not-on-any-bot");

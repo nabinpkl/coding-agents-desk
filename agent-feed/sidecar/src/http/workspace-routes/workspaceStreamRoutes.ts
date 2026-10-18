@@ -29,29 +29,38 @@ export function createWorkspaceStreamRoutes(service: WorkspaceService): RouteHan
       return workspaceErrorResponse("workspaceUnavailable", "Workspace is unavailable.", id);
     }
 
-    return startServerSentEventStream(request, server, (write) => {
-      // The current state before any change, so a reader that opens the stream is not blank until
-      // something happens to the disk. This is the initial load and the live update in one place,
-      // which is why the panel needs no separate fetch on mount.
-      write(encodeServerSentEvent({ type: "workspaces", workspaces: service.store.list() }));
-      write(encodeServerSentEvent({ type: "sharedState", state: service.sharedState.snapshot(id) }));
-      void service.refreshGit(id).then((status) => {
-        write(encodeServerSentEvent({ type: "git", status }));
-        return service.tree(id);
-      }).then((tree) => {
-        write(encodeServerSentEvent({ type: "tree", workspaceId: id, tree }));
-      }).catch((error: unknown) => {
-        console.error("workspace stream bootstrap failed", error);
-      });
+    return startServerSentEventStream(
+      request,
+      server,
+      (write) => {
+        // The current state before any change, so a reader that opens the stream is not blank until
+        // something happens to the disk. This is the initial load and the live update in one place,
+        // which is why the panel needs no separate fetch on mount.
+        write(encodeServerSentEvent({ type: "workspaces", workspaces: service.store.list() }));
+        write(encodeServerSentEvent({ type: "sharedState", state: service.sharedState.snapshot(id) }));
+        void service
+          .refreshGit(id)
+          .then((status) => {
+            write(encodeServerSentEvent({ type: "git", status }));
+            return service.tree(id);
+          })
+          .then((tree) => {
+            write(encodeServerSentEvent({ type: "tree", workspaceId: id, tree }));
+          })
+          .catch((error: unknown) => {
+            console.error("workspace stream bootstrap failed", error);
+          });
 
-      // Events for other workspaces are dropped here rather than filtered at the source, because
-      // one service fans out to every reader and a reader asked about one workspace.
-      return service.subscribe((event) => {
-        if ("workspaceId" in event && event.workspaceId !== id) return;
-        if (event.type === "git" && event.status.workspaceId !== id) return;
-        if (event.type === "sharedState" && event.state.workspaceId !== id) return;
-        write(encodeServerSentEvent(event));
-      });
-    }, { lagLimit: LAG_LIMIT });
+        // Events for other workspaces are dropped here rather than filtered at the source, because
+        // one service fans out to every reader and a reader asked about one workspace.
+        return service.subscribe((event) => {
+          if ("workspaceId" in event && event.workspaceId !== id) return;
+          if (event.type === "git" && event.status.workspaceId !== id) return;
+          if (event.type === "sharedState" && event.state.workspaceId !== id) return;
+          write(encodeServerSentEvent(event));
+        });
+      },
+      { lagLimit: LAG_LIMIT },
+    );
   };
 }

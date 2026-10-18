@@ -3,7 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ProjectSessionList, ProjectSessionPreview } from "@/features/sidebar/session-list/ProjectSidebarItem";
 
-const loose = { source: "claude", sessionId: "loose", title: "Loose", lastEventAt: 1, activity: "ready" } as SessionSummary;
+const loose = {
+  source: "claude",
+  sessionId: "loose",
+  title: "Loose",
+  lastEventAt: 1,
+  activity: "ready",
+} as SessionSummary;
 const held = { ...loose, sessionId: "held", title: "Held" } as SessionSummary;
 
 describe("a session row's Move to canvas", () => {
@@ -55,13 +61,14 @@ describe("archiving from the project list", () => {
 });
 
 describe("a project's security reviews", () => {
-  const review = (sessionId: string, activity: SessionSummary["activity"] = "ready") => ({
-    ...loose,
-    sessionId,
-    title: `Review ${sessionId}`,
-    activity,
-    automation: "security-review",
-  }) as SessionSummary;
+  const review = (sessionId: string, activity: SessionSummary["activity"] = "ready") =>
+    ({
+      ...loose,
+      sessionId,
+      title: `Review ${sessionId}`,
+      activity,
+      automation: "security-review",
+    }) as SessionSummary;
 
   it("sit folded in one row below the person's sessions, however recent they are", () => {
     // Newest first, as the stream sends them: the reviews lead, and still land under the fold.

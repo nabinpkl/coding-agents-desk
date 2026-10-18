@@ -96,16 +96,17 @@ export function createTerminalFit(t: TerminalRuntime) {
     // The height the screen wants, at whichever size is going to be in force. Asked for even
     // when the reader has chosen one, so the pane grows to hold their choice and only the
     // width is left to scroll.
-    const wanted = chosen !== null
-      ? Math.round(t.baseCell.height * grid.rows * (chosen / BASE_FONT_SIZE))
-      : preferredScreenHeight({
-        baseFontSize: BASE_FONT_SIZE,
-        cell: t.baseCell,
-        grid,
-        availableWidth: available.width,
-        maximum: MAXIMUM_FONT_SIZE,
-        minimum: MINIMUM_FONT_SIZE,
-      });
+    const wanted =
+      chosen !== null
+        ? Math.round(t.baseCell.height * grid.rows * (chosen / BASE_FONT_SIZE))
+        : preferredScreenHeight({
+            baseFontSize: BASE_FONT_SIZE,
+            cell: t.baseCell,
+            grid,
+            availableWidth: available.width,
+            maximum: MAXIMUM_FONT_SIZE,
+            minimum: MINIMUM_FONT_SIZE,
+          });
     if (wanted !== null) {
       t.setContentHeight(wanted + padding.height + framePadding.height);
     }
@@ -116,54 +117,54 @@ export function createTerminalFit(t: TerminalRuntime) {
       if (t.terminal.options.fontSize !== chosen) t.terminal.options.fontSize = chosen;
       t.setFontSize(chosen);
     } else {
-    const fitted = fittedFontSize({
-      baseFontSize: BASE_FONT_SIZE,
-      cell: t.baseCell,
-      grid,
-      available,
-      maximum: MAXIMUM_FONT_SIZE,
-      minimum: MINIMUM_FONT_SIZE,
-    });
-    // Nothing measurable to fit against, which is every render before the mount has a size.
-    if (fitted === null) return;
-    if (fitted !== t.terminal.options.fontSize) t.terminal.options.fontSize = fitted;
-    // Then settle it against the real metrics, because a cell is not proportional to its font:
-    // measured on this pane, 13pt gives a cell 16 tall and 28pt gives 35.5, where the ratio
-    // predicts 34.5. The arithmetic above is therefore a starting point that can overshoot by a
-    // few percent -- enough for a scrollbar -- and xterm updates `dimensions` synchronously
-    // with the option, so the overshoot is readable straight away. Only ever downward, so this
-    // settles instead of hunting.
-    for (let step = 0; step < 6; step += 1) {
-      // Annotated because the assignment below feeds back into inferring this.
-      const size: number = t.terminal.options.fontSize ?? BASE_FONT_SIZE;
-      // The floor binds here too. This loop only ever shrinks, so without the guard it walks
-      // straight back through a floored fit to whatever fits exactly -- measured on an
-      // 80-column pane in a card's band: the fit floored at 11 and this settled it to 9.4.
-      // Below the floor the answer is to overflow and scroll, not to keep shrinking.
-      if (size <= Math.max(MINIMUM_FONT_SIZE, FONT_SIZE_STEP)) break;
-      const actual = t.terminal.dimensions?.css.cell;
-      if (!actual) break;
-      // At or above 1 the screen fits; below it, it is the fraction of the size that would.
-      const headroom = Math.min(
-        available.width / (actual.width * grid.columns),
-        available.height / (actual.height * grid.rows),
-      );
-      // A hair of tolerance, for the same reason the fit itself carries one: an exact fit
-      // computes as 0.99999 often enough to cost a step for nothing.
-      if (headroom >= 0.999) break;
-      // Re-solved from the size actually in force rather than stepped down blindly, so an
-      // overshoot of any size is answered in one move; the second term only guarantees the
-      // loop moves at all when the solve rounds back to where it started.
-      const solved = floorToStep(size * headroom);
-      const next = Math.max(
-        MINIMUM_FONT_SIZE,
-        FONT_SIZE_STEP,
-        solved < size ? solved : floorToStep(size - FONT_SIZE_STEP),
-      );
-      if (next >= size) break;
-      t.terminal.options.fontSize = next;
-    }
-    t.setFontSize(t.terminal.options.fontSize ?? null);
+      const fitted = fittedFontSize({
+        baseFontSize: BASE_FONT_SIZE,
+        cell: t.baseCell,
+        grid,
+        available,
+        maximum: MAXIMUM_FONT_SIZE,
+        minimum: MINIMUM_FONT_SIZE,
+      });
+      // Nothing measurable to fit against, which is every render before the mount has a size.
+      if (fitted === null) return;
+      if (fitted !== t.terminal.options.fontSize) t.terminal.options.fontSize = fitted;
+      // Then settle it against the real metrics, because a cell is not proportional to its font:
+      // measured on this pane, 13pt gives a cell 16 tall and 28pt gives 35.5, where the ratio
+      // predicts 34.5. The arithmetic above is therefore a starting point that can overshoot by a
+      // few percent -- enough for a scrollbar -- and xterm updates `dimensions` synchronously
+      // with the option, so the overshoot is readable straight away. Only ever downward, so this
+      // settles instead of hunting.
+      for (let step = 0; step < 6; step += 1) {
+        // Annotated because the assignment below feeds back into inferring this.
+        const size: number = t.terminal.options.fontSize ?? BASE_FONT_SIZE;
+        // The floor binds here too. This loop only ever shrinks, so without the guard it walks
+        // straight back through a floored fit to whatever fits exactly -- measured on an
+        // 80-column pane in a card's band: the fit floored at 11 and this settled it to 9.4.
+        // Below the floor the answer is to overflow and scroll, not to keep shrinking.
+        if (size <= Math.max(MINIMUM_FONT_SIZE, FONT_SIZE_STEP)) break;
+        const actual = t.terminal.dimensions?.css.cell;
+        if (!actual) break;
+        // At or above 1 the screen fits; below it, it is the fraction of the size that would.
+        const headroom = Math.min(
+          available.width / (actual.width * grid.columns),
+          available.height / (actual.height * grid.rows),
+        );
+        // A hair of tolerance, for the same reason the fit itself carries one: an exact fit
+        // computes as 0.99999 often enough to cost a step for nothing.
+        if (headroom >= 0.999) break;
+        // Re-solved from the size actually in force rather than stepped down blindly, so an
+        // overshoot of any size is answered in one move; the second term only guarantees the
+        // loop moves at all when the solve rounds back to where it started.
+        const solved = floorToStep(size * headroom);
+        const next = Math.max(
+          MINIMUM_FONT_SIZE,
+          FONT_SIZE_STEP,
+          solved < size ? solved : floorToStep(size - FONT_SIZE_STEP),
+        );
+        if (next >= size) break;
+        t.terminal.options.fontSize = next;
+      }
+      t.setFontSize(t.terminal.options.fontSize ?? null);
     }
     const settled = t.terminal.dimensions?.css.cell;
     if (frame && settled) {

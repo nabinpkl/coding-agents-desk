@@ -114,9 +114,7 @@ export function parseProcessTable(text: string): ProcessRow[] {
       // Decoded HERE, per row, and not before the line split: an argv's newlines are what `ps`
       // spelled `\012` in the first place, so restoring them any earlier would tear one process's
       // row into several unparseable ones.
-      command: decodeArgvEscapes(
-        commandStart === -1 ? tokens.slice(8).join(" ") : line.slice(commandStart),
-      ),
+      command: decodeArgvEscapes(commandStart === -1 ? tokens.slice(8).join(" ") : line.slice(commandStart)),
     });
   }
   return out;
@@ -141,10 +139,12 @@ export async function processTable(run: CommandRunner): Promise<ProcessRow[]> {
   // running" -- the same silent shape the `LC_ALL=C` scar above already cost once. A machine
   // with processes on it never parses to zero rows, so that combination is said out loud.
   if (rows.length === 0 && text.trim() !== "") {
-    console.error(JSON.stringify({
-      event: "agent-feed-process-table-unparsed",
-      sample: text.slice(0, 200),
-    }));
+    console.error(
+      JSON.stringify({
+        event: "agent-feed-process-table-unparsed",
+        sample: text.slice(0, 200),
+      }),
+    );
   }
   return rows;
 }
@@ -242,11 +242,7 @@ export function descendantsOf(rows: readonly ProcessRow[], pid: number): Process
 export function busiestDescendant(rows: readonly ProcessRow[], pid: number): ProcessRow | null {
   let best: ProcessRow | null = null;
   for (const row of descendantsOf(rows, pid)) {
-    if (
-      best === null ||
-      row.cpuMs > best.cpuMs ||
-      (row.cpuMs === best.cpuMs && row.startedAt > best.startedAt)
-    ) {
+    if (best === null || row.cpuMs > best.cpuMs || (row.cpuMs === best.cpuMs && row.startedAt > best.startedAt)) {
       best = row;
     }
   }
@@ -290,10 +286,12 @@ export function matchShellsByCommand(
   parentPid: number,
   wanted: readonly { key: string; command: string; startedAt: number | null }[],
 ): Map<string, ProcessRow> {
-  const candidates = rows.filter((row) => row.ppid === parentPid).map((row) => ({
-    row,
-    command: unwrapShellCommand(row.command),
-  }));
+  const candidates = rows
+    .filter((row) => row.ppid === parentPid)
+    .map((row) => ({
+      row,
+      command: unwrapShellCommand(row.command),
+    }));
   const claimed = new Set<number>();
   const matched = new Map<string, ProcessRow>();
   for (const entry of wanted) {
@@ -302,9 +300,7 @@ export function matchShellsByCommand(
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const candidate of candidates) {
       if (claimed.has(candidate.row.pid) || candidate.command !== target) continue;
-      const distance = entry.startedAt === null
-        ? 0
-        : Math.abs(candidate.row.startedAt - entry.startedAt);
+      const distance = entry.startedAt === null ? 0 : Math.abs(candidate.row.startedAt - entry.startedAt);
       if (best === null || distance < bestDistance) {
         best = candidate.row;
         bestDistance = distance;

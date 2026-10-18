@@ -24,20 +24,12 @@ function digest(overrides: Partial<SummaryResult> = {}): SummaryResult {
 
 describe("the summary band", () => {
   it("renders nothing until something has been asked for", () => {
-    const { container } = render(
-      <SummaryBand state={{ kind: "idle" }} model={null} onDismiss={() => {}} />,
-    );
+    const { container } = render(<SummaryBand state={{ kind: "idle" }} model={null} onDismiss={() => {}} />);
     expect(container).toBeEmptyDOMElement();
   });
 
   it("announces progress while the second model reads the turn", () => {
-    render(
-      <SummaryBand
-        state={{ kind: "pending", reasoning: [], thought: "" }}
-        model={null}
-        onDismiss={() => {}}
-      />,
-    );
+    render(<SummaryBand state={{ kind: "pending", reasoning: [], thought: "" }} model={null} onDismiss={() => {}} />);
     expect(screen.getByText(/Reading the turn/)).toBeTruthy();
   });
 
@@ -61,20 +53,18 @@ describe("the summary band", () => {
 
   it("can be dismissed mid-run, not only once the digest lands", () => {
     const onDismiss = vi.fn();
-    render(
-      <SummaryBand
-        state={{ kind: "pending", reasoning: [], thought: "" }}
-        model={null}
-        onDismiss={onDismiss}
-      />,
-    );
+    render(<SummaryBand state={{ kind: "pending", reasoning: [], thought: "" }} model={null} onDismiss={onDismiss} />);
     fireEvent.click(screen.getByLabelText("Dismiss summary"));
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
   it("shows the digest, its files and its risks", () => {
     render(
-      <SummaryBand state={{ kind: "ready", result: digest() }} model="opencode-go/deepseek-v4-flash" onDismiss={() => {}} />,
+      <SummaryBand
+        state={{ kind: "ready", result: digest() }}
+        model="opencode-go/deepseek-v4-flash"
+        onDismiss={() => {}}
+      />,
     );
     expect(screen.getByText("Narrowed the summarizer to read-only tools")).toBeTruthy();
     expect(screen.getByText("It restricted the tool set and added a test.")).toBeTruthy();
@@ -84,7 +74,11 @@ describe("the summary band", () => {
 
   it("names the model that wrote it, because a digest is only as good as its author", () => {
     render(
-      <SummaryBand state={{ kind: "ready", result: digest() }} model="opencode-go/deepseek-v4-flash" onDismiss={() => {}} />,
+      <SummaryBand
+        state={{ kind: "ready", result: digest() }}
+        model="opencode-go/deepseek-v4-flash"
+        onDismiss={() => {}}
+      />,
     );
     expect(screen.getByText(/opencode-go\/deepseek-v4-flash/)).toBeTruthy();
   });
@@ -92,7 +86,10 @@ describe("the summary band", () => {
   it("says so when the window was truncated rather than implying full coverage", () => {
     render(
       <SummaryBand
-        state={{ kind: "ready", result: digest({ coverage: { fromEventIndex: 0, toEventIndex: 900, mode: "nice", truncated: true } }) }}
+        state={{
+          kind: "ready",
+          result: digest({ coverage: { fromEventIndex: 0, toEventIndex: 900, mode: "nice", truncated: true } }),
+        }}
         model={null}
         onDismiss={() => {}}
       />,
@@ -102,7 +99,11 @@ describe("the summary band", () => {
 
   it("marks a digest taken mid-turn as still running", () => {
     render(
-      <SummaryBand state={{ kind: "ready", result: digest({ phase: "running", runState: "running" }) }} model={null} onDismiss={() => {}} />,
+      <SummaryBand
+        state={{ kind: "ready", result: digest({ phase: "running", runState: "running" }) }}
+        model={null}
+        onDismiss={() => {}}
+      />,
     );
     expect(screen.getByText("still running")).toBeTruthy();
   });
@@ -143,9 +144,7 @@ describe("the summary band", () => {
   });
 
   it("reports a failure as an alert rather than an empty band", () => {
-    render(
-      <SummaryBand state={{ kind: "error", message: "the model timed out" }} model={null} onDismiss={() => {}} />,
-    );
+    render(<SummaryBand state={{ kind: "error", message: "the model timed out" }} model={null} onDismiss={() => {}} />);
     expect(screen.getByRole("alert").textContent).toBe("the model timed out");
   });
 
@@ -159,9 +158,7 @@ describe("the summary band", () => {
 
 describe("the summarize control", () => {
   it("keeps one label and changes only what it promises", () => {
-    const { rerender } = render(
-      <SummaryControl state={{ kind: "idle" }} running={false} onSummarize={() => {}} />,
-    );
+    const { rerender } = render(<SummaryControl state={{ kind: "idle" }} running={false} onSummarize={() => {}} />);
     expect(screen.getByLabelText("Summarize this turn")).toBeTruthy();
     rerender(<SummaryControl state={{ kind: "idle" }} running onSummarize={() => {}} />);
     expect(screen.getByLabelText("Summarize what it is doing")).toBeTruthy();

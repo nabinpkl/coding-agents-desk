@@ -1,19 +1,11 @@
 import { useState, useCallback, useMemo } from "react";
 import { PanelLeft } from "lucide-react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import type {
-  HostActionsClient,
-} from "@/features/activity-feed/data-source/HostActionsClient";
+import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { FontSizeRoot } from "@/features/activity-feed/reading-preferences/fontStore";
-import {
-  AgentSidebar,
-  AgentSidebarDialog,
-} from "@/features/sidebar/AgentSidebar";
-import {
-  HoverSidebarPreview,
-  ResizableSidebar,
-} from "@/features/sidebar/SidebarPresentation";
+import { AgentSidebar, AgentSidebarDialog } from "@/features/sidebar/AgentSidebar";
+import { HoverSidebarPreview, ResizableSidebar } from "@/features/sidebar/SidebarPresentation";
 import { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
 import { sidebarEmptyText, EmptyThread } from "@/app/shell-state/sidebar/sidebarEmptyText";
 import { useShellInventory } from "@/app/shell-state/useShellInventory";
@@ -70,7 +62,6 @@ interface Props {
   fatherExternal?: boolean;
 }
 
-
 export function App({ feed, host, machines, fill = false, fatherExternal = false }: Props) {
   // Which machines this shell can see, which Bots are on each, and which sidecar answers for one.
   // One hook because it is one decision made in five places; see `useBotMachines`.
@@ -111,7 +102,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   };
 
   const botSessionPicker = commands.botSessionPickerId
-    ? botsState.bots.find((bot) => bot.botId === commands.botSessionPickerId) ?? null
+    ? (botsState.bots.find((bot) => bot.botId === commands.botSessionPickerId) ?? null)
     : null;
   /**
    * What the open thread does with a dropped image, published up from the session inside it.
@@ -120,9 +111,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
    * into. The column below is the drop target either way: refusing is an act here, because a box
    * with no handler hands the file to the browser rather than declining it.
    */
-  const [threadAcceptFiles, setThreadAcceptFiles] = useState<
-    ((files: readonly File[]) => void) | null
-  >(null);
+  const [threadAcceptFiles, setThreadAcceptFiles] = useState<((files: readonly File[]) => void) | null>(null);
   // Wrapped, because `setThreadAcceptFiles` would take the accepting function as an updater and
   // call it with the previous value instead of storing it.
   const takeThreadAcceptFiles = useCallback(
@@ -144,15 +133,17 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     () => ({ drafts: commands.forkDrafts, start: commands.startForkDraft, close: commands.closeForkDraft }),
     [commands.forkDrafts, commands.startForkDraft, commands.closeForkDraft],
   );
-  const startedSessions = useMemo(() => [...commands.newSessions, ...newSession.watched], [commands.newSessions, newSession.watched]);
+  const startedSessions = useMemo(
+    () => [...commands.newSessions, ...newSession.watched],
+    [commands.newSessions, newSession.watched],
+  );
   // Which directories are watched, and which machine answers for each: see `useShellInventory`.
   const { inventory, dialogSessionsByProject, rememberedSelection } = useShellInventory({
     feed,
     botMachines: botsState.machineIndex.bot,
-    picker: botSessionPicker
-      ? { botId: botSessionPicker.botId, projectPath: botSessionPicker.environment.path }
-      : null,
-    startedSessions, recentWanted: chrome.recentSessionsShowing,
+    picker: botSessionPicker ? { botId: botSessionPicker.botId, projectPath: botSessionPicker.environment.path } : null,
+    startedSessions,
+    recentWanted: chrome.recentSessionsShowing,
   });
   const thread = useThreadSelection({
     projects: inventory.projects,
@@ -175,11 +166,14 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   // canvas instead of a transcript. Everything below the transcript -- composer, summary band,
   // tasks chip, extension surface -- is already gated on this, so they stand down without a
   // condition of their own.
-  const displayedThread = chrome.sidebarMode === "canvas"
-    ? null
-    : chrome.sidebarMode === "sessions"
-      ? thread.selectedThread
-      : thread.selectedBotId ? thread.selectedThread : null;
+  const displayedThread =
+    chrome.sidebarMode === "canvas"
+      ? null
+      : chrome.sidebarMode === "sessions"
+        ? thread.selectedThread
+        : thread.selectedBotId
+          ? thread.selectedThread
+          : null;
   const selectedBotName = thread.selectedBotId
     ? botsState.bots.find((bot) => bot.botId === thread.selectedBotId)?.name
     : undefined;
@@ -196,20 +190,19 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
    * closed it is also the only thing on screen that says where the reader is. Both of those are
    * exactly what a pinned sidebar is already doing two inches to the left.
    */
-  const headerlessCanvas = chrome.sidebarMode === "canvas"
-    && chrome.sidebarPinned
-    && !commands.forkedSession;
+  const headerlessCanvas = chrome.sidebarMode === "canvas" && chrome.sidebarPinned && !commands.forkedSession;
   /**
-  * The names already standing in the project a fork would join, which is what its number counts
-  * past. Taken from the sidebar's own list rather than re-read, so the proposal agrees with the
-  * rows the reader can see -- a second reading could be a moment ahead of them and propose a
-  * number for a fork that is not on screen yet. Only for forks that belong to nobody: a fork
-  * onto a Bot starts under its next anchor instead.
-  */
+   * The names already standing in the project a fork would join, which is what its number counts
+   * past. Taken from the sidebar's own list rather than re-read, so the proposal agrees with the
+   * rows the reader can see -- a second reading could be a moment ahead of them and propose a
+   * number for a fork that is not on screen yet. Only for forks that belong to nobody: a fork
+   * onto a Bot starts under its next anchor instead.
+   */
   const forkTitlesInProject = useMemo(
-    () => commands.forkRequest
-      ? (inventory.sessionsByProject.get(commands.forkRequest.projectPath) ?? []).map((session) => session.title)
-      : [],
+    () =>
+      commands.forkRequest
+        ? (inventory.sessionsByProject.get(commands.forkRequest.projectPath) ?? []).map((session) => session.title)
+        : [],
     [commands.forkRequest, inventory.sessionsByProject],
   );
   // The open session's controls render into the header through this node, and its background-tasks
@@ -258,7 +251,9 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
           rather than reserving (see index.html's `viewport-fit=cover`). The drawer is the one
           surface this cannot reach -- it renders in the top layer, outside this tree, and pays its
           own. */}
-      <div className={`relative flex ${fill ? "h-full" : "h-dvh"} min-w-0 bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground`}>
+      <div
+        className={`relative flex ${fill ? "h-full" : "h-dvh"} min-w-0 bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground`}
+      >
         <FontSizeRoot />
         <AppDialogs
           attachBotSessions={commands.attachBotSessions}
@@ -288,9 +283,13 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
           startHandover={commands.startHandover}
           startNewSession={commands.startNewSession}
           newSession={{ ...newSession, onListed: thread.openSessionInModal }}
-          sessionModal={{ thread: thread.modalThread, context: sessionViewContext, onClose: thread.closeSessionModal,
+          sessionModal={{
+            thread: thread.modalThread,
+            context: sessionViewContext,
+            onClose: thread.closeSessionModal,
             contextFor: (botId) => shellMachines.contextFor(sessionViewContext, botId),
-            canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveSessionToCanvas } }}
+            canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveSessionToCanvas },
+          }}
         />
         {chrome.usesModalSidebar ? (
           <AgentSidebarDialog
@@ -306,11 +305,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
             onWidthChange={chrome.previewSidebarWidth}
             onWidthCommit={chrome.commitSidebarWidth}
           >
-            <AgentSidebar
-              {...sidebar}
-              onClose={chrome.closePinnedSidebar}
-              ownsWindowTitlebar
-            />
+            <AgentSidebar {...sidebar} onClose={chrome.closePinnedSidebar} ownsWindowTitlebar />
           </ResizableSidebar>
         ) : null}
         {chrome.hoverCapable && !chrome.sidebarPinned && !chrome.drawerOpen && chrome.hoverPreviewOpen ? (
@@ -357,10 +352,10 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
                 {commands.forkedSession
                   ? commands.forkedSession.title
                   : chrome.sidebarMode === "canvas"
-                  ? "Canvas"
-                  : chrome.sidebarMode === "bots"
-                    ? selectedBotName || "Bots"
-                    : displayedThread?.session.title || displayedThread?.session.sessionId || "Agent Feed"}
+                    ? "Canvas"
+                    : chrome.sidebarMode === "bots"
+                      ? selectedBotName || "Bots"
+                      : displayedThread?.session.title || displayedThread?.session.sessionId || "Agent Feed"}
               </h1>
               {/* The open session's whole control strip, portalled in by `SessionView`. The gap is
                   this node's rather than the header's because the strip's own members used to be
@@ -400,18 +395,17 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
                   // one about no session at all. Note the composer band outranks this caption for
                   // every Claude and Codex session, which is why the canvas puts it on the card
                   // instead; here there is nowhere else to put it.
-                  externalError={botError
-                      && (botError.session === null
-                        || botError.session
-                          === `${displayedThread.session.source}:${displayedThread.session.sessionId}`)
-                    ? botError.message
-                    : null}
+                  externalError={
+                    botError &&
+                    (botError.session === null ||
+                      botError.session === `${displayedThread.session.source}:${displayedThread.session.sessionId}`)
+                      ? botError.message
+                      : null
+                  }
                 />
                 <FileDropOverlay
                   dragging={threadDrop.dragging}
-                  refusal={threadAcceptFiles === null
-                    ? "This session has no composer to drop into"
-                    : null}
+                  refusal={threadAcceptFiles === null ? "This session has no composer to drop into" : null}
                 />
               </div>
             ) : chrome.sidebarMode === "canvas" ? (
@@ -453,7 +447,9 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
                 forkDrafts={forkDrafts}
                 canvasZoom={{ mode: roster.canvasZoomMode, room: roster.canvasRoom }}
               />
-            ) : sidebarEmptyText(chrome.sidebarMode) ? <EmptyThread text={sidebarEmptyText(chrome.sidebarMode)!} /> : null}
+            ) : sidebarEmptyText(chrome.sidebarMode) ? (
+              <EmptyThread text={sidebarEmptyText(chrome.sidebarMode)!} />
+            ) : null}
           </main>
           {commands.forkedSession ? (
             <AgentTerminalPane

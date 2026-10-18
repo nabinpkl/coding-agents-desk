@@ -23,12 +23,13 @@ function project(files: Record<string, string>): string {
   return root;
 }
 
-const callee = 'export const present = 1;\nexport interface OnlyAType { x: number }\n';
+const callee = "export const present = 1;\nexport interface OnlyAType { x: number }\n";
 
 test("a tree whose imports all resolve links, declared packages included", async () => {
   const root = project({
     "b.ts": callee,
-    "main.ts": 'import { present } from "@/b";\nimport type { OnlyAType } from "@/b";\nimport pkg from "not-installed-anywhere";\nconst t: OnlyAType = { x: present };\nconsole.log(t, pkg);\n',
+    "main.ts":
+      'import { present } from "@/b";\nimport type { OnlyAType } from "@/b";\nimport pkg from "not-installed-anywhere";\nconst t: OnlyAType = { x: present };\nconsole.log(t, pkg);\n',
   });
   expect(await linkFailure(join(root, "src/main.ts"), declaredPackages(root))).toBeNull();
 });
@@ -54,7 +55,10 @@ test("an import of a module that does not exist is named", async () => {
 // Under `verbatimModuleSyntax` this is a type error, which `just check` reports. It runs, because
 // the name is erased, so holding the sidecar on it would refuse a tree that starts.
 test("a type imported without `type` is not held", async () => {
-  const root = project({ "b.ts": callee, "main.ts": 'import { OnlyAType } from "@/b";\nconst t: OnlyAType = { x: 1 };\nconsole.log(t);\n' });
+  const root = project({
+    "b.ts": callee,
+    "main.ts": 'import { OnlyAType } from "@/b";\nconst t: OnlyAType = { x: 1 };\nconsole.log(t);\n',
+  });
   expect(await linkFailure(join(root, "src/main.ts"), declaredPackages(root))).toBeNull();
 });
 

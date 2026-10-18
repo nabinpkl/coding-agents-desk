@@ -25,9 +25,10 @@ const TONE_TEXT: Record<GitTone, string> = {
   ignored: "text-muted-foreground",
 };
 
-const ROW = "group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left"
-  + " outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary"
-  + " focus-visible:ring-inset active:bg-muted";
+const ROW =
+  "group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left" +
+  " outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary" +
+  " focus-visible:ring-inset active:bg-muted";
 
 export function WorkspaceTree({
   nodes,
@@ -50,10 +51,7 @@ export function WorkspaceTree({
   nested?: boolean;
 }) {
   return (
-    <ul
-      role={nested ? "group" : "tree"}
-      className={`m-0 list-none p-0 ${nested ? "pl-3.5" : ""}`}
-    >
+    <ul role={nested ? "group" : "tree"} className={`m-0 list-none p-0 ${nested ? "pl-3.5" : ""}`}>
       {sortSiblings(nodes, order).map((node) => (
         <TreeRow
           key={node.path}
@@ -87,49 +85,41 @@ function TreeRow({
     <li role="treeitem" aria-expanded={node.isDirectory ? node.expanded : undefined}>
       <button
         type="button"
-        aria-label={node.isDirectory
-          ? `${node.expanded ? "Collapse" : "Expand"} ${node.name}`
-          : `Open ${node.name}`}
-        onClick={() => (node.isDirectory
-          ? onToggle(node.path, !node.expanded)
-          : onOpen(node.path))}
+        aria-label={node.isDirectory ? `${node.expanded ? "Collapse" : "Expand"} ${node.name}` : `Open ${node.name}`}
+        onClick={() => (node.isDirectory ? onToggle(node.path, !node.expanded) : onOpen(node.path))}
         className={`${ROW} ${selected ? "bg-muted" : ""} ${tone === "ignored" ? "opacity-45" : ""}`}
       >
         {/* A directory's chevron is its mark: a folder glyph beside it said the same thing twice,
             and dropping it lets the chevron take a size you can aim at while filenames stay
             aligned down one column. */}
-        {node.isDirectory
-          ? (
-            <ChevronRight
-              aria-hidden
-              className={`size-4 shrink-0 text-muted-foreground transition-transform
+        {node.isDirectory ? (
+          <ChevronRight
+            aria-hidden
+            className={`size-4 shrink-0 text-muted-foreground transition-transform
                 group-hover:text-foreground ${node.expanded ? "rotate-90" : ""}`}
-            />
-          )
-          : <FileIcon name={node.name} />}
+          />
+        ) : (
+          <FileIcon name={node.name} />
+        )}
         <span className="overflow-hidden text-ellipsis whitespace-nowrap">{node.name}</span>
         {/* Ignored rows carry no badge: the dimming already says "not part of the repo", and a
             column of marks beside every build artefact drowns the handful of real changes. */}
-        {tone && tone !== "ignored"
-          ? (
-            <span className={`ml-auto font-mono text-[11px] leading-none ${TONE_TEXT[tone]}`}>
-              {(node.gitStatus ?? "").trim()}
-            </span>
-          )
-          : null}
+        {tone && tone !== "ignored" ? (
+          <span className={`ml-auto font-mono text-[11px] leading-none ${TONE_TEXT[tone]}`}>
+            {(node.gitStatus ?? "").trim()}
+          </span>
+        ) : null}
       </button>
-      {node.isDirectory && node.expanded
-        ? (
-          <WorkspaceTree
-            nodes={node.children}
-            activePath={activePath}
-            order={order}
-            onOpen={onOpen}
-            onToggle={onToggle}
-            nested
-          />
-        )
-        : null}
+      {node.isDirectory && node.expanded ? (
+        <WorkspaceTree
+          nodes={node.children}
+          activePath={activePath}
+          order={order}
+          onOpen={onOpen}
+          onToggle={onToggle}
+          nested
+        />
+      ) : null}
     </li>
   );
 }

@@ -19,7 +19,10 @@ export const HARNESSES: readonly { value: NewSessionHarness; label: string; sour
 ];
 
 /** What a start sends for a harness: the source, and for Claude, how its process runs. */
-export function harnessStart(harness: NewSessionHarness): { source: "claude" | "opencode"; claudeMode?: ClaudeRunMode } {
+export function harnessStart(harness: NewSessionHarness): {
+  source: "claude" | "opencode";
+  claudeMode?: ClaudeRunMode;
+} {
   return harness === "claude-sdk" ? { source: "claude", claudeMode: "sdk" } : { source: harness };
 }
 
@@ -74,10 +77,7 @@ export function BotSessionPickerDialog({
   const [error, setError] = useStateFor<string | null>(opening, () => null);
   const [task, setTask] = useStateFor(opening, () => "");
   const [harness, setHarness] = useStateFor<NewSessionHarness>(opening, () => "claude");
-  const attachedKeys = useMemo(
-    () => new Set(bot?.sessionRefs.map(sessionKey) ?? []),
-    [bot],
-  );
+  const attachedKeys = useMemo(() => new Set(bot?.sessionRefs.map(sessionKey) ?? []), [bot]);
 
   // A choice can only be of a session still listed and not attached already.
   if (open && sessions) {
@@ -130,7 +130,9 @@ export function BotSessionPickerDialog({
         <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border px-4">
           <BotAvatar bot={bot} />
           <div className="min-w-0 flex-1">
-            <h2 id="bot-session-picker-title" className="truncate text-base font-semibold">Add sessions to {bot.name}</h2>
+            <h2 id="bot-session-picker-title" className="truncate text-base font-semibold">
+              Add sessions to {bot.name}
+            </h2>
             <p className="truncate font-mono text-xs text-muted-foreground">{bot.environment.path}</p>
           </div>
           <button
@@ -148,10 +150,7 @@ export function BotSessionPickerDialog({
             sessions; this is the answer when it has none, and that reader must not have to read
             past an empty state to find it. Its own form because a form cannot nest inside
             another, and the two do different things with the same Return key. */}
-        <form
-          onSubmit={startNew}
-          className="flex shrink-0 flex-wrap items-end gap-2 border-b border-border px-4 py-3"
-        >
+        <form onSubmit={startNew} className="flex shrink-0 flex-wrap items-end gap-2 border-b border-border px-4 py-3">
           <fieldset className="flex basis-full gap-1 rounded-lg border border-border p-1">
             <legend className="sr-only">Harness</legend>
             {HARNESSES.map((option) => (
@@ -198,21 +197,26 @@ export function BotSessionPickerDialog({
           </button>
           {/* Said before rather than discovered later: the anchor is the stable half. */}
           <p className="basis-full text-xs text-muted-foreground">
-            Runs {HARNESSES.find((option) => option.value === harness)?.label} in {bot.environment.path} and
-            opens it on the canvas. The name before the
-            brackets never changes; what it is doing goes inside them.
+            Runs {HARNESSES.find((option) => option.value === harness)?.label} in {bot.environment.path} and opens it on
+            the canvas. The name before the brackets never changes; what it is doing goes inside them.
           </p>
         </form>
 
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {!sessions ? (
-              <div role="status" className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
+              <div
+                role="status"
+                className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground"
+              >
                 <LoaderCircle className="size-4 animate-spin" aria-hidden />
                 Loading sessions from this directory…
               </div>
             ) : sessions.length === 0 ? (
-              <div role="status" className="flex min-h-40 items-center justify-center p-4 text-center text-sm text-muted-foreground">
+              <div
+                role="status"
+                className="flex min-h-40 items-center justify-center p-4 text-center text-sm text-muted-foreground"
+              >
                 AgentDesk has no sessions correlated to this directory. Start one above.
               </div>
             ) : (
@@ -251,7 +255,9 @@ export function BotSessionPickerDialog({
                         className="mt-1"
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground">{session.title || session.sessionId}</span>
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {session.title || session.sessionId}
+                        </span>
                         <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           <SourceBadge source={session.source} />
                           <span>{session.capabilities.canSend ? "sendable" : "view only"}</span>
@@ -263,7 +269,11 @@ export function BotSessionPickerDialog({
                 })}
               </fieldset>
             )}
-            {error ? <p role="alert" className="px-3 py-2 text-sm text-destructive">{error}</p> : null}
+            {error ? (
+              <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
           </div>
 
           <footer className="flex min-h-14 items-center justify-between gap-3 border-t border-border px-4">
@@ -284,7 +294,11 @@ export function BotSessionPickerDialog({
                 disabled={selectedKeys.size === 0 || pending}
                 className="flex min-h-10 min-w-28 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}
+                {pending ? (
+                  <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Plus className="size-4" aria-hidden />
+                )}
                 {pending ? "Adding…" : "Add sessions"}
               </button>
             </div>

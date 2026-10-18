@@ -20,16 +20,17 @@ import {
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 
 /** A stand-in feed: nothing here calls it, and identity is the only property under test. */
-const feedFor = (label: string) => ({ label } as unknown as SidecarDataSource);
+const feedFor = (label: string) => ({ label }) as unknown as SidecarDataSource;
 
 const machine = (id: string | undefined, label: string): BotMachine =>
   id === undefined ? { label, feed: feedFor(label) } : { id, label, feed: feedFor(label) };
 
-const bot = (botId: string, sessionIds: readonly string[] = []) => ({
-  botId,
-  name: botId,
-  sessionRefs: sessionIds.map((sessionId) => ({ source: "claude", sessionId })),
-} as unknown as BotView);
+const bot = (botId: string, sessionIds: readonly string[] = []) =>
+  ({
+    botId,
+    name: botId,
+    sessionRefs: sessionIds.map((sessionId) => ({ source: "claude", sessionId })),
+  }) as unknown as BotView;
 
 const mac = machine(undefined, "dev");
 const oracle = machine("oracle", "oracle");
@@ -136,8 +137,7 @@ describe("botsOnShownMachines", () => {
 
   test("hides only the machines that are hidden", () => {
     const bots = [bot("m-1"), bot("o-1"), bot("m-2")];
-    expect(botsOnShownMachines(bots, new Set(["oracle"]), keyOf).map((b) => b.botId))
-      .toEqual(["m-1", "m-2"]);
+    expect(botsOnShownMachines(bots, new Set(["oracle"]), keyOf).map((b) => b.botId)).toEqual(["m-1", "m-2"]);
   });
 
   test("hands back the same array when nothing is hidden", () => {
@@ -151,7 +151,6 @@ describe("botsOnShownMachines", () => {
     // Hiding a machine is a statement about that machine. Dropping an unplaceable Bot here would
     // put it behind a control that never named it, with nothing to press to get it back.
     const bots = [bot("stray")];
-    expect(botsOnShownMachines(bots, new Set(["oracle", "mac"]), keyOf).map((b) => b.botId))
-      .toEqual(["stray"]);
+    expect(botsOnShownMachines(bots, new Set(["oracle", "mac"]), keyOf).map((b) => b.botId)).toEqual(["stray"]);
   });
 });

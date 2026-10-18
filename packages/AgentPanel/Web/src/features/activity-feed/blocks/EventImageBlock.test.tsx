@@ -3,11 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
-import {
-  SegmentEventRow,
-  UserRow,
-  type EventRowContext,
-} from "@/features/activity-feed/blocks/ActivityEventRows";
+import { SegmentEventRow, UserRow, type EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { PairedToolResult } from "@/features/activity-feed/rows/activityFeedLayout";
 
@@ -69,14 +65,19 @@ describe("an image in a message", () => {
     const ctx: EventRowContext = {
       ...CTX,
       expandedTools: new Set(["call-1"]),
-      pairedToolResults: new Map([["call-1", {
-        block: { kind: "tool_result", preview: "", callId: "call-1" },
-        eventIndex: 21,
-        blockIndex: 0,
-        includesRawEvent: false,
-        metadata: [],
-        images: [1],
-      }]]),
+      pairedToolResults: new Map([
+        [
+          "call-1",
+          {
+            block: { kind: "tool_result", preview: "", callId: "call-1" },
+            eventIndex: 21,
+            blockIndex: 0,
+            includesRawEvent: false,
+            metadata: [],
+            images: [1],
+          },
+        ],
+      ]),
     };
     render(
       <DataSourceProvider source={stubDataSource({ eventImageUrl })}>

@@ -8,11 +8,7 @@ import { TileViewport } from "@/features/desktop-viewer/tile-viewport/TileViewpo
 import { tileViewportHarness } from "@/features/desktop-viewer/tile-viewport/tileViewportHarness";
 
 describe("TileViewport pointer mode", () => {
-  const {
-    animationFrames,
-    pointer,
-    renderPointerSurface,
-  } = tileViewportHarness();
+  const { animationFrames, pointer, renderPointerSurface } = tileViewportHarness();
 
   it("moves the existing pointer relatively and does not turn a drag into a click", () => {
     const inputs: DesktopPointerInput[] = [];
@@ -116,10 +112,15 @@ describe("TileViewport pointer mode", () => {
 
   it("presses a mouse button on the press and shows it held for as long as it is", () => {
     const inputs: DesktopPointerInput[] = [];
-    const surface = renderPointerSurface((input) => {
-      inputs.push(input);
-      return true;
-    }, { width: 800, height: 500, cursor: { x: 400, y: 250 } }, undefined, true);
+    const surface = renderPointerSurface(
+      (input) => {
+        inputs.push(input);
+        return true;
+      },
+      { width: 800, height: 500, cursor: { x: 400, y: 250 } },
+      undefined,
+      true,
+    );
     const halo = () => screen.getByTestId("client-drag-halo");
 
     // A mouse holds its own button. Nothing to wait out, so no ring and no hold: the press is the
@@ -144,7 +145,10 @@ describe("TileViewport pointer mode", () => {
       <TileViewport
         pointerMode
         absolutePointer
-        sendPointerInput={(input) => { inputs.push(input); return true; }}
+        sendPointerInput={(input) => {
+          inputs.push(input);
+          return true;
+        }}
         sourceWidth={800}
         sourceHeight={500}
         initialCursor={{ x: 400, y: 250 }}
@@ -224,7 +228,10 @@ describe("TileViewport pointer mode", () => {
         pointerMode
         keyboardPresented
         onPointerGestureStart={consume}
-        sendPointerInput={(input) => { inputs.push(input); return true; }}
+        sendPointerInput={(input) => {
+          inputs.push(input);
+          return true;
+        }}
       >
         <div data-testid="consumed-content" />
       </TileViewport>,
@@ -247,7 +254,10 @@ describe("TileViewport under the trackpad deck", () => {
     render(
       <TileViewport
         showCursor
-        sendPointerInput={(input) => { inputs.push(input); return true; }}
+        sendPointerInput={(input) => {
+          inputs.push(input);
+          return true;
+        }}
         sourceWidth={800}
         sourceHeight={500}
         initialCursor={{ x: 400, y: 250 }}

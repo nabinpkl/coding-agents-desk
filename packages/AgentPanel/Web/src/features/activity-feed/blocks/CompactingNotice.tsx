@@ -22,8 +22,8 @@ const CHIP_STYLE = { fontSize: "var(--agent-panel-fs-tile-chip, 12px)" };
  * row, and for minutes that row sat on top of the banner saying the context was reset. In its own
  * box it can be read while it is written, and folded away by a reader who wants the rows behind it.
  * It goes when the compaction lands, because the summary that lands is in the transcript.
-  * Fixed viewport height, not content-sized: a growing box pushes the chip upward for the whole
-  * compaction.
+ * Fixed viewport height, not content-sized: a growing box pushes the chip upward for the whole
+ * compaction.
  *
  * It is an overlay rather than a row: there is no event behind it, and a row in the virtual list
  * would have to be given an index in a numbering the transcript owns.
@@ -70,7 +70,9 @@ export function CompactingNotice({ summary }: { summary: string }) {
             />
           </button>
         ) : (
-          <span className={CHIP_CLASS} style={CHIP_STYLE}>{label}</span>
+          <span className={CHIP_CLASS} style={CHIP_STYLE}>
+            {label}
+          </span>
         )}
         <span className="h-px flex-1 bg-border" aria-hidden />
       </div>

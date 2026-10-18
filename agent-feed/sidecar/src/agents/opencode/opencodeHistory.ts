@@ -53,9 +53,7 @@ async function readHistoryPage(sessionId: string, cursor?: string): Promise<Hist
  * missing cursor, or a page that adds nothing new; the cap bounds a runaway,
  * and dedupe by id makes concurrent turns converge instead of duplicating.
  */
-export async function readOpencodeHistory(
-  sessionId: string,
-): Promise<SessionMessage[]> {
+export async function readOpencodeHistory(sessionId: string): Promise<SessionMessage[]> {
   const seen = new Map<string, SessionMessage>();
   let cursor: string | undefined;
   for (let page = 0; page < HISTORY_MAX_PAGES; page++) {

@@ -35,10 +35,7 @@ export const NARROW_HEADER_PX = 420;
  * of not knowing, and the first correction would arrive as a visible jump. So the row starts whole
  * and a real measurement is what moves it.
  */
-export function useNarrowHeader(
-  header: RefObject<HTMLElement | null>,
-  at: number = NARROW_HEADER_PX,
-): boolean {
+export function useNarrowHeader(header: RefObject<HTMLElement | null>, at: number = NARROW_HEADER_PX): boolean {
   const [narrow, setNarrow] = useState(false);
   // Measured before paint: the first measurement lands before the frame that would show the
   // crowded row, so a narrow card never appears to have a one-character name for a frame.

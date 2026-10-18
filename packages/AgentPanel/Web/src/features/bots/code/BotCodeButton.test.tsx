@@ -43,10 +43,7 @@ function node(path: string, isDirectory: boolean, children: WorkspaceTreeNode[] 
 function feedWithFiles(texts: Record<string, string>) {
   const botTree = vi.fn(async (botId: string, expanded: readonly string[]): Promise<BotTree> => ({
     botId,
-    tree: [
-      node("src", true, expanded.includes("src") ? [node("src/app.ts", false)] : []),
-      node("README.md", false),
-    ],
+    tree: [node("src", true, expanded.includes("src") ? [node("src/app.ts", false)] : []), node("README.md", false)],
   }));
   const botFile = vi.fn(async (botId: string, path: string): Promise<BotFileRead> => ({
     botId,
@@ -104,7 +101,9 @@ it("reads the open file again when the Bot's files move", async () => {
 
   texts["src/app.ts"] = "two\n";
   rerender(<BotCodeButton bot={bot} feed={feed} git={{ status: clean(2), error: null }} />);
-  await waitFor(() => expect(within(dialog).getByRole("textbox", { name: "Source of app.ts" })).toHaveProperty("value", "two\n"));
+  await waitFor(() =>
+    expect(within(dialog).getByRole("textbox", { name: "Source of app.ts" })).toHaveProperty("value", "two\n"),
+  );
   expect(botFile).toHaveBeenCalledTimes(2);
 });
 
@@ -137,8 +136,9 @@ it("opens on the changes from the git side, and moves between a diff, its file a
   render(<BotCodeDialog bot={bot} feed={feed} git={git} initialSection="sourceControl" onClose={() => {}} />);
   const dialog = await screen.findByRole("dialog", { name: "Rags" });
 
-  expect(within(dialog).getByRole("button", { name: "Show Source Control, 1 changed file" }).getAttribute("aria-pressed"))
-    .toBe("true");
+  expect(
+    within(dialog).getByRole("button", { name: "Show Source Control, 1 changed file" }).getAttribute("aria-pressed"),
+  ).toBe("true");
   const changes = within(dialog).getByRole("navigation", { name: "Changed files" });
   fireEvent.click(within(changes).getByRole("button", { name: "Show the diff of src/app.ts" }));
   await waitFor(() => expect(within(dialog).getByLabelText("Diff of src/app.ts").textContent).toContain("now"));
@@ -156,6 +156,8 @@ it("offers no Source Control tab outside a repository", async () => {
   const git = { status: { botId: "bot-1", repository: false, branch: null, entries: [] }, error: null };
   render(<BotCodeDialog bot={bot} feed={feed} git={git} initialSection="sourceControl" onClose={() => {}} />);
   const dialog = await screen.findByRole("dialog", { name: "Rags" });
-  expect((within(dialog).getByRole("button", { name: "Show Source Control" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(dialog).getByRole("button", { name: "Show Source Control" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   expect(within(dialog).getByRole("button", { name: "Show Explorer" }).getAttribute("aria-pressed")).toBe("true");
 });

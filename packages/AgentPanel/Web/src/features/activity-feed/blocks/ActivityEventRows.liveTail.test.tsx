@@ -34,9 +34,7 @@ function landed(ev: ActivityEvent): ActivityEvent {
 }
 
 function renderLive(ev: ActivityEvent) {
-  return render(
-    <LiveTailRow ev={ev} ctx={ctx} isCollapsed={false} onToggle={() => {}} />,
-  );
+  return render(<LiveTailRow ev={ev} ctx={ctx} isCollapsed={false} onToggle={() => {}} />);
 }
 
 function renderLanded(ev: ActivityEvent) {
@@ -132,9 +130,7 @@ describe("LiveTailRow", () => {
   });
 
   it("labels a streaming tool call the way the durable row will", () => {
-    const ev = tail([
-      { kind: "tool_use", tool: "Bash", summary: "cd /Users/dev", callId: "call_1" },
-    ]);
+    const ev = tail([{ kind: "tool_use", tool: "Bash", summary: "cd /Users/dev", callId: "call_1" }]);
     ev.phase = "complete";
     const live = renderLive(ev).container;
     expect(live.textContent).toContain("Bash");
@@ -193,8 +189,6 @@ describe("LiveTailRow", () => {
     expect(live.container.textContent).not.toContain("assistant");
     expect(live.getByLabelText("streaming")).toBeDefined();
     expect(live.container.querySelector("button[aria-expanded]")).toBeNull();
-    expect(live.container.textContent).toBe(
-      renderLanded(ev).container.textContent,
-    );
+    expect(live.container.textContent).toBe(renderLanded(ev).container.textContent);
   });
 });

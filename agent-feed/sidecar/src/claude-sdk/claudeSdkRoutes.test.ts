@@ -21,7 +21,7 @@ function routes() {
       body: JSON.stringify(body),
     });
     const response = await handle(request, new URL(request.url), server);
-    return { status: response!.status, body: await response!.json() as Record<string, unknown> };
+    return { status: response!.status, body: (await response!.json()) as Record<string, unknown> };
   };
   return { sent, post };
 }
@@ -29,14 +29,22 @@ function routes() {
 describe("a prompt with images", () => {
   test("hands the runner the images in the API's shape, ahead of nothing else changing", async () => {
     const { sent, post } = routes();
-    const answer = await post("prompt", { text: "what is this?", files: [{ data: "iVBORw0K", mime: "image/png", name: "shot.png" }] });
+    const answer = await post("prompt", {
+      text: "what is this?",
+      files: [{ data: "iVBORw0K", mime: "image/png", name: "shot.png" }],
+    });
     expect(answer).toEqual({ status: 200, body: { ok: true } });
-    expect(sent).toEqual([{ type: "prompt", text: "what is this?", images: [{ mediaType: "image/png", data: "iVBORw0K" }] }]);
+    expect(sent).toEqual([
+      { type: "prompt", text: "what is this?", images: [{ mediaType: "image/png", data: "iVBORw0K" }] },
+    ]);
   });
 
   test("refuses an image the API cannot take, naming it, and sends nothing", async () => {
     const { sent, post } = routes();
-    const answer = await post("prompt", { text: "x", files: [{ data: "AAAA", mime: "image/heic", name: "phone.heic" }] });
+    const answer = await post("prompt", {
+      text: "x",
+      files: [{ data: "AAAA", mime: "image/heic", name: "phone.heic" }],
+    });
     expect(answer.status).toBe(400);
     expect(JSON.stringify(answer.body)).toContain("phone.heic");
     expect(sent).toEqual([]);
@@ -70,6 +78,9 @@ describe("an effort", () => {
 describe("a switch", () => {
   test("refuses a mode that is neither", async () => {
     const { post } = routes();
-    expect(await post("switch", { mode: "headless" })).toMatchObject({ status: 400, body: { ok: false, reason: "invalid" } });
+    expect(await post("switch", { mode: "headless" })).toMatchObject({
+      status: 400,
+      body: { ok: false, reason: "invalid" },
+    });
   });
 });

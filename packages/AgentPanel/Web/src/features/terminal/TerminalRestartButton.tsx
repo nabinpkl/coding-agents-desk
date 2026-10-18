@@ -13,15 +13,15 @@ import { useTimeout } from "@/hooks/useInterval";
 
 const CONFIRM_WINDOW_MS = 4_000;
 
-type RestartState =
-  | { kind: "idle" }
-  | { kind: "armed" }
-  | { kind: "restarting" }
-  | { kind: "failed"; message: string };
+type RestartState = { kind: "idle" } | { kind: "armed" } | { kind: "restarting" } | { kind: "failed"; message: string };
 
-export function TerminalRestartButton(
-  { feed, context }: { feed: SidecarDataSource; context: SessionTmuxTerminalContext },
-) {
+export function TerminalRestartButton({
+  feed,
+  context,
+}: {
+  feed: SidecarDataSource;
+  context: SessionTmuxTerminalContext;
+}) {
   const [state, setState] = useState<RestartState>({ kind: "idle" });
 
   // Disarms on its own, so the second press means "yes, now" rather than whenever.

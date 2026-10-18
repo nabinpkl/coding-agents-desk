@@ -14,7 +14,7 @@
 // first it meets. A file with no title in either edge is left as the edges say: finding one in the
 // middle would mean reading the whole file on every refresh of every untitled session.
 
-import type { open } from 'node:fs/promises';
+import type { open } from "node:fs/promises";
 
 type FileHandle = Awaited<ReturnType<typeof open>>;
 
@@ -71,17 +71,15 @@ export async function currentTitles(fh: FileHandle, path: string, edges: EdgeTit
   } else if (memo && memo.through <= edges.through) {
     // Appended since the last read: the tail window covers the end of it, and anything between
     // where that read stopped and where the tail starts is read once, here.
-    const gap: Titles = memo.through < edges.tailFrom
-      ? await forwardTitles(fh, memo.through, edges.tailFrom)
-      : {};
+    const gap: Titles = memo.through < edges.tailFrom ? await forwardTitles(fh, memo.through, edges.tailFrom) : {};
     titles = {
       customTitle: edges.tail.customTitle ?? gap.customTitle ?? memo.customTitle,
       aiTitle: edges.tail.aiTitle ?? gap.aiTitle ?? memo.aiTitle,
     };
   } else {
     // First read, or a file that shrank and so is not the one remembered.
-    const customTitle = edges.tail.customTitle
-      ?? (edges.head.customTitle ? await lastCustomTitleBefore(fh, edges.tailFrom) : undefined);
+    const customTitle =
+      edges.tail.customTitle ?? (edges.head.customTitle ? await lastCustomTitleBefore(fh, edges.tailFrom) : undefined);
     titles = { customTitle, aiTitle: edges.tail.aiTitle ?? edges.head.aiTitle };
   }
   memos.set(path, { ...titles, through: edges.through });

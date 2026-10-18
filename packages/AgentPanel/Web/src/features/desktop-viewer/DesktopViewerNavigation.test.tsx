@@ -6,9 +6,18 @@ import type { DesktopViewerSurface } from "@/features/desktop-viewer/DesktopView
 import { DesktopViewer } from "@/features/desktop-viewer/DesktopViewer";
 
 type SurfaceProps = ComponentProps<typeof DesktopViewerSurface>;
-const harness = vi.hoisted(() => ({ surfaces: new Map<string, SurfaceProps>(), sends: vi.fn(), opens: [] as string[] }));
-const displays = ["A", "B", "C"].map((id, index) => ({ id, label: `Monitor ${id}`, isMain: index === 0,
-  activeSpaceId: String(index * 2 + 1), spaces: [0, 1].map((n) => ({ id: String(index * 2 + n + 1), type: 0 })) }));
+const harness = vi.hoisted(() => ({
+  surfaces: new Map<string, SurfaceProps>(),
+  sends: vi.fn(),
+  opens: [] as string[],
+}));
+const displays = ["A", "B", "C"].map((id, index) => ({
+  id,
+  label: `Monitor ${id}`,
+  isMain: index === 0,
+  activeSpaceId: String(index * 2 + 1),
+  spaces: [0, 1].map((n) => ({ id: String(index * 2 + n + 1), type: 0 })),
+}));
 function snapshot(id: string, revision = 1): DesktopNavigationState {
   return { type: "desktop-state", revision, captureDisplayId: id, displays };
 }
@@ -20,25 +29,49 @@ vi.mock("@/features/desktop-viewer/DesktopViewerSurface", async () => {
       harness.surfaces.set(id, props);
       React.useEffect(() => {
         harness.opens.push(id);
-        props.onSource?.({ width: 1000, height: 800, cursor: { x: 500, y: 400 },
-          desktopControlVersion: 2, desktopNavigationVersion: 1, displayId: id });
-        props.onTransport?.({ send: (input) => {
-          harness.sends(input);
-          if (input.type === "desktop-refresh") props.onEvent?.(snapshot(id));
-          return "sent";
-        } });
+        props.onSource?.({
+          width: 1000,
+          height: 800,
+          cursor: { x: 500, y: 400 },
+          desktopControlVersion: 2,
+          desktopNavigationVersion: 1,
+          displayId: id,
+        });
+        props.onTransport?.({
+          send: (input) => {
+            harness.sends(input);
+            if (input.type === "desktop-refresh") props.onEvent?.(snapshot(id));
+            return "sent";
+          },
+        });
         props.onEvent?.(snapshot(id));
         if (props.displayId === undefined) props.onFirstFrame?.();
       }, []);
-      return <div data-testid={`surface-${id}`} data-interactive={props.interactive}>{props.navigation}</div>;
+      return (
+        <div data-testid={`surface-${id}`} data-interactive={props.interactive}>
+          {props.navigation}
+        </div>
+      );
     },
   };
 });
 beforeEach(() => {
-  localStorage.clear(); harness.surfaces.clear(); harness.opens.length = 0; harness.sends.mockClear();
-  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  localStorage.clear();
+  harness.surfaces.clear();
+  harness.opens.length = 0;
+  harness.sends.mockClear();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
 });
-function show() { return render(<DesktopViewer transport={{ request: vi.fn().mockResolvedValue({ status: 204, body: "" }), subscribe: vi.fn() }} />);
+function show() {
+  return render(
+    <DesktopViewer transport={{ request: vi.fn().mockResolvedValue({ status: 204, body: "" }), subscribe: vi.fn() }} />,
+  );
 }
 describe("monitor handover", () => {
   it("retains the old picture with input blocked until the matching new source presents a frame", () => {
@@ -59,7 +92,10 @@ describe("monitor handover", () => {
     fireEvent.click(screen.getByRole("button", { name: "Monitor B" }));
     const stale = harness.surfaces.get("B")!;
     fireEvent.click(screen.getByRole("button", { name: "Monitor C" }));
-    act(() => { stale.onFirstFrame?.(); stale.onState?.({ kind: "error", message: "old error" }); });
+    act(() => {
+      stale.onFirstFrame?.();
+      stale.onState?.({ kind: "error", message: "old error" });
+    });
     expect(screen.getByTestId("surface-A")).toBeInTheDocument();
     expect(screen.queryByTestId("surface-B")).not.toBeInTheDocument();
     expect(screen.queryByText("old error")).not.toBeInTheDocument();
@@ -78,8 +114,11 @@ describe("monitor handover", () => {
   });
   it("does not replace the capture for ordinary Desktop changes and hides navigation while typing", () => {
     show();
-    act(() => harness.surfaces.get("A")!.onEvent?.({ ...snapshot("A", 2),
-      displays: [{ ...displays[0]!, activeSpaceId: "2" }, ...displays.slice(1)] }));
+    act(() =>
+      harness.surfaces
+        .get("A")!
+        .onEvent?.({ ...snapshot("A", 2), displays: [{ ...displays[0]!, activeSpaceId: "2" }, ...displays.slice(1)] }),
+    );
     expect(harness.opens).toEqual(["A"]);
     act(() => harness.surfaces.get("A")!.onKeyboard?.(true));
     expect(screen.queryByTestId("desktop-navigation")).not.toBeInTheDocument();

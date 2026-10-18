@@ -13,7 +13,11 @@ import {
   SCROLL_MOMENTUM_STOP_THRESHOLD,
   scrollAccelerationGain,
 } from "@/features/desktop-viewer/pointer-input/gestureConstants";
-import type { GestureOutput, GestureTranslatorOptions, Point } from "@/features/desktop-viewer/pointer-input/gestureTranslator";
+import type {
+  GestureOutput,
+  GestureTranslatorOptions,
+  Point,
+} from "@/features/desktop-viewer/pointer-input/gestureTranslator";
 import { DEFAULT_GESTURE_TUNING, type GestureTuning } from "@/features/desktop-viewer/pointer-input/gestureTuning";
 import { STILL, type Velocity } from "@/features/desktop-viewer/pointer-input/velocityTracker";
 
@@ -111,9 +115,8 @@ export class ScrollTranslator {
     if (this.didEmitScrollBegan) this.emit({ type: "scroll", dx: 0, dy: 0, phase: "ended" });
     this.didEmitScrollBegan = false;
     const fallback = this.projectedVelocity(velocity);
-    const lift = this.lastScrollVelocity.x !== 0 || this.lastScrollVelocity.y !== 0
-      ? this.lastScrollVelocity
-      : fallback;
+    const lift =
+      this.lastScrollVelocity.x !== 0 || this.lastScrollVelocity.y !== 0 ? this.lastScrollVelocity : fallback;
     if (allowMomentum && Math.hypot(lift.x, lift.y) >= SCROLL_MOMENTUM_FLICK_THRESHOLD) {
       this.startMomentum(lift);
     }
@@ -165,10 +168,14 @@ export class ScrollTranslator {
 
   private projectedVelocity(velocity: Velocity): Velocity {
     switch (this.scrollAxis) {
-      case "horizontal": return { x: velocity.x, y: 0 };
-      case "vertical": return { x: 0, y: velocity.y };
-      case "free": return velocity;
-      case "undecided": return STILL;
+      case "horizontal":
+        return { x: velocity.x, y: 0 };
+      case "vertical":
+        return { x: 0, y: velocity.y };
+      case "free":
+        return velocity;
+      case "undecided":
+        return STILL;
     }
   }
 
@@ -182,10 +189,14 @@ export class ScrollTranslator {
     const gain = this.gain(Math.hypot(velocity.x, velocity.y)) * tuning.scrollSpeed;
     const sign = tuning.naturalScrolling ? -1 : 1;
     switch (this.scrollAxis) {
-      case "horizontal": return { x: delta.x * gain * sign, y: 0 };
-      case "vertical": return { x: 0, y: delta.y * gain * sign };
-      case "free": return { x: delta.x * gain * sign, y: delta.y * gain * sign };
-      case "undecided": return { x: 0, y: 0 };
+      case "horizontal":
+        return { x: delta.x * gain * sign, y: 0 };
+      case "vertical":
+        return { x: 0, y: delta.y * gain * sign };
+      case "free":
+        return { x: delta.x * gain * sign, y: delta.y * gain * sign };
+      case "undecided":
+        return { x: 0, y: 0 };
     }
   }
 

@@ -59,14 +59,23 @@ describe("useDesktopKeyboard", () => {
   });
 
   it("stays up when the browser's keyboard leaves because the deck took over", () => {
-    const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-      matches: query === "(hover: none) and (pointer: coarse)",
-      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
-      addListener() {}, removeListener() {}, dispatchEvent: () => false,
-    }) as MediaQueryList);
+    const media = vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === "(hover: none) and (pointer: coarse)",
+          media: query,
+          onchange: null,
+          addEventListener() {},
+          removeEventListener() {},
+          addListener() {},
+          removeListener() {},
+          dispatchEvent: () => false,
+        }) as MediaQueryList,
+    );
     const previous = window.visualViewport;
     const viewport = Object.assign(new EventTarget(), {
-      height: window.innerHeight, offsetTop: 0,
+      height: window.innerHeight,
+      offsetTop: 0,
     });
     Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
     try {

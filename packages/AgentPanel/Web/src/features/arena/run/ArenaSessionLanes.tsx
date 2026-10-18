@@ -38,7 +38,10 @@ export interface ListedSession {
 }
 
 /** Every session the catalog holds in the run's directories, by id. */
-export function useRunSessions(feed: SidecarDataSource, directories: readonly string[]): {
+export function useRunSessions(
+  feed: SidecarDataSource,
+  directories: readonly string[],
+): {
   sessions: ReadonlyMap<string, ListedSession>;
   error: string | null;
 } {
@@ -104,14 +107,22 @@ export function SessionLane({
   const label = `${contestant.contestantId} ${SOURCE_LABEL[contestant.source]}`;
   // A terminal contestant's session from the moment it has an id: its pane is already running it.
   const awaited = useMemo(
-    () => (contestant.sessionId !== null && contestant.tmuxSession !== null
-      ? {
-        session: awaitedSession(contestant.source, contestant.sessionId, label, contestant.startedAt),
-        projectPath: contestant.worktreePath,
-      }
-      : null),
+    () =>
+      contestant.sessionId !== null && contestant.tmuxSession !== null
+        ? {
+            session: awaitedSession(contestant.source, contestant.sessionId, label, contestant.startedAt),
+            projectPath: contestant.worktreePath,
+          }
+        : null,
     // The fields it reads, not the record, which is a new object on every run update.
-    [contestant.sessionId, contestant.tmuxSession, contestant.worktreePath, contestant.source, contestant.startedAt, label],
+    [
+      contestant.sessionId,
+      contestant.tmuxSession,
+      contestant.worktreePath,
+      contestant.source,
+      contestant.startedAt,
+      label,
+    ],
   );
   const shown = listed ?? awaited;
 

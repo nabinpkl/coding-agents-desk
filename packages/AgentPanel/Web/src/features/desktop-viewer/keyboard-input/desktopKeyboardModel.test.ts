@@ -21,8 +21,12 @@ function focus(
   cursorKind: DesktopTextFocusEvent["cursorKind"] = "ibeam",
 ): DesktopTextFocusEvent {
   return {
-    type: "text-focus", focusRequestId, editability, cursorKind,
-    secure: false, source: "accessibility",
+    type: "text-focus",
+    focusRequestId,
+    editability,
+    cursorKind,
+    secure: false,
+    source: "accessibility",
   };
 }
 
@@ -31,24 +35,35 @@ describe("desktop keyboard model", () => {
     let state = keyboardPresentationReducer(INITIAL_KEYBOARD_PRESENTATION, { type: "transport-open" });
     state = keyboardPresentationReducer(state, { type: "remote-tap", focusRequestId: requestA });
     state = keyboardPresentationReducer(state, { type: "remote-tap", focusRequestId: requestB });
-    expect(keyboardPresentationReducer(state, { type: "focus-result", event: focus(requestA, "editable") }))
-      .toBe(state);
-    expect(keyboardPresentationReducer(state, { type: "focus-result", event: focus(requestB, "editable") }))
-      .toMatchObject({ presentation: "shown", focusRequestId: requestB });
+    expect(keyboardPresentationReducer(state, { type: "focus-result", event: focus(requestA, "editable") })).toBe(
+      state,
+    );
+    expect(
+      keyboardPresentationReducer(state, { type: "focus-result", event: focus(requestB, "editable") }),
+    ).toMatchObject({ presentation: "shown", focusRequestId: requestB });
   });
 
   test("requires I-beam for ambiguous focus and times out only the current request", () => {
     const hidden = keyboardPresentationReducer(INITIAL_KEYBOARD_PRESENTATION, { type: "transport-open" });
     const pending = keyboardPresentationReducer(hidden, { type: "remote-tap", focusRequestId: requestA });
-    expect(keyboardPresentationReducer(pending, {
-      type: "focus-result", event: focus(requestA, "ambiguous", "arrow"),
-    }).presentation).toBe("hidden");
-    expect(keyboardPresentationReducer(pending, {
-      type: "focus-timeout", focusRequestId: requestB,
-    })).toBe(pending);
-    expect(keyboardPresentationReducer(pending, {
-      type: "focus-timeout", focusRequestId: requestA,
-    }).presentation).toBe("hidden");
+    expect(
+      keyboardPresentationReducer(pending, {
+        type: "focus-result",
+        event: focus(requestA, "ambiguous", "arrow"),
+      }).presentation,
+    ).toBe("hidden");
+    expect(
+      keyboardPresentationReducer(pending, {
+        type: "focus-timeout",
+        focusRequestId: requestB,
+      }),
+    ).toBe(pending);
+    expect(
+      keyboardPresentationReducer(pending, {
+        type: "focus-timeout",
+        focusRequestId: requestA,
+      }).presentation,
+    ).toBe("hidden");
   });
 
   test("encodes US ANSI atomically", () => {
@@ -73,7 +88,10 @@ describe("desktop keyboard model", () => {
     const states = { cmd: "armed", ctrl: "off", option: "locked", shift: "off" } as const;
     expect(activeModifiers(states, ["shift"])).toEqual(["cmd", "option", "shift"]);
     expect(clearArmedModifiers(states)).toEqual({
-      cmd: "off", ctrl: "off", option: "locked", shift: "off",
+      cmd: "off",
+      ctrl: "off",
+      option: "locked",
+      shift: "off",
     });
   });
 

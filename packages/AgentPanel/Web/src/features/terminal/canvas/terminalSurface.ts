@@ -19,12 +19,7 @@
 // picked is not an arrangement, and it is not a record the sidecar owns either.
 
 import type { CSSProperties } from "react";
-import {
-  BOT_HUE_OFFSET,
-  BOT_HUE_STEP,
-  BOT_SESSION_SHADES,
-  botSessionHue,
-} from "@/features/bots/botSurface";
+import { BOT_HUE_OFFSET, BOT_HUE_STEP, BOT_SESSION_SHADES, botSessionHue } from "@/features/bots/botSurface";
 
 /** Enough of a terminal parent to colour its card: its key and the path it stands for. */
 export interface TerminalParentIdentity {
@@ -39,9 +34,7 @@ export interface TerminalParentIdentity {
  * screen -- the same argument `botCanvasHues` makes: hiding a parent must recolour nothing, and
  * ranking the visible subset would repaint the canvas every time one was hidden.
  */
-export function terminalParentHues(
-  parents: readonly TerminalParentIdentity[],
-): ReadonlyMap<string, number> {
+export function terminalParentHues(parents: readonly TerminalParentIdentity[]): ReadonlyMap<string, number> {
   const hues = new Map<string, number>();
   orderedParents(parents).forEach((parent, index) => {
     hues.set(parent.key, (BOT_HUE_OFFSET + index * BOT_HUE_STEP) % 360);
@@ -56,9 +49,7 @@ export function terminalParentHues(
  * agreeing without either knowing about the other -- the same contract `botCanvasRanks` keeps.
  * One ordering, two readers, so this shares the sort rather than repeating it.
  */
-export function terminalParentRanks(
-  parents: readonly TerminalParentIdentity[],
-): ReadonlyMap<string, number> {
+export function terminalParentRanks(parents: readonly TerminalParentIdentity[]): ReadonlyMap<string, number> {
   const ranks = new Map<string, number>();
   orderedParents(parents).forEach((parent, index) => {
     ranks.set(parent.key, index);
@@ -67,8 +58,7 @@ export function terminalParentRanks(
 }
 
 function orderedParents(parents: readonly TerminalParentIdentity[]): TerminalParentIdentity[] {
-  return [...parents]
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.key < b.key ? -1 : 1));
+  return [...parents].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.key < b.key ? -1 : 1));
 }
 
 /**
@@ -107,10 +97,7 @@ export function terminalParentStyle(hue: number | undefined): CSSProperties | un
  * Both or neither, for the reason `botSessionStyle` gives: a step with no hue would resolve
  * against whatever the card around it carries.
  */
-export function terminalChildStyle(
-  hue: number | undefined,
-  step: number | undefined,
-): CSSProperties | undefined {
+export function terminalChildStyle(hue: number | undefined, step: number | undefined): CSSProperties | undefined {
   if (hue === undefined || step === undefined) return undefined;
   return {
     "--terminal-hue": hue.toFixed(2),

@@ -13,24 +13,17 @@
  * carries just an `encrypted_content` blob that is end-to-end encrypted and
  * unreadable here.
  */
-export function extractReasoningText(payload: {
-  summary?: unknown;
-  content?: unknown;
-}): string {
-  let text = '';
+export function extractReasoningText(payload: { summary?: unknown; content?: unknown }): string {
+  let text = "";
   if (Array.isArray(payload.summary)) {
     const parts: string[] = [];
     for (const entry of payload.summary as unknown[]) {
-      if (typeof entry === 'string') parts.push(entry);
-      else if (
-        entry &&
-        typeof entry === 'object' &&
-        typeof (entry as { text?: unknown }).text === 'string'
-      ) {
+      if (typeof entry === "string") parts.push(entry);
+      else if (entry && typeof entry === "object" && typeof (entry as { text?: unknown }).text === "string") {
         parts.push((entry as { text: string }).text);
       }
     }
-    text = parts.join('\n\n').trim();
+    text = parts.join("\n\n").trim();
   }
   if (!text && Array.isArray(payload.content)) {
     text = joinTextContent(payload.content).trim();
@@ -44,13 +37,13 @@ export function extractReasoningText(payload: {
  * Both `input_text` and `output_text` carry it in `.text`.
  */
 export function joinTextContent(content: unknown): string {
-  if (!Array.isArray(content)) return '';
+  if (!Array.isArray(content)) return "";
   const parts: string[] = [];
   for (const block of content as Array<Record<string, unknown>>) {
     const kind = block?.type;
-    if ((kind === 'input_text' || kind === 'output_text') && typeof block.text === 'string') {
+    if ((kind === "input_text" || kind === "output_text") && typeof block.text === "string") {
       parts.push(block.text);
     }
   }
-  return parts.join('\n\n');
+  return parts.join("\n\n");
 }

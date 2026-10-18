@@ -27,17 +27,17 @@ export function TerminalCanvasStatus({
     <div className="border-b border-border px-3 py-2">
       <p role="status" className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
         {`${shown < total ? `${shown} of ${total}` : total} ${total === 1 ? "parent" : "parents"} on the strip`}
-        {shown < total ? (
-          <span className="font-medium text-foreground">, {total - shown} hidden</span>
-        ) : null}
+        {shown < total ? <span className="font-medium text-foreground">, {total - shown} hidden</span> : null}
       </p>
       <button
         type="button"
         aria-pressed={zoom.on}
         onClick={zoom.onToggle}
-        title={zoom.on
-          ? "Draw the strip at its own size again"
-          : "Draw the whole strip at once. Pinch or double-tap to move around it."}
+        title={
+          zoom.on
+            ? "Draw the strip at its own size again"
+            : "Draw the whole strip at once. Pinch or double-tap to move around it."
+        }
         className={`mt-1.5 flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
           zoom.on
             ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
@@ -58,11 +58,13 @@ export function TerminalCanvasStatus({
             type="button"
             aria-pressed={room.size === size}
             disabled={!zoom.on}
-            title={!zoom.on
-              ? "Fit the whole strip first: the room is around what that draws."
-              : size === 0
-                ? "No room: the strip sits against the corner."
-                : `${size} pixels of room on every side, to scroll the strip into.`}
+            title={
+              !zoom.on
+                ? "Fit the whole strip first: the room is around what that draws."
+                : size === 0
+                  ? "No room: the strip sits against the corner."
+                  : `${size} pixels of room on every side, to scroll the strip into.`
+            }
             onClick={() => room.onChange(size)}
             className={`flex min-h-7 shrink-0 items-center rounded-full border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
               !zoom.on

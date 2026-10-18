@@ -5,11 +5,7 @@
 // Split out of the coordinator so the join lives beside the resolvers it joins, not
 // beside the polling that happens to call it.
 
-import type {
-  DesktopAuditSnapshot,
-  WindowInputReason,
-  WindowTarget,
-} from "@agentdesk/agent-feed-wire";
+import type { DesktopAuditSnapshot, WindowInputReason, WindowTarget } from "@agentdesk/agent-feed-wire";
 import {
   desktopOwner,
   type ProcessRow,

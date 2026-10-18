@@ -23,23 +23,18 @@ export function chooseTileVideoCodec<T extends OfferedVideoCodec>(
 ): TileVideoCodecChoice<T> | undefined {
   const h265 = offered.find((codec) => isSupportedH265(codec));
   const h264 = offered.filter(
-    (codec) => codec.mimeType.toLowerCase() === "video/h264"
-      && parameter(codec, "packetization-mode") === "1",
+    (codec) => codec.mimeType.toLowerCase() === "video/h264" && parameter(codec, "packetization-mode") === "1",
   );
   const high = h264.find((codec) => /^(64|f4)/i.test(parameter(codec, "profile-level-id") ?? ""));
 
   if (active === "h265") return h265 ? { kind: "h265", negotiated: h265 } : undefined;
   if (active === "h264") {
     const negotiated = high ?? h264[0];
-    return negotiated
-      ? { kind: "h264", negotiated, h264Profile: high ? "high" : "cb" }
-      : undefined;
+    return negotiated ? { kind: "h264", negotiated, h264Profile: high ? "high" : "cb" } : undefined;
   }
   if (h265) return { kind: "h265", negotiated: h265 };
   const negotiated = high ?? h264[0];
-  return negotiated
-    ? { kind: "h264", negotiated, h264Profile: high ? "high" : "cb" }
-    : undefined;
+  return negotiated ? { kind: "h264", negotiated, h264Profile: high ? "high" : "cb" } : undefined;
 }
 
 function isSupportedH265(codec: OfferedVideoCodec): boolean {

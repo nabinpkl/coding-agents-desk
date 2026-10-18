@@ -303,10 +303,7 @@ export class RepositoryGitWatch {
     }
     repository.reading = true;
     try {
-      const [status, paths] = await Promise.all([
-        readGitStatus(repository.top),
-        listGitPaths(repository.top),
-      ]);
+      const [status, paths] = await Promise.all([readGitStatus(repository.top), listGitPaths(repository.top)]);
       repository.status = status;
       this.adoptListing(repository, paths);
       for (const listener of repository.listeners) {
@@ -366,9 +363,7 @@ export class RepositoryGitWatch {
       const onPath = (path: string): void => {
         if (this.plainDirectories.get(directory)?.size === 0) return;
         if (basename(path) !== ".git" && !existsSync(join(directory, ".git"))) return;
-        void probe().catch((error: unknown) =>
-          console.error("repository probe failed", directory, error),
-        );
+        void probe().catch((error: unknown) => console.error("repository probe failed", directory, error));
       };
       const watch = repositoryEvents("folders", directory, onPath, (error) =>
         console.error("directory watch failed", directory, error),

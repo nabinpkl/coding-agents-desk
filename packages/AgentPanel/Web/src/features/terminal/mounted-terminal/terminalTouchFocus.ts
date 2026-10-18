@@ -27,8 +27,7 @@ export function bindTouchFocus(mount: HTMLDivElement, focus: () => void): () => 
     touchOrigin = null;
     const touch = event.changedTouches[0];
     if (!origin || !touch) return;
-    const moved = Math.abs(touch.clientX - origin.x) > TAP_SLOP_PX
-      || Math.abs(touch.clientY - origin.y) > TAP_SLOP_PX;
+    const moved = Math.abs(touch.clientX - origin.x) > TAP_SLOP_PX || Math.abs(touch.clientY - origin.y) > TAP_SLOP_PX;
     if (moved) return;
     focus();
   };

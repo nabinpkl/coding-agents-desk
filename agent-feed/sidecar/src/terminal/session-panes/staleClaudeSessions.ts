@@ -109,11 +109,15 @@ export function paneLaunchArguments(startCommand: string): string[] {
   const quoted = [...startCommand.matchAll(/'\\{1,2}''(.*?)'\\{1,2}''/g)].map((match) => match[1]!);
   // A hand-typed command is often several (`claude ...; exec /bin/zsh -l`), and the shell after it
   // is not the launch: read the one that runs `claude`, or all of them when none plainly does.
-  const segment = startCommand.split(/;|&&|\|\|/).find((part) => /(^|[\s'"/])claude(['"]|\s|$)/.test(part))
-    ?? startCommand;
-  const words = quoted.length > 0
-    ? quoted
-    : segment.split(/\s+/).map((token) => token.replace(/^['"\\]+|['"\\]+$/g, "")).filter(Boolean);
+  const segment =
+    startCommand.split(/;|&&|\|\|/).find((part) => /(^|[\s'"/])claude(['"]|\s|$)/.test(part)) ?? startCommand;
+  const words =
+    quoted.length > 0
+      ? quoted
+      : segment
+          .split(/\s+/)
+          .map((token) => token.replace(/^['"\\]+|['"\\]+$/g, ""))
+          .filter(Boolean);
   // From `claude` on: what comes before it is the pane's own plumbing, the first-turn wrapper's
   // `/bin/sh -c` among it. With no `claude` to find, everything is kept, flags and all.
   const claude = words.findIndex((word) => /(^|\/)claude$/.test(word));
@@ -167,7 +171,7 @@ export async function listStaleSessions(sources: StaleSessionSources): Promise<S
   // A process outside tmux has no pane to restart in: a Desktop window, a terminal of its own.
   for (const process of live) {
     if (process.tmuxSession === null) continue;
-    bySession.set(process.sessionId, [...bySession.get(process.sessionId) ?? [], process]);
+    bySession.set(process.sessionId, [...(bySession.get(process.sessionId) ?? []), process]);
   }
   const sessions: StaleClaudeSession[] = [];
   for (const [sessionId, processes] of bySession) {
@@ -217,21 +221,34 @@ export async function restartStaleSessions(
     const session = stale.get(sessionId);
     const name = session?.name ?? null;
     if (!session) {
-      return { sessionId, name, outcome: { kind: "skipped", reason: "no longer stale, or no longer running in a panel pane" } };
+      return {
+        sessionId,
+        name,
+        outcome: { kind: "skipped", reason: "no longer stale, or no longer running in a panel pane" },
+      };
     }
     if (session.ownLaunch) {
-      return { sessionId, name, outcome: { kind: "skipped", reason: "launched with flags of its own, which a restart would drop" } };
+      return {
+        sessionId,
+        name,
+        outcome: { kind: "skipped", reason: "launched with flags of its own, which a restart would drop" },
+      };
     }
     const { live } = await sources.processes();
     const processes = live.filter((process) => process.sessionId === sessionId);
     if (processes.length === 0) return { sessionId, name, outcome: { kind: "skipped", reason: "no longer running" } };
     const activity = sessionActivity(processes);
-    if (activity !== "idle") return { sessionId, name, outcome: { kind: "skipped", reason: NOT_IDLE[activity ?? "unknown"] } };
+    if (activity !== "idle")
+      return { sessionId, name, outcome: { kind: "skipped", reason: NOT_IDLE[activity ?? "unknown"] } };
     try {
       await sources.restart(sessionId);
       return { sessionId, name, outcome: { kind: "restarted" } };
     } catch (error) {
-      return { sessionId, name, outcome: { kind: "failed", message: error instanceof Error ? error.message : String(error) } };
+      return {
+        sessionId,
+        name,
+        outcome: { kind: "failed", message: error instanceof Error ? error.message : String(error) },
+      };
     }
   };
 

@@ -97,24 +97,13 @@ import {
 } from "@/input/composer/composerKeystrokes";
 import { pasteTokens } from "@/input/composer/composerPastes";
 import { inTurn, settle } from "@/input/tmuxComposerPanes";
-import {
-  COALESCE_MS,
-  LIVE,
-  readComposerAt,
-  unavailable,
-  type TmuxComposerRuntime,
-} from "@/input/tmuxComposerRuntime";
+import { COALESCE_MS, LIVE, readComposerAt, unavailable, type TmuxComposerRuntime } from "@/input/tmuxComposerRuntime";
 
 // Re-exported because this is the address the routes and the tests already have, and the
 // parts below are how the composer is built rather than what it offers.
 export { composerBox, composerText, type ComposerBox } from "@/input/composer/composerBox";
 export { keystrokesFor, MAXIMUM_COMPOSER_BYTES } from "@/input/composer/composerKeystrokes";
-export {
-  composerPastes,
-  meaning,
-  pasteTokens,
-  type ComposerPasteStore,
-} from "@/input/composer/composerPastes";
+export { composerPastes, meaning, pasteTokens, type ComposerPasteStore } from "@/input/composer/composerPastes";
 export { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 export {
   liveTmuxComposerRuntime,
@@ -314,7 +303,12 @@ export async function submitTmuxComposer(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  return press(sessionId, CARRIAGE_RETURN, { text: "", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] }, runtime);
+  return press(
+    sessionId,
+    CARRIAGE_RETURN,
+    { text: "", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
+    runtime,
+  );
 }
 
 /**
@@ -330,7 +324,12 @@ export async function acceptTmuxComposerHint(
   sessionId: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
-  return press(sessionId, TAB, { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] }, runtime);
+  return press(
+    sessionId,
+    TAB,
+    { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
+    runtime,
+  );
 }
 
 /**
@@ -409,8 +408,7 @@ export async function awaitComposer(
   sessionId: string,
   limitMs: number,
   runtime: TmuxComposerRuntime = LIVE,
-  wait: (ms: number) => Promise<void> =
-    (ms) => new Promise<void>((done) => setTimeout(done, ms)),
+  wait: (ms: number) => Promise<void> = (ms) => new Promise<void>((done) => setTimeout(done, ms)),
 ): Promise<boolean> {
   const started = Date.now();
   for (;;) {
@@ -432,7 +430,7 @@ export async function awaitComposer(
  * either lands or it fails, and `failed` turns the failure into an answer.
  */
 export async function paneFor(sessionId: string, runtime: TmuxComposerRuntime): Promise<string | null> {
-  return runtime.panes.get(sessionId) ?? await runtime.pane(sessionId);
+  return runtime.panes.get(sessionId) ?? (await runtime.pane(sessionId));
 }
 
 /**
@@ -444,13 +442,8 @@ export async function paneFor(sessionId: string, runtime: TmuxComposerRuntime): 
  * the pane, and the one after it resolves, finds no live process, and says `no-pane`, which is
  * what the reader needs to be told.
  */
-function failed(
-  sessionId: string,
-  error: unknown,
-  runtime: TmuxComposerRuntime,
-): TmuxComposerState {
+function failed(sessionId: string, error: unknown, runtime: TmuxComposerRuntime): TmuxComposerState {
   if (!(error instanceof TmuxUnavailable)) throw error;
   runtime.panes.forget(sessionId);
   return unavailable("tmux-unavailable");
 }
-

@@ -119,10 +119,11 @@ export function createComposerPoll(
         // the notification arrived, the refresh ran, and it re-emitted the text it already had.
         // Measured before this line existed: an out-of-band edit sat in the window for twenty
         // seconds while the stream kept reporting the old value.
-        const skipRead = !isForced
-          && onlyPid === undefined
-          && observed.has(resolved.claudeMainPid)
-          && subscription.lastComposer?.composerText !== undefined;
+        const skipRead =
+          !isForced &&
+          onlyPid === undefined &&
+          observed.has(resolved.claudeMainPid) &&
+          subscription.lastComposer?.composerText !== undefined;
         if (skipRead) {
           textBySession.set(id, subscription.lastComposer?.composerText ?? null);
         } else {

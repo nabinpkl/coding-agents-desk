@@ -23,8 +23,10 @@ const KERNEL_STAMP = (() => {
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${days[at.getDay()]} ${months[at.getMonth()]} ${String(at.getDate()).padStart(2, " ")} ` +
-    `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())} ${at.getFullYear()}`;
+  return (
+    `${days[at.getDay()]} ${months[at.getMonth()]} ${String(at.getDate()).padStart(2, " ")} ` +
+    `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())} ${at.getFullYear()}`
+  );
 })();
 const PROC_START = "Fri Aug 14 17:10:48 2026";
 
@@ -48,13 +50,9 @@ async function registryWith(sessions: ReadonlyMap<string, number>): Promise<stri
  * transcript join, which `assembleSnapshot`'s own tests cover.
  */
 function machine(owners: ReadonlyMap<number, { shellPid: number; capture: string }>) {
-  const rows = [...owners].map(([ownerPid, { shellPid }]) =>
-    `${shellPid} ${ownerPid} ${KERNEL_STAMP} 0:00.00 zsh`
-  );
+  const rows = [...owners].map(([ownerPid, { shellPid }]) => `${shellPid} ${ownerPid} ${KERNEL_STAMP} 0:00.00 zsh`);
   const psRows = [...owners.keys()].map((pid) => `${pid} 1 ${KERNEL_STAMP} 0:00.00 claude`);
-  const lsof = [...owners.values()]
-    .map(({ shellPid, capture }) => `p${shellPid}\nf1\naw\nn${capture}\n`)
-    .join("");
+  const lsof = [...owners.values()].map(({ shellPid, capture }) => `p${shellPid}\nf1\naw\nn${capture}\n`).join("");
   return { table: [...psRows, ...rows].join("\n"), lsof };
 }
 
@@ -73,11 +71,18 @@ describe("createBackgroundTaskCoordinator", () => {
   test("one kernel pass answers every watched session", async () => {
     // The whole point. Two sessions used to mean two process tables, two registry passes and two
     // lsof forks per tick; they are one question asked of one kernel.
-    const directory = await registryWith(new Map([[ONE, 9672], [TWO, 9673]]));
-    const { table, lsof } = machine(new Map([
-      [9672, { shellPid: 63854, capture: CAPTURE_ONE }],
-      [9673, { shellPid: 71001, capture: CAPTURE_TWO }],
-    ]));
+    const directory = await registryWith(
+      new Map([
+        [ONE, 9672],
+        [TWO, 9673],
+      ]),
+    );
+    const { table, lsof } = machine(
+      new Map([
+        [9672, { shellPid: 63854, capture: CAPTURE_ONE }],
+        [9673, { shellPid: 71001, capture: CAPTURE_TWO }],
+      ]),
+    );
     let forks: string[] = [];
     const run: CommandRunner = async (argv) => {
       forks.push(argv[0]!);
@@ -107,17 +112,26 @@ describe("createBackgroundTaskCoordinator", () => {
     // The running pass read its session list before this session existed. Joining it would resolve
     // having never asked about the session that prompted the call, and the card would sit blank
     // until the next tick.
-    const directory = await registryWith(new Map([[ONE, 9672], [TWO, 9673]]));
-    const { table, lsof } = machine(new Map([
-      [9672, { shellPid: 63854, capture: CAPTURE_ONE }],
-      [9673, { shellPid: 71001, capture: CAPTURE_TWO }],
-    ]));
+    const directory = await registryWith(
+      new Map([
+        [ONE, 9672],
+        [TWO, 9673],
+      ]),
+    );
+    const { table, lsof } = machine(
+      new Map([
+        [9672, { shellPid: 63854, capture: CAPTURE_ONE }],
+        [9673, { shellPid: 71001, capture: CAPTURE_TWO }],
+      ]),
+    );
     const run: CommandRunner = async (argv) => (argv[0] === "/bin/ps" ? table : lsof);
     const coordinator = createBackgroundTaskCoordinator({ run, sessionsDirectory: directory });
 
     const stopOne = coordinator.subscribe(ONE, () => {});
     let late: BackgroundTaskSnapshot | null = null;
-    const stopTwo = coordinator.subscribe(TWO, (snapshot) => { late = snapshot; });
+    const stopTwo = coordinator.subscribe(TWO, (snapshot) => {
+      late = snapshot;
+    });
     await coordinator.refresh();
     expect(late).not.toBeNull();
     expect(late!.running.map((task) => task.taskId)).toEqual(["bother999"]);
@@ -127,15 +141,24 @@ describe("createBackgroundTaskCoordinator", () => {
 
   test("each session is told only about its own tasks", async () => {
     // One lsof answer covers everybody, so mis-grouping it would show one session another's work.
-    const directory = await registryWith(new Map([[ONE, 9672], [TWO, 9673]]));
-    const { table, lsof } = machine(new Map([
-      [9672, { shellPid: 63854, capture: CAPTURE_ONE }],
-      [9673, { shellPid: 71001, capture: CAPTURE_TWO }],
-    ]));
+    const directory = await registryWith(
+      new Map([
+        [ONE, 9672],
+        [TWO, 9673],
+      ]),
+    );
+    const { table, lsof } = machine(
+      new Map([
+        [9672, { shellPid: 63854, capture: CAPTURE_ONE }],
+        [9673, { shellPid: 71001, capture: CAPTURE_TWO }],
+      ]),
+    );
     const run: CommandRunner = async (argv) => (argv[0] === "/bin/ps" ? table : lsof);
     const coordinator = createBackgroundTaskCoordinator({ run, sessionsDirectory: directory });
     let onlyOne: BackgroundTaskSnapshot | null = null;
-    const stop = coordinator.subscribe(ONE, (snapshot) => { onlyOne = snapshot; });
+    const stop = coordinator.subscribe(ONE, (snapshot) => {
+      onlyOne = snapshot;
+    });
     await coordinator.refresh();
     expect(onlyOne!.running.map((task) => task.taskId)).toEqual(["bukxtjy7e"]);
     stop();
@@ -175,7 +198,9 @@ describe("createBackgroundTaskCoordinator", () => {
     const stopFirst = coordinator.subscribe(ONE, () => {});
     await coordinator.refresh();
     let late: BackgroundTaskSnapshot | null = null;
-    const stopLate = coordinator.subscribe(ONE, (snapshot) => { late = snapshot; });
+    const stopLate = coordinator.subscribe(ONE, (snapshot) => {
+      late = snapshot;
+    });
     expect(late!.running.map((task) => task.taskId)).toEqual(["bukxtjy7e"]);
     stopFirst();
     stopLate();
@@ -192,7 +217,9 @@ describe("createBackgroundTaskCoordinator", () => {
     stop();
 
     let handed: BackgroundTaskSnapshot | null = null;
-    const stopAgain = coordinator.subscribe(ONE, (snapshot) => { handed = snapshot; });
+    const stopAgain = coordinator.subscribe(ONE, (snapshot) => {
+      handed = snapshot;
+    });
     // Nothing delivered synchronously: the reading from before it left is minutes old as far as
     // this subscriber knows, and a fresh pass is already on its way.
     expect(handed).toBeNull();

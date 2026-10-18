@@ -28,13 +28,16 @@ export function BotCodeDialog({
   onClose: () => void;
 }) {
   const { botId } = bot;
-  const source = useMemo((): FolderSource => ({
-    key: `bot:${botId}`,
-    tree: (expanded) => feed.botTree(botId, expanded),
-    file: (path) => feed.botFile(botId, path),
-    contentUrl: (path) => feed.botContentUrl(botId, path),
-    gitDiff: (path) => feed.botGitDiff(botId, path),
-  }), [feed, botId]);
+  const source = useMemo(
+    (): FolderSource => ({
+      key: `bot:${botId}`,
+      tree: (expanded) => feed.botTree(botId, expanded),
+      file: (path) => feed.botFile(botId, path),
+      contentUrl: (path) => feed.botContentUrl(botId, path),
+      gitDiff: (path) => feed.botGitDiff(botId, path),
+    }),
+    [feed, botId],
+  );
   return (
     <FolderCodeDialog
       titleId="bot-code-title"

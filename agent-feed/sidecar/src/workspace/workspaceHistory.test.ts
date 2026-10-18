@@ -28,7 +28,8 @@ async function repository(): Promise<string> {
     ["init", "--initial-branch=main"],
     ["config", "user.email", "test@example.com"],
     ["config", "user.name", "Test"],
-  ]) await run(root, args);
+  ])
+    await run(root, args);
   return root;
 }
 
@@ -39,9 +40,10 @@ function record(fields: string[]): string {
 }
 
 test("reads a log record's fields, and counts parents from the parent list", () => {
-  const output = record(["a".repeat(40), "aaaaaaa", "Ada", "1700000000", "", "first commit"])
-    + record(["b".repeat(40), "bbbbbbb", "Ada", "1700000100", "a".repeat(40), "second"])
-    + record([
+  const output =
+    record(["a".repeat(40), "aaaaaaa", "Ada", "1700000000", "", "first commit"]) +
+    record(["b".repeat(40), "bbbbbbb", "Ada", "1700000100", "a".repeat(40), "second"]) +
+    record([
       "c".repeat(40),
       "ccccccc",
       "Grace",
@@ -49,8 +51,11 @@ test("reads a log record's fields, and counts parents from the parent list", () 
       `${"a".repeat(40)} ${"b".repeat(40)}`,
       "Merge branch 'x'",
     ]);
-  expect(parseCommits(output).map((commit) => [commit.shortHash, commit.parentCount, commit.subject]))
-    .toEqual([["aaaaaaa", 0, "first commit"], ["bbbbbbb", 1, "second"], ["ccccccc", 2, "Merge branch 'x'"]]);
+  expect(parseCommits(output).map((commit) => [commit.shortHash, commit.parentCount, commit.subject])).toEqual([
+    ["aaaaaaa", 0, "first commit"],
+    ["bbbbbbb", 1, "second"],
+    ["ccccccc", 2, "Merge branch 'x'"],
+  ]);
 });
 
 test("keeps a subject that contains a newline, which is why the records are NUL-separated", () => {
@@ -129,8 +134,7 @@ test("reads the message under the subject, and answers empty for a commit with n
   const [bare, withBody] = await listCommits(root, 2);
   // The subject stays on the commit rather than being repeated here, and the blank line between
   // the author's two paragraphs is theirs to keep.
-  expect((await commitDetail(root, "w-1", withBody!.hash)).body)
-    .toBe("why this happened\n\nand a second paragraph");
+  expect((await commitDetail(root, "w-1", withBody!.hash)).body).toBe("why this happened\n\nand a second paragraph");
   expect((await commitDetail(root, "w-1", bare!.hash)).body).toBe("");
 });
 
@@ -148,8 +152,7 @@ test("reads a merge against its first parent, where a combined diff would show n
 
   const [merge] = await listCommits(root, 1);
   expect(merge!.parentCount).toBe(2);
-  expect((await commitDetail(root, "w-1", merge!.hash)).files.map((file) => file.path))
-    .toEqual(["side.ts"]);
+  expect((await commitDetail(root, "w-1", merge!.hash)).files.map((file) => file.path)).toEqual(["side.ts"]);
 });
 
 test("answers the patch for one path, and only that path", async () => {

@@ -55,14 +55,18 @@ export function useFeedRows({
   // shell call. Auto-expanding the live edge turned long windows into a wall
   // of command output, so the feed stays a tight call list throughout.
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
-  const toggleTool = useCallback((key: string) => {
-    pause();
-    setExpandedTools((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }, [pause]);
+  const toggleTool = useCallback(
+    (key: string) => {
+      pause();
+      setExpandedTools((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    },
+    [pause],
+  );
 
   // Event index currently flashing after a sticky-jump click. Cleared on a
   // timer so the ring on the landed row fades out without further interaction.
@@ -85,14 +89,17 @@ export function useFeedRows({
   // index, which is also that event's own row, and collapsing the row must not fold
   // the run.
   const [foldedClusters, setFoldedClusters] = useState<Set<number>>(new Set());
-  const expandCluster = useCallback((leadIndex: number) => {
-    pause();
-    setFoldedClusters((previous) => {
-      const next = new Set(previous);
-      next.delete(leadIndex);
-      return next;
-    });
-  }, [pause]);
+  const expandCluster = useCallback(
+    (leadIndex: number) => {
+      pause();
+      setFoldedClusters((previous) => {
+        const next = new Set(previous);
+        next.delete(leadIndex);
+        return next;
+      });
+    },
+    [pause],
+  );
 
   // The layout, and what it was built from. A rebuild hands back the previous layout's object for
   // every row a new line did not change, so the memoized rows skip them (`keepUnchanged.ts`). Held
@@ -138,14 +145,18 @@ export function useFeedRows({
     allEventIds.every((id) => collapsed.has(id)) &&
     clusterLeadIds.every((lead) => foldedClusters.has(lead));
 
-  const toggleEvent = useCallback((eventIdx: number) => {
-    pause();
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventIdx)) next.delete(eventIdx); else next.add(eventIdx);
-      return next;
-    });
-  }, [pause]);
+  const toggleEvent = useCallback(
+    (eventIdx: number) => {
+      pause();
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (next.has(eventIdx)) next.delete(eventIdx);
+        else next.add(eventIdx);
+        return next;
+      });
+    },
+    [pause],
+  );
 
   // The live rows' own collapse state, deliberately NOT a member of `collapsed`.
   //
@@ -161,14 +172,18 @@ export function useFeedRows({
   // A single boolean was right while it was one row and wrong the moment it was not: it
   // folded the entire turn away on a click meant for one message.
   const [collapsedTails, setCollapsedTails] = useState<Set<string>>(new Set());
-  const toggleLiveTail = useCallback((key: string) => {
-    pause();
-    setCollapsedTails((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }, [pause]);
+  const toggleLiveTail = useCallback(
+    (key: string) => {
+      pause();
+      setCollapsedTails((previous) => {
+        const next = new Set(previous);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    },
+    [pause],
+  );
 
   const collapseAll = useCallback(() => {
     pause();

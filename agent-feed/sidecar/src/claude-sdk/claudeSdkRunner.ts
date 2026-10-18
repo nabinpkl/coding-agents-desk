@@ -11,7 +11,14 @@
 //
 // Pure of I/O beyond the injected query, so its tests drive it with a fake SDK and no CLI.
 
-import type { CanUseTool, Options, PermissionMode, PermissionResult, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  CanUseTool,
+  Options,
+  PermissionMode,
+  PermissionResult,
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { RunnerCallback, RunnerChoices, RunnerRecord, RunnerReply } from "@/claude-sdk/claudeSdkProtocol";
 
 /** What the sidecar decided about this session before the runner started. */
@@ -129,7 +136,10 @@ function plainOptions(options: Parameters<CanUseTool>[2]): RunnerCallback["optio
 export class ClaudeSdkRunner {
   /** The latest record of each key, in the order each was last replaced. */
   private readonly records = new Map<string, RunnerRecord>();
-  private readonly callbacks = new Map<string, { callback: RunnerCallback; settle: (result: PermissionResult) => void }>();
+  private readonly callbacks = new Map<
+    string,
+    { callback: RunnerCallback; settle: (result: PermissionResult) => void }
+  >();
   private readonly listeners = new Set<(event: RunnerEvent) => void>();
   private readonly prompts = new PromptQueue();
   private query: RunnerQuery | null = null;
@@ -180,7 +190,10 @@ export class ClaudeSdkRunner {
 
   /** Everything a connection arriving now is handed: the kept records, then the open callbacks. */
   snapshot(): { records: RunnerRecord[]; callbacks: RunnerCallback[] } {
-    return { records: [...this.records.values()], callbacks: [...this.callbacks.values()].map((entry) => entry.callback) };
+    return {
+      records: [...this.records.values()],
+      callbacks: [...this.callbacks.values()].map((entry) => entry.callback),
+    };
   }
 
   subscribe(listener: (event: RunnerEvent) => void): () => void {
@@ -192,7 +205,12 @@ export class ClaudeSdkRunner {
   async run(log: (line: string) => void): Promise<void> {
     this.query = this.createQuery({ prompt: this.prompts, options: this.options() });
     if (this.plan.firstTurn) {
-      this.input({ type: "user", message: { role: "user", content: this.plan.firstTurn }, parent_tool_use_id: null, origin: { kind: "human" } });
+      this.input({
+        type: "user",
+        message: { role: "user", content: this.plan.firstTurn },
+        parent_tool_use_id: null,
+        origin: { kind: "human" },
+      });
     }
     try {
       for await (const message of this.query) {
@@ -260,9 +278,13 @@ export class ClaudeSdkRunner {
       };
       this.callbacks.set(callback.id, { callback, settle: resolve });
       // The SDK gives up on a request when the turn is interrupted, and nothing will answer it then.
-      options.signal.addEventListener("abort", () => this.settle(callback.id, { behavior: "deny", message: "Cancelled." }), {
-        once: true,
-      });
+      options.signal.addEventListener(
+        "abort",
+        () => this.settle(callback.id, { behavior: "deny", message: "Cancelled." }),
+        {
+          once: true,
+        },
+      );
       this.emit({ type: "callback", callback });
     });
 

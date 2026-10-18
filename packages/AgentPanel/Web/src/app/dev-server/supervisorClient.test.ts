@@ -17,16 +17,15 @@ afterEach(async () => {
 });
 
 /** A stand-in sidecar: answers `/api/config` with whatever it was given, and records commands. */
-async function sidecar(
-  supervisor: unknown,
-  sourceVersion?: string,
-): Promise<{ machine: Machine; commands: string[] }> {
+async function sidecar(supervisor: unknown, sourceVersion?: string): Promise<{ machine: Machine; commands: string[] }> {
   const commands: string[] = [];
   const server = createServer((request, response) => {
     if (request.method === "POST") {
       let body = "";
       request.setEncoding("utf8");
-      request.on("data", (chunk: string) => { body += chunk; });
+      request.on("data", (chunk: string) => {
+        body += chunk;
+      });
       request.on("end", () => {
         commands.push(`${request.url} ${body}`);
         response.setHeader("content-type", "application/json");
@@ -68,7 +67,9 @@ test("a machine with no supervisor contributes no row", async () => {
   const { machine } = await sidecar(null);
   const client = createSupervisorClient();
   let changed = 0;
-  client.refresh([machine], () => { changed += 1; });
+  client.refresh([machine], () => {
+    changed += 1;
+  });
   await settle(() => changed === 0);
   expect(client.report(null)).toEqual([]);
 });
@@ -78,7 +79,13 @@ test("a field that is not the contract falls back rather than travelling", async
   const client = createSupervisorClient();
   client.refresh([machine], () => {});
   await settle(() => client.report(null).length > 0);
-  expect(client.report(null)[0]).toEqual({ machine: "oracle", held: false, blocked: null, mode: "auto", behind: false });
+  expect(client.report(null)[0]).toEqual({
+    machine: "oracle",
+    held: false,
+    blocked: null,
+    mode: "auto",
+    behind: false,
+  });
 });
 
 test("a machine that stops answering is forgotten rather than frozen", async () => {
@@ -89,7 +96,9 @@ test("a machine that stops answering is forgotten rather than frozen", async () 
 
   // Off the list entirely, which is what a sidecar aging off the board looks like from here.
   let changed = 0;
-  client.refresh([], () => { changed += 1; });
+  client.refresh([], () => {
+    changed += 1;
+  });
   expect(client.report(null)).toEqual([]);
   expect(changed).toBe(1);
 });
@@ -125,7 +134,13 @@ test("calls a machine behind only when the code it reports differs from the tree
   const { machine: current } = await sidecar(idle, "aaaaaaaaaaaa");
   const { machine: silent } = await sidecar(idle);
   const client = createSupervisorClient();
-  client.refresh([{ ...current, label: "mac" }, { ...silent, label: "old" }], () => {});
+  client.refresh(
+    [
+      { ...current, label: "mac" },
+      { ...silent, label: "old" },
+    ],
+    () => {},
+  );
   await settle(() => client.report(null).length === 2);
 
   const behind = (tree: string | null) =>

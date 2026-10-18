@@ -47,21 +47,25 @@ export function LanesPrompt({
       void send();
     }
   };
-  const refusalLine = refusal ? <p role="alert" className={`${TEXT.meta} text-destructive`}>{refusal}</p> : null;
+  const refusalLine = refusal ? (
+    <p role="alert" className={`${TEXT.meta} text-destructive`}>
+      {refusal}
+    </p>
+  ) : null;
   if (next) {
     return (
       <div className="flex max-w-3xl flex-col gap-1.5">
         {/* The border is the row's, around the field and its button side by side, the way a
             session composer draws one: the button sits in the box without lying over the text. */}
-        <div
-          className="flex items-end gap-2 rounded-md border border-input bg-background py-1.5 pr-1.5 pl-3 transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50"
-        >
+        <div className="flex items-end gap-2 rounded-md border border-input bg-background py-1.5 pr-1.5 pl-3 transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
           <textarea
             aria-label="Next prompt for every lane"
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={sendOnChord}
-            placeholder={busy ? "Draft the next prompt; it sends once every lane settles" : "Next prompt for every lane"}
+            placeholder={
+              busy ? "Draft the next prompt; it sends once every lane settles" : "Next prompt for every lane"
+            }
             rows={1}
             className={`block max-h-40 min-h-7 flex-1 resize-none bg-transparent py-0.5 ${TEXT.body} leading-relaxed text-foreground outline-none field-sizing-content placeholder:text-muted-foreground`}
           />
@@ -70,10 +74,18 @@ export function LanesPrompt({
             onClick={() => void send()}
             disabled={!canSend}
             aria-label="Send to every lane"
-            title={busy ? "The lanes are still on the last prompt; send this once they settle" : `Send to every lane (${SEND_CHORD})`}
+            title={
+              busy
+                ? "The lanes are still on the last prompt; send this once they settle"
+                : `Send to every lane (${SEND_CHORD})`
+            }
             className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors duration-150 hover:bg-primary/90 active:bg-primary/80 disabled:pointer-events-none disabled:bg-muted disabled:text-muted-foreground ${FOCUS}`}
           >
-            {sending ? <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" /> : <ArrowUp aria-hidden className="size-4" />}
+            {sending ? (
+              <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+            ) : (
+              <ArrowUp aria-hidden className="size-4" />
+            )}
           </button>
         </div>
         {refusalLine}
@@ -97,8 +109,17 @@ export function LanesPrompt({
         className={`${FIELD} min-h-20 resize-y leading-relaxed`}
       />
       <div className="flex flex-wrap items-center justify-end gap-3">
-        {refusal ? <p role="alert" className={`mr-auto ${TEXT.meta} text-destructive`}>{refusal}</p> : null}
-        <button type="button" onClick={() => void send()} disabled={!canSend} className={`${PRIMARY_BUTTON} whitespace-nowrap`}>
+        {refusal ? (
+          <p role="alert" className={`mr-auto ${TEXT.meta} text-destructive`}>
+            {refusal}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => void send()}
+          disabled={!canSend}
+          className={`${PRIMARY_BUTTON} whitespace-nowrap`}
+        >
           {sending ? "Sending" : "Send to every lane"}
           <kbd className="rounded border border-primary-foreground/30 px-1 font-sans text-[11px] leading-4 opacity-80">
             {SEND_CHORD}

@@ -4,17 +4,17 @@
 // into these shapes, and everything above the adapter -- event index, catalog, HTTP/SSE, the Agent
 // Panel -- consumes only these.
 
-export type SourceId = 'claude' | 'codex' | 'pi' | 'opencode';
+export type SourceId = "claude" | "codex" | "pi" | "opencode";
 
 // Which view of a transcript an index, count, page or stream addresses.
 //   raw  -- every line, in file order. The fidelity guarantee.
 //   nice -- content lines only, renumbered contiguously from 0.
 // Event indices are mode-relative, so a mode has to travel with every request
 // that names one: the same integer means different lines in the two views.
-export type EventMode = 'raw' | 'nice';
+export type EventMode = "raw" | "nice";
 
 export interface ActivityBlock {
-  kind: 'text' | 'tool_use' | 'tool_result' | 'reasoning' | 'compaction' | 'metadata' | 'plain' | 'raw' | 'image';
+  kind: "text" | "tool_use" | "tool_result" | "reasoning" | "compaction" | "metadata" | "plain" | "raw" | "image";
   // Set on image blocks, and the only thing they carry. The bytes stay in the transcript and are
   // served by `GET .../events/<n>/blocks/<b>/image`: one pasted screenshot is tens of kilobytes of
   // base64, and it used to ride every page and every reconnect as a Plain JSON card nobody could
@@ -59,7 +59,7 @@ export interface EventCacheHit {
 
 export interface ParsedLine {
   ts: number;
-  type: 'user' | 'assistant' | 'reasoning' | 'system';
+  type: "user" | "assistant" | "reasoning" | "system";
   blocks: ActivityBlock[];
   /**
    * Stable Anthropic message id (`msg_...`) when the harness/source records one.
@@ -112,7 +112,7 @@ export interface ActivityEvent extends ParsedLine {
   // contiguous: there the row before index N is N - 1.
   previous?: number | null;
   revision: number;
-  phase: 'streaming' | 'complete';
+  phase: "streaming" | "complete";
   // Position of the same line in the OTHER mode, or null when it has none -- a
   // machinery line read in raw mode is absent from the nice view entirely.
   //

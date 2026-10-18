@@ -87,7 +87,11 @@ export function OpencodeAsideDialog({
             {aside.pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : "Ask"}
           </button>
         </form>
-        {aside.error ? <p role="alert" className="text-sm text-destructive">{aside.error}</p> : null}
+        {aside.error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {aside.error}
+          </p>
+        ) : null}
         {aside.pending ? (
           <p className="text-sm text-muted-foreground">Reading the session&rsquo;s context&hellip;</p>
         ) : answered !== null ? (

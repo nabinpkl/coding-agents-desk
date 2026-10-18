@@ -6,14 +6,18 @@ function recording() {
   const calls: string[] = [];
   const target: RunnerStreamTarget = {
     acceptRunnerStream: (sessionId, flowId, payload) =>
-      void calls.push(`${sessionId} ${flowId} ${payload === null ? "END" : (JSON.parse(payload) as { type: string }).type}`),
+      void calls.push(
+        `${sessionId} ${flowId} ${payload === null ? "END" : (JSON.parse(payload) as { type: string }).type}`,
+      ),
     releaseRunnerStream: (sessionId) => void calls.push(`${sessionId} released`),
   };
   return { calls, feed: new ClaudeSdkLiveFeed(target, () => 1) };
 }
 
-const frame = (type: string, parentToolUseId: string | null = null): RunnerStreamFrame =>
-  ({ event: { type }, parentToolUseId });
+const frame = (type: string, parentToolUseId: string | null = null): RunnerStreamFrame => ({
+  event: { type },
+  parentToolUseId,
+});
 
 describe("a runner's stream, into the live mirror", () => {
   test("is one flow per message, from its start to its stop", () => {

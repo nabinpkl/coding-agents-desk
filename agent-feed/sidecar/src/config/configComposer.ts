@@ -20,6 +20,6 @@ export const composerImageDirectory = directoryEnvironment(
 // message being written at that moment would otherwise lose its paste or its picture on the next
 // correction. Beside the images, with the same 0700 reach: it holds what people pasted.
 export const composerHandlesPath = resolve(
-  process.env.AGENT_FEED_COMPOSER_HANDLES_PATH?.trim()
-    || join(runtimePaths().root, "agent-panel", "composer-handles.json"),
+  process.env.AGENT_FEED_COMPOSER_HANDLES_PATH?.trim() ||
+    join(runtimePaths().root, "agent-panel", "composer-handles.json"),
 );

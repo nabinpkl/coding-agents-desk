@@ -22,8 +22,8 @@ const SHOWN_FIELDS = ["command", "file_path", "path", "url", "pattern", "plan", 
  * the first one recognised. So the rest is always shown, under the headline, in full.
  */
 export function approvalDetail(input: Record<string, unknown>): { headline: string | null; rest: string | null } {
-  const field = SHOWN_FIELDS.find((name) => typeof input[name] === "string" && (input[name]).trim());
-  const headline = field ? input[field] as string : null;
+  const field = SHOWN_FIELDS.find((name) => typeof input[name] === "string" && input[name].trim());
+  const headline = field ? (input[field] as string) : null;
   const remaining = Object.fromEntries(Object.entries(input).filter(([name]) => name !== field));
   return { headline, rest: Object.keys(remaining).length > 0 ? JSON.stringify(remaining, null, 2) : null };
 }
@@ -54,7 +54,9 @@ function ApprovalRequest({ request, session }: { request: ClaudeSdkApprovalReque
         <div className="mt-2 max-h-60 overflow-auto rounded-lg bg-muted/50 px-2 py-1.5 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) whitespace-pre-wrap break-words text-foreground">
           {detail.headline !== null ? <pre className="whitespace-pre-wrap break-words">{detail.headline}</pre> : null}
           {detail.rest !== null ? (
-            <pre className={`whitespace-pre-wrap break-words ${detail.headline !== null ? "mt-2 border-t border-border pt-2" : ""}`}>
+            <pre
+              className={`whitespace-pre-wrap break-words ${detail.headline !== null ? "mt-2 border-t border-border pt-2" : ""}`}
+            >
               {detail.rest}
             </pre>
           ) : null}
@@ -80,9 +82,13 @@ export function SdkApprovalRequests({ session }: { session: SdkSessionHandle }) 
   if (approvals.length === 0) return null;
   return (
     <>
-      {approvals.map((request) => <ApprovalRequest key={request.toolUseId} request={request} session={session} />)}
+      {approvals.map((request) => (
+        <ApprovalRequest key={request.toolUseId} request={request} session={session} />
+      ))}
       {session.error ? (
-        <p role="alert" className="mb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">{session.error}</p>
+        <p role="alert" className="mb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
+          {session.error}
+        </p>
       ) : null}
     </>
   );

@@ -47,9 +47,7 @@ describe("detectMediaCapabilities", () => {
   });
 
   it("falls back to plain MediaSource when ManagedMediaSource is absent", () => {
-    const caps = detectMediaCapabilities(
-      scope({ MediaSource: { isTypeSupported: () => true } }),
-    );
+    const caps = detectMediaCapabilities(scope({ MediaSource: { isTypeSupported: () => true } }));
     expect(caps.managedMediaSource).toBe(false);
     expect(caps.mediaSource).toBe(true);
     expect(canReceiveFragmentedVideo(caps)).toBe(true);
@@ -77,9 +75,7 @@ describe("detectMediaCapabilities", () => {
   });
 
   it("does not require WebTransport, which is the pipe and not the capability", () => {
-    const caps = detectMediaCapabilities(
-      scope({ ManagedMediaSource: { isTypeSupported: () => true } }),
-    );
+    const caps = detectMediaCapabilities(scope({ ManagedMediaSource: { isTypeSupported: () => true } }));
     expect(caps.webTransport).toBe(false);
     expect(canReceiveFragmentedVideo(caps)).toBe(true);
   });

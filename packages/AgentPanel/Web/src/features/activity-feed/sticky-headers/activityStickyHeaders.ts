@@ -120,11 +120,7 @@ export function selectUserBar(
 }
 
 /** Where the range starting at row `rangeStart` begins in the transcript, or null when nothing precedes it. */
-function rangeStartPosition(
-  rows: readonly StickyRow[],
-  rangeStart: number,
-  oldestStart: number | null,
-): number | null {
+function rangeStartPosition(rows: readonly StickyRow[], rangeStart: number, oldestStart: number | null): number | null {
   if (oldestStart === null) return null;
   const gap = rangeStart > 0 ? rows[rangeStart - 1] : undefined;
   if (gap?.kind === "gap") return gap.below ?? null;

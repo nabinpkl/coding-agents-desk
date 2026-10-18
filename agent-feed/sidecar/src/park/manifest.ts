@@ -129,9 +129,9 @@ export interface Corroborable {
 export function corroborates(entry: ParkEntry, live: Corroborable | undefined): boolean {
   if (!live) return false;
   return (
-    live.pid === entry.ownerPID
-    && live.app === entry.app
-    && live.frame.w === entry.size.w
-    && live.frame.h === entry.size.h
+    live.pid === entry.ownerPID &&
+    live.app === entry.app &&
+    live.frame.w === entry.size.w &&
+    live.frame.h === entry.size.h
   );
 }

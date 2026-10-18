@@ -38,8 +38,12 @@ const options = {
 
 test("window starts at the most recent user message", async () => {
   const events = [
-    event(0, "user"), event(1, "assistant"), event(2, "assistant"),
-    event(3, "user"), event(4, "assistant"), event(5, "assistant"),
+    event(0, "user"),
+    event(1, "assistant"),
+    event(2, "assistant"),
+    event(3, "user"),
+    event(4, "assistant"),
+    event(5, "assistant"),
   ];
   const window = (await resolveTurnWindow({ ...options, readPage: reader(events) }))!;
   expect(window.events.map((e) => e.index)).toEqual([3, 4, 5]);
@@ -127,9 +131,7 @@ test("the files the window reports are the ones its own events changed", async (
   }))!;
   // From the turn, not from the checkout: the earlier events belong to a previous turn and
   // whatever they wrote is not this turn's doing.
-  expect(window.filesTouched).toEqual([
-    { path: "src/a.ts", action: "wrote", edits: 1, added: 2, removed: 0 },
-  ]);
+  expect(window.filesTouched).toEqual([{ path: "src/a.ts", action: "wrote", edits: 1, added: 2, removed: 0 }]);
 });
 
 test("a turn that changed nothing reports no files", async () => {

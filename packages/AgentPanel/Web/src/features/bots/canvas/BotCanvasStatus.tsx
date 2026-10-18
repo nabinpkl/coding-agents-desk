@@ -91,10 +91,7 @@ export function BotCanvasStatus({
 }) {
   return (
     <div className="border-b border-border px-3 py-2">
-      <p
-        role="status"
-        className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
-      >
+      <p role="status" className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
         {`${shown < total ? `${shown} of ${total}` : total} ${total === 1 ? "bot" : "bots"} on the canvas`}
         {shown < total ? (
           // The consequence rather than the setting: a reader who does not remember pressing a
@@ -104,11 +101,7 @@ export function BotCanvasStatus({
         ) : null}
       </p>
       {machines.length === 0 ? null : (
-        <div
-          role="group"
-          aria-label="Machines on the canvas"
-          className="mt-1.5 flex flex-wrap items-center gap-1.5"
-        >
+        <div role="group" aria-label="Machines on the canvas" className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <Monitor className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           {machines.map(({ key, label }) => {
             const on = !hidden.has(key);
@@ -118,9 +111,7 @@ export function BotCanvasStatus({
                 key={key}
                 type="button"
                 aria-pressed={on}
-                title={on
-                  ? `Hide ${label}'s Bots from the canvas`
-                  : `Show ${label}'s Bots on the canvas`}
+                title={on ? `Hide ${label}'s Bots from the canvas` : `Show ${label}'s Bots on the canvas`}
                 onClick={() => onToggle(key)}
                 className={`flex min-h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
                   on
@@ -139,9 +130,11 @@ export function BotCanvasStatus({
         type="button"
         aria-pressed={zoom.on}
         onClick={zoom.onToggle}
-        title={zoom.on
-          ? "Draw the canvas at its own size again"
-          : "Draw the whole canvas at once. Pinch or double-tap to move around it."}
+        title={
+          zoom.on
+            ? "Draw the canvas at its own size again"
+            : "Draw the whole canvas at once. Pinch or double-tap to move around it."
+        }
         className={`mt-1.5 flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
           zoom.on
             ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
@@ -151,11 +144,7 @@ export function BotCanvasStatus({
         <Scan className="size-3.5 shrink-0" aria-hidden />
         Fit the whole canvas
       </button>
-      <div
-        role="group"
-        aria-label="Room to move the canvas"
-        className="mt-1.5 flex flex-wrap items-center gap-1.5"
-      >
+      <div role="group" aria-label="Room to move the canvas" className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <Move
           className={`size-3.5 shrink-0 ${zoom.on ? "text-muted-foreground" : "text-muted-foreground/40"}`}
           aria-hidden
@@ -166,11 +155,13 @@ export function BotCanvasStatus({
             type="button"
             aria-pressed={room.size === size}
             disabled={!zoom.on}
-            title={!zoom.on
-              ? "Fit the whole canvas first: the room is around what that draws."
-              : size === 0
-                ? "No room: the canvas sits against the corner."
-                : `${size} pixels of room on every side, to scroll the canvas into.`}
+            title={
+              !zoom.on
+                ? "Fit the whole canvas first: the room is around what that draws."
+                : size === 0
+                  ? "No room: the canvas sits against the corner."
+                  : `${size} pixels of room on every side, to scroll the canvas into.`
+            }
             onClick={() => room.onChange(size)}
             className={`flex min-h-7 shrink-0 items-center rounded-full border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
               !zoom.on

@@ -60,7 +60,9 @@ it("Cmd+Shift+F opens Search with the caret in it; a result opens as a preview a
   const answer: WorkspaceSearchResult = {
     workspaceId: "w-1",
     query: "alder",
-    files: [{ path: "src/main.ts", matches: [{ line: 7, preview: "const alder = 1;", ranges: [[6, 11]], previewOffset: 0 }] }],
+    files: [
+      { path: "src/main.ts", matches: [{ line: 7, preview: "const alder = 1;", ranges: [[6, 11]], previewOffset: 0 }] },
+    ],
     matchCount: 1,
     truncated: false,
   };

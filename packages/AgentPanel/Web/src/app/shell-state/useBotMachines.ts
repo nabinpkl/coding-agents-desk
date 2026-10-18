@@ -19,13 +19,7 @@ import {
   sidecarWindowComposerClient,
   type WindowComposerClient,
 } from "@/features/window-composer/WindowComposerClient";
-import {
-  botFeeds,
-  machineKey,
-  machinesAreMixed,
-  type BotFeeds,
-  type BotMachine,
-} from "@/features/bots/botMachines";
+import { botFeeds, machineKey, machinesAreMixed, type BotFeeds, type BotMachine } from "@/features/bots/botMachines";
 import { useBots, type BotRosterState } from "@/features/bots/useBots";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 
@@ -165,9 +159,7 @@ export function useBotMachines(
     [index],
   );
   const chips = useMemo(
-    () => (machinesAreMixed(all)
-      ? all.map((machine) => ({ key: machineKey(machine), label: machine.label }))
-      : []),
+    () => (machinesAreMixed(all) ? all.map((machine) => ({ key: machineKey(machine), label: machine.label })) : []),
     [all],
   );
 

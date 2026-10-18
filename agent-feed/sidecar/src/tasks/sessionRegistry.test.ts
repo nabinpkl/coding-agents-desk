@@ -36,8 +36,10 @@ describe("liveSessionProcesses", () => {
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const pad = (value: number) => String(value).padStart(2, "0");
-    return `${days[at.getDay()]} ${months[at.getMonth()]} ${String(at.getDate()).padStart(2, " ")} ` +
-      `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())} ${at.getFullYear()}`;
+    return (
+      `${days[at.getDay()]} ${months[at.getMonth()]} ${String(at.getDate()).padStart(2, " ")} ` +
+      `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())} ${at.getFullYear()}`
+    );
   })();
 
   test("accepts a record whose start time the kernel confirms", async () => {
@@ -72,12 +74,21 @@ describe("liveSessionProcesses", () => {
     // The status is what a restart asks before replacing a process; the version is what says it
     // is behind the installed CLI. A status this reader does not know must not read as idle.
     const directory = await registryWith({
-      "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart, status: "shell", version: "2.1.296", name: "Alan" },
+      "9672.json": {
+        pid: 9672,
+        sessionId: SESSION,
+        cwd: "/x",
+        procStart,
+        status: "shell",
+        version: "2.1.296",
+        name: "Alan",
+      },
       "9673.json": { pid: 9673, sessionId: `${SESSION.slice(0, -1)}1`, cwd: "/x", procStart, status: "napping" },
     });
     const live = await liveSessionProcesses([row(9672, kernelStamp), row(9673, kernelStamp)], directory);
-    expect(live.map(({ pid, activity, version, name }) => ({ pid, activity, version, name }))
-      .sort((a, b) => a.pid - b.pid)).toEqual([
+    expect(
+      live.map(({ pid, activity, version, name }) => ({ pid, activity, version, name })).sort((a, b) => a.pid - b.pid),
+    ).toEqual([
       { pid: 9672, activity: "shell", version: "2.1.296", name: "Alan" },
       { pid: 9673, activity: null, version: null, name: null },
     ]);
@@ -97,7 +108,10 @@ describe("liveSessionProcesses", () => {
       "9673.json": { pid: 9673, sessionId: `${SESSION.slice(0, -1)}1`, cwd: "/x", procStart, status: "busy" },
     });
     const live = await liveSessionProcesses([row(9672, kernelStamp), row(9673, kernelStamp)], directory);
-    expect(live.map((entry) => [entry.pid, entry.waiting]).sort()).toEqual([[9672, true], [9673, false]]);
+    expect(live.map((entry) => [entry.pid, entry.waiting]).sort()).toEqual([
+      [9672, true],
+      [9673, false],
+    ]);
   });
 
   test("a record with no inbox is live, just not writable", async () => {
@@ -115,8 +129,7 @@ describe("liveSessionProcesses", () => {
     const directory = await registryWith({
       "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart, entrypoint: "sdk-harness-9" },
     });
-    expect((await liveSessionProcesses([row(9672, kernelStamp)], directory))[0]?.entrypoint)
-      .toBe("other");
+    expect((await liveSessionProcesses([row(9672, kernelStamp)], directory))[0]?.entrypoint).toBe("other");
   });
 
   test("a dead pid is skipped, because stale records are the normal state of that directory", async () => {

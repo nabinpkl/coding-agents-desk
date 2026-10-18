@@ -58,10 +58,7 @@ export function errorResponse(code: string, message: string, status: number): Re
 export function startServerSentEventStream(
   request: Request,
   server: Server<undefined>,
-  onStart: (
-    write: (bytes: Uint8Array) => void,
-    close: () => void,
-  ) => () => void,
+  onStart: (write: (bytes: Uint8Array) => void, close: () => void) => () => void,
   options: {
     lagLimit?: number;
     /**

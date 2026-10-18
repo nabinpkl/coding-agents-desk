@@ -103,9 +103,10 @@ function receive(entry: Entry, message: LimitsStreamMessage) {
   // without `vendors` would otherwise throw inside the render below and take the whole session
   // card down with it, not just the meter. Named, not swallowed.
   const vendors = normalize(message?.report);
-  publish(entry, vendors
-    ? { kind: "ready", vendors }
-    : { kind: "error", message: "limits response carried no vendors" });
+  publish(
+    entry,
+    vendors ? { kind: "ready", vendors } : { kind: "error", message: "limits response carried no vendors" },
+  );
 }
 
 /**

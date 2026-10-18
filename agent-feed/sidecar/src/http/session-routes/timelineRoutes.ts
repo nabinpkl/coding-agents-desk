@@ -18,25 +18,15 @@ import {
   sessionCapabilities,
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/transcriptCatalog";
-import type {
-  EventMode,
-  SourceId,
-  TokenUsage,
-  TranscriptSourceId,
-} from "@/transcripts/transcriptTypes";
+import type { EventMode, SourceId, TokenUsage, TranscriptSourceId } from "@/transcripts/transcriptTypes";
 import { TIMELINE_HEARTBEAT_MS, type EventsPage, type TimelineMessage } from "@agentdesk/agent-feed-wire";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
 import { subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
-import {
-  readPageBefore,
-  readSessionMeter,
-  type SessionMeter,
-} from "@/transcripts/transcript-reads/transcriptPages";
+import { readPageBefore, readSessionMeter, type SessionMeter } from "@/transcripts/transcript-reads/transcriptPages";
 import { TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
 import type { RouteHandler } from "@/http/protocol/route";
 
-const TIMELINE_ROUTE =
-  /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/timeline$/;
+const TIMELINE_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/timeline$/;
 
 /** A live backend additionally publishes session occupancy; most do not. */
 type UsageReportingBackend = AgentBackend & { sessionUsage(sessionId: string): TokenUsage | null };
@@ -50,9 +40,7 @@ type UsageReportingBackend = AgentBackend & { sessionUsage(sessionId: string): T
 type CompactionAnnouncingBackend = AgentBackend & {
   compactionSummary(sessionId: string): string | null;
   onCompaction(listener: (sessionId: string, active: boolean) => void): () => void;
-  onCompactionSummary(
-    listener: (sessionId: string, text: string, replace: boolean) => void,
-  ): () => void;
+  onCompactionSummary(listener: (sessionId: string, text: string, replace: boolean) => void): () => void;
 };
 
 /** A backend that announces when a session gains a live projection; most do not. */
@@ -115,11 +103,7 @@ export function createTimelineRoutes(
 
     const capabilities = sessionCapabilities(source, sessionId, resolveAgentSession);
     if (!capabilities.modes.includes(mode)) {
-      return errorResponse(
-        "unsupported-mode",
-        `session ${source}/${sessionId} does not serve ${mode} mode`,
-        400,
-      );
+      return errorResponse("unsupported-mode", `session ${source}/${sessionId} does not serve ${mode} mode`, 400);
     }
 
     return timelineStream({
@@ -152,236 +136,246 @@ function timelineStream(options: {
   servesExtensionUi: boolean;
 }): Response {
   const { source, sessionId, mode, backend, transcript } = options;
-  return startServerSentEventStream(options.request, options.server, (write) => {
-    let cancelled = false;
-    const teardowns: Array<() => void> = [];
-    const emit = (message: TimelineMessage): void => {
-      if (cancelled) return;
-      write(encodeServerSentEvent(message));
-    };
-    const fail = (code: string, error: unknown, retryable = true): void => {
-      emit({
-        type: "error",
-        error: { code, message: error instanceof Error ? error.message : String(error), retryable },
-      });
-    };
-    // A teardown that arrives after the subscriber left runs immediately: an async
-    // open that lands on a closed stream must not leave a watcher or a backend
-    // subscription behind.
-    const hold = (stop: (() => void) | null | undefined): void => {
-      if (!stop) return;
-      if (cancelled) stop();
-      else teardowns.push(stop);
-    };
+  return startServerSentEventStream(
+    options.request,
+    options.server,
+    (write) => {
+      let cancelled = false;
+      const teardowns: Array<() => void> = [];
+      const emit = (message: TimelineMessage): void => {
+        if (cancelled) return;
+        write(encodeServerSentEvent(message));
+      };
+      const fail = (code: string, error: unknown, retryable = true): void => {
+        emit({
+          type: "error",
+          error: { code, message: error instanceof Error ? error.message : String(error), retryable },
+        });
+      };
+      // A teardown that arrives after the subscriber left runs immediately: an async
+      // open that lands on a closed stream must not leave a watcher or a backend
+      // subscription behind.
+      const hold = (stop: (() => void) | null | undefined): void => {
+        if (!stop) return;
+        if (cancelled) stop();
+        else teardowns.push(stop);
+      };
 
-    /**
-     * Opens the live tail: the ONE row being written right now.
-     *
-     * The tail is drawn from a projection that is a whole live timeline, and its
-     * envelopes carry more than this slot can hold.
-     *
-     * A state-only envelope (a run-state or queue change) has no events at all,
-     * and forwarding its missing first event as `null` blanked the message
-     * mid-write every time the queue moved.
-     *
-     * And the projection keeps revising rows the newest one has already replaced:
-     * a turn's tool results are their own row, published when the follow-up
-     * request carries them, so a completed result row would arrive AFTER the next
-     * message had started streaming and take the slot back from it. On screen that
-     * was a loose RESULT block appearing under the message being written, then
-     * vanishing when the next delta arrived. Those rows are not lost by staying
-     * out of the tail: the transcript stream above already carries them, in order
-     * and paired with the call that produced them, and for a session with no
-     * transcript the projection reaches the viewer through that same stream.
-     */
-    const attachTail = async (live: AgentBackend): Promise<void> => {
-      let newestIndex = -1;
-      hold(
-        await live
-          .subscribe(sessionId, 0, (envelope) => {
-            // The LAST row, not the first. A live upsert carries exactly one either
-            // way, but the subscription opens by replaying what the projection
-            // already holds, and reading that window's first row put the oldest
-            // message in the slot on every open.
-            const event = envelope.events.at(-1);
-            if (!event || event.index < newestIndex) return;
-            newestIndex = event.index;
-            emit({ type: "tail", event: { ...event, otherModeIndex: event.index } });
-          })
-          .catch(() => {
-            // The mirror going away is not the thread failing: clear the tail so
-            // no half-written message is left on screen, and keep the durable
-            // stream running.
-            emit({ type: "tail", event: null });
-            return null;
+      /**
+       * Opens the live tail: the ONE row being written right now.
+       *
+       * The tail is drawn from a projection that is a whole live timeline, and its
+       * envelopes carry more than this slot can hold.
+       *
+       * A state-only envelope (a run-state or queue change) has no events at all,
+       * and forwarding its missing first event as `null` blanked the message
+       * mid-write every time the queue moved.
+       *
+       * And the projection keeps revising rows the newest one has already replaced:
+       * a turn's tool results are their own row, published when the follow-up
+       * request carries them, so a completed result row would arrive AFTER the next
+       * message had started streaming and take the slot back from it. On screen that
+       * was a loose RESULT block appearing under the message being written, then
+       * vanishing when the next delta arrived. Those rows are not lost by staying
+       * out of the tail: the transcript stream above already carries them, in order
+       * and paired with the call that produced them, and for a session with no
+       * transcript the projection reaches the viewer through that same stream.
+       */
+      const attachTail = async (live: AgentBackend): Promise<void> => {
+        let newestIndex = -1;
+        hold(
+          await live
+            .subscribe(sessionId, 0, (envelope) => {
+              // The LAST row, not the first. A live upsert carries exactly one either
+              // way, but the subscription opens by replaying what the projection
+              // already holds, and reading that window's first row put the oldest
+              // message in the slot on every open.
+              const event = envelope.events.at(-1);
+              if (!event || event.index < newestIndex) return;
+              newestIndex = event.index;
+              emit({ type: "tail", event: { ...event, otherModeIndex: event.index } });
+            })
+            .catch(() => {
+              // The mirror going away is not the thread failing: clear the tail so
+              // no half-written message is left on screen, and keep the durable
+              // stream running.
+              emit({ type: "tail", event: null });
+              return null;
+            }),
+        );
+      };
+
+      /**
+       * Attaches the tail if the session becomes live-capable AFTER this stream opened.
+       *
+       * The capability was read once, when the request arrived, and a stream opened
+       * without it never asked again -- so a mirror that came up late was invisible to
+       * every thread already on screen, and the transcript kept updating while the
+       * live row never appeared. `EventSource` does not rescue this either: it reopens
+       * only when the server closes or the connection errors, and a healthy stream does
+       * neither, so the thread stayed half-live until somebody reloaded the panel.
+       *
+       * Driven by the mirror, not by a timer. The transition has exactly one cause -- the backend
+       * acquiring a projection for this session, which happens the first time its traffic passes
+       * through after the mirror is up -- and `onSessionLive` fires there. A poll asking the same
+       * question every few seconds would answer "not yet" indistinguishably from a mirror that was
+       * never coming, which is the failure mode this whole area already paid for once.
+       *
+       * `onSessionLive` is probed rather than required, the same way `sessionUsage` is above: a
+       * backend with no live mirror has nothing to announce, and Pi implements neither.
+       */
+      const awaitLiveCapability = (live: AgentBackend): void => {
+        const announcing = live as LiveAnnouncingBackend;
+        if (typeof announcing.onSessionLive !== "function") return;
+        const stop = announcing.onSessionLive((live_id) => {
+          if (cancelled || live_id !== sessionId) return;
+          const capable = sessionCapabilities(source, sessionId, options.resolveAgentSession).canStreamLive;
+          if (!capable) return;
+          stop();
+          void attachTail(live);
+        });
+        hold(stop);
+      };
+
+      /**
+       * Says the context is being rewritten, for as long as that is happening.
+       *
+       * The only state here that is published while no row is arriving. A compaction adds no
+       * transcript line until it lands and puts nothing in the tail, so a reader watching the thread
+       * sees a session that stopped -- which is also what a finished turn looks like, for the two to
+       * four minutes it takes on a large context. The summary being written rides beside the thread
+       * in its own message, for the notice to draw under itself.
+       */
+      const followCompaction = (live: AgentBackend): void => {
+        const announcing = live as CompactionAnnouncingBackend;
+        if (typeof announcing.onCompaction !== "function") return;
+        const summary =
+          typeof announcing.compactionSummary === "function" ? announcing.compactionSummary(sessionId) : null;
+        if (summary !== null) emit({ type: "compacting", active: true, summary });
+        hold(
+          announcing.onCompaction((live_id, active) => {
+            if (live_id !== sessionId) return;
+            emit({ type: "compacting", active });
           }),
-      );
-    };
+        );
+        if (typeof announcing.onCompactionSummary !== "function") return;
+        hold(
+          announcing.onCompactionSummary((live_id, text, replace) => {
+            if (live_id !== sessionId) return;
+            emit({ type: "compaction-summary", text, replace });
+          }),
+        );
+      };
 
-    /**
-     * Attaches the tail if the session becomes live-capable AFTER this stream opened.
-     *
-     * The capability was read once, when the request arrived, and a stream opened
-     * without it never asked again -- so a mirror that came up late was invisible to
-     * every thread already on screen, and the transcript kept updating while the
-     * live row never appeared. `EventSource` does not rescue this either: it reopens
-     * only when the server closes or the connection errors, and a healthy stream does
-     * neither, so the thread stayed half-live until somebody reloaded the panel.
-     *
-     * Driven by the mirror, not by a timer. The transition has exactly one cause -- the backend
-     * acquiring a projection for this session, which happens the first time its traffic passes
-     * through after the mirror is up -- and `onSessionLive` fires there. A poll asking the same
-     * question every few seconds would answer "not yet" indistinguishably from a mirror that was
-     * never coming, which is the failure mode this whole area already paid for once.
-     *
-     * `onSessionLive` is probed rather than required, the same way `sessionUsage` is above: a
-     * backend with no live mirror has nothing to announce, and Pi implements neither.
-     */
-    const awaitLiveCapability = (live: AgentBackend): void => {
-      const announcing = live as LiveAnnouncingBackend;
-      if (typeof announcing.onSessionLive !== "function") return;
-      const stop = announcing.onSessionLive((live_id) => {
-        if (cancelled || live_id !== sessionId) return;
-        const capable = sessionCapabilities(source, sessionId, options.resolveAgentSession)
-          .canStreamLive;
-        if (!capable) return;
-        stop();
-        void attachTail(live);
-      });
-      hold(stop);
-    };
-
-    /**
-     * Says the context is being rewritten, for as long as that is happening.
-     *
-     * The only state here that is published while no row is arriving. A compaction adds no
-     * transcript line until it lands and puts nothing in the tail, so a reader watching the thread
-     * sees a session that stopped -- which is also what a finished turn looks like, for the two to
-     * four minutes it takes on a large context. The summary being written rides beside the thread
-     * in its own message, for the notice to draw under itself.
-     */
-    const followCompaction = (live: AgentBackend): void => {
-      const announcing = live as CompactionAnnouncingBackend;
-      if (typeof announcing.onCompaction !== "function") return;
-      const summary = typeof announcing.compactionSummary === "function"
-        ? announcing.compactionSummary(sessionId)
-        : null;
-      if (summary !== null) emit({ type: "compacting", active: true, summary });
-      hold(announcing.onCompaction((live_id, active) => {
-        if (live_id !== sessionId) return;
-        emit({ type: "compacting", active });
-      }));
-      if (typeof announcing.onCompactionSummary !== "function") return;
-      hold(announcing.onCompactionSummary((live_id, text, replace) => {
-        if (live_id !== sessionId) return;
-        emit({ type: "compaction-summary", text, replace });
-      }));
-    };
-
-    void (async () => {
-      const window = await openingWindow(sessionId, mode, backend, transcript);
-      if (cancelled) return;
-      if (!window) {
-        fail("session-not-found", `no session ${source}/${sessionId}`, false);
-        return;
-      }
-      // Asked live rather than taken from the page, which covers a model switch that landed
-      // after the window was read. The page already carries one where the read stamped it;
-      // the live answer is fresher, so it wins where it names one.
-      const windowModel = backend ? stampSessionModel(backend, sessionId) : {};
-      emit({
-        type: "timeline",
-        envelope: {
-          kind: "snapshot",
-          sequence: window.page.sequence,
-          mode: window.page.mode,
-          events: window.page.events,
-          windowStart: window.page.windowStart,
-          // A transcript is append-only, so its indices survive a reconnect and the
-          // reader may keep whatever it paged in below this window. Opencode's
-          // projection has the same property for its live stream: rows are upserted
-          // by the serve's stable message id and new rows append. Other backend
-          // projections remain conservative because they may renumber.
-          stableIndices: transcript !== null || source === "opencode",
-          // A runtime page names the projection that produced it. The panel uses this to
-          // distinguish an ordinary reconnect from a sidecar restart that rebuilt the same
-          // session's rows, even when the source otherwise keeps stable indices.
-          ...(window.page.projectionId ? { projectionId: window.page.projectionId } : {}),
-          runState: window.page.runState,
-          queue: window.page.queue,
-          usage: window.page.usage,
-          // Absent while unnamed, so a sender that never names a model emits the
-          // snapshot the fixture pins byte for byte.
-          ...windowModel,
-        },
-      });
-      if (cancelled) return;
-
-      // Followed from the window's own sequence rather than from zero, so the
-      // stream resumes exactly where the snapshot ended with no gap to reconcile
-      // and no rows delivered twice.
-      if (transcript && window.follow) {
-        hold(subscribeTranscriptTimeline(
-          transcript,
-          sessionId,
-          window.follow.end,
-          window.follow.meter,
-          mode,
-          {
-            onEnvelope: (envelope) => emit({ type: "timeline", envelope }),
-            onError: (message) => fail("timeline-stream-failed", message),
+      void (async () => {
+        const window = await openingWindow(sessionId, mode, backend, transcript);
+        if (cancelled) return;
+        if (!window) {
+          fail("session-not-found", `no session ${source}/${sessionId}`, false);
+          return;
+        }
+        // Asked live rather than taken from the page, which covers a model switch that landed
+        // after the window was read. The page already carries one where the read stamped it;
+        // the live answer is fresher, so it wins where it names one.
+        const windowModel = backend ? stampSessionModel(backend, sessionId) : {};
+        emit({
+          type: "timeline",
+          envelope: {
+            kind: "snapshot",
+            sequence: window.page.sequence,
+            mode: window.page.mode,
+            events: window.page.events,
+            windowStart: window.page.windowStart,
+            // A transcript is append-only, so its indices survive a reconnect and the
+            // reader may keep whatever it paged in below this window. Opencode's
+            // projection has the same property for its live stream: rows are upserted
+            // by the serve's stable message id and new rows append. Other backend
+            // projections remain conservative because they may renumber.
+            stableIndices: transcript !== null || source === "opencode",
+            // A runtime page names the projection that produced it. The panel uses this to
+            // distinguish an ordinary reconnect from a sidecar restart that rebuilt the same
+            // session's rows, even when the source otherwise keeps stable indices.
+            ...(window.page.projectionId ? { projectionId: window.page.projectionId } : {}),
+            runState: window.page.runState,
+            queue: window.page.queue,
+            usage: window.page.usage,
+            // Absent while unnamed, so a sender that never names a model emits the
+            // snapshot the fixture pins byte for byte.
+            ...windowModel,
           },
-          window.page.events.at(-1)?.index ?? null,
-        ));
-      } else if (backend) {
-        // Stamped per envelope rather than captured, the same way usage is read per write in
-        // the transcript follower: a model switch mid-stream must travel on the next envelope.
-        // Absent while unnamed, so a sender that never names a model emits the envelope shape
-        // it always has.
-        hold(
-          await backend
-            .subscribe(sessionId, window.page.sequence, (envelope) =>
-              emit({ type: "timeline", envelope: { ...envelope, ...stampSessionModel(backend, sessionId) } }))
-            .catch((error) => {
-              fail("timeline-stream-failed", error);
-              return null;
-            }),
-        );
-      }
-      if (cancelled) return;
+        });
+        if (cancelled) return;
 
-      // The live tail is a second view of a session the transcript already carries:
-      // the mirror shows the message while it is being written, the transcript shows
-      // it once it lands. Only a session whose backend advertises canStreamLive has
-      // one, so this is a capability check rather than a source check.
-      if (backend) {
-        if (options.streamsLive) await attachTail(backend);
-        else awaitLiveCapability(backend);
-        // Not gated on `streamsLive`, unlike the tail: a session the mirror has never seen traffic
-        // for still has a context the harness can be rewriting, and that answer needs no
-        // projection to exist.
-        followCompaction(backend);
-      }
-      if (cancelled) return;
+        // Followed from the window's own sequence rather than from zero, so the
+        // stream resumes exactly where the snapshot ended with no gap to reconcile
+        // and no rows delivered twice.
+        if (transcript && window.follow) {
+          hold(
+            subscribeTranscriptTimeline(
+              transcript,
+              sessionId,
+              window.follow.end,
+              window.follow.meter,
+              mode,
+              {
+                onEnvelope: (envelope) => emit({ type: "timeline", envelope }),
+                onError: (message) => fail("timeline-stream-failed", message),
+              },
+              window.page.events.at(-1)?.index ?? null,
+            ),
+          );
+        } else if (backend) {
+          // Stamped per envelope rather than captured, the same way usage is read per write in
+          // the transcript follower: a model switch mid-stream must travel on the next envelope.
+          // Absent while unnamed, so a sender that never names a model emits the envelope shape
+          // it always has.
+          hold(
+            await backend
+              .subscribe(sessionId, window.page.sequence, (envelope) =>
+                emit({ type: "timeline", envelope: { ...envelope, ...stampSessionModel(backend, sessionId) } }),
+              )
+              .catch((error) => {
+                fail("timeline-stream-failed", error);
+                return null;
+              }),
+          );
+        }
+        if (cancelled) return;
 
-      if (options.servesExtensionUi && backend) {
-        hold(
-          await backend
-            .subscribeUi(sessionId, (event) => emit({ type: "ui", event }))
-            .catch((error) => {
-              fail("ui-stream-failed", error);
-              return null;
-            }),
-        );
-      }
-    })().catch((error) => fail("timeline-open-failed", error));
+        // The live tail is a second view of a session the transcript already carries:
+        // the mirror shows the message while it is being written, the transcript shows
+        // it once it lands. Only a session whose backend advertises canStreamLive has
+        // one, so this is a capability check rather than a source check.
+        if (backend) {
+          if (options.streamsLive) await attachTail(backend);
+          else awaitLiveCapability(backend);
+          // Not gated on `streamsLive`, unlike the tail: a session the mirror has never seen traffic
+          // for still has a context the harness can be rewriting, and that answer needs no
+          // projection to exist.
+          followCompaction(backend);
+        }
+        if (cancelled) return;
 
-    return () => {
-      cancelled = true;
-      for (const stop of teardowns) stop();
-      teardowns.length = 0;
-    };
-  }, { heartbeat: { bytes: HEARTBEAT_BYTES, intervalMs: TIMELINE_HEARTBEAT_MS } });
+        if (options.servesExtensionUi && backend) {
+          hold(
+            await backend
+              .subscribeUi(sessionId, (event) => emit({ type: "ui", event }))
+              .catch((error) => {
+                fail("ui-stream-failed", error);
+                return null;
+              }),
+          );
+        }
+      })().catch((error) => fail("timeline-open-failed", error));
+
+      return () => {
+        cancelled = true;
+        for (const stop of teardowns) stop();
+        teardowns.length = 0;
+      };
+    },
+    { heartbeat: { bytes: HEARTBEAT_BYTES, intervalMs: TIMELINE_HEARTBEAT_MS } },
+  );
 }
 
 const HEARTBEAT_BYTES = encodeServerSentEvent({ type: "heartbeat" } satisfies TimelineMessage);

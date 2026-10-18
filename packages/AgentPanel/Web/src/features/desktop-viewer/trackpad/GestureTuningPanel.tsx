@@ -5,11 +5,7 @@
 // because both drive the same translator. The fifth is the web's own, how tall the deck is.
 
 import { useId } from "react";
-import {
-  DECK_SHARE_MAX,
-  DECK_SHARE_MIN,
-  useDeckHeight,
-} from "@/features/desktop-viewer/trackpad/deckHeightPreference";
+import { DECK_SHARE_MAX, DECK_SHARE_MIN, useDeckHeight } from "@/features/desktop-viewer/trackpad/deckHeightPreference";
 import {
   TUNING_MAX,
   TUNING_MIN,
@@ -93,7 +89,15 @@ export function GestureTuningPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-function TuningSlider({ label, value, min, max, step, format, onChange }: {
+function TuningSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+}: {
   label: string;
   value: number;
   min: number;
@@ -105,7 +109,9 @@ function TuningSlider({ label, value, min, max, step, format, onChange }: {
   const id = useId();
   return (
     <div className="flex items-center gap-2">
-      <label htmlFor={id} className="w-24 shrink-0 text-white/75">{label}</label>
+      <label htmlFor={id} className="w-24 shrink-0 text-white/75">
+        {label}
+      </label>
       <input
         id={id}
         type="range"

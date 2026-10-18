@@ -16,11 +16,7 @@
 
 import type { ToolContent, SessionMessageInfo as SessionMessage } from "@opencode/client";
 import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
-import {
-  TOOL_RESULT_PREVIEW_CAP,
-  type ActivityBlock,
-  type ParsedLine,
-} from "@/transcripts/transcriptTypes";
+import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type ParsedLine } from "@/transcripts/transcriptTypes";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
 import { sanitizeAgentValue } from "@/agents/liveAgentProjection";
 import { heuristicShellLabel } from "@/summary/shellLabels";
@@ -153,7 +149,13 @@ export class OpencodeEventMapper {
             // The output is an object on the serve (`{ output, cursor, size, truncated }`); the
             // row shows its text.
             ...(finished
-              ? [{ kind: "tool_result", callId: message.shellID, ...capText(message.output?.output ?? "") } as ActivityBlock]
+              ? [
+                  {
+                    kind: "tool_result",
+                    callId: message.shellID,
+                    ...capText(message.output?.output ?? ""),
+                  } as ActivityBlock,
+                ]
               : []),
           ],
         };
@@ -227,11 +229,13 @@ export class OpencodeEventMapper {
           ts: message.time.created,
           type: "system",
           phase: "complete",
-          blocks: [{
-            kind: "compaction",
-            summary: message.reason,
-            ...capText(typeof summary === "string" ? summary : ""),
-          }],
+          blocks: [
+            {
+              kind: "compaction",
+              summary: message.reason,
+              ...capText(typeof summary === "string" ? summary : ""),
+            },
+          ],
         };
       }
       case "agent-switched":
@@ -246,11 +250,13 @@ export class OpencodeEventMapper {
           ts: message.time.created,
           type: "system",
           phase: "complete",
-          blocks: [{
-            kind: "metadata",
-            label: "Model",
-            text: `${message.model.providerID}/${message.model.id}`,
-          }],
+          blocks: [
+            {
+              kind: "metadata",
+              label: "Model",
+              text: `${message.model.providerID}/${message.model.id}`,
+            },
+          ],
         };
       default:
         // Content-free markers (`idle`, a location or agent switch): nothing to draw,
@@ -271,8 +277,7 @@ function messageTime(message: SessionMessage): number {
  * mid-compaction does not report the session idle.
  */
 function isCompactionRunning(message: SessionMessage | undefined): boolean {
-  return message?.type === "compaction" &&
-    (message as { status?: unknown }).status === "running";
+  return message?.type === "compaction" && (message as { status?: unknown }).status === "running";
 }
 
 function turnClosed(message: SessionMessage): boolean {
@@ -289,9 +294,10 @@ function toolInput(state: { status: string; input?: unknown }): unknown {
 
 function toolFiles(state: { status: string }): string[] | undefined {
   if (state.status !== "completed") return undefined;
-  const attachments = "attachments" in state
-    ? (state as { attachments?: Array<{ uri?: string; name?: string }> }).attachments
-    : undefined;
+  const attachments =
+    "attachments" in state
+      ? (state as { attachments?: Array<{ uri?: string; name?: string }> }).attachments
+      : undefined;
   if (!Array.isArray(attachments)) return undefined;
   const names = attachments
     .map((attachment) => attachment?.uri ?? attachment?.name)
@@ -317,7 +323,14 @@ function toolTitle(name: string, state: { status: string; input?: unknown }): st
   // A file tool with nothing to name leaves the summary off: `edit edit`
   // spends the row repeating the tool instead of saying anything. Other
   // tools keep the name fallback pinned by the shell test below.
-  if (name === "edit" || name === "Edit" || name === "write" || name === "Write" || name === "read" || name === "Read") {
+  if (
+    name === "edit" ||
+    name === "Edit" ||
+    name === "write" ||
+    name === "Write" ||
+    name === "read" ||
+    name === "Read"
+  ) {
     return undefined;
   }
   return name;
@@ -352,13 +365,15 @@ function summarizeToolInput(name: string, input: Record<string, unknown> | undef
     case "question": {
       const questions = input["questions"];
       const first = Array.isArray(questions) ? questions[0] : undefined;
-      const asked = first !== null && typeof first === "object"
-        ? toolString((first as Record<string, unknown>)["header"]) ??
-          toolString((first as Record<string, unknown>)["question"])
-        : null;
+      const asked =
+        first !== null && typeof first === "object"
+          ? (toolString((first as Record<string, unknown>)["header"]) ??
+            toolString((first as Record<string, unknown>)["question"]))
+          : null;
       return asked ? `${name} ${asked.slice(0, 200)}` : null;
     }
-    default: break;
+    default:
+      break;
   }
   // Distinctive keys before anything else, then any non-empty string of its own. `content`
   // and diff bodies never win here: their tools match a case above, so this only serves

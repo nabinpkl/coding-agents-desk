@@ -53,10 +53,7 @@ class PtySocket {
     return () => this.failureListeners.delete(listener);
   }
 
-  waitFor(
-    predicate: (envelope: PtyEnvelope) => boolean,
-    timeoutMs = PTY_RESPONSE_TIMEOUT_MS,
-  ): Promise<PtyEnvelope> {
+  waitFor(predicate: (envelope: PtyEnvelope) => boolean, timeoutMs = PTY_RESPONSE_TIMEOUT_MS): Promise<PtyEnvelope> {
     if (this.failure) return Promise.reject(this.failure);
     return new Promise((resolve, reject) => {
       const deadline = setTimeout(() => {
@@ -244,12 +241,15 @@ export class PtyManagerClient {
       if (envelope.error) throw new Error(envelope.error.message || "PTY manager refused attach");
       const attached = envelope.attached;
       if (!attached?.pid || attached.pid <= 0) throw new Error("PTY manager returned an invalid attachment");
-      return new PtySessionConnection({
-        sessionName: envelope.sessionName || options.sessionName,
-        pid: attached.pid,
-        columns: attached.columns || options.columns,
-        rows: attached.rows || options.rows,
-      }, transport);
+      return new PtySessionConnection(
+        {
+          sessionName: envelope.sessionName || options.sessionName,
+          pid: attached.pid,
+          columns: attached.columns || options.columns,
+          rows: attached.rows || options.rows,
+        },
+        transport,
+      );
     } catch (error) {
       transport.close();
       throw error;

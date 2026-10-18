@@ -23,10 +23,7 @@ import { useTmuxQuestion } from "@/features/session-view/composer/question/useTm
 const SESSION: SessionAddress = { source: "claude", sessionId: "sid-claude-01" };
 
 /** The one call the hook makes, spelled out so a mock's arguments are typed rather than inferred. */
-type Answer = (
-  session: SessionAddress,
-  answers: readonly TmuxQuestionAnswer[],
-) => Promise<TmuxQuestionOutcome>;
+type Answer = (session: SessionAddress, answers: readonly TmuxQuestionAnswer[]) => Promise<TmuxQuestionOutcome>;
 
 const CALL: OpenAskUserQuestion = {
   callId: "toolu_01",
@@ -49,16 +46,19 @@ const CALL: OpenAskUserQuestion = {
   ],
 };
 
-function Mirror(
-  { question, answer, point, pane }: {
-    question: OpenAskUserQuestion;
-    answer: Answer;
-    /** Where the surface asked the terminal to put its cursor, when a test is watching for it. */
-    point?: (session: SessionAddress, wanted: TmuxQuestionPoint) => Promise<TmuxQuestionPointOutcome>;
-    /** What the session's own terminal is showing, once anything is watching it. */
-    pane?: TmuxQuestionState | null;
-  },
-) {
+function Mirror({
+  question,
+  answer,
+  point,
+  pane,
+}: {
+  question: OpenAskUserQuestion;
+  answer: Answer;
+  /** Where the surface asked the terminal to put its cursor, when a test is watching for it. */
+  point?: (session: SessionAddress, wanted: TmuxQuestionPoint) => Promise<TmuxQuestionPointOutcome>;
+  /** What the session's own terminal is showing, once anything is watching it. */
+  pane?: TmuxQuestionState | null;
+}) {
   const model = useTmuxQuestion(
     { answerTmuxQuestion: answer, pointTmuxQuestion: point ?? (async () => ({ pointed: true })) },
     SESSION,
@@ -110,8 +110,9 @@ describe("the tmux question mirror", () => {
     // The terminal shows one preview at a time and wraps long labels; this surface has the JSON.
     // Matched without normalising whitespace, because the newline is the content: a preview is a
     // small diagram, and a reflowed one shows something else.
-    expect(screen.getByText((_, node) => node?.tagName === "PRE" && node.textContent === "a | b\nc | d"))
-      .toBeInTheDocument();
+    expect(
+      screen.getByText((_, node) => node?.tagName === "PRE" && node.textContent === "a | b\nc | d"),
+    ).toBeInTheDocument();
     expect(screen.getByText("The first one.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous question" })).toBeDisabled();
 
@@ -242,8 +243,9 @@ describe("the tmux question mirror", () => {
     // still where they were typed, so nothing has to be rewritten to try again.
     // What was observed, with no guess about why. The sentence this replaced offered "it may have
     // been answered there", which was wrong both times a reader actually hit it.
-    expect(screen.getByLabelText("Claude question"))
-      .toHaveTextContent("the terminal is not showing this question, so nothing was sent");
+    expect(screen.getByLabelText("Claude question")).toHaveTextContent(
+      "the terminal is not showing this question, so nothing was sent",
+    );
     expect(screen.getByRole("checkbox", { name: "DELTA" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Submit answer" })).toBeEnabled();
     previous();
@@ -292,8 +294,9 @@ describe("the tmux question mirror", () => {
       fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
     });
 
-    expect(screen.getByLabelText("Claude question"))
-      .toHaveTextContent("some of these answers may already have landed there");
+    expect(screen.getByLabelText("Claude question")).toHaveTextContent(
+      "some of these answers may already have landed there",
+    );
   });
 
   it("follows what the terminal already holds, for a question not answered here", async () => {
@@ -304,7 +307,10 @@ describe("the tmux question mirror", () => {
       prompt: "Which colour?",
       review: false,
       multiSelect: false,
-      tabs: [{ label: "Colour", answered: true }, { label: "Toppings", answered: false }],
+      tabs: [
+        { label: "Colour", answered: true },
+        { label: "Toppings", answered: false },
+      ],
       options: [
         { label: "ALPHA", detail: "", marked: false, cursor: false },
         { label: "BRAVO", detail: "", marked: true, cursor: true },
@@ -318,9 +324,7 @@ describe("the tmux question mirror", () => {
   });
 
   it("does not take back a choice this reader has made and not sent", () => {
-    const { rerender } = render(
-      <Mirror question={CALL} answer={async () => ({ answered: true })} />,
-    );
+    const { rerender } = render(<Mirror question={CALL} answer={async () => ({ answered: true })} />);
     fireEvent.click(screen.getByRole("radio", { name: "ALPHA" }));
 
     // The pane then reports the other option, as it would if this reader's answer had not been
@@ -346,17 +350,10 @@ describe("the tmux question mirror", () => {
   });
 
   it("starts a fresh draft when a new call arrives", () => {
-    const { rerender } = render(
-      <Mirror question={CALL} answer={async () => ({ answered: true })} />,
-    );
+    const { rerender } = render(<Mirror question={CALL} answer={async () => ({ answered: true })} />);
     fireEvent.change(screen.getByLabelText(OTHER_COLOUR), { target: { value: "for the old one" } });
 
-    rerender(
-      <Mirror
-        question={{ ...CALL, callId: "toolu_02" }}
-        answer={async () => ({ answered: true })}
-      />,
-    );
+    rerender(<Mirror question={{ ...CALL, callId: "toolu_02" }} answer={async () => ({ answered: true })} />);
     expect(screen.getByLabelText(OTHER_COLOUR)).toHaveValue("");
   });
 });

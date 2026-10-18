@@ -46,11 +46,13 @@ test("renames one session's bracket through the registry, addressed by the sessi
   expect(await response?.json()).toEqual(renamed);
   // The session crosses in the path and the task in the body; the anchor never crosses, and the
   // route hands the renamer through.
-  expect(calls).toEqual([{
-    ref: { source: "claude", sessionId: "session-1" },
-    task: "night shift",
-    renamer: rename,
-  }]);
+  expect(calls).toEqual([
+    {
+      ref: { source: "claude", sessionId: "session-1" },
+      task: "night shift",
+      renamer: rename,
+    },
+  ]);
 });
 
 test("refuses a bracket rename that names no task text", async () => {

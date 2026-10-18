@@ -4,21 +4,13 @@
 // composer, whichever this session's harness makes possible.
 
 import { useCallback, useId, useMemo, useRef, useState } from "react";
-import type {
-  SessionSummary,
-} from "@agentdesk/agent-feed-wire";
+import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import {
-  type WindowComposerClient,
-} from "@/features/window-composer/WindowComposerClient";
-import type {
-  AgentSessionControlState,
-} from "@/features/activity-feed/data-source/AgentDataSource";
+import { type WindowComposerClient } from "@/features/window-composer/WindowComposerClient";
+import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { CliSessionHandle } from "@/features/cli-input/useCliSession";
-import {
-  useTmuxComposer,
-} from "@/features/cli-input/useTmuxComposer";
+import { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { type ComposerPaneContext, composerTerminalPane } from "@/features/session-view/composer/terminalArrangement";
@@ -28,7 +20,11 @@ import type { AgentTerminalComposer } from "@/features/session-view/sessionTermi
 import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
 import { useComposerFileDrop } from "@/features/session-view/composer/hold/useComposerFileDrop";
 import { useOpencodeCommands } from "@/features/session-view/composer/useOpencodeCommands";
-import { useComposerDraft, useSendAttachments, type SendAttachment } from "@/features/session-view/composer/hold/useComposerHold";
+import {
+  useComposerDraft,
+  useSendAttachments,
+  type SendAttachment,
+} from "@/features/session-view/composer/hold/useComposerHold";
 import { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import { composerActions } from "@/features/session-view/composer/sessionComposerActions";
 import {
@@ -292,7 +288,7 @@ export function SessionComposer({
   // left, with the values of the render that replaced it.
   useLeaveEffect(transport.kind, () => {
     if (previousTransport.current === "window" && transport.kind !== "window") {
-      setLocalDraft((current) => current.length > 0 ? current : windowComposer.draft);
+      setLocalDraft((current) => (current.length > 0 ? current : windowComposer.draft));
       windowComposer.stopWatching();
     }
     // The mirror answers a request behind the band it replaces, so for the moment before its
@@ -310,11 +306,7 @@ export function SessionComposer({
   });
   // The two mirrored transports own their own draft, because it is half of a value something
   // outside this component holds the other half of. Everything else composes locally.
-  const editorValue = windowBand
-    ? windowComposer.draft
-    : tmuxBand
-      ? tmuxComposer.draft
-      : localDraft;
+  const editorValue = windowBand ? windowComposer.draft : tmuxBand ? tmuxComposer.draft : localDraft;
   const autoGrow = useAutoGrowingTextArea(editorValue);
   /**
    * Whether the key rail is standing under the field.
@@ -331,10 +323,13 @@ export function SessionComposer({
   // Reaching for the field is the first of the two intents that attach the pane; touching the
   // open question is the other, below. Focus rather than the first keystroke, so the box is
   // already showing what the pane holds by the time a character is typed into it.
-  const noteComposerFocus = useCallback((focused: boolean) => {
-    setComposerFocused(focused);
-    if (focused) engage();
-  }, [engage]);
+  const noteComposerFocus = useCallback(
+    (focused: boolean) => {
+      setComposerFocused(focused);
+      if (focused) engage();
+    },
+    [engage],
+  );
   const [softwareKeyboard] = useState(drawsOwnKeyboard);
 
   // The pane that stands above the field, or null when this session's is hidden.
@@ -347,14 +342,14 @@ export function SessionComposer({
   const unavailable = sdkBand
     ? !sdkSession.state.connected
     : windowBand || tmuxBand
-    ? false
-    : cliSessionBand
-      // Unavailable once the pane has been looked for and not found; until then the field is what
-      // attaches it.
-      ? tmuxComposer.reason === "no-pane"
-      : agentTerminalBand
-        ? false
-        : piUnavailable;
+      ? false
+      : cliSessionBand
+        ? // Unavailable once the pane has been looked for and not found; until then the field is what
+          // attaches it.
+          tmuxComposer.reason === "no-pane"
+        : agentTerminalBand
+          ? false
+          : piUnavailable;
 
   const model: ComposerModel = {
     acceptFiles: fileAccept,

@@ -3,7 +3,13 @@ import { useRef, useState, type SubmitEvent, type SyntheticEvent } from "react";
 import type { DirectoryEntry, Message } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { hubOf, useMessages, type MessagesHandle } from "@/features/messages/useMessages";
-import { isCancellable, isUnanswered, messageTime, threadState, threadStateLabel } from "@/features/messages/messageState";
+import {
+  isCancellable,
+  isUnanswered,
+  messageTime,
+  threadState,
+  threadStateLabel,
+} from "@/features/messages/messageState";
 import { runtimesOf } from "@/features/messages/hubRuntime";
 import { SessionPicker } from "@/features/messages/SessionPicker";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -53,7 +59,6 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
   const [failure, setFailure] = useState<string | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
 
-
   const { state, addressable } = messages;
   const directory = state.kind === "ready" ? state.directory : [];
   const reachable = to ? isReachable(to, directory) : false;
@@ -63,22 +68,26 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
     if (!to || !body.trim() || sending) return;
     setSending(true);
     setFailure(null);
-    return runWithFinally(async () => {
-      try {
-        // What the owner writes to an agent is an instruction, so it goes as a request.
-        await messages.send({ to, body: body.trim(), kind: "request" });
-        setBody("");
-      } catch (error) {
-        setFailure(error instanceof Error ? error.message : String(error));
-      }
-    }, () => {
-      setSending(false);
-      bodyRef.current?.focus();
-    });
+    return runWithFinally(
+      async () => {
+        try {
+          // What the owner writes to an agent is an instruction, so it goes as a request.
+          await messages.send({ to, body: body.trim(), kind: "request" });
+          setBody("");
+        } catch (error) {
+          setFailure(error instanceof Error ? error.message : String(error));
+        }
+      },
+      () => {
+        setSending(false);
+        bodyRef.current?.focus();
+      },
+    );
   };
 
   if (state.kind === "loading" || state.kind === "idle") return <SidebarStatus>Loading messages…</SidebarStatus>;
-  if (state.kind === "error") return <SidebarError message={`Messages unavailable: ${state.message}`} retrying={false} />;
+  if (state.kind === "error")
+    return <SidebarError message={`Messages unavailable: ${state.message}`} retrying={false} />;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -97,11 +106,7 @@ export function MessagesPanel({ messages }: MessagesPanelProps) {
       <form onSubmit={submit} className="shrink-0 border-t border-border">
         <div className="flex min-h-11 items-center gap-2 border-b border-border/80 px-3">
           <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">To</span>
-          <SessionPicker
-            entries={addressable}
-            value={to}
-            onChange={(entry) => setTo(entry.address)}
-          />
+          <SessionPicker entries={addressable} value={to} onChange={(entry) => setTo(entry.address)} />
         </div>
         <div className="flex items-start gap-2 p-3">
           <label className="min-w-0 flex-1">
@@ -165,14 +170,17 @@ function Thread({
     if (!reply.trim() || sending) return;
     setSending(true);
     setFailure(null);
-    return runWithFinally(async () => {
-      try {
-        await messages.reply(last.id, reply.trim());
-        setReply("");
-      } catch (error) {
-        setFailure(error instanceof Error ? error.message : String(error));
-      }
-    }, () => setSending(false));
+    return runWithFinally(
+      async () => {
+        try {
+          await messages.reply(last.id, reply.trim());
+          setReply("");
+        } catch (error) {
+          setFailure(error instanceof Error ? error.message : String(error));
+        }
+      },
+      () => setSending(false),
+    );
   };
 
   return (
@@ -244,7 +252,9 @@ function Thread({
             <div className="mt-0.5 flex items-baseline gap-2 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
               <span>{messageTime(message.createdAt)}</span>
               {message.refs.length > 0 ? (
-                <span className="min-w-0 truncate">{message.refs.map((ref) => `${ref.app} ${ref.kind} ${ref.id}`).join(", ")}</span>
+                <span className="min-w-0 truncate">
+                  {message.refs.map((ref) => `${ref.app} ${ref.kind} ${ref.id}`).join(", ")}
+                </span>
               ) : null}
             </div>
           </li>

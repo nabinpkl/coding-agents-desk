@@ -4,10 +4,18 @@ import type { ProjectSummary, RecentSession, RecentSessionsPayload } from "@agen
 import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/session-list/CanvasSessionsList";
 
 const desk: ProjectSummary = {
-  projectPath: "/repo/agent-desk", displayName: "agent-desk", sourceCounts: { claude: 1 }, sessionCount: 1, lastEventAt: 2,
+  projectPath: "/repo/agent-desk",
+  displayName: "agent-desk",
+  sourceCounts: { claude: 1 },
+  sessionCount: 1,
+  lastEventAt: 2,
 };
 const oss: ProjectSummary = {
-  projectPath: "/repo/oss-agent", displayName: "oss-agent", sourceCounts: { claude: 1 }, sessionCount: 1, lastEventAt: 3,
+  projectPath: "/repo/oss-agent",
+  displayName: "oss-agent",
+  sourceCounts: { claude: 1 },
+  sessionCount: 1,
+  lastEventAt: 3,
 };
 function row(sessionId: string, title: string, projectPath: string, lastEventAt: number): RecentSession {
   return { source: "claude", sessionId, title, lastEventAt, activity: "ready", projectPath } as RecentSession;
@@ -42,11 +50,17 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
 
 describe("the Canvas tab's Sessions view", () => {
   it("lists sessions in the order the sidecar sent, each naming its project", () => {
-    const recent = { recent: [row("b", "Brian", oss.projectPath, 3), row("a", "Alan", desk.projectPath, 2)], more: false, securityReviews: NO_REVIEWS };
+    const recent = {
+      recent: [row("b", "Brian", oss.projectPath, 3), row("a", "Alan", desk.projectPath, 2)],
+      more: false,
+      securityReviews: NO_REVIEWS,
+    };
     render(<CanvasSessionsList list={list} sessions={sessions({ recent })} />);
 
-    const rows = within(screen.getByRole("list", { name: "Sessions, most recently changed first" }))
-      .getAllByRole("button", { name: /^(Brian|Alan)/ });
+    const rows = within(screen.getByRole("list", { name: "Sessions, most recently changed first" })).getAllByRole(
+      "button",
+      { name: /^(Brian|Alan)/ },
+    );
     expect(rows.map((button) => button.textContent)).toEqual([
       expect.stringContaining("Brian"),
       expect.stringContaining("Alan"),
@@ -69,7 +83,12 @@ describe("the Canvas tab's Sessions view", () => {
   it("opens a row with the project it belongs to", () => {
     const onOpen = vi.fn();
     const brian = row("b", "Brian", oss.projectPath, 3);
-    render(<CanvasSessionsList list={list} sessions={sessions({ onOpen, recent: { recent: [brian], more: false, securityReviews: NO_REVIEWS } })} />);
+    render(
+      <CanvasSessionsList
+        list={list}
+        sessions={sessions({ onOpen, recent: { recent: [brian], more: false, securityReviews: NO_REVIEWS } })}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /^Brian/ }));
 
@@ -84,21 +103,29 @@ describe("the Canvas tab's Sessions view", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(onShowMore).toHaveBeenCalledOnce();
 
-    rerender(<CanvasSessionsList list={list} sessions={sessions({ recent: { ...recent, more: false }, onShowMore })} />);
+    rerender(
+      <CanvasSessionsList list={list} sessions={sessions({ recent: { ...recent, more: false }, onShowMore })} />,
+    );
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
   });
 
   it("folds the security reviews into one row at the bottom, and asks for them only when it opens", () => {
     const onToggle = vi.fn();
     const onShowMore = vi.fn();
-    const review = { ...row("r", "BotFace security review", desk.projectPath, 4), automation: "security-review" as const };
+    const review = {
+      ...row("r", "BotFace security review", desk.projectPath, 4),
+      automation: "security-review" as const,
+    };
     const recent = {
       recent: [row("b", "Brian", oss.projectPath, 3)],
       more: false,
       securityReviews: { count: 40, live: 2, recent: [], more: true },
     };
     const { rerender } = render(
-      <CanvasSessionsList list={list} sessions={sessions({ recent, reviews: { open: false, onToggle, onShowMore } })} />,
+      <CanvasSessionsList
+        list={list}
+        sessions={sessions({ recent, reviews: { open: false, onToggle, onShowMore } })}
+      />,
     );
 
     const fold = screen.getByRole("button", { name: /Security reviews \(40\)/ });
@@ -133,7 +160,9 @@ describe("the Canvas tab's Sessions view", () => {
 
   it("switches between grouped and flat from its toggle", () => {
     const onGroupedChange = vi.fn();
-    const { rerender } = render(<CanvasSessionsList list={list} sessions={sessions({ grouped: true, onGroupedChange })} />);
+    const { rerender } = render(
+      <CanvasSessionsList list={list} sessions={sessions({ grouped: true, onGroupedChange })} />,
+    );
 
     const toggle = screen.getByRole("button", { name: "Group by project" });
     expect(toggle).toHaveAttribute("aria-pressed", "true");

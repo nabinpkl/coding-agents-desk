@@ -43,9 +43,9 @@ export function updateBotRecord(
     // Siblings only: renaming a Bot to the name it already has is the common retry, not a
     // collision, and the creation check has no self to exclude.
     if (
-      snapshot.bots.some((other) =>
-        other.botId !== botId
-        && other.name.normalize("NFKC").toLocaleLowerCase("en-US") === command.normalizedName
+      snapshot.bots.some(
+        (other) =>
+          other.botId !== botId && other.name.normalize("NFKC").toLocaleLowerCase("en-US") === command.normalizedName,
       )
     ) {
       throw new BotConflictError(`a Bot named "${command.name}" already exists`);
@@ -84,9 +84,7 @@ export function updateBotRecord(
       // claims, and a Father the catalog has forgotten still says missing rather than
       // silently unnameable.
       if (!bot.sessionRefs.some((ref) => sessionKey(ref) === sessionKey(command.fatherSession!))) {
-        throw new BotNotFoundError(
-          `session ${sessionKey(command.fatherSession)} is not attached to this Bot`,
-        );
+        throw new BotNotFoundError(`session ${sessionKey(command.fatherSession)} is not attached to this Bot`);
       }
       updated = { ...updated, fatherSession: command.fatherSession };
     }
@@ -146,9 +144,7 @@ export class BotRecordEditor {
     }
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
     const normalized = normalizeUpdateBot(command);
-    const record = await this.store.mutate((snapshot) =>
-      updateBotRecord(snapshot, botId, normalized)
-    );
+    const record = await this.store.mutate((snapshot) => updateBotRecord(snapshot, botId, normalized));
     return this.view(record);
   }
 

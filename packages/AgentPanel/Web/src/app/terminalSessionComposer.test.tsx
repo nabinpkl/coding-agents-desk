@@ -98,7 +98,9 @@ describe("terminal session composer", () => {
     expect((field as HTMLTextAreaElement).value).toBe("run the tests");
     expect(screen.queryByLabelText("Send to the terminal session")).toBeNull();
     // Nothing reaches the session's messaging socket, or any route that once wrote to it.
-    expect(transport.requests.some((r) => r.method === "POST" && r.path.startsWith("/api/sessions/claude/"))).toBe(false);
+    expect(transport.requests.some((r) => r.method === "POST" && r.path.startsWith("/api/sessions/claude/"))).toBe(
+      false,
+    );
     unmount();
   });
 
@@ -111,11 +113,17 @@ describe("terminal session composer", () => {
     paneReads(transport, null);
     await waitFor(() => expect(screen.queryByLabelText("Message this terminal session")).toBeNull());
     // The draft typed before the mirror attached is what the pane's box is asked to hold.
-    await waitFor(() => expect(transport.requests).toContainEqual(expect.objectContaining({
-      method: "POST",
-      path: "/api/sessions/claude/sid-claude-01/composer",
-      body: { text: "keep this" },
-    })), { timeout: 3000 });
+    await waitFor(
+      () =>
+        expect(transport.requests).toContainEqual(
+          expect.objectContaining({
+            method: "POST",
+            path: "/api/sessions/claude/sid-claude-01/composer",
+            body: { text: "keep this" },
+          }),
+        ),
+      { timeout: 3000 },
+    );
     unmount();
   });
 
@@ -142,11 +150,17 @@ describe("terminal session composer", () => {
     expect((field as HTMLTextAreaElement).value).toBe("do 2");
     paneReads(transport, null);
     await waitFor(() => expect(screen.queryByText(/not showing its composer/)).toBeNull());
-    await waitFor(() => expect(transport.requests).toContainEqual(expect.objectContaining({
-      method: "POST",
-      path: "/api/sessions/claude/sid-claude-01/composer",
-      body: { text: "do 2" },
-    })), { timeout: 3000 });
+    await waitFor(
+      () =>
+        expect(transport.requests).toContainEqual(
+          expect.objectContaining({
+            method: "POST",
+            path: "/api/sessions/claude/sid-claude-01/composer",
+            body: { text: "do 2" },
+          }),
+        ),
+      { timeout: 3000 },
+    );
     unmount();
   });
 
@@ -169,15 +183,17 @@ describe("terminal session composer", () => {
     });
     fireEvent.focus(windowField);
     fireEvent.change(windowField, { target: { value: "keep this draft" } });
-    act(() => transport.deliver(COMPOSER_STREAM, {
-      composer: {
-        sessionId: "sid-claude-01",
-        enabled: false,
-        reason: "terminal-only",
-        onActiveDesktop: true,
-        composerText: "",
-      },
-    }));
+    act(() =>
+      transport.deliver(COMPOSER_STREAM, {
+        composer: {
+          sessionId: "sid-claude-01",
+          enabled: false,
+          reason: "terminal-only",
+          onActiveDesktop: true,
+          composerText: "",
+        },
+      }),
+    );
 
     const terminalField = await screen.findByLabelText("Message through Agent Feed terminal");
     await waitFor(() => expect(terminalField).toHaveValue("keep this draft"));
@@ -216,15 +232,17 @@ describe("terminal session composer", () => {
       },
     });
     fireEvent.focus(windowField);
-    act(() => transport.deliver(COMPOSER_STREAM, {
-      composer: {
-        sessionId: "sid-claude-01",
-        enabled: true,
-        reason: null,
-        onActiveDesktop: true,
-        composerText: "native draft",
-      },
-    }));
+    act(() =>
+      transport.deliver(COMPOSER_STREAM, {
+        composer: {
+          sessionId: "sid-claude-01",
+          enabled: true,
+          reason: null,
+          onActiveDesktop: true,
+          composerText: "native draft",
+        },
+      }),
+    );
 
     expect(screen.getByLabelText("Claude composer text")).toHaveValue("native draft");
     expect(screen.queryByLabelText("Message through Agent Feed terminal")).toBeNull();

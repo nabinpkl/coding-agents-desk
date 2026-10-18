@@ -7,17 +7,8 @@
 import { createHash } from "node:crypto";
 import { constants, promises as fs } from "node:fs";
 import { join } from "node:path";
-import type {
-  WorkspaceDirectoryEntry,
-  WorkspaceFileKind,
-  WorkspaceFileRevision,
-} from "@agentdesk/agent-feed-wire";
-import {
-  READ_FLAGS,
-  resolveDirectory,
-  resolveFile,
-  WorkspaceFailure,
-} from "@/workspace/workspacePaths";
+import type { WorkspaceDirectoryEntry, WorkspaceFileKind, WorkspaceFileRevision } from "@agentdesk/agent-feed-wire";
+import { READ_FLAGS, resolveDirectory, resolveFile, WorkspaceFailure } from "@/workspace/workspacePaths";
 
 /**
  * What a file is, from its extension alone.
@@ -108,19 +99,15 @@ async function modifiedAtOf(directory: string, name: string): Promise<number> {
  * it is decided HERE, once: a reader who asks for another order reorders what this returns rather
  * than getting a second comparator to disagree with this one.
  */
-export async function listDirectory(
-  root: string,
-  path: string,
-): Promise<WorkspaceDirectoryEntry[]> {
+export async function listDirectory(root: string, path: string): Promise<WorkspaceDirectoryEntry[]> {
   const directory = await resolveDirectory(root, path);
   const children = await fs.readdir(directory, { withFileTypes: true });
-  const listed = children.filter(
-    (child) => !child.isSymbolicLink() && (child.isDirectory() || child.isFile()));
+  const listed = children.filter((child) => !child.isSymbolicLink() && (child.isDirectory() || child.isFile()));
   const stamps: number[] = [];
   for (let at = 0; at < listed.length; at += STAT_BATCH) {
-    stamps.push(...await Promise.all(
-      listed.slice(at, at + STAT_BATCH).map((child) => modifiedAtOf(directory, child.name)),
-    ));
+    stamps.push(
+      ...(await Promise.all(listed.slice(at, at + STAT_BATCH).map((child) => modifiedAtOf(directory, child.name)))),
+    );
   }
   const entries = listed.map((child, at): WorkspaceDirectoryEntry => ({
     name: child.name,
@@ -189,11 +176,7 @@ export interface WorkspaceDocumentFile {
  * answers: a file with a NUL in it is binary, and telling the reader "not valid UTF-8" about a PNG
  * describes the decoder rather than the file.
  */
-export async function readTextFile(
-  root: string,
-  path: string,
-  maxBytes: number,
-): Promise<WorkspaceTextFile> {
+export async function readTextFile(root: string, path: string, maxBytes: number): Promise<WorkspaceTextFile> {
   const file = await resolveFile(root, path);
   const bytes = await readBytes(file.absolute, maxBytes);
   if (bytes.includes(0)) throw new WorkspaceFailure("binary");
@@ -208,11 +191,7 @@ export async function readTextFile(
 }
 
 /** Read a file as opaque bytes, which is how `docx` and `pdf` reach the panel's renderers. */
-export async function readDocumentFile(
-  root: string,
-  path: string,
-  maxBytes: number,
-): Promise<WorkspaceDocumentFile> {
+export async function readDocumentFile(root: string, path: string, maxBytes: number): Promise<WorkspaceDocumentFile> {
   const file = await resolveFile(root, path);
   const bytes = await readBytes(file.absolute, maxBytes);
   return { bytes, revision: revisionOf(bytes) };

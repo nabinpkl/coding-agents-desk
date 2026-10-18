@@ -24,20 +24,14 @@ import { FENCE_SLOT_ATTRIBUTE } from "@/features/activity-feed/markdown/proseBlo
  * replace rather than patch. A wrong patch shows wrong text, so every uncertain
  * case is a `null`.
  */
-export function trailingTextEdit(
-  previous: string,
-  next: string,
-): { removed: string; added: string } | null {
+export function trailingTextEdit(previous: string, next: string): { removed: string; added: string } | null {
   if (previous === "" || previous === next) return null;
 
   const shorter = Math.min(previous.length, next.length);
   let head = 0;
   while (head < shorter && previous[head] === next[head]) head++;
   let tail = 0;
-  while (
-    tail < shorter - head &&
-    previous[previous.length - 1 - tail] === next[next.length - 1 - tail]
-  ) {
+  while (tail < shorter - head && previous[previous.length - 1 - tail] === next[next.length - 1 - tail]) {
     tail++;
   }
 
@@ -51,7 +45,13 @@ export function trailingTextEdit(
   // block elements do not count: neither is content, and prose blocks never carry a
   // `<pre>` (fences are peeled into their own component), so no trailing whitespace
   // here is significant.
-  if (next.slice(next.length - tail).replace(/<[^>]*>/g, "").trim() !== "") return null;
+  if (
+    next
+      .slice(next.length - tail)
+      .replace(/<[^>]*>/g, "")
+      .trim() !== ""
+  )
+    return null;
 
   return { removed, added };
 }
@@ -66,20 +66,14 @@ export function trailingTextEdit(
  * the empty string) would be written INTO the code.
  */
 function lastContentTextNode(el: Element): Text | null {
-  const walker = el.ownerDocument.createTreeWalker(
-    el,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-    {
-      acceptNode: (node) => {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          return (node as Element).hasAttribute(FENCE_SLOT_ATTRIBUTE)
-            ? NodeFilter.FILTER_REJECT
-            : NodeFilter.FILTER_SKIP;
-        }
-        return (node as Text).data.trim() === "" ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_ACCEPT;
-      },
+  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        return (node as Element).hasAttribute(FENCE_SLOT_ATTRIBUTE) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+      }
+      return (node as Text).data.trim() === "" ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_ACCEPT;
     },
-  );
+  });
   let last: Text | null = null;
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) last = node as Text;
   return last;

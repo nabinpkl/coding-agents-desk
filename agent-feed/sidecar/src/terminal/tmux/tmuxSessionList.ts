@@ -83,10 +83,7 @@ export function setSessionIdentityArgs(session: string, sessionId: string): stri
   return ["set-option", "-t", session, SESSION_IDENTITY_OPTION, sessionId];
 }
 
-export async function stampTmuxSessionIdentity(
-  session: string,
-  sessionId: string,
-): Promise<void> {
+export async function stampTmuxSessionIdentity(session: string, sessionId: string): Promise<void> {
   const { err, code } = await tmux(setSessionIdentityArgs(session, sessionId));
   if (code !== 0) throw new TmuxUnavailable(`tmux set-option exited ${code}: ${err.trim()}`);
 }
@@ -154,16 +151,22 @@ export async function renameTmuxSessionTo(session: string, name: string): Promis
  * a fixed executable name and an argument this module's callers have already validated as a UUID.
  * `path` is the interactive shell's PATH (`userShellPath`), which the login shell alone misses.
  */
-export function newSessionArgs(
-  { session, cwd, command, columns, rows }: NewTmuxSession,
-  path?: string,
-): string[] {
+export function newSessionArgs({ session, cwd, command, columns, rows }: NewTmuxSession, path?: string): string[] {
   return [
     // `-A` for the race: two viewers of one session can both find it missing, and without this the
     // loser gets "duplicate session" where it wanted the winner's. With it, a second create is a
     // no-op that exits 0, and the caller's own existence check stays as the ordinary path.
-    "new-session", "-A", "-d", "-s", session, "-c", cwd,
-    "-x", String(columns), "-y", String(rows),
+    "new-session",
+    "-A",
+    "-d",
+    "-s",
+    session,
+    "-c",
+    cwd,
+    "-x",
+    String(columns),
+    "-y",
+    String(rows),
     paneShellCommand(command, path),
   ];
 }
@@ -205,10 +208,13 @@ export function paneStartsArgs(session: string): string[] {
 export async function tmuxPaneStarts(session: string): Promise<{ pane: string; command: string }[]> {
   const { out, err, code } = await tmux(paneStartsArgs(session));
   if (code !== 0) throw new TmuxUnavailable(`tmux list-panes exited ${code}: ${err.trim() || out.trim()}`);
-  return out.split("\n").filter((line) => line.includes("|")).map((line) => {
-    const separator = line.indexOf("|");
-    return { pane: line.slice(0, separator), command: line.slice(separator + 1) };
-  });
+  return out
+    .split("\n")
+    .filter((line) => line.includes("|"))
+    .map((line) => {
+      const separator = line.indexOf("|");
+      return { pane: line.slice(0, separator), command: line.slice(separator + 1) };
+    });
 }
 
 /**

@@ -61,12 +61,7 @@ export function TerminalKeyRail({
         ))}
       </div>
       {MODIFIERS.map(({ label, modifier }) => (
-        <KeyRailButton
-          key={modifier}
-          label={label}
-          state={modifiers[modifier]}
-          onClick={() => onModifier(modifier)}
-        />
+        <KeyRailButton key={modifier} label={label} state={modifiers[modifier]} onClick={() => onModifier(modifier)} />
       ))}
     </section>
   );

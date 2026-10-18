@@ -13,10 +13,20 @@ function fake(overrides: Partial<TmuxRelabelDeps> & { sessions?: string[] } = {}
   const calls: string[] = [];
   const sessions = overrides.sessions ?? [];
   const deps: TmuxRelabelDeps = {
-    stamp: async (session, sessionId) => { calls.push(`stamp ${session} ${sessionId}`); },
-    stamped: async (sessionId) => { calls.push(`stamped ${sessionId}`); return "agentdesk-s1"; },
-    list: async () => { calls.push("list"); return sessions.map((name) => ({ name })); },
-    rename: async (session, name) => { calls.push(`rename ${session} ${name}`); },
+    stamp: async (session, sessionId) => {
+      calls.push(`stamp ${session} ${sessionId}`);
+    },
+    stamped: async (sessionId) => {
+      calls.push(`stamped ${sessionId}`);
+      return "agentdesk-s1";
+    },
+    list: async () => {
+      calls.push("list");
+      return sessions.map((name) => ({ name }));
+    },
+    rename: async (session, name) => {
+      calls.push(`rename ${session} ${name}`);
+    },
     ...overrides,
   };
   return { deps, calls };
@@ -25,12 +35,7 @@ function fake(overrides: Partial<TmuxRelabelDeps> & { sessions?: string[] } = {}
 test("a pane whose stamp reads back takes the session's title", async () => {
   const { deps, calls } = fake();
   expect(await adoptTitleName("agentdesk-s1", "s1", "Testing bot", deps)).toBe("testing-bot");
-  expect(calls).toEqual([
-    "stamp agentdesk-s1 s1",
-    "stamped s1",
-    "list",
-    "rename agentdesk-s1 testing-bot",
-  ]);
+  expect(calls).toEqual(["stamp agentdesk-s1 s1", "stamped s1", "list", "rename agentdesk-s1 testing-bot"]);
 });
 
 test("a stamp that does not read back leaves the name alone", async () => {
@@ -51,8 +56,7 @@ test("a stamp naming a different pane leaves the name alone", async () => {
 
 test("a name already taken by another session gets the id suffix rather than the name", async () => {
   const { deps } = fake({ sessions: ["testing-bot"] });
-  expect(await adoptTitleName("agentdesk-s1", "s1abcdef-0000", "Testing bot", deps))
-    .toBe("testing-bot-s1abcd");
+  expect(await adoptTitleName("agentdesk-s1", "s1abcdef-0000", "Testing bot", deps)).toBe("testing-bot-s1abcd");
 });
 
 test("its own name does not count as taken, so a second call is not a second suffix", async () => {
@@ -66,7 +70,10 @@ test("a stamp that throws stops before anything is renamed", async () => {
   const { deps, calls } = fake({
     // Records BEFORE throwing, so the assertion below is about what did not follow it rather than
     // about a spy that never ran.
-    stamp: async (session) => { calls.push(`stamp ${session}`); throw new Error("no tmux"); },
+    stamp: async (session) => {
+      calls.push(`stamp ${session}`);
+      throw new Error("no tmux");
+    },
   });
   expect(await adoptTitleName("agentdesk-s1", "s1", "Testing bot", deps)).toBe("agentdesk-s1");
   expect(calls).toEqual(["stamp agentdesk-s1"]);
@@ -75,11 +82,19 @@ test("a stamp that throws stops before anything is renamed", async () => {
 test("a rename tmux refuses is reported as the name the pane still has", async () => {
   // The pane is running either way, and the caller puts this name on the wire. Answering with the
   // name that was attempted would tell every later lookup to address a session tmux does not have.
-  const { deps } = fake({ rename: async () => { throw new Error("bad name"); } });
+  const { deps } = fake({
+    rename: async () => {
+      throw new Error("bad name");
+    },
+  });
   expect(await adoptTitleName("agentdesk-s1", "s1", "Testing bot", deps)).toBe("agentdesk-s1");
 });
 
 test("a listing that fails leaves the pane named after its session", async () => {
-  const { deps } = fake({ list: async () => { throw new Error("tmux gone"); } });
+  const { deps } = fake({
+    list: async () => {
+      throw new Error("tmux gone");
+    },
+  });
   expect(await adoptTitleName("agentdesk-s1", "s1", "Testing bot", deps)).toBe("agentdesk-s1");
 });

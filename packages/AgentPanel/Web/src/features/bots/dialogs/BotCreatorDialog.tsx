@@ -91,28 +91,18 @@ export function BotCreatorDialog({
   // Scoped to the selected machine, because a claim is a claim on THAT machine's directory. Two
   // Linux peers both have `/home/ubuntu`, and a Bot on one of them must not grey the other out.
   const claimedDirectories = useMemo(
-    () => new Set(
-      bots
-        .filter((bot) => botMachines.get(bot.botId)?.id === machine.id)
-        .map((bot) => bot.environment.path),
-    ),
+    () =>
+      new Set(bots.filter((bot) => botMachines.get(bot.botId)?.id === machine.id).map((bot) => bot.environment.path)),
     [bots, botMachines, machine.id],
   );
 
   // Memoized on the machine, not rebuilt per render: the picker re-reads the folder it is
   // showing whenever this identity changes, and a fresh closure every render would make that a
   // request loop for as long as the picker is open.
-  const browse = useCallback(
-    (path: string | null) => machine.feed.browseDirectories(path),
-    [machine],
-  );
+  const browse = useCallback((path: string | null) => machine.feed.browseDirectories(path), [machine]);
   // Memoized for the same reason, and on the same machine: a folder a reader makes while naming a
   // Bot has to land on the machine they picked, or the Bot is pointed at a path that is not there.
-  const createFolder = useCallback(
-    (path: string, name: string) => machine.feed.createDirectory(path, name),
-    [machine],
-  );
-
+  const createFolder = useCallback((path: string, name: string) => machine.feed.createDirectory(path, name), [machine]);
 
   useModal(dialogRef, Boolean(open), { attributeFallback: true });
 
@@ -153,21 +143,27 @@ export function BotCreatorDialog({
     setPending(true);
     setError(null);
     try {
-      await onCreate({
-        name: name.trim(),
-        ...(iconUrl.trim() ? { iconUrl: iconUrl.trim() } : {}),
-        directoryPath: selectedPath,
-        metadata: {
-          ...(role.trim() ? { role: role.trim() } : {}),
-          ...(description.trim() ? { description: description.trim() } : {}),
-          labels: labels.split(",").map((label) => label.trim()).filter(Boolean),
-          custom: metadataLines(customMetadata),
+      await onCreate(
+        {
+          name: name.trim(),
+          ...(iconUrl.trim() ? { iconUrl: iconUrl.trim() } : {}),
+          directoryPath: selectedPath,
+          metadata: {
+            ...(role.trim() ? { role: role.trim() } : {}),
+            ...(description.trim() ? { description: description.trim() } : {}),
+            labels: labels
+              .split(",")
+              .map((label) => label.trim())
+              .filter(Boolean),
+            custom: metadataLines(customMetadata),
+          },
+          grants: canAddBots ? ["add_bot"] : [],
+          // The title is left to the sidecar, which defaults it to the Bot's name. Two places
+          // deciding what a session is called is how the canvas and `ListAgents` end up disagreeing.
+          ...(startSession ? { launch: firstTurn.trim() ? { prompt: firstTurn } : {} } : {}),
         },
-        grants: canAddBots ? ["add_bot"] : [],
-        // The title is left to the sidecar, which defaults it to the Bot's name. Two places
-        // deciding what a session is called is how the canvas and `ListAgents` end up disagreeing.
-        ...(startSession ? { launch: firstTurn.trim() ? { prompt: firstTurn } : {} } : {}),
-      }, machine);
+        machine,
+      );
     } catch (reason) {
       setError(String((reason as Error).message ?? reason));
       setPending(false);
@@ -190,8 +186,12 @@ export function BotCreatorDialog({
       <section className="flex max-h-[min(760px,92dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card text-foreground shadow-2xl">
         <header className="flex min-h-12 shrink-0 items-center border-b border-border px-4">
           <div className="min-w-0 flex-1">
-            <h2 id="bot-creator-title" className="text-base font-semibold">Add Bot</h2>
-            <p className="text-xs text-muted-foreground">Name a Bot, bind its project directory, and start the session that works in it.</p>
+            <h2 id="bot-creator-title" className="text-base font-semibold">
+              Add Bot
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Name a Bot, bind its project directory, and start the session that works in it.
+            </p>
           </div>
           <button
             type="button"
@@ -313,7 +313,9 @@ export function BotCreatorDialog({
                     />
                     <span className="text-sm">
                       <span className="block font-medium">Start a Claude session in this directory</span>
-                      <span className="block text-xs text-muted-foreground">Runs in its own tmux pane, named after the Bot, and appears on the canvas.</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Runs in its own tmux pane, named after the Bot, and appears on the canvas.
+                      </span>
                     </span>
                   </label>
                   {startSession ? (
@@ -353,10 +355,16 @@ export function BotCreatorDialog({
                   />
                   <span className="text-sm">
                     <span className="block font-medium">Allow this Bot to create Bots</span>
-                    <span className="block text-xs text-muted-foreground">The tool becomes available to an attached Pi session when its runtime opens.</span>
+                    <span className="block text-xs text-muted-foreground">
+                      The tool becomes available to an attached Pi session when its runtime opens.
+                    </span>
                   </span>
                 </label>
-                {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+                {error ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    {error}
+                  </p>
+                ) : null}
               </div>
             )}
           </div>

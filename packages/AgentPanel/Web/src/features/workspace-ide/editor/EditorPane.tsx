@@ -55,7 +55,8 @@ export function EditorPane({
         diff={diff}
       />
 
-      <div className="flex min-h-[38px] shrink-0 items-center gap-1 border-b border-border
+      <div
+        className="flex min-h-[38px] shrink-0 items-center gap-1 border-b border-border
         bg-muted/40 px-1.5"
       >
         <button
@@ -97,89 +98,75 @@ export function EditorPane({
 
             It leaves the diff on its tab rather than closing it, so the comparison a reader came
             for is one click away again. */}
-        {diff.active && diff.target && !diff.target.status.includes("D")
-          ? (
-            <button
-              type="button"
-              aria-label={`Open ${diff.target.path}`}
-              onClick={() => {
-                const { path } = diff.target!;
-                diff.hide();
-                ide.openPath(path);
-              }}
-              className={`${CONTROL} ${LABELLED}`}
-            >
-              <FileCode2 className="size-3.5" />
-              Open file
-            </button>
-          )
-          : null}
-        {file && hasSource(file.kind) && !diff.active
-          ? (
-            <FileViewToggle
-              preview={preview}
-              editable
-              onToggle={() => ide.togglePreview(file.path)}
-            />
-          )
-          : null}
+        {diff.active && diff.target && !diff.target.status.includes("D") ? (
+          <button
+            type="button"
+            aria-label={`Open ${diff.target.path}`}
+            onClick={() => {
+              const { path } = diff.target!;
+              diff.hide();
+              ide.openPath(path);
+            }}
+            className={`${CONTROL} ${LABELLED}`}
+          >
+            <FileCode2 className="size-3.5" />
+            Open file
+          </button>
+        ) : null}
+        {file && hasSource(file.kind) && !diff.active ? (
+          <FileViewToggle preview={preview} editable onToggle={() => ide.togglePreview(file.path)} />
+        ) : null}
       </div>
 
-      {file?.saveState === "conflict" && activePath
-        ? (
-          <div
-            role="alert"
-            className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border
+      {file?.saveState === "conflict" && activePath ? (
+        <div
+          role="alert"
+          className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border
               bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+        >
+          <span className="flex-1">This file changed on disk.</span>
+          <button
+            type="button"
+            onClick={() => ide.takeHostVersion(activePath)}
+            className="rounded-md border border-current px-2 py-1 outline-none
+                focus-visible:ring-2 focus-visible:ring-primary"
           >
-            <span className="flex-1">This file changed on disk.</span>
-            <button
-              type="button"
-              onClick={() => ide.takeHostVersion(activePath)}
-              className="rounded-md border border-current px-2 py-1 outline-none
+            Use theirs
+          </button>
+          <button
+            type="button"
+            onClick={() => ide.keepMyVersion(activePath)}
+            className="rounded-md border border-current px-2 py-1 outline-none
                 focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              Use theirs
-            </button>
-            <button
-              type="button"
-              onClick={() => ide.keepMyVersion(activePath)}
-              className="rounded-md border border-current px-2 py-1 outline-none
-                focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              Keep mine
-            </button>
-          </div>
-        )
-        : null}
+          >
+            Keep mine
+          </button>
+        </div>
+      ) : null}
 
       <main className="relative min-h-0 flex-1 overflow-hidden">
-        {diff.active && diff.target && ide.workspaceId
-          ? (
-            <CommitDiffView
-              // Keyed on what it shows, so pointing the tab at another file reads rather than
-              // redrawing the previous patch while the new one arrives.
-              key={`${diff.target.commit?.hash ?? "uncommitted"}:${diff.target.path}`}
-              client={ide.client}
-              workspaceId={ide.workspaceId}
-              target={diff.target}
-              gitRevision={ide.git}
-            />
-          )
-          : file && ide.workspaceId
-          ? (
-            <FileBody
-              file={{ ...file, contentUrl: ide.client.contentUrl(ide.workspaceId, file.path) }}
-              preview={preview}
-              onChange={(text) => ide.edit(file.path, text)}
-              reveal={ide.reveal?.path === file.path ? ide.reveal : undefined}
-            />
-          )
-          : (
-            <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
-              {ide.loadingPath ? "Opening file…" : "Open a file from the explorer"}
-            </div>
-          )}
+        {diff.active && diff.target && ide.workspaceId ? (
+          <CommitDiffView
+            // Keyed on what it shows, so pointing the tab at another file reads rather than
+            // redrawing the previous patch while the new one arrives.
+            key={`${diff.target.commit?.hash ?? "uncommitted"}:${diff.target.path}`}
+            client={ide.client}
+            workspaceId={ide.workspaceId}
+            target={diff.target}
+            gitRevision={ide.git}
+          />
+        ) : file && ide.workspaceId ? (
+          <FileBody
+            file={{ ...file, contentUrl: ide.client.contentUrl(ide.workspaceId, file.path) }}
+            preview={preview}
+            onChange={(text) => ide.edit(file.path, text)}
+            reveal={ide.reveal?.path === file.path ? ide.reveal : undefined}
+          />
+        ) : (
+          <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
+            {ide.loadingPath ? "Opening file…" : "Open a file from the explorer"}
+          </div>
+        )}
       </main>
     </div>
   );

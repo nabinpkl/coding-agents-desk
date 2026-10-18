@@ -77,7 +77,10 @@ export class SidecarAgentSessions extends SidecarTerminals {
    * last in the prompt the new session receives. Answers with the new descriptor, which the
    * caller attaches wherever the handover was asked from.
    */
-  async handoverToOpencode(sessionId: string, message?: string): Promise<{
+  async handoverToOpencode(
+    sessionId: string,
+    message?: string,
+  ): Promise<{
     session: AgentSessionDescriptor;
     handover: { turnCount: number; chars: number; lossy: boolean };
   }> {
@@ -104,7 +107,11 @@ export class SidecarAgentSessions extends SidecarTerminals {
    * rather than in a second attach: a Claude session is not in the catalog until its first turn
    * writes a transcript, and the attach resolves against the catalog.
    */
-  async handoverToClaude(sessionId: string, message?: string, botId?: string): Promise<{
+  async handoverToClaude(
+    sessionId: string,
+    message?: string,
+    botId?: string,
+  ): Promise<{
     session: StartedSession;
     handover: { turnCount: number; chars: number; lossy: boolean };
   }> {
@@ -173,11 +180,9 @@ export class SidecarAgentSessions extends SidecarTerminals {
    */
   async runOpencodeCommand(sessionId: string, name: string, text: string): Promise<AgentCommandReceipt> {
     return parse<AgentCommandReceipt>(
-      await this.transport.request(
-        "POST",
-        `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/command`,
-        { body: { requestId: crypto.randomUUID(), name, text } },
-      ),
+      await this.transport.request("POST", `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/command`, {
+        body: { requestId: crypto.randomUUID(), name, text },
+      }),
     );
   }
 
@@ -188,11 +193,9 @@ export class SidecarAgentSessions extends SidecarTerminals {
    */
   async askOpencodeAside(sessionId: string, question: string): Promise<string> {
     return parse<{ text: string }>(
-      await this.transport.request(
-        "POST",
-        `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/aside`,
-        { body: { question } },
-      ),
+      await this.transport.request("POST", `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/aside`, {
+        body: { question },
+      }),
     ).text;
   }
 
@@ -213,11 +216,9 @@ export class SidecarAgentSessions extends SidecarTerminals {
    */
   async renameOpencodeSession(sessionId: string, title: string): Promise<string> {
     const answer = parse<{ title?: unknown }>(
-      await this.transport.request(
-        "POST",
-        `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/title`,
-        { body: { title } },
-      ),
+      await this.transport.request("POST", `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/title`, {
+        body: { title },
+      }),
     );
     if (typeof answer.title !== "string") throw new Error("Rename returned no title");
     return answer.title;
@@ -255,19 +256,13 @@ export class SidecarAgentSessions extends SidecarTerminals {
    */
   async switchOpencodeModel(sessionId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt> {
     return parse<AgentCommandReceipt>(
-      await this.transport.request(
-        "POST",
-        `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/model`,
-        { body: { requestId: crypto.randomUUID(), providerID, modelID } },
-      ),
+      await this.transport.request("POST", `/api/agent-sessions/opencode/${encodeURIComponent(sessionId)}/model`, {
+        body: { requestId: crypto.randomUUID(), providerID, modelID },
+      }),
     );
   }
 
-  async respondToExtensionUI(
-    session: SessionAddress,
-    requestId: string,
-    value: unknown,
-  ): Promise<void> {
+  async respondToExtensionUI(session: SessionAddress, requestId: string, value: unknown): Promise<void> {
     parse<unknown>(
       await this.transport.request(
         "POST",

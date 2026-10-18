@@ -69,11 +69,7 @@ export function tmuxSessionSlug(title: string): string {
  * `taken` should NOT include this session's own current name; a caller renaming in place would
  * otherwise collide with itself and suffix a name that was already free.
  */
-export function uniqueTmuxSessionName(
-  title: string,
-  sessionId: string,
-  taken: Iterable<string>,
-): string {
+export function uniqueTmuxSessionName(title: string, sessionId: string, taken: Iterable<string>): string {
   const slug = tmuxSessionSlug(title);
   const used = new Set(taken);
   if (!used.has(slug)) return slug;

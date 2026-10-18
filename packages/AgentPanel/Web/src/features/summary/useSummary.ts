@@ -2,10 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import type { SummaryResult } from "@agentdesk/agent-feed-wire";
-import type {
-  SessionAddress,
-  SidecarDataSource,
-} from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { SessionAddress, SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useSidecarConfig } from "@/query/sidecarConfig";
@@ -50,7 +47,6 @@ export function useSummary(
   // Held in a ref rather than state because closing it is not a render.
   const stream = useRef<(() => void) | null>(null);
 
-
   const close = useCallback(() => {
     stream.current?.();
     stream.current = null;
@@ -70,9 +66,8 @@ export function useSummary(
         switch (message.type) {
           case "thinking-delta":
             setState((current) =>
-              current.kind === "pending"
-                ? { ...current, thought: current.thought + message.text }
-                : current);
+              current.kind === "pending" ? { ...current, thought: current.thought + message.text } : current,
+            );
             return;
           case "reasoning":
             // The finished block replaces what its own deltas built rather than being appended
@@ -80,7 +75,8 @@ export function useSummary(
             setState((current) =>
               current.kind === "pending"
                 ? { kind: "pending", reasoning: [...current.reasoning, message.text], thought: "" }
-                : current);
+                : current,
+            );
             return;
           case "result":
             close();

@@ -3,7 +3,11 @@ import type { DirectoryEntry, MessageAddress, SessionAddress } from "@agentdesk/
 import { BOTS_SECTION, recipientGroups, runtimeOf, runtimesOf } from "@/features/messages/hubRuntime";
 
 /** A Bot entry: a label with no session of its own. */
-function bot(name: string, related: MessageAddress[] = [], id = name.toLowerCase().replace(/\s+/g, "-")): DirectoryEntry {
+function bot(
+  name: string,
+  related: MessageAddress[] = [],
+  id = name.toLowerCase().replace(/\s+/g, "-"),
+): DirectoryEntry {
   return {
     address: `bot:${id}`,
     session: null,
@@ -22,7 +26,14 @@ function bot(name: string, related: MessageAddress[] = [], id = name.toLowerCase
  * A Bot curating one session gives that session the Bot's own address, so `session` is the only
  * place the run is named, which is why a client holding a session id matches on it.
  */
-function session(over: { id: string; name: string; address: MessageAddress; bot: MessageAddress; cwd?: string; machine?: string }): DirectoryEntry {
+function session(over: {
+  id: string;
+  name: string;
+  address: MessageAddress;
+  bot: MessageAddress;
+  cwd?: string;
+  machine?: string;
+}): DirectoryEntry {
   return {
     address: over.address,
     session: over.id as SessionAddress,
@@ -49,7 +60,9 @@ describe("runtimeOf", () => {
 
 describe("runtimesOf", () => {
   test("a session is its own runtime", () => {
-    expect(runtimesOf([session({ id: "opencode:ses_1", name: "a", address: "bot:a", bot: "bot:a" })])).toEqual(["opencode"]);
+    expect(runtimesOf([session({ id: "opencode:ses_1", name: "a", address: "bot:a", bot: "bot:a" })])).toEqual([
+      "opencode",
+    ]);
   });
 
   test("a Bot holding both runtimes is both, because the answer is genuinely both", () => {

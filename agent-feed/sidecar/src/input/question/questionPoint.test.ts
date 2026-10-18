@@ -74,11 +74,7 @@ test("walks back up the rows as readily as down them", async () => {
   pane.cursor = 2;
   const { runtime, sent } = driving(pane);
 
-  await pointTmuxQuestion(
-    session(),
-    { questions: ["Which colour?"], at: 0, option: 0, label: "ALPHA" },
-    runtime,
-  );
+  await pointTmuxQuestion(session(), { questions: ["Which colour?"], at: 0, option: 0, label: "ALPHA" }, runtime);
 
   expect(pane.cursor).toBe(0);
   expect(sent).toEqual([UP, UP]);
@@ -107,11 +103,7 @@ test("ticks nothing on a multi-select question it points at", async () => {
   const pane = new QuestionPane([TOPPINGS]);
   const { runtime } = driving(pane);
 
-  await pointTmuxQuestion(
-    session(),
-    { questions: ["Which toppings?"], at: 0, option: 2, label: "FOXTROT" },
-    runtime,
-  );
+  await pointTmuxQuestion(session(), { questions: ["Which toppings?"], at: 0, option: 2, label: "FOXTROT" }, runtime);
 
   expect(pane.cursor).toBe(2);
   // The cursor is on FOXTROT and its box is still empty, which is the difference between looking

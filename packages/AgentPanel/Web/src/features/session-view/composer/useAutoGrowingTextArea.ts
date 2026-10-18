@@ -31,9 +31,7 @@ export function useAutoGrowingTextArea(value: string): (element: HTMLTextAreaEle
     const content = element.scrollHeight;
     // jsdom measures every box at zero. Writing that would collapse the field, so a degenerate
     // measurement hands the height back to the element's own `min-h`/`max-h` utilities.
-    element.style.height = content > 0
-      ? `${Math.min(content + border, Number.isNaN(cap) ? Infinity : cap)}px`
-      : "";
+    element.style.height = content > 0 ? `${Math.min(content + border, Number.isNaN(cap) ? Infinity : cap)}px` : "";
     element.scrollTop = scrolled;
   }, []);
 

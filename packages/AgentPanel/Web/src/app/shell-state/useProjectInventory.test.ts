@@ -9,7 +9,11 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { useProjectInventory } from "@/app/shell-state/useProjectInventory";
 
 const PROJECT = {
-  projectPath: "/repo/agent-desk", displayName: "agent-desk", sourceCounts: { claude: 1 }, sessionCount: 1, lastEventAt: 1,
+  projectPath: "/repo/agent-desk",
+  displayName: "agent-desk",
+  sourceCounts: { claude: 1 },
+  sessionCount: 1,
+  lastEventAt: 1,
 } as ProjectSummary;
 
 /** A feed whose newest inventory subscription the test drives by hand. */

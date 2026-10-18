@@ -40,7 +40,10 @@ export function SessionRenameDialog({
   const [title, setTitle] = useStateFor(opening, () =>
     session === null
       ? ""
-      : anchor ? taskFromText(session.title || session.sessionId, anchor) : (session.title || session.sessionId));
+      : anchor
+        ? taskFromText(session.title || session.sessionId, anchor)
+        : session.title || session.sessionId,
+  );
   const [pending, setPending] = useStateFor(opening, () => false);
   const [error, setError] = useStateFor<string | null>(opening, () => null);
 
@@ -93,7 +96,9 @@ export function SessionRenameDialog({
         onSubmit={submit}
         className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-card p-4 text-foreground shadow-2xl"
       >
-        <h2 id="session-rename-title" className="text-base font-semibold">Rename session</h2>
+        <h2 id="session-rename-title" className="text-base font-semibold">
+          Rename session
+        </h2>
         {anchor ? (
           <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-sm text-foreground">
             {anchor} <span className="text-muted-foreground">(what it is doing)</span>
@@ -117,19 +122,22 @@ export function SessionRenameDialog({
             label its serve holds, so nothing has to be running and no unsent text is at risk. */}
         {session.source === "opencode" ? (
           <p className="text-xs text-muted-foreground">
-            Renames it on this machine&apos;s opencode serve, so the new title shows here, in the
-            Bot&apos;s roster, and in opencode&apos;s own session list. The session keeps its id, so
-            nothing that addresses it by id moves, and a session that is not running renames the
-            same way.
+            Renames it on this machine&apos;s opencode serve, so the new title shows here, in the Bot&apos;s roster, and
+            in opencode&apos;s own session list. The session keeps its id, so nothing that addresses it by id moves, and
+            a session that is not running renames the same way.
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Runs <code>/rename</code> in the session, so it changes the name everywhere &mdash; here,
-            in <code>/resume</code>, and the one other agents message it by. The session has to be
-            running, with nothing unsent in its composer.
+            Runs <code>/rename</code> in the session, so it changes the name everywhere &mdash; here, in{" "}
+            <code>/resume</code>, and the one other agents message it by. The session has to be running, with nothing
+            unsent in its composer.
           </p>
         )}
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"

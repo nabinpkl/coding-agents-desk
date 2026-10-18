@@ -126,7 +126,6 @@ const HELD_EXTENSIONS = /\.(ts|tsx)$/;
 /** How often the machines' states are compared, since nothing pushes a change here. */
 const SUPERVISOR_POLL_MS = 2_000;
 
-
 /**
  * What is held and why.
  *

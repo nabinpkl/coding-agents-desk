@@ -20,7 +20,8 @@ beforeEach(resetProcessTableCache);
 
 // The harness's real wrapper, copied from `ps -o command=` on a live task shell rather than
 // imagined. Everything before `eval` is preamble the viewer must never be shown.
-const WRAPPER = "/bin/zsh -c source /Users/dev/.claude/shell-snapshots/snapshot-zsh-1786939825162-fgn1dk.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'sleep 30 > /dev/null 2>&1' < /dev/null && pwd -P >| /tmp/claude-9b7a-cwd";
+const WRAPPER =
+  "/bin/zsh -c source /Users/dev/.claude/shell-snapshots/snapshot-zsh-1786939825162-fgn1dk.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'sleep 30 > /dev/null 2>&1' < /dev/null && pwd -P >| /tmp/claude-9b7a-cwd";
 
 describe("unwrapShellCommand", () => {
   test("recovers the agent's command from the harness wrapper", () => {
@@ -108,7 +109,9 @@ describe("parseProcessTable", () => {
 
 describe("descendantsOf", () => {
   test("collects the whole tree, not just direct children", () => {
-    const pids = descendantsOf(parseProcessTable(TABLE), 7680).map((row) => row.pid).sort();
+    const pids = descendantsOf(parseProcessTable(TABLE), 7680)
+      .map((row) => row.pid)
+      .sort();
     expect(pids).toEqual([7717, 7718, 7719]);
   });
 
@@ -133,10 +136,12 @@ describe("busiestDescendant", () => {
 
   test("with no CPU burned anywhere, the most recent process wins", () => {
     // A pipeline of sleeps. Any of them is true; the newest is the one that just started.
-    const rows = parseProcessTable([
-      " 600   500 Mon Aug 17 01:02:03 2026       0:00.00 sleep 100",
-      " 601   500 Mon Aug 17 01:02:09 2026       0:00.00 sleep 200",
-    ].join("\n"));
+    const rows = parseProcessTable(
+      [
+        " 600   500 Mon Aug 17 01:02:03 2026       0:00.00 sleep 100",
+        " 601   500 Mon Aug 17 01:02:09 2026       0:00.00 sleep 200",
+      ].join("\n"),
+    );
     expect(busiestDescendant(rows, 500)?.pid).toBe(601);
   });
 
@@ -190,8 +195,7 @@ describe("matchShellsByCommand", () => {
     // Command alone is not identity across the machine: another session running the same watcher
     // would otherwise answer for this one.
     const table = rows([`900 999 Mon Aug 17 01:02:03 2026 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`]);
-    expect(matchShellsByCommand(table, 500, [{ key: "m1", command: WATCH, startedAt: null }]).size)
-      .toBe(0);
+    expect(matchShellsByCommand(table, 500, [{ key: "m1", command: WATCH, startedAt: null }]).size).toBe(0);
   });
 
   test("a shell is claimed once, and the closest start time wins it", () => {
@@ -209,8 +213,7 @@ describe("matchShellsByCommand", () => {
 
   test("no live shell running that command yields no entry, not a wrong one", () => {
     const table = rows([`900 500 Mon Aug 17 01:02:03 2026 0:00.01 /bin/zsh -c eval 'something else' < /dev/null`]);
-    expect(matchShellsByCommand(table, 500, [{ key: "m1", command: WATCH, startedAt: null }]).size)
-      .toBe(0);
+    expect(matchShellsByCommand(table, 500, [{ key: "m1", command: WATCH, startedAt: null }]).size).toBe(0);
   });
 });
 
@@ -236,7 +239,9 @@ describe("currentProcessTable", () => {
     // own `ps` before the first had returned, which is the cost this exists to remove.
     let forks = 0;
     let release = (): void => {};
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const run: CommandRunner = async () => {
       forks += 1;
       await gate;

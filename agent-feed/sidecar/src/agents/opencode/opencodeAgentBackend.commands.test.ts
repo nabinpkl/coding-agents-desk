@@ -9,7 +9,12 @@ import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 import { LOCAL_OPENCODE_COMMANDS } from "@/agents/opencode/serve/opencodeServeCalls";
 
 interface Recorded {
-  prompts: Array<{ sessionID: string; text: string; delivery: string; files?: Array<{ uri: string; mime: string; name: string }> }>;
+  prompts: Array<{
+    sessionID: string;
+    text: string;
+    delivery: string;
+    files?: Array<{ uri: string; mime: string; name: string }>;
+  }>;
   ran: Array<{ sessionID: string; name: string; text: string }>;
   switched: Array<{ sessionID: string; model: unknown }>;
   localOps: string[];
@@ -48,13 +53,14 @@ function fakeServe(recorded: Recorded, session = sessionInfo()) {
       },
     },
     event: {
-      subscribe: (options?: { signal?: AbortSignal }) => (async function* () {
-        // Open until aborted: nothing here pushes an event, so the stream only has to be there.
-        const next = await new Promise<unknown>((_resolve, reject) => {
-          options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-        });
-        yield next;
-      })(),
+      subscribe: (options?: { signal?: AbortSignal }) =>
+        (async function* () {
+          // Open until aborted: nothing here pushes an event, so the stream only has to be there.
+          const next = await new Promise<unknown>((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          });
+          yield next;
+        })(),
     },
   };
 }
@@ -80,10 +86,18 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
       return Response.json({ data: [{ name: "review", description: "review changes" }, { name: "lonely" }] });
     }
     if (parsed.pathname === "/api/model") {
-      return Response.json({ data: [
-        { providerID: "opencode-go", modelID: "muse-spark", name: "Muse Spark", limit: { context: 1000 }, cost: [{ input: 1, output: 2 }] },
-        { providerID: "opencode", modelID: "plain", name: "", limit: {}, cost: [] },
-      ] });
+      return Response.json({
+        data: [
+          {
+            providerID: "opencode-go",
+            modelID: "muse-spark",
+            name: "Muse Spark",
+            limit: { context: 1000 },
+            cost: [{ input: 1, output: 2 }],
+          },
+          { providerID: "opencode", modelID: "plain", name: "", limit: {}, cost: [] },
+        ],
+      });
     }
     if (parsed.pathname.endsWith("/model")) {
       const body = JSON.parse(String(init?.body)) as { model?: { providerID?: string; id?: string } };
@@ -99,8 +113,14 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
       });
       return Response.json({ data: {} });
     }
-    if (parsed.pathname.endsWith("/compact") || parsed.pathname.endsWith("/revert/stage") || parsed.pathname.endsWith("/revert/commit")) {
-      recorded.localOps.push(`${init?.method ?? "POST"} ${parsed.pathname.split("/").slice(-2).join("/")} ${String(init?.body)}`);
+    if (
+      parsed.pathname.endsWith("/compact") ||
+      parsed.pathname.endsWith("/revert/stage") ||
+      parsed.pathname.endsWith("/revert/commit")
+    ) {
+      recorded.localOps.push(
+        `${init?.method ?? "POST"} ${parsed.pathname.split("/").slice(-2).join("/")} ${String(init?.body)}`,
+      );
       return Response.json({ data: {} });
     }
     if (parsed.pathname.endsWith("/revert") && init?.method === "DELETE") {
@@ -116,7 +136,11 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
       return new Response(null, { status: 204 });
     }
     if (parsed.pathname.endsWith("/prompt")) {
-      const body = JSON.parse(String(init?.body)) as { text?: string; delivery?: string; files?: Array<{ uri: string; mime: string; name: string }> };
+      const body = JSON.parse(String(init?.body)) as {
+        text?: string;
+        delivery?: string;
+        files?: Array<{ uri: string; mime: string; name: string }>;
+      };
       recorded.prompts.push({
         sessionID: parsed.pathname.split("/").at(-2) ?? "",
         text: body.text ?? "",
@@ -150,16 +174,24 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
 }
 
 function fixture() {
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
+  const recorded: Recorded = {
+    prompts: [],
+    ran: [],
+    switched: [],
+    localOps: [],
+    interrupts: [],
+    permissionReplies: [],
+  };
   installFetch(recorded, [userItem("msg-u", "hello")]);
   const registered: string[] = [];
   const backend = new OpencodeAgentBackend({
-    resolveSession: (sessionId) =>
-      sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    resolveSession: (sessionId) => (sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined),
     // What a command made rather than drove, in the order it was made: a fork registers the same
     // way a create does, and a test that cannot see it is a test that cannot tell the two apart.
     onSessionCreated: (location) => registered.push(`${location.sessionId}@${location.projectPath}`),
-    onCatalogChanged: () => { recorded.localOps.push("catalog re-read"); },
+    onCatalogChanged: () => {
+      recorded.localOps.push("catalog re-read");
+    },
     client: () => fakeServe(recorded) as unknown as OpencodeClient,
     now: () => 1000,
   });
@@ -184,10 +216,10 @@ test("local ops compact, undo, redo and rename through their native endpoints", 
   await backend.runLocalCommand("s1", "r-redo", "redo", "");
   await backend.runLocalCommand("s1", "r-rename", "rename", "New title");
   expect(recorded.localOps).toEqual([
-    'POST s1/compact {}',
+    "POST s1/compact {}",
     expect.stringContaining('"messageID":"msg-u"'),
-    'POST revert/commit {}',
-    'DELETE revert',
+    "POST revert/commit {}",
+    "DELETE revert",
     'PATCH session {"title":"New title"}',
     "catalog re-read", // the serve announces nothing for a title change, so the rename tells the catalog
   ]);
@@ -197,7 +229,7 @@ test("local ops compact, undo, redo and rename through their native endpoints", 
 test("fork answers with the session it made, registered so the panel can open it", async () => {
   const { backend, recorded, registered } = fixture();
   const receipt = await backend.runCommand("s1", "r-fork", "fork", "");
-  expect(recorded.localOps).toEqual(['POST fork {}']);
+  expect(recorded.localOps).toEqual(["POST fork {}"]);
   // The descriptor is assembled here rather than taken whole from the serve, so the panel has
   // something it can open: the fork's own id, the project it belongs to, and this backend's
   // capabilities.
@@ -205,8 +237,13 @@ test("fork answers with the session it made, registered so the panel can open it
     requestId: "r-fork",
     delivery: "immediate",
     session: {
-      sessionId: "s-fork", source: "opencode", projectPath: "/repo", title: "Forked",
-      lastEventAt: 1000, activity: "ready", capabilities: backend.capabilities,
+      sessionId: "s-fork",
+      source: "opencode",
+      projectPath: "/repo",
+      title: "Forked",
+      lastEventAt: 1000,
+      activity: "ready",
+      capabilities: backend.capabilities,
     },
   });
   // Registered with the pool, or the panel would never see the session it was just told about.
@@ -222,7 +259,9 @@ test("runCommand sorts local names natively and lists them with server commands"
   // The serve's own commands first, then the mirrored web set: the picker shows one list, and the
   // seam between the two is what this route has to keep.
   await expect(backend.listCommands().then((list) => list.map((command) => command.name))).resolves.toEqual([
-    "review", "lonely", ...LOCAL_OPENCODE_COMMANDS.map((command) => command.name),
+    "review",
+    "lonely",
+    ...LOCAL_OPENCODE_COMMANDS.map((command) => command.name),
   ]);
   await backend.dispose();
 });
@@ -238,13 +277,18 @@ test("local ops refuse an unknown name and an empty undo or rename", async () =>
 test("models list with limits and switch natively", async () => {
   const { backend, recorded } = fixture();
   await expect(backend.listModels()).resolves.toEqual([
-    { providerID: "opencode-go", modelID: "muse-spark", name: "Muse Spark", contextLimit: 1000, inputCost: 1, outputCost: 2 },
+    {
+      providerID: "opencode-go",
+      modelID: "muse-spark",
+      name: "Muse Spark",
+      contextLimit: 1000,
+      inputCost: 1,
+      outputCost: 2,
+    },
     { providerID: "opencode", modelID: "plain", name: "plain", contextLimit: null, inputCost: null, outputCost: null },
   ]);
   const receipt = await backend.switchModel("s1", "r-m", "opencode-go", "muse-spark");
   expect(receipt).toEqual({ requestId: "r-m", delivery: "immediate" });
-  expect(recorded.switched).toEqual([
-    { sessionID: "s1", model: { providerID: "opencode-go", id: "muse-spark" } },
-  ]);
+  expect(recorded.switched).toEqual([{ sessionID: "s1", model: { providerID: "opencode-go", id: "muse-spark" } }]);
   await backend.dispose();
 });

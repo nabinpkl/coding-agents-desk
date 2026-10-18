@@ -15,13 +15,9 @@ const assistant = (output: number, read: number) => ({
 
 describe("currentWindowTokens", () => {
   it("reads the newest assistant message with tokens, not the session totals", () => {
-    expect(
-      currentWindowTokens([
-        assistant(50, 1000),
-        { type: "user" },
-        assistant(216, 610929),
-      ]),
-    ).toBe(100 + 216 + 610929);
+    expect(currentWindowTokens([assistant(50, 1000), { type: "user" }, assistant(216, 610929)])).toBe(
+      100 + 216 + 610929,
+    );
   });
 
   it("counts a running turn the TUI already shows, instead of holding the last finished one", () => {
@@ -56,9 +52,7 @@ describe("lastCompletedCompactionIndex", () => {
   });
 
   it("blanks the gap: completed compaction with no tokens reported after it", () => {
-    expect(
-      currentWindowTokens([assistant(216, 610929), { type: "user" }, completed]),
-    ).toBeNull();
+    expect(currentWindowTokens([assistant(216, 610929), { type: "user" }, completed])).toBeNull();
   });
 
   it("a running or failed compaction moves no boundary", () => {
@@ -71,12 +65,7 @@ describe("lastCompletedCompactionIndex", () => {
   });
 
   it("the newest completed compaction wins", () => {
-    const messages = [
-      assistant(10, 10),
-      completed,
-      assistant(20, 20),
-      { type: "compaction", status: "completed" },
-    ];
+    const messages = [assistant(10, 10), completed, assistant(20, 20), { type: "compaction", status: "completed" }];
     expect(lastCompletedCompactionIndex(messages)).toBe(3);
     expect(currentWindowTokens(messages)).toBeNull();
   });
@@ -88,7 +77,15 @@ describe("the mirrored web set", () => {
     // restated here. `/models` is the one the panel added, as an alias rather than a second
     // command, so the row is the web client's `model` either way it is typed.
     expect(LOCAL_OPENCODE_COMMANDS.map((command) => command.name)).toEqual([
-      "model", "new", "undo", "redo", "compact", "fork", "export", "btw", "rename",
+      "model",
+      "new",
+      "undo",
+      "redo",
+      "compact",
+      "fork",
+      "export",
+      "btw",
+      "rename",
     ]);
     expect(LOCAL_OPENCODE_COMMANDS.find((command) => command.name === "model")?.aliases).toEqual(["models"]);
     // Every row says what it does. A row with no description is a name a reader has to guess at.

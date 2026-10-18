@@ -10,11 +10,7 @@
 // informative of them and left a summarizer that had read a megabyte of tool output and could
 // not say what the turn was about.
 
-import type {
-  SummaryFileChange,
-  SummaryPhase,
-  SummaryResult,
-} from "@agentdesk/agent-feed-wire";
+import type { SummaryFileChange, SummaryPhase, SummaryResult } from "@agentdesk/agent-feed-wire";
 import type { ActivityBlock, ActivityEvent } from "@/transcripts/transcriptTypes";
 import { describeToolCall } from "@/summary/toolCalls";
 
@@ -57,11 +53,12 @@ export interface SummaryPromptInput {
 export function buildSummaryPrompt(input: SummaryPromptInput): string {
   const transcript = input.events.map(renderEvent).join("\n\n");
   const running = input.phase === "running";
-  const files = input.filesTouched.length > 0
-    ? input.filesTouched
-        .map((file) => `${file.action}\t${file.path}\t+${file.added}/-${file.removed}\t${file.edits} call(s)`)
-        .join("\n")
-    : "(this turn wrote no files)";
+  const files =
+    input.filesTouched.length > 0
+      ? input.filesTouched
+          .map((file) => `${file.action}\t${file.path}\t+${file.added}/-${file.removed}\t${file.edits} call(s)`)
+          .join("\n")
+      : "(this turn wrote no files)";
   return `You are summarizing ONE turn of another coding agent's session, for a person who
 stepped away and wants to know what happened while they were gone.
 
@@ -141,7 +138,10 @@ function clip(text: string, limit: number): string {
 }
 
 function indent(text: string): string {
-  return text.split("\n").map((line) => `    ${line}`).join("\n");
+  return text
+    .split("\n")
+    .map((line) => `    ${line}`)
+    .join("\n");
 }
 
 /** The three fields the model is asked for. Everything else on `SummaryResult` is ours. */

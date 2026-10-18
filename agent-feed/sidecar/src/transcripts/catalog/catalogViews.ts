@@ -9,10 +9,7 @@ import { projectArchivedAt, sessionArchivedAt } from "@/transcripts/session-ops/
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import { basename } from "node:path";
-import type {
-  AgentSessionCapabilities,
-  AgentSessionDescriptor,
-} from "@/agents/agentBackend";
+import type { AgentSessionCapabilities, AgentSessionDescriptor } from "@/agents/agentBackend";
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
 import { OPENCODE_AGENT_CAPABILITIES } from "@/agents/opencode/opencodeAgentBackend";
 import { state } from "@/transcripts/transcriptState";
@@ -61,20 +58,18 @@ export function projectSummaries(sessions?: Session[]): ProjectSummary[] {
  */
 const VIEW_DERIVATION_BUDGET_MS = 50;
 
-function reportSlowDerivation(
-  event: string,
-  startedAt: number,
-  detail: Record<string, unknown>,
-): void {
+function reportSlowDerivation(event: string, startedAt: number, detail: Record<string, unknown>): void {
   const durationMs = performance.now() - startedAt;
   if (durationMs < VIEW_DERIVATION_BUDGET_MS) return;
-  console.warn(JSON.stringify({
-    event,
-    durationMs: Math.round(durationMs * 100) / 100,
-    budgetMs: VIEW_DERIVATION_BUDGET_MS,
-    subscribers: state.subscribers.size,
-    ...detail,
-  }));
+  console.warn(
+    JSON.stringify({
+      event,
+      durationMs: Math.round(durationMs * 100) / 100,
+      budgetMs: VIEW_DERIVATION_BUDGET_MS,
+      subscribers: state.subscribers.size,
+      ...detail,
+    }),
+  );
 }
 
 function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
@@ -104,8 +99,8 @@ function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
     const archivedAt = projectArchivedAt(project.projectPath);
     if (archivedAt !== undefined && !showing.has(project.projectPath)) project.archivedAt = archivedAt;
   }
-  const projects = [...grouped.values()].sort((left, right) =>
-    right.lastEventAt - left.lastEventAt || left.projectPath.localeCompare(right.projectPath)
+  const projects = [...grouped.values()].sort(
+    (left, right) => right.lastEventAt - left.lastEventAt || left.projectPath.localeCompare(right.projectPath),
   );
   reportSlowDerivation("agent-feed-project-snapshot-slow", startedAt, {
     projects: projects.length,
@@ -177,15 +172,10 @@ export function summarizeSession(
     // Trimmed here and not only where the record was built, because not every record
     // is built here: a Pi session registered by its backend arrives with whatever
     // title that backend chose, and a row is not the place to find that out.
-    title: compactTitle(session.title) ?? compactTitle(session.firstPrompt) ??
-      session.sessionId,
+    title: compactTitle(session.title) ?? compactTitle(session.firstPrompt) ?? session.sessionId,
     lastEventAt,
     activity: summaryActivity(session, live),
-    capabilities: sessionCapabilities(
-      session.source,
-      session.sessionId,
-      resolveAgentSession,
-    ),
+    capabilities: sessionCapabilities(session.source, session.sessionId, resolveAgentSession),
     ...(archivedAt === undefined ? {} : { archivedAt }),
     ...(automation === undefined ? {} : { automation }),
     ...(session.taskState === undefined ? {} : { taskState: session.taskState }),
@@ -193,10 +183,7 @@ export function summarizeSession(
 }
 
 /** Which bin a row lands in, given what the catalog knows and who is answering for it. */
-export function summaryActivity(
-  session: Session,
-  live: AgentSessionDescriptor | undefined,
-): Bin {
+export function summaryActivity(session: Session, live: AgentSessionDescriptor | undefined): Bin {
   // Pi and opencode take their backend's word outright, including a non-live
   // answer: the backend is the session's owner, not an observer of it.
   if (session.source === "pi" || session.source === "opencode") {
@@ -227,10 +214,11 @@ export function sessionSummaries(
   const summaries = (snapshot ?? getSnapshot())
     .filter((session) => session.project === projectPath)
     .map((session) => summarizeSession(session, resolveAgentSession));
-  summaries.sort((left, right) =>
-    right.lastEventAt - left.lastEventAt ||
-    left.source.localeCompare(right.source) ||
-    left.sessionId.localeCompare(right.sessionId)
+  summaries.sort(
+    (left, right) =>
+      right.lastEventAt - left.lastEventAt ||
+      left.source.localeCompare(right.source) ||
+      left.sessionId.localeCompare(right.sessionId),
   );
   reportSlowDerivation("agent-feed-session-snapshot-slow", startedAt, {
     projectPath,

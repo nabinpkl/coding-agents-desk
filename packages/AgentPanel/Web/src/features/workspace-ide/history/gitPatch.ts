@@ -143,11 +143,13 @@ export function patchSides(lines: readonly PatchLine[]): PatchSides {
  */
 function headerOnly(lines: readonly string[]): PatchLine[] {
   return lines
-    .filter((line) =>
-      line !== ""
-      && !line.startsWith("diff --git")
-      && !line.startsWith("index ")
-      && !line.startsWith("--- ")
-      && !line.startsWith("+++ "))
+    .filter(
+      (line) =>
+        line !== "" &&
+        !line.startsWith("diff --git") &&
+        !line.startsWith("index ") &&
+        !line.startsWith("--- ") &&
+        !line.startsWith("+++ "),
+    )
     .map((line) => ({ kind: "meta" as const, text: line, oldNumber: null, newNumber: null }));
 }

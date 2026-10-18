@@ -48,7 +48,9 @@ function fakeChild(options: { code?: number; stderr?: string; hang?: boolean } =
   let killed = false;
   let release: (code: number) => void = () => {};
   const exited = options.hang
-    ? new Promise<number>((resolve) => { release = resolve; })
+    ? new Promise<number>((resolve) => {
+        release = resolve;
+      })
     : Promise.resolve(options.code ?? 0);
   const child: SpawnedClaude = {
     exited,
@@ -72,7 +74,14 @@ const basePlan = {
 describe("claudeContestantArgv", () => {
   test("print mode and the chosen session, with no prompt in argv and nothing confining it", () => {
     expect(claudeContestantArgv({ binary: "/bin/claude", sessionId: SESSION, model: "haiku", effort: "low" })).toEqual([
-      "/bin/claude", "--print", "--session-id", SESSION, "--model", "haiku", "--effort", "low",
+      "/bin/claude",
+      "--print",
+      "--session-id",
+      SESSION,
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
     ]);
   });
 
@@ -129,7 +138,7 @@ describe("runClaudeContestant", () => {
         { ...basePlan, onSessionId: () => {} },
         {
           binary: "/bin/claude",
-        newSessionId: () => SESSION,
+          newSessionId: () => SESSION,
           spawn: async () => fakeChild({ code: 1, stderr: "Not logged in" }).child,
           readTranscript: async () => TRANSCRIPT,
         },
@@ -161,7 +170,7 @@ describe("runClaudeContestant", () => {
         { ...basePlan, turnTimeoutMs: 20, onSessionId: () => {} },
         {
           binary: "/bin/claude",
-        newSessionId: () => SESSION,
+          newSessionId: () => SESSION,
           spawn: async () => fake.child,
           readTranscript: async () => TRANSCRIPT,
         },

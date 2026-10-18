@@ -95,13 +95,11 @@ export function SessionComposerBand({
   usage: TokenUsage | null;
 }) {
   // An opencode session whose model comes from the Go plan (`opencode-go/<model>`).
-  const onOpencodeGo = session.source === "opencode"
-    && (model.sessionModel ?? usage?.model ?? "").startsWith("opencode-go/");
+  const onOpencodeGo =
+    session.source === "opencode" && (model.sessionModel ?? usage?.model ?? "").startsWith("opencode-go/");
   // Split off the call id, which is the mirror's key rather than one of its props: the surface
   // pages between the call's questions, and a new call starts at its own first one.
-  const question = questionMirror
-    ? { callId: questionMirror.callId, mirror: withoutCallId(questionMirror) }
-    : null;
+  const question = questionMirror ? { callId: questionMirror.callId, mirror: withoutCallId(questionMirror) } : null;
   const fieldActions = actions.filter((action) => action.placement === "field");
   const footerActions = actions.filter((action) => action.placement === "footer");
   const rowActions = actions.filter((action) => action.placement === undefined);
@@ -169,10 +167,7 @@ export function SessionComposerBand({
           behind the thumb reaching for it. Open only while the pane's own menu is, which is only
           while somebody is part-way through a command. */}
       {editor.commands && editor.commands.shown.length > 0 ? (
-        <ComposerCommandList
-          commands={editor.commands.shown}
-          onChoose={editor.commands.onChoose}
-        />
+        <ComposerCommandList commands={editor.commands.shown} onChoose={editor.commands.onChoose} />
       ) : null}
       <div className="flex items-end gap-1.5">
         <div
@@ -186,11 +181,7 @@ export function SessionComposerBand({
           }`}
         >
           {editor.images && editor.onRemoveImage ? (
-            <ComposerImageStrip
-              images={editor.images}
-              onRemove={editor.onRemoveImage}
-              disabled={editor.disabled}
-            />
+            <ComposerImageStrip images={editor.images} onRemove={editor.onRemoveImage} disabled={editor.disabled} />
           ) : null}
           {editor.pastes && editor.onPreviewPaste && editor.onExpandPaste && editor.onRemovePaste ? (
             <ComposerPasteStrip
@@ -202,73 +193,70 @@ export function SessionComposerBand({
             />
           ) : null}
           <div className="flex items-end">
-          <textarea
-          ref={autoGrow}
-          value={editor.value}
-          onChange={(event) => editor.onChange(event.target.value)}
-          onFocus={() => {
-            setComposerFocused(true);
-            editor.onFocus?.();
-          }}
-          onBlur={() => {
-            setComposerFocused(false);
-            editor.onBlur?.();
-          }}
-          // A pasted image is the same arrival as a dropped one, and on a phone it is the only
-          // one: there is no drag there. Text pastes fall through untouched, because a clipboard
-          // carrying files is a different clipboard from one carrying words.
-          {...(editor.onFiles === undefined ? {} : {
-            onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => {
-              const files = [...event.clipboardData.files];
-              if (files.length === 0) return;
-              event.preventDefault();
-              editor.onFiles?.(files);
-            },
-          })}
-          onKeyDown={(event) => {
-            // Tab takes the offer rather than leaving the field, but only while there IS one:
-            // with no suggestion to accept it stays the key that moves focus.
-            if (editor.onAcceptHint && event.key === "Tab" && !event.shiftKey) {
-              event.preventDefault();
-              editor.onAcceptHint();
-              return;
-            }
-            if (
-              editor.sendOnEnter &&
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.nativeEvent.isComposing
-            ) {
-              // A panel-owned command list eats Return first: without this the half-typed name
-              // sends as text. The pane's own menu is untouched -- it never sets chooseOnEnter,
-              // because the pane eats Return itself.
-              //
-              // One job, and the list decides which by being open or not. While it is open the
-              // reader is choosing a name, so Return takes the highlighted row; the opencode
-              // list closes on the first space (the web client's own rule), so a draft that
-              // already carries arguments has no list and Return submits -- the same thing the
-              // Send button does. `/compact` plus Enter runs it, `/comp` plus Enter completes.
-              if (editor.commands?.chooseOnEnter && editor.commands.shown.length > 0) {
-                event.preventDefault();
-                const selected = editor.commands.shown.find((command) => command.selected)
-                  ?? editor.commands.shown[0];
-                if (selected) editor.commands.onChoose(selected.name);
-                return;
-              }
-              event.preventDefault();
-              void submitComposer(model, "next");
-            }
-          }}
-          maxLength={editor.maxLength}
-          rows={1}
-          placeholder={editor.placeholder}
-          aria-label={editor.ariaLabel}
-          disabled={editor.disabled}
-          className={`max-h-48 min-h-12 min-w-0 flex-1 resize-none bg-transparent py-3 pl-4 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 outline-none ${
-            fieldActions.length > 0 ? "pr-2" : "pr-4"
-          }`}
-        />
-          {fieldActions.map(actionButton)}
+            <textarea
+              ref={autoGrow}
+              value={editor.value}
+              onChange={(event) => editor.onChange(event.target.value)}
+              onFocus={() => {
+                setComposerFocused(true);
+                editor.onFocus?.();
+              }}
+              onBlur={() => {
+                setComposerFocused(false);
+                editor.onBlur?.();
+              }}
+              // A pasted image is the same arrival as a dropped one, and on a phone it is the only
+              // one: there is no drag there. Text pastes fall through untouched, because a clipboard
+              // carrying files is a different clipboard from one carrying words.
+              {...(editor.onFiles === undefined
+                ? {}
+                : {
+                    onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => {
+                      const files = [...event.clipboardData.files];
+                      if (files.length === 0) return;
+                      event.preventDefault();
+                      editor.onFiles?.(files);
+                    },
+                  })}
+              onKeyDown={(event) => {
+                // Tab takes the offer rather than leaving the field, but only while there IS one:
+                // with no suggestion to accept it stays the key that moves focus.
+                if (editor.onAcceptHint && event.key === "Tab" && !event.shiftKey) {
+                  event.preventDefault();
+                  editor.onAcceptHint();
+                  return;
+                }
+                if (editor.sendOnEnter && event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  // A panel-owned command list eats Return first: without this the half-typed name
+                  // sends as text. The pane's own menu is untouched -- it never sets chooseOnEnter,
+                  // because the pane eats Return itself.
+                  //
+                  // One job, and the list decides which by being open or not. While it is open the
+                  // reader is choosing a name, so Return takes the highlighted row; the opencode
+                  // list closes on the first space (the web client's own rule), so a draft that
+                  // already carries arguments has no list and Return submits -- the same thing the
+                  // Send button does. `/compact` plus Enter runs it, `/comp` plus Enter completes.
+                  if (editor.commands?.chooseOnEnter && editor.commands.shown.length > 0) {
+                    event.preventDefault();
+                    const selected =
+                      editor.commands.shown.find((command) => command.selected) ?? editor.commands.shown[0];
+                    if (selected) editor.commands.onChoose(selected.name);
+                    return;
+                  }
+                  event.preventDefault();
+                  void submitComposer(model, "next");
+                }
+              }}
+              maxLength={editor.maxLength}
+              rows={1}
+              placeholder={editor.placeholder}
+              aria-label={editor.ariaLabel}
+              disabled={editor.disabled}
+              className={`max-h-48 min-h-12 min-w-0 flex-1 resize-none bg-transparent py-3 pl-4 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 outline-none ${
+                fieldActions.length > 0 ? "pr-2" : "pr-4"
+              }`}
+            />
+            {fieldActions.map(actionButton)}
           </div>
         </div>
         {/* Every one of these acts on the draft, so they go where the draft goes. */}
@@ -323,11 +311,7 @@ export function SessionComposerBand({
               opened over the composer, and a reader who typed `/btw` should not find a dialog
               from an earlier command still in the way. */}
           {surfaces.aside ? (
-            <OpencodeAsideDialog
-              aside={surfaces.aside}
-              onAsk={surfaces.onAskAside}
-              onClose={surfaces.onCloseAside}
-            />
+            <OpencodeAsideDialog aside={surfaces.aside} onAsk={surfaces.onAskAside} onClose={surfaces.onCloseAside} />
           ) : null}
           {/* The query container the mode chip sizes itself by. Around the controls only, not the
               footer: a container contains layout, and the menus above are positioned in the footer. */}
@@ -342,14 +326,14 @@ export function SessionComposerBand({
                 onClick={terminalComposer.toggle}
                 aria-pressed={terminalComposer.shown}
                 aria-label={terminalComposer.shown ? "Hide the terminal" : "Show the terminal"}
-                title={terminalComposer.shown
-                  ? "Hide this session's screen and keep only the composer."
-                  : "Show this session's screen above the composer, so text typed here can be watched"
-                    + " arriving in the agent's own composer line."}
-                className={`${COMPOSER_FOOTER_BUTTON_CLASS} ${
+                title={
                   terminalComposer.shown
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "Hide this session's screen and keep only the composer."
+                    : "Show this session's screen above the composer, so text typed here can be watched" +
+                      " arriving in the agent's own composer line."
+                }
+                className={`${COMPOSER_FOOTER_BUTTON_CLASS} ${
+                  terminalComposer.shown ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {/* The thing it opens: a terminal. The pressed state is what says whether it is open. */}

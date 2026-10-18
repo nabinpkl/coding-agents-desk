@@ -77,7 +77,9 @@ const MODS_ROOT = fileURLToPath(new URL("../../mods/", import.meta.url));
 export const claudeLaunchModArgs = claudeModArgs(MODS_ROOT, booleanEnvironment("AGENT_FEED_CLAUDE_MODS", true));
 
 /** The same mods as directories, for the SDK runner's `plugins` option. */
-export const claudeLaunchModDirectories: readonly string[] = claudeLaunchModArgs.filter((arg) => arg !== "--plugin-dir");
+export const claudeLaunchModDirectories: readonly string[] = claudeLaunchModArgs.filter(
+  (arg) => arg !== "--plugin-dir",
+);
 
 /** Everything a launched Claude session's command line carries from this sidecar. */
 export const claudeLaunchArgs: readonly string[] = [...claudeLaunchPermissionArgs, ...claudeLaunchModArgs];

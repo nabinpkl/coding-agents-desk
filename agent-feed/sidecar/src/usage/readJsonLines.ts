@@ -15,10 +15,7 @@ const decoder = new TextDecoder();
  * and an async boundary there costs a promise per line for work that is a string test and an
  * occasional `JSON.parse`.
  */
-export async function readJsonLines(
-  path: string,
-  onLine: (line: string) => void,
-): Promise<void> {
+export async function readJsonLines(path: string, onLine: (line: string) => void): Promise<void> {
   const stream = Bun.file(path).stream();
   let carry = "";
   for await (const chunk of stream) {

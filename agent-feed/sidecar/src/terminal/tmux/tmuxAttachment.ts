@@ -34,9 +34,7 @@ import { adoptPaneSize, refreshPaneSize, type SharedPane } from "@/terminal/tmux
 /** Everything this needs from tmux, injected so the logic can be tested without a tmux server. */
 export interface TmuxPaneRuntime {
   /** The pane's pid, geometry and mouse mode, for the descriptor the panel renders. */
-  describe(
-    session: string,
-  ): Promise<{ pid: number; columns: number; rows: number; mouseReporting: boolean }>;
+  describe(session: string): Promise<{ pid: number; columns: number; rows: number; mouseReporting: boolean }>;
   /** The scrollback and the screen, composed for a terminal to write directly. */
   capture(session: string, lines: number): Promise<string>;
   /**
@@ -194,7 +192,8 @@ export class TmuxSessionConnection {
     this.pane.revision += 1;
     const revision = String(this.pane.revision);
     const checkpointId = revision;
-    void this.runtime.capture(this.pane.session, CHECKPOINT_LINES)
+    void this.runtime
+      .capture(this.pane.session, CHECKPOINT_LINES)
       .then((payload) => {
         if (this.closed) return;
         const data = base64FromString(payload);
@@ -252,11 +251,9 @@ export class TmuxSessionConnection {
 
   private write(bytes: Uint8Array): void {
     if (this.closed || bytes.length === 0) return;
-    void this.runtime.send(this.pane.session, bytes)
-      .catch((error: unknown) => this.fail(asError(error)));
+    void this.runtime.send(this.pane.session, bytes).catch((error: unknown) => this.fail(asError(error)));
   }
 }
-
 
 /**
  * One shared pipe per tmux session, handed to as many viewers as ask for it.
@@ -292,10 +289,7 @@ export class TmuxAttachments {
    * is what resizes the pane, so the sizing lives in one place instead of two that can disagree --
    * and joining first means a pane that refuses to resize still opens and still shows its screen.
    */
-  async open(
-    session: string,
-    _dimensions: { columns: number; rows: number },
-  ): Promise<TmuxSessionConnection> {
+  async open(session: string, _dimensions: { columns: number; rows: number }): Promise<TmuxSessionConnection> {
     // Behind any teardown for this pane, so the new pipe is set after the old one is cleared
     // rather than racing it.
     const closing = this.closing.get(session);
@@ -309,7 +303,8 @@ export class TmuxAttachments {
       const geometry = await this.runtime.describe(session).catch(() => null);
       if (geometry && geometry.pid === existing.pid) {
         const connection = new TmuxSessionConnection(existing, this.runtime, (leaving) =>
-          this.releaseViewer(existing, leaving));
+          this.releaseViewer(existing, leaving),
+        );
         existing.viewers.add(connection);
         return connection;
       }
@@ -345,7 +340,8 @@ export class TmuxAttachments {
     const seeded: SharedPane = { ...pane, stop };
     this.panes.set(session, seeded);
     const connection = new TmuxSessionConnection(seeded, this.runtime, (leaving) =>
-      this.releaseViewer(seeded, leaving));
+      this.releaseViewer(seeded, leaving),
+    );
     seeded.viewers.add(connection);
     return connection;
   }

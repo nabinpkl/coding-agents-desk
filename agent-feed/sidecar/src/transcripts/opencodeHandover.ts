@@ -56,7 +56,7 @@ export async function renderOpencodeHandover(
   sessionId: string,
   readHistory: typeof readOpencodeHistory = readOpencodeHistory,
 ): Promise<RenderedHandover> {
-  const messages = [...await readHistory(sessionId)].sort((a, b) => messageTime(a) - messageTime(b));
+  const messages = [...(await readHistory(sessionId))].sort((a, b) => messageTime(a) - messageTime(b));
   const projection = new LiveAgentProjection();
   new OpencodeEventMapper(projection).sync(messages);
   const events = projection.page(0, projection.total);

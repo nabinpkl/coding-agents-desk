@@ -10,14 +10,20 @@ export class DesktopControlOwnership<Owner> {
   private currentOwner: Owner | null = null;
   private currentEpoch = 0;
 
-  get owner(): Owner | null { return this.currentOwner; }
-  get epoch(): number { return this.currentEpoch; }
+  get owner(): Owner | null {
+    return this.currentOwner;
+  }
+  get epoch(): number {
+    return this.currentEpoch;
+  }
 
   acquire(owner: Owner): DesktopControlOwnershipChange<Owner> {
     if (this.currentOwner === owner) {
       return {
-        changed: false, epoch: this.currentEpoch,
-        previous: owner, current: owner,
+        changed: false,
+        epoch: this.currentEpoch,
+        previous: owner,
+        current: owner,
       };
     }
     const previous = this.currentOwner;
@@ -29,8 +35,10 @@ export class DesktopControlOwnership<Owner> {
   release(owner: Owner): DesktopControlOwnershipChange<Owner> {
     if (this.currentOwner !== owner) {
       return {
-        changed: false, epoch: this.currentEpoch,
-        previous: this.currentOwner, current: this.currentOwner,
+        changed: false,
+        epoch: this.currentEpoch,
+        previous: this.currentOwner,
+        current: this.currentOwner,
       };
     }
     this.currentOwner = null;

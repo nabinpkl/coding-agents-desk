@@ -27,10 +27,9 @@ describe("useMachineInventory", () => {
   it("moves its stream to a data source swapped in under the same machine id", () => {
     const first = countingFeed();
     const second = countingFeed();
-    const { rerender } = renderHook(
-      ({ machine }: { machine: BotMachine }) => useMachineInventory(machine, ["/repo"]),
-      { initialProps: { machine: { id: "peer", label: "Peer", feed: first.feed } } },
-    );
+    const { rerender } = renderHook(({ machine }: { machine: BotMachine }) => useMachineInventory(machine, ["/repo"]), {
+      initialProps: { machine: { id: "peer", label: "Peer", feed: first.feed } },
+    });
     expect(first.streams).toEqual({ opened: 1, open: 1 });
 
     rerender({ machine: { id: "peer", label: "Peer", feed: second.feed } });

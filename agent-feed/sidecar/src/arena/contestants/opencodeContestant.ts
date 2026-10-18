@@ -26,11 +26,7 @@
 // session the panel makes is (ADR-0139). What the contestant reached outside its worktree is a
 // fact read off its events at close (`outsideReaches`), not something refused.
 
-import type {
-  AgentCommandReceipt,
-  AgentSessionDescriptor,
-  TimelineEnvelope,
-} from "@agentdesk/agent-feed-wire";
+import type { AgentCommandReceipt, AgentSessionDescriptor, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import type { ContestantPlan, ContestantResult } from "@/arena/contestants/contestantDriver";
 import { readOpencodeTail } from "@/agents/opencode/opencodeHistory";
 import type { ActivityEvent, TokenUsage } from "@/transcripts/transcriptTypes";
@@ -38,12 +34,7 @@ import type { ActivityEvent, TokenUsage } from "@/transcripts/transcriptTypes";
 /** What driving one contestant needs of an opencode backend. */
 export interface OpencodeContestantBackend {
   createSession(requestId: string, projectPath: string): Promise<AgentSessionDescriptor>;
-  send(
-    sessionId: string,
-    requestId: string,
-    text: string,
-    delivery: "next",
-  ): Promise<AgentCommandReceipt>;
+  send(sessionId: string, requestId: string, text: string, delivery: "next"): Promise<AgentCommandReceipt>;
   subscribe(
     sessionId: string,
     afterSequence: number,
@@ -57,9 +48,7 @@ export interface OpencodeContestantBackend {
 export class OpencodeContestantError extends Error {}
 
 /** Where the serve says the latest turn stands: still open, or closed with what it came to. */
-export type OpencodeTurnOutcome =
-  | { closed: false }
-  | { closed: true; failure: string | null };
+export type OpencodeTurnOutcome = { closed: false } | { closed: true; failure: string | null };
 
 /**
  * Reads the latest turn's outcome off the serve's own messages, oldest first.
@@ -77,9 +66,7 @@ export function turnOutcomeOf(messages: readonly unknown[], after: string | null
   // was sent: until that message lands, the latest turn is the earlier prompt's, already closed.
   if (after !== null && lastUserIdOf(messages) === after) return { closed: false };
   const turn = messages.slice(start);
-  const marker = turn.find((message) => typeOf(message) === "idle") as
-    | { outcome?: unknown }
-    | undefined;
+  const marker = turn.find((message) => typeOf(message) === "idle") as { outcome?: unknown } | undefined;
   if (!marker) return { closed: false };
   if (marker.outcome !== "failed") return { closed: true, failure: null };
   const errored = [...turn].reverse().find((message) => {
@@ -88,7 +75,7 @@ export function turnOutcomeOf(messages: readonly unknown[], after: string | null
   }) as { error: { type?: unknown; message?: unknown } } | undefined;
   const kind = typeof errored?.error.type === "string" ? errored.error.type : null;
   const said = typeof errored?.error.message === "string" ? errored.error.message : null;
-  const failure = kind && said ? `${kind}: ${said}` : said ?? kind ?? "the serve reported the turn failed";
+  const failure = kind && said ? `${kind}: ${said}` : (said ?? kind ?? "the serve reported the turn failed");
   return { closed: true, failure };
 }
 
@@ -152,7 +139,7 @@ export async function runOpencodeContestant(
   plan: ContestantPlan,
   options: OpencodeContestantOptions = {},
 ): Promise<ContestantResult> {
-  const sessionId = plan.continues ?? await openOpencodeContestant(backend, plan);
+  const sessionId = plan.continues ?? (await openOpencodeContestant(backend, plan));
   plan.onSessionId(sessionId);
   return driveOpencodeTurn(backend, sessionId, plan, options);
 }
@@ -270,9 +257,7 @@ export async function driveOpencodeTurn(
   }
 
   if ("timedOut" in outcome) {
-    throw new OpencodeContestantError(
-      `contestant did not close its turn within ${plan.turnTimeoutMs}ms`,
-    );
+    throw new OpencodeContestantError(`contestant did not close its turn within ${plan.turnTimeoutMs}ms`);
   }
   if (outcome.failure !== null) throw new OpencodeContestantError(outcome.failure);
 

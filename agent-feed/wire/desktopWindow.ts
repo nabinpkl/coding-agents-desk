@@ -141,9 +141,7 @@ export interface WindowTarget {
 }
 
 /** Either the window to act on, or why there is not exactly one. */
-export type WindowResolution =
-  | { ok: true; target: WindowTarget }
-  | { ok: false; reason: WindowInputReason };
+export type WindowResolution = { ok: true; target: WindowTarget } | { ok: false; reason: WindowInputReason };
 
 /** Live state of one session's Claude Desktop composer, as the sidecar last resolved it. */
 export interface WindowComposerStatus {

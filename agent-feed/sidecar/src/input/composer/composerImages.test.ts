@@ -11,9 +11,7 @@ function bytes(...values: number[]): Uint8Array {
 const PNG = bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13);
 const JPEG = bytes(0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46);
 const GIF = bytes(0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0);
-const WEBP = bytes(
-  0x52, 0x49, 0x46, 0x46, 0x24, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
-);
+const WEBP = bytes(0x52, 0x49, 0x46, 0x46, 0x24, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20);
 
 async function store() {
   return { directory: await mkdtemp("/tmp/agentdesk-composer-images-"), now: Date.now };
@@ -31,10 +29,8 @@ test("refuses everything else, including images Claude's own name test would rej
   // path test has no `.bmp` in it -- so a file written with that extension reaches the composer
   // as a literal path. Refusing here is the only place that can be said usefully.
   expect(imageMediaType(bytes(0x42, 0x4d, 0x36, 0, 0, 0))).toBeNull();
-  expect(imageMediaType(new TextEncoder().encode("<svg xmlns=\"http://www.w3.org/2000/svg\"/>")))
-    .toBeNull();
-  expect(imageMediaType(bytes(0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45)))
-    .toBeNull();
+  expect(imageMediaType(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toBeNull();
+  expect(imageMediaType(bytes(0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45))).toBeNull();
   expect(imageMediaType(bytes())).toBeNull();
   expect(imageMediaType(bytes(0x89, 0x50))).toBeNull();
 });
@@ -46,7 +42,7 @@ test("writes an absolute path whose extension is one Claude's paste handler acce
   const path = await writeComposerImage(PNG, "image/png", where);
   expect(path.startsWith("/")).toBe(true);
   expect(/\.(png|jpe?g|gif|webp)$/i.test(path)).toBe(true);
-  expect([...await readFile(path)]).toEqual([...PNG]);
+  expect([...(await readFile(path))]).toEqual([...PNG]);
 });
 
 test("names the file itself, so nothing a page sent becomes part of a path", async () => {

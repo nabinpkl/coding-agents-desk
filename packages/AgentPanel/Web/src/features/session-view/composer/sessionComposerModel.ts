@@ -56,7 +56,8 @@ export function composerTransport(options: {
   const { sdkCandidate, mirrored, terminalCandidate, windowCandidate, windowRefused, agentTerminal } = options;
   if (sdkCandidate) return { kind: "sdk-session" };
   if (mirrored) return { kind: "tmux-composer" };
-  if (terminalCandidate) return agentTerminal ? { kind: "agent-terminal", terminal: agentTerminal } : { kind: "cli-session" };
+  if (terminalCandidate)
+    return agentTerminal ? { kind: "agent-terminal", terminal: agentTerminal } : { kind: "cli-session" };
   if (windowCandidate) {
     return windowRefused && agentTerminal ? { kind: "agent-terminal", terminal: agentTerminal } : { kind: "window" };
   }

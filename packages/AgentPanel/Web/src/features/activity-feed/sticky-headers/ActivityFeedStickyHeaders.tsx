@@ -6,7 +6,12 @@
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
 import { eventPreview } from "@/features/activity-feed/rows/activityEventText";
-import { displayRole, leadEvent, type DisplayItem, type DisplayRole } from "@/features/activity-feed/rows/activityDisplayItems";
+import {
+  displayRole,
+  leadEvent,
+  type DisplayItem,
+  type DisplayRole,
+} from "@/features/activity-feed/rows/activityDisplayItems";
 import { ROLE_BORDER, ROLE_STYLES, showEventRoleLabel } from "@/features/activity-feed/blocks/ActivityEventHeading";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
@@ -25,7 +30,9 @@ export function userMessageText(ev: ActivityEvent): string {
 // Click to jump back to the original message (and break sticky-bottom so the
 // jump actually holds instead of snapping to the live tail).
 export function StickyUserHeader({
-  text, onClick, buttonRef,
+  text,
+  onClick,
+  buttonRef,
 }: {
   // No row number: a transcript row is named by the byte its line starts at (ADR-0124), which is
   // an address and not something a reader counts by.
@@ -43,9 +50,7 @@ export function StickyUserHeader({
       className={`flex w-full items-center gap-2 border-b session-view-dock ${COLUMN_GUTTER_CLASS} py-2 text-left shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
-      <span className="min-w-0 flex-1 truncate leading-snug text-foreground">
-        {preview || "(no text)"}
-      </span>
+      <span className="min-w-0 flex-1 truncate leading-snug text-foreground">{preview || "(no text)"}</span>
     </button>
   );
 }
@@ -55,7 +60,9 @@ export function StickyUserHeader({
 // whose heading has scrolled behind the bar while its content is still on
 // screen. Click jumps to that row's start.
 export function StickyEventHeader({
-  item, mode, onClick,
+  item,
+  mode,
+  onClick,
 }: {
   item: DisplayItem;
   mode: EventMode;
@@ -64,8 +71,7 @@ export function StickyEventHeader({
   const ev = leadEvent(item);
   // A folded run is tool work by construction, so it names itself `tool` rather than
   // taking the role of whichever of its members happens to be first.
-  const role: DisplayRole =
-    item.kind === "user" ? "user" : item.kind === "cluster" ? "tool" : displayRole(ev);
+  const role: DisplayRole = item.kind === "user" ? "user" : item.kind === "cluster" ? "tool" : displayRole(ev);
   return (
     <button
       type="button"
@@ -87,9 +93,7 @@ export function StickyEventHeader({
           {role}
         </span>
       ) : null}
-      <span className="min-w-0 flex-1 truncate text-muted-foreground">
-        {eventPreview(ev)}
-      </span>
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">{eventPreview(ev)}</span>
     </button>
   );
 }

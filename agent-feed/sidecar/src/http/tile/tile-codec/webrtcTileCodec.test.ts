@@ -25,11 +25,13 @@ describe("chooseTileVideoCodec", () => {
   });
 
   test("rejects HEVC modes that require unsupported DON or multiple streams", () => {
-    expect(chooseTileVideoCodec([
-      { mimeType: "video/H265", parameters: "sprop-max-don-diff=4" },
-      { mimeType: "video/H265", parameters: "tx-mode=MRST" },
-      baseline,
-    ])).toEqual({ kind: "h264", negotiated: baseline, h264Profile: "cb" });
+    expect(
+      chooseTileVideoCodec([
+        { mimeType: "video/H265", parameters: "sprop-max-don-diff=4" },
+        { mimeType: "video/H265", parameters: "tx-mode=MRST" },
+        baseline,
+      ]),
+    ).toEqual({ kind: "h264", negotiated: baseline, h264Profile: "cb" });
   });
 
   test("preserves the active shared encoder codec instead of starting another capture", () => {

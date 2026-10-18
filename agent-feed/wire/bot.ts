@@ -25,9 +25,7 @@ export interface BotMetadata {
   custom: Record<string, string>;
 }
 
-export type BotCreatedBy =
-  | { kind: "user" }
-  | { kind: "bot"; botId: string };
+export type BotCreatedBy = { kind: "user" } | { kind: "bot"; botId: string };
 
 export interface BotRecord {
   botId: string;

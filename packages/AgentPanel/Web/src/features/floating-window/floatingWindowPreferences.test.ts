@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { clampFloatingPosition, clampFloatingTop, floatingWindowPreferences } from "@/features/floating-window/floatingWindowPreferences";
+import {
+  clampFloatingPosition,
+  clampFloatingTop,
+  floatingWindowPreferences,
+} from "@/features/floating-window/floatingWindowPreferences";
 
 describe("where a floating window may stand", () => {
   it("keeps a strip of a window on screen whatever the drag or window does", () => {

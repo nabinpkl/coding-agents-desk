@@ -4,7 +4,14 @@ import { OpencodeModelsDialog, OpencodeModelsHost } from "@/features/bots/dialog
 import type { OpencodeModel } from "@/features/activity-feed/data-source/SidecarAgentSessions";
 
 const MODELS: OpencodeModel[] = [
-  { providerID: "opencode-go", modelID: "spark", name: "Muse Spark", contextLimit: 1048576, inputCost: 0.1, outputCost: 0.2 },
+  {
+    providerID: "opencode-go",
+    modelID: "spark",
+    name: "Muse Spark",
+    contextLimit: 1048576,
+    inputCost: 0.1,
+    outputCost: 0.2,
+  },
   { providerID: "other", modelID: "tiny", name: "Tiny", contextLimit: null, inputCost: null, outputCost: null },
 ];
 
@@ -71,13 +78,7 @@ describe("OpencodeModelsDialog", () => {
     const onSwitch = vi.fn(async (_model: OpencodeModel) => {});
     const onClose = vi.fn();
     render(
-      <OpencodeModelsDialog
-        models={MODELS}
-        current={null}
-        initialFilter=""
-        onClose={onClose}
-        onSwitch={onSwitch}
-      />,
+      <OpencodeModelsDialog models={MODELS} current={null} initialFilter="" onClose={onClose} onSwitch={onSwitch} />,
     );
 
     fireEvent.click(screen.getByRole("option", { name: /Tiny/ }));
@@ -141,13 +142,7 @@ describe("OpencodeModelsDialog", () => {
     const onClose = vi.fn();
     const feed = { listOpencodeModels: async () => MODELS } as never;
     const { rerender } = render(
-      <OpencodeModelsHost
-        feed={feed}
-        current={null}
-        initialFilter=""
-        onClose={onClose}
-        onSwitch={async () => {}}
-      />,
+      <OpencodeModelsHost feed={feed} current={null} initialFilter="" onClose={onClose} onSwitch={async () => {}} />,
     );
     expect(screen.queryByRole("dialog", { name: "Switch model" })).toBeNull();
     rerender(

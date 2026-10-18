@@ -80,7 +80,12 @@ test("a multi-select question ticks what was asked for and leaves by its own but
   const { runtime } = driving(pane);
   const outcome = await answerTmuxQuestion(
     session(),
-    [pick("Which toppings?", [[0, "DELTA"], [2, "FOXTROT"]])],
+    [
+      pick("Which toppings?", [
+        [0, "DELTA"],
+        [2, "FOXTROT"],
+      ]),
+    ],
     runtime,
   );
 
@@ -109,11 +114,15 @@ test("three questions of mixed shape are all answered, then submitted once", asy
     { header: "Three", question: "Pick last?", multiSelect: false, options: ["FFF", "GGG"] },
   ]);
   const { runtime } = driving(pane);
-  const outcome = await answerTmuxQuestion(session(), [
-    pick("Pick one?", [[1, "BBB"]]),
-    pick("Which toppings?", [[0, "DELTA"]], "plus a note"),
-    { question: "Pick last?", chosen: [], other: "neither, actually" },
-  ], runtime);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [
+      pick("Pick one?", [[1, "BBB"]]),
+      pick("Which toppings?", [[0, "DELTA"]], "plus a note"),
+      { question: "Pick last?", chosen: [], other: "neither, actually" },
+    ],
+    runtime,
+  );
 
   expect(outcome).toEqual({ answered: true });
   expect(pane.closed).toBe("submitted");
@@ -129,11 +138,7 @@ test("a tick somebody else made that was not asked for is taken back off", async
   expect(pane.answerFor(0)).toEqual(["ECHO"]);
 
   const { runtime } = driving(pane);
-  const outcome = await answerTmuxQuestion(
-    session(),
-    [pick("Which toppings?", [[0, "DELTA"]])],
-    runtime,
-  );
+  const outcome = await answerTmuxQuestion(session(), [pick("Which toppings?", [[0, "DELTA"]])], runtime);
 
   expect(outcome).toEqual({ answered: true });
   // Reconciled rather than added to: a blind press per wanted option would have left ECHO on.
@@ -176,11 +181,10 @@ test("a pane showing no dialog is refused, not typed into", async () => {
 
 test("a session with no pane is refused", async () => {
   const { runtime } = driving(new QuestionPane([COLOUR]));
-  const outcome = await answerTmuxQuestion(
-    session(),
-    [answer("Which colour?", ["ALPHA"])],
-    { ...runtime, pane: async () => null },
-  );
+  const outcome = await answerTmuxQuestion(session(), [answer("Which colour?", ["ALPHA"])], {
+    ...runtime,
+    pane: async () => null,
+  });
   expect(outcome).toMatchObject({ answered: false, reason: "no-pane" });
 });
 
@@ -189,9 +193,11 @@ test("every refusal hands back the words the reader typed", async () => {
   const { runtime } = driving(pane);
   // One question short, so this refuses before pressing anything -- which is exactly the moment
   // the typed text would otherwise exist nowhere but in a request that already failed.
-  const outcome = await answerTmuxQuestion(session(), [
-    { question: "Which colour?", chosen: [], other: "the sentence I wrote" },
-  ], runtime);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [{ question: "Which colour?", chosen: [], other: "the sentence I wrote" }],
+    runtime,
+  );
 
   expect(outcome).toEqual({
     answered: false,
@@ -211,13 +217,9 @@ test("a screen this cannot read is a refusal, never a question reported as answe
   const garbled: QuestionRuntime = {
     ...runtime,
     // A pane mid-repaint: never the same twice, and never a dialog.
-    screen: async () => ({ screen: `partway through a repaint ${reads += 1}`, cursor: { row: 0, column: 0 } }),
+    screen: async () => ({ screen: `partway through a repaint ${(reads += 1)}`, cursor: { row: 0, column: 0 } }),
   };
-  const outcome = await answerTmuxQuestion(
-    session(),
-    [pick("Which colour?", [[0, "ALPHA"]])],
-    garbled,
-  );
+  const outcome = await answerTmuxQuestion(session(), [pick("Which colour?", [[0, "ALPHA"]])], garbled);
 
   expect(outcome).toMatchObject({ answered: false, reason: "no-dialog", sent: false });
 });
@@ -242,10 +244,11 @@ test("a refusal after keys have gone out says so, rather than that nothing was s
       if (pane.answerFor(0).length > 0) answeredFirst = true;
     },
   };
-  const outcome = await answerTmuxQuestion(session(), [
-    pick("Which colour?", [[0, "ALPHA"]]),
-    pick("Which toppings?", [[0, "DELTA"]]),
-  ], vanishing);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [pick("Which colour?", [[0, "ALPHA"]]), pick("Which toppings?", [[0, "DELTA"]])],
+    vanishing,
+  );
 
   expect(outcome.answered).toBe(false);
   expect(outcome).toMatchObject({ sent: true });
@@ -258,10 +261,11 @@ test("Escape is never sent, because it would destroy the dialog and the typed te
   const pane = new QuestionPane([COLOUR, TOPPINGS]);
   const { runtime, sent } = driving(pane);
   const frozen: QuestionRuntime = { ...runtime, send: async () => {} };
-  const outcome = await answerTmuxQuestion(session(), [
-    pick("Which colour?", [[0, "ALPHA"]]),
-    pick("Which toppings?", [[0, "DELTA"]], "and this text"),
-  ], frozen);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [pick("Which colour?", [[0, "ALPHA"]]), pick("Which toppings?", [[0, "DELTA"]], "and this text")],
+    frozen,
+  );
 
   expect(outcome.answered).toBe(false);
   expect(sent).toEqual([]);
@@ -272,11 +276,7 @@ test("Escape is never sent, because it would destroy the dialog and the typed te
 test("an escape inside somebody's typed answer arrives as a character, not as a key", async () => {
   const pane = new QuestionPane([COLOUR]);
   const { runtime, sent } = driving(pane);
-  await answerTmuxQuestion(
-    session(),
-    [{ question: "Which colour?", chosen: [], other: "beforeafter" }],
-    runtime,
-  );
+  await answerTmuxQuestion(session(), [{ question: "Which colour?", chosen: [], other: "beforeafter" }], runtime);
 
   expect(sent.join("")).not.toContain("[");
   expect(sent.some((keys) => keys.includes("␛"))).toBe(true);
@@ -356,11 +356,7 @@ test("a note somebody had started is replaced rather than prepended to", async (
 test("a two-column option whose row says something else is refused before any key is sent", async () => {
   const pane = new QuestionPane([METAL]);
   const { runtime, sent } = driving(pane);
-  const outcome = await answerTmuxQuestion(
-    session(),
-    [pick("Which metal?", [[1, "NOT WHAT THE ROW SAYS"]])],
-    runtime,
-  );
+  const outcome = await answerTmuxQuestion(session(), [pick("Which metal?", [[1, "NOT WHAT THE ROW SAYS"]])], runtime);
 
   expect(outcome).toMatchObject({ answered: false, reason: "wrong-option", sent: false });
   expect(sent).toEqual([]);
@@ -375,10 +371,11 @@ test("a dialog mixing both shapes is answered by the keys each one takes", async
     { header: "Colour", question: "Which colour?", multiSelect: false, options: ["ALPHA", "BRAVO"] },
   ]);
   const { runtime } = driving(pane);
-  const outcome = await answerTmuxQuestion(session(), [
-    pick("Which metal?", [[0, "Iron"]]),
-    pick("Which colour?", [[1, "BRAVO"]]),
-  ], runtime);
+  const outcome = await answerTmuxQuestion(
+    session(),
+    [pick("Which metal?", [[0, "Iron"]]), pick("Which colour?", [[1, "BRAVO"]])],
+    runtime,
+  );
 
   expect(outcome).toEqual({ answered: true });
   expect(pane.closed).toBe("submitted");

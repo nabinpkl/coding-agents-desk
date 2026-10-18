@@ -159,7 +159,9 @@ describe("reading a label off a screen", () => {
   it("matches on the start, because a long one wraps rather than truncating", () => {
     // The screen gives back as much of the label as fitted on its row, and the rest is on a line
     // indented exactly like a description -- indistinguishable from one, so unrecoverable.
-    expect(sameLabel("ALPHA a deliberately very long option", "ALPHA a deliberately very long option label")).toBe(true);
+    expect(sameLabel("ALPHA a deliberately very long option", "ALPHA a deliberately very long option label")).toBe(
+      true,
+    );
     expect(sameLabel("ALPHA", "ALPHA")).toBe(true);
     expect(sameLabel("BRAVO", "ALPHA")).toBe(false);
     // A blank row names nothing, and matching it against everything would answer whatever was
@@ -171,13 +173,18 @@ describe("reading a label off a screen", () => {
 describe("following what the terminal already holds", () => {
   it("fills a question nobody has answered here", () => {
     const drafts = emptyDrafts([SINGLE]);
-    const next = adoptPaneState(drafts, [SINGLE], showing({
-      options: [
-        { label: "ALPHA", detail: "", marked: false, cursor: false },
-        { label: "BRAVO", detail: "", marked: true, cursor: false },
-        { label: "CHARLIE", detail: "", marked: false, cursor: true },
-      ],
-    }), () => true);
+    const next = adoptPaneState(
+      drafts,
+      [SINGLE],
+      showing({
+        options: [
+          { label: "ALPHA", detail: "", marked: false, cursor: false },
+          { label: "BRAVO", detail: "", marked: true, cursor: false },
+          { label: "CHARLIE", detail: "", marked: false, cursor: true },
+        ],
+      }),
+      () => true,
+    );
 
     // Somebody answered this at the keyboard before the panel was opened on it. Drawing an empty
     // draft over the top would invite this reader to redo work that is already done.
@@ -186,13 +193,18 @@ describe("following what the terminal already holds", () => {
 
   it("never overwrites an answer this reader has not sent yet", () => {
     const drafts = chooseOption(emptyDrafts([SINGLE]), 0, 2, false);
-    const next = adoptPaneState(drafts, [SINGLE], showing({
-      options: [
-        { label: "ALPHA", detail: "", marked: true, cursor: false },
-        { label: "BRAVO", detail: "", marked: false, cursor: false },
-        { label: "CHARLIE", detail: "", marked: false, cursor: false },
-      ],
-    }), () => false);
+    const next = adoptPaneState(
+      drafts,
+      [SINGLE],
+      showing({
+        options: [
+          { label: "ALPHA", detail: "", marked: true, cursor: false },
+          { label: "BRAVO", detail: "", marked: false, cursor: false },
+          { label: "CHARLIE", detail: "", marked: false, cursor: false },
+        ],
+      }),
+      () => false,
+    );
 
     // A draft is newer than any screen: the whole point of drafting here is that a tap is not
     // committed until Submit, so a reading must not take it back.
@@ -200,9 +212,14 @@ describe("following what the terminal already holds", () => {
   });
 
   it("takes the words in the free-text row, and ignores Claude's own prompt", () => {
-    const withText = adoptPaneState(emptyDrafts([SINGLE]), [SINGLE], showing({
-      other: "a colour of my own",
-    }), () => true);
+    const withText = adoptPaneState(
+      emptyDrafts([SINGLE]),
+      [SINGLE],
+      showing({
+        other: "a colour of my own",
+      }),
+      () => true,
+    );
     expect(withText[0]).toEqual({ chosen: [], other: "a colour of my own" });
 
     // A dialog nobody has touched says nothing this side does not already know, and adopting it
@@ -213,21 +230,25 @@ describe("following what the terminal already holds", () => {
 
   it("leaves everything alone on the review screen, which reports no question", () => {
     const drafts = emptyDrafts([SINGLE]);
-    expect(adoptPaneState(drafts, [SINGLE], showing({ question: null, review: true }), () => true))
-      .toEqual(drafts);
+    expect(adoptPaneState(drafts, [SINGLE], showing({ question: null, review: true }), () => true)).toEqual(drafts);
   });
 });
 
 describe("where the terminal's own cursor is", () => {
   it("answers in the tool call's own indices, not the screen's", () => {
     expect(paneCursorFrom([SINGLE], showing())).toEqual({ at: 0, option: 0 });
-    expect(paneCursorFrom([SINGLE], showing({
-      options: [
-        { label: "ALPHA", detail: "", marked: false, cursor: false },
-        { label: "BRAVO", detail: "", marked: false, cursor: false },
-        { label: "CHARLIE", detail: "", marked: false, cursor: true },
-      ],
-    }))).toEqual({ at: 0, option: 2 });
+    expect(
+      paneCursorFrom(
+        [SINGLE],
+        showing({
+          options: [
+            { label: "ALPHA", detail: "", marked: false, cursor: false },
+            { label: "BRAVO", detail: "", marked: false, cursor: false },
+            { label: "CHARLIE", detail: "", marked: false, cursor: true },
+          ],
+        }),
+      ),
+    ).toEqual({ at: 0, option: 2 });
   });
 
   it("keeps the cursor and the answer apart when the pane has them on different rows", () => {
@@ -243,28 +264,37 @@ describe("where the terminal's own cursor is", () => {
       ],
     });
 
-    expect(adoptPaneState(emptyDrafts([SINGLE]), [SINGLE], pane, () => true)[0])
-      .toEqual({ chosen: [1], other: "" });
+    expect(adoptPaneState(emptyDrafts([SINGLE]), [SINGLE], pane, () => true)[0]).toEqual({ chosen: [1], other: "" });
     expect(paneCursorFrom([SINGLE], pane)).toEqual({ at: 0, option: 0 });
   });
 
   it("has no answer when the cursor is not on an option at all", () => {
     // A cursor parked in the free-text row or on a multi-select question's inline button: neither
     // is an option, and `TmuxQuestionState` has already dropped both, so no option carries it.
-    expect(paneCursorFrom([SINGLE], showing({
-      options: [
-        { label: "ALPHA", detail: "", marked: false, cursor: false },
-        { label: "BRAVO", detail: "", marked: false, cursor: false },
-        { label: "CHARLIE", detail: "", marked: false, cursor: false },
-      ],
-    }))).toBeNull();
+    expect(
+      paneCursorFrom(
+        [SINGLE],
+        showing({
+          options: [
+            { label: "ALPHA", detail: "", marked: false, cursor: false },
+            { label: "BRAVO", detail: "", marked: false, cursor: false },
+            { label: "CHARLIE", detail: "", marked: false, cursor: false },
+          ],
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("says nothing rather than guessing at a row it cannot match", () => {
     // A ring drawn on a guess is indistinguishable from one drawn on a reading.
-    expect(paneCursorFrom([SINGLE], showing({
-      options: [{ label: "ZULU", detail: "", marked: false, cursor: true }],
-    }))).toBeNull();
+    expect(
+      paneCursorFrom(
+        [SINGLE],
+        showing({
+          options: [{ label: "ZULU", detail: "", marked: false, cursor: true }],
+        }),
+      ),
+    ).toBeNull();
     expect(paneCursorFrom([SINGLE], showing({ question: null, review: true }))).toBeNull();
     expect(paneCursorFrom([SINGLE], null)).toBeNull();
   });
@@ -280,7 +310,10 @@ describe("which question the terminal is on", () => {
       prompt: "Which toppings?",
       review: false,
       multiSelect: true,
-      tabs: [{ label: "Colour", answered: true }, { label: "Toppings", answered: false }],
+      tabs: [
+        { label: "Colour", answered: true },
+        { label: "Toppings", answered: false },
+      ],
       options: [
         { label: "DELTA", detail: "", marked: false, cursor: false },
         { label: "ECHO", detail: "", marked: false, cursor: false },

@@ -148,9 +148,9 @@ export function normalizeSessionRef(value: unknown): BotSessionRef {
   }
   const ref = value as Partial<BotSessionRef>;
   if (
-    (ref.source !== "claude" && ref.source !== "codex" && ref.source !== "pi" && ref.source !== "opencode")
-    || typeof ref.sessionId !== "string"
-    || !/^[A-Za-z0-9._:-]{1,128}$/.test(ref.sessionId)
+    (ref.source !== "claude" && ref.source !== "codex" && ref.source !== "pi" && ref.source !== "opencode") ||
+    typeof ref.sessionId !== "string" ||
+    !/^[A-Za-z0-9._:-]{1,128}$/.test(ref.sessionId)
   ) {
     throw new BotInvalidError("sessionRefs must name an existing source and sessionId");
   }
@@ -422,12 +422,7 @@ export function normalizeRetire(command: RetireBotSessionsCommand): NormalizedRe
 
 /** The default is named at each call rather than taken from the list's order, which would change
  *  meaning the day a third disposal is added to one of them. */
-function disposal<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  fallback: T,
-  name: string,
-): T {
+function disposal<T extends string>(value: unknown, allowed: readonly T[], fallback: T, name: string): T {
   if (value === undefined) return fallback;
   if (typeof value !== "string" || !allowed.includes(value as T)) {
     throw new BotInvalidError(`${name} must be one of: ${allowed.join(", ")}`);

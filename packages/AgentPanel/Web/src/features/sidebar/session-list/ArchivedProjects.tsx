@@ -38,33 +38,37 @@ export function projectDisplayName(project: ProjectSummary): string {
 export function useProjectArchiveCommand(archiving: ProjectArchiving | undefined) {
   const [pending, setPending] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ projectPath: string; message: string } | null>(null);
-  const run = useCallback((project: ProjectSummary, action: ProjectArchiveAction) => {
-    if (!archiving) return;
-    const { projectPath } = project;
-    const name = projectDisplayName(project);
-    setNotice(null);
-    setPending(projectPath);
-    const work = action === "archive-sessions"
-      ? archiving.archiveSessions(projectPath).then(({ running }) => {
-        if (running === 0) return;
-        setNotice({
-          projectPath,
-          message: `${running} running ${running === 1 ? "session was" : "sessions were"} left in ${name}; stop ${
-            running === 1 ? "it" : "them"
-          } to archive ${running === 1 ? "it" : "them"} too.`,
-        });
-      })
-      : archiving.setArchived(projectPath, action === "archive");
-    void work
-      .catch((error: unknown) => {
-        const verb = action === "archive-sessions" ? "archive the sessions in" : action;
-        setNotice({
-          projectPath,
-          message: `Could not ${verb} ${name}: ${error instanceof Error ? error.message : String(error)}`,
-        });
-      })
-      .finally(() => setPending((current) => (current === projectPath ? null : current)));
-  }, [archiving]);
+  const run = useCallback(
+    (project: ProjectSummary, action: ProjectArchiveAction) => {
+      if (!archiving) return;
+      const { projectPath } = project;
+      const name = projectDisplayName(project);
+      setNotice(null);
+      setPending(projectPath);
+      const work =
+        action === "archive-sessions"
+          ? archiving.archiveSessions(projectPath).then(({ running }) => {
+              if (running === 0) return;
+              setNotice({
+                projectPath,
+                message: `${running} running ${running === 1 ? "session was" : "sessions were"} left in ${name}; stop ${
+                  running === 1 ? "it" : "them"
+                } to archive ${running === 1 ? "it" : "them"} too.`,
+              });
+            })
+          : archiving.setArchived(projectPath, action === "archive");
+      void work
+        .catch((error: unknown) => {
+          const verb = action === "archive-sessions" ? "archive the sessions in" : action;
+          setNotice({
+            projectPath,
+            message: `Could not ${verb} ${name}: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        })
+        .finally(() => setPending((current) => (current === projectPath ? null : current)));
+    },
+    [archiving],
+  );
   const noticeFor = (projectPath: string): string | null =>
     notice?.projectPath === projectPath ? notice.message : null;
   const isPending = (projectPath: string): boolean => pending === projectPath;
@@ -79,7 +83,13 @@ export type ProjectArchiveCommand = ReturnType<typeof useProjectArchiveCommand>;
  * Folded by default and not remembered, for the same reason as a project's archived sessions: it
  * is a way back, not a view anyone reads.
  */
-export function ArchivedProjects({ archiving, command }: { archiving: ProjectArchiving; command: ProjectArchiveCommand }) {
+export function ArchivedProjects({
+  archiving,
+  command,
+}: {
+  archiving: ProjectArchiving;
+  command: ProjectArchiveCommand;
+}) {
   const [open, setOpen] = useState(false);
   if (archiving.archived.length === 0) return null;
   return (
@@ -117,9 +127,11 @@ export function ArchivedProjects({ archiving, command }: { archiving: ProjectArc
                     title="Unarchive"
                     className="mr-1 flex min-h-9 shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary outline-none hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-default disabled:opacity-60"
                   >
-                    {pending
-                      ? <LoaderCircle className="size-3.5 motion-safe:animate-spin" aria-hidden />
-                      : <ArchiveRestore className="size-3.5" aria-hidden />}
+                    {pending ? (
+                      <LoaderCircle className="size-3.5 motion-safe:animate-spin" aria-hidden />
+                    ) : (
+                      <ArchiveRestore className="size-3.5" aria-hidden />
+                    )}
                     Unarchive
                   </button>
                 </div>

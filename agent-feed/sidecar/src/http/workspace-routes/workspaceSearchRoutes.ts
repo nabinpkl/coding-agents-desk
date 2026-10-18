@@ -8,18 +8,17 @@
 import type { WorkspaceSearchOptions } from "@agentdesk/agent-feed-wire";
 import { jsonResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
-import {
-  refusalResponse,
-  workspaceErrorResponse,
-  workspaceRoute,
-} from "@/http/workspace-routes/workspaceResponses";
+import { refusalResponse, workspaceErrorResponse, workspaceRoute } from "@/http/workspace-routes/workspaceResponses";
 import { searchContent } from "@/workspace/search/contentSearch";
 import { listFiles } from "@/workspace/search/fileList";
 import type { WorkspaceService } from "@/workspace/workspaceService";
 
 /** A comma-separated glob list, as VS Code's include and exclude fields take one. */
 function globs(value: string | null): string[] {
-  return (value ?? "").split(",").map((glob) => glob.trim()).filter(Boolean);
+  return (value ?? "")
+    .split(",")
+    .map((glob) => glob.trim())
+    .filter(Boolean);
 }
 
 export function parseSearchOptions(parameters: URLSearchParams): WorkspaceSearchOptions {
@@ -39,10 +38,7 @@ export function parseSearchOptions(parameters: URLSearchParams): WorkspaceSearch
  * Each request's own `signal` is handed to `rg`: a reader who types past a search aborts its
  * request, and that is what kills the process rather than letting it finish for nobody.
  */
-export function createWorkspaceSearchRoutes(
-  service: WorkspaceService,
-  ripgrepPath: string | null,
-): RouteHandler {
+export function createWorkspaceSearchRoutes(service: WorkspaceService, ripgrepPath: string | null): RouteHandler {
   return (request, url) => {
     const route = workspaceRoute(url.pathname);
     if (!route || request.method !== "GET") return undefined;

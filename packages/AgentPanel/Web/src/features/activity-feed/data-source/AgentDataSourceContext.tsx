@@ -5,18 +5,8 @@ import type { AgentDataSource } from "@/features/activity-feed/data-source/Agent
 
 const DataSourceContext = createContext<AgentDataSource | null>(null);
 
-export function DataSourceProvider({
-  children,
-  source,
-}: {
-  children: ReactNode;
-  source: AgentDataSource;
-}) {
-  return (
-    <DataSourceContext.Provider value={source}>
-      {children}
-    </DataSourceContext.Provider>
-  );
+export function DataSourceProvider({ children, source }: { children: ReactNode; source: AgentDataSource }) {
+  return <DataSourceContext.Provider value={source}>{children}</DataSourceContext.Provider>;
 }
 
 export function useDataSource(): AgentDataSource {

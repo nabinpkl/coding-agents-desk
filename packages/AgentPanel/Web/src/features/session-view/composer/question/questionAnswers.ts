@@ -41,10 +41,7 @@ export function emptyDrafts(questions: readonly AskUserQuestionItem[]): Question
  * Not a reset, which is the other half of it: the answers already given are to questions that have
  * not changed, and rebuilding would throw them away each time another one appeared.
  */
-export function alignDrafts(
-  drafts: readonly QuestionDraft[],
-  count: number,
-): QuestionDraft[] {
+export function alignDrafts(drafts: readonly QuestionDraft[], count: number): QuestionDraft[] {
   if (drafts.length === count) return [...drafts];
   return Array.from({ length: count }, (_, at) => drafts[at] ?? { chosen: [], other: "" });
 }
@@ -65,9 +62,7 @@ export function chooseOption(
   return drafts.map((draft, position) => {
     if (position !== at) return draft;
     if (!multiSelect) {
-      return draft.chosen[0] === index
-        ? { chosen: [], other: draft.other }
-        : { chosen: [index], other: "" };
+      return draft.chosen[0] === index ? { chosen: [], other: draft.other } : { chosen: [index], other: "" };
     }
     const chosen = draft.chosen.includes(index)
       ? draft.chosen.filter((entry) => entry !== index)
@@ -90,9 +85,7 @@ export function writeOther(
   multiSelect: boolean,
 ): QuestionDraft[] {
   return drafts.map((draft, position) =>
-    position === at
-      ? { chosen: multiSelect || text.length === 0 ? draft.chosen : [], other: text }
-      : draft
+    position === at ? { chosen: multiSelect || text.length === 0 ? draft.chosen : [], other: text } : draft,
   );
 }
 

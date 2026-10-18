@@ -27,13 +27,7 @@ import {
   TERMINAL_FRACTION_RANGE,
 } from "@/features/workspace-ide/workspaceIdePreferences";
 
-export function WorkspaceIdeSurface({
-  transport,
-  feed,
-}: {
-  transport: AgentHttpTransport;
-  feed: SidecarDataSource;
-}) {
+export function WorkspaceIdeSurface({ transport, feed }: { transport: AgentHttpTransport; feed: SidecarDataSource }) {
   const ide = useWorkspaceIde(transport);
   // The editor's diff tab. Owned here because two panes share it: the status bar's history points
   // it at a file, and the editor draws it.
@@ -65,35 +59,38 @@ export function WorkspaceIdeSurface({
 
   /** A search result: the file in the preview tab, on its line, with the diff put away. */
   const hideDiff = diff.hide;
-  const openResult = useCallback((path: string, line: number, start: number, end: number) => {
-    hideDiff();
-    ide.previewPath(path, line, start, end);
-  }, [ide, hideDiff]);
+  const openResult = useCallback(
+    (path: string, line: number, start: number, end: number) => {
+      hideDiff();
+      ide.previewPath(path, line, start, end);
+    },
+    [ide, hideDiff],
+  );
 
   // Fractions rather than pixels, because a fraction is what survives the window being resized,
   // and this panel is read on a phone and on an 8K desk within the same hour.
-  const growSidebar = useCallback((pixels: number) => {
-    const width = frame.current?.clientWidth ?? 0;
-    if (width === 0) return;
-    ide.update({
-      sidebarFraction: clampFraction(
-        ide.preferences.sidebarFraction + pixels / width,
-        SIDEBAR_FRACTION_RANGE,
-      ),
-    });
-  }, [ide]);
+  const growSidebar = useCallback(
+    (pixels: number) => {
+      const width = frame.current?.clientWidth ?? 0;
+      if (width === 0) return;
+      ide.update({
+        sidebarFraction: clampFraction(ide.preferences.sidebarFraction + pixels / width, SIDEBAR_FRACTION_RANGE),
+      });
+    },
+    [ide],
+  );
 
   // The editor is the leading pane above this divider, so growing it shrinks the terminal.
-  const growEditor = useCallback((pixels: number) => {
-    const height = frame.current?.clientHeight ?? 0;
-    if (height === 0) return;
-    ide.update({
-      terminalFraction: clampFraction(
-        ide.preferences.terminalFraction - pixels / height,
-        TERMINAL_FRACTION_RANGE,
-      ),
-    });
-  }, [ide]);
+  const growEditor = useCallback(
+    (pixels: number) => {
+      const height = frame.current?.clientHeight ?? 0;
+      if (height === 0) return;
+      ide.update({
+        terminalFraction: clampFraction(ide.preferences.terminalFraction - pixels / height, TERMINAL_FRACTION_RANGE),
+      });
+    },
+    [ide],
+  );
 
   /**
    * The status bar's branch, taking the reader to the changes it is counting.
@@ -113,10 +110,13 @@ export function WorkspaceIdeSurface({
    * Both status letters travel, so a path deleted in the index or the worktree offers no file.
    */
   const openDiffChange = diff.openChange;
-  const openChange = useCallback((path: string) => {
-    const entry = ide.git?.entries.find((candidate) => candidate.relativePath === path);
-    openDiffChange(path, [entry?.indexStatus, entry?.workTreeStatus].filter(Boolean).join(""));
-  }, [ide.git, openDiffChange]);
+  const openChange = useCallback(
+    (path: string) => {
+      const entry = ide.git?.entries.find((candidate) => candidate.relativePath === path);
+      openDiffChange(path, [entry?.indexStatus, entry?.workTreeStatus].filter(Boolean).join(""));
+    },
+    [ide.git, openDiffChange],
+  );
 
   /** Every roster call fails the same way: into the banner, named by what was attempted. */
   const report = useCallback(
@@ -135,7 +135,8 @@ export function WorkspaceIdeSurface({
     (root: string) => {
       setPicking(false);
       setAdding(true);
-      void ide.client.addWorkspace(root, root.split("/").pop() || root)
+      void ide.client
+        .addWorkspace(root, root.split("/").pop() || root)
         .then(({ workspace }) => ide.selectWorkspace(workspace.id))
         .catch(report("Could not add that workspace"))
         .finally(() => setAdding(false));
@@ -167,7 +168,8 @@ export function WorkspaceIdeSurface({
   const removeWorkspace = useCallback(
     (id: string) => {
       const remaining = ide.workspaces.filter((workspace) => workspace.id !== id);
-      void ide.client.removeWorkspace(id)
+      void ide.client
+        .removeWorkspace(id)
         .then(() => {
           if (ide.workspaceId === id) ide.selectWorkspace(remaining[0]?.id ?? "");
         })
@@ -197,16 +199,14 @@ export function WorkspaceIdeSurface({
           </button>
           {ide.error ? <p className="m-0 text-sm text-destructive">{ide.error}</p> : null}
         </div>
-        {picking
-          ? (
-            <WorkspacePicker
-              browse={ide.client.browse.bind(ide.client)}
-              createFolder={ide.client.createFolder.bind(ide.client)}
-              onChoose={chooseWorkspace}
-              onCancel={() => setPicking(false)}
-            />
-          )
-          : null}
+        {picking ? (
+          <WorkspacePicker
+            browse={ide.client.browse.bind(ide.client)}
+            createFolder={ide.client.createFolder.bind(ide.client)}
+            onChoose={chooseWorkspace}
+            onCancel={() => setPicking(false)}
+          />
+        ) : null}
       </div>
     );
   }
@@ -215,91 +215,80 @@ export function WorkspaceIdeSurface({
   const current = ide.workspaces.find((workspace) => workspace.id === ide.workspaceId);
   return (
     <div ref={frame} className="flex h-full min-h-0 w-full flex-col">
-      {ide.error
-        ? (
-          <div
-            role="status"
-            className="flex shrink-0 items-center gap-2 border-b border-border bg-destructive/10
+      {ide.error ? (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2 border-b border-border bg-destructive/10
               px-3 py-1.5 text-xs text-destructive"
-          >
-            <span className="flex-1">{ide.error}</span>
-            <button type="button" onClick={ide.dismissError} className="underline">Dismiss</button>
-          </div>
-        )
-        : null}
+        >
+          <span className="flex-1">{ide.error}</span>
+          <button type="button" onClick={ide.dismissError} className="underline">
+            Dismiss
+          </button>
+        </div>
+      ) : null}
 
       <div className="flex min-h-0 flex-1">
-        {preferences.sidebarVisible
-          ? (
-            <>
-              <div
-                className="min-w-0 shrink-0"
-                style={{ width: `${preferences.sidebarFraction * 100}%` }}
-              >
-                <WorkspaceSidebar
-                  workspaces={ide.workspaces}
-                  workspaceId={ide.workspaceId}
-                  section={preferences.section}
-                  tree={ide.tree}
-                  git={ide.git}
-                  activePath={ide.activePath}
-                  treeOrder={preferences.treeOrder}
-                  onSelectWorkspace={ide.selectWorkspace}
-                  onSelectSection={(section) => ide.update({ section })}
-                  onSelectTreeOrder={(treeOrder) => ide.update({ treeOrder })}
-                  onAddWorkspace={() => setPicking(true)}
-                  onRenameWorkspace={renameWorkspace}
-                  onRemoveWorkspace={removeWorkspace}
-                  onReorderWorkspaces={reorderWorkspaces}
-                  onOpen={ide.openPath}
-                  onOpenChange={openChange}
-                  changePath={diff.active && diff.target?.commit === null ? diff.target.path : null}
-                  onToggleDirectory={ide.setDirectoryExpanded}
-                  search={search}
-                  searchField={searchField}
-                  onOpenResult={openResult}
-                />
-              </div>
-              <PaneDivider axis="vertical" label="Resize sidebar" onGrow={growSidebar} />
-            </>
-          )
-          : null}
+        {preferences.sidebarVisible ? (
+          <>
+            <div className="min-w-0 shrink-0" style={{ width: `${preferences.sidebarFraction * 100}%` }}>
+              <WorkspaceSidebar
+                workspaces={ide.workspaces}
+                workspaceId={ide.workspaceId}
+                section={preferences.section}
+                tree={ide.tree}
+                git={ide.git}
+                activePath={ide.activePath}
+                treeOrder={preferences.treeOrder}
+                onSelectWorkspace={ide.selectWorkspace}
+                onSelectSection={(section) => ide.update({ section })}
+                onSelectTreeOrder={(treeOrder) => ide.update({ treeOrder })}
+                onAddWorkspace={() => setPicking(true)}
+                onRenameWorkspace={renameWorkspace}
+                onRemoveWorkspace={removeWorkspace}
+                onReorderWorkspaces={reorderWorkspaces}
+                onOpen={ide.openPath}
+                onOpenChange={openChange}
+                changePath={diff.active && diff.target?.commit === null ? diff.target.path : null}
+                onToggleDirectory={ide.setDirectoryExpanded}
+                search={search}
+                searchField={searchField}
+                onOpenResult={openResult}
+              />
+            </div>
+            <PaneDivider axis="vertical" label="Resize sidebar" onGrow={growSidebar} />
+          </>
+        ) : null}
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div ref={editor} className="min-h-0 flex-1">
             <EditorPane ide={ide} diff={diff} onQuickOpen={openQuickOpen} />
           </div>
-          {preferences.terminalVisible
-            ? (
-              <>
-                <PaneDivider axis="horizontal" label="Resize terminal" onGrow={growEditor} />
-                <div
-                  className="min-h-0 shrink-0 border-t border-border"
-                  style={{ height: `${preferences.terminalFraction * 100}%` }}
-                >
-                  {/* A shell in the workspace being browsed, through the sidecar's PTY manager.
+          {preferences.terminalVisible ? (
+            <>
+              <PaneDivider axis="horizontal" label="Resize terminal" onGrow={growEditor} />
+              <div
+                className="min-h-0 shrink-0 border-t border-border"
+                style={{ height: `${preferences.terminalFraction * 100}%` }}
+              >
+                {/* A shell in the workspace being browsed, through the sidecar's PTY manager.
                       Keyed on the workspace so switching projects gets that project's shell
                       rather than the previous one re-pointed: the hook re-attaches on a context
                       change, and a remount is the honest way to say the terminal is a different
                       one. */}
-                  {current
-                    ? (
-                      <WorkspaceTerminal
-                        key={current.id}
-                        feed={feed}
-                        workspaceName={current.name}
-                        workspacePath={current.root}
-                      />
-                    )
-                    : (
-                      <p className="p-3 text-xs text-muted-foreground">
-                        Choose a workspace to open a shell in it.
-                      </p>
-                    )}
-                </div>
-              </>
-            )
-            : null}
+                {current ? (
+                  <WorkspaceTerminal
+                    key={current.id}
+                    feed={feed}
+                    workspaceName={current.name}
+                    workspacePath={current.root}
+                  />
+                ) : (
+                  <p className="p-3 text-xs text-muted-foreground">Choose a workspace to open a shell in it.</p>
+                )}
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -317,32 +306,28 @@ export function WorkspaceIdeSurface({
         onToggleTerminal={() => ide.update({ terminalVisible: !preferences.terminalVisible })}
       />
 
-      {picking
-        ? (
-          <WorkspacePicker
-            browse={ide.client.browse.bind(ide.client)}
-            createFolder={ide.client.createFolder.bind(ide.client)}
-            onChoose={chooseWorkspace}
-            onCancel={() => setPicking(false)}
-          />
-        )
-        : null}
+      {picking ? (
+        <WorkspacePicker
+          browse={ide.client.browse.bind(ide.client)}
+          createFolder={ide.client.createFolder.bind(ide.client)}
+          onChoose={chooseWorkspace}
+          onCancel={() => setPicking(false)}
+        />
+      ) : null}
 
-      {quickOpen && ide.workspaceId
-        ? (
-          <QuickOpen
-            client={ide.client}
-            workspaceId={ide.workspaceId}
-            openPaths={ide.visibleOpenPaths}
-            onOpen={(path, line) => {
-              setQuickOpen(false);
-              diff.hide();
-              ide.openPath(path, line ?? undefined);
-            }}
-            onClose={() => setQuickOpen(false)}
-          />
-        )
-        : null}
+      {quickOpen && ide.workspaceId ? (
+        <QuickOpen
+          client={ide.client}
+          workspaceId={ide.workspaceId}
+          openPaths={ide.visibleOpenPaths}
+          onOpen={(path, line) => {
+            setQuickOpen(false);
+            diff.hide();
+            ide.openPath(path, line ?? undefined);
+          }}
+          onClose={() => setQuickOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

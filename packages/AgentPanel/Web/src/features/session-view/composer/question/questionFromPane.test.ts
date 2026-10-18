@@ -25,14 +25,16 @@ describe("a question read off the terminal", () => {
   it("draws the whole question with each option's detail as its description", () => {
     expect(questionFromPane(pane())).toEqual({
       callId: "pane:Where do the secrets you want to store come from? Pick every",
-      questions: [{
-        question: "Where do the secrets you want to store come from? Pick every source that applies.",
-        multiSelect: true,
-        options: [
-          { label: "Existing .env files", description: "Keys already on disk." },
-          { label: "Provider CLI or API" },
-        ],
-      }],
+      questions: [
+        {
+          question: "Where do the secrets you want to store come from? Pick every source that applies.",
+          multiSelect: true,
+          options: [
+            { label: "Existing .env files", description: "Keys already on disk." },
+            { label: "Provider CLI or API" },
+          ],
+        },
+      ],
       pane: { unseen: 0 },
     });
   });
@@ -44,9 +46,14 @@ describe("a question read off the terminal", () => {
   });
 
   it("counts the questions of a longer call the screen cannot show", () => {
-    const shown = questionFromPane(pane({
-      tabs: [{ label: "Source", answered: false }, { label: "Scope", answered: false }],
-    }));
+    const shown = questionFromPane(
+      pane({
+        tabs: [
+          { label: "Source", answered: false },
+          { label: "Scope", answered: false },
+        ],
+      }),
+    );
     expect(shown?.pane).toEqual({ unseen: 1 });
   });
 
@@ -57,7 +64,7 @@ describe("a question read off the terminal", () => {
     const feed = { answerTmuxQuestion: answer, pointTmuxQuestion: vi.fn(async () => ({ pointed: true as const })) };
     const reading = pane();
     const { result } = renderHook(() =>
-      useTmuxQuestion(feed, { source: "claude", sessionId: "sid" }, questionFromPane(reading), reading)
+      useTmuxQuestion(feed, { source: "claude", sessionId: "sid" }, questionFromPane(reading), reading),
     );
     // The terminal's own tick and cursor are followed, which only works if the two match up.
     expect(result.current.drafts[0]!.chosen).toEqual([1]);
@@ -65,11 +72,13 @@ describe("a question read off the terminal", () => {
     await act(async () => {
       await result.current.submit();
     });
-    expect(answer).toHaveBeenCalledWith({ source: "claude", sessionId: "sid" }, [{
-      question: "Where do the secrets you want to store come from? Pick every source that applies.",
-      chosen: [{ index: 1, label: "Provider CLI or API" }],
-      other: "",
-    }]);
+    expect(answer).toHaveBeenCalledWith({ source: "claude", sessionId: "sid" }, [
+      {
+        question: "Where do the secrets you want to store come from? Pick every source that applies.",
+        chosen: [{ index: 1, label: "Provider CLI or API" }],
+        other: "",
+      },
+    ]);
   });
 
   it("stays up through the review screen, and goes only with the dialog", () => {

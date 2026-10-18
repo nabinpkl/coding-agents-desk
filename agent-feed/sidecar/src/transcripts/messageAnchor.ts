@@ -85,9 +85,10 @@ export async function anchorAtPosition(
   const end = await completeEnd(transcriptPath);
   // A position inside a line would read from the middle of one; checked rather than trusted, since
   // the id came over the wire.
-  const lines = position < end && await isLineStart(transcriptPath, position)
-    ? await parsedLinesBetween("claude", transcriptPath, position, end)
-    : [];
+  const lines =
+    position < end && (await isLineStart(transcriptPath, position))
+      ? await parsedLinesBetween("claude", transcriptPath, position, end)
+      : [];
   const target = lines[0];
   // Covers a position past the end, one inside a line, and a line that is a tool result, an
   // assistant turn or a harness envelope, which are one refusal because they are one mistake: the

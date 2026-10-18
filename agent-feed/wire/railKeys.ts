@@ -82,6 +82,6 @@ export function bytesForRailKey(key: RailKey, held: RailModifiers = NO_MODIFIERS
  */
 export function applyModifiers(data: string, held: RailModifiers): string {
   if (!held.ctrl && !held.alt) return data;
-  const controlled = held.ctrl ? controlByte(data) ?? data : data;
+  const controlled = held.ctrl ? (controlByte(data) ?? data) : data;
   return held.alt ? `${ESCAPE}${controlled}` : controlled;
 }

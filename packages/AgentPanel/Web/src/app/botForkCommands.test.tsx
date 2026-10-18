@@ -14,9 +14,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -104,16 +102,15 @@ describe("App shell", () => {
     // sends the task as typed; the sidecar spends the anchor and brackets it. Claude through the
     // SDK unless another harness is chosen on the card.
     await waitFor(() => {
-      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
-        .toEqual({
-          requestId: expect.any(String),
-          launch: {
-            title: "Retry the flaky gate",
-            prompt: "Run it again",
-            claudeMode: "sdk",
-            from: { source: "claude", sessionId: "sid-claude-01" },
-          },
-        });
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toEqual({
+        requestId: expect.any(String),
+        launch: {
+          title: "Retry the flaky gate",
+          prompt: "Run it again",
+          claudeMode: "sdk",
+          from: { source: "claude", sessionId: "sid-claude-01" },
+        },
+      });
     });
 
     // A card on the same Bot, open, beside its source -- the canvas stays where it was. It used to
@@ -169,12 +166,11 @@ describe("App shell", () => {
 
     // The Bot endpoint, with the message: the one that attaches a session before it has spoken.
     await waitFor(() => {
-      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
-        .toMatchObject({
-          launch: {
-            from: { source: "claude", sessionId: "sid-claude-01", eventId: "claude:sid-claude-01:line:4" },
-          },
-        });
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toMatchObject({
+        launch: {
+          from: { source: "claude", sessionId: "sid-claude-01", eventId: "claude:sid-claude-01:line:4" },
+        },
+      });
     });
     expect(transport.requests.some((request) => request.path.endsWith("/fork"))).toBe(false);
     await waitFor(() => {
@@ -235,8 +231,7 @@ describe("App shell", () => {
       },
     ]);
 
-    expect(transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions"))
-      .toHaveLength(1);
+    expect(transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions")).toHaveLength(1);
     unmount();
   });
   it("forks into opencode as a handover, attached to the Bot under its anchor", async () => {
@@ -253,7 +248,10 @@ describe("App shell", () => {
         handover: { turnCount: 3, chars: 900, lossy: false },
       }),
     });
-    transport.responses.set("POST /api/bots/bot-1/sessions", { status: 200, body: JSON.stringify({ bot: BOT_WITH_ONE_SESSION }) });
+    transport.responses.set("POST /api/bots/bot-1/sessions", {
+      status: 200,
+      body: JSON.stringify({ bot: BOT_WITH_ONE_SESSION }),
+    });
     transport.responses.set("POST /api/sessions/opencode/oc-1/bracket", { status: 200, body: "{}" });
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
@@ -264,13 +262,16 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
 
     await waitFor(() => {
-      expect(transport.requests.find((request) => request.path === "/api/sessions/opencode/oc-1/bracket")?.body)
-        .toEqual({ task: "" });
+      expect(
+        transport.requests.find((request) => request.path === "/api/sessions/opencode/oc-1/bracket")?.body,
+      ).toEqual({ task: "" });
     });
-    expect(transport.requests.find((request) => request.path === "/api/agent-sessions/opencode/handover")?.body)
-      .toMatchObject({ sessionId: "sid-claude-01", message: "carry on in opencode" });
-    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
-      .toMatchObject({ sessionRefs: [{ source: "opencode", sessionId: "oc-1" }] });
+    expect(
+      transport.requests.find((request) => request.path === "/api/agent-sessions/opencode/handover")?.body,
+    ).toMatchObject({ sessionId: "sid-claude-01", message: "carry on in opencode" });
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toMatchObject({
+      sessionRefs: [{ source: "opencode", sessionId: "oc-1" }],
+    });
     // Started, so its draft is gone; the attached session arrives on the Bot's stream as any does.
     await waitFor(() => expect(screen.queryByRole("region", { name: /Fork of/ })).toBeNull());
     unmount();
@@ -287,19 +288,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 

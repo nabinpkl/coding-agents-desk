@@ -69,7 +69,8 @@ export function ForkSessionDialog({
   // `takenTitles` is rebuilt on every inventory push, and following it would retype the reader's
   // field underneath them while they are in it.
   const [title, setTitle] = useStateFor(request, () =>
-    request === null ? "" : nextForkTitle(request.session.title || request.session.sessionId, takenTitles));
+    request === null ? "" : nextForkTitle(request.session.title || request.session.sessionId, takenTitles),
+  );
   // Seeded with what that message said, because the thing a reader wants from forking at a
   // message is almost always to send it again differently -- which is what Claude's own rewind
   // does when it puts the rewound-to message back in the composer to be edited. Offering it here
@@ -144,18 +145,19 @@ export function ForkSessionDialog({
         onSubmit={submit}
         className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-card p-4 text-foreground shadow-2xl"
       >
-        <h2 id="session-fork-title" className="text-base font-semibold">Fork session</h2>
+        <h2 id="session-fork-title" className="text-base font-semibold">
+          Fork session
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Branches <span className="font-medium text-foreground">{source}</span> into a new session
-          in its own pane. The original is untouched.
+          Branches <span className="font-medium text-foreground">{source}</span> into a new session in its own pane. The
+          original is untouched.
         </p>
         {/* Which message, quoted, because a count is not something a reader can check. This is the
             same text the sidecar matches the rewind picker against, so what is shown here is what
             the fork will be asked to land on. */}
         {request.from ? (
           <p className="max-h-24 overflow-y-auto rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            It starts just before this message, which is yours to edit below:
-            {" "}
+            It starts just before this message, which is yours to edit below:{" "}
             <span className="text-foreground">&ldquo;{request.from.text}&rdquo;</span>
           </p>
         ) : null}
@@ -172,8 +174,8 @@ export function ForkSessionDialog({
         </label>
         {/* Said before rather than discovered later: this is the one moment the name is free. */}
         <p className="text-xs text-muted-foreground">
-          Sets the name everywhere at once — here, in /resume, and the one other agents message it by.
-          Forks of one session share a name unless you give them their own.
+          Sets the name everywhere at once — here, in /resume, and the one other agents message it by. Forks of one
+          session share a name unless you give them their own.
         </p>
         <div className="rounded-lg border border-border p-3">
           <div className="flex items-center justify-between gap-2">
@@ -198,8 +200,8 @@ export function ForkSessionDialog({
             {brief.trim()
               ? `${brief.length.toLocaleString()} characters, after a note telling the fork to leave the parent's work alone`
               : request.from
-              ? "Left empty, the fork stops before that message with it still in its composer, for you to edit there."
-              : "Left empty, the fork opens holding the parent's context and waits for you to type."}
+                ? "Left empty, the fork stops before that message with it still in its composer, for you to edit there."
+                : "Left empty, the fork opens holding the parent's context and waits for you to type."}
           </p>
         </div>
         <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border p-3 hover:bg-muted/40 focus-within:ring-2 focus-within:ring-primary active:bg-muted/70">
@@ -215,8 +217,8 @@ export function ForkSessionDialog({
                 and every uncommitted file, which is fine while they are doing the same thing and
                 is not the moment they are not. */}
             <span className="block text-xs text-muted-foreground">
-              A git worktree, on a branch named after the fork. Without it the fork edits the same
-              files as the session it came from.
+              A git worktree, on a branch named after the fork. Without it the fork edits the same files as the session
+              it came from.
             </span>
           </span>
         </label>

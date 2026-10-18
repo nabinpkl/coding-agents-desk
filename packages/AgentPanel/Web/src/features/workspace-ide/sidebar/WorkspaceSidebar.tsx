@@ -92,35 +92,24 @@ export function WorkspaceSidebar({
         onSelect={onSelectSection}
       />
 
-      {section === "search"
-        ? (
-          // Its own scroller, below a query box that stays put, so it is not inside the one below.
-          <section className="min-h-0 flex-1 pt-1">
-            <SearchPanel ref={searchField} search={search} onOpen={onOpenResult} />
-          </section>
-        )
-        : null}
-      <section
-        hidden={section === "search"}
-        className="min-h-0 flex-1 overflow-auto px-1 pb-4 pt-1"
-      >
-        {section === "sourceControl"
-          ? (
-            <SourceControl
-              entries={git?.entries ?? []}
-              onOpen={onOpenChange}
-              selectedPath={changePath}
-            />
-          )
-          : (
-            <WorkspaceTree
-              nodes={tree}
-              activePath={activePath}
-              order={treeOrder}
-              onOpen={onOpen}
-              onToggle={onToggleDirectory}
-            />
-          )}
+      {section === "search" ? (
+        // Its own scroller, below a query box that stays put, so it is not inside the one below.
+        <section className="min-h-0 flex-1 pt-1">
+          <SearchPanel ref={searchField} search={search} onOpen={onOpenResult} />
+        </section>
+      ) : null}
+      <section hidden={section === "search"} className="min-h-0 flex-1 overflow-auto px-1 pb-4 pt-1">
+        {section === "sourceControl" ? (
+          <SourceControl entries={git?.entries ?? []} onOpen={onOpenChange} selectedPath={changePath} />
+        ) : (
+          <WorkspaceTree
+            nodes={tree}
+            activePath={activePath}
+            order={treeOrder}
+            onOpen={onOpen}
+            onToggle={onToggleDirectory}
+          />
+        )}
       </section>
     </div>
   );

@@ -20,8 +20,17 @@ const indices = (events: ActivityEvent[]) => events.map((event) => event.index);
 /** A session of `rows` ordinal rows that grows when told, as a runtime projection's does. */
 function growing(rows: number) {
   const session = { rows };
-  const harness = thread(range(0, rows).map((index) => row(index)), { stableIndices: true });
-  harness.answerWith(async (at, limit) => pageOf(range(0, session.rows).map((index) => row(index)), at, limit));
+  const harness = thread(
+    range(0, rows).map((index) => row(index)),
+    { stableIndices: true },
+  );
+  harness.answerWith(async (at, limit) =>
+    pageOf(
+      range(0, session.rows).map((index) => row(index)),
+      at,
+      limit,
+    ),
+  );
   const view = renderThread(harness.source);
   return {
     view,
@@ -29,11 +38,18 @@ function growing(rows: number) {
     /** The sidecar's reopened stream: its newest window, of a session that is now `rows` long. */
     reconnect: (next: number, sequence: number) => {
       session.rows = next;
-      act(() => harness.handlers().onSnapshot(snapshotOf(range(next - 100, next).map((index) => row(index)), {
-        sequence,
-        windowStart: next - 100,
-        stableIndices: true,
-      })));
+      act(() =>
+        harness.handlers().onSnapshot(
+          snapshotOf(
+            range(next - 100, next).map((index) => row(index)),
+            {
+              sequence,
+              windowStart: next - 100,
+              stableIndices: true,
+            },
+          ),
+        ),
+      );
     },
   };
 }
@@ -82,10 +98,14 @@ test("finds a gap by what each row says precedes it, not by adjacent numbers", a
   // Held: rows 20..119. Nothing is missing between them although their indices are 1000 apart.
   expect(gapsIn(view.result.current.events)).toEqual([]);
 
-  act(() => harness.handlers().onSnapshot(snapshotOf(all.slice(200), {
-    windowStart: at(200),
-    stableIndices: true,
-  })));
+  act(() =>
+    harness.handlers().onSnapshot(
+      snapshotOf(all.slice(200), {
+        windowStart: at(200),
+        stableIndices: true,
+      }),
+    ),
+  );
 
   expect(gapsIn(view.result.current.events)).toEqual([{ above: at(119), below: at(200) }]);
 });
@@ -110,15 +130,19 @@ test("throws away a page that a newer snapshot overtook", async () => {
   session.reconnect(400, 2);
 
   let answerStale: (() => void) | undefined;
-  session.harness.answerWith((where, limit) => new Promise<EventsPage>((resolve) => {
-    const before = "before" in where ? where.before! : 0;
-    // A newer revision, so only the epoch check can be what keeps it out.
-    answerStale = () => resolve({
-      events: range(before - limit, before).map((index) => row(index, "stale", 5)),
-      windowStart: before - limit,
-      usage: null,
-    });
-  }));
+  session.harness.answerWith(
+    (where, limit) =>
+      new Promise<EventsPage>((resolve) => {
+        const before = "before" in where ? where.before! : 0;
+        // A newer revision, so only the epoch check can be what keeps it out.
+        answerStale = () =>
+          resolve({
+            events: range(before - limit, before).map((index) => row(index, "stale", 5)),
+            windowStart: before - limit,
+            usage: null,
+          });
+      }),
+  );
   const filling = session.view.result.current.fillGap({ above: 249, below: 300 }, "below");
   await waitFor(() => expect(answerStale).toBeDefined());
 

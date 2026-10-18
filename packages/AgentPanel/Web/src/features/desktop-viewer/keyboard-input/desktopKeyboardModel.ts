@@ -71,25 +71,27 @@ export function keyboardPresentationReducer(
 ): KeyboardPresentationState {
   switch (action.type) {
     case "transport-open":
-      return state.presentation === "unavailable"
-        ? { ...state, presentation: "hidden" }
-        : state;
+      return state.presentation === "unavailable" ? { ...state, presentation: "hidden" } : state;
     case "transport-close":
       return INITIAL_KEYBOARD_PRESENTATION;
     case "remote-tap":
-      return state.presentation === "unavailable" ? state : {
-        presentation: "pending",
-        focusRequestId: action.focusRequestId,
-        secure: false,
-        editability: null,
-      };
+      return state.presentation === "unavailable"
+        ? state
+        : {
+            presentation: "pending",
+            focusRequestId: action.focusRequestId,
+            secure: false,
+            editability: null,
+          };
     case "manual-show":
-      return state.presentation === "unavailable" ? state : {
-        presentation: "shown",
-        focusRequestId: action.focusRequestId,
-        secure: false,
-        editability: null,
-      };
+      return state.presentation === "unavailable"
+        ? state
+        : {
+            presentation: "shown",
+            focusRequestId: action.focusRequestId,
+            secure: false,
+            editability: null,
+          };
     case "focus-result": {
       if (state.focusRequestId !== action.event.focusRequestId) return state;
       if (state.presentation === "shown") {
@@ -100,8 +102,9 @@ export function keyboardPresentationReducer(
         };
       }
       if (state.presentation !== "pending") return state;
-      const editable = action.event.editability === "editable"
-        || (action.event.editability === "ambiguous" && action.event.cursorKind === "ibeam");
+      const editable =
+        action.event.editability === "editable" ||
+        (action.event.editability === "ambiguous" && action.event.cursorKind === "ibeam");
       return editable
         ? {
             presentation: "shown",
@@ -121,12 +124,14 @@ export function keyboardPresentationReducer(
         ? { presentation: "hidden", focusRequestId: null, secure: false, editability: null }
         : state;
     case "hide":
-      return state.presentation === "unavailable" ? state : {
-        presentation: "hidden",
-        focusRequestId: null,
-        secure: false,
-        editability: null,
-      };
+      return state.presentation === "unavailable"
+        ? state
+        : {
+            presentation: "hidden",
+            focusRequestId: null,
+            secure: false,
+            editability: null,
+          };
   }
 }
 
@@ -144,21 +149,36 @@ export function activeModifiers(
 export function clearArmedModifiers(
   states: Record<RemoteModifier, ModifierState>,
 ): Record<RemoteModifier, ModifierState> {
-  return Object.fromEntries(REMOTE_MODIFIER_ORDER.map((modifier) => [
-    modifier,
-    states[modifier] === "armed" ? "off" : states[modifier],
-  ])) as Record<RemoteModifier, ModifierState>;
+  return Object.fromEntries(
+    REMOTE_MODIFIER_ORDER.map((modifier) => [modifier, states[modifier] === "armed" ? "off" : states[modifier]]),
+  ) as Record<RemoteModifier, ModifierState>;
 }
 
 const UNSHIFTED_PUNCTUATION: Record<string, RemoteKeyCode> = {
-  ",": "ansi-comma", ".": "ansi-period", "/": "ansi-slash", ";": "ansi-semicolon",
-  "'": "ansi-quote", "[": "ansi-leftbracket", "]": "ansi-rightbracket",
-  "\\": "ansi-backslash", "-": "ansi-minus", "=": "ansi-equal", "`": "ansi-grave",
+  ",": "ansi-comma",
+  ".": "ansi-period",
+  "/": "ansi-slash",
+  ";": "ansi-semicolon",
+  "'": "ansi-quote",
+  "[": "ansi-leftbracket",
+  "]": "ansi-rightbracket",
+  "\\": "ansi-backslash",
+  "-": "ansi-minus",
+  "=": "ansi-equal",
+  "`": "ansi-grave",
 };
 const SHIFTED_PUNCTUATION: Record<string, RemoteKeyCode> = {
-  "<": "ansi-comma", ">": "ansi-period", "?": "ansi-slash", ":": "ansi-semicolon",
-  "\"": "ansi-quote", "{": "ansi-leftbracket", "}": "ansi-rightbracket",
-  "|": "ansi-backslash", "_": "ansi-minus", "+": "ansi-equal", "~": "ansi-grave",
+  "<": "ansi-comma",
+  ">": "ansi-period",
+  "?": "ansi-slash",
+  ":": "ansi-semicolon",
+  '"': "ansi-quote",
+  "{": "ansi-leftbracket",
+  "}": "ansi-rightbracket",
+  "|": "ansi-backslash",
+  _: "ansi-minus",
+  "+": "ansi-equal",
+  "~": "ansi-grave",
 };
 const SHIFTED_DIGITS = "!@#$%^&*()";
 
@@ -198,8 +218,14 @@ export function remoteKeysForText(text: string): RemoteKeyEvent[] | null {
 }
 
 const CONTROL_RECEIPT: Partial<Record<RemoteKeyCode, string>> = {
-  escape: "Esc", tab: "⇥", return: "↵", delete: "⌫",
-  left: "←", right: "→", up: "↑", down: "↓",
+  escape: "Esc",
+  tab: "⇥",
+  return: "↵",
+  delete: "⌫",
+  left: "←",
+  right: "→",
+  up: "↑",
+  down: "↓",
 };
 
 export function receiptToken(event: RemoteKeyEvent, secure: boolean): string {
@@ -227,8 +253,7 @@ export function appendLocalEcho(current: string[], keys: RemoteKeyEvent[], secur
     if (key.code === "return") echo = [];
     else if (key.code === "delete") {
       echo = key.modifiers.includes("cmd") ? [] : echo.slice(0, -1);
-    } else if (!CONTROL_RECEIPT[key.code]
-        && !key.modifiers.some((modifier) => modifier !== "shift")) {
+    } else if (!CONTROL_RECEIPT[key.code] && !key.modifiers.some((modifier) => modifier !== "shift")) {
       echo.push(receiptToken(key, secure));
     }
   }

@@ -18,10 +18,13 @@ function answer(status: number, body: BodyInit) {
 }
 
 beforeEach(() => {
-  vi.stubGlobal("IntersectionObserver", class {
-    observe() {}
-    disconnect() {}
-  });
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
 });
 
 afterEach(() => {
@@ -43,9 +46,15 @@ it("lays out every page of the document fetched from the content address", async
 });
 
 it("says a sidecar without the content route needs restarting, rather than showing a blank page", async () => {
-  vi.stubGlobal("fetch", answer(404, JSON.stringify({
-    error: { code: "route-not-found", message: "no route" },
-  })));
+  vi.stubGlobal(
+    "fetch",
+    answer(
+      404,
+      JSON.stringify({
+        error: { code: "route-not-found", message: "no route" },
+      }),
+    ),
+  );
 
   render(<PdfPreview name="paper.pdf" url="/api/bots/b/content?path=paper.pdf" revision="r1" />);
 

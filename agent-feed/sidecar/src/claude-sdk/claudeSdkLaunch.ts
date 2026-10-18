@@ -77,15 +77,22 @@ export function claudeSdkRunnerCommand(options: {
   return [
     runnerBun(),
     RUNNER_MAIN,
-    "--session", options.sessionId,
-    "--cwd", options.cwd,
-    "--name", options.title,
-    "--start", options.start,
-    "--permission-mode", sdkPermissionMode(options.permissionMode ?? claudeLaunchPermission.mode),
+    "--session",
+    options.sessionId,
+    "--cwd",
+    options.cwd,
+    "--name",
+    options.title,
+    "--start",
+    options.start,
+    "--permission-mode",
+    sdkPermissionMode(options.permissionMode ?? claudeLaunchPermission.mode),
     ...(claudeLaunchPermission.allowBypass ? ["--allow-bypass"] : []),
     ...claudeLaunchModDirectories.flatMap((directory) => ["--plugin-dir", directory]),
-    "--claude", claude,
-    "--socket-dir", config.claudeSdkSocketDirectory,
+    "--claude",
+    claude,
+    "--socket-dir",
+    config.claudeSdkSocketDirectory,
     ...(options.forkFrom ? ["--fork-from", options.forkFrom] : []),
     ...(options.resumeAt ? ["--resume-at", options.resumeAt] : []),
     ...(options.firstTurnFile ? ["--first-turn-file", options.firstTurnFile] : []),
@@ -108,7 +115,8 @@ export async function startClaudeSdkSession(options: {
 }): Promise<StartedClaudeSession> {
   const pane = claudeSessionPaneName(options.sessionId);
   await startRunnerPane(pane, options.cwd, options.prompt, (firstTurnFile) =>
-    claudeSdkRunnerCommand({ ...options, start: "new", ...(firstTurnFile ? { firstTurnFile } : {}) }));
+    claudeSdkRunnerCommand({ ...options, start: "new", ...(firstTurnFile ? { firstTurnFile } : {}) }),
+  );
   const tmuxSession = await adoptTitleName(pane, options.sessionId, options.title);
   return { sessionId: options.sessionId, title: options.title, tmuxSession };
 }
@@ -132,17 +140,19 @@ export async function startClaudeSdkForkedSession(options: {
   const firstTurn = options.brief ? forkFirstTurn(options.brief) : undefined;
   // Opened the way its source last ran, as a terminal fork is (`forkClaudeSessionCommand`).
   const selection = lastResumeSelection(options.sessionId);
-  await startRunnerPane(pane, options.cwd, firstTurn, (firstTurnFile) => claudeSdkRunnerCommand({
-    sessionId: options.forkId,
-    cwd: options.cwd,
-    title: options.title,
-    start: "fork",
-    forkFrom: options.sessionId,
-    choices: runnerChoicesOf(selection),
-    ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
-    ...(options.resumeAt ? { resumeAt: options.resumeAt } : {}),
-    ...(firstTurnFile ? { firstTurnFile } : {}),
-  }));
+  await startRunnerPane(pane, options.cwd, firstTurn, (firstTurnFile) =>
+    claudeSdkRunnerCommand({
+      sessionId: options.forkId,
+      cwd: options.cwd,
+      title: options.title,
+      start: "fork",
+      forkFrom: options.sessionId,
+      choices: runnerChoicesOf(selection),
+      ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
+      ...(options.resumeAt ? { resumeAt: options.resumeAt } : {}),
+      ...(firstTurnFile ? { firstTurnFile } : {}),
+    }),
+  );
   const tmuxSession = await adoptTitleName(pane, options.forkId, options.title);
   return { sessionId: options.forkId, title: options.title, tmuxSession };
 }
@@ -158,7 +168,13 @@ async function startRunnerPane(
   try {
     const firstTurnFile = directory ? join(directory, "turn.txt") : undefined;
     if (firstTurnFile) await writeFile(firstTurnFile, firstTurn!, { mode: 0o600 });
-    await createTmuxSession({ session: pane, cwd, command: command(firstTurnFile), columns: UNATTENDED_COLUMNS, rows: UNATTENDED_ROWS });
+    await createTmuxSession({
+      session: pane,
+      cwd,
+      command: command(firstTurnFile),
+      columns: UNATTENDED_COLUMNS,
+      rows: UNATTENDED_ROWS,
+    });
   } catch (error) {
     // The runner deletes the file once it has read it; when no runner started, nothing else will.
     if (directory) await rm(directory, { recursive: true, force: true });
@@ -194,10 +210,10 @@ export function resumeCommandFor(
   const selection = lastResumeSelection(options.sessionId, options.choices);
   return mode === "sdk"
     ? claudeSdkRunnerCommand({
-      ...options,
-      start: "resume",
-      choices: runnerChoicesOf(selection),
-      ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
-    })
+        ...options,
+        start: "resume",
+        choices: runnerChoicesOf(selection),
+        ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
+      })
     : resumeClaudeSessionCommand(options.sessionId, selection);
 }

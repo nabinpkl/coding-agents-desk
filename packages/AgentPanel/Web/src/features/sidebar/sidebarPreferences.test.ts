@@ -15,35 +15,80 @@ describe("sidebar preferences", () => {
   });
 
   it("restores a saved open state and width", () => {
-    storeSidebarPreferences({ open: false, width: 336, mode: "sessions", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
-    expect(loadSidebarPreferences()).toEqual({ open: false, width: 336, mode: "sessions", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
+    storeSidebarPreferences({
+      open: false,
+      width: 336,
+      mode: "sessions",
+      botFaces: false,
+      canvasView: "bots",
+      canvasSessionsGrouped: true,
+    });
+    expect(loadSidebarPreferences()).toEqual({
+      open: false,
+      width: 336,
+      mode: "sessions",
+      botFaces: false,
+      canvasView: "bots",
+      canvasSessionsGrouped: true,
+    });
   });
 
   it("validates stale fields independently", () => {
-    localStorage.setItem("agent-panel.sidebar.preferences", JSON.stringify({
-      open: "yes",
-      width: 9999,
-      mode: "desktop",
-      botFaces: "always",
-    }));
+    localStorage.setItem(
+      "agent-panel.sidebar.preferences",
+      JSON.stringify({
+        open: "yes",
+        width: 9999,
+        mode: "desktop",
+        botFaces: "always",
+      }),
+    );
     expect(loadSidebarPreferences()).toEqual(DEFAULT_SIDEBAR_PREFERENCES);
   });
 
   it("restores the view that was selected", () => {
-    storeSidebarPreferences({ open: true, width: 264, mode: "canvas", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
+    storeSidebarPreferences({
+      open: true,
+      width: 264,
+      mode: "canvas",
+      botFaces: false,
+      canvasView: "bots",
+      canvasSessionsGrouped: true,
+    });
     expect(loadSidebarPreferences().mode).toBe("canvas");
   });
 
   it("remembers the faces once chosen", () => {
-    storeSidebarPreferences({ open: true, width: 264, mode: "bots", botFaces: true, canvasView: "bots", canvasSessionsGrouped: true });
+    storeSidebarPreferences({
+      open: true,
+      width: 264,
+      mode: "bots",
+      botFaces: true,
+      canvasView: "bots",
+      canvasSessionsGrouped: true,
+    });
     expect(loadSidebarPreferences().botFaces).toBe(true);
   });
 
   it("clamps widths before storing them", () => {
-    storeSidebarPreferences({ open: true, width: 1, mode: "sessions", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
+    storeSidebarPreferences({
+      open: true,
+      width: 1,
+      mode: "sessions",
+      botFaces: false,
+      canvasView: "bots",
+      canvasSessionsGrouped: true,
+    });
     expect(loadSidebarPreferences().width).toBe(MIN_SIDEBAR_WIDTH);
 
-    storeSidebarPreferences({ open: true, width: 9999, mode: "sessions", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
+    storeSidebarPreferences({
+      open: true,
+      width: 9999,
+      mode: "sessions",
+      botFaces: false,
+      canvasView: "bots",
+      canvasSessionsGrouped: true,
+    });
     expect(loadSidebarPreferences().width).toBe(MAX_SIDEBAR_WIDTH);
   });
 

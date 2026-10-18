@@ -24,10 +24,11 @@ import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar
 
 // No horizontal padding here: each item sets its own, and two `px-*` on one element would be
 // decided by the order Tailwind happens to emit them in rather than by the order written.
-const ITEM = "flex h-full shrink-0 items-center gap-1.5 text-muted-foreground outline-none"
-  + " transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2"
-  + " focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70"
-  + " aria-pressed:bg-muted aria-pressed:text-foreground";
+const ITEM =
+  "flex h-full shrink-0 items-center gap-1.5 text-muted-foreground outline-none" +
+  " transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2" +
+  " focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70" +
+  " aria-pressed:bg-muted aria-pressed:text-foreground";
 
 /**
  * What the reader sees first, then what the click does.
@@ -101,8 +102,7 @@ export function WorkspaceIdeStatusBar({
   });
   useEventListener<PointerEvent>(historyOpen ? document : null, "pointerdown", (event) => {
     const target = event.target;
-    const within = (region: HTMLElement | null) =>
-      target instanceof Node && region !== null && region.contains(target);
+    const within = (region: HTMLElement | null) => target instanceof Node && region !== null && region.contains(target);
     if (within(bar.current) || within(editor.current)) return;
     // No focus returned here, unlike Escape: the pointer has already put focus where it landed,
     // and taking it back to the bar would move the reader away from what they just clicked.
@@ -131,37 +131,33 @@ export function WorkspaceIdeStatusBar({
       // so the popup overlays the editor rather than being cut off at the top of the bar.
       className="relative flex h-8 shrink-0 items-center border-t border-border bg-muted/40 text-sm"
     >
-      {branch !== null
-        ? (
-          <button
-            type="button"
-            aria-label={branchLabel(branch, changed)}
-            title={branchLabel(branch, changed)}
-            onClick={onShowSourceControl}
-            className={`${ITEM} px-2`}
-          >
-            <GitBranch aria-hidden className="size-4" />
-            {/* Full ink and monospace: the branch is the one thing on this bar a reader came to
+      {branch !== null ? (
+        <button
+          type="button"
+          aria-label={branchLabel(branch, changed)}
+          title={branchLabel(branch, changed)}
+          onClick={onShowSourceControl}
+          className={`${ITEM} px-2`}
+        >
+          <GitBranch aria-hidden className="size-4" />
+          {/* Full ink and monospace: the branch is the one thing on this bar a reader came to
                 read, and it is an identifier they may need to type back somewhere. Capped in
                 characters rather than pixels so a long branch truncates at the same place in
                 every theme, and so the terminal toggle keeps its corner on a phone. */}
-            <span className="max-w-[20ch] truncate font-mono text-foreground">{branch}</span>
-            {/* Recessed rather than tinted. It annotates the branch, and the Source Control tab
+          <span className="max-w-[20ch] truncate font-mono text-foreground">{branch}</span>
+          {/* Recessed rather than tinted. It annotates the branch, and the Source Control tab
                 is already carrying this number in primary as the thing to go and act on. */}
-            {changed > 0
-              ? (
-                <span
-                  aria-hidden
-                  className="min-w-[20px] rounded-full bg-background px-1.5 text-center font-mono
+          {changed > 0 ? (
+            <span
+              aria-hidden
+              className="min-w-[20px] rounded-full bg-background px-1.5 text-center font-mono
                     text-xs leading-[19px]"
-                >
-                  {changed > 99 ? "99+" : changed}
-                </span>
-              )
-              : null}
-          </button>
-        )
-        : null}
+            >
+              {changed > 99 ? "99+" : changed}
+            </span>
+          ) : null}
+        </button>
+      ) : null}
 
       <button
         type="button"
@@ -201,17 +197,15 @@ export function WorkspaceIdeStatusBar({
 
       {/* Nothing to read the history of until a workspace is chosen, so the popup is not rendered
           rather than rendered empty: the roster is what the reader has to answer first. */}
-      {historyOpen && workspaceId !== null
-        ? (
-          <WorkspaceIdeHistory
-            id={historyId}
-            history={history}
-            showing={showingDiff}
-            onOpenDiff={onOpenDiff}
-            onClose={closeHistory}
-          />
-        )
-        : null}
+      {historyOpen && workspaceId !== null ? (
+        <WorkspaceIdeHistory
+          id={historyId}
+          history={history}
+          showing={showingDiff}
+          onOpenDiff={onOpenDiff}
+          onClose={closeHistory}
+        />
+      ) : null}
     </footer>
   );
 }

@@ -96,15 +96,15 @@ describe("holding the point under the fingers still", () => {
   it("never asks for an offset behind the start, which no scroller can be at", () => {
     // Zooming out near the left edge computes a negative offset; the browser would clamp it and
     // the next gesture would then read a scroll position that never happened.
-    expect(focalScroll(
-      { scrollLeft: 0, scrollTop: 0, pointerX: 400, pointerY: 300, padLeft: 0, padTop: 0 }, 1, 0.5,
-    )).toEqual({ left: 0, top: 0 });
+    expect(
+      focalScroll({ scrollLeft: 0, scrollTop: 0, pointerX: 400, pointerY: 300, padLeft: 0, padTop: 0 }, 1, 0.5),
+    ).toEqual({ left: 0, top: 0 });
   });
 
   it("leaves the scroller alone rather than dividing by a scale of zero", () => {
-    expect(focalScroll(
-      { scrollLeft: 120, scrollTop: 40, pointerX: 0, pointerY: 0, padLeft: 0, padTop: 0 }, 0, 1,
-    )).toEqual({ left: 120, top: 40 });
+    expect(
+      focalScroll({ scrollLeft: 120, scrollTop: 40, pointerX: 0, pointerY: 0, padLeft: 0, padTop: 0 }, 0, 1),
+    ).toEqual({ left: 120, top: 40 });
   });
 });
 

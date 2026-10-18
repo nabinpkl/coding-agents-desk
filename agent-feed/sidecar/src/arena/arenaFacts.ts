@@ -58,9 +58,7 @@ export function filesFromEvents(events: readonly ActivityEvent[]): {
       const tool = block.tool.toLowerCase();
       const writes = WRITE_TOOLS.has(tool);
       const fromInput = writes || READ_TOOLS.has(tool) ? fileFromToolInput(block.input) : null;
-      const named = block.files && block.files.length > 0
-        ? block.files
-        : fromInput === null ? [] : [fromInput];
+      const named = block.files && block.files.length > 0 ? block.files : fromInput === null ? [] : [fromInput];
       if (named.length === 0) continue;
       const into = writes ? written : read;
       for (const file of named) into.add(file);
@@ -80,8 +78,19 @@ const SHELL_TOOLS = new Set(["bash", "shell"]);
  * output, which it reads back as part of how it works. Relative to the home where they are in it.
  */
 const SYSTEM_ROOTS = [
-  "/dev", "/tmp", "/private", "/var", "/usr", "/bin", "/sbin", "/opt", "/etc", "/System", "/Library",
-  "/Applications", "/nix",
+  "/dev",
+  "/tmp",
+  "/private",
+  "/var",
+  "/usr",
+  "/bin",
+  "/sbin",
+  "/opt",
+  "/etc",
+  "/System",
+  "/Library",
+  "/Applications",
+  "/nix",
 ];
 const HARNESS_SCRATCH = [".local/share/opencode/tool-output"];
 /** Claude's own spill of a long tool output: `~/.claude/projects/<project>/<session>/tool-results/`. */
@@ -116,10 +125,12 @@ export function outsideReaches(
     const path = resolveNamed(raw, own, where.home);
     if (path === null || within(path, own)) return;
     // A rival's worktree, or its transcript: a Claude rival's session is a file named for it.
-    const rival = where.rivals.find((one) =>
-      within(path, resolve(one.worktreePath))
-      || (one.sessionId !== null && path.endsWith(`${sep}${one.sessionId}.jsonl`))
-    )?.contestantId ?? null;
+    const rival =
+      where.rivals.find(
+        (one) =>
+          within(path, resolve(one.worktreePath)) ||
+          (one.sessionId !== null && path.endsWith(`${sep}${one.sessionId}.jsonl`)),
+      )?.contestantId ?? null;
     if (rival === null && expected(path, where.home)) return;
     const key = `${how}\0${path}`;
     if (seen.has(key) || out.length >= MAXIMUM_REACHES) return;
@@ -180,8 +191,15 @@ function pathWords(command: string): string[] {
     let word = piece.replace(/^['"]+|['"]+$/g, "");
     const assigned = word.indexOf("=");
     if (assigned >= 0) word = word.slice(assigned + 1).replace(/^['"]+|['"]+$/g, "");
-    if (word.startsWith("/") || word === "~" || word.startsWith("~/") || word === ".." || word.startsWith("../")
-      || word.includes(`${sep}..${sep}`) || word.endsWith(`${sep}..`)) {
+    if (
+      word.startsWith("/") ||
+      word === "~" ||
+      word.startsWith("~/") ||
+      word === ".." ||
+      word.startsWith("../") ||
+      word.includes(`${sep}..${sep}`) ||
+      word.endsWith(`${sep}..`)
+    ) {
       words.push(word);
     }
   }

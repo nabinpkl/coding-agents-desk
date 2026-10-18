@@ -71,17 +71,20 @@ export function useProgressiveText(text: string, streaming: boolean): string {
   if (!streaming && shown !== text.length) setShown(text.length);
 
   // Ticks only while there is something left to reveal.
-  useInterval(() => {
-    setShown((current) => {
-      const target = text.length;
-      if (current >= target) return current;
-      // A large backlog resolves in a bounded number of ticks; a small addition
-      // still trickles instead of snapping. `MAX_CATCH_UP_TICKS` of 24 at
-      // ~30fps means anything fills in within about three quarters of a second.
-      const step = Math.max(MIN_STEP, Math.ceil((target - current) / MAX_CATCH_UP_TICKS));
-      return Math.min(target, current + step);
-    });
-  }, streaming && shown < text.length ? TICK_MS : null);
+  useInterval(
+    () => {
+      setShown((current) => {
+        const target = text.length;
+        if (current >= target) return current;
+        // A large backlog resolves in a bounded number of ticks; a small addition
+        // still trickles instead of snapping. `MAX_CATCH_UP_TICKS` of 24 at
+        // ~30fps means anything fills in within about three quarters of a second.
+        const step = Math.max(MIN_STEP, Math.ceil((target - current) / MAX_CATCH_UP_TICKS));
+        return Math.min(target, current + step);
+      });
+    },
+    streaming && shown < text.length ? TICK_MS : null,
+  );
 
   return streaming ? text.slice(0, shown) : text;
 }

@@ -90,8 +90,8 @@ export function updateTerminalMouseMode(mode: TerminalMouseMode, chunk: string):
     for (const part of params.slice(1).split(";")) {
       if (part === "") continue;
       const value = Number.parseInt(part, 10);
-      if (ANY_MOUSE_PARAMS.has(value)) mode.any = enable ? value : (mode.any === value ? null : mode.any);
-      else if (SGR_MOUSE_PARAMS.has(value)) mode.sgr = enable ? value : (mode.sgr === value ? null : mode.sgr);
+      if (ANY_MOUSE_PARAMS.has(value)) mode.any = enable ? value : mode.any === value ? null : mode.any;
+      else if (SGR_MOUSE_PARAMS.has(value)) mode.sgr = enable ? value : mode.sgr === value ? null : mode.sgr;
     }
   }
   // A full reset clears every private mode, mouse included. Checkpoint clears are our own

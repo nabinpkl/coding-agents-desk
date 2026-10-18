@@ -174,9 +174,10 @@ export function BotSessionCard({
   // this one rather than in place of the canvas.
   const contextFork = sessionContext.onForkFromMessage;
   const forkFromMessage = useMemo(
-    () => contextFork === undefined
-      ? undefined
-      : (request: Parameters<typeof contextFork>[0]) => contextFork({ ...request, botId: bot.botId }),
+    () =>
+      contextFork === undefined
+        ? undefined
+        : (request: Parameters<typeof contextFork>[0]) => contextFork({ ...request, botId: bot.botId }),
     [bot.botId, contextFork],
   );
   // Both or neither, decided in one place so the class and the properties cannot disagree: a card
@@ -313,11 +314,7 @@ export function BotSessionCard({
               tinted one is the only surface in the card that goes DARKER in dark and lighter in
               light: it carries the strongest tint AND the most readable text, and those want
               opposite directions in the two themes. `styles.css` carries the numbers. */}
-          <div
-            className={`@container flex shrink-0 flex-wrap items-start pr-1.5 ${
-              open ? "session-view-header" : ""
-            }`}
-          >
+          <div className={`@container flex shrink-0 flex-wrap items-start pr-1.5 ${open ? "session-view-header" : ""}`}>
             {/* The face, the title and the line under it sit OVER the button that opens the card
                 rather than inside it, because that line holds a control of its own -- the task,
                 which opens what the session set out to do -- and a button cannot contain a button.
@@ -466,12 +463,14 @@ export function BotSessionCard({
             says so; a card with no composer to paste into cannot be helped that way. */}
         <FileDropOverlay
           dragging={drop.dragging}
-          refusal={acceptFiles !== null
-            ? null
-            : open
-              ? "This session has no composer to drop into"
-              // Short because a closed card is one row tall and the overlay is clipped to it.
-              : "Open to drop an image"}
+          refusal={
+            acceptFiles !== null
+              ? null
+              : open
+                ? "This session has no composer to drop into"
+                : // Short because a closed card is one row tall and the overlay is clipped to it.
+                  "Open to drop an image"
+          }
         />
       </div>
     </li>

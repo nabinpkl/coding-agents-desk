@@ -31,7 +31,6 @@ export function BotRenameDialog({
   const [pending, setPending] = useStateFor(bot, () => false);
   const [error, setError] = useStateFor<string | null>(bot, () => null);
 
-
   useModal(dialogRef, Boolean(bot), { attributeFallback: true });
 
   useDomSync(() => {
@@ -74,7 +73,9 @@ export function BotRenameDialog({
         onSubmit={submit}
         className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-card p-4 text-foreground shadow-2xl"
       >
-        <h2 id="bot-rename-title" className="text-base font-semibold">Rename Bot</h2>
+        <h2 id="bot-rename-title" className="text-base font-semibold">
+          Rename Bot
+        </h2>
         <label className="block text-sm font-medium">
           Name
           <input
@@ -106,10 +107,14 @@ export function BotRenameDialog({
           />
         </label>
         <p className="text-xs text-muted-foreground">
-          Renames it on this machine, so the new name shows on the canvas, in the roster, and
-          anywhere else this Bot is read. Sessions keep their names; only the Bot is renamed.
+          Renames it on this machine, so the new name shows on the canvas, in the roster, and anywhere else this Bot is
+          read. Sessions keep their names; only the Bot is renamed.
         </p>
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"

@@ -32,12 +32,13 @@ describe("WebrtcDesktopControlEvents", () => {
       hash: createHash("sha256").update(pngBytes).digest("hex"),
     });
     expect(events.accept(event(image()))).toBeNull();
-    expect(events.accept(event({ type: "cursor-applied", revision: 41, x: 421, y: 181 })))
-      .toEqual({ type: "cursor-applied", revision: 41, x: 421, y: 181 });
-    expect(events.cursorSnapshot()).toEqual([
-      accepted,
-      { type: "cursor-position", x: 421, y: 181 },
-    ]);
+    expect(events.accept(event({ type: "cursor-applied", revision: 41, x: 421, y: 181 }))).toEqual({
+      type: "cursor-applied",
+      revision: 41,
+      x: 421,
+      y: 181,
+    });
+    expect(events.cursorSnapshot()).toEqual([accepted, { type: "cursor-position", x: 421, y: 181 }]);
   });
 
   test("forwards correlated focus and delivery events without retaining them", () => {
@@ -52,11 +53,19 @@ describe("WebrtcDesktopControlEvents", () => {
       cursorKind: "ibeam",
     } as const;
     expect(events.accept(event(focus))).toEqual(focus);
-    expect(events.accept(event({ type: "input-applied", sequence: 4 })))
-      .toEqual({ type: "input-applied", sequence: 4 });
-    expect(events.accept(event({
-      type: "input-rejected", sequence: 5, reason: "accessibility-denied",
-    }))).toEqual({ type: "input-rejected", sequence: 5, reason: "accessibility-denied" });
+    expect(events.accept(event({ type: "input-applied", sequence: 4 }))).toEqual({
+      type: "input-applied",
+      sequence: 4,
+    });
+    expect(
+      events.accept(
+        event({
+          type: "input-rejected",
+          sequence: 5,
+          reason: "accessibility-denied",
+        }),
+      ),
+    ).toEqual({ type: "input-rejected", sequence: 5, reason: "accessibility-denied" });
     expect(events.cursorSnapshot()).toEqual([]);
   });
 
@@ -64,19 +73,33 @@ describe("WebrtcDesktopControlEvents", () => {
     const events = new WebrtcDesktopControlEvents();
     expect(events.accept(event(image(Buffer.from("not-png").toString("base64"))))).toBeNull();
     expect(events.accept(event({ ...image(), cursorKind: "busy-ish" }))).toBeNull();
-    expect(events.accept(event({ type: "cursor-applied", revision: 0, x: 1, y: 1 })))
-      .toBeNull();
+    expect(events.accept(event({ type: "cursor-applied", revision: 0, x: 1, y: 1 }))).toBeNull();
     expect(events.accept(event({ type: "input-applied", sequence: 0 }))).toBeNull();
   });
 
   test("late join replays only the latest topology, not switch results, and detects unplug", () => {
     const events = new WebrtcDesktopControlEvents();
-    const state = { type: "desktop-state" as const, revision: 1, captureDisplayId: "A", displays: [{
-      id: "A", label: "Main", isMain: true, activeSpaceId: "1", spaces: [{ id: "1", type: 0 }],
-    }] };
+    const state = {
+      type: "desktop-state" as const,
+      revision: 1,
+      captureDisplayId: "A",
+      displays: [
+        {
+          id: "A",
+          label: "Main",
+          isMain: true,
+          activeSpaceId: "1",
+          spaces: [{ id: "1", type: 0 }],
+        },
+      ],
+    };
     expect(events.accept(event(state))).toEqual(state);
     expect(events.captureDisplayMissing("A")).toBe(false);
-    const result = { type: "space-result", requestId: "5f03b272-2922-4ca1-93ee-82d902fdbe21", status: "posted" } as const;
+    const result = {
+      type: "space-result",
+      requestId: "5f03b272-2922-4ca1-93ee-82d902fdbe21",
+      status: "posted",
+    } as const;
     expect(events.accept(event(result))).toEqual(result);
     expect(events.snapshot()).toEqual([state]);
     const unplugged = { ...state, revision: 2, displays: [] };

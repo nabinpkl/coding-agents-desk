@@ -20,8 +20,7 @@ describe("clampFraction", () => {
 
   it("treats a value that is not a number as the low end, not as NaN", () => {
     expect(clampFraction(Number.NaN, SIDEBAR_FRACTION_RANGE)).toBe(SIDEBAR_FRACTION_RANGE[0]);
-    expect(clampFraction(Number.POSITIVE_INFINITY, SIDEBAR_FRACTION_RANGE))
-      .toBe(SIDEBAR_FRACTION_RANGE[0]);
+    expect(clampFraction(Number.POSITIVE_INFINITY, SIDEBAR_FRACTION_RANGE)).toBe(SIDEBAR_FRACTION_RANGE[0]);
   });
 });
 
@@ -48,18 +47,21 @@ describe("loadWorkspaceIdePreferences", () => {
   });
 
   it("falls back per field rather than casting a hand-edited shape", () => {
-    localStorage.setItem(KEY, JSON.stringify({
-      workspaceId: 42,
-      activePathByWorkspace: { "w-1": 7, "w-2": "ok.ts" },
-      fileViewByWorkspace: {
-        "w-1": { "a.md": "source", "b.md": "rendered", "c.md": 3 },
-        "w-2": "not-a-record",
-      },
-      section: "invented",
-      treeOrder: "by-vibes",
-      sidebarFraction: "wide",
-      terminalFraction: 99,
-    }));
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        workspaceId: 42,
+        activePathByWorkspace: { "w-1": 7, "w-2": "ok.ts" },
+        fileViewByWorkspace: {
+          "w-1": { "a.md": "source", "b.md": "rendered", "c.md": 3 },
+          "w-2": "not-a-record",
+        },
+        section: "invented",
+        treeOrder: "by-vibes",
+        sidebarFraction: "wide",
+        terminalFraction: 99,
+      }),
+    );
     expect(loadWorkspaceIdePreferences()).toEqual({
       ...DEFAULT_WORKSPACE_IDE_PREFERENCES,
       workspaceId: null,

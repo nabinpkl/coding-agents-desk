@@ -64,23 +64,33 @@ describe("setting a terminal session's permission mode", () => {
 
   test("gives up when a press does not move the footer", async () => {
     const pane = cyclingPane(["auto", "plan"], { stuck: true });
-    expect(await setTmuxPermissionMode("s4", "plan", pane, noWait))
-      .toMatchObject({ ok: false, reason: "no-response", mode: "auto" });
+    expect(await setTmuxPermissionMode("s4", "plan", pane, noWait)).toMatchObject({
+      ok: false,
+      reason: "no-response",
+      mode: "auto",
+    });
     expect(pane.sent).toEqual([SHIFT_TAB]);
   });
 
   test("presses nothing when no footer names a mode", async () => {
     const pane = runtime({ screen: async () => screenWith(["hello"], undefined, "") });
-    expect(await setTmuxPermissionMode("s5", "plan", pane, noWait))
-      .toMatchObject({ ok: false, reason: "no-footer" });
+    expect(await setTmuxPermissionMode("s5", "plan", pane, noWait)).toMatchObject({ ok: false, reason: "no-footer" });
     expect(pane.sent).toEqual([]);
   });
 
   test("answers a session with no pane, and one tmux will not read", async () => {
-    expect(await setTmuxPermissionMode("s6", "plan", runtime({ pane: async () => null }), noWait))
-      .toMatchObject({ ok: false, reason: "no-pane" });
-    const broken = runtime({ screen: async () => { throw new TmuxUnavailable("gone"); } });
-    expect(await setTmuxPermissionMode("s7", "plan", broken, noWait))
-      .toMatchObject({ ok: false, reason: "tmux-unavailable" });
+    expect(await setTmuxPermissionMode("s6", "plan", runtime({ pane: async () => null }), noWait)).toMatchObject({
+      ok: false,
+      reason: "no-pane",
+    });
+    const broken = runtime({
+      screen: async () => {
+        throw new TmuxUnavailable("gone");
+      },
+    });
+    expect(await setTmuxPermissionMode("s7", "plan", broken, noWait)).toMatchObject({
+      ok: false,
+      reason: "tmux-unavailable",
+    });
   });
 });

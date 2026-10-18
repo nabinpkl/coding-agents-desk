@@ -77,22 +77,12 @@ export class WindowQuestionError extends Error {
  * meant the hooks did not change at all when what answered them did.
  */
 export interface WindowComposerClient {
-  subscribeWindowComposer(
-    sessionId: string,
-    listener: (status: WindowComposerStatus) => void,
-  ): () => void;
+  subscribeWindowComposer(sessionId: string, listener: (status: WindowComposerStatus) => void): () => void;
   syncWindowComposer(sessionId: string, text: string): Promise<string>;
   readWindowComposer(sessionId: string): Promise<string>;
   submitWindowComposer(sessionId: string, text: string): Promise<string>;
-  subscribeWindowQuestion(
-    sessionId: string,
-    listener: (status: QuestionPanelStatus) => void,
-  ): () => void;
-  selectQuestionOption(
-    sessionId: string,
-    option: number,
-    desired: boolean,
-  ): Promise<QuestionPanelStatus>;
+  subscribeWindowQuestion(sessionId: string, listener: (status: QuestionPanelStatus) => void): () => void;
+  selectQuestionOption(sessionId: string, option: number, desired: boolean): Promise<QuestionPanelStatus>;
   setQuestionOther(sessionId: string, text: string): Promise<QuestionPanelStatus>;
   submitQuestion(sessionId: string): Promise<QuestionPanelStatus>;
   skipQuestion(sessionId: string): Promise<QuestionPanelStatus>;
@@ -109,10 +99,7 @@ export interface WindowComposerClient {
  * window. Both are mapped here rather than renamed at either end, so neither the wire contract nor
  * the hooks moved to accommodate a transitional adapter.
  */
-export function sidecarWindowComposerClient(
-  feed: SidecarDataSource,
-  source: "claude" | "codex",
-): WindowComposerClient {
+export function sidecarWindowComposerClient(feed: SidecarDataSource, source: "claude" | "codex"): WindowComposerClient {
   /**
    * One stream per session, shared by the composer and question watchers.
    *
@@ -121,11 +108,14 @@ export function sidecarWindowComposerClient(
    * the stream closes when the last of the two watchers goes away, which is what releases the
    * window's editing lease.
    */
-  const streams = new Map<string, {
-    composer: Set<(status: WindowComposerStatus) => void>;
-    question: Set<(status: QuestionPanelStatus) => void>;
-    close: () => void;
-  }>();
+  const streams = new Map<
+    string,
+    {
+      composer: Set<(status: WindowComposerStatus) => void>;
+      question: Set<(status: QuestionPanelStatus) => void>;
+      close: () => void;
+    }
+  >();
 
   function share(sessionId: string) {
     const existing = streams.get(sessionId);
@@ -136,15 +126,18 @@ export function sidecarWindowComposerClient(
       close: () => {},
     };
     streams.set(sessionId, entry);
-    entry.close = feed.subscribeWindowComposer({ source, sessionId }, {
-      onComposer: (status) => {
-        for (const listener of entry.composer) listener(status);
+    entry.close = feed.subscribeWindowComposer(
+      { source, sessionId },
+      {
+        onComposer: (status) => {
+          for (const listener of entry.composer) listener(status);
+        },
+        onQuestion: (status) => {
+          const mapped = asPanelStatus(status);
+          for (const listener of entry.question) listener(mapped);
+        },
       },
-      onQuestion: (status) => {
-        const mapped = asPanelStatus(status);
-        for (const listener of entry.question) listener(mapped);
-      },
-    });
+    );
     return entry;
   }
 
@@ -230,8 +223,7 @@ export function sidecarWindowComposerClient(
         return composerFailure(error);
       }
     },
-    selectQuestionOption: (sessionId, option, desired) =>
-      act(sessionId, { kind: "select", option, desired }),
+    selectQuestionOption: (sessionId, option, desired) => act(sessionId, { kind: "select", option, desired }),
     setQuestionOther: (sessionId, text) => act(sessionId, { kind: "other", text }),
     submitQuestion: (sessionId) => act(sessionId, { kind: "submit" }),
     skipQuestion: (sessionId) => act(sessionId, { kind: "skip" }),

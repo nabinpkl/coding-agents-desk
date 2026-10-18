@@ -19,14 +19,7 @@ function roster(overrides: Partial<Parameters<typeof WorkspaceRoster>[0]> = {}) 
     onRemove: vi.fn(),
     onReorder: vi.fn(),
   };
-  render(
-    <WorkspaceRoster
-      workspaces={WORKSPACES}
-      workspaceId="w-2"
-      {...handlers}
-      {...overrides}
-    />,
-  );
+  render(<WorkspaceRoster workspaces={WORKSPACES} workspaceId="w-2" {...handlers} {...overrides} />);
   return handlers;
 }
 

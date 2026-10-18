@@ -45,14 +45,17 @@ export function useFileDropTarget<T extends HTMLElement>(
 ): { dragging: boolean; dropProps: FileDropProps<T> } {
   const [dragging, setDragging] = useState(false);
 
-  const onDragOver = useCallback((event: DragEvent<T>) => {
-    // Files only. A reader dragging a selection or a link across the canvas is not offering this
-    // session anything, and lighting every card up for it would make the indication mean nothing.
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = accept === null ? "none" : "copy";
-    setDragging(true);
-  }, [accept]);
+  const onDragOver = useCallback(
+    (event: DragEvent<T>) => {
+      // Files only. A reader dragging a selection or a link across the canvas is not offering this
+      // session anything, and lighting every card up for it would make the indication mean nothing.
+      if (!event.dataTransfer.types.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = accept === null ? "none" : "copy";
+      setDragging(true);
+    },
+    [accept],
+  );
 
   // Only when the pointer has actually left the box. `dragleave` also fires when it crosses onto a
   // child -- the transcript, the bands, the field -- and dropping the overlay there makes it
@@ -63,14 +66,17 @@ export function useFileDropTarget<T extends HTMLElement>(
     setDragging(false);
   }, []);
 
-  const onDrop = useCallback((event: DragEvent<T>) => {
-    event.preventDefault();
-    setDragging(false);
-    // Reached only while accepting: a refusing target sets `dropEffect` to none, and the drop is
-    // cancelled before this. Guarded anyway, because that is a browser's promise rather than ours.
-    if (accept === null) return;
-    accept([...event.dataTransfer.files]);
-  }, [accept]);
+  const onDrop = useCallback(
+    (event: DragEvent<T>) => {
+      event.preventDefault();
+      setDragging(false);
+      // Reached only while accepting: a refusing target sets `dropEffect` to none, and the drop is
+      // cancelled before this. Guarded anyway, because that is a browser's promise rather than ours.
+      if (accept === null) return;
+      accept([...event.dataTransfer.files]);
+    },
+    [accept],
+  );
 
   return { dragging, dropProps: { onDragOver, onDragLeave, onDrop } };
 }

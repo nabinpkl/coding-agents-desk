@@ -50,10 +50,13 @@ function storeStripScroll(scroll: StripScroll): void {
   try {
     if (scroll.left === 0 && scroll.top === 0) localStorage.removeItem(SCROLL_KEY);
     else {
-      localStorage.setItem(SCROLL_KEY, JSON.stringify({
-        left: Math.round(scroll.left),
-        top: Math.round(scroll.top),
-      }));
+      localStorage.setItem(
+        SCROLL_KEY,
+        JSON.stringify({
+          left: Math.round(scroll.left),
+          top: Math.round(scroll.top),
+        }),
+      );
     }
   } catch {
     // The strip still scrolls; it just opens at the left edge next time.
@@ -71,12 +74,14 @@ function storeStripScroll(scroll: StripScroll): void {
 function keyboardCovering(): boolean {
   if (typeof window === "undefined" || typeof document === "undefined") return false;
   const viewport = window.visualViewport;
-  return keyboardInset({
-    layoutHeight: window.innerHeight,
-    viewportHeight: viewport?.height ?? window.innerHeight,
-    viewportOffsetTop: viewport?.offsetTop ?? 0,
-    typing: typesText(document.activeElement),
-  }) > 0;
+  return (
+    keyboardInset({
+      layoutHeight: window.innerHeight,
+      viewportHeight: viewport?.height ?? window.innerHeight,
+      viewportOffsetTop: viewport?.offsetTop ?? 0,
+      typing: typesText(document.activeElement),
+    }) > 0
+  );
 }
 
 export function useTerminalCanvasScroll(
@@ -225,10 +230,13 @@ export function useTerminalCanvasScroll(
     };
   }, [scrollerRef]);
 
-  useEffect(() => () => {
-    if (timer.current !== null) clearTimeout(timer.current);
-    if (latest.current) storeStripScroll(latest.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+      if (latest.current) storeStripScroll(latest.current);
+    },
+    [],
+  );
 
   return remember;
 }

@@ -28,7 +28,7 @@ export type {
   TokenUsage,
 } from "@agentdesk/agent-feed-wire";
 
-export type TranscriptSourceId = Exclude<SourceId, 'pi' | 'opencode'>;
+export type TranscriptSourceId = Exclude<SourceId, "pi" | "opencode">;
 
 /**
  * How much of a tool result rides an event, in string length (about a megabyte of ASCII). Past it
@@ -104,7 +104,7 @@ export interface Header {
 // tool did. Content is the DEFAULT, so a record type a future harness release
 // invents shows up as an unfamiliar row rather than silently vanishing. See
 // lineClass.ts for the rule and the per-source tables.
-export type LineClass = 'content' | 'machinery';
+export type LineClass = "content" | "machinery";
 
 // Per-line result. Any field may be absent.
 //   event:      emit as an ActivityEvent (drives activity feed + snippet)

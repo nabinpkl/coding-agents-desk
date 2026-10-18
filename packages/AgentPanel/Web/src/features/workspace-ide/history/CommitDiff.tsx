@@ -110,10 +110,10 @@ export function CommitDiffView({
       subject={`${workspaceId}:${hash ?? "uncommitted"}:${path}`}
       refresh={hash === null ? gitRevision : null}
       read={() =>
-        (hash === null
-          ? client.changeDiff(workspaceId, path)
-          : client.commitDiff(workspaceId, hash, path)
-        ).then((answer) => answer.diff)}
+        (hash === null ? client.changeDiff(workspaceId, path) : client.commitDiff(workspaceId, hash, path)).then(
+          (answer) => answer.diff,
+        )
+      }
     />
   );
 }

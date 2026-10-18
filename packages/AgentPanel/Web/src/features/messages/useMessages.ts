@@ -71,7 +71,10 @@ function load(hub: HubHandle): void {
   // Threads already on screen stay while they are read again, rather than blinking to a spinner.
   store.set(hub, (current) => (current.kind === "ready" ? current : { kind: "loading" }));
   void refresh(hub);
-  timers.set(hub, setInterval(() => void refresh(hub), REFRESH_MS));
+  timers.set(
+    hub,
+    setInterval(() => void refresh(hub), REFRESH_MS),
+  );
 }
 
 function stop(hub: HubHandle): void {
@@ -111,7 +114,7 @@ export function useMessages(hub: HubHandle): MessagesHandle {
   const addressable = useMemo(
     () =>
       state.kind === "ready"
-        ? state.directory.filter((entry): entry is DirectoryEntry => (entry.address) !== "human")
+        ? state.directory.filter((entry): entry is DirectoryEntry => entry.address !== "human")
         : [],
     [state],
   );

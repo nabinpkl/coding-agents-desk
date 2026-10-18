@@ -88,13 +88,7 @@ export const CAPTURES: readonly QuestionCapture[] = [
     ].join("\n"),
     tabs: ["Toppings", "Submit"],
     question: "Which toppings do you want?",
-    rows: [
-      ">1. [ ] DELTA",
-      " 2. [ ] ECHO",
-      " 3. [ ] FOXTROT",
-      " 4. [ ] GOLF",
-      " 5. [ ] Type something",
-    ],
+    rows: [">1. [ ] DELTA", " 2. [ ] ECHO", " 3. [ ] FOXTROT", " 4. [ ] GOLF", " 5. [ ] Type something"],
     multiSelect: true,
     review: false,
   },
@@ -396,7 +390,8 @@ export const CAPTURES: readonly QuestionCapture[] = [
     rows: [">1. A short one", " 2. A deliberately very long"],
     multiSelect: false,
     review: false,
-  },  {
+  },
+  {
     // Claude Code 2.1.296, 80x24, taken 2026-10-14. The question is drawn behind a `│` bar on
     // every one of its rows, which no earlier capture has: read as text, the bar became the start
     // of the question, so it matched no tool call and the driver refused every answer as

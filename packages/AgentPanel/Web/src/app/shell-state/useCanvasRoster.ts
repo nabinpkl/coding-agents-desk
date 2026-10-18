@@ -12,7 +12,13 @@
 // keeps it.
 
 import { useCallback, useMemo, useState } from "react";
-import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
+import type {
+  AgentSessionDescriptor,
+  BotSessionRef,
+  BotView,
+  SessionSummary,
+  SetBotCanvasCommand,
+} from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import {
@@ -61,8 +67,12 @@ export function useCanvasRoster(
     [botsState.bots],
   );
   const detachedSessionKeys = useMemo<ReadonlySet<string>>(
-    () => new Set(botsState.bots.flatMap((bot) =>
-      (bot.offCanvasSessionRefs ?? []).map((ref) => `${ref.source}:${ref.sessionId}`))),
+    () =>
+      new Set(
+        botsState.bots.flatMap((bot) =>
+          (bot.offCanvasSessionRefs ?? []).map((ref) => `${ref.source}:${ref.sessionId}`),
+        ),
+      ),
     [botsState.bots],
   );
   // Every session some Bot holds, on any machine, which is what "Move to canvas" is not offered on.
@@ -83,53 +93,62 @@ export function useCanvasRoster(
    * stream publishes the new snapshot and the sets above follow it, on this surface and every
    * other one reading that machine.
    */
-  const setBotCanvas = useCallback(async (
-    botId: string,
-    command: SetBotCanvasCommand,
-    session: string | null = null,
-  ): Promise<boolean> => {
-    setCanvasError(null);
-    try {
-      await feeds.forBot(botId).setBotCanvas(botId, command);
-      return true;
-    } catch (error) {
-      const name = currentBots.current.find((bot) => bot.botId === botId)?.name ?? botId;
-      setCanvasError({
-        session,
-        message: `Could not change ${name} on the canvas: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-      return false;
-    }
-  }, [feeds, currentBots]);
-  /** Puts a Bot back if it was off. What starting a session in it does, so the new card shows. */
-  const putBotOnCanvas = useCallback((botId: string) => {
-    const bot = currentBots.current.find((each) => each.botId === botId);
-    if (bot?.offCanvas) void setBotCanvas(botId, { onCanvas: true });
-  }, [setBotCanvas, currentBots]);
-  const removeSessionFromCanvas = useCallback((session: BotSessionRef) => {
-    const key = `${session.source}:${session.sessionId}`;
-    const change = { source: session.source, sessionId: session.sessionId, onCanvas: false };
-    // Every Bot holding it, since the key is what the canvas hides by.
-    for (const bot of currentBots.current) {
-      if (bot.sessionRefs.some((ref) => `${ref.source}:${ref.sessionId}` === key)) {
-        void setBotCanvas(bot.botId, { sessions: [change] }, key);
+  const setBotCanvas = useCallback(
+    async (botId: string, command: SetBotCanvasCommand, session: string | null = null): Promise<boolean> => {
+      setCanvasError(null);
+      try {
+        await feeds.forBot(botId).setBotCanvas(botId, command);
+        return true;
+      } catch (error) {
+        const name = currentBots.current.find((bot) => bot.botId === botId)?.name ?? botId;
+        setCanvasError({
+          session,
+          message: `Could not change ${name} on the canvas: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        return false;
       }
-    }
-  }, [setBotCanvas, currentBots]);
+    },
+    [feeds, currentBots],
+  );
+  /** Puts a Bot back if it was off. What starting a session in it does, so the new card shows. */
+  const putBotOnCanvas = useCallback(
+    (botId: string) => {
+      const bot = currentBots.current.find((each) => each.botId === botId);
+      if (bot?.offCanvas) void setBotCanvas(botId, { onCanvas: true });
+    },
+    [setBotCanvas, currentBots],
+  );
+  const removeSessionFromCanvas = useCallback(
+    (session: BotSessionRef) => {
+      const key = `${session.source}:${session.sessionId}`;
+      const change = { source: session.source, sessionId: session.sessionId, onCanvas: false };
+      // Every Bot holding it, since the key is what the canvas hides by.
+      for (const bot of currentBots.current) {
+        if (bot.sessionRefs.some((ref) => `${ref.source}:${ref.sessionId}` === key)) {
+          void setBotCanvas(bot.botId, { sessions: [change] }, key);
+        }
+      }
+    },
+    [setBotCanvas, currentBots],
+  );
   // Which sessions the canvas has open, as `source:sessionId`. Held here rather than inside the
   // canvas because the sidebar's roster opens cards too, and a picker cannot drive state that lives
   // inside the thing it is driving.
-  const [canvasOpenKeys, setCanvasOpenKeys] = usePersistentState<ReadonlySet<string>>(loadCanvasOpenKeys, storeCanvasOpenKeys);
-  const toggleCanvasSession = useCallback((key: string) => {
-    setCanvasOpenKeys((current) => {
-      // A new set rather than a mutation, because React decides whether to re-render by identity.
-      const next = new Set(current);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
-  }, [setCanvasOpenKeys]);
+  const [canvasOpenKeys, setCanvasOpenKeys] = usePersistentState<ReadonlySet<string>>(
+    loadCanvasOpenKeys,
+    storeCanvasOpenKeys,
+  );
+  const toggleCanvasSession = useCallback(
+    (key: string) => {
+      setCanvasOpenKeys((current) => {
+        // A new set rather than a mutation, because React decides whether to re-render by identity.
+        const next = new Set(current);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      });
+    },
+    [setCanvasOpenKeys],
+  );
   // One write for every way the open cards change -- a row's own toggle, the sidebar roster opening
   // one, a Bot leaving the canvas -- from the setter, rather than a call beside each of them, which
   // is how one of them ends up forgotten.
@@ -184,14 +203,16 @@ export function useCanvasRoster(
   if (!prunedFor || pruneOn.some((input, index) => !Object.is(input, prunedFor[index]))) {
     setPrunedFor(pruneOn);
     if (botsState.settled && botsState.bots.length > 0) {
-    const present = machineList === undefined ? undefined : new Set(machineList.split("\n"));
-    const kept = new Set([...canvasOpenKeys].filter((key) => {
-      if (holders.has(key)) return true;
-      const machine = openMachines.get(key);
-      if (present === undefined) return false;
-      return machine === undefined || !present.has(machine);
-    }));
-    if (kept.size !== canvasOpenKeys.size) setCanvasOpenKeys(kept);
+      const present = machineList === undefined ? undefined : new Set(machineList.split("\n"));
+      const kept = new Set(
+        [...canvasOpenKeys].filter((key) => {
+          if (holders.has(key)) return true;
+          const machine = openMachines.get(key);
+          if (present === undefined) return false;
+          return machine === undefined || !present.has(machine);
+        }),
+      );
+      if (kept.size !== canvasOpenKeys.size) setCanvasOpenKeys(kept);
     }
   }
   // Which machine each open card is on, written from one place like the keys themselves: recorded
@@ -248,52 +269,59 @@ export function useCanvasRoster(
    * Writes every Bot whose position is not already its index, which on the first arrangement is all
    * of them, and later is the run between the two ends of the move.
    */
-  const moveBot = useCallback((moved: string, target: string) => {
-    const ids = botCanvasOrderOf(arranged.current);
-    const next = moveInOrder(ids, ids.indexOf(moved), ids.indexOf(target));
-    // `moveInOrder` hands back the same array when the move is a no-op, so this is an identity
-    // check rather than a comparison of two fresh arrays.
-    if (next === ids) return;
-    setPendingOrder(next);
-    const byId = new Map(arranged.current.map((bot) => [bot.botId, bot]));
-    const writes = next
-      .map((botId, position) => ({ botId, position }))
-      .filter(({ botId, position }) => byId.get(botId)?.canvasPosition !== position)
-      .map(({ botId, position }) => setBotCanvas(botId, { position }));
-    // A write that failed leaves the records in an order nobody chose, and says so; holding the
-    // wanted order over it would hide that until the next reload.
-    void Promise.all(writes).then((landed) => {
-      if (!landed.every(Boolean)) setPendingOrder(null);
-    });
-  }, [setBotCanvas, arranged]);
+  const moveBot = useCallback(
+    (moved: string, target: string) => {
+      const ids = botCanvasOrderOf(arranged.current);
+      const next = moveInOrder(ids, ids.indexOf(moved), ids.indexOf(target));
+      // `moveInOrder` hands back the same array when the move is a no-op, so this is an identity
+      // check rather than a comparison of two fresh arrays.
+      if (next === ids) return;
+      setPendingOrder(next);
+      const byId = new Map(arranged.current.map((bot) => [bot.botId, bot]));
+      const writes = next
+        .map((botId, position) => ({ botId, position }))
+        .filter(({ botId, position }) => byId.get(botId)?.canvasPosition !== position)
+        .map(({ botId, position }) => setBotCanvas(botId, { position }));
+      // A write that failed leaves the records in an order nobody chose, and says so; holding the
+      // wanted order over it would hide that until the next reload.
+      void Promise.all(writes).then((landed) => {
+        if (!landed.every(Boolean)) setPendingOrder(null);
+      });
+    },
+    [setBotCanvas, arranged],
+  );
   const canvasBots = orderedBots.filter((bot) => !detachedBotIds.has(bot.botId));
   // Opens one of a Bot's sessions on the canvas rather than in place of it. Puts the Bot back on
   // the canvas first if it was off: the alternative is a click that appears to do nothing, because
   // the card it opens is not being rendered.
-  const openSessionOnCanvas = useCallback((bot: BotView, session: SessionSummary) => {
-    // The row in the sidebar is the only way back for a session taken off the canvas, so it puts
-    // one back for the same reason it puts a detached Bot back: a click that appears to do nothing
-    // is worse than a click that does slightly more than asked. One command for both, sent only
-    // when something is actually off.
-    const sessionOff = (bot.offCanvasSessionRefs ?? []).some((ref) =>
-      ref.source === session.source && ref.sessionId === session.sessionId);
-    if (bot.offCanvas || sessionOff) {
-      void setBotCanvas(bot.botId, {
-        ...(bot.offCanvas ? { onCanvas: true } : {}),
-        ...(sessionOff
-          ? { sessions: [{ source: session.source, sessionId: session.sessionId, onCanvas: true }] }
-          : {}),
+  const openSessionOnCanvas = useCallback(
+    (bot: BotView, session: SessionSummary) => {
+      // The row in the sidebar is the only way back for a session taken off the canvas, so it puts
+      // one back for the same reason it puts a detached Bot back: a click that appears to do nothing
+      // is worse than a click that does slightly more than asked. One command for both, sent only
+      // when something is actually off.
+      const sessionOff = (bot.offCanvasSessionRefs ?? []).some(
+        (ref) => ref.source === session.source && ref.sessionId === session.sessionId,
+      );
+      if (bot.offCanvas || sessionOff) {
+        void setBotCanvas(bot.botId, {
+          ...(bot.offCanvas ? { onCanvas: true } : {}),
+          ...(sessionOff
+            ? { sessions: [{ source: session.source, sessionId: session.sessionId, onCanvas: true }] }
+            : {}),
+        });
+      }
+      // Opens rather than toggles, unlike the card's own row. The same click also puts a detached
+      // Bot back, and a click that re-attaches a Bot while closing the session it was clicked for
+      // means two contradictory things at once. Closing stays where the card is.
+      setCanvasOpenKeys((current) => {
+        const key = `${session.source}:${session.sessionId}`;
+        if (current.has(key)) return current;
+        return new Set(current).add(key);
       });
-    }
-    // Opens rather than toggles, unlike the card's own row. The same click also puts a detached
-    // Bot back, and a click that re-attaches a Bot while closing the session it was clicked for
-    // means two contradictory things at once. Closing stays where the card is.
-    setCanvasOpenKeys((current) => {
-      const key = `${session.source}:${session.sessionId}`;
-      if (current.has(key)) return current;
-      return new Set(current).add(key);
-    });
-  }, [setBotCanvas, setCanvasOpenKeys]);
+    },
+    [setBotCanvas, setCanvasOpenKeys],
+  );
 
   /**
    * Binds a session one of a Bot's own sessions just made -- `/new` and `/fork` -- to that Bot,
@@ -341,23 +369,29 @@ export function useCanvasRoster(
    * different places: the session's modal sits over the canvas and says it beside the button, the
    * sidebar's row has nothing of its own and uses the canvas band (`moveListedSessionToCanvas`).
    */
-  const moveSessionToCanvas = useCallback(async (session: SessionSummary): Promise<void> => {
-    const ref = { source: session.source, sessionId: session.sessionId };
-    const { bot } = await feeds.forSession(ref).placeSessionOnBot(ref);
-    if (bot.offCanvas) void setBotCanvas(bot.botId, { onCanvas: true });
-    setCanvasOpenKeys((current) => new Set(current).add(`${ref.source}:${ref.sessionId}`));
-  }, [feeds, setBotCanvas, setCanvasOpenKeys]);
-  const moveListedSessionToCanvas = useCallback((session: SessionSummary) => {
-    setCanvasError(null);
-    void moveSessionToCanvas(session).catch((error: unknown) => {
-      setCanvasError({
-        session: null,
-        message: `Could not move ${session.title || session.sessionId} to the canvas: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+  const moveSessionToCanvas = useCallback(
+    async (session: SessionSummary): Promise<void> => {
+      const ref = { source: session.source, sessionId: session.sessionId };
+      const { bot } = await feeds.forSession(ref).placeSessionOnBot(ref);
+      if (bot.offCanvas) void setBotCanvas(bot.botId, { onCanvas: true });
+      setCanvasOpenKeys((current) => new Set(current).add(`${ref.source}:${ref.sessionId}`));
+    },
+    [feeds, setBotCanvas, setCanvasOpenKeys],
+  );
+  const moveListedSessionToCanvas = useCallback(
+    (session: SessionSummary) => {
+      setCanvasError(null);
+      void moveSessionToCanvas(session).catch((error: unknown) => {
+        setCanvasError({
+          session: null,
+          message: `Could not move ${session.title || session.sessionId} to the canvas: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
       });
-    });
-  }, [moveSessionToCanvas]);
+    },
+    [moveSessionToCanvas],
+  );
   /**
    * Machines the canvas is not showing, and the chip that changes that.
    *
@@ -371,14 +405,20 @@ export function useCanvasRoster(
    * and `detachedCount` still counts only the Bots a reader actually took off. The canvas does the
    * filtering, beside the chips that say what is hidden.
    */
-  const [hiddenMachines, setHiddenMachines] = usePersistentState<ReadonlySet<string>>(loadHiddenMachines, storeHiddenMachines);
-  const toggleMachineOnCanvas = useCallback((key: string) => {
-    setHiddenMachines((current) => {
-      const next = new Set(current);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
-  }, [setHiddenMachines]);
+  const [hiddenMachines, setHiddenMachines] = usePersistentState<ReadonlySet<string>>(
+    loadHiddenMachines,
+    storeHiddenMachines,
+  );
+  const toggleMachineOnCanvas = useCallback(
+    (key: string) => {
+      setHiddenMachines((current) => {
+        const next = new Set(current);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      });
+    },
+    [setHiddenMachines],
+  );
   /**
    * Whether the canvas is drawn small enough to see all of at once.
    *
@@ -392,9 +432,12 @@ export function useCanvasRoster(
   // How much room the fitted canvas is given to be moved around in, which is the same kind of fact
   // and kept the same way: the control for it sits beside the mode's, in the sidebar.
   const [canvasRoom, setCanvasRoom] = usePersistentState<number>(loadCanvasRoom, storeCanvasRoom);
-  const toggleBotOnCanvas = useCallback((bot: BotView) => {
-    void setBotCanvas(bot.botId, { onCanvas: Boolean(bot.offCanvas) });
-  }, [setBotCanvas]);
+  const toggleBotOnCanvas = useCallback(
+    (bot: BotView) => {
+      void setBotCanvas(bot.botId, { onCanvas: Boolean(bot.offCanvas) });
+    },
+    [setBotCanvas],
+  );
 
   return {
     detachedBotIds,

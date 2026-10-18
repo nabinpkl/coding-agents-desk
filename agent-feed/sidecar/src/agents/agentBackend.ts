@@ -55,9 +55,7 @@ export function stampSessionModel(
   sessionId: string,
 ): { sessionModel: string } | Record<string, never> {
   const reporting = backend as ModelReportingBackend;
-  const model = typeof reporting.sessionModel === "function"
-    ? reporting.sessionModel(sessionId)
-    : null;
+  const model = typeof reporting.sessionModel === "function" ? reporting.sessionModel(sessionId) : null;
   return model === null ? {} : { sessionModel: model };
 }
 
@@ -78,11 +76,12 @@ export async function backendPage(
   mode: EventMode,
 ): Promise<AgentTimelinePage & { windowStart: number }> {
   const total = (await backend.page(sessionId, 0, 0, mode)).total;
-  const offset = "after" in at
-    ? Math.min(total, at.after + 1)
-    : "around" in at
-      ? Math.max(0, Math.min(at.around, total) - Math.floor(limit / 2))
-      : Math.max(0, (at.before ?? total) - limit);
+  const offset =
+    "after" in at
+      ? Math.min(total, at.after + 1)
+      : "around" in at
+        ? Math.max(0, Math.min(at.around, total) - Math.floor(limit / 2))
+        : Math.max(0, (at.before ?? total) - limit);
   const end = "before" in at ? (at.before ?? total) : Math.min(total, offset + limit);
   const page = await backend.page(sessionId, offset, end - offset, mode);
   return { ...page, windowStart: offset };
@@ -143,8 +142,18 @@ export interface AgentBackend {
   describeSession(sessionId: string): AgentSessionDescriptor | undefined;
   createSession(requestId: string, projectPath: string): Promise<AgentSessionDescriptor>;
   page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage>;
-  subscribe(sessionId: string, afterSequence: number, listener: (envelope: TimelineEnvelope) => void): Promise<() => void>;
-  send(sessionId: string, requestId: string, text: string, delivery: AgentMessageDelivery, attachments?: readonly AgentMessageAttachment[]): Promise<AgentCommandReceipt>;
+  subscribe(
+    sessionId: string,
+    afterSequence: number,
+    listener: (envelope: TimelineEnvelope) => void,
+  ): Promise<() => void>;
+  send(
+    sessionId: string,
+    requestId: string,
+    text: string,
+    delivery: AgentMessageDelivery,
+    attachments?: readonly AgentMessageAttachment[],
+  ): Promise<AgentCommandReceipt>;
   abort(sessionId: string, requestId: string): Promise<AgentCommandReceipt>;
   subscribeUi(sessionId: string, listener: (event: AgentUiEvent) => void): Promise<() => void>;
   respondToUi(sessionId: string, requestId: string, value: unknown): Promise<AgentUiResponseResult>;
@@ -170,7 +179,10 @@ export class AgentBackendRegistry {
     const results = await Promise.allSettled([...this.backends.values()].map((backend) => backend.dispose()));
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
     if (failures.length > 0) {
-      throw new AggregateError(failures.map((failure) => failure.reason), "agent backend shutdown failed");
+      throw new AggregateError(
+        failures.map((failure) => failure.reason),
+        "agent backend shutdown failed",
+      );
     }
   }
 }

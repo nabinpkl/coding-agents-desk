@@ -45,10 +45,7 @@ export interface ReceiverProgressSample {
   visibilityState: DocumentVisibilityState;
 }
 
-export function receiverProgressDelta(
-  previous: ReceiverProgressSample | null,
-  current: ReceiverProgressSample,
-) {
+export function receiverProgressDelta(previous: ReceiverProgressSample | null, current: ReceiverProgressSample) {
   if (!previous) return null;
   return {
     intervalMs: Math.max(0, Math.round(current.atMs - previous.atMs)),
@@ -73,10 +70,11 @@ export function classifyReceiverProgress(
 ): string {
   if (current.visibilityState !== "visible") return "page-hidden";
   if (
-    current.connectionState === "disconnected"
-    || current.connectionState === "failed"
-    || current.connectionState === "closed"
-  ) return "transport-disconnected";
+    current.connectionState === "disconnected" ||
+    current.connectionState === "failed" ||
+    current.connectionState === "closed"
+  )
+    return "transport-disconnected";
   const delta = receiverProgressDelta(previous, current);
   if (!delta) return "baseline";
   if (delta.bytes <= 0 && delta.packets <= 0) return "source-or-network-silent";

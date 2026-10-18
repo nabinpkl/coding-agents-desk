@@ -41,10 +41,7 @@ import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 /** The one call this needs, named so a test stands in for it without a whole data source. */
 export interface TmuxQuestionSender {
-  answerTmuxQuestion: (
-    session: SessionAddress,
-    answers: readonly TmuxQuestionAnswer[],
-  ) => Promise<TmuxQuestionOutcome>;
+  answerTmuxQuestion: (session: SessionAddress, answers: readonly TmuxQuestionAnswer[]) => Promise<TmuxQuestionOutcome>;
   /**
    * Moves the terminal's own cursor onto an option, answering nothing.
    *
@@ -52,10 +49,7 @@ export interface TmuxQuestionSender {
    * and the separation is enforced on the sidecar side: this one may press only arrows, so it
    * cannot finish the dialog however wrong it is about which row to land on.
    */
-  pointTmuxQuestion: (
-    session: SessionAddress,
-    point: TmuxQuestionPoint,
-  ) => Promise<TmuxQuestionPointOutcome>;
+  pointTmuxQuestion: (session: SessionAddress, point: TmuxQuestionPoint) => Promise<TmuxQuestionPointOutcome>;
 }
 
 /**
@@ -69,9 +63,7 @@ export interface TmuxQuestionSender {
  * worse than telling them nothing.
  */
 export function tmuxQuestionReasonText(reason: TmuxQuestionRefusal, sent: boolean): string {
-  const already = sent
-    ? ", and some of these answers may already have landed there"
-    : ", so nothing was sent";
+  const already = sent ? ", and some of these answers may already have landed there" : ", so nothing was sent";
   switch (reason) {
     // Neither of these two can have pressed anything: there was nowhere to press.
     case "no-pane":
@@ -88,8 +80,10 @@ export function tmuxQuestionReasonText(reason: TmuxQuestionRefusal, sent: boolea
       return `the terminal stopped redrawing partway through${already}`;
     case "still-open":
       // The one reason that always follows a full set of presses, so `already` would be redundant.
-      return "the question did not close, so it cannot be reported as answered; what you chose may"
-        + " already be standing in the terminal";
+      return (
+        "the question did not close, so it cannot be reported as answered; what you chose may" +
+        " already be standing in the terminal"
+      );
   }
 }
 
@@ -151,36 +145,43 @@ export function useTmuxQuestion(
    * Not awaited and deliberately silent: this is a highlight, and a terminal that refuses or is not
    * there must never stop somebody answering in the panel.
    */
-  const point = useCallback((at: number, index: number) => {
-    const label = questions[at]?.options[index]?.label;
-    if (label === undefined) return;
-    void feed.pointTmuxQuestion(session, {
-      questions: questions.map((entry) => entry.question),
-      at,
-      option: index,
-      label,
-    }).catch(() => {});
-  }, [feed, questions, session]);
+  const point = useCallback(
+    (at: number, index: number) => {
+      const label = questions[at]?.options[index]?.label;
+      if (label === undefined) return;
+      void feed
+        .pointTmuxQuestion(session, {
+          questions: questions.map((entry) => entry.question),
+          at,
+          option: index,
+          label,
+        })
+        .catch(() => {});
+    },
+    [feed, questions, session],
+  );
 
-  const choose = useCallback((at: number, index: number) => {
-    setError(null);
-    setTouched((current) => new Set(current).add(at));
-    setDrafts((current) =>
-      chooseOption(alignDrafts(current, count), at, index, questions[at]?.multiSelect === true)
-    );
-    // Keeps the terminal alongside a pick made any way at all, including from the keyboard, where
-    // there is no row click to carry it. A pick made BY a click points twice, and the second walk
-    // is free: `moveCursor` returns without pressing anything when the cursor is already there.
-    point(at, index);
-  }, [count, point, questions, setError, setTouched, setDrafts]);
+  const choose = useCallback(
+    (at: number, index: number) => {
+      setError(null);
+      setTouched((current) => new Set(current).add(at));
+      setDrafts((current) => chooseOption(alignDrafts(current, count), at, index, questions[at]?.multiSelect === true));
+      // Keeps the terminal alongside a pick made any way at all, including from the keyboard, where
+      // there is no row click to carry it. A pick made BY a click points twice, and the second walk
+      // is free: `moveCursor` returns without pressing anything when the cursor is already there.
+      point(at, index);
+    },
+    [count, point, questions, setError, setTouched, setDrafts],
+  );
 
-  const write = useCallback((at: number, text: string) => {
-    setError(null);
-    setTouched((current) => new Set(current).add(at));
-    setDrafts((current) =>
-      writeOther(alignDrafts(current, count), at, text, questions[at]?.multiSelect === true)
-    );
-  }, [count, questions, setError, setTouched, setDrafts]);
+  const write = useCallback(
+    (at: number, text: string) => {
+      setError(null);
+      setTouched((current) => new Set(current).add(at));
+      setDrafts((current) => writeOther(alignDrafts(current, count), at, text, questions[at]?.multiSelect === true));
+    },
+    [count, questions, setError, setTouched, setDrafts],
+  );
 
   // Held across renders, so `submit` keeps its identity and the compiler can trust what it sends.
   const aligned = useMemo(() => alignDrafts(drafts, count), [drafts, count]);
@@ -189,23 +190,26 @@ export function useTmuxQuestion(
     if (!answers) return;
     setPending(true);
     setError(null);
-    return runWithFinally(async () => {
-      try {
-        const outcome = await feed.answerTmuxQuestion(session, answers);
-        if (outcome.answered) return;
-        setError(reasonText(outcome.reason, outcome.sent));
-        // Nothing typed is dropped by a refusal. The draft already holds it; this writes the
-        // sidecar's own copy back over it, so the two cannot quietly disagree about what was sent.
-        setDrafts((current) =>
-          current.map((draft, at) => {
-            const kept = outcome.keptText.find((entry) => entry.question === questions[at]?.question);
-            return kept ? { ...draft, other: kept.text } : draft;
-          })
-        );
-      } catch (failure) {
-        setError(String((failure as Error).message ?? failure));
-      }
-    }, () => setPending(false));
+    return runWithFinally(
+      async () => {
+        try {
+          const outcome = await feed.answerTmuxQuestion(session, answers);
+          if (outcome.answered) return;
+          setError(reasonText(outcome.reason, outcome.sent));
+          // Nothing typed is dropped by a refusal. The draft already holds it; this writes the
+          // sidecar's own copy back over it, so the two cannot quietly disagree about what was sent.
+          setDrafts((current) =>
+            current.map((draft, at) => {
+              const kept = outcome.keptText.find((entry) => entry.question === questions[at]?.question);
+              return kept ? { ...draft, other: kept.text } : draft;
+            }),
+          );
+        } catch (failure) {
+          setError(String((failure as Error).message ?? failure));
+        }
+      },
+      () => setPending(false),
+    );
   }, [answers, feed, questions, reasonText, session, setError, setDrafts]);
 
   return {

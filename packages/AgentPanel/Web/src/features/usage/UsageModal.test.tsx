@@ -28,25 +28,16 @@ const TODAY = new Date(2026, 7, 19, 12).getTime();
 
 function report(): UsageReport {
   return {
-    vendors: [{
-      vendor: "codex",
-      displayName: "Codex",
-      installed: true,
-      days: [
-        {
-          date: "2026-08-13",
-          // The real proportions: 98% of input served from cache. A fixture with a plausible-
-          // looking 50% would let a broken split render as if it were right.
-          totals: {
-            inputTokens: 485_224_170,
-            cachedInputTokens: 476_362_112,
-            outputTokens: 1_334_902,
-            reasoningTokens: 486_208,
-            requests: 3_291,
-          },
-          byModel: [{
-            model: "gpt-5.6-sol",
-            alias: null,
+    vendors: [
+      {
+        vendor: "codex",
+        displayName: "Codex",
+        installed: true,
+        days: [
+          {
+            date: "2026-08-13",
+            // The real proportions: 98% of input served from cache. A fixture with a plausible-
+            // looking 50% would let a broken split render as if it were right.
             totals: {
               inputTokens: 485_224_170,
               cachedInputTokens: 476_362_112,
@@ -54,32 +45,47 @@ function report(): UsageReport {
               reasoningTokens: 486_208,
               requests: 3_291,
             },
-          }],
-        },
-        {
-          date: "2026-08-18",
-          totals: {
-            inputTokens: 4_000_000,
-            cachedInputTokens: 1_000_000,
-            outputTokens: 40_000,
-            reasoningTokens: 10_000,
-            requests: 100,
+            byModel: [
+              {
+                model: "gpt-5.6-sol",
+                alias: null,
+                totals: {
+                  inputTokens: 485_224_170,
+                  cachedInputTokens: 476_362_112,
+                  outputTokens: 1_334_902,
+                  reasoningTokens: 486_208,
+                  requests: 3_291,
+                },
+              },
+            ],
           },
-          byModel: [],
-        },
-      ],
-      quotas: [{
-        label: "Weekly limit",
-        usedPercent: 13,
-        windowMinutes: 10_080,
-        resetsAt: TODAY + 2 * 24 * 60 * 60 * 1000,
-        scope: null,
-        planType: "prolite",
-        sampledAt: TODAY,
-      }],
-      coverage: { from: "2026-08-01", to: "2026-08-18", sessions: 977, unreadable: 0 },
-      scannedAt: TODAY,
-    }],
+          {
+            date: "2026-08-18",
+            totals: {
+              inputTokens: 4_000_000,
+              cachedInputTokens: 1_000_000,
+              outputTokens: 40_000,
+              reasoningTokens: 10_000,
+              requests: 100,
+            },
+            byModel: [],
+          },
+        ],
+        quotas: [
+          {
+            label: "Weekly limit",
+            usedPercent: 13,
+            windowMinutes: 10_080,
+            resetsAt: TODAY + 2 * 24 * 60 * 60 * 1000,
+            scope: null,
+            planType: "prolite",
+            sampledAt: TODAY,
+          },
+        ],
+        coverage: { from: "2026-08-01", to: "2026-08-18", sessions: 977, unreadable: 0 },
+        scannedAt: TODAY,
+      },
+    ],
   };
 }
 
@@ -132,46 +138,55 @@ function openMenu() {
 function twoVendorReport(): UsageReport {
   const base = report();
   return {
-    vendors: [base.vendors[0]!, {
-      vendor: "claude",
-      displayName: "Claude",
-      installed: true,
-      days: [{
-        date: "2026-08-17",
-        totals: {
-          inputTokens: 28_245_702_083,
-          cachedInputTokens: 27_795_005_326,
-          outputTokens: 76_015_475,
-          reasoningTokens: 11_871_275,
-          requests: 105_365,
-        },
-        byModel: [{
-          model: "claude-opus-5",
-          alias: "opus 5",
-          totals: {
-            inputTokens: 28_245_702_083,
-            cachedInputTokens: 27_795_005_326,
-            outputTokens: 76_015_475,
-            reasoningTokens: 11_871_275,
-            requests: 105_365,
+    vendors: [
+      base.vendors[0]!,
+      {
+        vendor: "claude",
+        displayName: "Claude",
+        installed: true,
+        days: [
+          {
+            date: "2026-08-17",
+            totals: {
+              inputTokens: 28_245_702_083,
+              cachedInputTokens: 27_795_005_326,
+              outputTokens: 76_015_475,
+              reasoningTokens: 11_871_275,
+              requests: 105_365,
+            },
+            byModel: [
+              {
+                model: "claude-opus-5",
+                alias: "opus 5",
+                totals: {
+                  inputTokens: 28_245_702_083,
+                  cachedInputTokens: 27_795_005_326,
+                  outputTokens: 76_015_475,
+                  reasoningTokens: 11_871_275,
+                  requests: 105_365,
+                },
+              },
+            ],
           },
-        }],
-      }],
-      // Stamped against the wall clock, not the fixture's TODAY: the modal ages a quota against
-      // the real `Date.now`, and a fixed stamp would make the assertion drift with the calendar.
-      quotas: [{
-        label: "5-hour limit",
-        usedPercent: 92,
-        // A reset already in the past, which is what a 45-hour-old reading has.
-        resetsAt: Date.now() - 40 * 60 * 60 * 1000,
-        windowMinutes: 300,
-        scope: null,
-        planType: null,
-        sampledAt: Date.now() - 45 * 60 * 60 * 1000,
-      }],
-      coverage: { from: "2026-05-16", to: "2026-08-17", sessions: 1_388, unreadable: 0 },
-      scannedAt: TODAY,
-    }],
+        ],
+        // Stamped against the wall clock, not the fixture's TODAY: the modal ages a quota against
+        // the real `Date.now`, and a fixed stamp would make the assertion drift with the calendar.
+        quotas: [
+          {
+            label: "5-hour limit",
+            usedPercent: 92,
+            // A reset already in the past, which is what a 45-hour-old reading has.
+            resetsAt: Date.now() - 40 * 60 * 60 * 1000,
+            windowMinutes: 300,
+            scope: null,
+            planType: null,
+            sampledAt: Date.now() - 45 * 60 * 60 * 1000,
+          },
+        ],
+        coverage: { from: "2026-05-16", to: "2026-08-17", sessions: 1_388, unreadable: 0 },
+        scannedAt: TODAY,
+      },
+    ],
   };
 }
 
@@ -320,8 +335,11 @@ describe("the usage modal", () => {
   it("offers a tab per vendor and shows the one selected", () => {
     openModal(handle({ state: { kind: "ready", report: twoVendorReport(), settled: true } }));
     const tabs = screen.getByRole("tablist", { name: "Vendor" });
-    expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["Codex", "Claude"]);
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["Codex", "Claude"]);
     expect(within(tabs).getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
 
     fireEvent.click(within(tabs).getByRole("tab", { name: "Claude" }));

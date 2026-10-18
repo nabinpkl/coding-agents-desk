@@ -44,7 +44,12 @@ test("archives a stopped session and tells the streams", async () => {
   const h = harness();
   const response = await h.post(`/api/sessions/claude/${SESSION.sessionId}/archive`);
   expect(response?.status).toBe(200);
-  expect(await response?.json()).toEqual({ source: "claude", sessionId: SESSION.sessionId, archived: true, archivedAt: 42 });
+  expect(await response?.json()).toEqual({
+    source: "claude",
+    sessionId: SESSION.sessionId,
+    archived: true,
+    archivedAt: 42,
+  });
   expect(h.archived).toEqual([{ source: "claude", sessionId: SESSION.sessionId }]);
   expect(h.announced()).toBe(1);
 });
@@ -75,6 +80,9 @@ test("leaves every other path and method to the routes after it", async () => {
   const h = harness();
   expect(await h.post(`/api/sessions/claude/${SESSION.sessionId}/title`)).toBeUndefined();
   const url = new URL(`http://sidecar/api/sessions/claude/${SESSION.sessionId}/archive`);
-  const route = createSessionArchiveRoutes({ archive: { archive: async () => 0, unarchive: async () => false }, isRunning: async () => false });
+  const route = createSessionArchiveRoutes({
+    archive: { archive: async () => 0, unarchive: async () => false },
+    isRunning: async () => false,
+  });
   expect(route(new Request(url.href), url, undefined as never)).toBeUndefined();
 });

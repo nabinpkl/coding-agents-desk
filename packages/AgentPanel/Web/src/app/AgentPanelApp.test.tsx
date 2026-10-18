@@ -105,9 +105,8 @@ describe("visibility subscriptions recover from failure", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
-    const inventorySubscriptions = () => transport.subscriptions.filter(
-      (subscription) => subscription.path.startsWith("/api/inventory/stream"),
-    );
+    const inventorySubscriptions = () =>
+      transport.subscriptions.filter((subscription) => subscription.path.startsWith("/api/inventory/stream"));
     const failed = inventorySubscriptions().at(-1);
 
     act(() => void transport.fail("/api/inventory/stream", "agent feed is not ready"));
@@ -183,8 +182,7 @@ describe("safe area insets", () => {
     // quota carries a percentage, so the button's accessible name grows with what it is reporting.
     const profile = screen.getByRole("button", { name: /^Profile/ }).parentElement!;
     expect(profile.className).toContain("pb-[env(safe-area-inset-bottom)]");
-    expect(drawer.querySelector(".overflow-y-auto")!.className)
-      .not.toContain("pb-[env(safe-area-inset-bottom)]");
+    expect(drawer.querySelector(".overflow-y-auto")!.className).not.toContain("pb-[env(safe-area-inset-bottom)]");
     unmount();
   });
 });
@@ -258,8 +256,6 @@ describe("remembered selection", () => {
   });
 });
 
-
-
 // ---------------------------------------------------------------------------
 // Turn summarizer
 // ---------------------------------------------------------------------------
@@ -287,9 +283,7 @@ function setupSummary(enabled = true) {
   const transport = new FakeHttpTransport();
   transport.responses.set("GET /api/config", {
     status: 200,
-    body: JSON.stringify(
-      enabled ? SUMMARY_CONFIG : { ...SUMMARY_CONFIG, summaryEnabled: false, summaryModel: null },
-    ),
+    body: JSON.stringify(enabled ? SUMMARY_CONFIG : { ...SUMMARY_CONFIG, summaryEnabled: false, summaryModel: null }),
   });
   const host = new HostActionsClient(fake, {
     requestIDFactory: (prefix) => `${prefix}-1`,
@@ -344,9 +338,7 @@ describe("the turn summarizer", () => {
           model: "opencode-go/deepseek-v4-flash",
           headline: "Renamed the dial policy",
           narrative: "It moved the retry decision into a pure function.",
-          filesTouched: [
-            { path: "client/SessionDialPolicy.swift", action: "wrote", edits: 1, added: 40, removed: 0 },
-          ],
+          filesTouched: [{ path: "client/SessionDialPolicy.swift", action: "wrote", edits: 1, added: 40, removed: 0 }],
           risks: [],
           reasoning: ["It names the dial policy."],
           coverage: { fromEventIndex: 2, toEventIndex: 9, mode: "nice", truncated: false },

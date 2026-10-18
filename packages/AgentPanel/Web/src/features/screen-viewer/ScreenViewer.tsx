@@ -151,7 +151,9 @@ export function ScreenViewer() {
           >
             {phase === "connecting" ? "Connecting…" : "Connect"}
           </button>
-          {detail ? <p className="w-full text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">{detail}</p> : null}
+          {detail ? (
+            <p className="w-full text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">{detail}</p>
+          ) : null}
         </form>
       ) : null}
       {phase === "connected" ? (

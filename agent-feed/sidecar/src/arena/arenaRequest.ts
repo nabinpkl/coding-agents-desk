@@ -5,11 +5,7 @@
 // that touch the disk -- whether a named repository is one, whether the run's name is free --
 // stay with the service, which owns the disk.
 
-import type {
-  ArenaContestantSource,
-  ArenaCreateRunRequest,
-  ArenaRunMode,
-} from "@agentdesk/agent-feed-wire";
+import type { ArenaContestantSource, ArenaCreateRunRequest, ArenaRunMode } from "@agentdesk/agent-feed-wire";
 import type { ContestantDrivers } from "@/arena/contestants/contestantDriver";
 
 /** The most contestants one run may fan out to; past this a run stops being watchable. */
@@ -40,11 +36,7 @@ export interface CheckedLane {
  * drive, and a model the harness could be handed. `already` is how many lanes the run has, so a
  * run that grows is held to the same cap as one asked for whole.
  */
-export function checkLanes(
-  raw: unknown,
-  drivers: ContestantDrivers,
-  already = 0,
-): CheckedLane[] | { problem: string } {
+export function checkLanes(raw: unknown, drivers: ContestantDrivers, already = 0): CheckedLane[] | { problem: string } {
   if (!Array.isArray(raw)) return { problem: "contestants must be a list of lanes" };
   if (already + raw.length > MAXIMUM_CONTESTANTS) {
     return { problem: `a run fans out to at most ${MAXIMUM_CONTESTANTS} contestants` };
@@ -54,9 +46,11 @@ export function checkLanes(
     const { source, model } = (lane ?? {}) as { source?: unknown; model?: unknown };
     // Named, not looked up: `drivers` is an object, and "toString" would find its prototype's.
     if ((source !== "opencode" && source !== "claude") || !Object.hasOwn(drivers, source)) {
-      return { problem: `contestant ${index} names source "${String(source ?? "none")}", which this arena cannot drive` };
+      return {
+        problem: `contestant ${index} names source "${String(source ?? "none")}", which this arena cannot drive`,
+      };
     }
-    const named = typeof model === "string" ? model.trim() : model ?? null;
+    const named = typeof model === "string" ? model.trim() : (model ?? null);
     if (named !== null && named !== "" && (typeof named !== "string" || !MODEL_NAME.test(named))) {
       return { problem: `contestant ${index} names model "${String(model)}", which is not a model name` };
     }

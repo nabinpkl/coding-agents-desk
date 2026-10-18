@@ -53,9 +53,11 @@ describe("assembleSnapshot, subagents", () => {
   });
 
   test("a launched subagent is running, with no shell and no process to prove it", () => {
-    const snapshot = assembleSnapshot(sources({
-      agents: new Map([["a6da370b", agent("a6da370b")]]),
-    }));
+    const snapshot = assembleSnapshot(
+      sources({
+        agents: new Map([["a6da370b", agent("a6da370b")]]),
+      }),
+    );
     expect(snapshot.running).toHaveLength(1);
     expect(snapshot.running[0]).toMatchObject({
       taskId: "a6da370b",
@@ -76,10 +78,12 @@ describe("assembleSnapshot, subagents", () => {
   });
 
   test("its completion retires it, which is the whole reason the second shape had to be read", () => {
-    const snapshot = assembleSnapshot(sources({
-      agents: new Map([["a6da370b", agent("a6da370b")]]),
-      notifications: new Map([["a6da370b", completed("a6da370b")]]),
-    }));
+    const snapshot = assembleSnapshot(
+      sources({
+        agents: new Map([["a6da370b", agent("a6da370b")]]),
+        notifications: new Map([["a6da370b", completed("a6da370b")]]),
+      }),
+    );
     expect(snapshot.running).toEqual([]);
     expect(snapshot.finished).toHaveLength(1);
     expect(snapshot.finished[0]).toMatchObject({
@@ -92,9 +96,11 @@ describe("assembleSnapshot, subagents", () => {
   });
 
   test("a synchronous subagent is never shown running, because it cannot be observed running", () => {
-    const snapshot = assembleSnapshot(sources({
-      agents: new Map([["sync-1", agent("sync-1", { launchedAsync: false })]]),
-    }));
+    const snapshot = assembleSnapshot(
+      sources({
+        agents: new Map([["sync-1", agent("sync-1", { launchedAsync: false })]]),
+      }),
+    );
     expect(snapshot.running).toEqual([]);
     expect(snapshot.finished).toHaveLength(1);
     expect(snapshot.finished[0]).toMatchObject({ taskId: "sync-1", kind: "agent" });
@@ -103,29 +109,51 @@ describe("assembleSnapshot, subagents", () => {
   test("a launch record outranks a notification's tags when deciding what a run was", () => {
     // The notification aged out of the window and a bash-shaped one arrived in its place. The
     // launch is the stronger evidence, so the row stays an agent rather than being demoted.
-    const snapshot = assembleSnapshot(sources({
-      agents: new Map([["a1", agent("a1")]]),
-      notifications: new Map<string, TaskNotification>([
-        ["a1", { kind: "completion", taskId: "a1", status: "completed", summary: "done", exitCode: 0, taskKind: "bash" }],
-      ]),
-    }));
+    const snapshot = assembleSnapshot(
+      sources({
+        agents: new Map([["a1", agent("a1")]]),
+        notifications: new Map<string, TaskNotification>([
+          [
+            "a1",
+            { kind: "completion", taskId: "a1", status: "completed", summary: "done", exitCode: 0, taskKind: "bash" },
+          ],
+        ]),
+      }),
+    );
     expect(snapshot.finished[0]).toMatchObject({ taskId: "a1", kind: "agent" });
   });
 
   test("subagents do not disturb the shells and watchers beside them", () => {
-    const snapshot = assembleSnapshot(sources({
-      agents: new Map([["a1", agent("a1")]]),
-      identities: new Map<string, TaskIdentity>([["bshell1", {
-        taskId: "bshell1",
-        description: "run bshell1",
-        command: "echo bshell1",
-        startedAt: NOW - 60_000,
-        capturePath: "/tmp/tasks/bshell1.output",
-      }]]),
-      notifications: new Map<string, TaskNotification>([
-        ["bshell1", { kind: "completion", taskId: "bshell1", status: "completed", summary: "ok (exit code 0)", exitCode: 0, taskKind: "bash" }],
-      ]),
-    }));
+    const snapshot = assembleSnapshot(
+      sources({
+        agents: new Map([["a1", agent("a1")]]),
+        identities: new Map<string, TaskIdentity>([
+          [
+            "bshell1",
+            {
+              taskId: "bshell1",
+              description: "run bshell1",
+              command: "echo bshell1",
+              startedAt: NOW - 60_000,
+              capturePath: "/tmp/tasks/bshell1.output",
+            },
+          ],
+        ]),
+        notifications: new Map<string, TaskNotification>([
+          [
+            "bshell1",
+            {
+              kind: "completion",
+              taskId: "bshell1",
+              status: "completed",
+              summary: "ok (exit code 0)",
+              exitCode: 0,
+              taskKind: "bash",
+            },
+          ],
+        ]),
+      }),
+    );
     expect(snapshot.running.map((task) => task.kind)).toEqual(["agent"]);
     expect(snapshot.finished.map((task) => task.kind)).toEqual(["bash"]);
   });

@@ -1,6 +1,10 @@
 import { backendPage, parseMessageAttachments, stampSessionModel, type AgentBackend } from "@/agents/agentBackend";
 import { eventsPageAtFromQuery } from "@agentdesk/agent-feed-wire";
-import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/piAgentBackend";
+import {
+  AgentCommandConflictError,
+  AgentModeUnsupportedError,
+  AgentSessionNotFoundError,
+} from "@/agents/piAgentBackend";
 import { canonicalProjectPath, getSnapshot } from "@/transcripts/catalog/transcriptCatalog";
 import type { EventMode, TokenUsage } from "@/transcripts/transcriptTypes";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
@@ -11,7 +15,8 @@ const CREATE_ROUTE = "/api/agent-sessions";
 const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;
 const ABORT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/abort$/;
 const UI_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/stream$/;
-const UI_RESPONSE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/([A-Za-z0-9._:-]{1,128})$/;
+const UI_RESPONSE_ROUTE =
+  /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/([A-Za-z0-9._:-]{1,128})$/;
 const EVENT_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/events$/;
 const STREAM_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/stream$/;
 const LIVE_EVENT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/events$/;
@@ -76,7 +81,8 @@ function streamUi(
   return startServerSentEventStream(request, server, (write) => {
     let closed = false;
     let unsubscribe: (() => void) | undefined;
-    void backend.subscribeUi(sessionId, (event) => write(encodeServerSentEvent(event)))
+    void backend
+      .subscribeUi(sessionId, (event) => write(encodeServerSentEvent(event)))
       .then((value) => {
         if (closed) value();
         else unsubscribe = value;
@@ -108,22 +114,29 @@ async function respondToUi(
     if (result === "invalid") {
       return errorResponse("invalid-ui-response", "value is not valid for this extension UI request", 422, requestId);
     }
-    return jsonResponse({
-      requestId,
-      delivery: result === "already-resolved" ? "ui-already-resolved" : "ui",
-    }, 202);
+    return jsonResponse(
+      {
+        requestId,
+        delivery: result === "already-resolved" ? "ui-already-resolved" : "ui",
+      },
+      202,
+    );
   } catch (error) {
     return routeError(error);
   }
 }
 
-async function createSession(request: Request, resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {
+async function createSession(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+): Promise<Response> {
   try {
     const body = await jsonBody(request);
     const requestId = requestIdentifier(body.requestId);
     const source = sourceIdentifier(body.source);
     const requestedProject = stringValue(body.projectPath);
-    if (!requestId || !source || !requestedProject) return errorResponse("invalid-request", "requestId, source and projectPath are required", 400);
+    if (!requestId || !source || !requestedProject)
+      return errorResponse("invalid-request", "requestId, source and projectPath are required", 400);
     const backend = resolveBackend(source);
     if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404, requestId);
     const projectPath = await startableProjectPath(requestedProject);
@@ -150,7 +163,12 @@ export async function startableProjectPath(requested: string): Promise<string | 
 }
 
 export function projectNotFound(requestId: string): Response {
-  return errorResponse("project-not-found", "projectPath is not a directory this machine can start a session in", 404, requestId);
+  return errorResponse(
+    "project-not-found",
+    "projectPath is not a directory this machine can start a session in",
+    404,
+    requestId,
+  );
 }
 
 async function sendMessage(
@@ -167,7 +185,12 @@ async function sendMessage(
     const text = typeof body.text === "string" ? body.text : "";
     const delivery = body.delivery;
     if (!requestId || !text.trim() || (delivery !== "next" && delivery !== "steer")) {
-      return errorResponse("invalid-request", "requestId, nonempty text and delivery are required", 400, requestId ?? undefined);
+      return errorResponse(
+        "invalid-request",
+        "requestId, nonempty text and delivery are required",
+        400,
+        requestId ?? undefined,
+      );
     }
     if (new TextEncoder().encode(text).byteLength > MAXIMUM_BODY_BYTES) {
       return errorResponse("prompt-too-large", "prompt exceeds 256 KiB", 413, requestId);
@@ -176,10 +199,20 @@ async function sendMessage(
     try {
       attachments = parseMessageAttachments(body.files);
     } catch (error) {
-      return errorResponse("invalid-attachments", error instanceof Error ? error.message : String(error), 400, requestId);
+      return errorResponse(
+        "invalid-attachments",
+        error instanceof Error ? error.message : String(error),
+        400,
+        requestId,
+      );
     }
     if (attachments.length > 0 && source !== "opencode") {
-      return errorResponse("unsupported-attachments", `agent source "${source}" takes no image attachments`, 400, requestId);
+      return errorResponse(
+        "unsupported-attachments",
+        `agent source "${source}" takes no image attachments`,
+        400,
+        requestId,
+      );
     }
     const receipt = await backend.send(sessionId, requestId, text, delivery, attachments);
     return jsonResponse(receipt, 202);
@@ -260,24 +293,25 @@ function streamLiveEvents(
   const after = integerQuery(url, "since", 0, Number.MAX_SAFE_INTEGER);
   if (after === null) return errorResponse("invalid-sequence", "since must be a nonnegative integer", 400);
   const live = backend as LiveBackend;
-  const usageFor = typeof live.sessionUsage === "function"
-    ? (sid: string) => live.sessionUsage(sid)
-    : () => null;
+  const usageFor = typeof live.sessionUsage === "function" ? (sid: string) => live.sessionUsage(sid) : () => null;
   return startServerSentEventStream(
     request,
     server,
     (write) => {
       let closed = false;
       let unsubscribe: (() => void) | undefined;
-      void backend.subscribe(sessionId, after, (envelope) => {
-        write(encodeServerSentEvent({
-          ...envelope,
-          mode,
-          events: envelope.events.map((event) => ({ ...event, otherModeIndex: event.index })),
-          usage: usageFor(sessionId),
-          ...stampSessionModel(backend, sessionId),
-        }));
-      })
+      void backend
+        .subscribe(sessionId, after, (envelope) => {
+          write(
+            encodeServerSentEvent({
+              ...envelope,
+              mode,
+              events: envelope.events.map((event) => ({ ...event, otherModeIndex: event.index })),
+              usage: usageFor(sessionId),
+              ...stampSessionModel(backend, sessionId),
+            }),
+          );
+        })
         .then((value) => {
           if (closed) value();
           else unsubscribe = value;
@@ -303,8 +337,10 @@ async function pageEvents(
     if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
     const at = eventsPageAtFromQuery(url.searchParams);
     const limit = integerQuery(url, "limit", 100, 500);
-    if (at === null || limit === null || limit < 1) return errorResponse("invalid-pagination", "invalid pagination", 400);
-    if ((url.searchParams.get("mode") ?? "nice") !== "nice") return errorResponse("unsupported-mode", "Pi sessions support nice mode only", 400);
+    if (at === null || limit === null || limit < 1)
+      return errorResponse("invalid-pagination", "invalid pagination", 400);
+    if ((url.searchParams.get("mode") ?? "nice") !== "nice")
+      return errorResponse("unsupported-mode", "Pi sessions support nice mode only", 400);
     const { total: _total, ...page } = await backendPage(backend, sessionId, at, limit, "nice");
     return jsonResponse(page);
   } catch (error) {
@@ -327,7 +363,8 @@ function streamEvents(
   return startServerSentEventStream(request, server, (write) => {
     let closed = false;
     let unsubscribe: (() => void) | undefined;
-    void backend.subscribe(sessionId, after, (envelope) => write(encodeServerSentEvent(envelope)))
+    void backend
+      .subscribe(sessionId, after, (envelope) => write(encodeServerSentEvent(envelope)))
       .then((value) => {
         if (closed) value();
         else unsubscribe = value;
@@ -379,7 +416,9 @@ export function stringValue(value: unknown): string | null {
 
 class BodyTooLargeError extends Error {}
 class InvalidJsonError extends Error {
-  constructor(options?: unknown) { super("request body is not valid JSON", { cause: options }); }
+  constructor(options?: unknown) {
+    super("request body is not valid JSON", { cause: options });
+  }
 }
 
 /** Also serves the opencode routes beside it, which shape their failures the same way. */
@@ -390,7 +429,13 @@ export function routeError(error: unknown): Response {
   if (error instanceof AgentSessionNotFoundError) return errorResponse("session-not-found", error.message, 404);
   if (error instanceof AgentModeUnsupportedError) return errorResponse("unsupported-mode", error.message, 400);
   console.error("agent command route failed", error);
-  return errorResponse("agent-command-failed", error instanceof Error ? error.message : String(error), 500, undefined, true);
+  return errorResponse(
+    "agent-command-failed",
+    error instanceof Error ? error.message : String(error),
+    500,
+    undefined,
+    true,
+  );
 }
 
 function errorPayload(error: unknown) {
@@ -401,6 +446,12 @@ function errorPayload(error: unknown) {
   };
 }
 
-export function errorResponse(code: string, message: string, status: number, requestId?: string, retryable = false): Response {
+export function errorResponse(
+  code: string,
+  message: string,
+  status: number,
+  requestId?: string,
+  retryable = false,
+): Response {
   return jsonResponse({ error: { code, message, requestId, retryable } }, status);
 }

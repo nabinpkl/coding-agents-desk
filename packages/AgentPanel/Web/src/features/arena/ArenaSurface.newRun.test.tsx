@@ -72,11 +72,19 @@ function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]
     async request(method, path, requestOptions): Promise<TransportResponse> {
       if (method === "GET") asked.push(path);
       if (method === "GET" && path === "/api/agent-sessions/opencode/models") {
-        const model = (providerID: string, modelID: string, name: string) =>
-          ({ providerID, modelID, name, contextLimit: null, inputCost: null, outputCost: null });
+        const model = (providerID: string, modelID: string, name: string) => ({
+          providerID,
+          modelID,
+          name,
+          contextLimit: null,
+          inputCost: null,
+          outputCost: null,
+        });
         return {
           status: 200,
-          body: JSON.stringify({ models: [model("opencode", "big-pickle", "Big Pickle"), model("opencode-go", "kimi-k2", "Kimi K2")] }),
+          body: JSON.stringify({
+            models: [model("opencode", "big-pickle", "Big Pickle"), model("opencode-go", "kimi-k2", "Kimi K2")],
+          }),
         };
       }
       if (method === "GET" && path.startsWith("/api/arena/code/tree")) {
@@ -129,7 +137,6 @@ async function openRun(prompt: string) {
 }
 
 describe("ArenaSurface new run", () => {
-
   test("starting a run posts the prompt and the lineup in lane order, then opens the run", async () => {
     const { transport, posted } = harness();
     mount(transport);
@@ -142,7 +149,10 @@ describe("ArenaSurface new run", () => {
     await waitFor(() => expect(posted.length).toBe(1));
     const body = posted[0] as { prompt: string; contestants: unknown[] };
     expect(body.prompt).toBe("count to three");
-    expect(body.contestants).toEqual([{ source: "opencode", model: null }, { source: "claude", model: null }]);
+    expect(body.contestants).toEqual([
+      { source: "opencode", model: null },
+      { source: "claude", model: null },
+    ]);
     await screen.findByRole("tablist", { name: "Compare by" });
   });
 
@@ -166,8 +176,9 @@ describe("ArenaSurface new run", () => {
     const { transport, posted } = harness({ modes: ["terminals", "headless"] });
     mount(transport);
     await waitFor(() => expect(screen.getByLabelText("Run name").getAttribute("placeholder")).toBe("arena run 3"));
-    expect(screen.getByLabelText("Repository the contestants work in").getAttribute("placeholder"))
-      .toBe("New repository in /Users/me/.arena");
+    expect(screen.getByLabelText("Repository the contestants work in").getAttribute("placeholder")).toBe(
+      "New repository in /Users/me/.arena",
+    );
     const open = await screen.findByRole("button", { name: /Open lanes/ });
     await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
     open.click();
@@ -180,12 +191,16 @@ describe("ArenaSurface new run", () => {
     mount(transport);
     screen.getByRole("button", { name: "Contestant 2 model" }).click();
     const aliases = await screen.findByRole("dialog", { name: "Contestant 2's model" });
-    within(aliases).getByRole("option", { name: /^Sonnet/ }).click();
+    within(aliases)
+      .getByRole("option", { name: /^Sonnet/ })
+      .click();
     await waitFor(() => expect(screen.getByText("Bake-off · 1 OpenCode vs 1 Claude sonnet")).toBeTruthy());
 
     // A full id the aliases do not hold is typed into the menu's filter and used as typed.
     screen.getByRole("button", { name: "Contestant 2 model" }).click();
-    const typed = within(await screen.findByRole("dialog", { name: "Contestant 2's model" })).getByLabelText("Filter models");
+    const typed = within(await screen.findByRole("dialog", { name: "Contestant 2's model" })).getByLabelText(
+      "Filter models",
+    );
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(typed, "claude-opus-5-5");
     typed.dispatchEvent(new Event("input", { bubbles: true }));
     (await screen.findByRole("option", { name: "Use claude-opus-5-5" })).click();
@@ -221,16 +236,25 @@ describe("ArenaSurface new run", () => {
 
     const harnesses = screen.getByRole("radiogroup", { name: "Contestant 1 harness" });
     within(harnesses).getByRole("radio", { name: "Claude" }).click();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("Default model"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("Default model"),
+    );
     within(harnesses).getByRole("radio", { name: "OpenCode" }).click();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("Default model"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("Default model"),
+    );
 
     screen.getByRole("button", { name: "Contestant 1 model" }).click();
     (await screen.findByRole("option", { name: /Big Pickle/ })).click();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("opencode/big-pickle"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Contestant 1 model" }).textContent).toContain("opencode/big-pickle"),
+    );
     screen.getByRole("button", { name: /Open lanes/ }).click();
     await waitFor(() => expect(posted.length).toBe(1));
-    expect((posted[0] as { contestants: unknown[] }).contestants[0]).toEqual({ source: "opencode", model: "opencode/big-pickle" });
+    expect((posted[0] as { contestants: unknown[] }).contestants[0]).toEqual({
+      source: "opencode",
+      model: "opencode/big-pickle",
+    });
   });
 
   test("the manager is Claude unless the reader picks otherwise, and a headless run has none", async () => {

@@ -6,7 +6,13 @@
 
 import { act, fireEvent, screen } from "@testing-library/react";
 import { vi } from "vitest";
-import type { ClaudePermissionMode, RailKey, RailModifiers, TmuxComposerState, TmuxPermissionModeOutcome } from "@agentdesk/agent-feed-wire";
+import type {
+  ClaudePermissionMode,
+  RailKey,
+  RailModifiers,
+  TmuxComposerState,
+  TmuxPermissionModeOutcome,
+} from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
 
@@ -117,10 +123,7 @@ export function pane(initial = "", opening?: TmuxComposerState) {
       feed.previewed.push(token);
       return feed.held.get(token) ?? null;
     },
-    dropTmuxComposerImage: async (
-      _session: SessionAddress,
-      image: Blob,
-    ): Promise<TmuxComposerState> => {
+    dropTmuxComposerImage: async (_session: SessionAddress, image: Blob): Promise<TmuxComposerState> => {
       feed.drops.push(image.size);
       return { text: null, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     },
@@ -137,9 +140,7 @@ export function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; 
       <span data-testid="paned">{String(composer.paned)}</span>
       <span data-testid="reason">{composer.reason ?? "-"}</span>
       <span data-testid="hint">{composer.hint ?? "-"}</span>
-      <span data-testid="images">
-        {composer.images.map((image) => `${image.id}:${image.url ?? "none"}`).join(" ")}
-      </span>
+      <span data-testid="images">{composer.images.map((image) => `${image.id}:${image.url ?? "none"}`).join(" ")}</span>
       <input
         aria-label="composer"
         value={composer.draft}
@@ -147,26 +148,42 @@ export function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; 
         onBlur={composer.onBlur}
         placeholder={composer.hint ?? "Type into Claude's terminal…"}
       />
-      <button type="button" onClick={() => void composer.accept()}>accept</button>
+      <button type="button" onClick={() => void composer.accept()}>
+        accept
+      </button>
       <span data-testid="modifiers">
         {(["ctrl", "alt", "shift"] as const).map((m) => `${m}:${composer.modifiers[m]}`).join(" ")}
       </span>
-      <button type="button" onClick={() => composer.toggleModifier("ctrl")}>ctrl</button>
-      <button type="button" onClick={() => composer.pressKey("escape")}>escape</button>
-      <button type="button" onClick={() => composer.pressKey("left")}>left</button>
-      <button type="button" onClick={() => composer.remove(7)}>remove</button>
+      <button type="button" onClick={() => composer.toggleModifier("ctrl")}>
+        ctrl
+      </button>
+      <button type="button" onClick={() => composer.pressKey("escape")}>
+        escape
+      </button>
+      <button type="button" onClick={() => composer.pressKey("left")}>
+        left
+      </button>
+      <button type="button" onClick={() => composer.remove(7)}>
+        remove
+      </button>
       <span data-testid="mode">{composer.permissionMode ?? "-"}</span>
       <span data-testid="error">{composer.error ?? ""}</span>
-      <button type="button" onClick={() => void composer.choosePermissionMode("plan")}>choose-plan</button>
+      <button type="button" onClick={() => void composer.choosePermissionMode("plan")}>
+        choose-plan
+      </button>
       <span data-testid="pastes">
         {composer.pastes.map((p) => `${p.token}:${p.held ? `${p.held.lines}L${p.held.chars}C` : "unheld"}`).join(" ")}
       </span>
-      <button type="button" onClick={() => void composer.expandPaste("[Pasted text #1]")}>expand</button>
-      <button type="button" onClick={() => composer.removePaste("[Pasted text #1]")}>unpaste</button>
-      <span data-testid="commands">
-        {composer.commands.map((c) => `${c.selected ? ">" : ""}${c.name}`).join(" ")}
-      </span>
-      <button type="button" onClick={() => composer.chooseCommand("/rename")}>choose</button>
+      <button type="button" onClick={() => void composer.expandPaste("[Pasted text #1]")}>
+        expand
+      </button>
+      <button type="button" onClick={() => composer.removePaste("[Pasted text #1]")}>
+        unpaste
+      </button>
+      <span data-testid="commands">{composer.commands.map((c) => `${c.selected ? ">" : ""}${c.name}`).join(" ")}</span>
+      <button type="button" onClick={() => composer.chooseCommand("/rename")}>
+        choose
+      </button>
       <button
         type="button"
         // Two images of different sizes, which is how the test tells them apart in order.
@@ -174,7 +191,9 @@ export function Probe({ feed, active = true }: { feed: ReturnType<typeof pane>; 
       >
         drop
       </button>
-      <button type="button" onClick={() => void composer.submit()}>send</button>
+      <button type="button" onClick={() => void composer.submit()}>
+        send
+      </button>
     </div>
   );
 }
@@ -212,6 +231,5 @@ export async function press(label: string) {
     for (let flush = 0; flush < 8; flush += 1) await vi.advanceTimersByTimeAsync(0);
   });
 }
-
 
 export const draft = () => screen.getByTestId("draft").textContent;

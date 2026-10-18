@@ -62,9 +62,7 @@ test("refuses a worktree path that already exists, rather than reusing it", asyn
   const checkout = await repository();
   const path = join(checkout, "..", "taken");
   await mkdir(path);
-  expect(
-    addContestantWorktree({ repoPath: checkout, path, ref: "HEAD" }),
-  ).rejects.toThrow("already exists");
+  expect(addContestantWorktree({ repoPath: checkout, path, ref: "HEAD" })).rejects.toThrow("already exists");
 });
 
 test("removes a contestant worktree it made, uncommitted work included", async () => {
@@ -85,18 +83,14 @@ test("refuses to remove another repository's worktree as this one's", async () =
   const path = join(other, "..", "c1");
   await addContestantWorktree({ repoPath: other, path, ref: "HEAD" });
 
-  expect(
-    removeContestantWorktree({ repoPath: checkout, path }),
-  ).rejects.toThrow(ArenaWorktreeError);
+  expect(removeContestantWorktree({ repoPath: checkout, path })).rejects.toThrow(ArenaWorktreeError);
 });
 
 test("refuses to remove a directory that is not a worktree at all", async () => {
   const checkout = await repository();
   const plain = await mkdtemp(join(tmpdir(), "arena-"));
   roots.push(plain);
-  expect(
-    removeContestantWorktree({ repoPath: checkout, path: plain }),
-  ).rejects.toThrow("is not a git worktree");
+  expect(removeContestantWorktree({ repoPath: checkout, path: plain })).rejects.toThrow("is not a git worktree");
 });
 
 test("captures the diff against the ref, untracked files named separately", async () => {

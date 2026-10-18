@@ -8,11 +8,14 @@ function gate(quietMs = 0) {
   const restarts: string[] = [];
   const logs: string[] = [];
   const published: SupervisorState[] = [];
-  const it = createSupervisorGate({
-    restart: (reason) => restarts.push(reason),
-    log: (message) => logs.push(message),
-    publish: (state) => published.push(state),
-  }, { quietMs });
+  const it = createSupervisorGate(
+    {
+      restart: (reason) => restarts.push(reason),
+      log: (message) => logs.push(message),
+      publish: (state) => published.push(state),
+    },
+    { quietMs },
+  );
   return { it, restarts, logs, published };
 }
 
@@ -160,7 +163,10 @@ test("hears the same mode over and over without deciding anything", () => {
 // serve until a later save; holding keeps the old one serving instead.
 test("a tree that parses but will not link leaves the running sidecar alone, and says why", () => {
   const { it, restarts, logs } = gate();
-  it.changed([{ path: ROUTES, failure: null }], 'server.ts:8: No matching export in "src/http/sessionRoutes.ts" for import "createRoutes"');
+  it.changed(
+    [{ path: ROUTES, failure: null }],
+    'server.ts:8: No matching export in "src/http/sessionRoutes.ts" for import "createRoutes"',
+  );
   expect(restarts).toEqual([]);
   expect(it.state()).toEqual({
     held: true,

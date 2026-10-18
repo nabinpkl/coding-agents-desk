@@ -58,8 +58,8 @@ export function sidebarProps({
     retrying: inventory.retrying,
     selectedProjectPath: thread.selectedThread?.project.projectPath ?? null,
     selectedSessionKey: thread.selectedThread
-    ? `${thread.selectedThread.session.source}:${thread.selectedThread.session.sessionId}`
-    : null,
+      ? `${thread.selectedThread.session.source}:${thread.selectedThread.session.sessionId}`
+      : null,
     creatingProjectPath,
     creationErrors,
     expandedProjectPaths: inventory.expandedProjectPaths,
@@ -99,15 +99,10 @@ export function sidebarProps({
     // can never name a canvas holding six.
     canvasMachines: {
       total: roster.canvasBots.length,
-      shown: botsOnShownMachines(
-        roster.canvasBots,
-        roster.hiddenMachines,
-        machines.keyOfBot,
-      ).length,
+      shown: botsOnShownMachines(roster.canvasBots, roster.hiddenMachines, machines.keyOfBot).length,
       machines: machines.chips,
       hidden: roster.hiddenMachines,
-      countOf: (key: string) =>
-        roster.canvasBots.filter((bot) => machines.keyOfBot(bot.botId) === key).length,
+      countOf: (key: string) => roster.canvasBots.filter((bot) => machines.keyOfBot(bot.botId) === key).length,
       onToggle: roster.toggleMachineOnCanvas,
       // Beside the machine chips because it answers the same kind of question they do: not which
       // Bots are on the canvas, but how much of the canvas the reader can see at once.
@@ -130,9 +125,9 @@ export function sidebarProps({
       canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveListedSessionToCanvas },
       modalSelection: thread.modalThread
         ? {
-          projectPath: thread.modalThread.project.projectPath,
-          sessionKey: `${thread.modalThread.session.source}:${thread.modalThread.session.sessionId}`,
-        }
+            projectPath: thread.modalThread.project.projectPath,
+            sessionKey: `${thread.modalThread.session.source}:${thread.modalThread.session.sessionId}`,
+          }
         : null,
       grouped: chrome.sidebarPreferences.canvasSessionsGrouped,
       onGroupedChange: chrome.changeCanvasSessionsGrouped,

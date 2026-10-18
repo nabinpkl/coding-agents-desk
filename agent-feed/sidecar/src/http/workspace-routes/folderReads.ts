@@ -77,11 +77,15 @@ export function folderGitStream<Status extends FolderGitStatus>(
 ): Response | Promise<Response> {
   return startServerSentEventStream(request, server, (write) =>
     repositories.subscribe(directory, (status) => {
-      write(encodeServerSentEvent(answer({
-        repository: status !== null,
-        branch: status?.branch ?? null,
-        entries: status?.entries ?? [],
-      })));
+      write(
+        encodeServerSentEvent(
+          answer({
+            repository: status !== null,
+            branch: status?.branch ?? null,
+            entries: status?.entries ?? [],
+          }),
+        ),
+      );
     }),
   );
 }

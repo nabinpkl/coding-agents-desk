@@ -9,11 +9,7 @@
 
 import chokidar, { type FSWatcher } from "chokidar";
 import { join, relative } from "node:path";
-import type {
-  WorkspaceGitStatus,
-  WorkspaceStreamEvent,
-  WorkspaceSummary,
-} from "@agentdesk/agent-feed-wire";
+import type { WorkspaceGitStatus, WorkspaceStreamEvent, WorkspaceSummary } from "@agentdesk/agent-feed-wire";
 import type { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { type DirectoryGitStatus, gitStatus } from "@/workspace/workspaceGit";
 import { isStorablePath } from "@/workspace/workspacePaths";
@@ -119,10 +115,7 @@ export class WorkspaceService {
     await Promise.all([this.store.ready, this.sharedState.ready]);
     for (const workspace of this.store.list()) {
       this.watch(workspace);
-      this.watchExpanded(
-        workspace.id,
-        this.sharedState.snapshot(workspace.id).expandedDirectoryPaths,
-      );
+      this.watchExpanded(workspace.id, this.sharedState.snapshot(workspace.id).expandedDirectoryPaths);
     }
   }
 

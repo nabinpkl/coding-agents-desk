@@ -14,9 +14,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -64,19 +62,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-gone",
-          name: "Orphan",
-          environment: { kind: "directory", path: "/projects/deleted" },
-          sessionRefs: [],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "missing",
-          sessions: [],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-gone",
+            name: "Orphan",
+            environment: { kind: "directory", path: "/projects/deleted" },
+            sessionRefs: [],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "missing",
+            sessions: [],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -114,19 +114,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { role: "Coordinates releases", labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { role: "Coordinates releases", labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
     transport.responses.set("DELETE /api/bots/bot-1/sessions", {
@@ -142,17 +144,16 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
 
     await waitFor(() => {
-      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions"))
-        .toEqual({
-          // A DELETE on the collection the attach POST adds to: the verb keeps a body naming
-          // sessionRefs from reading as an attach.
-          method: "DELETE",
-          path: "/api/bots/bot-1/sessions",
-          body: {
-            requestId: expect.any(String),
-            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          },
-        });
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")).toEqual({
+        // A DELETE on the collection the attach POST adds to: the verb keeps a body naming
+        // sessionRefs from reading as an attach.
+        method: "DELETE",
+        path: "/api/bots/bot-1/sessions",
+        body: {
+          requestId: expect.any(String),
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+        },
+      });
     });
     // Nothing is removed locally: the row leaves when the Bot stream publishes without it, which
     // is also what happens when the same Bot is edited from another surface.
@@ -169,21 +170,23 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
-          metadata: { role: "", labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [],
-          // This row has no summary and cannot be opened, so the menu is the only thing that can
-          // act on it -- and without one it would be the single entry a Bot can never be rid of.
-          missingSessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
+            metadata: { role: "", labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [],
+            // This row has no summary and cannot be opened, so the menu is the only thing that can
+            // act on it -- and without one it would be the single entry a Bot can never be rid of.
+            missingSessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
+          },
+        ],
       });
     });
     transport.responses.set("DELETE /api/bots/bot-1/sessions", {
@@ -195,11 +198,10 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
 
     await waitFor(() => {
-      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body)
-        .toEqual({
-          requestId: expect.any(String),
-          sessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
-        });
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toEqual({
+        requestId: expect.any(String),
+        sessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
+      });
     });
     unmount();
   });
@@ -213,19 +215,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
     transport.responses.set("PATCH /api/bots/bot-1", {
@@ -255,7 +259,9 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add Bot" }));
     fireEvent.click(screen.getByRole("radio", { name: /Alpha Project/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Release Captain" } });
-    fireEvent.change(screen.getByRole("textbox", { name: /Icon URL/ }), { target: { value: "https://example.com/captain.png" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /Icon URL/ }), {
+      target: { value: "https://example.com/captain.png" },
+    });
     fireEvent.change(screen.getByRole("textbox", { name: /Role/ }), { target: { value: "Coordinates releases" } });
     fireEvent.change(screen.getByRole("textbox", { name: /Labels/ }), { target: { value: "release, platform" } });
     fireEvent.change(screen.getByRole("textbox", { name: /Metadata/ }), { target: { value: "team=platform" } });
@@ -316,19 +322,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-beta",
-          name: "Beta Curator",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
-          sessionRefs: [],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-beta",
+            name: "Beta Curator",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
+            sessionRefs: [],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -360,5 +368,4 @@ describe("App shell", () => {
     expect(screen.queryByRole("dialog", { name: "Add sessions to Beta Curator" })).not.toBeInTheDocument();
     unmount();
   });
-
 });

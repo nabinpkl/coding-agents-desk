@@ -99,7 +99,9 @@ function parseObject(line: string | undefined): Record<string, unknown> | null {
   if (!line) return null;
   try {
     const value: unknown = JSON.parse(line);
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
@@ -121,7 +123,9 @@ export class TelemetryArchive {
   ) {
     if (!isAbsolute(directory)) throw new Error(`telemetry archive must be an absolute path: ${directory}`);
     mkdirSync(directory, { recursive: true });
-    const found = readdirSync(directory).filter((name) => SEGMENT.test(name)).sort();
+    const found = readdirSync(directory)
+      .filter((name) => SEGMENT.test(name))
+      .sort();
     for (const name of found) {
       const bytes = statSync(join(directory, name)).size;
       this.segments.push({ name, bytes });

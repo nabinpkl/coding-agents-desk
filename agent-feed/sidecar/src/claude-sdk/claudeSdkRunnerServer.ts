@@ -146,11 +146,12 @@ export async function serveRunner(
     }
     void execute(message).then(
       (reply) => send(socket, { type: "reply", id: message.id, reply }),
-      (error: unknown) => send(socket, {
-        type: "reply",
-        id: message.id,
-        reply: { ok: false, message: error instanceof Error ? error.message : String(error) },
-      }),
+      (error: unknown) =>
+        send(socket, {
+          type: "reply",
+          id: message.id,
+          reply: { ok: false, message: error instanceof Error ? error.message : String(error) },
+        }),
     );
   };
 

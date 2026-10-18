@@ -16,7 +16,12 @@ const NOW = 100 * HOUR;
  * The pane's process is 10; a Claude process is 11, under it, unless a test puts it elsewhere. An
  * opencode TUI is 12 in that pane, or 22 in another.
  */
-const PARENTS = new Map([[11, 10], [12, 10], [21, 20], [22, 20]]);
+const PARENTS = new Map([
+  [11, 10],
+  [12, 10],
+  [21, 20],
+  [22, 20],
+]);
 
 function process(sessionId: string, activity: ClaudeSessionActivity | null = "idle", pid = 11): ClaudeSessionProcess {
   return {
@@ -125,7 +130,10 @@ describe("what the canvas keeps", () => {
   test("its Bots' sessions, less the ones taken off it, and every Father session", () => {
     const kept = keptSessions([
       bot({
-        sessionRefs: [{ source: "claude", sessionId: "on" }, { source: "claude", sessionId: "off" }],
+        sessionRefs: [
+          { source: "claude", sessionId: "on" },
+          { source: "claude", sessionId: "off" },
+        ],
         offCanvasSessionRefs: [{ source: "claude", sessionId: "off" }],
       }),
       bot({ offCanvas: true, sessionRefs: [{ source: "claude", sessionId: "hidden" }] }),
@@ -136,7 +144,9 @@ describe("what the canvas keeps", () => {
 });
 
 describe("a sweep", () => {
-  function sources(activities: (ClaudeSessionActivity | null)[]): IdleSweepSources & { closed: string[]; said: string[] } {
+  function sources(
+    activities: (ClaudeSessionActivity | null)[],
+  ): IdleSweepSources & { closed: string[]; said: string[] } {
     const closed: string[] = [];
     const said: string[] = [];
     let asked = 0;

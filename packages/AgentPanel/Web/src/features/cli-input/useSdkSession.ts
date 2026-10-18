@@ -58,24 +58,31 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
   useSubscription(active ? scope : null, () => feed.subscribeClaudeSdk({ source, sessionId }, setState));
 
   /** Runs one command, answering whether it happened; a refusal or a failure becomes `error`. */
-  const run = useCallback(async (command: () => Promise<ClaudeSdkCommandOutcome>): Promise<boolean> => {
-    setPending(true);
-    setError(null);
-    return runWithFinally(async () => {
-      try {
-        const outcome = await command();
-        if (!outcome.ok) setError(sdkRefusalText(outcome));
-        return outcome.ok;
-      } catch (failure) {
-        setError(failure instanceof Error ? failure.message : String(failure));
-        return false;
-      }
-    }, () => setPending(false));
-  }, [setError]);
+  const run = useCallback(
+    async (command: () => Promise<ClaudeSdkCommandOutcome>): Promise<boolean> => {
+      setPending(true);
+      setError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            const outcome = await command();
+            if (!outcome.ok) setError(sdkRefusalText(outcome));
+            return outcome.ok;
+          } catch (failure) {
+            setError(failure instanceof Error ? failure.message : String(failure));
+            return false;
+          }
+        },
+        () => setPending(false),
+      );
+    },
+    [setError],
+  );
 
   const address = useMemo(() => ({ source, sessionId }), [source, sessionId]);
   const send = useCallback(
-    (text: string, files?: Parameters<SdkFeed["promptClaudeSdk"]>[2]) => run(() => feed.promptClaudeSdk(address, text, files)),
+    (text: string, files?: Parameters<SdkFeed["promptClaudeSdk"]>[2]) =>
+      run(() => feed.promptClaudeSdk(address, text, files)),
     [address, feed, run],
   );
   const interrupt = useCallback(() => run(() => feed.interruptClaudeSdk(address)), [address, feed, run]);
@@ -88,15 +95,21 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
    * Switches the model, throwing a refusal rather than parking it in `error`: the picker that asks
    * keeps itself open and shows why, which is where the reader is looking.
    */
-  const setModel = useCallback(async (model: string) => {
-    const outcome = await feed.setClaudeSdkModel(address, model);
-    if (!outcome.ok) throw new Error(sdkRefusalText(outcome));
-  }, [address, feed]);
+  const setModel = useCallback(
+    async (model: string) => {
+      const outcome = await feed.setClaudeSdkModel(address, model);
+      if (!outcome.ok) throw new Error(sdkRefusalText(outcome));
+    },
+    [address, feed],
+  );
   /** Sets the effort, throwing a refusal for the picker to show, as `setModel` does. */
-  const setEffort = useCallback(async (effort: ClaudeEffortLevel) => {
-    const outcome = await feed.setClaudeSdkEffort(address, effort);
-    if (!outcome.ok) throw new Error(sdkRefusalText(outcome));
-  }, [address, feed]);
+  const setEffort = useCallback(
+    async (effort: ClaudeEffortLevel) => {
+      const outcome = await feed.setClaudeSdkEffort(address, effort);
+      if (!outcome.ok) throw new Error(sdkRefusalText(outcome));
+    },
+    [address, feed],
+  );
   /** Puts the session in one mode, which its runner sets directly; the new state arrives on the stream. */
   const choosePermissionMode = useCallback(
     (mode: ClaudePermissionMode) => run(() => feed.setClaudeSdkMode(address, mode)),
@@ -107,10 +120,13 @@ export function useSdkSession(feed: SdkFeed, session: SessionAddress, active: bo
    * Answers through the runner in the shape the terminal's dialog takes, so the question band drafts
    * and commits one way whichever kind of session it is. Nothing to point: there is no cursor.
    */
-  const questions: TmuxQuestionSender = useMemo(() => ({
-    answerTmuxQuestion: (target, answers) => feed.answerClaudeSdkQuestion(target, answers),
-    pointTmuxQuestion: async () => ({ pointed: true }),
-  }), [feed]);
+  const questions: TmuxQuestionSender = useMemo(
+    () => ({
+      answerTmuxQuestion: (target, answers) => feed.answerClaudeSdkQuestion(target, answers),
+      pointTmuxQuestion: async () => ({ pointed: true }),
+    }),
+    [feed],
+  );
 
   return { state, pending, error, send, interrupt, decide, choosePermissionMode, setModel, setEffort, questions };
 }
@@ -136,9 +152,11 @@ export function sdkModelRows(state: ClaudeSdkSessionState) {
 /** The row the session is answering with, matched by alias or by the full id an alias stands for. */
 export function currentSdkModel(state: ClaudeSdkSessionState): ClaudeSdkSessionState["models"][number] | null {
   if (!state.model) return null;
-  return state.models.find((entry) => entry.value === state.model)
-    ?? state.models.find((entry) => entry.value !== "default" && entry.resolvedModel === state.model)
-    ?? null;
+  return (
+    state.models.find((entry) => entry.value === state.model) ??
+    state.models.find((entry) => entry.value !== "default" && entry.resolvedModel === state.model) ??
+    null
+  );
 }
 
 /**

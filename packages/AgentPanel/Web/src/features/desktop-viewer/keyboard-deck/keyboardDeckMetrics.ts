@@ -93,8 +93,16 @@ export function characterPreviewLayout(
   key: { left: number; top: number; width: number },
   containerWidth: number,
 ): CharacterPreviewLayout {
-  const { horizontalMargin, minimumWidth, maximumWidth, bubbleHeight, tailHeight, keyOverlap,
-    tailHalfWidth, cornerRadius } = CHARACTER_PREVIEW;
+  const {
+    horizontalMargin,
+    minimumWidth,
+    maximumWidth,
+    bubbleHeight,
+    tailHeight,
+    keyOverlap,
+    tailHalfWidth,
+    cornerRadius,
+  } = CHARACTER_PREVIEW;
   const availableWidth = Math.max(0, containerWidth - horizontalMargin * 2);
   const preferredWidth = Math.min(maximumWidth, Math.max(minimumWidth, key.width + 16));
   const width = Math.min(preferredWidth, availableWidth);

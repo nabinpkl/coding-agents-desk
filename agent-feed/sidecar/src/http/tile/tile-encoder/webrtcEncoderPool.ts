@@ -8,10 +8,7 @@
 // Which encoder a request belongs to is `webrtcEncoderIdentity.ts`; how the peer that subscribes
 // is built is the route's own job.
 
-import type {
-  DesktopControlEvent,
-  WebrtcTileSourceMetadata,
-} from "@agentdesk/agent-feed-wire";
+import type { DesktopControlEvent, WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import { basename } from "node:path";
 import { config } from "@/config/config";
 import { acquireEncoderSlot } from "@/desktop/encoderSlots";
@@ -134,10 +131,7 @@ function trackEncoderTeardown(child: { exited: Promise<unknown> }): void {
 
 export async function drainEncoderTeardowns(): Promise<void> {
   if (encoderTeardowns.size === 0) return;
-  await Promise.race([
-    Promise.allSettled([...encoderTeardowns]),
-    Bun.sleep(TEARDOWN_DRAIN_TIMEOUT_MS),
-  ]);
+  await Promise.race([Promise.allSettled([...encoderTeardowns]), Bun.sleep(TEARDOWN_DRAIN_TIMEOUT_MS)]);
 }
 const MAX_PENDING_CURSOR_ACKS = 2_048;
 
@@ -299,7 +293,9 @@ export async function acquireSharedEncoder(
   // geometry.
   const raced = liveEncoderFor(streamKey);
   if (raced && raced.binaryMtimeMs === binaryMtimeMs && raced.codec === codec) {
-    diag(`encoder key=${raced.key} adopted after teardown drain geometry=${raced.geometry} subscribers=${raced.subscribers.size}`);
+    diag(
+      `encoder key=${raced.key} adopted after teardown drain geometry=${raced.geometry} subscribers=${raced.subscribers.size}`,
+    );
     return raced;
   }
   const slot = acquireEncoderSlot(
@@ -378,8 +374,12 @@ export async function acquireSharedEncoder(
                   subscriber.onControl({ type: "cursor-position", x: event.x, y: event.y });
                 }
               }
-            } else if (event.type === "cursor-image" || event.type === "cursor-position"
-                || event.type === "desktop-state" || event.type === "desktop-unavailable") {
+            } else if (
+              event.type === "cursor-image" ||
+              event.type === "cursor-position" ||
+              event.type === "desktop-state" ||
+              event.type === "desktop-unavailable"
+            ) {
               for (const subscriber of shared.subscribers) subscriber.onControl(event);
             } else {
               const owner = [...shared.subscribers].find(

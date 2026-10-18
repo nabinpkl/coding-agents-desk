@@ -44,10 +44,7 @@ const NOTHING: MachineInventory = {
  * reason on it can close and reopen; a backoff loop behind a dialog would outlive the dialog's
  * usefulness and keep asking a peer that is off.
  */
-export function useMachineInventory(
-  machine: BotMachine | null,
-  projectPaths: readonly string[],
-): MachineInventory {
+export function useMachineInventory(machine: BotMachine | null, projectPaths: readonly string[]): MachineInventory {
   // The subscription's identity rather than its argument, the same rule `useProjectInventory`
   // follows and for the same reason: the sidecar reads the set when the stream opens, so a
   // re-render that rebuilt the array must not reopen it. NUL is the one byte a POSIX path cannot
@@ -57,7 +54,8 @@ export function useMachineInventory(
 
   // Starts over for each machine, data source and set of paths: nothing yet, and loading.
   const [state, setState] = useStateFor<MachineInventory>(key, () =>
-    machine === null ? NOTHING : { projects: [], sessionsByProject: new Map(), loading: true, error: null });
+    machine === null ? NOTHING : { projects: [], sessionsByProject: new Map(), loading: true, error: null },
+  );
   // Keyed on the machine, its data source and the paths rather than on the objects: a re-render
   // that rebuilt either must not tear down and reopen the stream underneath an open dialog, and a
   // data source swapped in by a save must not leave the stream on the one it replaced.

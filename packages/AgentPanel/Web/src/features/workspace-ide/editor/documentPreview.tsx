@@ -24,10 +24,7 @@ const OPENABLE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
  * What a link written inside a document may do: move within the document, open in a new tab, or
  * nothing. A relative link has nothing to be relative to here, so it is nothing as well.
  */
-export type DocumentLink =
-  | { kind: "within"; href: string }
-  | { kind: "outside"; href: string }
-  | null;
+export type DocumentLink = { kind: "within"; href: string } | { kind: "outside"; href: string } | null;
 
 export function documentLink(raw: string | null | undefined): DocumentLink {
   if (!raw) return null;

@@ -10,18 +10,11 @@ import type {
 import { Crosshair, Hand, MousePointer2, Touchpad } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
-import {
-  postTileTelemetry,
-  type DesktopControlTransport,
-} from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
+import { postTileTelemetry, type DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 import { ModeButton } from "@/features/desktop-viewer/DesktopViewerControls";
 import { DesktopViewerSettings } from "@/features/desktop-viewer/DesktopViewerSettings";
 import { DesktopStream, DetailStream, OverviewStream } from "@/features/desktop-viewer/DesktopViewerStreams";
-import {
-  clearOverviewReady,
-  markOverviewReady,
-  setCaptureCrop,
-} from "@/features/desktop-viewer/zoom/captureCrop";
+import { clearOverviewReady, markOverviewReady, setCaptureCrop } from "@/features/desktop-viewer/zoom/captureCrop";
 import { useZoomMode } from "@/features/desktop-viewer/zoom/zoomMode";
 import { useOverviewLayer } from "@/features/desktop-viewer/zoom/overviewLayer";
 
@@ -56,8 +49,18 @@ const ABSOLUTE_POINTER_KEY = "agentdesk.desktop.absolutePointer";
 
 /** The whole Mac desktop, with no window inventory or Desktop Park controls. */
 export function DesktopViewerSurface({
-  transport, displayId, interactive = true, navigation, onChromeHeight,
-  onSource, onTransport, onEvent, onFirstFrame, onKeyboard, onState, onDisplayUnavailable,
+  transport,
+  displayId,
+  interactive = true,
+  navigation,
+  onChromeHeight,
+  onSource,
+  onTransport,
+  onEvent,
+  onFirstFrame,
+  onKeyboard,
+  onState,
+  onDisplayUnavailable,
 }: {
   transport: AgentHttpTransport;
   displayId?: string;
@@ -79,8 +82,8 @@ export function DesktopViewerSurface({
   // is the pointer's surface. Trackpad: the deck under the picture drives the pointer and the
   // picture is only looked at, panned and zoomed ("As Is"). View: nothing reaches the Mac.
   // Trackpad is only offered to a touch device, so only a touch device can come back to it.
-  const [pictureMode, setPictureMode] = useState<"view" | "trackpad" | "pointer">(
-    () => (primaryPointerIsTouch() && storedTrackpadDeck() ? "trackpad" : "pointer"),
+  const [pictureMode, setPictureMode] = useState<"view" | "trackpad" | "pointer">(() =>
+    primaryPointerIsTouch() && storedTrackpadDeck() ? "trackpad" : "pointer",
   );
   const pointerMode = pictureMode === "pointer";
   const choosePictureMode = useCallback((next: "view" | "trackpad" | "pointer") => {
@@ -123,18 +126,31 @@ export function DesktopViewerSurface({
   };
   useDomSync(measureChrome, [onChromeHeight]);
   useResizeObserver(chromeRef, measureChrome);
-  const applyTileState = useCallback((state: DesktopStreamState) => { setTile(state); onState?.(state); }, [onState]);
+  const applyTileState = useCallback(
+    (state: DesktopStreamState) => {
+      setTile(state);
+      onState?.(state);
+    },
+    [onState],
+  );
   const cursorListeners = useRef(new Set<(event: WebrtcCursorEvent) => void>());
   const latestCursorEvents = useRef(new Map<WebrtcCursorEvent["type"], WebrtcCursorEvent>());
 
-  const reportKeyboardTelemetry = useCallback((event: { phase: string; detail: Record<string, unknown> }) => {
-    postTileTelemetry("display", {
-      attempt: crypto.randomUUID(),
-      phase: event.phase,
-      detail: JSON.stringify(event.detail),
-      elapsedMs: 0,
-    }, transport);
-  }, [transport]);
+  const reportKeyboardTelemetry = useCallback(
+    (event: { phase: string; detail: Record<string, unknown> }) => {
+      postTileTelemetry(
+        "display",
+        {
+          attempt: crypto.randomUUID(),
+          phase: event.phase,
+          detail: JSON.stringify(event.detail),
+          elapsedMs: 0,
+        },
+        transport,
+      );
+    },
+    [transport],
+  );
   const compatibleControlTransport = source?.desktopControlVersion === 2 && interactive ? controlTransport : null;
   // Read at tap time rather than tracked in state: the shape changes with every hover on the Mac,
   // and nothing on this surface should re-render for a value only the keyboard's prime consults.
@@ -153,9 +169,7 @@ export function DesktopViewerSurface({
   useNotify(keyboard.keyboardPresented, (presented) => onKeyboard?.(presented));
   useNotify(controlTransport, (transport) => onTransport?.(transport));
   const sendPointerInput = useCallback(
-    (input: Parameters<DesktopControlTransport["send"]>[0]) => (
-      interactive && source !== null && sendControl(input)
-    ),
+    (input: Parameters<DesktopControlTransport["send"]>[0]) => interactive && source !== null && sendControl(input),
     [interactive, sendControl, source],
   );
   // One pointer for the whole viewer: the picture and the trackpad deck both drive it.
@@ -169,55 +183,60 @@ export function DesktopViewerSurface({
   };
   useDomSync(measureViewer, []);
   useResizeObserver(mainRef, measureViewer);
-  const publishControlEvent = useCallback((event: DesktopControlEvent) => {
-    if (
-      event.type === "cursor-applied"
-      || event.type === "cursor-image"
-      || event.type === "cursor-position"
-    ) {
-      if (event.type !== "cursor-applied") latestCursorEvents.current.set(event.type, event);
-      for (const listener of cursorListeners.current) listener(event);
-    }
-    handleControlEvent(event);
-    onEvent?.(event);
-  }, [handleControlEvent, onEvent]);
+  const publishControlEvent = useCallback(
+    (event: DesktopControlEvent) => {
+      if (event.type === "cursor-applied" || event.type === "cursor-image" || event.type === "cursor-position") {
+        if (event.type !== "cursor-applied") latestCursorEvents.current.set(event.type, event);
+        for (const listener of cursorListeners.current) listener(event);
+      }
+      handleControlEvent(event);
+      onEvent?.(event);
+    },
+    [handleControlEvent, onEvent],
+  );
   const subscribeCursorEvents = useCallback((listener: (event: WebrtcCursorEvent) => void) => {
     cursorListeners.current.add(listener);
     for (const event of latestCursorEvents.current.values()) listener(event);
     return () => cursorListeners.current.delete(listener);
   }, []);
-  const applySourceMetadata = useCallback((metadata: WebrtcTileSourceMetadata) => {
-    onSource?.(metadata);
-    setSource((current) => {
-      if (
-        current
-        && current.width === metadata.width
-        && current.height === metadata.height
-        && current.displayId === metadata.displayId
-        && current.desktopControlVersion === metadata.desktopControlVersion
-        && current.desktopNavigationVersion === metadata.desktopNavigationVersion
-      ) return current;
-      latestCursorEvents.current.clear();
-      return metadata;
-    });
-  }, [onSource]);
+  const applySourceMetadata = useCallback(
+    (metadata: WebrtcTileSourceMetadata) => {
+      onSource?.(metadata);
+      setSource((current) => {
+        if (
+          current &&
+          current.width === metadata.width &&
+          current.height === metadata.height &&
+          current.displayId === metadata.displayId &&
+          current.desktopControlVersion === metadata.desktopControlVersion &&
+          current.desktopNavigationVersion === metadata.desktopNavigationVersion
+        )
+          return current;
+        latestCursorEvents.current.clear();
+        return metadata;
+      });
+    },
+    [onSource],
+  );
   const reportGestureTelemetry = useCallback(
     (event: ViewportGestureTelemetry) => {
-      postTileTelemetry("display", {
-        attempt: event.gestureId,
-        phase: event.phase,
-        detail: JSON.stringify(event.detail),
-        elapsedMs: event.elapsedMs,
-      }, transport);
+      postTileTelemetry(
+        "display",
+        {
+          attempt: event.gestureId,
+          phase: event.phase,
+          detail: JSON.stringify(event.detail),
+          elapsedMs: event.elapsedMs,
+        },
+        transport,
+      );
     },
     [transport],
   );
 
   const controlMismatch = source !== null && source.desktopControlVersion !== 2;
-  const pointerReady = !controlMismatch
-    && source !== null
-    && compatibleControlTransport !== null
-    && tile.kind === "playing";
+  const pointerReady =
+    !controlMismatch && source !== null && compatibleControlTransport !== null && tile.kind === "playing";
   // Typing takes the bottom of the screen for the keyboard; the deck gives it back.
   const deckShown = touchDevice && pictureMode === "trackpad" && interactive && !keyboard.keyboardPresented;
   const deckShare = useDeckHeight((state) => state.deckShare);
@@ -244,8 +263,11 @@ export function DesktopViewerSurface({
         strip and spend most of it on black. The viewport covers the strip and aims it at the remote
         cursor for as long as the keyboard occludes this box.
       */}
-      <div data-testid="desktop-video-box" className="absolute inset-x-0 top-0"
-        style={{ bottom: Math.max(keyboard.occludedBottom, chromeHeight + deckHeight) }}>
+      <div
+        data-testid="desktop-video-box"
+        className="absolute inset-x-0 top-0"
+        style={{ bottom: Math.max(keyboard.occludedBottom, chromeHeight + deckHeight) }}
+      >
         <TileViewport
           className="size-full"
           pointerMode={pointerMode && source !== null}
@@ -260,26 +282,28 @@ export function DesktopViewerSurface({
           sourceHeight={source?.height}
           initialCursor={source?.cursor}
           subscribeCursorEvents={subscribeCursorEvents}
-          underlay={twoStreams ? (
-            // The coarse whole display. It owns input and the cursor, and it is what the chrome
-            // reports on, because it is the stream that is always there.
-            <OverviewStream
-              windowID="display"
-              displayId={displayId}
-              fill
-              fps={OVERVIEW_FPS}
-              httpTransport={transport}
-              onState={applyTileState}
-              onControlTransport={setControlTransport}
-              onControlEvent={publishControlEvent}
-              onSourceMetadata={applySourceMetadata}
-              onFirstFrame={() => {
-                markOverviewReady();
-                onFirstFrame?.();
-              }}
-              onDisplayUnavailable={onDisplayUnavailable}
-            />
-          ) : undefined}
+          underlay={
+            twoStreams ? (
+              // The coarse whole display. It owns input and the cursor, and it is what the chrome
+              // reports on, because it is the stream that is always there.
+              <OverviewStream
+                windowID="display"
+                displayId={displayId}
+                fill
+                fps={OVERVIEW_FPS}
+                httpTransport={transport}
+                onState={applyTileState}
+                onControlTransport={setControlTransport}
+                onControlEvent={publishControlEvent}
+                onSourceMetadata={applySourceMetadata}
+                onFirstFrame={() => {
+                  markOverviewReady();
+                  onFirstFrame?.();
+                }}
+                onDisplayUnavailable={onDisplayUnavailable}
+              />
+            ) : undefined
+          }
         >
           {twoStreams ? (
             // The sharp crop, present only while the view wants more than the overview has.
@@ -312,13 +336,19 @@ export function DesktopViewerSurface({
         </div>
       ) : null}
 
-      <div ref={chromeRef} data-testid="desktop-bottom-chrome"
+      <div
+        ref={chromeRef}
+        data-testid="desktop-bottom-chrome"
         className={`pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col
-          ${keyboard.keyboardPresented ? "" : "gap-1 px-2 pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]"}`}>
+          ${keyboard.keyboardPresented ? "" : "gap-1 px-2 pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
+      >
         {navigation}
-        <div role="group" aria-label="Desktop input controls"
+        <div
+          role="group"
+          aria-label="Desktop input controls"
           style={interactive && !keyboard.keyboardPresented ? undefined : { display: "none" }}
-          className="@container pointer-events-auto flex flex-nowrap items-center justify-between gap-1 rounded-lg bg-black/60 p-1">
+          className="@container pointer-events-auto flex flex-nowrap items-center justify-between gap-1 rounded-lg bg-black/60 p-1"
+        >
           <DesktopKeyboardChrome
             captureRef={keyboard.captureRef}
             accessoryRef={keyboard.accessoryRef}
@@ -337,7 +367,9 @@ export function DesktopViewerSurface({
             onAutoChange={keyboard.setAutoKeyboard}
             onKey={keyboard.sendChromeKey}
             onModifier={keyboard.tapModifier}
-            onPasteToMac={() => { void keyboard.pasteFromClipboard(); }}
+            onPasteToMac={() => {
+              void keyboard.pasteFromClipboard();
+            }}
             onDeckCharacter={keyboard.sendDeckCharacter}
             onDeckCursorDelta={keyboard.sendDeckCursorDelta}
             onDeckBackspace={keyboard.deckBackspace}
@@ -386,10 +418,16 @@ export function DesktopViewerSurface({
                 />
               </div>
               <DesktopViewerSettings
-                status={tile.kind === "playing" && source ? `${source.width}×${source.height} · ${tile.codec}` : tile.kind}
-                attention={controlMismatch
-                  ? `Control v${source.desktopControlVersion || "unknown"} unsupported`
-                  : pointerReady ? null : "Input connecting"}
+                status={
+                  tile.kind === "playing" && source ? `${source.width}×${source.height} · ${tile.codec}` : tile.kind
+                }
+                attention={
+                  controlMismatch
+                    ? `Control v${source.desktopControlVersion || "unknown"} unsupported`
+                    : pointerReady
+                      ? null
+                      : "Input connecting"
+                }
                 sourceWidth={source?.width}
                 sourceHeight={source?.height}
                 autoKeyboard={keyboard.autoKeyboard}

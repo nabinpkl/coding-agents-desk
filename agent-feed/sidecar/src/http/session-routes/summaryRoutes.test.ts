@@ -28,8 +28,14 @@ const descriptor: AgentSessionDescriptor = {
   lastEventAt: 1_750_000_000_000,
   activity: "ready",
   capabilities: {
-    modes: ["nice"], canSend: true, canSteer: true, canAbort: true, canFetchRaw: false,
-    canOpenTerminal: false, supportsExtensionUi: false, canStreamLive: false,
+    modes: ["nice"],
+    canSend: true,
+    canSteer: true,
+    canAbort: true,
+    canFetchRaw: false,
+    canOpenTerminal: false,
+    supportsExtensionUi: false,
+    canStreamLive: false,
   },
 };
 
@@ -43,8 +49,24 @@ function backend(): AgentBackend {
     async page() {
       return {
         events: [
-          { id: "e0", index: 0, revision: 0, phase: "complete", ts: 1, type: "user", blocks: [{ kind: "text", text: "go" }] },
-          { id: "e1", index: 1, revision: 0, phase: "complete", ts: 2, type: "assistant", blocks: [{ kind: "text", text: "done" }] },
+          {
+            id: "e0",
+            index: 0,
+            revision: 0,
+            phase: "complete",
+            ts: 1,
+            type: "user",
+            blocks: [{ kind: "text", text: "go" }],
+          },
+          {
+            id: "e1",
+            index: 1,
+            revision: 0,
+            phase: "complete",
+            ts: 2,
+            type: "assistant",
+            blocks: [{ kind: "text", text: "done" }],
+          },
         ],
         total: 2,
         mode: "nice",
@@ -151,8 +173,7 @@ test("what the run does reaches the stream while it is still running", async () 
 
   const messages = await collect(await route(...get(), server)!);
 
-  expect(messages.map((message) => message.type))
-    .toEqual(["thinking-delta", "thinking-delta", "reasoning", "result"]);
+  expect(messages.map((message) => message.type)).toEqual(["thinking-delta", "thinking-delta", "reasoning", "result"]);
 });
 
 test("no credential answers 503 with a code the panel can branch on", async () => {
@@ -160,7 +181,7 @@ test("no credential answers 503 with a code the panel can branch on", async () =
   const runner = countingRunner();
   const response = await routes(runner)(...get(), server)!;
   expect(response.status).toBe(503);
-  expect((await response.json() as { error: { code: string } }).error.code).toBe("summary-unconfigured");
+  expect(((await response.json()) as { error: { code: string } }).error.code).toBe("summary-unconfigured");
   expect(runner.runs()).toBe(0);
 });
 
@@ -175,16 +196,18 @@ test("a starting catalog answers 503 rather than summarizing a partial inventory
   state.watcherState = "idle";
   const response = await route(...get(), server)!;
   expect(response.status).toBe(503);
-  expect((await response.json() as { error: { code: string } }).error.code).toBe("inventory-not-ready");
+  expect(((await response.json()) as { error: { code: string } }).error.code).toBe("inventory-not-ready");
 });
 
 test("a second viewer joins the run instead of paying for a second one", async () => {
   let open!: () => void;
-  const gate = new Promise<void>((resolve) => { open = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
   const runner = countingRunner(gate);
   const route = routes(runner);
-  const first = (await route(...get(), server)!);
-  const second = (await route(...get(), server)!);
+  const first = await route(...get(), server)!;
+  const second = await route(...get(), server)!;
   open();
 
   const [a, b] = await Promise.all([collect(first), collect(second)]);
@@ -196,12 +219,16 @@ test("a second viewer joins the run instead of paying for a second one", async (
 
 test("a viewer who opens mid-run is replayed what it has already said", async () => {
   let open!: () => void;
-  const gate = new Promise<void>((resolve) => { open = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
   let emit!: (message: SummaryStreamMessage) => void;
   let running!: () => void;
   // The run does not begin the instant the stream opens -- the turn window is resolved first --
   // so the test waits for it rather than racing it.
-  const started = new Promise<void>((resolve) => { running = resolve; });
+  const started = new Promise<void>((resolve) => {
+    running = resolve;
+  });
   const route = routes({
     async run(input: SummaryRunInput) {
       emit = (message) => input.onMessage?.(message);
@@ -212,11 +239,11 @@ test("a viewer who opens mid-run is replayed what it has already said", async ()
     },
   });
 
-  const first = (await route(...get(), server)!);
+  const first = await route(...get(), server)!;
   await started;
   // The phone opening the same thread the Mac is already watching: it should not see a blank
   // panel just because it arrived second.
-  const late = (await route(...get(), server)!);
+  const late = await route(...get(), server)!;
   emit({ type: "reasoning", text: "late" });
   open();
 
@@ -235,7 +262,11 @@ test("asking again with no new events is served from cache", async () => {
 });
 
 test("a failing run reports the code in the stream, which itself opened fine", async () => {
-  const route = routes({ async run() { throw new Error("model refused"); } });
+  const route = routes({
+    async run() {
+      throw new Error("model refused");
+    },
+  });
   const response = await route(...get(), server)!;
   // 200: by the time a run can fail, the response has been committed as an event stream. The
   // code the panel branches on is the same either way.

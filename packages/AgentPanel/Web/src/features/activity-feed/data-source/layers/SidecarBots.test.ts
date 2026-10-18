@@ -101,7 +101,10 @@ describe("SidecarBots", () => {
     const source = new SidecarDataSource(transport);
     const errors: string[] = [];
     const snapshots: unknown[] = [];
-    source.subscribeBots((snapshot) => snapshots.push(snapshot), (error) => errors.push(error));
+    source.subscribeBots(
+      (snapshot) => snapshots.push(snapshot),
+      (error) => errors.push(error),
+    );
 
     transport.deliver("/api/bots/stream", {
       error: { code: "bot-stream-failed", message: "bots.json is malformed", retryable: true },

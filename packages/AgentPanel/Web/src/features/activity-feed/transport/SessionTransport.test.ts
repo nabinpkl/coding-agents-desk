@@ -9,9 +9,7 @@ describe("sessionPath", () => {
 
   it("addresses another session through its own prefix", () => {
     expect(sessionPath("agent", "/api/config")).toBe("/session/agent/api/config");
-    expect(sessionPath("agent", "/api/park/tile/display/webrtc")).toBe(
-      "/session/agent/api/park/tile/display/webrtc",
-    );
+    expect(sessionPath("agent", "/api/park/tile/display/webrtc")).toBe("/session/agent/api/park/tile/display/webrtc");
   });
 
   it("does not touch a path that was never a sidecar call", () => {

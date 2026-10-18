@@ -4,7 +4,12 @@
 // reading one -- how many images, which fields an answer carries, what a rename may contain -- is
 // here, apart from the session that acts on the result.
 
-import type { ClaudeEffortLevel, ClaudePermissionMode, TmuxQuestionAnswer, TmuxQuestionRefusal } from "@agentdesk/agent-feed-wire";
+import type {
+  ClaudeEffortLevel,
+  ClaudePermissionMode,
+  TmuxQuestionAnswer,
+  TmuxQuestionRefusal,
+} from "@agentdesk/agent-feed-wire";
 import { CLAUDE_EFFORT_LEVELS, CLAUDE_PERMISSION_MODES } from "@agentdesk/agent-feed-wire";
 import { isId, isModelName, type PromptImageType } from "@/claude-sdk/claudeSdkProtocol";
 
@@ -35,7 +40,8 @@ export type SessionReply = { ok: true } | { ok: false; reason: SessionRefusal; m
 const isString = (value: unknown): value is string => typeof value === "string";
 type Fields = Record<string, unknown>;
 
-const isEffortLevel = (value: unknown): value is ClaudeEffortLevel => (CLAUDE_EFFORT_LEVELS as readonly unknown[]).includes(value);
+const isEffortLevel = (value: unknown): value is ClaudeEffortLevel =>
+  (CLAUDE_EFFORT_LEVELS as readonly unknown[]).includes(value);
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /** As many as the panel's own send takes (`parseMessageAttachments`). */
 const MAXIMUM_PROMPT_IMAGES = 5;
@@ -95,7 +101,9 @@ export function parseSessionCommand(fields: Fields): SessionCommand | null {
       };
     case "set-mode": {
       const mode = fields.mode;
-      return (CLAUDE_PERMISSION_MODES as readonly unknown[]).includes(mode) ? { type: "set-mode", mode: mode as ClaudePermissionMode } : null;
+      return (CLAUDE_PERMISSION_MODES as readonly unknown[]).includes(mode)
+        ? { type: "set-mode", mode: mode as ClaudePermissionMode }
+        : null;
     }
     case "set-model":
       return isModelName(fields.model) ? { type: "set-model", model: fields.model } : null;

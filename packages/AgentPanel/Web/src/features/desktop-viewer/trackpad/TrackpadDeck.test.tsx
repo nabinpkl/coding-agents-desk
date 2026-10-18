@@ -18,10 +18,13 @@ beforeEach(() => {
     return frames.length;
   });
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
-  vi.stubGlobal("ResizeObserver", class {
-    observe() {}
-    disconnect() {}
-  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
 });
 
 afterEach(() => {

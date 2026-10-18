@@ -145,9 +145,7 @@ export async function runClaudeContestant(
   // its record should not name one that will never exist.
   const binary = options.binary !== undefined ? options.binary : claudeBinary();
   if (!binary) {
-    throw new ClaudeContestantError(
-      "no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH",
-    );
+    throw new ClaudeContestantError("no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH");
   }
   const sessionId = plan.continues ?? options.newSessionId?.() ?? randomUUID();
   plan.onSessionId(sessionId);
@@ -171,15 +169,11 @@ export async function runClaudeContestant(
   try {
     const code = await child.exited;
     if (timedOut) {
-      throw new ClaudeContestantError(
-        `contestant did not close its turn within ${plan.turnTimeoutMs}ms`,
-      );
+      throw new ClaudeContestantError(`contestant did not close its turn within ${plan.turnTimeoutMs}ms`);
     }
     if (code !== 0) {
       const stderr = (await child.stderrText()).trim();
-      throw new ClaudeContestantError(
-        `claude exited ${code}: ${stderr.slice(-STDERR_TAIL_CHARACTERS)}`,
-      );
+      throw new ClaudeContestantError(`claude exited ${code}: ${stderr.slice(-STDERR_TAIL_CHARACTERS)}`);
     }
   } finally {
     clearTimeout(timer);

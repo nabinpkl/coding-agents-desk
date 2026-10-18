@@ -28,11 +28,7 @@ export const MAXIMUM_EXPANDED_DIRECTORY_PATHS = 2048;
 export const MAXIMUM_OPERATION_ID_BYTES = 512;
 const APPLIED_OPERATION_LIMIT = 512;
 
-export type SharedStateFailureCode =
-  | "invalidPath"
-  | "invalidOperation"
-  | "revisionConflict"
-  | "stateLimitExceeded";
+export type SharedStateFailureCode = "invalidPath" | "invalidOperation" | "revisionConflict" | "stateLimitExceeded";
 
 export class SharedStateFailure extends Error {
   readonly code: SharedStateFailureCode;
@@ -80,15 +76,17 @@ function emptyRecord(): Record_ {
 function isRecord(value: unknown): value is Record_ {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
-  return typeof record.revision === "number" && Number.isInteger(record.revision)
-    && Array.isArray(record.orderedOpenPaths)
-    && record.orderedOpenPaths.every((path) => typeof path === "string")
-    && Array.isArray(record.expandedDirectoryPaths)
-    && record.expandedDirectoryPaths.every((path) => typeof path === "string")
-    && Array.isArray(record.appliedOperationIds)
-    && record.appliedOperationIds.every((id) => typeof id === "string")
-    && (record.previewPath === undefined || record.previewPath === null
-      || typeof record.previewPath === "string");
+  return (
+    typeof record.revision === "number" &&
+    Number.isInteger(record.revision) &&
+    Array.isArray(record.orderedOpenPaths) &&
+    record.orderedOpenPaths.every((path) => typeof path === "string") &&
+    Array.isArray(record.expandedDirectoryPaths) &&
+    record.expandedDirectoryPaths.every((path) => typeof path === "string") &&
+    Array.isArray(record.appliedOperationIds) &&
+    record.appliedOperationIds.every((id) => typeof id === "string") &&
+    (record.previewPath === undefined || record.previewPath === null || typeof record.previewPath === "string")
+  );
 }
 
 function decode(raw: string, path: string): StoredState {
@@ -175,12 +173,8 @@ function applyOperation(operation: WorkspaceOperation, record: Record_): boolean
       const paths = operation.orderedPaths.map(validPath);
       const unique = new Set(paths);
       const current = new Set(record.orderedOpenPaths);
-      if (unique.size !== paths.length || unique.size !== current.size
-        || !paths.every((path) => current.has(path))) {
-        throw new SharedStateFailure(
-          "invalidOperation",
-          "a reorder must be a permutation of the open files",
-        );
+      if (unique.size !== paths.length || unique.size !== current.size || !paths.every((path) => current.has(path))) {
+        throw new SharedStateFailure("invalidOperation", "a reorder must be a permutation of the open files");
       }
       if (paths.every((path, index) => path === record.orderedOpenPaths[index])) return false;
       record.orderedOpenPaths = paths;
@@ -286,8 +280,7 @@ export class WorkspaceSharedStateStore {
 
     const changed = applyOperation(operation, record);
     if (changed) record.revision += 1;
-    record.appliedOperationIds = [...record.appliedOperationIds, operationId]
-      .slice(-APPLIED_OPERATION_LIMIT);
+    record.appliedOperationIds = [...record.appliedOperationIds, operationId].slice(-APPLIED_OPERATION_LIMIT);
 
     this.state = {
       version: SHARED_STATE_VERSION,

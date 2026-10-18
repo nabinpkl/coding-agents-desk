@@ -87,24 +87,27 @@ export function DesktopKeyboardChrome({
   const deliveryProblem = deliveryStatus !== null && deliveryStatus !== "Delivered" && !deliveryPending;
   return (
     <>
-      {createPortal(<textarea
-        ref={captureRef}
-        aria-label="Remote Mac keyboard input"
-        autoCapitalize="none"
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        inputMode="text"
-        {...captureProps}
-        tabIndex={-1}
-        // A 4x4 nothing in the corner, focused programmatically to raise the keyboard and never
-        // touched directly. It stays that way on purpose: WebKit draws its form-navigation strip
-        // over the panel's own key rail for any field big enough to tap, and in a browser tab
-        // nothing can remove that strip. Pasting goes through the Paste button instead, which
-        // needs no focused field at all.
-        style={{ bottom: `${bottom + 8}px`, fontSize: 16 }}
-        className="fixed left-2 h-4 w-4 opacity-0 pointer-events-none"
-      />, document.body)}
+      {createPortal(
+        <textarea
+          ref={captureRef}
+          aria-label="Remote Mac keyboard input"
+          autoCapitalize="none"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          inputMode="text"
+          {...captureProps}
+          tabIndex={-1}
+          // A 4x4 nothing in the corner, focused programmatically to raise the keyboard and never
+          // touched directly. It stays that way on purpose: WebKit draws its form-navigation strip
+          // over the panel's own key rail for any field big enough to tap, and in a browser tab
+          // nothing can remove that strip. Pasting goes through the Paste button instead, which
+          // needs no focused field at all.
+          style={{ bottom: `${bottom + 8}px`, fontSize: 16 }}
+          className="fixed left-2 h-4 w-4 opacity-0 pointer-events-none"
+        />,
+        document.body,
+      )}
 
       {!shown ? (
         // Auto keyboard is set from the viewer's settings popover while this is down, and from
@@ -119,149 +122,173 @@ export function DesktopKeyboardChrome({
         >
           Keyboard
         </button>
-      ) : createPortal(
-        <section
-          ref={accessoryRef}
-          aria-label="Remote keyboard controls"
-          style={{ bottom: `${bottom}px` }}
-          onPointerDown={(event) => event.preventDefault()}
-          onMouseDown={(event) => event.preventDefault()}
-          // No padding of its own: the deck below spans this edge to edge so its outermost keys
-          // own the screen's edge, and the strip and rail carry their own inset instead.
-          className="pointer-events-auto fixed inset-x-0 z-50 border-t border-border bg-background pt-1 text-foreground"
-        >
-          <div
-            className="px-1.5"
-            style={showsDeck ? undefined : {
-              paddingBottom: softwareKeyboardVisible ? 4 : "max(4px, env(safe-area-inset-bottom))",
-            }}
+      ) : (
+        createPortal(
+          <section
+            ref={accessoryRef}
+            aria-label="Remote keyboard controls"
+            style={{ bottom: `${bottom}px` }}
+            onPointerDown={(event) => event.preventDefault()}
+            onMouseDown={(event) => event.preventDefault()}
+            // No padding of its own: the deck below spans this edge to edge so its outermost keys
+            // own the screen's edge, and the strip and rail carry their own inset instead.
+            className="pointer-events-auto fixed inset-x-0 z-50 border-t border-border bg-background pt-1 text-foreground"
           >
-            <div className={`mb-1 flex items-center gap-1 rounded-lg border bg-muted px-2 ${
-              draft === null ? "h-8 border-border" : "min-h-8 border-primary py-1"}`}>
-              {draft === null ? (
-                <output
-                  aria-label="Local typing echo"
-                  className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
+            <div
+              className="px-1.5"
+              style={
+                showsDeck
+                  ? undefined
+                  : {
+                      paddingBottom: softwareKeyboardVisible ? 4 : "max(4px, env(safe-area-inset-bottom))",
+                    }
+              }
+            >
+              <div
+                className={`mb-1 flex items-center gap-1 rounded-lg border bg-muted px-2 ${
+                  draft === null ? "h-8 border-border" : "min-h-8 border-primary py-1"
+                }`}
+              >
+                {draft === null ? (
+                  <output
+                    aria-label="Local typing echo"
+                    className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
+                  >
+                    <span className="min-w-full shrink-0 whitespace-pre">
+                      {localEcho.length > 0 ? localEcho.join("") : "Type to send to Mac"}
+                    </span>
+                  </output>
+                ) : (
+                  /*
+                   * A field in everything but kind: it shows the text, carries a caret, and the deck
+                   * edits it. What it must never be is focusable, because a focused editable is what
+                   * summons WebKit's keyboard and the form strip the deck exists to avoid.
+                   */
+                  <div
+                    role="textbox"
+                    aria-readonly
+                    aria-label="Pasted text, editable before sending"
+                    className="max-h-20 min-w-0 flex-1 select-none overflow-y-auto whitespace-pre-wrap break-words text-left text-sm text-foreground"
+                  >
+                    {draft}
+                    <span
+                      aria-hidden
+                      className="ml-px inline-block w-px animate-pulse self-stretch bg-foreground align-middle"
+                      style={{ height: "1.1em" }}
+                    />
+                  </div>
+                )}
+                <span
+                  role="status"
+                  aria-label="Input delivery"
+                  className={deliveryProblem ? "max-w-[35%] truncate text-[10px] text-destructive" : "sr-only"}
                 >
-                  <span className="min-w-full shrink-0 whitespace-pre">
-                    {localEcho.length > 0 ? localEcho.join("") : "Type to send to Mac"}
+                  {deliveryStatus ?? "Ready"}
+                </span>
+                {deliveryPending ? (
+                  <span aria-hidden className="text-xs text-muted-foreground">
+                    …
                   </span>
-                </output>
-              ) : (
-                /*
-                 * A field in everything but kind: it shows the text, carries a caret, and the deck
-                 * edits it. What it must never be is focusable, because a focused editable is what
-                 * summons WebKit's keyboard and the form strip the deck exists to avoid.
-                 */
-                <div
-                  role="textbox"
-                  aria-readonly
-                  aria-label="Pasted text, editable before sending"
-                  className="max-h-20 min-w-0 flex-1 select-none overflow-y-auto whitespace-pre-wrap break-words text-left text-sm text-foreground"
+                ) : null}
+                {deckAvailable && !showsDeck ? (
+                  <button
+                    type="button"
+                    aria-label="Switch to the panel keyboard"
+                    onClick={() => onKeyboardMode("deck")}
+                    className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+                  >
+                    Panel
+                  </button>
+                ) : null}
+                {draft === null ? (
+                  <button
+                    type="button"
+                    onClick={onPasteToMac}
+                    className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+                  >
+                    Paste
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onCancelDraft}
+                      className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onSendDraft}
+                      className="h-7 shrink-0 cursor-pointer rounded bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring"
+                    >
+                      Send
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  aria-label="Auto keyboard"
+                  aria-pressed={autoKeyboard}
+                  onClick={() => onAutoChange(!autoKeyboard)}
+                  className={`h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent ${autoKeyboard ? "text-foreground" : "text-muted-foreground"}`}
                 >
-                  {draft}
-                  <span aria-hidden className="ml-px inline-block w-px animate-pulse self-stretch bg-foreground align-middle" style={{ height: "1.1em" }} />
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  onClick={onHide}
+                  className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+                >
+                  Hide
+                </button>
+              </div>
+              <output aria-label="Acknowledged remote input" className="sr-only">
+                {receipt.join("")}
+              </output>
+              <div
+                aria-label="Remote key rail"
+                className="grid h-9 grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(3,minmax(0,1fr))] gap-1"
+              >
+                <KeyboardButton label="Esc" onClick={() => onKey("escape")} />
+                <KeyboardButton label="Tab" onClick={() => onKey("tab")} />
+                <KeyboardButton label="⇧" state={modifiers.shift} onClick={() => onModifier("shift")} />
+                <div role="group" aria-label="Arrow keys" className="grid h-full grid-cols-3 grid-rows-2 gap-0.5">
+                  {ARROWS.map((key) => (
+                    <KeyboardButton
+                      key={key.code}
+                      label={key.label}
+                      className={`${key.position} text-base leading-none`}
+                      onClick={() => onKey(key.code)}
+                    />
+                  ))}
                 </div>
-              )}
-              <span
-                role="status"
-                aria-label="Input delivery"
-                className={deliveryProblem
-                  ? "max-w-[35%] truncate text-[10px] text-destructive"
-                  : "sr-only"}
-              >
-                {deliveryStatus ?? "Ready"}
-              </span>
-              {deliveryPending ? <span aria-hidden className="text-xs text-muted-foreground">…</span> : null}
-              {deckAvailable && !showsDeck ? (
-                <button
-                  type="button"
-                  aria-label="Switch to the panel keyboard"
-                  onClick={() => onKeyboardMode("deck")}
-                  className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
-                >
-                  Panel
-                </button>
-              ) : null}
-              {draft === null ? (
-                <button
-                  type="button"
-                  onClick={onPasteToMac}
-                  className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
-                >
-                  Paste
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={onCancelDraft}
-                    className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onSendDraft}
-                    className="h-7 shrink-0 cursor-pointer rounded bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring"
-                  >
-                    Send
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                aria-label="Auto keyboard"
-                aria-pressed={autoKeyboard}
-                onClick={() => onAutoChange(!autoKeyboard)}
-                className={`h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent ${autoKeyboard ? "text-foreground" : "text-muted-foreground"}`}
-              >
-                Auto
-              </button>
-              <button
-                type="button"
-                onClick={onHide}
-                className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
-              >
-                Hide
-              </button>
-            </div>
-            <output aria-label="Acknowledged remote input" className="sr-only">
-              {receipt.join("")}
-            </output>
-            <div aria-label="Remote key rail" className="grid h-9 grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(3,minmax(0,1fr))] gap-1">
-              <KeyboardButton label="Esc" onClick={() => onKey("escape")} />
-              <KeyboardButton label="Tab" onClick={() => onKey("tab")} />
-              <KeyboardButton label="⇧" state={modifiers.shift} onClick={() => onModifier("shift")} />
-              <div role="group" aria-label="Arrow keys" className="grid h-full grid-cols-3 grid-rows-2 gap-0.5">
-                {ARROWS.map((key) => (
-                  <KeyboardButton key={key.code} label={key.label} className={`${key.position} text-base leading-none`} onClick={() => onKey(key.code)} />
+                {MODIFIERS.map(({ label, modifier }) => (
+                  <KeyboardButton
+                    key={modifier}
+                    label={label}
+                    state={modifiers[modifier]}
+                    onClick={() => onModifier(modifier)}
+                  />
                 ))}
               </div>
-              {MODIFIERS.map(({ label, modifier }) => (
-                <KeyboardButton
-                  key={modifier}
-                  label={label}
-                  state={modifiers[modifier]}
-                  onClick={() => onModifier(modifier)}
-                />
-              ))}
             </div>
-          </div>
-          {showsDeck ? (
-            <KeyboardDeck
-              metrics={deckMetrics}
-              edgeInset={{
-                x: 6,
-                bottom: softwareKeyboardVisible ? "4px" : "max(4px, env(safe-area-inset-bottom))",
-              }}
-              onCharacter={onDeckCharacter}
-              onDelete={onDeckBackspace}
-              onCursorDelta={onDeckCursorDelta}
-              onSwitchToNative={() => onKeyboardMode("native")}
-            />
-          ) : null}
-        </section>, document.body,
+            {showsDeck ? (
+              <KeyboardDeck
+                metrics={deckMetrics}
+                edgeInset={{
+                  x: 6,
+                  bottom: softwareKeyboardVisible ? "4px" : "max(4px, env(safe-area-inset-bottom))",
+                }}
+                onCharacter={onDeckCharacter}
+                onDelete={onDeckBackspace}
+                onCursorDelta={onDeckCursorDelta}
+                onSwitchToNative={() => onKeyboardMode("native")}
+              />
+            ) : null}
+          </section>,
+          document.body,
+        )
       )}
     </>
   );
@@ -270,9 +297,9 @@ export function DesktopKeyboardChrome({
 /** iOS swaps its metrics on the vertical size class; a page has only the viewport's height. */
 function useDeckMetrics() {
   const [metrics, setMetrics] = useState(() =>
-    deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight));
-  const update = () => setMetrics(
-    deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight));
+    deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight),
+  );
+  const update = () => setMetrics(deckMetricsForViewportHeight(window.visualViewport?.height ?? window.innerHeight));
   useEventListener(window, "resize", update);
   useEventListener(window.visualViewport, "resize", update);
   return metrics;

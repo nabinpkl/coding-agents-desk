@@ -20,15 +20,7 @@
 // need to know which one it is attached to.
 
 import { type ReactNode, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  LoaderCircle,
-  X,
-} from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, LoaderCircle, X } from "lucide-react";
 import type { AskUserQuestionItem } from "@/app/askUserQuestion";
 import type { QuestionDraft } from "@/features/session-view/composer/question/questionAnswers";
 import { isAnswered } from "@/features/session-view/composer/question/questionAnswers";
@@ -125,18 +117,10 @@ export function AskUserQuestionMirror({
     );
   }
   return (
-    <section
-      aria-label="Claude question"
-      className="mb-3 rounded-xl border border-border bg-background"
-    >
+    <section aria-label="Claude question" className="mb-3 rounded-xl border border-border bg-background">
       <div className="flex items-center gap-2 px-3 pt-2">
         {many ? (
-          <QuestionTabs
-            questions={questions}
-            drafts={drafts}
-            shown={shown}
-            onGo={setAt}
-          />
+          <QuestionTabs questions={questions} drafts={drafts} shown={shown} onGo={setAt} />
         ) : (
           <span className="flex-1" />
         )}
@@ -189,12 +173,7 @@ export function AskUserQuestionMirror({
       <div className="flex items-center gap-2 border-t border-border px-3 py-2">
         {many ? (
           <>
-            <Step
-              label="Previous question"
-              at={shown > 0}
-              inert={inert}
-              onClick={() => setAt(shown - 1)}
-            >
+            <Step label="Previous question" at={shown > 0} inert={inert} onClick={() => setAt(shown - 1)}>
               <ChevronLeft className="size-4" aria-hidden />
             </Step>
             <Step
@@ -232,15 +211,10 @@ export function AskUserQuestionMirror({
         </button>
       </div>
       {notice ? (
-        <p className="px-4 pb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-          {notice}
-        </p>
+        <p className="px-4 pb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">{notice}</p>
       ) : null}
       {error ? (
-        <p
-          aria-live="polite"
-          className="px-4 pb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive"
-        >
+        <p aria-live="polite" className="px-4 pb-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
           {error}
         </p>
       ) : null}
@@ -289,9 +263,11 @@ function FoldedQuestion({
           : "border-primary/40 bg-primary/5 hover:bg-primary/10 active:bg-primary/15"
       }`}
     >
-      {pending
-        ? <LoaderCircle className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
-        : <ChevronDown className={`size-4 shrink-0 ${error ? "text-destructive" : "text-primary"}`} aria-hidden />}
+      {pending ? (
+        <LoaderCircle className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
+      ) : (
+        <ChevronDown className={`size-4 shrink-0 ${error ? "text-destructive" : "text-primary"}`} aria-hidden />
+      )}
       <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 text-foreground">
         {question.question}
       </span>
@@ -352,9 +328,7 @@ function QuestionTabs({
             aria-current={here ? "step" : undefined}
             aria-label={`Question ${index + 1} of ${questions.length}: ${question.question}`}
             className={`flex h-6 max-w-[10rem] items-center gap-1 rounded-md px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) transition-colors ${
-              here
-                ? "bg-primary/15 font-medium text-foreground"
-                : "text-muted-foreground hover:bg-muted"
+              here ? "bg-primary/15 font-medium text-foreground" : "text-muted-foreground hover:bg-muted"
             }`}
           >
             {done ? <Check className="size-3 shrink-0 text-primary" aria-hidden /> : null}
@@ -392,4 +366,3 @@ function Step({
     </button>
   );
 }
-

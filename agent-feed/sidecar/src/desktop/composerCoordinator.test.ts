@@ -79,10 +79,7 @@ function claudeRows(sessionId: string): ProcessRow[] {
   ];
 }
 
-function coordinator(
-  helper: ControlHelper,
-  rows: ProcessRow[],
-) {
+function coordinator(helper: ControlHelper, rows: ProcessRow[]) {
   return createComposerCoordinator({
     helper,
     processRows: async () => rows,
@@ -100,10 +97,13 @@ describe("borrowing a window for a write", () => {
   const audit = snapshot([{ windowID: 900, ownerPID: CLAUDE_PID, spaceIDs: ["7"] }]);
 
   test("carries the verify budget on every move, so the helper does not sample once", async () => {
-    const { helper, of } = fakeHelper({
-      "composer-write": () => ({ text: "hello" }),
-      "frontmost-pid": () => ({ pid: 1 }),
-    }, audit);
+    const { helper, of } = fakeHelper(
+      {
+        "composer-write": () => ({ text: "hello" }),
+        "frontmost-pid": () => ({ pid: 1 }),
+      },
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
     await subject.sync({ source: "claude", sessionId: session }, "hello");
     const moves = of("window-move");
@@ -116,15 +116,18 @@ describe("borrowing a window for a write", () => {
   });
 
   test("a move-back that fails once is retried rather than abandoning the window", async () => {
-    const { helper, of } = fakeHelper({
-      "composer-write": () => ({ text: "hello" }),
-      "frontmost-pid": () => ({ pid: 1 }),
-      "window-move": (payload, nth) => {
-        // First move-in, then a restore that misses, then the retry.
-        if (nth === 2) throw new ControlHelperError("move-failed");
-        return {};
+    const { helper, of } = fakeHelper(
+      {
+        "composer-write": () => ({ text: "hello" }),
+        "frontmost-pid": () => ({ pid: 1 }),
+        "window-move": (payload, nth) => {
+          // First move-in, then a restore that misses, then the retry.
+          if (nth === 2) throw new ControlHelperError("move-failed");
+          return {};
+        },
       },
-    }, audit);
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
     expect(await subject.sync({ source: "claude", sessionId: session }, "hello")).toBe("hello");
     expect(of("window-move").length).toBe(3);
@@ -132,46 +135,58 @@ describe("borrowing a window for a write", () => {
   });
 
   test("a move-back that keeps failing reports restore-failed, not move-failed", async () => {
-    const { helper } = fakeHelper({
-      "composer-write": () => ({ text: "hello" }),
-      "frontmost-pid": () => ({ pid: 1 }),
-      "window-move": (payload) => {
-        if (payload.spaceID === "7") throw new ControlHelperError("move-failed");
-        return {};
+    const { helper } = fakeHelper(
+      {
+        "composer-write": () => ({ text: "hello" }),
+        "frontmost-pid": () => ({ pid: 1 }),
+        "window-move": (payload) => {
+          if (payload.spaceID === "7") throw new ControlHelperError("move-failed");
+          return {};
+        },
       },
-    }, audit);
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
-    await expect(subject.sync({ source: "claude", sessionId: session }, "hello"))
-      .rejects.toMatchObject({ reason: "restore-failed" });
+    await expect(subject.sync({ source: "claude", sessionId: session }, "hello")).rejects.toMatchObject({
+      reason: "restore-failed",
+    });
     subject.stop();
   });
 
   test("a move-IN that fails still reports move-failed", async () => {
-    const { helper } = fakeHelper({
-      "frontmost-pid": () => ({ pid: 1 }),
-      "window-move": (payload) => {
-        if (payload.spaceID === "3") throw new ControlHelperError("move-failed");
-        return {};
+    const { helper } = fakeHelper(
+      {
+        "frontmost-pid": () => ({ pid: 1 }),
+        "window-move": (payload) => {
+          if (payload.spaceID === "3") throw new ControlHelperError("move-failed");
+          return {};
+        },
       },
-    }, audit);
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
-    await expect(subject.sync({ source: "claude", sessionId: session }, "hello"))
-      .rejects.toMatchObject({ reason: "move-failed" });
+    await expect(subject.sync({ source: "claude", sessionId: session }, "hello")).rejects.toMatchObject({
+      reason: "move-failed",
+    });
     subject.stop();
   });
 
   test("an absent window mover is reported as itself, since retrying cannot restore it", async () => {
-    const { helper } = fakeHelper({
-      "composer-write": () => ({ text: "hello" }),
-      "frontmost-pid": () => ({ pid: 1 }),
-      "window-move": (payload) => {
-        if (payload.spaceID === "7") throw new ControlHelperError("window-mover-unavailable");
-        return {};
+    const { helper } = fakeHelper(
+      {
+        "composer-write": () => ({ text: "hello" }),
+        "frontmost-pid": () => ({ pid: 1 }),
+        "window-move": (payload) => {
+          if (payload.spaceID === "7") throw new ControlHelperError("window-mover-unavailable");
+          return {};
+        },
       },
-    }, audit);
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
-    await expect(subject.sync({ source: "claude", sessionId: session }, "hello"))
-      .rejects.toMatchObject({ reason: "window-mover-unavailable" });
+    await expect(subject.sync({ source: "claude", sessionId: session }, "hello")).rejects.toMatchObject({
+      reason: "window-mover-unavailable",
+    });
     subject.stop();
   });
 });
@@ -181,10 +196,13 @@ describe("the editing lease", () => {
   const audit = snapshot([{ windowID: 900, ownerPID: CLAUDE_PID, spaceIDs: ["7"] }]);
 
   test("latches and awaits Claude's composer for a Claude session", async () => {
-    const { helper, of } = fakeHelper({
-      "composer-read": () => ({ text: "" }),
-      "question-read": () => ({ present: false }),
-    }, audit);
+    const { helper, of } = fakeHelper(
+      {
+        "composer-read": () => ({ text: "" }),
+        "question-read": () => ({ present: false }),
+      },
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
     const stop = subject.watch({ source: "claude", sessionId: session }, () => {});
     await settle();
@@ -199,17 +217,22 @@ describe("the editing lease", () => {
     // The bug this pins: the lease ran Claude's `ax-latch` and `composer-await` for every source.
     // Codex exposes no `AXManualAccessibility` attribute, so the borrow failed on the one app it was
     // borrowing for, and the panel blamed the move.
-    const { helper, of } = fakeHelper({
-      "codex-window-summaries": () => ({
-        windows: [{
-          windowID: 901,
-          threadTitle: "",
-          projectName: "",
-          recentsFirstRow: "a thread",
-          bounds: { x: 0, y: 0, w: 100, h: 100 },
-        }],
-      }),
-    }, snapshot([{ windowID: 901, ownerPID: CODEX_PID, ownerName: "ChatGPT", spaceIDs: ["7"] }]));
+    const { helper, of } = fakeHelper(
+      {
+        "codex-window-summaries": () => ({
+          windows: [
+            {
+              windowID: 901,
+              threadTitle: "",
+              projectName: "",
+              recentsFirstRow: "a thread",
+              bounds: { x: 0, y: 0, w: 100, h: 100 },
+            },
+          ],
+        }),
+      },
+      snapshot([{ windowID: 901, ownerPID: CODEX_PID, ownerName: "ChatGPT", spaceIDs: ["7"] }]),
+    );
     const subject = createComposerCoordinator({
       helper,
       processRows: async () => [
@@ -235,10 +258,13 @@ describe("window-system events", () => {
     // The case a pid filter cannot narrow: at launch there is no session on that pid yet, so the
     // refresh has to cover everything. Before this the only thing that noticed was the timer, which
     // is why the interval had to be responsive and now does not.
-    const { helper, of, push } = fakeHelper({
-      "composer-read": () => ({ text: "" }),
-      "question-read": () => ({ present: false }),
-    }, audit);
+    const { helper, of, push } = fakeHelper(
+      {
+        "composer-read": () => ({ text: "" }),
+        "question-read": () => ({ present: false }),
+      },
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
     const stop = subject.watch({ source: "claude", sessionId: session }, () => {});
     await settle();
@@ -257,10 +283,13 @@ describe("window-system events", () => {
   });
 
   test("a question panel appearing refreshes only the sessions on that process", async () => {
-    const { helper, of, push } = fakeHelper({
-      "composer-read": () => ({ text: "" }),
-      "question-read": () => ({ present: false }),
-    }, audit);
+    const { helper, of, push } = fakeHelper(
+      {
+        "composer-read": () => ({ text: "" }),
+        "question-read": () => ({ present: false }),
+      },
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
     const stop = subject.watch({ source: "claude", sessionId: session }, () => {});
     await settle();
@@ -290,11 +319,14 @@ describe("the observer's own refresh", () => {
     // already had. Measured against a live window: an out-of-band edit sat there for twenty seconds
     // while the stream kept reporting the old text.
     let text = "first";
-    const { helper, of, push } = fakeHelper({
-      "composer-read": () => ({ text }),
-      "question-read": () => ({ present: false }),
-      "composer-observe": () => ({ observing: true }),
-    }, audit);
+    const { helper, of, push } = fakeHelper(
+      {
+        "composer-read": () => ({ text }),
+        "question-read": () => ({ present: false }),
+        "composer-observe": () => ({ observing: true }),
+      },
+      audit,
+    );
     const subject = coordinator(helper, claudeRows(session));
     const seen: string[] = [];
     const stop = subject.watch({ source: "claude", sessionId: session }, (envelope) => {
@@ -318,11 +350,14 @@ describe("the observer's own refresh", () => {
 describe("what a watcher is told", () => {
   test("a lease that cannot be taken is reported, not silently swallowed", async () => {
     const session = "s-3";
-    const { helper } = fakeHelper({
-      "window-move": () => {
-        throw new ControlHelperError("move-failed");
+    const { helper } = fakeHelper(
+      {
+        "window-move": () => {
+          throw new ControlHelperError("move-failed");
+        },
       },
-    }, snapshot([{ windowID: 900, ownerPID: CLAUDE_PID, spaceIDs: ["7"] }]));
+      snapshot([{ windowID: 900, ownerPID: CLAUDE_PID, spaceIDs: ["7"] }]),
+    );
     const subject = coordinator(helper, claudeRows(session));
     const seen: ComposerEnvelope[] = [];
     const stop = subject.watch({ source: "claude", sessionId: session }, (envelope) => {

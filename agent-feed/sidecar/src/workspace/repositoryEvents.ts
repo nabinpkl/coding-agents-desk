@@ -19,8 +19,7 @@ import { type TreeWatch, watchTree } from "@/transcripts/catalog/watchTree";
 export type RepositoryEventSource = "tree" | "folders";
 
 /** The source this platform should use. See the measurements at the top of this file. */
-export const PLATFORM_EVENT_SOURCE: RepositoryEventSource =
-  process.platform === "darwin" ? "tree" : "folders";
+export const PLATFORM_EVENT_SOURCE: RepositoryEventSource = process.platform === "darwin" ? "tree" : "folders";
 
 export interface RepositoryEvents {
   /** The directories whose entries matter, replacing the previous set. */
@@ -46,11 +45,7 @@ export function repositoryEvents(
   return source === "tree" ? treeEvents(top, onPath, onError) : folderEvents(onPath, onError);
 }
 
-function treeEvents(
-  top: string,
-  onPath: (path: string) => void,
-  onError: (error: unknown) => void,
-): RepositoryEvents {
+function treeEvents(top: string, onPath: (path: string) => void, onError: (error: unknown) => void): RepositoryEvents {
   const tree: TreeWatch = watchTree({ root: top, depth: Number.POSITIVE_INFINITY, onPath, onError });
   return {
     setFolders: () => {},
@@ -59,10 +54,7 @@ function treeEvents(
   };
 }
 
-function folderEvents(
-  onPath: (path: string) => void,
-  onError: (error: unknown) => void,
-): RepositoryEvents {
+function folderEvents(onPath: (path: string) => void, onError: (error: unknown) => void): RepositoryEvents {
   const watchers = new Map<string, FSWatcher>();
 
   const add = (folder: string): void => {

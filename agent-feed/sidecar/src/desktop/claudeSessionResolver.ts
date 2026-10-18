@@ -247,11 +247,7 @@ export function desktopOwner(
  * the audit already lists off-Space windows with their Space membership, and a second window source
  * is exactly the divergence ADR-0092 consolidated away.
  */
-export function target(
-  sessionId: string,
-  claudeMainPid: number,
-  snapshot: DesktopAuditSnapshot,
-): WindowResolution {
+export function target(sessionId: string, claudeMainPid: number, snapshot: DesktopAuditSnapshot): WindowResolution {
   if (snapshot.activeSpaceID === null || snapshot.diagnostic !== null) {
     return { ok: false, reason: "placement-unavailable" };
   }
@@ -278,8 +274,7 @@ export function target(
     .filter((window) => window.spaceIDs.length === 1)
     .sort((a, b) => a.windowID - b.windowID);
 
-  const window = candidates.find((candidate) => candidate.spaceIDs[0] === activeSpaceID)
-    ?? candidates[0];
+  const window = candidates.find((candidate) => candidate.spaceIDs[0] === activeSpaceID) ?? candidates[0];
   const homeSpaceID = window?.spaceIDs[0];
   if (!window || homeSpaceID === undefined) return { ok: false, reason: "no-window" };
 

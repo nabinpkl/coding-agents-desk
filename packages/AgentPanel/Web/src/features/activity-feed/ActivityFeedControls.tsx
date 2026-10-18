@@ -35,10 +35,11 @@ export function ActivityFeedControls({
   if (!controlsHost) return null;
   return createPortal(
     <>
-        {/* The nice view omits harness machinery, so the raw view has to stay one
+      {/* The nice view omits harness machinery, so the raw view has to stay one
             press away: it is the fidelity guarantee that makes omitting allowed at
             all, and a viewer who wants to know what was dropped here needs it. */}
-        {canToggleMode ? <button
+      {canToggleMode ? (
+        <button
           type="button"
           onClick={onToggleMode}
           title={
@@ -56,40 +57,41 @@ export function ActivityFeedControls({
           }
         >
           {mode === "raw" ? "raw" : "nice"}
-        </button> : null}
-        <button
-          type="button"
-          onClick={onToggleCacheHits}
-          title={
-            showCacheHits
-              ? "Hiding per-turn prompt-cache badges"
-              : "Show how much of each turn's prompt was served from the prompt cache"
-          }
-          aria-label={showCacheHits ? "hide prompt cache badges" : "show prompt cache badges"}
-          aria-pressed={showCacheHits}
-          className={
-            "flex h-8 items-center justify-center rounded-lg px-1.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) uppercase tracking-wider transition-colors " +
-            (showCacheHits
-              ? "bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30 dark:text-emerald-400"
-              : "session-muted-ink hover:bg-muted hover:text-foreground active:bg-muted/80")
-          }
-        >
-          cache
         </button>
-        <button
-          type="button"
-          onClick={allCollapsed ? expandAll : collapseAll}
-          disabled={allEventIds.length === 0}
-          title={allCollapsed ? "Expand all agent sections" : "Collapse all agent sections"}
-          aria-label={allCollapsed ? "expand all" : "collapse all"}
-          className="flex h-8 w-8 items-center justify-center rounded-lg session-muted-ink transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 disabled:opacity-40"
-        >
-          {allCollapsed ? (
-            <UnfoldVertical className="h-4 w-4" aria-hidden />
-          ) : (
-            <FoldVertical className="h-4 w-4" aria-hidden />
-          )}
-        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={onToggleCacheHits}
+        title={
+          showCacheHits
+            ? "Hiding per-turn prompt-cache badges"
+            : "Show how much of each turn's prompt was served from the prompt cache"
+        }
+        aria-label={showCacheHits ? "hide prompt cache badges" : "show prompt cache badges"}
+        aria-pressed={showCacheHits}
+        className={
+          "flex h-8 items-center justify-center rounded-lg px-1.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) uppercase tracking-wider transition-colors " +
+          (showCacheHits
+            ? "bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30 dark:text-emerald-400"
+            : "session-muted-ink hover:bg-muted hover:text-foreground active:bg-muted/80")
+        }
+      >
+        cache
+      </button>
+      <button
+        type="button"
+        onClick={allCollapsed ? expandAll : collapseAll}
+        disabled={allEventIds.length === 0}
+        title={allCollapsed ? "Expand all agent sections" : "Collapse all agent sections"}
+        aria-label={allCollapsed ? "expand all" : "collapse all"}
+        className="flex h-8 w-8 items-center justify-center rounded-lg session-muted-ink transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 disabled:opacity-40"
+      >
+        {allCollapsed ? (
+          <UnfoldVertical className="h-4 w-4" aria-hidden />
+        ) : (
+          <FoldVertical className="h-4 w-4" aria-hidden />
+        )}
+      </button>
     </>,
     controlsHost,
   );

@@ -33,10 +33,14 @@ describe("whose block counts", () => {
     expect(taskStateOfLine(said(block("mine")))?.task).toBe("mine");
     expect(taskStateOfLine(said(block("sub"), { isSidechain: true }))).toBeNull();
     expect(taskStateOfLine(JSON.stringify({ type: "user", message: { content: block("quoted") } }))).toBeNull();
-    expect(taskStateOfLine(JSON.stringify({
-      type: "user",
-      message: { content: [{ type: "tool_result", content: [{ type: "text", text: block("tool") }] }] },
-    }))).toBeNull();
+    expect(
+      taskStateOfLine(
+        JSON.stringify({
+          type: "user",
+          message: { content: [{ type: "tool_result", content: [{ type: "text", text: block("tool") }] }] },
+        }),
+      ),
+    ).toBeNull();
   });
 });
 

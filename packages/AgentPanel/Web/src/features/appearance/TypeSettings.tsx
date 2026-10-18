@@ -59,25 +59,27 @@ export function TypeSettings(): React.ReactElement {
   // Before paint, so the dialog is measured and placed in the same commit that opens it rather
   // than appearing at the top-left corner for a frame. Below the trigger and right-aligned to
   // it, clamped on both axes so a trigger at any edge still gets a dialog entirely on screen.
-  useOverlayPlacement(open, () => {
-    {
-      const button = trigger.current;
-      const popup = dialog.current;
-      if (!button || !popup) return;
-      const anchor = button.getBoundingClientRect();
-      const box = popup.getBoundingClientRect();
-      const viewportHeight = globalThis.innerHeight || 0;
-      const viewportWidth = globalThis.innerWidth || 0;
-      const top = Math.max(
-        MARGIN,
-        Math.min(anchor.bottom + GAP, viewportHeight - MARGIN - box.height),
-      );
-      setPlacement({
-        top,
-        left: Math.max(MARGIN, Math.min(anchor.right - box.width, viewportWidth - MARGIN - box.width)),
-      });
-    }
-  }, [], { scroll: false });
+  useOverlayPlacement(
+    open,
+    () => {
+      {
+        const button = trigger.current;
+        const popup = dialog.current;
+        if (!button || !popup) return;
+        const anchor = button.getBoundingClientRect();
+        const box = popup.getBoundingClientRect();
+        const viewportHeight = globalThis.innerHeight || 0;
+        const viewportWidth = globalThis.innerWidth || 0;
+        const top = Math.max(MARGIN, Math.min(anchor.bottom + GAP, viewportHeight - MARGIN - box.height));
+        setPlacement({
+          top,
+          left: Math.max(MARGIN, Math.min(anchor.right - box.width, viewportWidth - MARGIN - box.width)),
+        });
+      }
+    },
+    [],
+    { scroll: false },
+  );
 
   const close = (restoreFocus = true) => {
     setOpen(false);
@@ -109,67 +111,69 @@ export function TypeSettings(): React.ReactElement {
       >
         <Settings2 className="size-4" aria-hidden />
       </button>
-      {open ? createPortal(
-        <div
-          ref={dialog}
-          role="dialog"
-          aria-label="Display settings"
-          style={{
-            top: placement?.top ?? 0,
-            left: placement?.left ?? 0,
-            // Measured at its natural size on the first pass, then shown. Without this the
-            // dialog paints once in the corner of the window before it is placed.
-            visibility: placement ? undefined : "hidden",
-          }}
-          className="fixed z-50 w-52 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-xl"
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            close();
-          }}
-        >
-          <div role="group" aria-label="Panel type" className="grid gap-3 p-1">
-            <div className="grid gap-1">
-              <label htmlFor="agent-panel-type-family" className={caption}>
-                Typeface
-              </label>
-              <select
-                id="agent-panel-type-family"
-                aria-label="Typeface"
-                value={type.family}
-                onChange={(event) => setType((was) => ({ ...was, family: event.target.value }))}
-                className={select}
-              >
-                {TYPE_FAMILIES.map((family) => (
-                  <option key={family.id} value={family.id}>
-                    {family.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-1">
-              <label htmlFor="agent-panel-type-weight" className={caption}>
-                Text weight
-              </label>
-              <select
-                id="agent-panel-type-weight"
-                aria-label="Text weight"
-                title="The weight of ordinary text. Every heavier step moves with it."
-                value={type.weight}
-                onChange={(event) => setType((was) => ({ ...was, weight: Number(event.target.value) }))}
-                className={select}
-              >
-                {TYPE_WEIGHTS.map((weight) => (
-                  <option key={weight} value={weight}>
-                    {weight}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={dialog}
+              role="dialog"
+              aria-label="Display settings"
+              style={{
+                top: placement?.top ?? 0,
+                left: placement?.left ?? 0,
+                // Measured at its natural size on the first pass, then shown. Without this the
+                // dialog paints once in the corner of the window before it is placed.
+                visibility: placement ? undefined : "hidden",
+              }}
+              className="fixed z-50 w-52 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-xl"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                close();
+              }}
+            >
+              <div role="group" aria-label="Panel type" className="grid gap-3 p-1">
+                <div className="grid gap-1">
+                  <label htmlFor="agent-panel-type-family" className={caption}>
+                    Typeface
+                  </label>
+                  <select
+                    id="agent-panel-type-family"
+                    aria-label="Typeface"
+                    value={type.family}
+                    onChange={(event) => setType((was) => ({ ...was, family: event.target.value }))}
+                    className={select}
+                  >
+                    {TYPE_FAMILIES.map((family) => (
+                      <option key={family.id} value={family.id}>
+                        {family.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-1">
+                  <label htmlFor="agent-panel-type-weight" className={caption}>
+                    Text weight
+                  </label>
+                  <select
+                    id="agent-panel-type-weight"
+                    aria-label="Text weight"
+                    title="The weight of ordinary text. Every heavier step moves with it."
+                    value={type.weight}
+                    onChange={(event) => setType((was) => ({ ...was, weight: Number(event.target.value) }))}
+                    className={select}
+                  >
+                    {TYPE_WEIGHTS.map((weight) => (
+                      <option key={weight} value={weight}>
+                        {weight}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </span>
   );
 }

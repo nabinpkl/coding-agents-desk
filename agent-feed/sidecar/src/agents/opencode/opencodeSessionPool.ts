@@ -24,11 +24,7 @@ import { OpencodeEventMapper, type OpencodeSyncResult } from "@/agents/opencode/
 import { OpencodeImageStore } from "@/agents/opencode/opencodeImageStore";
 import { OpencodeModelLimits } from "@/agents/opencode/opencodeModelLimits";
 import { readOpencodeMeter } from "@/agents/opencode/opencodeUsage";
-import {
-  mergedRead,
-  OpencodeStreamTail,
-  type OpencodeStreamedPart,
-} from "@/agents/opencode/opencodeStreamTail";
+import { mergedRead, OpencodeStreamTail, type OpencodeStreamedPart } from "@/agents/opencode/opencodeStreamTail";
 import { OpencodeCompactionWatch } from "@/agents/opencode/opencodeCompactionWatch";
 import { OpencodeServeEvents, type OpencodeRunState } from "@/agents/opencode/serve/opencodeServeEvents";
 import { latestCompletedCompactionId, readOpencodeHistory, readOpencodeTail } from "@/agents/opencode/opencodeHistory";
@@ -136,8 +132,7 @@ export class OpencodeSessionPool {
     if (pending) return pending;
     const location = this.options.resolveSession(sessionId);
     if (!location) throw new AgentSessionNotFoundError(`opencode session "${sessionId}" was not found`);
-    const start = this.adopt(location.sessionId)
-      .finally(() => this.starts.delete(sessionId));
+    const start = this.adopt(location.sessionId).finally(() => this.starts.delete(sessionId));
     this.starts.set(sessionId, start);
     return start;
   }
@@ -181,11 +176,7 @@ export class OpencodeSessionPool {
    * The ordinal counts image blocks, not blocks: it is the picture's place among its event's
    * pictures, which is how the mapper numbered it at sync time.
    */
-  imageFor(
-    sessionId: string,
-    eventIndex: number,
-    blockIndex: number,
-  ): { mediaType: string; data: string } | null {
+  imageFor(sessionId: string, eventIndex: number, blockIndex: number): { mediaType: string; data: string } | null {
     const owned = this.owned.get(sessionId);
     if (!owned || owned.disposed) return null;
     if (!Number.isSafeInteger(eventIndex) || !Number.isSafeInteger(blockIndex)) return null;
@@ -215,9 +206,7 @@ export class OpencodeSessionPool {
     return this.compactions.onChange(listener);
   }
 
-  onCompactionSummary(
-    listener: (sessionId: string, text: string, replace: boolean) => void,
-  ): () => void {
+  onCompactionSummary(listener: (sessionId: string, text: string, replace: boolean) => void): () => void {
     return this.compactions.onSummary(listener);
   }
 

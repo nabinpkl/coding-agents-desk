@@ -10,15 +10,7 @@
  */
 
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
-export function RunningTasksChip({
-  count,
-  open,
-  onToggle,
-}: {
-  count: number;
-  open: boolean;
-  onToggle: () => void;
-}) {
+export function RunningTasksChip({ count, open, onToggle }: { count: number; open: boolean; onToggle: () => void }) {
   if (count <= 0) return null;
   return (
     <div className={`flex shrink-0 items-center border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-1`}>

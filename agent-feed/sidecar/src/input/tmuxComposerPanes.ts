@@ -84,9 +84,10 @@ export function composerPanes(): TmuxComposerPanes {
  * that reader got their draft back concatenated.
  */
 const TURN_STORE = Symbol.for("agentdesk.composerTurns");
-const TURNS: Map<string, Promise<void>> =
-  ((globalThis as Record<symbol, unknown>)[TURN_STORE] ??= new Map<string, Promise<void>>()) as
-    Map<string, Promise<void>>;
+const TURNS: Map<string, Promise<void>> = ((globalThis as Record<symbol, unknown>)[TURN_STORE] ??= new Map<
+  string,
+  Promise<void>
+>()) as Map<string, Promise<void>>;
 
 /**
  * Runs `work` after whatever is already in flight for this session, and reports its own result.
@@ -97,7 +98,10 @@ const TURNS: Map<string, Promise<void>> =
  */
 export function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
   const result = (TURNS.get(sessionId) ?? Promise.resolve()).then(work);
-  const drained = result.then(() => {}, () => {});
+  const drained = result.then(
+    () => {},
+    () => {},
+  );
   TURNS.set(sessionId, drained);
   void drained.then(() => {
     if (TURNS.get(sessionId) === drained) TURNS.delete(sessionId);
@@ -127,11 +131,7 @@ export function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T>
  * the box as a session with no tmux, clearing the held pane on the way out. Waiting simply stops;
  * the next turn reads the pane and reports what it finds.
  */
-export async function settle(
-  pane: string,
-  before: string | null,
-  runtime: TmuxComposerRuntime,
-): Promise<void> {
+export async function settle(pane: string, before: string | null, runtime: TmuxComposerRuntime): Promise<void> {
   if (before === null) return;
   await waitFor(pane, runtime, (text) => text !== before);
 }

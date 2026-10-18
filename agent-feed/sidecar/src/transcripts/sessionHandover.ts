@@ -59,7 +59,10 @@ export interface RenderedHandover {
  * runs of one test are two results and must never merge. Pairs stay verbatim because a pair often
  * carries meaning -- a retry, a before and after -- where a run of three or more is noise.
  */
-export function collapseRepeatedLines(text: string, threshold = HANDOVER_REPEAT_THRESHOLD): { text: string; collapsed: boolean } {
+export function collapseRepeatedLines(
+  text: string,
+  threshold = HANDOVER_REPEAT_THRESHOLD,
+): { text: string; collapsed: boolean } {
   const lines = text.split("\n");
   const out: string[] = [];
   let collapsed = false;
@@ -81,9 +84,16 @@ export function collapseRepeatedLines(text: string, threshold = HANDOVER_REPEAT_
 }
 
 /** Keep the head and the tail, cut the middle: the call shape leads, the error trails. */
-export function capHeadTail(text: string, head = TOOL_HEAD_CHARS, tail = TOOL_TAIL_CHARS): { text: string; capped: boolean } {
+export function capHeadTail(
+  text: string,
+  head = TOOL_HEAD_CHARS,
+  tail = TOOL_TAIL_CHARS,
+): { text: string; capped: boolean } {
   if (text.length <= head + tail) return { text, capped: false };
-  return { text: `${text.slice(0, head)}\n... [middle cut, ${text.length - head - tail} chars] ...\n${text.slice(text.length - tail)}`, capped: true };
+  return {
+    text: `${text.slice(0, head)}\n... [middle cut, ${text.length - head - tail} chars] ...\n${text.slice(text.length - tail)}`,
+    capped: true,
+  };
 }
 
 function renderToolText(raw: string): { text: string; lossy: boolean } {
@@ -106,9 +116,7 @@ function renderBlock(block: ActivityBlock): { text: string; lossy: boolean } | n
       };
     }
     case "tool_use": {
-      const input = block.input && Object.keys(block.input).length > 0
-        ? JSON.stringify(block.input)
-        : "";
+      const input = block.input && Object.keys(block.input).length > 0 ? JSON.stringify(block.input) : "";
       const rendered = input ? renderToolText(input) : null;
       const summary = block.summary && block.summary !== input ? ` ${block.summary}` : "";
       return {
@@ -157,9 +165,7 @@ function renderEvent(event: ActivityEvent): { text: string; lossy: boolean } | n
  * over instead would carry exactly what it compacted to be rid of. Its `summary` is empty, and the
  * caller refuses.
  */
-export function findCompactionBoundary(
-  events: readonly ActivityEvent[],
-): { index: number; summary: string } | null {
+export function findCompactionBoundary(events: readonly ActivityEvent[]): { index: number; summary: string } | null {
   let index = -1;
   let summary = "";
   for (let i = 0; i < events.length; i += 1) {

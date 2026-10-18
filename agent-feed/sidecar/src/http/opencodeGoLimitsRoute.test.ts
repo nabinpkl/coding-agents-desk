@@ -30,7 +30,9 @@ test("the stream carries the current reading, subscribes while open and unsubscr
   try {
     expect(subscribed).toBe(0);
     const controller = new AbortController();
-    const response = await fetch(`http://127.0.0.1:${server.port}/api/limits/opencode-go`, { signal: controller.signal });
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/limits/opencode-go`, {
+      signal: controller.signal,
+    });
     const chunk = await response.body!.getReader().read();
     const text = new TextDecoder().decode(chunk.value);
     expect(JSON.parse(text.replace(/^data: /, "").trim())).toEqual({ type: "report", report: { vendors: [reading] } });

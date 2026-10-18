@@ -19,11 +19,7 @@ import { config } from "@/config/config";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { composerBox, composerText, type ComposerBox } from "@/input/composer/composerBox";
 import { imageTokens } from "@/input/composer/composerKeystrokes";
-import {
-  composerPastes,
-  pasteTokens,
-  type ComposerPasteStore,
-} from "@/input/composer/composerPastes";
+import { composerPastes, pasteTokens, type ComposerPasteStore } from "@/input/composer/composerPastes";
 import { composerPanes, type TmuxComposerPanes } from "@/input/tmuxComposerPanes";
 import { questionDialog } from "@/input/question/questionDialog";
 import { questionStateFrom } from "@/input/question/questionMirrorState";
@@ -111,9 +107,7 @@ export const LIVE: TmuxComposerRuntime = {
 };
 
 /** The live runtime, given the pane signal only the terminal service can supply. */
-export function liveTmuxComposerRuntime(
-  watch: TmuxComposerWatchRuntime["watch"],
-): TmuxComposerWatchRuntime {
+export function liveTmuxComposerRuntime(watch: TmuxComposerWatchRuntime["watch"]): TmuxComposerWatchRuntime {
   return { ...LIVE, watch };
 }
 
@@ -199,9 +193,7 @@ export function observeTmuxComposer(
       const { composer, permissionMode } = await readPaneAt(pane, runtime);
       // The dialog takes the composer box away entirely for as long as it is up, so `no-composer`
       // is exactly when to look for one -- and the only time this pays for a second capture.
-      const question = composer.reason === "no-composer"
-        ? await readQuestionAt(pane, runtime)
-        : null;
+      const question = composer.reason === "no-composer" ? await readQuestionAt(pane, runtime) : null;
       report(permissionMode === null ? { composer, question } : { composer, question, permissionMode });
     } catch {
       // A read that threw is not evidence about the composer, and the next output brings another.
@@ -318,9 +310,10 @@ async function composerFrom(
   const text = composerText(box.rows);
   // Asked only when the box holds a handle, which is the only time the answer is needed: this runs
   // on every redraw, and most boxes hold plain text.
-  const key = runtime.pastes && runtime.paneKey && /\[(?:Image|Pasted text) #/.test(text)
-    ? await runtime.paneKey(pane).catch(() => null)
-    : null;
+  const key =
+    runtime.pastes && runtime.paneKey && /\[(?:Image|Pasted text) #/.test(text)
+      ? await runtime.paneKey(pane).catch(() => null)
+      : null;
   return {
     text,
     hint: box.hint,
@@ -335,11 +328,11 @@ async function composerFrom(
     pastes: pasteTokens(text).map(({ token, id }) => ({
       token,
       id,
-      held: key === null ? null : runtime.pastes?.heldFor(key, token) ?? null,
+      held: key === null ? null : (runtime.pastes?.heldFor(key, token) ?? null),
     })),
     images: imageTokens(text).map((token) => ({
       id: Number(/#(\d+)/.exec(token)![1]),
-      file: imageFile(key === null ? null : runtime.pastes?.imageFor(key, token) ?? null),
+      file: imageFile(key === null ? null : (runtime.pastes?.imageFor(key, token) ?? null)),
     })),
   };
 }

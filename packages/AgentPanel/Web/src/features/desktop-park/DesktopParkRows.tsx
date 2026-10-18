@@ -17,8 +17,10 @@ export function WindowRow({
 }) {
   const leaving = move && !move.noop;
   return (
-    <li className={`flex items-baseline gap-2 border-b border-border/50 px-3 py-1.5 text-sm
-      last:border-b-0 ${watching ? "bg-accent/40" : ""}`}>
+    <li
+      className={`flex items-baseline gap-2 border-b border-border/50 px-3 py-1.5 text-sm
+      last:border-b-0 ${watching ? "bg-accent/40" : ""}`}
+    >
       <button
         type="button"
         onClick={onWatch}
@@ -52,9 +54,7 @@ export function WindowRow({
       ) : (
         <span className="shrink-0 font-mono text-[11px] text-muted-foreground">no room</span>
       )}
-      <span className="w-8 shrink-0 text-right font-mono text-[11px] text-muted-foreground">
-        #{w.id % 100000}
-      </span>
+      <span className="w-8 shrink-0 text-right font-mono text-[11px] text-muted-foreground">#{w.id % 100000}</span>
     </li>
   );
 }
@@ -63,8 +63,10 @@ export function Outcome({ action }: { action: DesktopParkHandle["action"] }) {
   if (action.kind === "none" || action.kind === "running") return null;
   if (action.kind === "failed") {
     return (
-      <p className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-xs
-        text-destructive">
+      <p
+        className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-xs
+        text-destructive"
+      >
         {action.what === "park" ? "Park" : "Restore"} failed: {action.message}
       </p>
     );
@@ -72,11 +74,12 @@ export function Outcome({ action }: { action: DesktopParkHandle["action"] }) {
   if (action.kind === "parked") {
     const { report } = action;
     const failed = [...report.gathered, ...report.laid].filter((step) => !step.ok);
-    const reordered =
-      report.orderBeforeGather.join(",") !== report.observedOrder.join(",");
+    const reordered = report.orderBeforeGather.join(",") !== report.observedOrder.join(",");
     return (
-      <p className="shrink-0 border-b border-border bg-muted/40 px-3 py-2 font-mono text-[11px]
-        text-muted-foreground">
+      <p
+        className="shrink-0 border-b border-border bg-muted/40 px-3 py-2 font-mono text-[11px]
+        text-muted-foreground"
+      >
         parked {report.candidates} onto Desktop {report.targetSpace.index}
         {reordered ? " · stacking order changed during the gather, ladder used the new one" : ""}
         {failed.length > 0 ? ` · ${failed.length} step(s) failed` : ""}
@@ -89,10 +92,14 @@ export function Outcome({ action }: { action: DesktopParkHandle["action"] }) {
     return acc;
   }, {});
   return (
-    <p className="shrink-0 border-b border-border bg-muted/40 px-3 py-2 font-mono text-[11px]
-      text-muted-foreground">
+    <p
+      className="shrink-0 border-b border-border bg-muted/40 px-3 py-2 font-mono text-[11px]
+      text-muted-foreground"
+    >
       {report.found
-        ? Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(" · ") || "nothing to restore"
+        ? Object.entries(counts)
+            .map(([k, n]) => `${n} ${k}`)
+            .join(" · ") || "nothing to restore"
         : "no park manifest on disk"}
       {report.manifestCleared ? " · manifest cleared" : ""}
     </p>
@@ -115,12 +122,13 @@ export function Action({
   icon?: React.ReactNode;
 }) {
   const base =
-    "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors "
-    + "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary "
-    + "disabled:cursor-not-allowed disabled:opacity-50";
-  const skin = tone === "primary"
-    ? "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 disabled:hover:bg-primary"
-    : "border border-border text-foreground hover:bg-muted active:bg-muted/70 disabled:hover:bg-transparent";
+    "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors " +
+    "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary " +
+    "disabled:cursor-not-allowed disabled:opacity-50";
+  const skin =
+    tone === "primary"
+      ? "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 disabled:hover:bg-primary"
+      : "border border-border text-foreground hover:bg-muted active:bg-muted/70 disabled:hover:bg-transparent";
   return (
     <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${skin}`}>
       {busy ? (

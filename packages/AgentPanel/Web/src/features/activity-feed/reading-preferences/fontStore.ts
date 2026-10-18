@@ -32,7 +32,7 @@ export interface FontTokenSpec {
   defaultPx: number;
   tab: FontTab;
   section?: CanvasSection; // applies only when tab === "canvas"
-  group?: string;          // optional sub-header within a section
+  group?: string; // optional sub-header within a section
 }
 
 // Every `defaultPx` below is also written as the literal fallback in each
@@ -49,7 +49,7 @@ export const FONT_TOKENS: readonly FontTokenSpec[] = [
   {
     key: "sidebar_title",
     label: "Title",
-    description: "Panel header title (\"Agent Feed\", then project, then session)",
+    description: 'Panel header title ("Agent Feed", then project, then session)',
     cssVar: "--agent-panel-fs-sidebar-title",
     defaultPx: 15,
     tab: "sidebar",
@@ -187,7 +187,11 @@ function readInitial(): Record<FontTokenKey, number> {
 }
 
 function persist(tokens: Record<FontTokenKey, number>): void {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens)); } catch { /* storage disabled */ }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
+  } catch {
+    /* storage disabled */
+  }
 }
 
 export const useFontStore = create<FontStore>((set, get) => ({

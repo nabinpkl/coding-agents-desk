@@ -1,12 +1,7 @@
 // What the field is, in whichever band is showing: its value, its placeholder, what Tab
 // does, and what a dropped file means.
 
-import type {
-  ComposerCommand,
-  ComposerPaste,
-  RailKey,
-  RailModifier,
-} from "@agentdesk/agent-feed-wire";
+import type { ComposerCommand, ComposerPaste, RailKey, RailModifier } from "@agentdesk/agent-feed-wire";
 import type { ModifierState } from "@/features/keyboard/modifierLatch";
 import type { ComposerImage } from "@/features/cli-input/tmuxComposerHandle";
 import { tmuxComposerReasonText } from "@/features/cli-input/tmuxComposerHandle";
@@ -89,147 +84,144 @@ export interface ComposerEditor {
 }
 
 export function composerEditor(m: ComposerModel): ComposerEditor {
-  return ( m.sdkBand
-  ? {
-      value: m.localDraft,
-      onChange: m.unavailable ? () => {} : m.setLocalDraft,
-      disabled: m.unavailable || m.deliveryPending,
-      ariaLabel: "Message this session",
-      placeholder: m.unavailable
-        ? "This session is not running"
-        : m.sdkSession.state.status === "running"
-          ? "Queue the next message\u2026"
-          : "Message Claude\u2026",
-      maxLength: 100_000,
-      sendOnEnter: !m.unavailable,
-      // Held in the band and sent with the turn, as opencode's are: the pane is the runner's log.
-      onFiles: m.sendAttachments.attach,
-      images: m.sendAttachments.images,
-      onRemoveImage: m.sendAttachments.remove,
-    }
-  : m.windowBand
-  ? {
-      value: m.windowComposer.draft,
-      onChange: (value: string) => m.windowComposer.change(value),
-      // Focusable before the first status, because the watch is focus-gated: a field disabled
-      // "until a status arrives" could never be focused, so it could never trigger the watch that
-      // delivers the status. Only a KNOWN reason disables it.
-      disabled: (m.windowComposer.statusKnown && !m.windowComposer.enabled) || m.windowComposer.pending,
-      ariaLabel: m.isCodex ? "Codex composer text" : "Claude composer text",
-      // Three states, three strings. `enabled` is false BEFORE the first status as well as after
-      // a refusal, and the watch is focus-gated, so keying the placeholder on it alone labelled
-      // every unfocused window session "Composer unavailable" -- including one whose window was
-      // sitting there resolvable, which is what a passive surface like the Bots tab shows all the
-      // time. The placeholder now agrees with `disabled` right above it, which already treats an
-      // unknown status as usable.
-      placeholder: !m.windowComposer.statusKnown || m.windowComposer.enabled
-        ? m.isCodex
-          ? "Type into Codex's composer…"
-          : "Type into Claude's composer…"
-        : "Composer unavailable",
-      maxLength: 100_000,
-      sendOnEnter: false,
-      onFocus: m.windowComposer.onFocus,
-      onBlur: m.windowComposer.onBlur,
-    }
-  : m.tmuxBand
-  ? {
-      // The draft lives in the hook, not in `localDraft`, because it is not local: it is one
-      // half of a value the pane holds the other half of, and the hook is what keeps the two
-      // agreeing in both directions.
-      value: m.tmuxComposer.draft,
-      onChange: m.tmuxComposer.change,
-      disabled: m.tmuxComposer.pending,
-      ariaLabel: "Type into this session's terminal composer",
-      // Claude's own suggestion when it is offering one, shown where the terminal shows it and
-      // as what it is: a placeholder, which takes no part in the value and is never pushed.
-      // Tab accepts it, the same key that accepts it in the pane.
-      placeholder: m.tmuxComposer.hint ?? "Type into Claude's terminal\u2026",
-      // A coarse guard rather than the sidecar's own limit restated: that one counts BYTES and
-      // this counts UTF-16 units, so they are not the same quantity and cannot be. The number
-      // is the sidecar's, which is smaller than a turn sent once because this text is retyped
-      // whenever a guess about the box misses. Exceeding it is refused there, with a reason.
-      maxLength: 16 * 1024,
-      sendOnEnter: true,
-      // No `onFocus`: the stream behind this field is already current, where the bands either
-      // side of it re-read something at the moment somebody is about to act on it.
-      onBlur: m.tmuxComposer.onBlur,
-      ...(m.tmuxComposer.hint === null
-        ? {}
-        : { onAcceptHint: () => void m.tmuxComposer.accept() }),
-      onFiles: (files) => void m.tmuxComposer.drop(files),
-      images: m.tmuxComposer.images,
-      onRemoveImage: m.tmuxComposer.remove,
-      pastes: m.tmuxComposer.pastes,
-      onPreviewPaste: m.tmuxComposer.previewPaste,
-      onExpandPaste: m.tmuxComposer.expandPaste,
-      onRemovePaste: m.tmuxComposer.removePaste,
-      rail: {
-        modifiers: m.tmuxComposer.modifiers,
-        onModifier: m.tmuxComposer.toggleModifier,
-        onKey: m.tmuxComposer.pressKey,
-      },
-      commands: {
-        shown: m.tmuxComposer.commands,
-        onChoose: m.tmuxComposer.chooseCommand,
-      },
-    }
-  : m.cliSessionBand
-  ? {
-      // A terminal session before its pane is mirrored. Focus is what attaches the mirror
-      // (`noteComposerFocus`), and the draft moves into the pane's box when it does, so the field
-      // stays live until the pane has been looked for and not found.
-      value: m.localDraft,
-      onChange: m.unavailable ? () => {} : m.setLocalDraft,
-      disabled: m.unavailable,
-      ariaLabel: "Message this terminal session",
-      placeholder: m.unavailable ? "No terminal pane to type into" : "Reaching this session's terminal\u2026",
-      maxLength: 100_000,
-      // Nothing is sent from here, so Enter is a newline rather than a send with nowhere to go.
-      sendOnEnter: false,
-    }
-  : m.agentTerminalBand
-  ? {
-      value: m.localDraft,
-      onChange: m.setLocalDraft,
-      disabled: m.deliveryPending,
-      ariaLabel: "Message through Agent Feed terminal",
-      placeholder: "Send through the open terminal…",
-      maxLength: 64 * 1024,
-      sendOnEnter: true,
-    }
-  : {
-      value: m.localDraft,
-      onChange: m.unavailable ? () => {} : m.setLocalDraft,
-      disabled: m.unavailable || m.pending,
-      ariaLabel: m.session.source === "opencode" ? "Message opencode" : "Message Pi",
-      placeholder: m.unavailable
-        ? "Composer unavailable"
-        : m.running
-          ? "Queue the next instruction…"
-          : m.session.source === "opencode"
-            ? "Message opencode…"
-            : "Message Pi…",
-      maxLength: 200_000,
-      sendOnEnter: !m.unavailable,
-      // No pane to hold them, so opencode picks wait here and ride the send. Every other
-      // agent-session source keeps the text-only field it always had.
-      ...(m.session.source === "opencode"
-        ? {
-          onFiles: m.sendAttachments.attach,
-          images: m.sendAttachments.images,
-          onRemoveImage: m.sendAttachments.remove,
-          commands: {
-            shown: opencodeCommandRows(m.opencodeCommands, m.localDraft),
-            onChoose: (name: string) => m.setLocalDraft(`${name} `),
-            chooseOnEnter: true,
-          },
+  return m.sdkBand
+    ? {
+        value: m.localDraft,
+        onChange: m.unavailable ? () => {} : m.setLocalDraft,
+        disabled: m.unavailable || m.deliveryPending,
+        ariaLabel: "Message this session",
+        placeholder: m.unavailable
+          ? "This session is not running"
+          : m.sdkSession.state.status === "running"
+            ? "Queue the next message\u2026"
+            : "Message Claude\u2026",
+        maxLength: 100_000,
+        sendOnEnter: !m.unavailable,
+        // Held in the band and sent with the turn, as opencode's are: the pane is the runner's log.
+        onFiles: m.sendAttachments.attach,
+        images: m.sendAttachments.images,
+        onRemoveImage: m.sendAttachments.remove,
+      }
+    : m.windowBand
+      ? {
+          value: m.windowComposer.draft,
+          onChange: (value: string) => m.windowComposer.change(value),
+          // Focusable before the first status, because the watch is focus-gated: a field disabled
+          // "until a status arrives" could never be focused, so it could never trigger the watch that
+          // delivers the status. Only a KNOWN reason disables it.
+          disabled: (m.windowComposer.statusKnown && !m.windowComposer.enabled) || m.windowComposer.pending,
+          ariaLabel: m.isCodex ? "Codex composer text" : "Claude composer text",
+          // Three states, three strings. `enabled` is false BEFORE the first status as well as after
+          // a refusal, and the watch is focus-gated, so keying the placeholder on it alone labelled
+          // every unfocused window session "Composer unavailable" -- including one whose window was
+          // sitting there resolvable, which is what a passive surface like the Bots tab shows all the
+          // time. The placeholder now agrees with `disabled` right above it, which already treats an
+          // unknown status as usable.
+          placeholder:
+            !m.windowComposer.statusKnown || m.windowComposer.enabled
+              ? m.isCodex
+                ? "Type into Codex's composer…"
+                : "Type into Claude's composer…"
+              : "Composer unavailable",
+          maxLength: 100_000,
+          sendOnEnter: false,
+          onFocus: m.windowComposer.onFocus,
+          onBlur: m.windowComposer.onBlur,
         }
-        : {}),
-    }
-  );
+      : m.tmuxBand
+        ? {
+            // The draft lives in the hook, not in `localDraft`, because it is not local: it is one
+            // half of a value the pane holds the other half of, and the hook is what keeps the two
+            // agreeing in both directions.
+            value: m.tmuxComposer.draft,
+            onChange: m.tmuxComposer.change,
+            disabled: m.tmuxComposer.pending,
+            ariaLabel: "Type into this session's terminal composer",
+            // Claude's own suggestion when it is offering one, shown where the terminal shows it and
+            // as what it is: a placeholder, which takes no part in the value and is never pushed.
+            // Tab accepts it, the same key that accepts it in the pane.
+            placeholder: m.tmuxComposer.hint ?? "Type into Claude's terminal\u2026",
+            // A coarse guard rather than the sidecar's own limit restated: that one counts BYTES and
+            // this counts UTF-16 units, so they are not the same quantity and cannot be. The number
+            // is the sidecar's, which is smaller than a turn sent once because this text is retyped
+            // whenever a guess about the box misses. Exceeding it is refused there, with a reason.
+            maxLength: 16 * 1024,
+            sendOnEnter: true,
+            // No `onFocus`: the stream behind this field is already current, where the bands either
+            // side of it re-read something at the moment somebody is about to act on it.
+            onBlur: m.tmuxComposer.onBlur,
+            ...(m.tmuxComposer.hint === null ? {} : { onAcceptHint: () => void m.tmuxComposer.accept() }),
+            onFiles: (files) => void m.tmuxComposer.drop(files),
+            images: m.tmuxComposer.images,
+            onRemoveImage: m.tmuxComposer.remove,
+            pastes: m.tmuxComposer.pastes,
+            onPreviewPaste: m.tmuxComposer.previewPaste,
+            onExpandPaste: m.tmuxComposer.expandPaste,
+            onRemovePaste: m.tmuxComposer.removePaste,
+            rail: {
+              modifiers: m.tmuxComposer.modifiers,
+              onModifier: m.tmuxComposer.toggleModifier,
+              onKey: m.tmuxComposer.pressKey,
+            },
+            commands: {
+              shown: m.tmuxComposer.commands,
+              onChoose: m.tmuxComposer.chooseCommand,
+            },
+          }
+        : m.cliSessionBand
+          ? {
+              // A terminal session before its pane is mirrored. Focus is what attaches the mirror
+              // (`noteComposerFocus`), and the draft moves into the pane's box when it does, so the field
+              // stays live until the pane has been looked for and not found.
+              value: m.localDraft,
+              onChange: m.unavailable ? () => {} : m.setLocalDraft,
+              disabled: m.unavailable,
+              ariaLabel: "Message this terminal session",
+              placeholder: m.unavailable ? "No terminal pane to type into" : "Reaching this session's terminal\u2026",
+              maxLength: 100_000,
+              // Nothing is sent from here, so Enter is a newline rather than a send with nowhere to go.
+              sendOnEnter: false,
+            }
+          : m.agentTerminalBand
+            ? {
+                value: m.localDraft,
+                onChange: m.setLocalDraft,
+                disabled: m.deliveryPending,
+                ariaLabel: "Message through Agent Feed terminal",
+                placeholder: "Send through the open terminal…",
+                maxLength: 64 * 1024,
+                sendOnEnter: true,
+              }
+            : {
+                value: m.localDraft,
+                onChange: m.unavailable ? () => {} : m.setLocalDraft,
+                disabled: m.unavailable || m.pending,
+                ariaLabel: m.session.source === "opencode" ? "Message opencode" : "Message Pi",
+                placeholder: m.unavailable
+                  ? "Composer unavailable"
+                  : m.running
+                    ? "Queue the next instruction…"
+                    : m.session.source === "opencode"
+                      ? "Message opencode…"
+                      : "Message Pi…",
+                maxLength: 200_000,
+                sendOnEnter: !m.unavailable,
+                // No pane to hold them, so opencode picks wait here and ride the send. Every other
+                // agent-session source keeps the text-only field it always had.
+                ...(m.session.source === "opencode"
+                  ? {
+                      onFiles: m.sendAttachments.attach,
+                      images: m.sendAttachments.images,
+                      onRemoveImage: m.sendAttachments.remove,
+                      commands: {
+                        shown: opencodeCommandRows(m.opencodeCommands, m.localDraft),
+                        onChoose: (name: string) => m.setLocalDraft(`${name} `),
+                        chooseOnEnter: true,
+                      },
+                    }
+                  : {}),
+              };
 }
-
 
 export function composerCaption(m: ComposerModel): { caption: string | null; captionIsError: boolean } {
   // Above everything a band says: each process keeps its own copy of the conversation and writes its
@@ -262,12 +254,11 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
     // Only when something is wrong. The standing lines that used to sit here -- what the field
     // was for, and that Tab takes the suggestion -- were true of every session all the time, so
     // they said nothing about THIS one and cost a row under the composer to say it.
-    caption = m.tmuxComposer.reason
-      ? tmuxComposerReasonText(m.tmuxComposer.reason)
-      : m.tmuxComposer.error;
+    caption = m.tmuxComposer.reason ? tmuxComposerReasonText(m.tmuxComposer.reason) : m.tmuxComposer.error;
     captionIsError = m.tmuxComposer.reason != null || m.tmuxComposer.error != null;
   } else if (m.cliSessionBand) {
-    if (m.unavailable) caption = "This session runs in a terminal outside a tmux pane, so the panel can't type into it.";
+    if (m.unavailable)
+      caption = "This session runs in a terminal outside a tmux pane, so the panel can't type into it.";
     // A pane that answered but whose box has not been readable yet. This band never latched, so
     // the tmux band's caption above never ran, and the field sat holding a draft with nothing
     // saying why it went nowhere (2026-10-17: a title too wide for its pane hid the box).
@@ -289,19 +280,18 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
   return { caption, captionIsError };
 }
 
-
 export function composerSectionLabel(m: ComposerModel): string {
   return m.sdkBand
     ? "Claude SDK session composer"
     : m.tmuxBand
-    ? "Terminal session composer, mirrored"
-    : m.cliSessionBand
-    ? "Terminal session composer"
-    : m.agentTerminalBand
-    ? "Agent Feed terminal composer"
-    : m.isClaude
-    ? "Claude window composer"
-    : m.isCodex
-      ? "Codex composer"
-      : "Agent prompt";
+      ? "Terminal session composer, mirrored"
+      : m.cliSessionBand
+        ? "Terminal session composer"
+        : m.agentTerminalBand
+          ? "Agent Feed terminal composer"
+          : m.isClaude
+            ? "Claude window composer"
+            : m.isCodex
+              ? "Codex composer"
+              : "Agent prompt";
 }

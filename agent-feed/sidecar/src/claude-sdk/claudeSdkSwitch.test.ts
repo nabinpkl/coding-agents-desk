@@ -7,7 +7,10 @@ import type { ClaudeSdkClient } from "@/claude-sdk/session/claudeSdkClient";
 const ID = "11111111-2222-4333-8444-555555555555";
 const SESSION = { sessionId: ID, cwd: "/repo", title: "Garden" };
 const TERMINAL_PANE = { pane: "%7", command: `zsh -l -c 'claude --resume ${ID}; exec zsh -l'` };
-const RUNNER_PANE = { pane: "%7", command: `zsh -l -c 'bun /x/claude-sdk/claudeSdkRunnerMain.ts --session ${ID}; exec zsh -l'` };
+const RUNNER_PANE = {
+  pane: "%7",
+  command: `zsh -l -c 'bun /x/claude-sdk/claudeSdkRunnerMain.ts --session ${ID}; exec zsh -l'`,
+};
 
 const IDLE_RUNNER: ClaudeSdkSessionState = {
   connected: true,
@@ -161,14 +164,22 @@ describe("what it refuses, touching nothing", () => {
 
   test("an SDK session whose registry row says a turn is running, whatever its runner says", async () => {
     for (const status of ["idle", "starting"] as const) {
-      expect(await refused({ rows: [row({ entrypoint: "sdk-cli", activity: "busy" })], pane: RUNNER_PANE, runner: { status } }, "terminal"))
-        .toBe("busy");
+      expect(
+        await refused(
+          { rows: [row({ entrypoint: "sdk-cli", activity: "busy" })], pane: RUNNER_PANE, runner: { status } },
+          "terminal",
+        ),
+      ).toBe("busy");
     }
   });
 
   test("an SDK session whose runner does not answer and whose registry row is not idle", async () => {
-    expect(await refused({ rows: [row({ entrypoint: "sdk-cli", activity: "busy" })], pane: RUNNER_PANE, runner: { connected: false } }, "terminal"))
-      .toBe("busy");
+    expect(
+      await refused(
+        { rows: [row({ entrypoint: "sdk-cli", activity: "busy" })], pane: RUNNER_PANE, runner: { connected: false } },
+        "terminal",
+      ),
+    ).toBe("busy");
   });
 
   test("a pane this sidecar did not start, or one running the other mode", async () => {
@@ -180,7 +191,11 @@ describe("what it refuses, touching nothing", () => {
 
 describe("a runner that does not answer", () => {
   test("is judged idle by its registry row, and its claude hung up, as a terminal's is", async () => {
-    const { done, steps: s } = steps({ rows: [row({ entrypoint: "sdk-cli" })], pane: RUNNER_PANE, runner: { connected: false } });
+    const { done, steps: s } = steps({
+      rows: [row({ entrypoint: "sdk-cli" })],
+      pane: RUNNER_PANE,
+      runner: { connected: false },
+    });
     expect(await switchRunMode(SESSION, "terminal", s)).toEqual({ ok: true });
     expect(done).toEqual(["hang up 4242", `respawn %7 /repo claude ${ID}`]);
   });
@@ -210,7 +225,16 @@ describe("restarting a runner on the code on disk", () => {
     const { done, steps: s } = steps({ rows: [row({ entrypoint: "sdk-cli" })], pane: RUNNER_PANE });
     const client = {} as ClaudeSdkClient;
     for (const state of [{ status: "running" as const }, { backgroundTasks: 2 }]) {
-      expect(await relaunchStaleRunner(client, ID, { ...IDLE_RUNNER, ...state }, s, () => 0, () => {})).toBeNull();
+      expect(
+        await relaunchStaleRunner(
+          client,
+          ID,
+          { ...IDLE_RUNNER, ...state },
+          s,
+          () => 0,
+          () => {},
+        ),
+      ).toBeNull();
     }
     expect(done).toEqual([]);
   });
@@ -218,9 +242,19 @@ describe("restarting a runner on the code on disk", () => {
 
 describe("relaunching a stale runner", () => {
   test("once idle, where its registry row says it runs, under the name the row gives it", async () => {
-    const { done, steps: s } = steps({ rows: [row({ entrypoint: "sdk-cli", cwd: "/elsewhere", name: "Elm" })], pane: RUNNER_PANE });
+    const { done, steps: s } = steps({
+      rows: [row({ entrypoint: "sdk-cli", cwd: "/elsewhere", name: "Elm" })],
+      pane: RUNNER_PANE,
+    });
     const lines: string[] = [];
-    const outcome = await relaunchStaleRunner({} as ClaudeSdkClient, `${ID}`, IDLE_RUNNER, s, () => 0, (line) => void lines.push(line));
+    const outcome = await relaunchStaleRunner(
+      {} as ClaudeSdkClient,
+      `${ID}`,
+      IDLE_RUNNER,
+      s,
+      () => 0,
+      (line) => void lines.push(line),
+    );
     expect(outcome).toEqual({ ok: true });
     expect(done).toEqual(["read choices", "stop runner", `respawn %7 /elsewhere runner ${ID} haiku max`]);
     expect(lines).toEqual([`${ID}: relaunching its stale runner while it is idle`]);
@@ -229,7 +263,16 @@ describe("relaunching a stale runner", () => {
   test("including one nothing has been sent since it started", async () => {
     const { done, steps: s } = steps({ rows: [row({ entrypoint: "sdk-cli" })], pane: RUNNER_PANE });
     const starting = { ...IDLE_RUNNER, status: "starting" as const, claudeCodeVersion: null };
-    expect(await relaunchStaleRunner({} as ClaudeSdkClient, ID, starting, s, () => 0, () => {})).toEqual({ ok: true });
+    expect(
+      await relaunchStaleRunner(
+        {} as ClaudeSdkClient,
+        ID,
+        starting,
+        s,
+        () => 0,
+        () => {},
+      ),
+    ).toEqual({ ok: true });
     expect(done).toEqual(["read choices", "stop runner", `respawn %7 /repo runner ${ID} haiku max`]);
   });
 });

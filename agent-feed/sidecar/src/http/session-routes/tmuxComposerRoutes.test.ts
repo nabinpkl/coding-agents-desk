@@ -1,14 +1,19 @@
 import { expect, test } from "bun:test";
 import type { RailModifiers, TmuxComposerState } from "@agentdesk/agent-feed-wire";
-import {
-  createTmuxComposerRoutes,
-  type TmuxComposerDependencies,
-} from "@/http/session-routes/tmuxComposerRoutes";
+import { createTmuxComposerRoutes, type TmuxComposerDependencies } from "@/http/session-routes/tmuxComposerRoutes";
 
 const SESSION = "2adc3708-fadb-4e2f-a744-322df224faf4";
 const server = { timeout() {} } as never;
 
-const HOLDING: TmuxComposerState = { text: "hello", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
+const HOLDING: TmuxComposerState = {
+  text: "hello",
+  hint: null,
+  reason: null,
+  exact: true,
+  commands: [],
+  pastes: [],
+  images: [],
+};
 
 function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const synced: string[] = [];
@@ -75,12 +80,7 @@ const PNG = Buffer.from(
   "hex",
 );
 
-function call(
-  route: ReturnType<typeof createTmuxComposerRoutes>,
-  method: string,
-  path: string,
-  body?: unknown,
-) {
+function call(route: ReturnType<typeof createTmuxComposerRoutes>, method: string, path: string, body?: unknown) {
   const url = new URL(`http://127.0.0.1${path}`);
   const request = new Request(url.toString(), {
     method,
@@ -105,18 +105,14 @@ test("reading is a stream, and there is no request form of it", async () => {
 
 test("codex is refused by the pattern, because the box this reads is Claude's", async () => {
   const { route } = routeWith();
-  expect(await call(route, "GET", `/api/sessions/codex/${SESSION}/composer/stream`))
-    .toBeUndefined();
+  expect(await call(route, "GET", `/api/sessions/codex/${SESSION}/composer/stream`)).toBeUndefined();
 });
 
 test("a push carries the whole desired text, not the keystrokes", async () => {
   const { route, synced } = routeWith();
-  const response = await call(
-    route,
-    "POST",
-    `/api/sessions/claude/${SESSION}/composer`,
-    { text: "make the hover ring stronger" },
-  );
+  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer`, {
+    text: "make the hover ring stronger",
+  });
   expect(response?.status).toBe(200);
   expect(synced).toEqual(["make the hover ring stronger"]);
 });
@@ -125,57 +121,61 @@ test("an empty push is an instruction to clear, not a malformed request", async 
   // The one place this differs from the inbox next door: there a blank turn is refused because
   // delivering it costs a model call, here it is what emptying the field means.
   const { route, synced } = routeWith();
-  const response = await call(
-    route, "POST", `/api/sessions/claude/${SESSION}/composer`, { text: "" },
-  );
+  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer`, { text: "" });
   expect(response?.status).toBe(200);
   expect(synced).toEqual([""]);
 });
 
 test("a missing or oversized text is the caller's fault, and says so with a status", async () => {
   const { route, synced } = routeWith();
-  expect((await call(route, "POST", `/api/sessions/claude/${SESSION}/composer`, {}))?.status)
-    .toBe(400);
+  expect((await call(route, "POST", `/api/sessions/claude/${SESSION}/composer`, {}))?.status).toBe(400);
   const huge = { text: "x".repeat(16 * 1024 + 1) };
-  expect((await call(route, "POST", `/api/sessions/claude/${SESSION}/composer`, huge))?.status)
-    .toBe(413);
+  expect((await call(route, "POST", `/api/sessions/claude/${SESSION}/composer`, huge))?.status).toBe(413);
   expect(synced).toEqual([]);
 });
 
 test("the stream only takes a GET, and submit only a POST", async () => {
   const { route } = routeWith();
-  expect(await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/stream`, {}))
-    .toBeUndefined();
-  expect(await call(route, "GET", `/api/sessions/claude/${SESSION}/composer/submit`))
-    .toBeUndefined();
+  expect(await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/stream`, {})).toBeUndefined();
+  expect(await call(route, "GET", `/api/sessions/claude/${SESSION}/composer/submit`)).toBeUndefined();
 });
 
 test("a session with no pane answers 200 with the reason, not an error status", async () => {
   // The panel renders this beside the field. A 4xx would be indistinguishable from a request it
   // got wrong, which is a different thing to tell the reader.
   const { route } = routeWith({
-    sync: async () => ({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] }),
+    sync: async () => ({
+      text: null,
+      hint: null,
+      reason: "no-pane",
+      exact: true,
+      commands: [],
+      pastes: [],
+      images: [],
+    }),
   });
-  const response = await call(
-    route, "POST", `/api/sessions/claude/${SESSION}/composer`, { text: "hello" },
-  );
+  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer`, { text: "hello" });
   expect(response?.status).toBe(200);
-  expect(await response!.json()).toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] });
+  expect(await response!.json()).toEqual({
+    text: null,
+    hint: null,
+    reason: "no-pane",
+    exact: true,
+    commands: [],
+    pastes: [],
+    images: [],
+  });
 });
 
 test("submitting is its own address, and so is accepting the hint", async () => {
   const { route, submitted, accepted } = routeWith();
-  const submitResponse = await call(
-    route, "POST", `/api/sessions/claude/${SESSION}/composer/submit`,
-  );
+  const submitResponse = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/submit`);
   expect(submitResponse?.status).toBe(200);
   expect(submitted).toEqual([SESSION]);
 
   // Its own address rather than a flag on submit, because the two press different keys at a
   // session somebody else is watching, and one of them takes their turn.
-  const acceptResponse = await call(
-    route, "POST", `/api/sessions/claude/${SESSION}/composer/accept`,
-  );
+  const acceptResponse = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/accept`);
   expect(acceptResponse?.status).toBe(200);
   expect(accepted).toEqual([SESSION]);
   expect(submitted).toEqual([SESSION]);
@@ -183,12 +183,9 @@ test("submitting is its own address, and so is accepting the hint", async () => 
 
 test("a dropped image is identified by its own bytes, not by what the caller called it", async () => {
   const { route, dropped } = routeWith();
-  const response = await call(
-    route,
-    "POST",
-    `/api/sessions/claude/${SESSION}/composer/image`,
-    { data: PNG.toString("base64") },
-  );
+  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/image`, {
+    data: PNG.toString("base64"),
+  });
   expect(response?.status).toBe(200);
   expect(dropped).toEqual([{ bytes: PNG.length, mediaType: "image/png" }]);
 });
@@ -198,12 +195,9 @@ test("something that is not an image is refused here, rather than in somebody's 
   // Claude accepts and content it then refuses lands in the pane as a literal file path, visible
   // to whoever is sitting in front of it.
   const { route, dropped } = routeWith();
-  const response = await call(
-    route,
-    "POST",
-    `/api/sessions/claude/${SESSION}/composer/image`,
-    { data: Buffer.from("this is a text file, not a png").toString("base64") },
-  );
+  const response = await call(route, "POST", `/api/sessions/claude/${SESSION}/composer/image`, {
+    data: Buffer.from("this is a text file, not a png").toString("base64"),
+  });
   expect(response?.status).toBe(415);
   // In the envelope the panel's client actually reads: a bare string reaches the reader as
   // "sidecar answered 415", and a drop is an ordinary thing to get wrong.
@@ -226,10 +220,8 @@ test("an oversized or missing image is the caller's fault, and says so with a st
 
 test("dropping only takes a POST, and codex has no composer to drop into", async () => {
   const { route } = routeWith();
-  expect(await call(route, "GET", `/api/sessions/claude/${SESSION}/composer/image`))
-    .toBeUndefined();
-  expect(await call(route, "POST", `/api/sessions/codex/${SESSION}/composer/image`, { data: "x" }))
-    .toBeUndefined();
+  expect(await call(route, "GET", `/api/sessions/claude/${SESSION}/composer/image`)).toBeUndefined();
+  expect(await call(route, "POST", `/api/sessions/codex/${SESSION}/composer/image`, { data: "x" })).toBeUndefined();
 });
 
 test("presses a named rail key, with only the modifiers that were actually held", async () => {
@@ -246,9 +238,7 @@ test("presses a named rail key, with only the modifiers that were actually held"
 test("takes a key press with no modifiers at all", async () => {
   const feed = routeWith();
   await call(feed.route, "POST", `/api/sessions/claude/${SESSION}/composer/key`, { key: "escape" });
-  expect(feed.pressed).toEqual([
-    { key: "escape", modifiers: { ctrl: false, alt: false, shift: false } },
-  ]);
+  expect(feed.pressed).toEqual([{ key: "escape", modifiers: { ctrl: false, alt: false, shift: false } }]);
 });
 
 test("refuses a key it does not know rather than sending an escape that means something else", async () => {

@@ -6,11 +6,7 @@
 
 import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
-import type {
-  DesktopControlInput,
-  WebrtcTileAnswer,
-  WebrtcTileSourceMetadata,
-} from "@agentdesk/agent-feed-wire";
+import type { DesktopControlInput, WebrtcTileAnswer, WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 
 const MAX_SOURCE_EXTENT = 100_000;
 export const CONTROL_CHANNEL_LABEL = "agentdesk-control-v2";
@@ -35,31 +31,33 @@ function validSourceMetadata(value: unknown): value is WebrtcTileSourceMetadata 
   if (typeof value !== "object" || value === null) return false;
   const source = value as Record<string, unknown>;
   const cursor = source.cursor;
-  return typeof source.width === "number"
-    && Number.isFinite(source.width)
-    && source.width > 0
-    && source.width <= MAX_SOURCE_EXTENT
-    && typeof source.height === "number"
-    && Number.isFinite(source.height)
-    && source.height > 0
-    && source.height <= MAX_SOURCE_EXTENT
-    && (source.displayId === undefined || desktopDisplayId(source.displayId))
-    && (source.desktopNavigationVersion === undefined
-      || (Number.isSafeInteger(source.desktopNavigationVersion) && Number(source.desktopNavigationVersion) > 0))
-    && (source.desktopControlVersion === undefined
-      || (typeof source.desktopControlVersion === "number"
-        && Number.isSafeInteger(source.desktopControlVersion)
-        && source.desktopControlVersion > 0))
-    && typeof cursor === "object"
-    && cursor !== null
-    && typeof (cursor as { x?: unknown }).x === "number"
-    && Number.isFinite((cursor as { x: number }).x)
-    && (cursor as { x: number }).x >= 0
-    && (cursor as { x: number }).x < source.width
-    && typeof (cursor as { y?: unknown }).y === "number"
-    && Number.isFinite((cursor as { y: number }).y)
-    && (cursor as { y: number }).y >= 0
-    && (cursor as { y: number }).y < source.height;
+  return (
+    typeof source.width === "number" &&
+    Number.isFinite(source.width) &&
+    source.width > 0 &&
+    source.width <= MAX_SOURCE_EXTENT &&
+    typeof source.height === "number" &&
+    Number.isFinite(source.height) &&
+    source.height > 0 &&
+    source.height <= MAX_SOURCE_EXTENT &&
+    (source.displayId === undefined || desktopDisplayId(source.displayId)) &&
+    (source.desktopNavigationVersion === undefined ||
+      (Number.isSafeInteger(source.desktopNavigationVersion) && Number(source.desktopNavigationVersion) > 0)) &&
+    (source.desktopControlVersion === undefined ||
+      (typeof source.desktopControlVersion === "number" &&
+        Number.isSafeInteger(source.desktopControlVersion) &&
+        source.desktopControlVersion > 0)) &&
+    typeof cursor === "object" &&
+    cursor !== null &&
+    typeof (cursor as { x?: unknown }).x === "number" &&
+    Number.isFinite((cursor as { x: number }).x) &&
+    (cursor as { x: number }).x >= 0 &&
+    (cursor as { x: number }).x < source.width &&
+    typeof (cursor as { y?: unknown }).y === "number" &&
+    Number.isFinite((cursor as { y: number }).y) &&
+    (cursor as { y: number }).y >= 0 &&
+    (cursor as { y: number }).y < source.height
+  );
 }
 
 export function parseWebrtcTileAnswer(body: string): WebrtcTileAnswer {
@@ -74,12 +72,13 @@ export function parseWebrtcTileAnswer(body: string): WebrtcTileAnswer {
   }
   const answer = value as Record<string, unknown>;
   if (
-    answer.type !== "answer"
-    || typeof answer.sdp !== "string"
-    || answer.sdp.length === 0
-    || (answer.codec !== "h264" && answer.codec !== "h265")
-    || !validSourceMetadata(answer.source)
-  ) throw new Error("WebRTC answer was invalid");
+    answer.type !== "answer" ||
+    typeof answer.sdp !== "string" ||
+    answer.sdp.length === 0 ||
+    (answer.codec !== "h264" && answer.codec !== "h265") ||
+    !validSourceMetadata(answer.source)
+  )
+    throw new Error("WebRTC answer was invalid");
   const source = answer.source as unknown as Record<string, unknown>;
   return {
     type: "answer",
@@ -87,9 +86,7 @@ export function parseWebrtcTileAnswer(body: string): WebrtcTileAnswer {
     codec: answer.codec,
     source: {
       ...source,
-      desktopControlVersion: typeof source.desktopControlVersion === "number"
-        ? source.desktopControlVersion
-        : 0,
+      desktopControlVersion: typeof source.desktopControlVersion === "number" ? source.desktopControlVersion : 0,
     },
   } as WebrtcTileAnswer;
 }
@@ -129,11 +126,7 @@ export function postTileTelemetry(
   httpTransport?: Pick<AgentHttpTransport, "request">,
 ) {
   const request = httpTransport
-    ? httpTransport.request(
-        "POST",
-        `/api/park/tile/${windowID}/webrtc/telemetry`,
-        { body: event },
-      )
+    ? httpTransport.request("POST", `/api/park/tile/${windowID}/webrtc/telemetry`, { body: event })
     : fetch(`/api/park/tile/${windowID}/webrtc/telemetry`, {
         method: "POST",
         headers: { "content-type": "application/json" },

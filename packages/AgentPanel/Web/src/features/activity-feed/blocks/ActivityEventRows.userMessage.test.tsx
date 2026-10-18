@@ -10,7 +10,9 @@ import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDa
 import { UserRow, type EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
-vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({
+  DiffBlock: () => <div data-testid="diff-block" />,
+}));
 
 const DATA_SOURCE = stubDataSource({
   fetchEventsPage: async () => ({ events: [], windowStart: 0, usage: null }),
@@ -32,7 +34,13 @@ function renderRow(node: React.ReactNode) {
 }
 
 function event(overrides: Partial<ActivityEvent> = {}): ActivityEvent {
-  return { index: 7, ts: Date.UTC(2026, 0, 1, 12, 0, 0), type: "user", blocks: [{ kind: "text", text: "plain body" }], ...overrides };
+  return {
+    index: 7,
+    ts: Date.UTC(2026, 0, 1, 12, 0, 0),
+    type: "user",
+    blocks: [{ kind: "text", text: "plain body" }],
+    ...overrides,
+  };
 }
 
 describe("a user message row", () => {
@@ -79,9 +87,7 @@ describe("a user message row", () => {
     expect(open.queryByText("user")).toBeNull();
     open.unmount();
 
-    const folded = renderRow(
-      <UserRow ev={long} ctx={CTX} isCollapsed onToggle={() => {}} isHighlighted={false} />,
-    );
+    const folded = renderRow(<UserRow ev={long} ctx={CTX} isCollapsed onToggle={() => {}} isHighlighted={false} />);
     const expand = folded.getByLabelText("expand event");
     expect(expand.lastElementChild?.tagName.toLowerCase()).toBe("svg");
   });

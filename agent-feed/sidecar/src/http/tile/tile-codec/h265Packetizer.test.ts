@@ -27,11 +27,7 @@ describe("packetizeH265 RFC 7798 SRST", () => {
 
     // Type 48 header, then a 16-bit network-order size and complete NAL unit
     // for each aggregation unit. This is also the layout emitted by Pion RTP.
-    expect([...payloads[0]!.payload]).toEqual([
-      0x60, 0x01,
-      0x00, 0x03, ...vps,
-      0x00, 0x04, ...sps,
-    ]);
+    expect([...payloads[0]!.payload]).toEqual([0x60, 0x01, 0x00, 0x03, ...vps, 0x00, 0x04, ...sps]);
     expect(payloads[0]!.last).toBe(true);
   });
 
@@ -54,10 +50,7 @@ describe("packetizeH265 RFC 7798 SRST", () => {
       [0x62, 0x01, 19, 4, 5, 6],
       [0x62, 0x01, 0x40 | 19, 7],
     ]);
-    const rebuilt = [
-      ...hevcHeader(19, 0, 1),
-      ...payloads.flatMap(({ payload }) => [...payload.subarray(3)]),
-    ];
+    const rebuilt = [...hevcHeader(19, 0, 1), ...payloads.flatMap(({ payload }) => [...payload.subarray(3)])];
     expect(rebuilt).toEqual(nalu);
     expect(payloads.map(({ last }) => last)).toEqual([false, false, true]);
   });

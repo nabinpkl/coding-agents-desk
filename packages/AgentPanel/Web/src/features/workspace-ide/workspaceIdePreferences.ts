@@ -114,9 +114,7 @@ export function loadWorkspaceIdePreferences(): WorkspaceIdePreferences {
       workspaceId: typeof parsed.workspaceId === "string" ? parsed.workspaceId : null,
       activePathByWorkspace: stringRecord(parsed.activePathByWorkspace),
       fileViewByWorkspace: fileViewRecord(parsed.fileViewByWorkspace),
-      section: parsed.section === "sourceControl" || parsed.section === "search"
-        ? parsed.section
-        : "explorer",
+      section: parsed.section === "sourceControl" || parsed.section === "search" ? parsed.section : "explorer",
       treeOrder: isTreeOrder(parsed.treeOrder) ? parsed.treeOrder : "name",
       sidebarVisible: parsed.sidebarVisible !== false,
       terminalVisible: parsed.terminalVisible === true,

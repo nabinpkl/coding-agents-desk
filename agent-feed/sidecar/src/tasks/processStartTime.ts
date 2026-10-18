@@ -13,8 +13,18 @@
 import { readFileSync } from "node:fs";
 
 const MONTHS: Readonly<Record<string, number>> = {
-  Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+  Jan: 0,
+  Feb: 1,
+  Mar: 2,
+  Apr: 3,
+  May: 4,
+  Jun: 5,
+  Jul: 6,
+  Aug: 7,
+  Sep: 8,
+  Oct: 9,
+  Nov: 10,
+  Dec: 11,
 };
 
 interface CTimeParts {
@@ -79,9 +89,7 @@ let bootTimeSaid = false;
  *
  * Only ever called for a value already known to be Linux-shaped, so a Mac never opens this file.
  */
-export function linuxBootTimeMs(
-  read: () => string = () => readFileSync("/proc/stat", "utf8"),
-): number | null {
+export function linuxBootTimeMs(read: () => string = () => readFileSync("/proc/stat", "utf8")): number | null {
   if (bootTime !== undefined) return bootTime;
   try {
     const seconds = /^btime\s+(\d+)$/m.exec(read())?.[1];
@@ -130,10 +138,12 @@ export function parseRegistryProcStart(text: string, bootMs?: number | null): nu
       // that hid this bug. Once per process, because it would otherwise fire per record per tick.
       if (!bootTimeSaid) {
         bootTimeSaid = true;
-        console.error(JSON.stringify({
-          event: "agent-feed-proc-start-no-boot-time",
-          sample: trimmed.slice(0, 40),
-        }));
+        console.error(
+          JSON.stringify({
+            event: "agent-feed-proc-start-no-boot-time",
+            sample: trimmed.slice(0, 40),
+          }),
+        );
       }
       return null;
     }
@@ -148,8 +158,7 @@ export function parseRegistryProcStart(text: string, bootMs?: number | null): nu
 export function parseProcessLstart(text: string): number | null {
   const parts = parseCTime(text);
   if (!parts) return null;
-  return new Date(parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second)
-    .getTime();
+  return new Date(parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second).getTime();
 }
 
 /** Both sources round to whole seconds, so they agree exactly or the pid was reused. */

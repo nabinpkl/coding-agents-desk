@@ -47,24 +47,27 @@ export async function driveContestant(
   };
   const atLine = startLine
     ? startLineTerminal({
-      label: `arena ${record.contestantId} ${run.runId.slice(0, 8)}`,
-      line: startLine,
-      ...(resume ? { resume } : {}),
-      marks: {
-        pane: (pane, sessionId) => mark((contestant) => {
-          contestant.tmuxSession = pane;
-          contestant.sessionId = sessionId;
-          contestant.status = "starting";
-        }),
-        ready: () => mark((contestant) => {
-          contestant.status = "ready";
-        }),
-        running: () => mark((contestant, now) => {
-          contestant.status = "running";
-          contestant.startedAt = now;
-        }),
-      },
-    })
+        label: `arena ${record.contestantId} ${run.runId.slice(0, 8)}`,
+        line: startLine,
+        ...(resume ? { resume } : {}),
+        marks: {
+          pane: (pane, sessionId) =>
+            mark((contestant) => {
+              contestant.tmuxSession = pane;
+              contestant.sessionId = sessionId;
+              contestant.status = "starting";
+            }),
+          ready: () =>
+            mark((contestant) => {
+              contestant.status = "ready";
+            }),
+          running: () =>
+            mark((contestant, now) => {
+              contestant.status = "running";
+              contestant.startedAt = now;
+            }),
+        },
+      })
     : null;
   const terminal = atLine?.terminal;
   try {
@@ -94,7 +97,9 @@ export async function driveContestant(
     const result = await drive(plan);
 
     const facts = factsAfterTurn(record, result.events, run, homedir());
-    const bounded = boundedDiff(await steps.worktrees.captureDiff({ worktreePath: record.worktreePath, ref: run.baseRef }));
+    const bounded = boundedDiff(
+      await steps.worktrees.captureDiff({ worktreePath: record.worktreePath, ref: run.baseRef }),
+    );
     steps.store.writeContestantDiff(run.runId, record.contestantId, bounded);
     steps.registry.updateContestant(run.runId, record.contestantId, (contestant, now) => {
       contestant.status = "closed";

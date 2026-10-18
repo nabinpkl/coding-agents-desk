@@ -9,10 +9,7 @@ import { useCallback, useRef, useState } from "react";
 import type { AgentSidebarMode } from "@/features/sidebar/AgentSidebar";
 import type { CanvasSidebarView } from "@/features/sidebar/CanvasSidebarViews";
 import { useSidebarEnvironment } from "@/features/sidebar/SidebarPresentation";
-import {
-  loadSidebarPreferences,
-  storeSidebarPreferences,
-} from "@/features/sidebar/sidebarPreferences";
+import { loadSidebarPreferences, storeSidebarPreferences } from "@/features/sidebar/sidebarPreferences";
 import { searchWithSidebarMode, sidebarModeFromSearch } from "@/features/sidebar/sidebarRoute";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 import { useNotify } from "@/hooks/useNotify";
@@ -29,9 +26,7 @@ export function useSidebarChrome() {
    */
   const [sidebarPreferences, setSidebarPreferences] = useState(() => {
     const stored = loadSidebarPreferences();
-    const asked = typeof window === "undefined"
-      ? null
-      : sidebarModeFromSearch(window.location.search);
+    const asked = typeof window === "undefined" ? null : sidebarModeFromSearch(window.location.search);
     return asked === null ? stored : { ...stored, mode: asked };
   });
   // One owner for every rendering of the sidebar: the pinned desktop rail, hover preview,
@@ -84,9 +79,7 @@ export function useSidebarChrome() {
   }, []);
 
   const previewSidebarWidth = useCallback((width: number) => {
-    setSidebarPreferences((current) =>
-      current.width === width ? current : { ...current, width },
-    );
+    setSidebarPreferences((current) => (current.width === width ? current : { ...current, width }));
   }, []);
 
   const commitSidebarWidth = useCallback((width: number) => {
@@ -152,18 +145,21 @@ export function useSidebarChrome() {
    * picking. The canvas is the main panel, so leaving the drawer up would cover the only thing
    * the tab was pressed for with a panel that has almost nothing on it.
    */
-  const changeSidebarMode = useCallback((mode: AgentSidebarMode) => {
-    setSidebarPreferences((current) => {
-      if (current.mode === mode) return current;
-      const next = { ...current, mode };
-      storeSidebarPreferences(next);
-      return next;
-    });
-    if (mode === "canvas") {
-      setHoverPreviewOpen(false);
-      if (usesModalSidebar) setSidebarOpen(false);
-    }
-  }, [setSidebarOpen, usesModalSidebar]);
+  const changeSidebarMode = useCallback(
+    (mode: AgentSidebarMode) => {
+      setSidebarPreferences((current) => {
+        if (current.mode === mode) return current;
+        const next = { ...current, mode };
+        storeSidebarPreferences(next);
+        return next;
+      });
+      if (mode === "canvas") {
+        setHoverPreviewOpen(false);
+        if (usesModalSidebar) setSidebarOpen(false);
+      }
+    },
+    [setSidebarOpen, usesModalSidebar],
+  );
 
   const changeCanvasView = useCallback((canvasView: CanvasSidebarView) => {
     setSidebarPreferences((current) => {
@@ -184,7 +180,8 @@ export function useSidebarChrome() {
   }, []);
 
   /** The Canvas tab's flat sessions list is on screen, so the inventory stream should carry it. */
-  const recentSessionsShowing = sidebarMode === "canvas" &&
+  const recentSessionsShowing =
+    sidebarMode === "canvas" &&
     sidebarPreferences.canvasView === "sessions" &&
     !sidebarPreferences.canvasSessionsGrouped;
 

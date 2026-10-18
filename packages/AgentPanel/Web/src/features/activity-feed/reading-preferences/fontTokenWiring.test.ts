@@ -48,9 +48,9 @@ const references = sourceFiles(SRC).flatMap((path) => {
 
 describe("Agent Panel font token wiring", () => {
   it("gives every token at least one consumer", () => {
-    const orphans = FONT_TOKENS.filter(
-      (token) => !references.some((r) => r.cssVar === token.cssVar),
-    ).map((token) => token.key);
+    const orphans = FONT_TOKENS.filter((token) => !references.some((r) => r.cssVar === token.cssVar)).map(
+      (token) => token.key,
+    );
     // No exemptions. A token that nothing reads is a control that moves
     // nothing, and the only honest fixes are to wire it or to delete it.
     expect(orphans).toEqual([]);

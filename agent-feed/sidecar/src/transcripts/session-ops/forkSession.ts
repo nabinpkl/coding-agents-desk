@@ -114,13 +114,13 @@ export interface SessionLauncher {
  * of use, which is what every other module here does by simply calling its imports.
  */
 export const LIVE_SESSION_LAUNCHER: SessionLauncher = {
-  start: ({ mode, ...options }) => mode === "sdk" ? startClaudeSdkSession(options) : startClaudeSession(options),
-  fork: ({ mode, resumeAt, ...options }) => mode === "sdk"
-    ? startClaudeSdkForkedSession({ ...options, ...(resumeAt === undefined ? {} : { resumeAt }) })
-    : startForkedClaudeSession(options),
+  start: ({ mode, ...options }) => (mode === "sdk" ? startClaudeSdkSession(options) : startClaudeSession(options)),
+  fork: ({ mode, resumeAt, ...options }) =>
+    mode === "sdk"
+      ? startClaudeSdkForkedSession({ ...options, ...(resumeAt === undefined ? {} : { resumeAt }) })
+      : startForkedClaudeSession(options),
   end: (options) => endClaudeSession(options),
 };
-
 
 export interface SessionLaunchPlan {
   /**
@@ -170,36 +170,42 @@ export async function launchSession(
   // Refused before a worktree is cut, so a request that cannot be honoured leaves nothing behind.
   const sdkFork = Boolean(plan.from) && plan.claudeMode === "sdk";
   if (sdkFork && plan.anchor && !plan.anchor.forkPoint) {
-    throw new SessionForkInvalidError("that is the conversation's first message, so there is nothing before it to fork from");
+    throw new SessionForkInvalidError(
+      "that is the conversation's first message, so there is nothing before it to fork from",
+    );
   }
   const cwd = plan.worktree
-    ? (await prepareWorktree({
-      checkout: plan.checkout,
-      branch: plan.worktree.branch ?? branchFromTitle(plan.title),
-    })).path
-    : plan.sourcePath ?? plan.checkout;
+    ? (
+        await prepareWorktree({
+          checkout: plan.checkout,
+          branch: plan.worktree.branch ?? branchFromTitle(plan.title),
+        })
+      ).path
+    : (plan.sourcePath ?? plan.checkout);
 
   const sessionId = newSessionId();
   const started = plan.from
     ? await launcher.fork({
-      cwd,
-      sessionId: plan.from,
-      forkId: sessionId,
-      title: plan.title,
-      // Withheld from the command line when there is a rewind coming: the CLI takes a positional
-      // prompt as the first turn, and that turn would run against the whole inherited context
-      // before anything had moved. It is typed into the box after the rewind instead. Through the
-      // SDK there is no rewind: the fork starts already cut, so the brief rides as its first turn.
-      brief: plan.anchor && !sdkFork ? undefined : plan.prompt,
-      ...(sdkFork ? { mode: "sdk" as const, ...(plan.anchor?.forkPoint ? { resumeAt: plan.anchor.forkPoint } : {}) } : {}),
-    })
+        cwd,
+        sessionId: plan.from,
+        forkId: sessionId,
+        title: plan.title,
+        // Withheld from the command line when there is a rewind coming: the CLI takes a positional
+        // prompt as the first turn, and that turn would run against the whole inherited context
+        // before anything had moved. It is typed into the box after the rewind instead. Through the
+        // SDK there is no rewind: the fork starts already cut, so the brief rides as its first turn.
+        brief: plan.anchor && !sdkFork ? undefined : plan.prompt,
+        ...(sdkFork
+          ? { mode: "sdk" as const, ...(plan.anchor?.forkPoint ? { resumeAt: plan.anchor.forkPoint } : {}) }
+          : {}),
+      })
     : await launcher.start({
-      cwd,
-      sessionId,
-      title: plan.title,
-      prompt: plan.prompt,
-      ...(plan.claudeMode === undefined ? {} : { mode: plan.claudeMode }),
-    });
+        cwd,
+        sessionId,
+        title: plan.title,
+        prompt: plan.prompt,
+        ...(plan.claudeMode === undefined ? {} : { mode: plan.claudeMode }),
+      });
   const launched = { sessionId, title: plan.title, projectPath: cwd, tmuxSession: started.tmuxSession };
   if (!plan.from || !plan.anchor || sdkFork) return launched;
 
@@ -255,9 +261,8 @@ export async function forkClaudeSession(
 
   // Resolved BEFORE anything is started, so a request naming a row that is not a message is
   // refused rather than answered with a running fork holding the whole conversation.
-  const anchor = command.from === undefined
-    ? undefined
-    : await resolveMessageAnchor(command.from, sessionId, source.transcriptPath);
+  const anchor =
+    command.from === undefined ? undefined : await resolveMessageAnchor(command.from, sessionId, source.transcriptPath);
 
   return launchSession(
     {
@@ -269,7 +274,8 @@ export async function forkClaudeSession(
       ...(brief === undefined ? {} : { prompt: brief }),
       ...(worktree === undefined ? {} : { worktree }),
       // The way the source last ran, unless the request says otherwise (ADR-0143).
-      claudeMode: command.claudeMode === "terminal" || command.claudeMode === "sdk" ? command.claudeMode : lastRunMode(source),
+      claudeMode:
+        command.claudeMode === "terminal" || command.claudeMode === "sdk" ? command.claudeMode : lastRunMode(source),
     },
     launcher,
     newSessionId,

@@ -44,7 +44,9 @@ export function diffCounts(diff: string | null): { added: number; removed: numbe
 function duration(contestant: ArenaContestantRecord): string {
   if (contestant.startedAt === null || contestant.closedAt === null) return "-";
   const ms = contestant.closedAt - contestant.startedAt;
-  return ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+  return ms < 60_000
+    ? `${(ms / 1000).toFixed(1)}s`
+    : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
 /** One table cell: a pipe or a line break would end the cell early. */
@@ -61,9 +63,10 @@ export function renderManagerBrief(
   const rows = run.contestants.map((contestant) => {
     const counts = diffCounts(contestant.gitDiff);
     const rivals = contestant.outsideReached.filter((reach) => reach.rival !== null).length;
-    const outside = contestant.outsideReached.length === 0
-      ? "none"
-      : `${contestant.outsideReached.length} place${contestant.outsideReached.length === 1 ? "" : "s"}${rivals ? `, ${rivals} in a rival's` : ""}`;
+    const outside =
+      contestant.outsideReached.length === 0
+        ? "none"
+        : `${contestant.outsideReached.length} place${contestant.outsideReached.length === 1 ? "" : "s"}${rivals ? `, ${rivals} in a rival's` : ""}`;
     return [
       contestant.contestantId,
       contestant.source,
@@ -75,13 +78,18 @@ export function renderManagerBrief(
       String(contestant.filesWritten.length),
       contestant.gitDiff === null
         ? "-"
-        : counts.files === 0 ? "none" : `+${counts.added} -${counts.removed} in ${counts.files} file${counts.files === 1 ? "" : "s"}`,
+        : counts.files === 0
+          ? "none"
+          : `+${counts.added} -${counts.removed} in ${counts.files} file${counts.files === 1 ? "" : "s"}`,
       outside,
-    ].map(cell).join(" | ");
+    ]
+      .map(cell)
+      .join(" | ");
   });
-  const where = run.contestants.map((contestant) =>
-    `- ${contestant.contestantId}: worktree \`${relative(managerFolder, contestant.worktreePath)}\`, ` +
-    `transcript \`${contestant.contestantId}.md\`, diff against ${run.baseRef} \`${contestant.contestantId}.diff\``
+  const where = run.contestants.map(
+    (contestant) =>
+      `- ${contestant.contestantId}: worktree \`${relative(managerFolder, contestant.worktreePath)}\`, ` +
+      `transcript \`${contestant.contestantId}.md\`, diff against ${run.baseRef} \`${contestant.contestantId}.diff\``,
   );
   const lanesOpen = run.mode === "terminals" && run.round === 0;
   const runApi = `${api}/api/arena/runs/${run.runId}`;
@@ -114,38 +122,38 @@ export function renderManagerBrief(
     "",
     ...(run.round > 0
       ? [
-        run.round > 1
-          ? `The latest prompt, number ${run.round}. Each prompt went to every lane in the session it already had; ` +
-            "the transcripts hold every one."
-          : "The prompt every lane was given:",
-        "",
-        "````text",
-        run.prompt,
-        "````",
-        "",
-      ]
+          run.round > 1
+            ? `The latest prompt, number ${run.round}. Each prompt went to every lane in the session it already had; ` +
+              "the transcripts hold every one."
+            : "The prompt every lane was given:",
+          "",
+          "````text",
+          run.prompt,
+          "````",
+          "",
+        ]
       : []),
     "## The lanes",
     "",
     ...(run.contestants.length === 0
       ? ["None yet.", ""]
       : [
-        "The facts below are Agent Desk's own records, not the lanes' words. Time is the latest prompt's. " +
-          "The diff covers files git already tracked: a file a lane created is in its worktree and in " +
-          "Files written, not in its diff. Why a lane failed, and where it reached outside its worktree, " +
-          "are at the top of its transcript file.",
-        "",
-        "| Lane | Harness | Model | Status | Time | Cost | Context tokens | Files written | Diff | Outside its worktree |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-        ...rows.map((row) => `| ${row} |`),
-        "",
-        ...where,
-        "",
-      ]),
+          "The facts below are Agent Desk's own records, not the lanes' words. Time is the latest prompt's. " +
+            "The diff covers files git already tracked: a file a lane created is in its worktree and in " +
+            "Files written, not in its diff. Why a lane failed, and where it reached outside its worktree, " +
+            "are at the top of its transcript file.",
+          "",
+          "| Lane | Harness | Model | Status | Time | Cost | Context tokens | Files written | Diff | Outside its worktree |",
+          "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+          ...rows.map((row) => `| ${row} |`),
+          "",
+          ...where,
+          "",
+        ]),
     "## Calling the API",
     "",
     "Use `curl` in these shapes, one call at a time, and read its answer before the next. A failure answers " +
-      "`{\"error\":{\"code\":...,\"message\":...}}`: 400 names what was wrong with the request, 409 means the " +
+      '`{"error":{"code":...,"message":...}}`: 400 names what was wrong with the request, 409 means the ' +
       "run's state refuses it now (a lane still running, or its first prompt already given), 404 that the run " +
       "is gone.",
     "",
@@ -201,8 +209,8 @@ export function renderTranscriptFile(
   transcript: string | { problem: string },
   nonce: string,
 ): string {
-  const reaches = contestant.outsideReached.map((reach) =>
-    `- ${reach.how} ${reach.path}${reach.rival ? ` (${reach.rival}'s worktree)` : ""}`
+  const reaches = contestant.outsideReached.map(
+    (reach) => `- ${reach.how} ${reach.path}${reach.rival ? ` (${reach.rival}'s worktree)` : ""}`,
   );
   const inside = [
     ...(contestant.error ? [`Failed: ${contestant.error}`, ""] : []),

@@ -101,10 +101,12 @@ describe("afterRestart", () => {
     const none = { tmuxSession: null, sessionId: null };
     expect(afterRestart({ mode: "terminals" }, { status: "preparing", ...none }, true)).toEqual({ drive: null });
     expect(afterRestart({ mode: "terminals" }, { status: "ready", ...none }, true)).toHaveProperty("failed");
-    expect(afterRestart({ mode: "terminals" }, { status: "ready", tmuxSession: "p", sessionId: "s" }, false))
-      .toEqual({ failed: "the sidecar came back with no tmux, so its pane cannot be picked back up" });
-    expect(afterRestart({ mode: "headless" }, { status: "running", ...none }, true))
-      .toEqual({ failed: "the sidecar restarted mid-turn, and a headless contestant cannot be picked back up" });
+    expect(afterRestart({ mode: "terminals" }, { status: "ready", tmuxSession: "p", sessionId: "s" }, false)).toEqual({
+      failed: "the sidecar came back with no tmux, so its pane cannot be picked back up",
+    });
+    expect(afterRestart({ mode: "headless" }, { status: "running", ...none }, true)).toEqual({
+      failed: "the sidecar restarted mid-turn, and a headless contestant cannot be picked back up",
+    });
   });
 });
 
@@ -122,17 +124,13 @@ describe("projections", () => {
         contestant({ contestantId: "c2", gitDiff: null }),
       ],
     });
-    const detail = runDetail(live, (c) =>
-      c.contestantId === "c2" ? "from the store" : null
-    );
+    const detail = runDetail(live, (c) => (c.contestantId === "c2" ? "from the store" : null));
     expect(detail.contestants[0]?.gitDiff).toBe("in memory");
     expect(detail.contestants[1]?.gitDiff).toBe("from the store");
   });
 
   test("summary and detail share identity, so a list row and its facts never disagree", () => {
     const one = run();
-    expect(runSummary(one).contestants[0]?.contestantId).toBe(
-      runDetail(one, () => null).contestants[0]?.contestantId,
-    );
+    expect(runSummary(one).contestants[0]?.contestantId).toBe(runDetail(one, () => null).contestants[0]?.contestantId);
   });
 });

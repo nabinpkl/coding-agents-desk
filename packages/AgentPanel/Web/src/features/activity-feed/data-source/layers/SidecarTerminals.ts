@@ -35,11 +35,7 @@ export class SidecarTerminals extends SidecarComposers {
    */
   private readonly writeChains = new Map<string, Promise<void>>();
 
-  async openTerminal(
-    context: AgentTerminalContext,
-    columns: number,
-    rows: number,
-  ): Promise<AgentTerminalDescriptor> {
+  async openTerminal(context: AgentTerminalContext, columns: number, rows: number): Promise<AgentTerminalDescriptor> {
     return parse<AgentTerminalDescriptor>(
       await this.transport.request("POST", "/api/terminals", {
         body: { context, columns, rows },
@@ -79,10 +75,7 @@ export class SidecarTerminals extends SidecarComposers {
    * already stopped is the ordinary case.
    */
   async killTmuxSession(session: string): Promise<void> {
-    expectEmpty(await this.transport.request(
-      "DELETE",
-      `/api/tmux/sessions/${encodeURIComponent(session)}`,
-    ));
+    expectEmpty(await this.transport.request("DELETE", `/api/tmux/sessions/${encodeURIComponent(session)}`));
   }
 
   /**
@@ -96,11 +89,11 @@ export class SidecarTerminals extends SidecarComposers {
    * bytes, never by what the browser called it.
    */
   async dropTmuxSessionImage(session: string, image: Blob): Promise<void> {
-    expectEmpty(await this.transport.request(
-      "POST",
-      `/api/tmux/sessions/${encodeURIComponent(session)}/image`,
-      { body: { data: await base64FromBlob(image) } satisfies ComposerImageDrop },
-    ));
+    expectEmpty(
+      await this.transport.request("POST", `/api/tmux/sessions/${encodeURIComponent(session)}/image`, {
+        body: { data: await base64FromBlob(image) } satisfies ComposerImageDrop,
+      }),
+    );
   }
 
   /**
@@ -110,10 +103,9 @@ export class SidecarTerminals extends SidecarComposers {
    * client gets the rest, which is what makes scrolling back reach further than the attach.
    */
   async terminalHistory(terminalId: string, lines: number): Promise<string> {
-    const { data } = parse<AgentTerminalHistory>(await this.transport.request(
-      "GET",
-      `/api/terminals/${encodeURIComponent(terminalId)}/history?lines=${lines}`,
-    ));
+    const { data } = parse<AgentTerminalHistory>(
+      await this.transport.request("GET", `/api/terminals/${encodeURIComponent(terminalId)}/history?lines=${lines}`),
+    );
     return data;
   }
 
@@ -124,11 +116,7 @@ export class SidecarTerminals extends SidecarComposers {
    * then asked for a replay would watch its own history erased. Off, the screen it already wrote
    * stands and the live output continues it.
    */
-  subscribeTerminal(
-    terminalId: string,
-    handlers: TerminalViewer,
-    options: { replay?: boolean } = {},
-  ): () => void {
+  subscribeTerminal(terminalId: string, handlers: TerminalViewer, options: { replay?: boolean } = {}): () => void {
     return this.terminals.subscribe(terminalId, handlers, options);
   }
 
@@ -152,14 +140,14 @@ export class SidecarTerminals extends SidecarComposers {
    * The tail swallows a rejection so one refused write cannot wedge the terminal shut. The caller
    * still gets the rejection, on the promise this returns.
    */
-  sendTerminalInput(
-    terminalId: string,
-    data: string,
-    encoding: "utf8" | "base64" = "utf8",
-  ): Promise<void> {
-    const written = (this.writeChains.get(terminalId) ?? Promise.resolve())
-      .then(() => this.writeToTerminal(terminalId, data, encoding));
-    const tail = written.then(() => {}, () => {});
+  sendTerminalInput(terminalId: string, data: string, encoding: "utf8" | "base64" = "utf8"): Promise<void> {
+    const written = (this.writeChains.get(terminalId) ?? Promise.resolve()).then(() =>
+      this.writeToTerminal(terminalId, data, encoding),
+    );
+    const tail = written.then(
+      () => {},
+      () => {},
+    );
     this.writeChains.set(terminalId, tail);
     // Only when nothing queued up behind this one, which is what makes the map hold the terminals
     // being typed into rather than every terminal ever opened.
@@ -169,16 +157,12 @@ export class SidecarTerminals extends SidecarComposers {
     return written;
   }
 
-  private async writeToTerminal(
-    terminalId: string,
-    data: string,
-    encoding: "utf8" | "base64",
-  ): Promise<void> {
-    expectEmpty(await this.transport.request(
-      "POST",
-      `/api/terminals/${encodeURIComponent(terminalId)}/input`,
-      { body: { data, encoding } },
-    ));
+  private async writeToTerminal(terminalId: string, data: string, encoding: "utf8" | "base64"): Promise<void> {
+    expectEmpty(
+      await this.transport.request("POST", `/api/terminals/${encodeURIComponent(terminalId)}/input`, {
+        body: { data, encoding },
+      }),
+    );
   }
 
   /**
@@ -198,15 +182,12 @@ export class SidecarTerminals extends SidecarComposers {
     await this.sendTerminalInput(terminalId, input);
   }
 
-  async updateTerminalViewport(
-    terminalId: string,
-    viewport: AgentTerminalViewport,
-  ): Promise<void> {
-    expectEmpty(await this.transport.request(
-      "POST",
-      `/api/terminals/${encodeURIComponent(terminalId)}/viewport`,
-      { body: viewport },
-    ));
+  async updateTerminalViewport(terminalId: string, viewport: AgentTerminalViewport): Promise<void> {
+    expectEmpty(
+      await this.transport.request("POST", `/api/terminals/${encodeURIComponent(terminalId)}/viewport`, {
+        body: viewport,
+      }),
+    );
   }
 
   /**
@@ -238,10 +219,11 @@ export class SidecarTerminals extends SidecarComposers {
 
   /** Sent with `keepalive`, because the commonest time to close a terminal is by closing the page. */
   async closeTerminal(terminalId: string, mode: "detach" | "kill"): Promise<void> {
-    expectEmpty(await this.transport.request(
-      "POST",
-      `/api/terminals/${encodeURIComponent(terminalId)}/close`,
-      { body: { mode }, keepalive: true },
-    ));
+    expectEmpty(
+      await this.transport.request("POST", `/api/terminals/${encodeURIComponent(terminalId)}/close`, {
+        body: { mode },
+        keepalive: true,
+      }),
+    );
   }
 }

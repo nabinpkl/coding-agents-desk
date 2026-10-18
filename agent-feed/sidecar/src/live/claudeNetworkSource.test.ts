@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, test } from "bun:test";
 import {
   SseTextParser,
   decodeDeltaData,
@@ -9,17 +9,13 @@ import {
 
 test("SseTextParser splits data frames and tolerates split chunk boundaries", () => {
   const parser = new SseTextParser();
-  expect(parser.push('id: 1\ndata: {"a":1}\n\nid: 2\nda')).toEqual([
-    { data: '{"a":1}', id: "1" },
-  ]);
+  expect(parser.push('id: 1\ndata: {"a":1}\n\nid: 2\nda')).toEqual([{ data: '{"a":1}', id: "1" }]);
   expect(parser.push('ta: {"b":2}\n\n')).toEqual([{ data: '{"b":2}', id: "2" }]);
 });
 
 test("SseTextParser drops comment-only blocks and joins multi-line data", () => {
   const parser = new SseTextParser();
-  expect(parser.push(": ping\n\ndata: line1\ndata: line2\n\n")).toEqual([
-    { data: "line1\nline2", id: undefined },
-  ]);
+  expect(parser.push(": ping\n\ndata: line1\ndata: line2\n\n")).toEqual([{ data: "line1\nline2", id: undefined }]);
 });
 
 test("decodeDeltaData decodes a plain base64 JSON payload", () => {
@@ -36,29 +32,34 @@ test("decodeDeltaData decompresses a gzip content-encoded payload", () => {
 });
 
 test("mapAnthropicStreamEvent normalizes the stream shapes", () => {
-  expect(mapAnthropicStreamEvent({ type: "message_start", message: { id: "m1", model: "claude" } }))
-    .toEqual({ kind: "message_start", message: { id: "m1", model: "claude" } });
-  expect(mapAnthropicStreamEvent({
-    type: "content_block_start",
-    index: 0,
-    content_block: { type: "tool_use", name: "Bash" },
-  }))
-    .toEqual({ kind: "content_block_start", index: 0, contentBlock: { type: "tool_use", name: "Bash" } });
-  expect(mapAnthropicStreamEvent({
-    type: "content_block_delta",
-    index: 0,
-    delta: { type: "text_delta", text: "hi" },
-  }))
-    .toEqual({ kind: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } });
+  expect(mapAnthropicStreamEvent({ type: "message_start", message: { id: "m1", model: "claude" } })).toEqual({
+    kind: "message_start",
+    message: { id: "m1", model: "claude" },
+  });
+  expect(
+    mapAnthropicStreamEvent({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", name: "Bash" },
+    }),
+  ).toEqual({ kind: "content_block_start", index: 0, contentBlock: { type: "tool_use", name: "Bash" } });
+  expect(
+    mapAnthropicStreamEvent({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: "hi" },
+    }),
+  ).toEqual({ kind: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } });
   expect(mapAnthropicStreamEvent({ type: "message_stop" })).toEqual({ kind: "message_stop" });
   // Usage rides at the event's top level, not inside `delta`; the mapper must
   // read it there or the live meter never sees a turn's final usage.
-  expect(mapAnthropicStreamEvent({
-    type: "message_delta",
-    delta: { stop_reason: "end_turn" },
-    usage: { input_tokens: 100, output_tokens: 50 },
-  }))
-    .toEqual({ kind: "message_delta", stopReason: "end_turn", usage: { input_tokens: 100, output_tokens: 50 } });
+  expect(
+    mapAnthropicStreamEvent({
+      type: "message_delta",
+      delta: { stop_reason: "end_turn" },
+      usage: { input_tokens: 100, output_tokens: 50 },
+    }),
+  ).toEqual({ kind: "message_delta", stopReason: "end_turn", usage: { input_tokens: 100, output_tokens: 50 } });
   expect(mapAnthropicStreamEvent({ type: "ping" })).toEqual({ kind: "ping" });
   expect(mapAnthropicStreamEvent({ type: "made_up" })).toBeNull();
 });
@@ -105,7 +106,11 @@ function fakeObserver(events: "full" | "live") {
         return Response.json({ code: "OBSERVER_ERROR_CODE_STREAM_CAPACITY_REACHED" }, { status: 503 });
       }
       return new Response(
-        new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(": hi\n\n")); } }),
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(": hi\n\n"));
+          },
+        }),
         { headers: { "content-type": "text/event-stream" } },
       );
     },
@@ -122,9 +127,13 @@ async function until(condition: () => boolean): Promise<void> {
 test("a stream whose events are refused is handed back", async () => {
   const observer = fakeObserver("full");
   try {
-    await expect(subscribeToObserver(observer.endpoint, () => {}, () => {})).rejects.toThrow(
-      "proxy observer events failed: HTTP 503",
-    );
+    await expect(
+      subscribeToObserver(
+        observer.endpoint,
+        () => {},
+        () => {},
+      ),
+    ).rejects.toThrow("proxy observer events failed: HTTP 503");
     await until(() => observer.deleted.length > 0);
     expect(observer.deleted).toEqual(["stream-1"]);
   } finally {
@@ -135,7 +144,11 @@ test("a stream whose events are refused is handed back", async () => {
 test("a live stream is handed back when it is closed, and not before", async () => {
   const observer = fakeObserver("live");
   try {
-    const subscription = await subscribeToObserver(observer.endpoint, () => {}, () => {});
+    const subscription = await subscribeToObserver(
+      observer.endpoint,
+      () => {},
+      () => {},
+    );
     await Bun.sleep(50);
     expect(observer.deleted).toEqual([]);
 

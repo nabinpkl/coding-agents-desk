@@ -27,11 +27,9 @@ export function createPuckHandlers(ctx: ViewportRuntime) {
       event.preventDefault();
       event.stopPropagation();
       if (!ctx.puckPointer || ctx.puckPointer.id !== event.pointerId) return;
-      const crossedSlop = !ctx.puckPointer.dragged
-        && Math.hypot(
-          event.clientX - ctx.puckPointer.startX,
-          event.clientY - ctx.puckPointer.startY,
-        ) >= SCROLL_SLOP;
+      const crossedSlop =
+        !ctx.puckPointer.dragged &&
+        Math.hypot(event.clientX - ctx.puckPointer.startX, event.clientY - ctx.puckPointer.startY) >= SCROLL_SLOP;
       if (crossedSlop) {
         ctx.puckPointer.dragged = true;
       }
@@ -53,8 +51,9 @@ export function createPuckHandlers(ctx: ViewportRuntime) {
       ctx.puckPointer = null;
       if (cancelled || completed.dragged) return;
       const now = performance.now();
-      const isDoubleTap = now - ctx.lastPuckTapAt <= 300
-        && Math.hypot(event.clientX - ctx.lastPuckTapX, event.clientY - ctx.lastPuckTapY) <= 24;
+      const isDoubleTap =
+        now - ctx.lastPuckTapAt <= 300 &&
+        Math.hypot(event.clientX - ctx.lastPuckTapX, event.clientY - ctx.lastPuckTapY) <= 24;
       if (isDoubleTap) {
         if (ctx.pendingPuckTap !== 0) window.clearTimeout(ctx.pendingPuckTap);
         ctx.pendingPuckTap = 0;

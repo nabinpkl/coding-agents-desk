@@ -6,12 +6,7 @@
 // at construction so both halves write through the same store.
 
 import type { BotRecord, BotSessionRef, StartedSession } from "@agentdesk/agent-feed-wire";
-import {
-  firstFreeAnchor,
-  formatBotSessionTitle,
-  refuseTaskText,
-  taskFromText,
-} from "@agentdesk/agent-feed-wire";
+import { firstFreeAnchor, formatBotSessionTitle, refuseTaskText, taskFromText } from "@agentdesk/agent-feed-wire";
 import { anchorPool } from "@/config/configAnchors";
 import { WorktreeError } from "@/git/worktree";
 import {
@@ -77,9 +72,9 @@ export class BotSessionStarter {
     } catch (error) {
       if (error instanceof BotLaunchError) throw error;
       throw new BotLaunchError(
-        `Bot "${bot.name}" was created, but its session could not be started. `
-          + "Resend this request once the cause is fixed, or attach a session to "
-          + `${bot.botId} by hand.`,
+        `Bot "${bot.name}" was created, but its session could not be started. ` +
+          "Resend this request once the cause is fixed, or attach a session to " +
+          `${bot.botId} by hand.`,
         { cause: error },
       );
     }
@@ -103,9 +98,10 @@ export class BotSessionStarter {
     // session already in a worktree stays in that worktree rather than being pulled back into the
     // checkout it branched away from.
     const source = launch.from ? this.resolveOwnSession(bot, launch.from) : undefined;
-    const anchor = launch.from?.eventId === undefined || source === undefined
-      ? undefined
-      : await this.resolveAnchor(launch.from.sessionId, launch.from.eventId, source);
+    const anchor =
+      launch.from?.eventId === undefined || source === undefined
+        ? undefined
+        : await this.resolveAnchor(launch.from.sessionId, launch.from.eventId, source);
     try {
       return await launchSession(
         {
@@ -134,11 +130,7 @@ export class BotSessionStarter {
    * The message a fork starts before, resolved BEFORE anything is started, so a row that is not a
    * message is refused rather than answered with a running fork holding the whole conversation.
    */
-  private async resolveAnchor(
-    sessionId: string,
-    eventId: string,
-    source: ResolvedBotSession,
-  ): Promise<MessageAnchor> {
+  private async resolveAnchor(sessionId: string, eventId: string, source: ResolvedBotSession): Promise<MessageAnchor> {
     if (!source.transcriptPath) {
       throw new BotNotFoundError(`session claude:${sessionId} has no transcript to fork a message from`);
     }
@@ -179,10 +171,14 @@ export class BotSessionStarter {
   async launchFirstSession(bot: BotRecord, launch: NormalizedLaunch): Promise<StartedSession> {
     const sessionId = this.newSessionId();
     const anchor = await this.reserveAnchor(bot.botId, `claude:${sessionId}`);
-    return this.launchOrExplain(bot, {
-      ...launch,
-      title: composeAnchoredTitle(anchor, launch.title),
-    }, () => sessionId);
+    return this.launchOrExplain(
+      bot,
+      {
+        ...launch,
+        title: composeAnchoredTitle(anchor, launch.title),
+      },
+      () => sessionId,
+    );
   }
 
   /**

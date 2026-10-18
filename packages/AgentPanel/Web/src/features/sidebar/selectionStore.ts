@@ -29,9 +29,12 @@ export function loadSelection(): RememberedSelection | null {
     // become a lookup for a session that cannot exist, and the panel would open on nothing with
     // no way to tell that from a deleted thread.
     if (
-      typeof parsed?.projectPath !== "string" || !parsed.projectPath ||
-      typeof parsed.source !== "string" || !parsed.source ||
-      typeof parsed.sessionId !== "string" || !parsed.sessionId
+      typeof parsed?.projectPath !== "string" ||
+      !parsed.projectPath ||
+      typeof parsed.source !== "string" ||
+      !parsed.source ||
+      typeof parsed.sessionId !== "string" ||
+      !parsed.sessionId
     ) {
       return null;
     }

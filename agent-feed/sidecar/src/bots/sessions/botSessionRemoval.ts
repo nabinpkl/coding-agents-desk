@@ -13,11 +13,7 @@
 // moving to.
 
 import type { BotRecord, BotSessionRef, RetiredBotSession } from "@agentdesk/agent-feed-wire";
-import {
-  disposeSessionWorktree,
-  planSessionRetirement,
-  type SessionRetirementPlan,
-} from "@/git/sessionRetirement";
+import { disposeSessionWorktree, planSessionRetirement, type SessionRetirementPlan } from "@/git/sessionRetirement";
 import { WorktreeError } from "@/git/worktree";
 import type { BotStore, StoredBotSnapshot } from "@/bots/botStore";
 import type { NormalizedRetire } from "@/bots/botCommands";
@@ -59,12 +55,15 @@ export function detachRefs(
   const removing = new Set(refs.map(sessionKey));
   // A Father that leaves the Bot stops being one in the same write: kept, the home would name
   // a session the Bot has forgotten, and retiring clears it through here too.
-  const updated: BotRecord = clearDetachedFather(withOffCanvasSessions(
-    { ...bot, sessionRefs: bot.sessionRefs.filter((ref) => !removing.has(sessionKey(ref))) },
-    // A session that leaves the Bot leaves its off-canvas list too. Kept, it would meet the session
-    // again if it were ever attached back, as a row hidden on a card that never said so.
-    (bot.offCanvasSessionRefs ?? []).filter((ref) => !removing.has(sessionKey(ref))),
-  ), removing);
+  const updated: BotRecord = clearDetachedFather(
+    withOffCanvasSessions(
+      { ...bot, sessionRefs: bot.sessionRefs.filter((ref) => !removing.has(sessionKey(ref))) },
+      // A session that leaves the Bot leaves its off-canvas list too. Kept, it would meet the session
+      // again if it were ever attached back, as a row hidden on a card that never said so.
+      (bot.offCanvasSessionRefs ?? []).filter((ref) => !removing.has(sessionKey(ref))),
+    ),
+    removing,
+  );
   const bots = [...snapshot.bots];
   bots[index] = updated;
   return {
@@ -150,7 +149,7 @@ export class BotSessionRetirer {
     }
 
     const record = await this.store.mutate((current) =>
-      detachRefs(current, botId, command.sessionRefs, key, signature)
+      detachRefs(current, botId, command.sessionRefs, key, signature),
     );
 
     for (const { ref, plan } of plans) {
@@ -174,11 +173,7 @@ export class BotSessionRetirer {
    * it was working in, so `worktree: "remove"` needs it and nothing else does. The refusal is a
    * Bot-shaped one; every refusal about the directory itself belongs to the plan below it.
    */
-  private async plan(
-    checkout: string,
-    ref: BotSessionRef,
-    command: NormalizedRetire,
-  ): Promise<SessionRetirementPlan> {
+  private async plan(checkout: string, ref: BotSessionRef, command: NormalizedRetire): Promise<SessionRetirementPlan> {
     const projectPath = this.catalog.resolveSession(ref)?.projectPath;
     if (command.worktree === "remove" && !projectPath) {
       throw new BotNotFoundError(

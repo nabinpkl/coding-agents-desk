@@ -13,11 +13,7 @@ import {
 import { sessionArchivedAt } from "@/transcripts/session-ops/sessionArchive";
 import type { RecentSessionsPayload } from "@agentdesk/agent-feed-wire";
 import type { Session } from "@/transcripts/transcriptTypes";
-import {
-  encodeServerSentEvent,
-  jsonResponse,
-  startServerSentEventStream,
-} from "@/http/protocol/httpResponses";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 
 /**
@@ -85,23 +81,19 @@ function requestedReviews(url: URL): number {
  * with age, so a row that ages out of `live` is republished by the next reconcile
  * rather than at the instant it expires.
  */
-function sessionsFingerprint(
-  sessions: Session[],
-  resolveAgentSession?: AgentSessionDescriptorResolver,
-): string {
+function sessionsFingerprint(sessions: Session[], resolveAgentSession?: AgentSessionDescriptorResolver): string {
   return JSON.stringify(
-    sessions
-      .map((session) => [
-        session.project,
-        session.source,
-        session.sessionId,
-        session.lastEventAt,
-        session.title,
-        session.firstPrompt,
-        session.lastTurnClosed,
-        resolveAgentSession?.(session.source, session.sessionId)?.activity,
-        sessionArchivedAt(session),
-      ]),
+    sessions.map((session) => [
+      session.project,
+      session.source,
+      session.sessionId,
+      session.lastEventAt,
+      session.title,
+      session.firstPrompt,
+      session.lastTurnClosed,
+      resolveAgentSession?.(session.source, session.sessionId)?.activity,
+      sessionArchivedAt(session),
+    ]),
   );
 }
 
@@ -134,13 +126,15 @@ async function inventoryStream(
       );
       if (fingerprint === sessionFingerprints.get(projectPath)) return;
       sessionFingerprints.set(projectPath, fingerprint);
-      write(encodeServerSentEvent({
-        projectPath,
-        // The snapshot this tick is about, rather than a fresh one: the fingerprint
-        // above was computed from it, so anything else could publish a list the
-        // comparison never saw.
-        sessions: sessionSummaries(projectPath, resolveAgentSession, sessions),
-      }));
+      write(
+        encodeServerSentEvent({
+          projectPath,
+          // The snapshot this tick is about, rather than a fresh one: the fingerprint
+          // above was computed from it, so anything else could publish a list the
+          // comparison never saw.
+          sessions: sessionSummaries(projectPath, resolveAgentSession, sessions),
+        }),
+      );
     };
 
     // Compared before it is summarized, so a broadcast that moved nothing in the cut costs a walk
@@ -148,8 +142,8 @@ async function inventoryStream(
     // the snapshot it is cut from is already in `lastEventAt` order.
     const pushRecent = (sessions: Session[], count: number): void => {
       const cut = mostRecentSessions(sessions, count, reviewCount);
-      const live = cut.reviews.all.filter((session) =>
-        summaryActivity(session, resolveAgentSession?.(session.source, session.sessionId)) === "live"
+      const live = cut.reviews.all.filter(
+        (session) => summaryActivity(session, resolveAgentSession?.(session.source, session.sessionId)) === "live",
       ).length;
       const fingerprint = [
         cut.more,
@@ -203,9 +197,7 @@ async function inventoryStream(
  * open. The project list always rides it; each requested project's session list rides
  * it too, named by `projectPath` so the reader can tell the two message shapes apart.
  */
-export function createInventoryRoutes(
-  resolveAgentSession?: AgentSessionDescriptorResolver,
-): RouteHandler {
+export function createInventoryRoutes(resolveAgentSession?: AgentSessionDescriptorResolver): RouteHandler {
   return (request, url, server) => {
     if (request.method !== "GET") return undefined;
     if (url.pathname !== "/api/inventory/stream") return undefined;

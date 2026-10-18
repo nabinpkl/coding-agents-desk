@@ -111,9 +111,7 @@ export class PanelErrorBoundary extends Component<Props, State> {
       <div className="flex h-full w-full items-center justify-center overflow-auto bg-background p-4 text-foreground">
         <div className="w-full max-w-xl space-y-3 rounded-lg border border-border bg-card p-4">
           <h1 className="text-base font-semibold">The {this.props.surface} stopped rendering</h1>
-          <p className="font-mono text-sm break-words text-destructive">
-            {error.message || String(error)}
-          </p>
+          <p className="font-mono text-sm break-words text-destructive">{error.message || String(error)}</p>
           {stack ? (
             <pre className="max-h-40 overflow-auto rounded-sm bg-muted p-2 font-mono text-xs text-muted-foreground">
               {stack.trim()}

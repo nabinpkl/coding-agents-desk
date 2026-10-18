@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  createWebrtcTileRoutes,
-  webrtcSessionsSnapshot,
-} from "@/http/tile/tile-peer/webrtcTileRoutes";
+import { createWebrtcTileRoutes, webrtcSessionsSnapshot } from "@/http/tile/tile-peer/webrtcTileRoutes";
 
 const server = undefined as never;
 const diagnostics: string[] = [];

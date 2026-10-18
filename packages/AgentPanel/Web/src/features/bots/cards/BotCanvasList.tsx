@@ -151,22 +151,19 @@ export function BotCanvasList({
     onMoveBot(moved, target);
   };
   const move = useMoveAlongStrip({ canvas, list, onDrop: rearrange });
-  const resizeSession =(key: string, size: BotCardSize, keep: boolean): void => {
+  const resizeSession = (key: string, size: BotCardSize, keep: boolean): void => {
     const next = { ...sessionSizes, [key]: size };
     setSessionSizes(next);
     // Pruned to what is on the canvas as it is written. Sessions are not bounded the way Bots are,
     // so a store that only ever grew would carry a size for every session ever opened.
     if (keep) {
-      storeSessionCardSizes(
-        next,
-        [
-          ...bots.flatMap((each) => each.sessions.map((session) => sessionKey(session))),
-          // A session that has been started but has not spoken is on the canvas and is not in any
-          // Bot yet, so a prune that only read the Bots would throw away the width of the card the
-          // reader is dragging.
-          ...newSessions.map((each) => `claude:${each.sessionId}`),
-        ],
-      );
+      storeSessionCardSizes(next, [
+        ...bots.flatMap((each) => each.sessions.map((session) => sessionKey(session))),
+        // A session that has been started but has not spoken is on the canvas and is not in any
+        // Bot yet, so a prune that only read the Bots would throw away the width of the card the
+        // reader is dragging.
+        ...newSessions.map((each) => `claude:${each.sessionId}`),
+      ]);
     }
   };
   // A failure no card can carry: one about no session, or about a session that is not on this
@@ -174,12 +171,17 @@ export function BotCanvasList({
   // shows it -- and without this the only report of it would be dropped on the floor.
   // A session taken off the canvas has no card either, so its failure goes to the band as well --
   // otherwise removing a hidden session from its Bot and failing would report to nobody.
-  const carried = botError !== null && botError.session !== null
-    && !detachedSessionKeys.has(botError.session)
-    && standing.some((bot) => bot.sessions.some((each) => sessionKey(each) === botError.session));
+  const carried =
+    botError !== null &&
+    botError.session !== null &&
+    !detachedSessionKeys.has(botError.session) &&
+    standing.some((bot) => bot.sessions.some((each) => sessionKey(each) === botError.session));
   const orphanedError = botError !== null && !carried ? botError.message : null;
   const zoom = useCanvasZoom({
-    scroller: canvas, strip: list, on: canvasZoom.mode, room: canvasZoom.room,
+    scroller: canvas,
+    strip: list,
+    on: canvasZoom.mode,
+    room: canvasZoom.room,
   });
   // The stored offset is in content space, so it cannot be put back until the scale is known.
   const rememberScroll = useRememberedCanvasScroll(canvas, standing, {

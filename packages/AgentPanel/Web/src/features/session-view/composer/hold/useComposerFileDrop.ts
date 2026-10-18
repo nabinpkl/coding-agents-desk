@@ -30,16 +30,15 @@ export function useComposerFileDrop(options: {
   // target waits for the pane. The drop itself is a POST that resolves the pane for itself;
   // engaging beside it is what brings the box into the field, so the `[Image #1]` the pane
   // writes appears where the reader is typing rather than in a mirror nobody opened.
-  const acceptToPane = useCallback((files: readonly File[]) => {
-    engage();
-    void dropToPane(files);
-  }, [dropToPane, engage]);
+  const acceptToPane = useCallback(
+    (files: readonly File[]) => {
+      engage();
+      void dropToPane(files);
+    },
+    [dropToPane, engage],
+  );
 
-  const fileAccept = isClaude && !noPane
-    ? acceptToPane
-    : holdsForSend
-      ? holdForSend
-      : null;
+  const fileAccept = isClaude && !noPane ? acceptToPane : holdsForSend ? holdForSend : null;
   // Null unregisters, which is how sessions with nowhere to put an image stand down.
   useSubscription(`${sourceKey(onFileDrop)}:${fileAccept ? sourceKey(fileAccept) : "none"}`, () => {
     onFileDrop(fileAccept ? { accept: fileAccept } : null);

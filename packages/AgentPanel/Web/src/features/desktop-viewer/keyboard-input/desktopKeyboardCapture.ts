@@ -66,9 +66,7 @@ export function beforeRemoteClick(ctx: KeyboardContext): string | undefined {
   ctx.focusTimer.current = window.setTimeout(() => {
     if (ctx.presentationRef.current.focusRequestId !== focusRequestId) return;
     ctx.focusTimer.current = null;
-    const started = ctx.focusStarted.current?.requestID === focusRequestId
-      ? ctx.focusStarted.current.at
-      : null;
+    const started = ctx.focusStarted.current?.requestID === focusRequestId ? ctx.focusStarted.current.at : null;
     ctx.focusStarted.current = null;
     ctx.report({
       phase: "keyboard-focus-result",
@@ -172,7 +170,9 @@ export function onCompositionEnd(ctx: KeyboardContext, event: ReactCompositionEv
   resetCapture(ctx);
   if (event.data) {
     ctx.compositionCommitEcho.current = event.data;
-    window.setTimeout(() => { ctx.compositionCommitEcho.current = null; }, 0);
+    window.setTimeout(() => {
+      ctx.compositionCommitEcho.current = null;
+    }, 0);
     acceptText(ctx, event.data);
   }
 }
@@ -183,12 +183,16 @@ export function onKeyDown(ctx: KeyboardContext, event: ReactKeyboardEvent<HTMLTe
   // oxlint-disable-next-line typescript/no-deprecated
   if (ctx.composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
   const controls: Partial<Record<string, RemoteKeyCode>> = {
-    Escape: "escape", Tab: "tab", ArrowLeft: "left", ArrowRight: "right",
-    ArrowUp: "up", ArrowDown: "down", Backspace: "delete", Enter: "return",
+    Escape: "escape",
+    Tab: "tab",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    ArrowUp: "up",
+    ArrowDown: "down",
+    Backspace: "delete",
+    Enter: "return",
   };
-  let key = controls[event.key]
-    ? { code: controls[event.key]!, modifiers: [] as RemoteModifier[] }
-    : null;
+  let key = controls[event.key] ? { code: controls[event.key]!, modifiers: [] as RemoteModifier[] } : null;
   if (!key && event.key.length === 1 && (event.metaKey || event.ctrlKey || event.altKey)) {
     key = remoteKeyForCharacter(event.key);
   }
@@ -198,9 +202,9 @@ export function onKeyDown(ctx: KeyboardContext, event: ReactKeyboardEvent<HTMLTe
   if (event.ctrlKey) physical.push("ctrl");
   if (event.altKey) physical.push("option");
   if (event.shiftKey) physical.push("shift");
-  key.modifiers = REMOTE_MODIFIER_ORDER.filter((modifier) => (
-    physical.includes(modifier) || key.modifiers.includes(modifier)
-  ));
+  key.modifiers = REMOTE_MODIFIER_ORDER.filter(
+    (modifier) => physical.includes(modifier) || key.modifiers.includes(modifier),
+  );
   event.preventDefault();
   event.stopPropagation();
   acceptEncodedKeys(ctx, [key]);
@@ -216,8 +220,10 @@ export function onBlur(ctx: KeyboardContext) {
   ctx.blurTimer.current = window.setTimeout(() => {
     ctx.blurTimer.current = null;
     if (ctx.showsDeckRef.current) return;
-    if (document.activeElement !== ctx.captureRef.current
-        && (ctx.presentationRef.current.presentation === "shown"
-          || ctx.presentationRef.current.presentation === "pending")) clearLocalState(ctx, "hide", "dom-blur");
+    if (
+      document.activeElement !== ctx.captureRef.current &&
+      (ctx.presentationRef.current.presentation === "shown" || ctx.presentationRef.current.presentation === "pending")
+    )
+      clearLocalState(ctx, "hide", "dom-blur");
   }, 0);
 }

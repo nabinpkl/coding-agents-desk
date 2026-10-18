@@ -79,7 +79,10 @@ export async function restoreTmuxMouse(session: string): Promise<void> {
 
 /** What `describeTmuxPane` asks tmux for, in one query. */
 export const paneDescriptionArgs = (session: string): string[] => [
-  "display-message", "-p", "-t", session,
+  "display-message",
+  "-p",
+  "-t",
+  session,
   "#{pane_pid}|#{pane_width}|#{pane_height}|#{mouse_any_flag}|#{mouse_sgr_flag}",
 ];
 
@@ -106,9 +109,15 @@ export interface TmuxPaneDescription {
 export function parsePaneDescription(out: string): TmuxPaneDescription {
   const fields = out.trim().split("|");
   const [pid, columns, rows] = fields.slice(0, 3).map((value) => Number.parseInt(value, 10));
-  if (fields.length !== 5
-    || pid === undefined || columns === undefined || rows === undefined
-    || !Number.isInteger(pid) || !Number.isInteger(columns) || !Number.isInteger(rows)) {
+  if (
+    fields.length !== 5 ||
+    pid === undefined ||
+    columns === undefined ||
+    rows === undefined ||
+    !Number.isInteger(pid) ||
+    !Number.isInteger(columns) ||
+    !Number.isInteger(rows)
+  ) {
     throw new TmuxUnavailable(`tmux reported an unreadable pane: ${out.trim()}`);
   }
   return { pid, columns, rows, mouseReporting: fields[3] === "1" && fields[4] === "1" };
@@ -170,11 +179,7 @@ export function resizeWindowArgs(session: string, columns: number, rows: number)
  * Makes the session's window this shape. It is EVERY client's shape, which is why every caller
  * checks `attachedTmuxClients` first.
  */
-export async function resizeTmuxWindow(
-  session: string,
-  columns: number,
-  rows: number,
-): Promise<void> {
+export async function resizeTmuxWindow(session: string, columns: number, rows: number): Promise<void> {
   const { err, code } = await tmux(resizeWindowArgs(session, columns, rows));
   if (code !== 0) throw new TmuxUnavailable(`tmux resize-window exited ${code}: ${err.trim()}`);
 }
@@ -205,7 +210,10 @@ export async function releaseTmuxWindowSize(session: string): Promise<void> {
  * with holes in it where the composer's keys are.
  */
 export async function hexSend(session: string, bytes: Uint8Array): Promise<void> {
-  await sendTmuxBytes(session, [...bytes].map((byte) => byte.toString(16).padStart(2, "0")));
+  await sendTmuxBytes(
+    session,
+    [...bytes].map((byte) => byte.toString(16).padStart(2, "0")),
+  );
 }
 
 /** The hex form, for a caller that already has it. */
@@ -246,10 +254,7 @@ export async function sendTmuxBytes(session: string, hex: readonly string[]): Pr
  * `pipe-pane` is set WITHOUT `-o`. Measured: `-o` toggles, so a second call closes the pipe the
  * first opened rather than adding one, and a pane has only one pipe either way.
  */
-export async function pipeTmuxPane(
-  session: string,
-  onData: (chunk: Uint8Array) => void,
-): Promise<() => Promise<void>> {
+export async function pipeTmuxPane(session: string, onData: (chunk: Uint8Array) => void): Promise<() => Promise<void>> {
   let stopped = false;
   let connected: { end: () => void } | null = null;
   const server = Bun.listen<undefined>({
@@ -268,7 +273,9 @@ export async function pipeTmuxPane(
   });
 
   const { err, code } = await tmux([
-    "pipe-pane", "-t", session,
+    "pipe-pane",
+    "-t",
+    session,
     `bash -c 'exec 3<>/dev/tcp/127.0.0.1/${server.port}; cat >&3'`,
   ]);
   if (code !== 0) {

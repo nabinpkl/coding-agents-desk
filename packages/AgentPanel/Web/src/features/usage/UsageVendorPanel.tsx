@@ -35,22 +35,14 @@ export function VendorPanel({
   const today = useMemo(() => new Date(now()), [now]);
   const days = vendor?.days ?? [];
   const coverageFrom = vendor?.coverage.from ?? null;
-  const grid = useMemo(
-    () => buildUsageGrid(days, { weeks, today, coverageFrom }),
-    [coverageFrom, days, today, weeks],
-  );
+  const grid = useMemo(() => buildUsageGrid(days, { weeks, today, coverageFrom }), [coverageFrom, days, today, weeks]);
   const visibleFrom = grid.weeks[0]![0]!.date;
-  const visible = useMemo(
-    () => daysInRange(days, visibleFrom, dateKey(today)),
-    [days, today, visibleFrom],
-  );
+  const visible = useMemo(() => daysInRange(days, visibleFrom, dateKey(today)), [days, today, visibleFrom]);
   const rangeTotals = useMemo(() => sumDays(visible), [visible]);
   // The most recent recorded day stands in when nothing is pointed at, including when the pointer
   // leaves the grid. Every state then shows a real day, which is both the more useful thing to
   // open on and the reason the panel is never a reserved rectangle of empty space.
-  const active = (activeDate ? days.find((day) => day.date === activeDate) : undefined)
-    ?? days.at(-1)
-    ?? null;
+  const active = (activeDate ? days.find((day) => day.date === activeDate) : undefined) ?? days.at(-1) ?? null;
 
   return (
     <div className="flex flex-col gap-3" aria-busy={loading || undefined}>
@@ -77,9 +69,9 @@ export function VendorPanel({
 
       <p className="h-4 truncate text-[11px] text-muted-foreground">
         {vendor && !loading
-          ? `${days.length} days from ${formatCount(vendor.coverage.sessions)} sessions`
-            + (vendor.coverage.unreadable > 0 ? `, ${vendor.coverage.unreadable} unreadable` : "")
-            + ` · as of ${new Date(vendor.scannedAt).toLocaleTimeString()}`
+          ? `${days.length} days from ${formatCount(vendor.coverage.sessions)} sessions` +
+            (vendor.coverage.unreadable > 0 ? `, ${vendor.coverage.unreadable} unreadable` : "") +
+            ` · as of ${new Date(vendor.scannedAt).toLocaleTimeString()}`
           : "Reading session records…"}
       </p>
     </div>
@@ -92,8 +84,10 @@ function describeCell(cell: UsageCell): string {
   if (!cell.covered) return `${formatDay(cell.date)}: outside the recorded history`;
   if (!cell.day) return `${formatDay(cell.date)}: no usage`;
   const totals = cell.day.totals;
-  return `${formatDay(cell.date)}: ${formatTokens(totals.inputTokens)} input, `
-    + `${formatTokens(totals.cachedInputTokens)} cached (${formatPercent(cachedShare(totals))}), `
-    + `${formatTokens(uncachedInput(totals))} uncached, `
-    + `${formatTokens(totals.outputTokens)} output, ${formatCount(totals.requests)} requests`;
+  return (
+    `${formatDay(cell.date)}: ${formatTokens(totals.inputTokens)} input, ` +
+    `${formatTokens(totals.cachedInputTokens)} cached (${formatPercent(cachedShare(totals))}), ` +
+    `${formatTokens(uncachedInput(totals))} uncached, ` +
+    `${formatTokens(totals.outputTokens)} output, ${formatCount(totals.requests)} requests`
+  );
 }

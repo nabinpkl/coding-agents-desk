@@ -18,7 +18,11 @@ const CURRENT = `claude ${FLAGS.join(" ")} --resume`;
 function processOf(
   pid: number,
   sessionId: string,
-  { activity = "idle", version = "2.1.301", tmuxSession = "pane" }: {
+  {
+    activity = "idle",
+    version = "2.1.301",
+    tmuxSession = "pane",
+  }: {
     activity?: ClaudeSessionActivity | null;
     version?: string | null;
     tmuxSession?: string | null;
@@ -60,14 +64,16 @@ function machine(
     installedVersion: () => "2.1.301",
     launchArgs: FLAGS,
     launchedPane: async (sessionId) =>
-      notOurs.includes(sessionId) ? null : starts[sessionId] ?? `claude --resume ${sessionId}`,
+      notOurs.includes(sessionId) ? null : (starts[sessionId] ?? `claude --resume ${sessionId}`),
   };
   return { state, sources };
 }
 
 test("a command carries the launch flags in any order, a flag's value beside it", () => {
   expect(launchedWithFlags(`${CURRENT} abc`, FLAGS)).toBe(true);
-  expect(launchedWithFlags("claude --allow-dangerously-skip-permissions --permission-mode auto -r x", FLAGS)).toBe(true);
+  expect(launchedWithFlags("claude --allow-dangerously-skip-permissions --permission-mode auto -r x", FLAGS)).toBe(
+    true,
+  );
   expect(launchedWithFlags("claude --resume abc", FLAGS)).toBe(false);
   // The mode is the session's own -- a resume opens in the one it last ran in -- so any value is the
   // current launch, and only a command without the flag at all is behind it.
@@ -78,7 +84,9 @@ test("a command carries the launch flags in any order, a flag's value beside it"
 test("a session started before the mods joined the launch is behind it", () => {
   const withMods = [...FLAGS, "--plugin-dir", "/m/prompt-guard", "--plugin-dir", "/m/agentdesk-hub"];
   expect(launchedWithFlags(`${CURRENT} abc`, withMods)).toBe(false);
-  expect(launchedWithFlags(`${CURRENT} --plugin-dir /m/prompt-guard --plugin-dir /m/agentdesk-hub --resume abc`, withMods)).toBe(true);
+  expect(
+    launchedWithFlags(`${CURRENT} --plugin-dir /m/prompt-guard --plugin-dir /m/agentdesk-hub --resume abc`, withMods),
+  ).toBe(true);
   // One of the two mods is not the launch either.
   expect(launchedWithFlags(`${CURRENT} --plugin-dir /m/prompt-guard --resume abc`, withMods)).toBe(false);
 });
@@ -86,17 +94,30 @@ test("a session started before the mods joined the launch is behind it", () => {
 // Start commands as `tmux list-panes -F '#{pane_start_command}'` printed them on 2026-10-16.
 const PANEL_FIRST_TURN = String.raw`"/bin/zsh -l -c ''\\''/bin/sh'\\'' '\\''-c'\\'' '\\''f=$1; shift'\\'' '\\''agentdesk-first-turn'\\'' '\\''/T/turn.txt'\\'' '\\''claude'\\'' '\\''--permission-mode'\\'' '\\''auto'\\'' '\\''--allow-dangerously-skip-permissions'\\'' '\\''--session-id'\\'' '\\''00f3'\\'' '\\''-n'\\'' '\\''Dean (handover)'\\''; exec /bin/zsh -l'"`;
 const ARENA = String.raw`"/bin/zsh -l -c 'export PATH=/x; '\\''/u/.local/bin/claude'\\'' '\\''--session-id'\\'' '\\''f697'\\'' '\\''-n'\\'' '\\''arena manager dc525436'\\'' '\\''--disallowedTools'\\'' '\\''Edit,Write'\\''; exec /bin/zsh -l'"`;
-const PROBE = "claude --model claude-haiku --effort low --session-id 508a -n scrollprobe --strict-mcp-config --tools Read";
+const PROBE =
+  "claude --model claude-haiku --effort low --session-id 508a -n scrollprobe --strict-mcp-config --tools Read";
 
 test("a pane's launch arguments come out whole, each as the sidecar quoted it", () => {
   expect(paneLaunchArguments(ARENA)).toEqual([
-    "/u/.local/bin/claude", "--session-id", "f697", "-n", "arena manager dc525436", "--disallowedTools", "Edit,Write",
+    "/u/.local/bin/claude",
+    "--session-id",
+    "f697",
+    "-n",
+    "arena manager dc525436",
+    "--disallowedTools",
+    "Edit,Write",
   ]);
   // A pane started by hand has no quoting, and splits on whitespace.
   expect(paneLaunchArguments(PROBE)).toContain("--tools");
   // A hand-typed pane reads the command that runs claude, not the shell it falls back to after.
-  expect(paneLaunchArguments('"X=1 claude --session-id a -n \'Stale probe\'; exec /bin/zsh -l"'))
-    .toEqual(["claude", "--session-id", "a", "-n", "Stale", "probe"]);
+  expect(paneLaunchArguments("\"X=1 claude --session-id a -n 'Stale probe'; exec /bin/zsh -l\"")).toEqual([
+    "claude",
+    "--session-id",
+    "a",
+    "-n",
+    "Stale",
+    "probe",
+  ]);
   // And a flag before it in the same command is still read.
   expect(paneLaunchArguments("export X=1; claude --model y")).toEqual(["claude", "--model", "y"]);
   // Stray quoting on a hand-typed command does not hide a flag.
@@ -139,12 +160,21 @@ test("lists sessions behind the flags or the installed CLI, and only panes this 
 test("a session started with flags of its own is listed as such, and never restarted", async () => {
   const { sources } = machine([processOf(1, "probe")], { 1: PROBE }, { starts: { probe: PROBE } });
   const stale = await listStaleSessions(sources);
-  expect(stale.sessions.map(({ sessionId, ownLaunch }) => ({ sessionId, ownLaunch })))
-    .toEqual([{ sessionId: "probe", ownLaunch: true }]);
+  expect(stale.sessions.map(({ sessionId, ownLaunch }) => ({ sessionId, ownLaunch }))).toEqual([
+    { sessionId: "probe", ownLaunch: true },
+  ]);
   const restarted: string[] = [];
-  const [result] = await restartStaleSessions(["probe"], { ...sources, restart: async (id) => { restarted.push(id); } });
+  const [result] = await restartStaleSessions(["probe"], {
+    ...sources,
+    restart: async (id) => {
+      restarted.push(id);
+    },
+  });
   expect(restarted).toEqual([]);
-  expect(result?.outcome).toEqual({ kind: "skipped", reason: "launched with flags of its own, which a restart would drop" });
+  expect(result?.outcome).toEqual({
+    kind: "skipped",
+    reason: "launched with flags of its own, which a restart would drop",
+  });
 });
 
 test("an install that does not say its version flags nothing as an update", async () => {
@@ -180,10 +210,11 @@ test("restarts only idle sessions, and says why each of the others was left runn
 });
 
 test("a session judged as it stands at its restart, not as the reader saw it", async () => {
-  const { state, sources } = machine(
-    [processOf(1, "went-busy"), processOf(2, "now-current"), processOf(3, "stays")],
-    { 1: "claude", 2: "claude", 3: "claude" },
-  );
+  const { state, sources } = machine([processOf(1, "went-busy"), processOf(2, "now-current"), processOf(3, "stays")], {
+    1: "claude",
+    2: "claude",
+    3: "claude",
+  });
   // Between the list the reader saw and the restart: one session took a turn, one was restarted
   // by hand onto the current flags.
   state.commands = { 1: "claude", 2: `${CURRENT} now-current`, 3: "claude" };
@@ -194,7 +225,9 @@ test("a session judged as it stands at its restart, not as the reader saw it", a
       reads += 1;
       const read = await sources.processes();
       // The first read is the fresh list; every later one is the check just before a restart.
-      return reads === 1 ? read : { ...read, live: read.live.map((p) => p.sessionId === "went-busy" ? { ...p, activity: "busy" } : p) };
+      return reads === 1
+        ? read
+        : { ...read, live: read.live.map((p) => (p.sessionId === "went-busy" ? { ...p, activity: "busy" } : p)) };
     },
     restart: async () => {},
   });
@@ -207,7 +240,11 @@ test("a session judged as it stands at its restart, not as the reader saw it", a
 });
 
 test("one failed restart is reported and does not stop the rest", async () => {
-  const { sources } = machine([processOf(1, "a"), processOf(2, "b"), processOf(3, "c")], { 1: "claude", 2: "claude", 3: "claude" });
+  const { sources } = machine([processOf(1, "a"), processOf(2, "b"), processOf(3, "c")], {
+    1: "claude",
+    2: "claude",
+    3: "claude",
+  });
   const results = await restartStaleSessions(["a", "b", "c"], {
     ...sources,
     restart: async (sessionId) => {
@@ -223,7 +260,10 @@ test("one failed restart is reported and does not stop the rest", async () => {
 
 test("no more than three restarts run at once", async () => {
   const ids = ["a", "b", "c", "d", "e", "f", "g"];
-  const { sources } = machine(ids.map((id, index) => processOf(index + 1, id)), Object.fromEntries(ids.map((_, index) => [index + 1, "claude"])));
+  const { sources } = machine(
+    ids.map((id, index) => processOf(index + 1, id)),
+    Object.fromEntries(ids.map((_, index) => [index + 1, "claude"])),
+  );
   let running = 0;
   let most = 0;
   await restartStaleSessions(ids, {

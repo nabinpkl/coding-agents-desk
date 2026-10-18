@@ -8,9 +8,7 @@ import type {
   ClaudeSdkQueuedPrompt,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
-import type {
-  AgentSessionControlState,
-} from "@/features/activity-feed/data-source/AgentDataSource";
+import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
 import { ActivityFeed, EmptyFeed } from "@/features/activity-feed/ActivityFeed";
 import { SESSION_MEASURE_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
@@ -153,10 +151,10 @@ function SessionViewContent({
    * wrote that line -- and neither can stand in for the other.
    */
   const forkFromMessage = useMemo(
-    () => (onForkFromMessage === undefined || source !== "claude"
-      ? undefined
-      : (message: { eventId: string; text: string }) =>
-        onForkFromMessage({ session, projectPath, message })),
+    () =>
+      onForkFromMessage === undefined || source !== "claude"
+        ? undefined
+        : (message: { eventId: string; text: string }) => onForkFromMessage({ session, projectPath, message }),
     [onForkFromMessage, projectPath, session, source],
   );
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
@@ -209,9 +207,7 @@ function SessionViewContent({
    * Wrapped in an object because `setFileDrop` would take a bare function as an updater and call
    * it rather than store it.
    */
-  const [fileDrop, setFileDrop] = useState<{ accept: (files: readonly File[]) => void } | null>(
-    null,
-  );
+  const [fileDrop, setFileDrop] = useState<{ accept: (files: readonly File[]) => void } | null>(null);
   /**
    * Hands it on to the surface, which is what actually owns the box a reader aims at.
    *
@@ -243,10 +239,7 @@ function SessionViewContent({
   // Addresses this session for the task stream. `mode` is required by the reference type but means
   // nothing here -- background tasks are not read in a transcript view -- so it is pinned rather
   // than threaded through, which would invite it to matter.
-  const taskSession = useMemo(
-    () => ({ source, sessionId, mode: "nice" as const }),
-    [source, sessionId],
-  );
+  const taskSession = useMemo(() => ({ source, sessionId, mode: "nice" as const }), [source, sessionId]);
   const backgroundTasks = useBackgroundTasks(feed, taskSession);
 
   // Extension-UI prompts arrive on the open thread's own stream, so they need no session filter
@@ -260,15 +253,13 @@ function SessionViewContent({
       }
       const request = event.request;
       setExtensionUI((current) => {
-        const next = [
-          ...current.filter((item) => item.requestId !== request.requestId),
-          request,
-        ];
+        const next = [...current.filter((item) => item.requestId !== request.requestId), request];
         const prompts = next.filter((item) => item.expectsResponse);
         const notices = next.filter((item) => !item.expectsResponse).slice(-8);
         return [...notices, ...prompts];
       });
-    }));
+    }),
+  );
 
   const openTerminal = useCallback(() => {
     if (!isTerminalSource(source) || !capabilities.canOpenTerminal) return;
@@ -282,23 +273,20 @@ function SessionViewContent({
     setTerminal((current) => (current.kind === "idle" ? current : { kind: "idle" }));
   }, []);
 
-  const updateTerminalState = useCallback(
-    (context: AgentTerminalContext, state: AgentTerminalState) => {
-      setTerminal((current) => {
-        if (current.kind === "idle") return current;
-        if (terminalContextKey(current.context) !== terminalContextKey(context)) return current;
-        switch (state.kind) {
-          case "ready":
-            return { kind: "ready", context: current.context, descriptor: state.descriptor };
-          case "error":
-            return { kind: "error", context: current.context, code: state.message };
-          case "ended":
-            return { kind: "ended", context: current.context, exitStatus: state.exitStatus };
-        }
-      });
-    },
-    [],
-  );
+  const updateTerminalState = useCallback((context: AgentTerminalContext, state: AgentTerminalState) => {
+    setTerminal((current) => {
+      if (current.kind === "idle") return current;
+      if (terminalContextKey(current.context) !== terminalContextKey(context)) return current;
+      switch (state.kind) {
+        case "ready":
+          return { kind: "ready", context: current.context, descriptor: state.descriptor };
+        case "error":
+          return { kind: "error", context: current.context, code: state.message };
+        case "ended":
+          return { kind: "ended", context: current.context, exitStatus: state.exitStatus };
+      }
+    });
+  }, []);
 
   const tasksPanel = tasksPanelOpen ? (
     <BackgroundTasksPanel
@@ -319,7 +307,7 @@ function SessionViewContent({
    * phone, where every open card renders this sheet. The wide branch is `absolute` against the
    * card and stays in it, one host per session (`BotSessionCard`).
    */
-  const tasksTarget = compact ? globalThis.document?.body ?? null : tasksHost;
+  const tasksTarget = compact ? (globalThis.document?.body ?? null) : tasksHost;
 
   return (
     // The transcript does NOT read `feed` from this component -- `useSessionEventsStream` and the
@@ -332,106 +320,106 @@ function SessionViewContent({
     //
     // A no-op on the thread view, where the source given is already the one above.
     <DataSourceProvider source={feed}>
-    {/* `session-view-surface` rather than `bg-card`, and the transcript's ground below likewise.
+      {/* `session-view-surface` rather than `bg-card`, and the transcript's ground below likewise.
         Both resolve to the token they name unless something above them published a colour, which
         only a Bot card's shaded session does (`styles.css`, `.bot-session-fill`). Putting the
         utility back would repaint an open session plain over the top of the colour that says which
         session it is, which is the bug these replaced. */}
-    <div ref={setColumn} className={`${SESSION_MEASURE_CLASS} flex h-full min-h-0 flex-col session-view-surface`}>
-      {controlsHost
-        ? createPortal(
-          <>
-            <div ref={setFeedControlsHost} className="flex shrink-0 items-center" />
-            {summary.available ? (
-              <SummaryControl
-                state={summary.state}
-                running={sessionState.runState === "running"}
-                onSummarize={summary.summarize}
-              />
-            ) : null}
-            {capabilities.canOpenTerminal && isTerminalSource(source) ? (
-              <TerminalControl
-                source={source}
-                state={terminal}
-                onOpen={openTerminal}
-                onClose={closeTerminal}
-              />
-            ) : null}
-          </>,
-          controlsHost,
-        )
-        : null}
-      {/* ActivityFeed remains the thread's only scroll owner: the bands below it are outside its
+      <div ref={setColumn} className={`${SESSION_MEASURE_CLASS} flex h-full min-h-0 flex-col session-view-surface`}>
+        {controlsHost
+          ? createPortal(
+              <>
+                <div ref={setFeedControlsHost} className="flex shrink-0 items-center" />
+                {summary.available ? (
+                  <SummaryControl
+                    state={summary.state}
+                    running={sessionState.runState === "running"}
+                    onSummarize={summary.summarize}
+                  />
+                ) : null}
+                {capabilities.canOpenTerminal && isTerminalSource(source) ? (
+                  <TerminalControl source={source} state={terminal} onOpen={openTerminal} onClose={closeTerminal} />
+                ) : null}
+              </>,
+              controlsHost,
+            )
+          : null}
+        {/* ActivityFeed remains the thread's only scroll owner: the bands below it are outside its
           box, so sticky transcript headers and virtualization read the same scrollTop whether this
           view is the whole page or a card. */}
-      <div key={`${sessionId}:${eventMode}:${listed}`} className="min-h-0 flex-1 overflow-hidden session-view-ground">
-        {listed ? <ActivityFeed
-          source={source}
-          sessionId={sessionId}
-          mode={eventMode}
-          onToggleMode={onToggleEventMode}
-          canToggleMode={capabilities.modes.length > 1}
-          showCacheHits={showCacheHits}
-          onToggleCacheHits={onToggleCacheHits}
-          controlsHost={feedControlsHost}
-          onSessionState={setSessionState}
-          onUsage={setSessionUsage}
-          onSessionModel={setSessionModel}
-          onOpenQuestion={setOpenQuestion}
-          queuedPrompts={queuedPrompts}
-          {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
-        /> : <EmptyFeed />}
-      </div>
-      {capabilities.supportsExtensionUi ? (
-        <ExtensionUISurface
-          requests={extensionUI}
-          onRespond={async (request, value) => {
-            await commands.respondToExtensionUI(request.requestId, value);
-          }}
-          onDismiss={(request) =>
-            setExtensionUI((current) => current.filter((item) => item.requestId !== request.requestId))}
-        />
-      ) : null}
-      {/* Above the composer, below the transcript. Not rows in the feed: ActivityFeed is the
+        <div key={`${sessionId}:${eventMode}:${listed}`} className="min-h-0 flex-1 overflow-hidden session-view-ground">
+          {listed ? (
+            <ActivityFeed
+              source={source}
+              sessionId={sessionId}
+              mode={eventMode}
+              onToggleMode={onToggleEventMode}
+              canToggleMode={capabilities.modes.length > 1}
+              showCacheHits={showCacheHits}
+              onToggleCacheHits={onToggleCacheHits}
+              controlsHost={feedControlsHost}
+              onSessionState={setSessionState}
+              onUsage={setSessionUsage}
+              onSessionModel={setSessionModel}
+              onOpenQuestion={setOpenQuestion}
+              queuedPrompts={queuedPrompts}
+              {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
+            />
+          ) : (
+            <EmptyFeed />
+          )}
+        </div>
+        {capabilities.supportsExtensionUi ? (
+          <ExtensionUISurface
+            requests={extensionUI}
+            onRespond={async (request, value) => {
+              await commands.respondToExtensionUI(request.requestId, value);
+            }}
+            onDismiss={(request) =>
+              setExtensionUI((current) => current.filter((item) => item.requestId !== request.requestId))
+            }
+          />
+        ) : null}
+        {/* Above the composer, below the transcript. Not rows in the feed: ActivityFeed is the
           thread's only scroll owner and synthetic rows would fight its tail-follow. */}
-      <SummaryBand state={summary.state} model={summary.model} onDismiss={summary.dismiss} />
-      <RunningTasksChip
-        count={backgroundTasks.running.length}
-        open={tasksPanelOpen}
-        onToggle={() => setTasksPanelOpen((open) => !open)}
-      />
-      {/* One composer band for every source. The UI is shared code; the send mechanism is
+        <SummaryBand state={summary.state} model={summary.model} onDismiss={summary.dismiss} />
+        <RunningTasksChip
+          count={backgroundTasks.running.length}
+          open={tasksPanelOpen}
+          onToggle={() => setTasksPanelOpen((open) => !open)}
+        />
+        {/* One composer band for every source. The UI is shared code; the send mechanism is
           selected explicitly: native window, CLI inbox, then an already-open Agent Feed pty; Pi
           reaches its harness. The context meter lives here, below the action row, instead of in
           the header. */}
-      <SessionComposer
-        feed={feed}
-        session={session}
-        state={sessionState}
-        usage={sessionUsage}
-        sessionModel={sessionModel}
-        pending={commands.commandPending}
-        error={commands.commandError ?? externalError}
-        question={openQuestion}
-        ownerWaiting={backgroundTasks.ownerWaiting}
-        cliSession={cliSession}
-        windowComposerClient={source === "codex" ? windowComposers.codex : windowComposers.claude}
-        agentTerminal={terminalComposer}
-        terminalComposer={composerPane}
-        terminalHeightBasis={column}
-        onFileDrop={setFileDrop}
-        onSendMessage={commands.sendPrompt}
-        onRunSlash={panelCommands.run}
-        surfaces={panelCommands.surfaces}
-        onAbort={commands.abortRun}
-        onQueuedPrompts={setQueuedPrompts}
-      />
-      {isTerminalSource(source) ? <TerminalNotice source={source} state={terminal} /> : null}
-      {terminal.kind === "loading" || terminal.kind === "ready" ? (
-        <AgentTerminalPane feed={feed} context={terminal.context} onState={updateTerminalState} />
-      ) : null}
-      {tasksPanel && tasksTarget ? createPortal(tasksPanel, tasksTarget) : tasksPanel}
-    </div>
+        <SessionComposer
+          feed={feed}
+          session={session}
+          state={sessionState}
+          usage={sessionUsage}
+          sessionModel={sessionModel}
+          pending={commands.commandPending}
+          error={commands.commandError ?? externalError}
+          question={openQuestion}
+          ownerWaiting={backgroundTasks.ownerWaiting}
+          cliSession={cliSession}
+          windowComposerClient={source === "codex" ? windowComposers.codex : windowComposers.claude}
+          agentTerminal={terminalComposer}
+          terminalComposer={composerPane}
+          terminalHeightBasis={column}
+          onFileDrop={setFileDrop}
+          onSendMessage={commands.sendPrompt}
+          onRunSlash={panelCommands.run}
+          surfaces={panelCommands.surfaces}
+          onAbort={commands.abortRun}
+          onQueuedPrompts={setQueuedPrompts}
+        />
+        {isTerminalSource(source) ? <TerminalNotice source={source} state={terminal} /> : null}
+        {terminal.kind === "loading" || terminal.kind === "ready" ? (
+          <AgentTerminalPane feed={feed} context={terminal.context} onState={updateTerminalState} />
+        ) : null}
+        {tasksPanel && tasksTarget ? createPortal(tasksPanel, tasksTarget) : tasksPanel}
+      </div>
     </DataSourceProvider>
   );
 }

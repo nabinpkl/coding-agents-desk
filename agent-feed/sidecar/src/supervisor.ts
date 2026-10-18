@@ -85,10 +85,7 @@ const OWN = ownSources(new URL(import.meta.url).pathname, SOURCE);
  * is one change spread over as long as the link takes. Waiting 200ms there would replace the
  * sidecar once per file on the way to the tree somebody actually meant to send.
  */
-const SETTLE_MS = Math.max(
-  50,
-  Number(process.env.AGENT_FEED_SUPERVISOR_SETTLE_MS) || 200,
-);
+const SETTLE_MS = Math.max(50, Number(process.env.AGENT_FEED_SUPERVISOR_SETTLE_MS) || 200);
 
 /**
  * How long the sidecar's tree and the panel's must both have been quiet before an automatic
@@ -222,11 +219,14 @@ function replaceSidecar(reason: string): void {
   stopChild(child, say);
 }
 
-const gate = createSupervisorGate({
-  restart: takeTheTree,
-  log: say,
-  publish,
-}, { quietMs: QUIET_MS });
+const gate = createSupervisorGate(
+  {
+    restart: takeTheTree,
+    log: say,
+    publish,
+  },
+  { quietMs: QUIET_MS },
+);
 
 /** What the panel's dev server last said about its tree, or null when none is saying anything. */
 const panelActivity = () => readPanelActivity(runtimePaths().sidecarRegistry);
@@ -347,20 +347,23 @@ function noteChange(path: string): void {
   settle = setTimeout(() => {
     const batch = [...pending];
     pending.clear();
-    judging = judging.then(() => Promise.all([Promise.all(batch.map(parsed)), linked(), typed()])).then(([changes, unlinked, mistyped]) => {
-      // The standing request is re-read HERE, not just on the timer below, because the timer is a
-      // second behind by construction and this is the moment the mode decides something. Measured
-      // 2026-09-15: a reader who chose manual and saved a file within the second got the restart
-      // they had just asked not to have, because the command was still in flight through the
-      // sidecar and onto the board when the batch was judged.
-      readRequest();
-      // A tree that will not link is the worse news, and the one the row names first.
-      gate.changed(changes, unlinked ?? mistyped, Date.now(), panelActivity());
-    }).catch((error: unknown) => {
-      // Caught on the chain itself: a rejection left on it would skip every batch after this one,
-      // and the supervisor would stop acting on saves with nothing to say it had.
-      say(`could not judge a change: ${String(error)}`);
-    });
+    judging = judging
+      .then(() => Promise.all([Promise.all(batch.map(parsed)), linked(), typed()]))
+      .then(([changes, unlinked, mistyped]) => {
+        // The standing request is re-read HERE, not just on the timer below, because the timer is a
+        // second behind by construction and this is the moment the mode decides something. Measured
+        // 2026-09-15: a reader who chose manual and saved a file within the second got the restart
+        // they had just asked not to have, because the command was still in flight through the
+        // sidecar and onto the board when the batch was judged.
+        readRequest();
+        // A tree that will not link is the worse news, and the one the row names first.
+        gate.changed(changes, unlinked ?? mistyped, Date.now(), panelActivity());
+      })
+      .catch((error: unknown) => {
+        // Caught on the chain itself: a rejection left on it would skip every batch after this one,
+        // and the supervisor would stop acting on saves with nothing to say it had.
+        say(`could not judge a change: ${String(error)}`);
+      });
   }, SETTLE_MS);
 }
 

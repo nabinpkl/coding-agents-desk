@@ -38,28 +38,43 @@ interface Received {
 
 function get(port: number, path: string, acceptEncoding = "gzip, deflate, br"): Promise<Received> {
   return new Promise((resolve, reject) => {
-    const outgoing = request({ host: "127.0.0.1", port, path, headers: { "accept-encoding": acceptEncoding } }, (incoming) => {
-      const parts: Buffer[] = [];
-      const chunks: string[] = [];
-      incoming.on("data", (part: Buffer) => {
-        parts.push(part);
-        chunks.push(part.toString("utf8"));
-      });
-      incoming.on("end", () => {
-        const raw = Buffer.concat(parts);
-        const encoding = incoming.headers["content-encoding"];
-        const body = encoding === "br" ? brotliDecompressSync(raw) : encoding === "gzip" ? gunzipSync(raw) : raw;
-        resolve({ status: incoming.statusCode ?? 0, headers: incoming.headers, body: body.toString("utf8"), bytes: body, chunks });
-      });
-    });
+    const outgoing = request(
+      { host: "127.0.0.1", port, path, headers: { "accept-encoding": acceptEncoding } },
+      (incoming) => {
+        const parts: Buffer[] = [];
+        const chunks: string[] = [];
+        incoming.on("data", (part: Buffer) => {
+          parts.push(part);
+          chunks.push(part.toString("utf8"));
+        });
+        incoming.on("end", () => {
+          const raw = Buffer.concat(parts);
+          const encoding = incoming.headers["content-encoding"];
+          const body = encoding === "br" ? brotliDecompressSync(raw) : encoding === "gzip" ? gunzipSync(raw) : raw;
+          resolve({
+            status: incoming.statusCode ?? 0,
+            headers: incoming.headers,
+            body: body.toString("utf8"),
+            bytes: body,
+            chunks,
+          });
+        });
+      },
+    );
     outgoing.on("error", reject);
     outgoing.end();
   });
 }
 
-const MAP = JSON.stringify({ version: 3, sources: ["Thing.tsx"], sourcesContent: ["export const thing = 1;\n".repeat(80)], mappings: "AAAA" });
+const MAP = JSON.stringify({
+  version: 3,
+  sources: ["Thing.tsx"],
+  sourcesContent: ["export const thing = 1;\n".repeat(80)],
+  mappings: "AAAA",
+});
 const MODULE = `export const thing = 1;\n${"// padding so the body is worth compressing\n".repeat(60)}`;
-const inline = (code: string) => `${code}\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(MAP).toString("base64")}`;
+const inline = (code: string) =>
+  `${code}\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(MAP).toString("base64")}`;
 
 function sendModule(response: ServerResponse, code: string, type = "text/javascript") {
   response.setHeader("content-type", type);
@@ -127,7 +142,10 @@ describe("a module sent whole", () => {
     let version = "first";
     const port = await serve((_, response) => {
       const map = JSON.stringify({ version: 3, sources: [version], mappings: "AAAA" });
-      sendModule(response, `${MODULE}\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(map).toString("base64")}`);
+      sendModule(
+        response,
+        `${MODULE}\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(map).toString("base64")}`,
+      );
     });
     await get(port, "/src/Thing.tsx?t=1");
     version = "second";

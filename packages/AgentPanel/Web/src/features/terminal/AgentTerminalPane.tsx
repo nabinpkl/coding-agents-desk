@@ -1,4 +1,9 @@
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
@@ -18,7 +23,8 @@ const MAXIMUM_TERMINAL_SHARE = 0.72;
 const BAND_TERMINAL_SHARE = 0.42;
 /** An echo's share of its column: half the share a pane may grow to, so a peek stays a peek. */
 const ECHO_TERMINAL_SHARE = MAXIMUM_TERMINAL_SHARE / 2;
-const echoHeight = (basis: number): number => Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(basis * ECHO_TERMINAL_SHARE));
+const echoHeight = (basis: number): number =>
+  Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(basis * ECHO_TERMINAL_SHARE));
 
 /**
  * What a band pane is a share of when it is given nothing else to measure: what is actually
@@ -105,18 +111,16 @@ interface Props {
 }
 
 /** The resizable terminal under one thread. The protocol is the hook's; this is its chrome. */
-export function AgentTerminalPane(
-  {
-    feed,
-    context,
-    onState,
-    layout = "column",
-    heightBasis,
-    paneShape,
-    rememberedHeight = null,
-    onResized,
-  }: Props,
-) {
+export function AgentTerminalPane({
+  feed,
+  context,
+  onState,
+  layout = "column",
+  heightBasis,
+  paneShape,
+  rememberedHeight = null,
+  onResized,
+}: Props) {
   const paneRef = useRef<HTMLDivElement>(null);
   const removeResizeListenersRef = useRef<() => void>(() => {});
   // Whether the viewer has sized this pane themselves, which outranks anything the grid prefers.
@@ -129,8 +133,8 @@ export function AgentTerminalPane(
   const shape = paneShapeForLayout(layout, paneShape);
   const measureBasis = (): number => heightBasis?.clientHeight ?? viewportHeight();
   const [height, setHeight] = useState<number | null>(
-    rememberedHeight
-      ?? (echo
+    rememberedHeight ??
+      (echo
         ? echoHeight(measureBasis())
         : band
           ? Math.max(MINIMUM_TERMINAL_HEIGHT, Math.round(measureBasis() * BAND_TERMINAL_SHARE))
@@ -159,10 +163,7 @@ export function AgentTerminalPane(
   const stepZoom = (by: number): void =>
     setZoom((chosen) => {
       const from = chosen ?? fontSize ?? TERMINAL_ZOOM.minimum;
-      return Math.min(
-        TERMINAL_ZOOM.maximum,
-        Math.max(TERMINAL_ZOOM.minimum, Math.round(from) + by),
-      );
+      return Math.min(TERMINAL_ZOOM.maximum, Math.max(TERMINAL_ZOOM.minimum, Math.round(from) + by));
     });
   // Read once per pane rather than at import: a browser does not grow a software keyboard part way
   // through a session, but a test has to be able to say which kind of browser it is.
@@ -202,8 +203,7 @@ export function AgentTerminalPane(
   }, [band, contentHeight, showsKeyRail, mountRef]);
   const share = (available: number): number =>
     Math.max(MINIMUM_TERMINAL_HEIGHT, Math.min(available * MAXIMUM_TERMINAL_SHARE, wholeScreen ?? Infinity));
-  const ceiling = (): number =>
-    share(band ? basis : (paneRef.current?.parentElement?.clientHeight ?? 0));
+  const ceiling = (): number => share(band ? basis : (paneRef.current?.parentElement?.clientHeight ?? 0));
   /** The most a band pane may take sizing itself: the ceiling, short of crowding the transcript. */
   const selfCeiling = (): number => {
     const room = band && heightBasis && paneRef.current ? paneRoomBesideTranscript(paneRef.current, heightBasis) : null;
@@ -326,9 +326,7 @@ export function AgentTerminalPane(
       // What a phone keyboard must not cover while the terminal has focus: the whole pane, key rail
       // included, rather than xterm's hidden field alone (`keepTypingInSight`).
       {...{ [KEEP_IN_SIGHT_ATTRIBUTE]: "" }}
-      className={`flex min-h-[150px] shrink-0 flex-col border-t border-border ${
-        band ? "" : "h-[38%]"
-      }`}
+      className={`flex min-h-[150px] shrink-0 flex-col border-t border-border ${band ? "" : "h-[38%]"}`}
       style={appliedHeight === null ? undefined : { height: appliedHeight }}
     >
       <button
@@ -370,9 +368,7 @@ export function AgentTerminalPane(
         ref={mountRef}
         className="flex min-h-0 flex-1 overflow-auto py-3 [&>.xterm]:m-auto [&>.xterm]:box-content [&>.xterm]:shrink-0 [&>.xterm]:rounded-lg [&>.xterm]:bg-white [&>.xterm]:p-2 dark:[&>.xterm]:bg-[#0b0e14]"
       />
-      {showsKeyRail ? (
-        <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
-      ) : null}
+      {showsKeyRail ? <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} /> : null}
       <footer className="flex min-h-6 shrink-0 items-center gap-3 overflow-hidden border-t border-border px-2 font-mono text-[10px] text-muted-foreground">
         <span>{labels.sync}</span>
         {labels.ownership ? <span>{labels.ownership}</span> : null}
@@ -452,14 +448,17 @@ export function paneShapeForLayout(
  * footer is the shortest strip on the pane and a thumb still has to land on it. Its text goes to
  * full ink on hover: the footer's muted ink measured 4.3:1 on the hover fill, under the 4.5:1 line.
  */
-function TerminalZoomButton(
-  { label, onPress, disabled, children }: {
-    label: string;
-    onPress: () => void;
-    disabled: boolean;
-    children: React.ReactNode;
-  },
-) {
+function TerminalZoomButton({
+  label,
+  onPress,
+  disabled,
+  children,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"

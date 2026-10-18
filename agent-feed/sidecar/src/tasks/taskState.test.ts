@@ -41,7 +41,8 @@ describe("parseTerminalMarker", () => {
 
 describe("parseBackgroundStart", () => {
   test("takes the harness's own output path rather than rebuilding one", () => {
-    const text = "Command running in background with ID: bu2wb68vl. Output is being written to: " +
+    const text =
+      "Command running in background with ID: bu2wb68vl. Output is being written to: " +
       "/private/tmp/claude-501/-Users-dev/2adc3708/tasks/bu2wb68vl.output. You will be notified.";
     expect(parseBackgroundStart(text)).toEqual({
       taskId: "bu2wb68vl",
@@ -140,24 +141,28 @@ describe("resolveTaskState", () => {
   });
 
   test("a completion notification resolves a task whose output file was reaped", () => {
-    expect(resolveTaskState({
-      ...none,
-      notification: {
-        kind: "completion",
-        taskId: "b1",
-        status: "completed",
-        summary: "",
-        exitCode: 0,
-        taskKind: "bash",
-      },
-    })).toEqual({ status: "exited", exitCode: 0 });
+    expect(
+      resolveTaskState({
+        ...none,
+        notification: {
+          kind: "completion",
+          taskId: "b1",
+          status: "completed",
+          summary: "",
+          exitCode: 0,
+          taskKind: "bash",
+        },
+      }),
+    ).toEqual({ status: "exited", exitCode: 0 });
   });
 
   test("a progress tick never resolves anything", () => {
-    expect(resolveTaskState({
-      ...none,
-      notification: { kind: "progress", taskId: "b1", summary: "" },
-    })).toEqual({ status: "unknown" });
+    expect(
+      resolveTaskState({
+        ...none,
+        notification: { kind: "progress", taskId: "b1", summary: "" },
+      }),
+    ).toEqual({ status: "unknown" });
   });
 
   test("no evidence is unknown, never running", () => {
@@ -170,15 +175,18 @@ describe("resolveTaskState", () => {
 describe("parseMonitorStart", () => {
   test("reads the task id and deadline out of the harness's own sentence", () => {
     // Measured, verbatim, from a live session.
-    expect(parseMonitorStart("Monitor started (task bf1g4k3ey, timeout 900000ms). You will be notified"))
-      .toEqual({ taskId: "bf1g4k3ey", timeoutMs: 900_000 });
+    expect(parseMonitorStart("Monitor started (task bf1g4k3ey, timeout 900000ms). You will be notified")).toEqual({
+      taskId: "bf1g4k3ey",
+      timeoutMs: 900_000,
+    });
   });
 
   test("a backgrounded shell's start record is not a monitor", () => {
     // The two sentences share a transcript and must not be confused: a Monitor names no file, and
     // treating one as the other would build a capture path that does not exist.
-    expect(parseMonitorStart("Command running in background with ID: b1. Output is being written to: /x.output"))
-      .toBeNull();
+    expect(
+      parseMonitorStart("Command running in background with ID: b1. Output is being written to: /x.output"),
+    ).toBeNull();
   });
 
   test("a monitor with no stated timeout still parses", () => {

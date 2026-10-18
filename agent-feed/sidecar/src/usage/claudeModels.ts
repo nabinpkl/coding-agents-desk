@@ -19,7 +19,10 @@
  * without looking wrong.
  */
 export function canonicalClaudeModel(model: string): string {
-  return model.trim().replace(/\[[^\]]*\]$/, "").replace(/-\d{8}$/, "");
+  return model
+    .trim()
+    .replace(/\[[^\]]*\]$/, "")
+    .replace(/-\d{8}$/, "");
 }
 
 const FAMILIES = ["opus", "sonnet", "haiku", "fable"] as const;

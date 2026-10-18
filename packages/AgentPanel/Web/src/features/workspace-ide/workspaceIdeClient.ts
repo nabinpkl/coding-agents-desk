@@ -28,7 +28,11 @@ import type { AgentHttpTransport } from "@/features/activity-feed/transport/Agen
 
 /** A refusal the sidecar answered with, carrying the code the surface renders. */
 export class WorkspaceRequestError extends Error {
-  constructor(readonly code: string, message: string, readonly status: number) {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number,
+  ) {
     super(message);
     this.name = "WorkspaceRequestError";
   }
@@ -87,11 +91,7 @@ export class WorkspaceIdeClient {
    * it, so the picker does not have to know which client it was handed.
    */
   async createFolder(path: string, name: string): Promise<WorkspaceBrowseListing> {
-    const created = await this.call<WorkspaceFolderCreated>(
-      "POST",
-      "/api/workspaces/folders",
-      { path, name },
-    );
+    const created = await this.call<WorkspaceFolderCreated>("POST", "/api/workspaces/folders", { path, name });
     return created.listing;
   }
 
@@ -144,12 +144,7 @@ export class WorkspaceIdeClient {
     if (options.regex) parameters.set("regex", "1");
     if (options.include.length > 0) parameters.set("include", options.include.join(","));
     if (options.exclude.length > 0) parameters.set("exclude", options.exclude.join(","));
-    return this.call(
-      "GET",
-      `/api/workspaces/${encodeURIComponent(id)}/search?${parameters}`,
-      undefined,
-      signal,
-    );
+    return this.call("GET", `/api/workspaces/${encodeURIComponent(id)}/search?${parameters}`, undefined, signal);
   }
 
   git(id: string): Promise<{ status: WorkspaceGitStatus }> {
@@ -219,8 +214,7 @@ export class WorkspaceIdeClient {
    */
   contentUrl(id: string, path: string): string | null {
     const query = new URLSearchParams({ path });
-    return this.transport.resourceUrl?.(`/api/workspaces/${encodeURIComponent(id)}/content?${query}`)
-      ?? null;
+    return this.transport.resourceUrl?.(`/api/workspaces/${encodeURIComponent(id)}/content?${query}`) ?? null;
   }
 
   /**
@@ -235,14 +229,11 @@ export class WorkspaceIdeClient {
     expectedRevision: string,
     text: string,
   ): Promise<
-    { status: "written"; written: WorkspaceFileWritten }
-    | { status: "conflict"; conflict: WorkspaceFileConflict }
+    { status: "written"; written: WorkspaceFileWritten } | { status: "conflict"; conflict: WorkspaceFileConflict }
   > {
-    const response = await this.transport.request(
-      "POST",
-      `/api/workspaces/${encodeURIComponent(id)}/file`,
-      { body: { path, expectedRevision, text } },
-    );
+    const response = await this.transport.request("POST", `/api/workspaces/${encodeURIComponent(id)}/file`, {
+      body: { path, expectedRevision, text },
+    });
     if (response.status === 409) {
       const payload = JSON.parse(response.body) as { conflict?: WorkspaceFileConflict };
       // A 409 is also how a read-only kind is refused, and that has no conflict body.
@@ -253,11 +244,7 @@ export class WorkspaceIdeClient {
   }
 
   /** Follow one workspace's stream. Returns unsubscribe. */
-  subscribe(
-    id: string,
-    onEvent: (event: WorkspaceStreamEvent) => void,
-    onError: (reason: string) => void,
-  ): () => void {
+  subscribe(id: string, onEvent: (event: WorkspaceStreamEvent) => void, onError: (reason: string) => void): () => void {
     return this.transport.subscribe(`/api/workspaces/${encodeURIComponent(id)}/stream`, {
       onMessage: (payload) => {
         let event: unknown;

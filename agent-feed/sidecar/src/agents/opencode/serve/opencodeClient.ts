@@ -73,11 +73,7 @@ export async function serveWrite(
   return { status: response.status, text: await response.text() };
 }
 
-async function serveCall(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<{ response: Response }> {
+async function serveCall(method: string, path: string, body?: unknown): Promise<{ response: Response }> {
   const password = config.opencodePassword;
   if (!password) throw new Error("opencode serve password is not configured");
   const url = new URL(path, config.opencodeServeUrl.toString().replace(/\/$/, ""));

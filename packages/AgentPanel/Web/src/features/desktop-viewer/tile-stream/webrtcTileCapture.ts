@@ -24,12 +24,12 @@ export function tileCaptureSize(
   // crisp at the cost of bitrate; below 1 it trades sharpness for a thinner stream.
   const quality = Math.min(Math.max(captureScale, CAPTURE_SCALE_MIN), CAPTURE_SCALE_MAX);
   if (
-    typeof sourceWidth !== "number"
-    || !Number.isFinite(sourceWidth)
-    || sourceWidth <= 0
-    || typeof sourceHeight !== "number"
-    || !Number.isFinite(sourceHeight)
-    || sourceHeight <= 0
+    typeof sourceWidth !== "number" ||
+    !Number.isFinite(sourceWidth) ||
+    sourceWidth <= 0 ||
+    typeof sourceHeight !== "number" ||
+    !Number.isFinite(sourceHeight) ||
+    sourceHeight <= 0
   ) {
     return {
       width: shownWidth > 0 ? Math.max(16, Math.round(shownWidth * ratio * quality)) : undefined,

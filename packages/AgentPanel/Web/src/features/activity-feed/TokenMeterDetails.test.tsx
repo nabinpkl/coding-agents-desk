@@ -27,32 +27,34 @@ function limits() {
   let deliver: ((message: LimitsStreamMessage) => void) | null = null;
   let fail: ((reason: string) => void) | null = null;
   const unsubscribe = vi.fn();
-  const subscribeLimits = vi.fn((handlers: {
-    onMessage: (message: LimitsStreamMessage) => void;
-    onError: (reason: string) => void;
-  }) => {
-    deliver = handlers.onMessage;
-    fail = handlers.onError;
-    return unsubscribe;
-  });
+  const subscribeLimits = vi.fn(
+    (handlers: { onMessage: (message: LimitsStreamMessage) => void; onError: (reason: string) => void }) => {
+      deliver = handlers.onMessage;
+      fail = handlers.onError;
+      return unsubscribe;
+    },
+  );
   return {
     feed: { subscribeLimits },
     subscribeLimits,
     unsubscribe,
     push: (quotas: UsageQuota[]) =>
-      act(() => deliver?.({
-        type: "report",
-        report: { vendors: [{ vendor: "claude", displayName: "Claude", quotas }] },
-      })),
+      act(() =>
+        deliver?.({
+          type: "report",
+          report: { vendors: [{ vendor: "claude", displayName: "Claude", quotas }] },
+        }),
+      ),
     pushVendors: (
       vendors: { vendor: QuotaVendorId; displayName: string; quotas: UsageQuota[]; unavailable?: string }[],
-    ) =>
-      act(() => deliver?.({ type: "report", report: { vendors } })),
+    ) => act(() => deliver?.({ type: "report", report: { vendors } })),
     pushError: (message: string) =>
-      act(() => deliver?.({
-        type: "error",
-        error: { code: "limits-read-failed", message, retryable: true },
-      })),
+      act(() =>
+        deliver?.({
+          type: "error",
+          error: { code: "limits-read-failed", message, retryable: true },
+        }),
+      ),
     drop: (reason: string) => act(() => fail?.(reason)),
   };
 }
@@ -335,7 +337,17 @@ describe("the panel's Compact button", () => {
   });
 
   it("stays open and says so when the composer refused it", async () => {
-    render(<TokenMeter usage={USAGE} compact={{ run: async () => { throw new Error("pane gone"); }, blocked: null }} />);
+    render(
+      <TokenMeter
+        usage={USAGE}
+        compact={{
+          run: async () => {
+            throw new Error("pane gone");
+          },
+          blocked: null,
+        }}
+      />,
+    );
     fireEvent.click(meter());
     await act(async () => fireEvent.click(compactButton()));
     expect(screen.getByRole("dialog").textContent).toContain("/compact did not go through: pane gone");
@@ -344,7 +356,12 @@ describe("the panel's Compact button", () => {
 
   it("reaches for what the send needs as soon as it is shown", () => {
     const prepare = vi.fn();
-    render(<TokenMeter usage={USAGE} compact={{ run: async () => false, blocked: "Reaching this session's terminal\u2026", prepare }} />);
+    render(
+      <TokenMeter
+        usage={USAGE}
+        compact={{ run: async () => false, blocked: "Reaching this session's terminal\u2026", prepare }}
+      />,
+    );
     expect(prepare).not.toHaveBeenCalled();
     fireEvent.click(meter());
     expect(prepare).toHaveBeenCalledTimes(1);
@@ -358,7 +375,12 @@ describe("the panel's Compact button", () => {
 });
 
 describe("OpenCode Go plan meters", () => {
-  const go = (percent: number): UsageQuota => ({ ...quota("Go 5-hour limit", percent), windowMinutes: 300, planType: "go", status: "ok" });
+  const go = (percent: number): UsageQuota => ({
+    ...quota("Go 5-hour limit", percent),
+    windowMinutes: 300,
+    planType: "go",
+    status: "ok",
+  });
 
   it("draws only the Go windows for a Go session and keeps 0% as a real reading", () => {
     const sidecar = limits();
@@ -374,14 +396,13 @@ describe("OpenCode Go plan meters", () => {
   it("says unavailable, never 0%, when the plan meter could not be read", () => {
     const sidecar = limits();
     render(<TokenMeter usage={USAGE} feed={sidecar.feed} vendor="opencode-go" />);
-    sidecar.pushVendors([
-      { vendor: "opencode-go", displayName: "OpenCode Go", quotas: [], unavailable: "HTTP 401" },
-    ]);
+    sidecar.pushVendors([{ vendor: "opencode-go", displayName: "OpenCode Go", quotas: [], unavailable: "HTTP 401" }]);
     expect(screen.getByText("usage n/a")).toBeInTheDocument();
     expect(screen.queryByText(/0%/)).toBeNull();
     fireEvent.pointerEnter(meter());
-    expect(screen.getByRole("dialog", { name: "Context and limits" }).textContent)
-      .toContain("Plan usage unavailable (HTTP 401)");
+    expect(screen.getByRole("dialog", { name: "Context and limits" }).textContent).toContain(
+      "Plan usage unavailable (HTTP 401)",
+    );
   });
 
   it("opens the Go stream only for a Go meter and the shared stream for a Claude one", () => {

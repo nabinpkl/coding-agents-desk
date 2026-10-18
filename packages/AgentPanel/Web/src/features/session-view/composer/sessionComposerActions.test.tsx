@@ -53,19 +53,21 @@ describe("the in-field send button", () => {
   });
 
   it("stays a queueing send while running where nothing can abort", () => {
-    const actions = composerActions(model({
-      running: true,
-      capabilities: {
-        modes: ["nice"],
-        canSend: true,
-        canSteer: false,
-        canAbort: false,
-        canFetchRaw: false,
-        canOpenTerminal: false,
-        supportsExtensionUi: false,
-        canStreamLive: false,
-      },
-    }));
+    const actions = composerActions(
+      model({
+        running: true,
+        capabilities: {
+          modes: ["nice"],
+          canSend: true,
+          canSteer: false,
+          canAbort: false,
+          canFetchRaw: false,
+          canOpenTerminal: false,
+          supportsExtensionUi: false,
+          canStreamLive: false,
+        },
+      }),
+    );
     expect(actions.find((action) => action.key === "send")?.ariaLabel).toBe("Queue message");
   });
 });
@@ -124,11 +126,13 @@ describe("sending with held images", () => {
 describe("the model switcher", () => {
   it("shows the session model and opens the picker through the same door `/model` uses", () => {
     const onRunSlash = vi.fn(async () => {});
-    const actions = composerActions(model({
-      session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
-      sessionModel: "opencode-go/muse-spark",
-      onRunSlash,
-    }));
+    const actions = composerActions(
+      model({
+        session: { source: "opencode", sessionId: "s1" } as ComposerModel["session"],
+        sessionModel: "opencode-go/muse-spark",
+        onRunSlash,
+      }),
+    );
     const button = actions.find((action) => action.key === "switch-model");
     expect(button?.placement).toBe("footer");
     button?.onClick?.();
@@ -136,9 +140,11 @@ describe("the model switcher", () => {
   });
 
   it("is absent off opencode", () => {
-    const actions = composerActions(model({
-      session: { source: "pi", sessionId: "p1" } as ComposerModel["session"],
-    }));
+    const actions = composerActions(
+      model({
+        session: { source: "pi", sessionId: "p1" } as ComposerModel["session"],
+      }),
+    );
     expect(actions.some((action) => action.key === "switch-model")).toBe(false);
   });
 });
@@ -211,18 +217,19 @@ describe("sending a slash command", () => {
 });
 
 describe("the context meter's Compact button", () => {
-  const tmux = (overrides: Partial<ComposerModel> = {}) => model({
-    session: { source: "claude", sessionId: "c1" } as ComposerModel["session"],
-    isClaude: true,
-    tmuxBand: true,
-    cliSessionBand: false,
-    agentTerminalBand: false,
-    transport: { kind: "tmux-composer" },
-    editorValue: "",
-    unavailable: false,
-    tmuxComposer: { pending: false, reason: null, submit: vi.fn(async () => true) } as never,
-    ...overrides,
-  });
+  const tmux = (overrides: Partial<ComposerModel> = {}) =>
+    model({
+      session: { source: "claude", sessionId: "c1" } as ComposerModel["session"],
+      isClaude: true,
+      tmuxBand: true,
+      cliSessionBand: false,
+      agentTerminalBand: false,
+      transport: { kind: "tmux-composer" },
+      editorValue: "",
+      unavailable: false,
+      tmuxComposer: { pending: false, reason: null, submit: vi.fn(async () => true) } as never,
+      ...overrides,
+    });
 
   it("presses /compact in the pane, as typing it and pressing Return would", async () => {
     const m = tmux();
@@ -233,23 +240,26 @@ describe("the context meter's Compact button", () => {
   });
 
   it("refuses over a draft, which /compact would replace in the pane", () => {
-    expect(compactControl(tmux({ editorValue: "half a thought" }))!.blocked)
-      .toBe("Send or clear the draft in the composer first.");
+    expect(compactControl(tmux({ editorValue: "half a thought" }))!.blocked).toBe(
+      "Send or clear the draft in the composer first.",
+    );
   });
 
   it("goes through opencode's command route, since the serve reads the text literally", async () => {
     const onRunSlash = vi.fn(async () => {});
-    const control = compactControl(model({
-      session: { source: "opencode", sessionId: "o1" } as ComposerModel["session"],
-      isClaude: false,
-      tmuxBand: false,
-      cliSessionBand: false,
-      agentTerminalBand: false,
-      transport: { kind: "agent-session" },
-      editorValue: "",
-      tmuxComposer: { pending: false, reason: null } as never,
-      onRunSlash,
-    }))!;
+    const control = compactControl(
+      model({
+        session: { source: "opencode", sessionId: "o1" } as ComposerModel["session"],
+        isClaude: false,
+        tmuxBand: false,
+        cliSessionBand: false,
+        agentTerminalBand: false,
+        transport: { kind: "agent-session" },
+        editorValue: "",
+        tmuxComposer: { pending: false, reason: null } as never,
+        onRunSlash,
+      }),
+    )!;
     await control.run();
     expect(onRunSlash).toHaveBeenCalledWith("compact", "");
   });
@@ -270,33 +280,45 @@ describe("the context meter's Compact button", () => {
   });
 
   it("says so when the session has no pane to type it into", () => {
-    const control = compactControl(tmux({
-      tmuxBand: false,
-      cliSessionBand: true,
-      transport: { kind: "cli-session" },
-      tmuxComposer: { pending: false, reason: "no-pane" } as never,
-    }))!;
+    const control = compactControl(
+      tmux({
+        tmuxBand: false,
+        cliSessionBand: true,
+        transport: { kind: "cli-session" },
+        tmuxComposer: { pending: false, reason: "no-pane" } as never,
+      }),
+    )!;
     expect(control.blocked).toBe("This session has no terminal the panel can type /compact into.");
   });
 
   it("is not offered where no door here takes a command", () => {
-    expect(compactControl(model({
-      tmuxBand: false,
-      cliSessionBand: false,
-      agentTerminalBand: false,
-      transport: { kind: "agent-session" },
-    }))).toBeNull();
+    expect(
+      compactControl(
+        model({
+          tmuxBand: false,
+          cliSessionBand: false,
+          agentTerminalBand: false,
+          transport: { kind: "agent-session" },
+        }),
+      ),
+    ).toBeNull();
   });
 });
 
 describe("a terminal session's permission mode", () => {
-  const terminal = (permissionMode: string | null, engage = vi.fn()) => model({
-    isClaude: true,
-    sdkBand: false,
-    engage,
-    session: { source: "claude", sessionId: "c1" } as ComposerModel["session"],
-    tmuxComposer: { pending: false, reason: null, permissionMode, choosePermissionMode: vi.fn(async () => {}) } as never,
-  });
+  const terminal = (permissionMode: string | null, engage = vi.fn()) =>
+    model({
+      isClaude: true,
+      sdkBand: false,
+      engage,
+      session: { source: "claude", sessionId: "c1" } as ComposerModel["session"],
+      tmuxComposer: {
+        pending: false,
+        reason: null,
+        permissionMode,
+        choosePermissionMode: vi.fn(async () => {}),
+      } as never,
+    });
 
   it("opens the same menu as an SDK session's, bypass included, and sets the mode chosen", () => {
     const m = terminal("auto");

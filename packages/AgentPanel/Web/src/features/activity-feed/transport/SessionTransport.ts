@@ -1,5 +1,9 @@
 import { sessionApiPrefix } from "@/app/panelSessions";
-import type { AgentHttpTransport, SubscribeHandlers, TransportResponse } from "@/features/activity-feed/transport/AgentHttpTransport";
+import type {
+  AgentHttpTransport,
+  SubscribeHandlers,
+  TransportResponse,
+} from "@/features/activity-feed/transport/AgentHttpTransport";
 
 /**
  * The same sidecar path, addressed at one particular login session.
@@ -20,14 +24,15 @@ export function sessionPath(sessionId: string | undefined, path: string): string
  * answers is decided once, here. The default session returns the transport untouched, so the
  * relay path inside the host's webview is bit-for-bit what it was.
  */
-export function sessionTransport(
-  base: AgentHttpTransport,
-  sessionId?: string,
-): AgentHttpTransport {
+export function sessionTransport(base: AgentHttpTransport, sessionId?: string): AgentHttpTransport {
   if (!sessionId) return base;
   const resourceUrl = base.resourceUrl?.bind(base);
   return {
-    request(method: string, path: string, options?: { body?: unknown; signal?: AbortSignal }): Promise<TransportResponse> {
+    request(
+      method: string,
+      path: string,
+      options?: { body?: unknown; signal?: AbortSignal },
+    ): Promise<TransportResponse> {
       return base.request(method, sessionPath(sessionId, path), options);
     },
     subscribe(path: string, handlers: SubscribeHandlers): () => void {
@@ -35,8 +40,6 @@ export function sessionTransport(
     },
     // Only where the base has one: a wrapper that invented an address would hand a relayed page a
     // URL nothing answers.
-    ...(resourceUrl
-      ? { resourceUrl: (path: string) => resourceUrl(sessionPath(sessionId, path)) }
-      : {}),
+    ...(resourceUrl ? { resourceUrl: (path: string) => resourceUrl(sessionPath(sessionId, path)) } : {}),
   };
 }

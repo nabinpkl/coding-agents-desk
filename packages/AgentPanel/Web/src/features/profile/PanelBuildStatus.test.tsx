@@ -33,9 +33,7 @@ describe("held work in the sidebar", () => {
   });
 
   it("stays quiet on a page that has lost the server, where the build chip already warns", () => {
-    const { container } = render(
-      <PanelBuildStatus build={build({ connected: false, held: ["main.tsx"] })} />,
-    );
+    const { container } = render(<PanelBuildStatus build={build({ connected: false, held: ["main.tsx"] })} />);
     expect(container.textContent).toBe("");
   });
 
@@ -64,7 +62,9 @@ describe("held work in the sidebar", () => {
     render(
       <PanelBuildStatus
         build={build({
-          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto", behind: false }],
+          sidecars: [
+            { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto", behind: false },
+          ],
         })}
       />,
     );
@@ -117,9 +117,7 @@ describe("updates the reader is holding", () => {
 
   it("counts what is waiting and offers to take it", () => {
     const apply = vi.fn();
-    render(
-      <PanelBuildStatus build={build({ mode: "manual", held: ["main.tsx", "panelBuild.ts"], apply })} />,
-    );
+    render(<PanelBuildStatus build={build({ mode: "manual", held: ["main.tsx", "panelBuild.ts"], apply })} />);
     expect(screen.getByText("2 files waiting")).toBeDefined();
     // Nothing is wrong with them, so the line under it is the queue itself.
     expect(screen.getByText("main.tsx, panelBuild.ts")).toBeDefined();
@@ -172,7 +170,9 @@ describe("what a machine is waiting for", () => {
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual", behind: false }],
+          sidecars: [
+            { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual", behind: false },
+          ],
         })}
       />,
     );
@@ -257,7 +257,9 @@ describe("what a machine is waiting for", () => {
       <PanelBuildStatus
         build={build({
           mode: "manual",
-          sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual", behind: true }],
+          sidecars: [
+            { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual", behind: true },
+          ],
         })}
       />,
     );

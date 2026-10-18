@@ -16,9 +16,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -84,8 +82,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByText("Session Codex 01"));
 
     expect(screen.queryByRole("region", { name: "Claude terminal" })).not.toBeInTheDocument();
-    expect(fake.posted.some((message) =>
-      (message as { t?: string }).t?.startsWith("agent-terminal-"))).toBe(false);
+    expect(fake.posted.some((message) => (message as { t?: string }).t?.startsWith("agent-terminal-"))).toBe(false);
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
     unmount();
   });
@@ -115,16 +112,18 @@ describe("App shell", () => {
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
 
-    act(() => oldOnState(oldContext, {
-      kind: "ready",
-      descriptor: {
-        terminalId: "stale-terminal",
-        ptySessionName: "stale-pty",
-        pid: 41,
-        columns: 80,
-        rows: 24,
-      },
-    }));
+    act(() =>
+      oldOnState(oldContext, {
+        kind: "ready",
+        descriptor: {
+          terminalId: "stale-terminal",
+          ptySessionName: "stale-pty",
+          pid: 41,
+          columns: 80,
+          rows: 24,
+        },
+      }),
+    );
     expect(screen.getByRole("status")).toHaveTextContent("Opening Codex");
 
     emitTerminalState({
@@ -231,7 +230,13 @@ describe("App shell", () => {
           type: "ui",
           event: {
             type: "request",
-            request: { requestId: `notice-${index}`, kind: "status", key: "working", message: `Status ${index}`, expectsResponse: false },
+            request: {
+              requestId: `notice-${index}`,
+              kind: "status",
+              key: "working",
+              message: `Status ${index}`,
+              expectsResponse: false,
+            },
           },
         });
       }
@@ -282,10 +287,9 @@ describe("App shell", () => {
     // scrolls its placeholder and a draft's last line is clipped. Measured in the running panel
     // before this fix: an empty composer already had 2px of hidden content and could be scrolled.
     const metrics: Record<string, number> = { scrollHeight: 72, offsetHeight: 50, clientHeight: 48 };
-    const originals = Object.keys(metrics).map((key) => [
-      key,
-      Object.getOwnPropertyDescriptor(HTMLElement.prototype, key),
-    ] as const);
+    const originals = Object.keys(metrics).map(
+      (key) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)] as const,
+    );
     for (const [key, value] of Object.entries(metrics)) {
       Object.defineProperty(HTMLElement.prototype, key, { configurable: true, get: () => value });
     }

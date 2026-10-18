@@ -25,7 +25,9 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     // These arrive before the body fetch resolves.
     local.acceptObserverEvent(delta("f2", { type: "message_start", message: { id: "msg_200" } }));
     local.acceptObserverEvent(delta("f2", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
-    local.acceptObserverEvent(delta("f2", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } }));
+    local.acceptObserverEvent(
+      delta("f2", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } }),
+    );
     local.acceptObserverEvent(delta("f2", { type: "message_stop" }));
     await flush(80);
     const page = await local.page("sess-b2", 0, 10, "nice");
@@ -41,9 +43,13 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("fast", "/v1/messages", "api.anthropic.com", "fast1"));
     local.acceptObserverEvent(delta("fast", { type: "message_start", message: { id: "msg_fast" } }));
-    local.acceptObserverEvent(delta("fast", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
+    local.acceptObserverEvent(
+      delta("fast", { type: "content_block_start", index: 0, content_block: { type: "text" } }),
+    );
     for (let i = 0; i < 400; i++) {
-      local.acceptObserverEvent(delta("fast", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "x" } }));
+      local.acceptObserverEvent(
+        delta("fast", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "x" } }),
+      );
     }
     local.acceptObserverEvent(delta("fast", { type: "message_stop" }));
     await flush(160);
@@ -61,8 +67,12 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("late", "/v1/messages", "api.anthropic.com"));
     local.acceptObserverEvent(delta("late", { type: "message_start", message: { id: "msg_late" } }));
-    local.acceptObserverEvent(delta("late", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
-    local.acceptObserverEvent(delta("late", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "late" } }));
+    local.acceptObserverEvent(
+      delta("late", { type: "content_block_start", index: 0, content_block: { type: "text" } }),
+    );
+    local.acceptObserverEvent(
+      delta("late", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "late" } }),
+    );
     await flush(40);
     local.acceptObserverEvent(flowEvent("late", "/v1/messages", "api.anthropic.com", "late1"));
     local.acceptObserverEvent(delta("late", { type: "message_stop" }));
@@ -79,7 +89,9 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("cut", "/v1/messages", "api.anthropic.com", "cut1"));
     local.acceptObserverEvent(delta("cut", { type: "message_start", message: { id: "msg_cut" } }));
-    local.acceptObserverEvent(delta("cut", { type: "content_block_start", index: 0, content_block: { type: "thinking" } }));
+    local.acceptObserverEvent(
+      delta("cut", { type: "content_block_start", index: 0, content_block: { type: "thinking" } }),
+    );
     await flush(160);
     expect((await local.page("sess-cut1", 0, 10, "nice")).events[0]!.phase).toBe("streaming");
     await local.start();
@@ -94,14 +106,18 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     const health = (sourceId: string, lifecycle: string): ObserverEvent => ({
       observedAt: new Date().toISOString(),
-      captureHealthChanged: { health: { sourceId, lifecycle, failureCategory: "CAPTURE_FAILURE_CATEGORY_PROCESS_EXIT" } },
+      captureHealthChanged: {
+        health: { sourceId, lifecycle, failureCategory: "CAPTURE_FAILURE_CATEGORY_PROCESS_EXIT" },
+      },
     });
     const open = (flowId: string, session: string, sourceId: string) => {
       const announced = flowEvent(flowId, "/v1/messages", "api.anthropic.com", session);
       announced.flowUpserted!.flow!.sourceId = sourceId;
       local.acceptObserverEvent(announced);
       local.acceptObserverEvent(delta(flowId, { type: "message_start", message: { id: `msg_${flowId}` } }));
-      local.acceptObserverEvent(delta(flowId, { type: "content_block_start", index: 0, content_block: { type: "thinking" } }));
+      local.acceptObserverEvent(
+        delta(flowId, { type: "content_block_start", index: 0, content_block: { type: "thinking" } }),
+      );
     };
     const phase = async (session: string) => (await local.page(`sess-${session}`, 0, 10, "nice")).events[0]!.phase;
     open("dying", "dying1", "cap-a");
@@ -125,7 +141,9 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("early", "/v1/messages", "api.anthropic.com", "early1"));
     local.acceptObserverEvent(delta("early", { type: "message_start", message: { id: "msg_early" } }));
-    local.acceptObserverEvent(delta("early", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
+    local.acceptObserverEvent(
+      delta("early", { type: "content_block_start", index: 0, content_block: { type: "text" } }),
+    );
     local.acceptObserverEvent(ended("early"));
     await flush(160);
     expect((await local.page("sess-early1", 0, 10, "nice")).events[0]!.phase).toBe("complete");

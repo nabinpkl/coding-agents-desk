@@ -108,9 +108,7 @@ export async function resolveBotSessions(
     // on the Bot, so unarchiving puts the session back where it was.
     if (resolved?.summary.archivedAt !== undefined) continue;
     if (resolved) {
-      sessions.push(
-        await withWorktree(resolved.summary, resolved.projectPath, record.environment.path),
-      );
+      sessions.push(await withWorktree(resolved.summary, resolved.projectPath, record.environment.path));
       outcomes.push({ ...outcome, missing: false });
       continue;
     }
@@ -151,11 +149,7 @@ export function noteBotSessionOutcomes(outcomes: BotSessionOutcome[]): void {
  * the branch is what they do not. Two sessions on one repository editing two branches look
  * identical without it, which is the failure that made accepting them worth guarding.
  */
-async function withWorktree(
-  summary: SessionSummary,
-  projectPath: string,
-  botPath: string,
-): Promise<SessionSummary> {
+async function withWorktree(summary: SessionSummary, projectPath: string, botPath: string): Promise<SessionSummary> {
   if (projectPath === botPath) return summary;
   const worktree = await worktreeOf(projectPath);
   // Only a worktree of THIS Bot's checkout. Membership is not re-checked here (the header says
@@ -175,20 +169,25 @@ async function withWorktree(
 function noteMissing(outcome: BotSessionOutcome): void {
   if (missing.has(outcome.key)) return;
   missing.set(outcome.key, {
-    since: Date.now(), botId: outcome.botId, bot: outcome.bot, ref: outcome.ref,
-  });
-  console.log(JSON.stringify({
-    event: "agent-feed-bot-session-missing",
+    since: Date.now(),
     botId: outcome.botId,
     bot: outcome.bot,
-    source: outcome.ref.source,
-    sessionId: outcome.ref.sessionId,
-    botPath: outcome.botPath,
-    // Zero of these would be a view resolved against an unread catalog, which `catalogReady` is
-    // there to prevent; this is the one field that would say so without inference.
-    catalogSessions: state.sessions.size,
-    catalogState: getWatcherState(),
-  }));
+    ref: outcome.ref,
+  });
+  console.log(
+    JSON.stringify({
+      event: "agent-feed-bot-session-missing",
+      botId: outcome.botId,
+      bot: outcome.bot,
+      source: outcome.ref.source,
+      sessionId: outcome.ref.sessionId,
+      botPath: outcome.botPath,
+      // Zero of these would be a view resolved against an unread catalog, which `catalogReady` is
+      // there to prevent; this is the one field that would say so without inference.
+      catalogSessions: state.sessions.size,
+      catalogState: getWatcherState(),
+    }),
+  );
 }
 
 /**
@@ -203,15 +202,17 @@ function noteResolved(stillMissing: Set<string>): void {
   for (const [key, entry] of [...missing]) {
     if (stillMissing.has(key)) continue;
     missing.delete(key);
-    console.log(JSON.stringify({
-      event: "agent-feed-bot-session-resolved",
-      botId: entry.botId,
-      bot: entry.bot,
-      source: entry.ref.source,
-      sessionId: entry.ref.sessionId,
-      missingForMs: now - entry.since,
-      catalogSessions: state.sessions.size,
-      catalogState: getWatcherState(),
-    }));
+    console.log(
+      JSON.stringify({
+        event: "agent-feed-bot-session-resolved",
+        botId: entry.botId,
+        bot: entry.bot,
+        source: entry.ref.source,
+        sessionId: entry.ref.sessionId,
+        missingForMs: now - entry.since,
+        catalogSessions: state.sessions.size,
+        catalogState: getWatcherState(),
+      }),
+    );
   }
 }

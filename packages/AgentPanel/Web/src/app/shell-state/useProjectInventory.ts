@@ -47,14 +47,10 @@ export function useProjectInventory(
   // Every expanded project's sessions, owned here because they arrive on the same
   // stream as the project list. The sidebar renders what is in here; it subscribes to
   // nothing.
-  const [sessionsByProject, setSessionsByProject] = useState<Map<string, SessionSummary[]>>(
-    new Map(),
-  );
+  const [sessionsByProject, setSessionsByProject] = useState<Map<string, SessionSummary[]>>(new Map());
   // Each expanded project's archived sessions, kept apart so nothing that lists sessions can show
   // one by accident. Only the project list's Archived toggle reads it.
-  const [archivedByProject, setArchivedByProject] = useState<Map<string, SessionSummary[]>>(
-    new Map(),
-  );
+  const [archivedByProject, setArchivedByProject] = useState<Map<string, SessionSummary[]>>(new Map());
   // Archived project folders, kept apart for the same reason. Only the project list's Archived
   // projects fold reads it.
   const [archivedProjects, setArchivedProjects] = useState<ProjectSummary[]>([]);
@@ -74,9 +70,7 @@ export function useProjectInventory(
   // reason leaves the open stream alone. Joined on NUL, the one byte a POSIX path
   // cannot contain, so the round trip cannot invent or lose a path.
   const subscribedProjectKey = useMemo(
-    () => [...new Set([...(recentWanted ? [] : expandedProjectPaths), ...extraProjectPaths])]
-      .sort()
-      .join("\0"),
+    () => [...new Set([...(recentWanted ? [] : expandedProjectPaths), ...extraProjectPaths])].sort().join("\0"),
     [expandedProjectPaths, extraProjectPaths, recentWanted],
   );
   const subscribedProjectPaths = useMemo(
@@ -114,49 +108,56 @@ export function useProjectInventory(
   useSubscription(
     `${sourceKey(feed)}:${retryNonce}:${recentCount}:${reviewCount}:${subscribedProjectPaths.join("\u0000")}`,
     () => {
-    // Not on every resubscribe: expanding a project reopens this stream, and a sidebar
-    // that flipped back to "Loading projects" each time a row was unfolded would be
-    // reporting the transport's business as the reader's.
-    if (!deliveredInventory.current) setLoadingLayer(true);
-    // Dropped when the flat list goes away, so turning it back on shows loading rather than a cut
-    // nothing has refreshed since.
-    if (recentCount === undefined) setRecent(null);
-    setLayerError(null);
-    setRetrying(false);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const onError = (reason: string) => {
-      if (deliveredInventory.current) setReconnecting(true);
-      else setLayerError(reason);
-      setLoadingLayer(false);
-      setRetrying(true);
-      const delay = retryDelayMs(consecutiveFailures.current);
-      consecutiveFailures.current += 1;
-      timer = setTimeout(() => setRetryNonce((n) => n + 1), delay);
-    };
-    const onLoaded = () => {
-      deliveredInventory.current = true;
-      setReconnecting(false);
-      setLoadingLayer(false);
+      // Not on every resubscribe: expanding a project reopens this stream, and a sidebar
+      // that flipped back to "Loading projects" each time a row was unfolded would be
+      // reporting the transport's business as the reader's.
+      if (!deliveredInventory.current) setLoadingLayer(true);
+      // Dropped when the flat list goes away, so turning it back on shows loading rather than a cut
+      // nothing has refreshed since.
+      if (recentCount === undefined) setRecent(null);
+      setLayerError(null);
       setRetrying(false);
-      consecutiveFailures.current = 0;
-    };
-    const stop = feed.subscribeInventory(subscribedProjectPaths, {
-      onProjects: (snapshot, archived) => {
-        setProjects(snapshot);
-        setArchivedProjects(archived);
-        onLoaded();
-      },
-      onSessions: (projectPath, sessions, archived) => {
-        setSessionsByProject((current) => new Map(current).set(projectPath, sessions));
-        setArchivedByProject((current) => new Map(current).set(projectPath, archived));
-      },
-      onRecent: setRecent,
-    }, onError, recentCount, reviewCount);
-    return () => {
-      if (timer !== undefined) clearTimeout(timer);
-      stop?.();
-    };
-  });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const onError = (reason: string) => {
+        if (deliveredInventory.current) setReconnecting(true);
+        else setLayerError(reason);
+        setLoadingLayer(false);
+        setRetrying(true);
+        const delay = retryDelayMs(consecutiveFailures.current);
+        consecutiveFailures.current += 1;
+        timer = setTimeout(() => setRetryNonce((n) => n + 1), delay);
+      };
+      const onLoaded = () => {
+        deliveredInventory.current = true;
+        setReconnecting(false);
+        setLoadingLayer(false);
+        setRetrying(false);
+        consecutiveFailures.current = 0;
+      };
+      const stop = feed.subscribeInventory(
+        subscribedProjectPaths,
+        {
+          onProjects: (snapshot, archived) => {
+            setProjects(snapshot);
+            setArchivedProjects(archived);
+            onLoaded();
+          },
+          onSessions: (projectPath, sessions, archived) => {
+            setSessionsByProject((current) => new Map(current).set(projectPath, sessions));
+            setArchivedByProject((current) => new Map(current).set(projectPath, archived));
+          },
+          onRecent: setRecent,
+        },
+        onError,
+        recentCount,
+        reviewCount,
+      );
+      return () => {
+        if (timer !== undefined) clearTimeout(timer);
+        stop?.();
+      };
+    },
+  );
 
   // Followed during render, so a project that arrives is expanded in the frame that first draws it.
   const [expandedFor, setExpandedFor] = useState(projects);
@@ -168,9 +169,10 @@ export function useProjectInventory(
       // are not on the inventory stream at all -- so without expanding it first there is nothing
       // for the restore below to match against. Falls back to the first project, as before.
       const remembered = rememberedProjectPath;
-      const openAt = remembered && projects.some((project) => project.projectPath === remembered)
-        ? remembered
-        : projects[0]!.projectPath;
+      const openAt =
+        remembered && projects.some((project) => project.projectPath === remembered)
+          ? remembered
+          : projects[0]!.projectPath;
       setExpandedProjectPaths(new Set([openAt]));
     } else {
       const currentPaths = new Set(projects.map((project) => project.projectPath));
@@ -188,9 +190,7 @@ export function useProjectInventory(
     setKeptFor(subscribedProjectPaths);
     const subscribed = new Set(subscribedProjectPaths);
     const keepSubscribed = (current: Map<string, SessionSummary[]>) => {
-      const next = new Map(
-        [...current].filter(([projectPath]) => subscribed.has(projectPath)),
-      );
+      const next = new Map([...current].filter(([projectPath]) => subscribed.has(projectPath)));
       return next.size === current.size ? current : next;
     };
     setSessionsByProject(keepSubscribed);
@@ -208,10 +208,7 @@ export function useProjectInventory(
 
   const showMoreRecent = useCallback(() => setRecentLimit((count) => count + RECENT_SESSIONS_PAGE), []);
   const toggleRecentReviews = useCallback(() => setReviewsOpen((open) => !open), []);
-  const showMoreRecentReviews = useCallback(
-    () => setReviewLimit((count) => count + RECENT_SESSIONS_PAGE),
-    [],
-  );
+  const showMoreRecentReviews = useCallback(() => setReviewLimit((count) => count + RECENT_SESSIONS_PAGE), []);
 
   return {
     projects,

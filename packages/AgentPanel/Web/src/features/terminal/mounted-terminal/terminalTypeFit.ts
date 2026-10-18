@@ -91,16 +91,10 @@ export function fittedFontSize(reading: {
   if (!(cell.width > 0) || !(cell.height > 0)) return null;
   if (!(grid.columns > 0) || !(grid.rows > 0)) return null;
   if (!(available.width > 0) || !(available.height > 0)) return null;
-  const scale = Math.min(
-    available.width / (cell.width * grid.columns),
-    available.height / (cell.height * grid.rows),
-  );
+  const scale = Math.min(available.width / (cell.width * grid.columns), available.height / (cell.height * grid.rows));
   // `minimum` is a policy and one step is the arithmetic floor beneath it: zero or negative is not
   // a font size. See the field for why a floor is safe here now and was not before.
-  return Math.min(
-    maximum,
-    Math.max(minimum, FONT_SIZE_STEP, floorToStep(baseFontSize * scale)),
-  );
+  return Math.min(maximum, Math.max(minimum, FONT_SIZE_STEP, floorToStep(baseFontSize * scale)));
 }
 
 /**
@@ -134,9 +128,7 @@ export function preferredScreenHeight(reading: {
     minimum: reading.minimum,
   });
   if (fontSize === null) return null;
-  return Math.round(
-    reading.cell.height * reading.grid.rows * (fontSize / reading.baseFontSize),
-  );
+  return Math.round(reading.cell.height * reading.grid.rows * (fontSize / reading.baseFontSize));
 }
 
 /**

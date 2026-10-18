@@ -110,7 +110,11 @@ describe("bot canvas order", () => {
   });
 
   it("stands the Bots by the position on their records, across machines", () => {
-    const placed = [{ botId: "a", canvasPosition: 2 }, { botId: "b", canvasPosition: 0 }, { botId: "c", canvasPosition: 1 }];
+    const placed = [
+      { botId: "a", canvasPosition: 2 },
+      { botId: "b", canvasPosition: 0 },
+      { botId: "c", canvasPosition: 1 },
+    ];
     expect(botCanvasPositionOrder(placed)).toEqual(["b", "c", "a"]);
   });
 
@@ -144,10 +148,9 @@ describe("pruning session sizes", () => {
   it("drops sessions no longer on the canvas as it writes", () => {
     // Sessions are not bounded the way Bots are -- a project here holds hundreds -- so a store that
     // only ever grew would carry a size for every session ever opened.
-    storeSessionCardSizes(
-      { "claude:s1": { width: 700, height: 900 }, "claude:gone": { width: 400, height: 400 } },
-      ["claude:s1"],
-    );
+    storeSessionCardSizes({ "claude:s1": { width: 700, height: 900 }, "claude:gone": { width: 400, height: 400 } }, [
+      "claude:s1",
+    ]);
     expect(Object.keys(loadSessionCardSizes())).toEqual(["claude:s1"]);
   });
 

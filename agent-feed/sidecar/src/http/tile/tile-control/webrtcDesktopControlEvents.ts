@@ -19,16 +19,18 @@ const MAX_SOURCE_COORDINATE = 100_000;
 const MAX_SEQUENCE = 0xffff_ffff;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const CURSOR_KINDS = new Set<DesktopCursorKind>([
-  "arrow", "ibeam", "pointingHand", "resize", "unknown",
-]);
+const CURSOR_KINDS = new Set<DesktopCursorKind>(["arrow", "ibeam", "pointingHand", "resize", "unknown"]);
 const EDITABILITY = new Set<TextInputEditability>(["editable", "non-editable", "ambiguous"]);
-const FOCUS_SOURCES = new Set<TextInputFocusSource>([
-  "accessibility", "cursor-tap-heuristic", "none",
-]);
+const FOCUS_SOURCES = new Set<TextInputFocusSource>(["accessibility", "cursor-tap-heuristic", "none"]);
 const REJECTION_REASONS = new Set<InputRejectionReason>([
-  "accessibility-denied", "channel-closed", "helper-unavailable", "malformed", "not-owner",
-  "oversized", "backpressured", "unknown-key",
+  "accessibility-denied",
+  "channel-closed",
+  "helper-unavailable",
+  "malformed",
+  "not-owner",
+  "oversized",
+  "backpressured",
+  "unknown-key",
 ]);
 
 function finite(value: unknown, min: number, max: number): value is number {
@@ -36,36 +38,52 @@ function finite(value: unknown, min: number, max: number): value is number {
 }
 
 function positiveUint32(value: unknown): value is number {
-  return typeof value === "number"
-    && Number.isSafeInteger(value)
-    && value > 0
-    && value <= MAX_SEQUENCE;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= MAX_SEQUENCE;
 }
 
 function cursorPosition(value: Record<string, unknown>): WebrtcCursorPosition | null {
-  if (value.type !== "cursor-position"
-      || !finite(value.x, 0, MAX_SOURCE_COORDINATE)
-      || !finite(value.y, 0, MAX_SOURCE_COORDINATE)) return null;
+  if (
+    value.type !== "cursor-position" ||
+    !finite(value.x, 0, MAX_SOURCE_COORDINATE) ||
+    !finite(value.y, 0, MAX_SOURCE_COORDINATE)
+  )
+    return null;
   return { type: "cursor-position", x: value.x, y: value.y };
 }
 
 function cursorApplied(value: Record<string, unknown>): WebrtcCursorApplied | null {
-  if (value.type !== "cursor-applied" || !positiveUint32(value.revision)
-      || !finite(value.x, 0, MAX_SOURCE_COORDINATE)
-      || !finite(value.y, 0, MAX_SOURCE_COORDINATE)) return null;
+  if (
+    value.type !== "cursor-applied" ||
+    !positiveUint32(value.revision) ||
+    !finite(value.x, 0, MAX_SOURCE_COORDINATE) ||
+    !finite(value.y, 0, MAX_SOURCE_COORDINATE)
+  )
+    return null;
   return { type: "cursor-applied", revision: value.revision, x: value.x, y: value.y };
 }
 
 function cursorImage(value: Record<string, unknown>): WebrtcCursorImage | null {
-  if (value.type !== "cursor-image" || typeof value.png !== "string" || value.png.length === 0
-      || value.png.length > MAX_CURSOR_PNG_BYTES * 2 || !finite(value.hotspotXFrac, 0, 1)
-      || !finite(value.hotspotYFrac, 0, 1) || !finite(value.widthPoints, 0.01, MAX_CURSOR_POINTS)
-      || !finite(value.heightPoints, 0.01, MAX_CURSOR_POINTS) || typeof value.hidden !== "boolean"
-      || typeof value.cursorKind !== "string"
-      || !CURSOR_KINDS.has(value.cursorKind as DesktopCursorKind)) return null;
+  if (
+    value.type !== "cursor-image" ||
+    typeof value.png !== "string" ||
+    value.png.length === 0 ||
+    value.png.length > MAX_CURSOR_PNG_BYTES * 2 ||
+    !finite(value.hotspotXFrac, 0, 1) ||
+    !finite(value.hotspotYFrac, 0, 1) ||
+    !finite(value.widthPoints, 0.01, MAX_CURSOR_POINTS) ||
+    !finite(value.heightPoints, 0.01, MAX_CURSOR_POINTS) ||
+    typeof value.hidden !== "boolean" ||
+    typeof value.cursorKind !== "string" ||
+    !CURSOR_KINDS.has(value.cursorKind as DesktopCursorKind)
+  )
+    return null;
   const png = Buffer.from(value.png, "base64");
-  if (png.length === 0 || png.length > MAX_CURSOR_PNG_BYTES
-      || !png.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) return null;
+  if (
+    png.length === 0 ||
+    png.length > MAX_CURSOR_PNG_BYTES ||
+    !png.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+  )
+    return null;
   return {
     type: "cursor-image",
     hash: createHash("sha256").update(png).digest("hex"),
@@ -87,12 +105,20 @@ function boundedOptionalString(value: unknown): string | undefined | null {
 function textFocus(value: Record<string, unknown>): DesktopTextFocusEvent | null {
   const role = boundedOptionalString(value.role);
   const subrole = boundedOptionalString(value.subrole);
-  if (value.type !== "text-focus" || typeof value.focusRequestId !== "string"
-      || !UUID.test(value.focusRequestId) || typeof value.editability !== "string"
-      || !EDITABILITY.has(value.editability as TextInputEditability) || typeof value.secure !== "boolean"
-      || typeof value.source !== "string" || !FOCUS_SOURCES.has(value.source as TextInputFocusSource)
-      || typeof value.cursorKind !== "string"
-      || !CURSOR_KINDS.has(value.cursorKind as DesktopCursorKind) || role === null || subrole === null) {
+  if (
+    value.type !== "text-focus" ||
+    typeof value.focusRequestId !== "string" ||
+    !UUID.test(value.focusRequestId) ||
+    typeof value.editability !== "string" ||
+    !EDITABILITY.has(value.editability as TextInputEditability) ||
+    typeof value.secure !== "boolean" ||
+    typeof value.source !== "string" ||
+    !FOCUS_SOURCES.has(value.source as TextInputFocusSource) ||
+    typeof value.cursorKind !== "string" ||
+    !CURSOR_KINDS.has(value.cursorKind as DesktopCursorKind) ||
+    role === null ||
+    subrole === null
+  ) {
     return null;
   }
   return {
@@ -111,9 +137,12 @@ function delivery(value: Record<string, unknown>): DesktopControlEvent | null {
   if (value.type === "input-applied" && positiveUint32(value.sequence)) {
     return { type: "input-applied", sequence: value.sequence };
   }
-  if (value.type === "input-rejected" && typeof value.reason === "string"
-      && REJECTION_REASONS.has(value.reason as InputRejectionReason)
-      && (value.sequence === undefined || positiveUint32(value.sequence))) {
+  if (
+    value.type === "input-rejected" &&
+    typeof value.reason === "string" &&
+    REJECTION_REASONS.has(value.reason as InputRejectionReason) &&
+    (value.sequence === undefined || positiveUint32(value.sequence))
+  ) {
     return {
       type: "input-rejected",
       reason: value.reason as InputRejectionReason,
@@ -139,17 +168,21 @@ export class WebrtcDesktopControlEvents {
     }
     if (typeof decoded !== "object" || decoded === null) return null;
     const value = decoded as Record<string, unknown>;
-    if (["desktop-state", "desktop-unavailable", "space-result"].includes(String(value.type))
-        && payload.byteLength > 16 * 1024) return null;
-    const next = value.type === "cursor-image"
-      ? cursorImage(value)
-      : value.type === "cursor-applied"
-        ? cursorApplied(value)
-        : value.type === "cursor-position"
-          ? cursorPosition(value)
-          : value.type === "text-focus"
-            ? textFocus(value)
-            : delivery(value) ?? desktopNavigationEvent(value);
+    if (
+      ["desktop-state", "desktop-unavailable", "space-result"].includes(String(value.type)) &&
+      payload.byteLength > 16 * 1024
+    )
+      return null;
+    const next =
+      value.type === "cursor-image"
+        ? cursorImage(value)
+        : value.type === "cursor-applied"
+          ? cursorApplied(value)
+          : value.type === "cursor-position"
+            ? cursorPosition(value)
+            : value.type === "text-focus"
+              ? textFocus(value)
+              : (delivery(value) ?? desktopNavigationEvent(value));
     if (!next) return null;
     if (next.type === "cursor-image") {
       if (next.hash === this.image?.hash) return null;
@@ -177,8 +210,11 @@ export class WebrtcDesktopControlEvents {
   }
 
   snapshot(): DesktopControlEvent[] {
-    return [...this.cursorSnapshot(), ...(this.navigation ? [this.navigation] : []),
-      ...(this.navigationFailure ? [this.navigationFailure] : [])];
+    return [
+      ...this.cursorSnapshot(),
+      ...(this.navigation ? [this.navigation] : []),
+      ...(this.navigationFailure ? [this.navigationFailure] : []),
+    ];
   }
 
   captureDisplayMissing(displayId: string): boolean {

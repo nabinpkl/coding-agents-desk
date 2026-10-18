@@ -14,10 +14,7 @@
 
 import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type {
-  SubagentForkOrigin,
-  SubagentTranscriptMessage,
-} from "@agentdesk/agent-feed-wire";
+import type { SubagentForkOrigin, SubagentTranscriptMessage } from "@agentdesk/agent-feed-wire";
 import { encodeServerSentEvent, startServerSentEventStream } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 import { followTranscript } from "@/transcripts/transcript-reads/transcriptFollow";
@@ -32,8 +29,7 @@ import { claudeTranscriptPath } from "@/tasks/taskIdentity";
 // Hex only, and bounded. A subagent id is 17 hex characters today; the width is loose so a
 // change to that does not become a 404, but the alphabet is not, because the alphabet is the
 // whole of the traversal defence.
-const TRANSCRIPT_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-fA-F-]{36})\/agents\/([0-9a-fA-F]{1,64})\/transcript$/;
+const TRANSCRIPT_ROUTE = /^\/api\/sessions\/claude\/([0-9a-fA-F-]{36})\/agents\/([0-9a-fA-F]{1,64})\/transcript$/;
 
 /** Everything a subagent index needs to be told apart from the session that launched it. */
 function indexKey(sessionId: string, agentId: string): string {

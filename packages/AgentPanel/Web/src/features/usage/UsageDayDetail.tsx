@@ -18,8 +18,7 @@ import { cachedShare, daysInRange, previousWeek, sumDays, weekBounds } from "@/f
  */
 const RESERVED_MODEL_ROWS = 3;
 const MODEL_ROW_HEIGHT = "1.25rem";
-const MODEL_LIST_HEIGHT =
-  `calc(${RESERVED_MODEL_ROWS} * ${MODEL_ROW_HEIGHT} + ${RESERVED_MODEL_ROWS - 1} * 0.25rem)`;
+const MODEL_LIST_HEIGHT = `calc(${RESERVED_MODEL_ROWS} * ${MODEL_ROW_HEIGHT} + ${RESERVED_MODEL_ROWS - 1} * 0.25rem)`;
 
 /** Stands in for a day while none is hovered. Rendered invisibly, purely to hold the height. */
 const PLACEHOLDER_TOTALS: UsageTotals = {
@@ -92,10 +91,7 @@ function DayFacts({ day, days }: { day: UsageDay | null; days: UsageDay[] }) {
             {/* The alias leads because five rows of `claude-…-…-…` read as one blur at 160px, and
                 the exact id is what the row is really keyed by -- so it stays, as the title and as
                 the text a screen reader gets, rather than being dropped for the short name. */}
-            <span
-              className="w-40 shrink-0 truncate font-mono text-muted-foreground"
-              title={entry.model}
-            >
+            <span className="w-40 shrink-0 truncate font-mono text-muted-foreground" title={entry.model}>
               {entry.alias ?? entry.model}
               {entry.alias ? <span className="sr-only"> ({entry.model})</span> : null}
             </span>
@@ -103,15 +99,11 @@ function DayFacts({ day, days }: { day: UsageDay | null; days: UsageDay[] }) {
               <span
                 className="block h-full bg-foreground/50"
                 style={{
-                  width: `${totals.inputTokens > 0
-                    ? (100 * entry.totals.inputTokens) / totals.inputTokens
-                    : 0}%`,
+                  width: `${totals.inputTokens > 0 ? (100 * entry.totals.inputTokens) / totals.inputTokens : 0}%`,
                 }}
               />
             </span>
-            <span className="w-16 shrink-0 text-right font-mono">
-              {formatTokens(entry.totals.inputTokens)}
-            </span>
+            <span className="w-16 shrink-0 text-right font-mono">{formatTokens(entry.totals.inputTokens)}</span>
           </li>
         ))}
       </ul>

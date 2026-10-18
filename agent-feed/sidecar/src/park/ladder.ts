@@ -143,9 +143,7 @@ export function plan(frontToBack: readonly LadderWindow[], options: LadderOption
         overflow.push(w.id);
         continue;
       }
-      const x = side === "right"
-        ? display.x + display.w - strip
-        : display.x + strip - w.frame.w;
+      const x = side === "right" ? display.x + display.w - strip : display.x + strip - w.frame.w;
       placements.push({
         id: w.id,
         side,

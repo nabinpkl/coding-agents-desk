@@ -78,9 +78,7 @@ export function TerminalChildCard({
   const faces = useBotFaces();
   // Its own face rather than its parent's, so siblings never share one. Unshaded keeps its
   // disc whatever the switch says -- a face with no hue in scope has no colour to take.
-  const faceRank = rank !== undefined && step !== undefined
-    ? botSessionFaceRank(rank, step)
-    : undefined;
+  const faceRank = rank !== undefined && step !== undefined ? botSessionFaceRank(rank, step) : undefined;
   const faced = faces && faceRank !== undefined && shaded !== undefined;
   const [confirming, setConfirming] = useState(false);
   const [killing, setKilling] = useState(false);
@@ -121,22 +119,25 @@ export function TerminalChildCard({
   // program numbers or orders what arrives by arrival, the same reason the composer sends
   // alone. The size gate mirrors the composer's message; whether it is an image is judged by
   // the sidecar sniffing the bytes, never by what the browser called the file.
-  const acceptImageFiles = useCallback((files: readonly File[]): void => {
-    if (files.length === 0) return;
-    setError(null);
-    const sendable = files.filter((file) => file.size <= MAXIMUM_COMPOSER_IMAGE_BYTES);
-    if (sendable.length < files.length) {
-      setError(`An image has to be under ${MAXIMUM_COMPOSER_IMAGE_BYTES / (1024 * 1024)} MB.`);
-    }
-    if (sendable.length === 0) return;
-    void (async () => {
-      try {
-        for (const file of sendable) await feed.dropTmuxSessionImage(session.name, file);
-      } catch (cause: unknown) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+  const acceptImageFiles = useCallback(
+    (files: readonly File[]): void => {
+      if (files.length === 0) return;
+      setError(null);
+      const sendable = files.filter((file) => file.size <= MAXIMUM_COMPOSER_IMAGE_BYTES);
+      if (sendable.length < files.length) {
+        setError(`An image has to be under ${MAXIMUM_COMPOSER_IMAGE_BYTES / (1024 * 1024)} MB.`);
       }
-    })();
-  }, [feed, session.name]);
+      if (sendable.length === 0) return;
+      void (async () => {
+        try {
+          for (const file of sendable) await feed.dropTmuxSessionImage(session.name, file);
+        } catch (cause: unknown) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+      })();
+    },
+    [feed, session.name],
+  );
   // Always accepting, never a refusal line: unlike a composer box this needs no tile mounted
   // and no program answering, only the session name, so there is no state in which it cannot
   // take the file.
@@ -151,10 +152,9 @@ export function TerminalChildCard({
   items.push({ label: "Attach image…", icon: Paperclip, onSelect: () => document.getElementById(pickerId)?.click() });
   items.push({ label: "Kill session", icon: Skull, onSelect: () => setConfirming(true) });
 
-  const watched = session.attachedClients > 0
-    ? `${session.attachedClients} watching`
-    : "unattached";
-  return (    <li
+  const watched = session.attachedClients > 0 ? `${session.attachedClients} watching` : "unattached";
+  return (
+    <li
       ref={card}
       className="shrink-0"
       // The Bot canvas's closed width, shared rather than repeated: a closed terminal row holds
@@ -270,12 +270,7 @@ export function TerminalChildCard({
               <TerminalTile feed={feed} session={session} storageKey={storageKey} onAttachImage={acceptImageFiles} />
             </div>
           ) : null}
-          <TerminalWindowRows
-            machineId={machineId}
-            session={session}
-            openKeys={openKeys}
-            onToggleKey={onToggleKey}
-          />
+          <TerminalWindowRows machineId={machineId} session={session} openKeys={openKeys} onToggleKey={onToggleKey} />
           {windowTiles(machineId, session.name, openKeys).map(({ key, target }) => (
             <div key={key} className="min-h-0 border-t border-border">
               <TerminalTile
@@ -306,11 +301,7 @@ export function TerminalChildCard({
         />
         {/* Last child of the `relative` box above, so nothing paints over it: the same
             placement the Bot session card gives it, for the same reason. */}
-        <FileDropOverlay
-          dragging={drop.dragging}
-          refusal={null}
-          message="Drop to paste the image path"
-        />
+        <FileDropOverlay dragging={drop.dragging} refusal={null} message="Drop to paste the image path" />
       </div>
     </li>
   );

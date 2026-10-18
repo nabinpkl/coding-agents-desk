@@ -42,10 +42,14 @@ test("the default body ends the session and forgets it, and touches no disk", as
   const { registry, botId, ref, worktree } = await botInWorktree();
   runningPanes.set(ref.sessionId, "agentdesk-in-worktree");
 
-  const { bot, retired } = await registry.retireSessions(botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-  }, { kind: "user" });
+  const { bot, retired } = await registry.retireSessions(
+    botId,
+    {
+      requestId: "retire",
+      sessionRefs: [ref],
+    },
+    { kind: "user" },
+  );
 
   expect(bot.sessionRefs).toEqual([]);
   expect(endedPanes).toEqual(["agentdesk-in-worktree"]);
@@ -57,10 +61,14 @@ test("the default body ends the session and forgets it, and touches no disk", as
 test("a session that has already stopped is retired without that being a failure", async () => {
   const { registry, botId, ref } = await botInWorktree();
 
-  const { retired } = await registry.retireSessions(botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-  }, { kind: "user" });
+  const { retired } = await registry.retireSessions(
+    botId,
+    {
+      requestId: "retire",
+      sessionRefs: [ref],
+    },
+    { kind: "user" },
+  );
 
   expect(endedPanes).toEqual([]);
   expect(retired[0]!.endedPane).toBeUndefined();
@@ -72,12 +80,16 @@ test("removes the worktree and deletes its branch when both are asked for", asyn
   // Merged into main, so `git branch -d` will take it.
   await git(["merge", "-q", "side"], checkout);
 
-  const { retired } = await registry.retireSessions(botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-    branch: "delete",
-  }, { kind: "user" });
+  const { retired } = await registry.retireSessions(
+    botId,
+    {
+      requestId: "retire",
+      sessionRefs: [ref],
+      worktree: "remove",
+      branch: "delete",
+    },
+    { kind: "user" },
+  );
 
   expect(retired[0]).toEqual({ ...ref, removedWorktree: worktree, deletedBranch: "side", failed: [] });
   expect(await readWorktree(worktree)).toBeNull();
@@ -91,18 +103,24 @@ test("an unmerged branch survives, and the worktree is still gone", async () => 
   await git(["add", "work"], worktree);
   await git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "unmerged"], worktree);
 
-  const { retired } = await registry.retireSessions(botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-    branch: "delete",
-  }, { kind: "user" });
+  const { retired } = await registry.retireSessions(
+    botId,
+    {
+      requestId: "retire",
+      sessionRefs: [ref],
+      worktree: "remove",
+      branch: "delete",
+    },
+    { kind: "user" },
+  );
 
   // The asymmetry the ordering forces: a checked-out branch cannot be deleted, so the worktree goes
   // first and `git branch -d` then refuses. The commits are what matter and they are all still here.
   expect(retired[0]!.removedWorktree).toBe(worktree);
   expect(retired[0]!.deletedBranch).toBeUndefined();
-  expect(retired[0]!.failed).toEqual([{ step: "branch", reason: expect.stringContaining("git branch -d side failed") }]);
+  expect(retired[0]!.failed).toEqual([
+    { step: "branch", reason: expect.stringContaining("git branch -d side failed") },
+  ]);
   const branches = Bun.spawnSync(["git", "branch", "--format=%(refname:short)"], { cwd: checkout });
   expect(branches.stdout.toString()).toContain("side");
 });
@@ -112,11 +130,17 @@ test("a dirty worktree is refused, and nothing at all happens", async () => {
   runningPanes.set(ref.sessionId, "agentdesk-in-worktree");
   await writeFile(join(worktree, "scratch"), "uncommitted\n");
 
-  await expect(registry.retireSessions(botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotConflictError);
+  await expect(
+    registry.retireSessions(
+      botId,
+      {
+        requestId: "retire",
+        sessionRefs: [ref],
+        worktree: "remove",
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotConflictError);
 
   // The whole point of planning before acting: the refusal arrives with the pane still alive and
   // the reference still attached, so the caller can fix the cause and resend the same command.
@@ -138,11 +162,17 @@ test("a directory that is not a worktree of this Bot's checkout is refused", asy
   await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
   sessions.set("claude:elsewhere", { projectPath: other.worktree, summary: summary(ref) });
 
-  await expect(registry.retireSessions(bot.botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotConflictError);
+  await expect(
+    registry.retireSessions(
+      bot.botId,
+      {
+        requestId: "retire",
+        sessionRefs: [ref],
+        worktree: "remove",
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotConflictError);
   expect(await readWorktree(other.worktree)).not.toBeNull();
 });
 
@@ -150,13 +180,16 @@ test("refuses a reference the Bot does not hold, and refuses agent actors entire
   const { registry, botId, ref } = await botInWorktree();
   const stranger = { source: "claude" as const, sessionId: "not-mine" };
 
-  await expect(registry.retireSessions(botId, { requestId: "a", sessionRefs: [stranger] }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotNotFoundError);
-  await expect(registry.retireSessions("missing-bot", { requestId: "b", sessionRefs: [ref] }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(
+    registry.retireSessions(botId, { requestId: "a", sessionRefs: [stranger] }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(
+    registry.retireSessions("missing-bot", { requestId: "b", sessionRefs: [ref] }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
   // Ending somebody's session is further than `add_bot` reaches, exactly as detaching is.
-  await expect(registry.retireSessions(botId, { requestId: "c", sessionRefs: [ref] }, { kind: "agent", session: ref }))
-    .rejects.toBeInstanceOf(BotForbiddenError);
+  await expect(
+    registry.retireSessions(botId, { requestId: "c", sessionRefs: [ref] }, { kind: "agent", session: ref }),
+  ).rejects.toBeInstanceOf(BotForbiddenError);
   expect((await registry.snapshot()).bots[0]!.sessionRefs).toEqual([ref]);
 });
 
@@ -165,22 +198,47 @@ test("refuses the disposal pairs git could never carry out", async () => {
 
   // A branch cannot be deleted while a worktree has it checked out, so this pair would report a
   // success for a step that never ran.
-  await expect(registry.retireSessions(botId, {
-    requestId: "a", sessionRefs: [ref], branch: "delete",
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotInvalidError);
+  await expect(
+    registry.retireSessions(
+      botId,
+      {
+        requestId: "a",
+        sessionRefs: [ref],
+        branch: "delete",
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotInvalidError);
   // And the local delete is the only merged-ness check there is, so the remote cannot go without it.
-  await expect(registry.retireSessions(botId, {
-    requestId: "b", sessionRefs: [ref], worktree: "remove", remote: "delete",
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotInvalidError);
+  await expect(
+    registry.retireSessions(
+      botId,
+      {
+        requestId: "b",
+        sessionRefs: [ref],
+        worktree: "remove",
+        remote: "delete",
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotInvalidError);
 });
 
 test("a session the catalog has forgotten can be retired, but not have its worktree removed", async () => {
   const { registry, botId, ref } = await botInWorktree();
   sessions.delete("claude:in-worktree");
 
-  await expect(registry.retireSessions(botId, {
-    requestId: "a", sessionRefs: [ref], worktree: "remove",
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(
+    registry.retireSessions(
+      botId,
+      {
+        requestId: "a",
+        sessionRefs: [ref],
+        worktree: "remove",
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
 
   // Forgetting it is still allowed, for the same reason detaching one is: a row nothing resolves
   // would otherwise be the only row that can never be removed.
@@ -213,13 +271,19 @@ test("refuses to delete a remote branch the local one cannot be shown to be", as
   const { registry, botId, ref, checkout, worktree } = await botInWorktree();
   await git(["merge", "-q", "side"], checkout);
 
-  await expect(registry.retireSessions(botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-    branch: "delete",
-    remote: "delete",
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotConflictError);
+  await expect(
+    registry.retireSessions(
+      botId,
+      {
+        requestId: "retire",
+        sessionRefs: [ref],
+        worktree: "remove",
+        branch: "delete",
+        remote: "delete",
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotConflictError);
 
   // Refused during planning, so the worktree and the branch are both still here.
   expect(await readWorktree(worktree)).not.toBeNull();
@@ -238,15 +302,25 @@ test("deletes the tracked remote branch when the commits survive without it", as
   await git(["merge", "-q", "side"], checkout);
   expect(await remoteBranches(remote!)).toEqual(["main", "side"]);
 
-  const { retired } = await registry.retireSessions(bot.botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-    branch: "delete",
-    remote: "delete",
-  }, { kind: "user" });
+  const { retired } = await registry.retireSessions(
+    bot.botId,
+    {
+      requestId: "retire",
+      sessionRefs: [ref],
+      worktree: "remove",
+      branch: "delete",
+      remote: "delete",
+    },
+    { kind: "user" },
+  );
 
-  expect(retired[0]).toEqual({ ...ref, removedWorktree: worktree, deletedBranch: "side", deletedRemoteBranch: "origin/side", failed: [] });
+  expect(retired[0]).toEqual({
+    ...ref,
+    removedWorktree: worktree,
+    deletedBranch: "side",
+    deletedRemoteBranch: "origin/side",
+    failed: [],
+  });
   expect(await remoteBranches(remote!)).toEqual(["main"]);
 });
 
@@ -264,14 +338,18 @@ test("names the remote branch the local delete leaves behind, and does not touch
   await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
   await git(["merge", "-q", "side"], checkout);
 
-  const { retired } = await registry.retireSessions(bot.botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-    branch: "delete",
-    // The default, said out loud: this is the case the report exists for.
-    remote: "keep",
-  }, { kind: "user" });
+  const { retired } = await registry.retireSessions(
+    bot.botId,
+    {
+      requestId: "retire",
+      sessionRefs: [ref],
+      worktree: "remove",
+      branch: "delete",
+      // The default, said out loud: this is the case the report exists for.
+      remote: "keep",
+    },
+    { kind: "user" },
+  );
 
   expect(retired[0]).toEqual({
     ...ref,
@@ -297,12 +375,16 @@ test("says nothing about a remote branch when the local one was never pushed", a
   await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
   await git(["merge", "-q", "side"], checkout);
 
-  const { retired } = await registry.retireSessions(bot.botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-    branch: "delete",
-  }, { kind: "user" });
+  const { retired } = await registry.retireSessions(
+    bot.botId,
+    {
+      requestId: "retire",
+      sessionRefs: [ref],
+      worktree: "remove",
+      branch: "delete",
+    },
+    { kind: "user" },
+  );
 
   expect(retired[0]).toEqual({ ...ref, removedWorktree: worktree, deletedBranch: "side", failed: [] });
 });
@@ -323,13 +405,19 @@ test("refuses a remote delete whose commits live only on that remote", async () 
   await git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "unmerged"], worktree);
   await git(["push", "-q", "origin", "side"], worktree);
 
-  await expect(registry.retireSessions(bot.botId, {
-    requestId: "retire",
-    sessionRefs: [ref],
-    worktree: "remove",
-    branch: "delete",
-    remote: "delete",
-  }, { kind: "user" })).rejects.toBeInstanceOf(BotConflictError);
+  await expect(
+    registry.retireSessions(
+      bot.botId,
+      {
+        requestId: "retire",
+        sessionRefs: [ref],
+        worktree: "remove",
+        branch: "delete",
+        remote: "delete",
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toBeInstanceOf(BotConflictError);
 
   expect(await remoteBranches(remote!)).toEqual(["main", "side"]);
   expect(await readWorktree(worktree)).not.toBeNull();

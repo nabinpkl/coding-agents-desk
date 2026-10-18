@@ -30,24 +30,25 @@ export function useRemoteUserBar(
   const ds = useDataSource();
   const asked = usePanelQuery({
     queryKey: ["last-said", sourceKey(ds), sessionId, before],
-    queryFn: (): Promise<LastSessionMessage | null> => ds.lastMessage(sessionId, { said: true, before: before! }).then(
-      (message) => {
-        // Checked rather than trusted: the bar renders the text and the jump reads around the index.
-        if (typeof message?.text !== "string" || typeof message.index !== "number") {
-          console.error(`[user bar] the sidecar's answer for ${before} is not a message`, message);
+    queryFn: (): Promise<LastSessionMessage | null> =>
+      ds.lastMessage(sessionId, { said: true, before: before! }).then(
+        (message) => {
+          // Checked rather than trusted: the bar renders the text and the jump reads around the index.
+          if (typeof message?.text !== "string" || typeof message.index !== "number") {
+            console.error(`[user bar] the sidecar's answer for ${before} is not a message`, message);
+            return null;
+          }
+          return message;
+        },
+        (error: unknown) => {
+          // A 404 is an answer: nothing was said above this position. Anything else is a failure,
+          // and the bar stays down rather than naming a message it could not find.
+          if (!(error instanceof SidecarError && error.status === 404)) {
+            console.error(`[user bar] could not ask for the message before ${before}`, error);
+          }
           return null;
-        }
-        return message;
-      },
-      (error: unknown) => {
-        // A 404 is an answer: nothing was said above this position. Anything else is a failure,
-        // and the bar stays down rather than naming a message it could not find.
-        if (!(error instanceof SidecarError && error.status === 404)) {
-          console.error(`[user bar] could not ask for the message before ${before}`, error);
-        }
-        return null;
-      },
-    ),
+        },
+      ),
     enabled: before !== null,
   });
   const answer = before !== null && asked.data !== undefined ? { before, message: asked.data } : null;
@@ -97,17 +98,20 @@ export function useJumpToMessage({
     }
   }, [seeking, items, rowVirtualizer, flashHighlight]);
 
-  return useCallback((message: LastSessionMessage) => {
-    pause();
-    const held = itemsRef.current.some((item) => isEventItem(item) && leadEvent(item).id === message.eventId);
-    setSeeking({ eventId: message.eventId, read: held });
-    if (held) return;
-    loadAround(message.index).then(
-      () => setSeeking((current) => current?.eventId === message.eventId ? { ...current, read: true } : current),
-      (error: unknown) => {
-        console.error(`[user bar] could not read the rows around ${message.eventId}`, error);
-        setSeeking(null);
-      },
-    );
-  }, [loadAround, pause, itemsRef]);
+  return useCallback(
+    (message: LastSessionMessage) => {
+      pause();
+      const held = itemsRef.current.some((item) => isEventItem(item) && leadEvent(item).id === message.eventId);
+      setSeeking({ eventId: message.eventId, read: held });
+      if (held) return;
+      loadAround(message.index).then(
+        () => setSeeking((current) => (current?.eventId === message.eventId ? { ...current, read: true } : current)),
+        (error: unknown) => {
+          console.error(`[user bar] could not read the rows around ${message.eventId}`, error);
+          setSeeking(null);
+        },
+      );
+    },
+    [loadAround, pause, itemsRef],
+  );
 }

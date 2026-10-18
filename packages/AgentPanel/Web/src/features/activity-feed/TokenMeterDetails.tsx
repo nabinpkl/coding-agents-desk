@@ -45,9 +45,7 @@ function place(trigger: DOMRect, panel: DOMRect): Placement {
   const viewportWidth = globalThis.innerWidth || 0;
   const above = trigger.top - MARGIN;
   const below = viewportHeight - trigger.bottom - MARGIN;
-  const top = panel.height > above && below > above
-    ? trigger.bottom + GAP
-    : trigger.top - GAP - panel.height;
+  const top = panel.height > above && below > above ? trigger.bottom + GAP : trigger.top - GAP - panel.height;
   return {
     top: Math.max(MARGIN, Math.min(top, viewportHeight - MARGIN - panel.height)),
     left: Math.max(MARGIN, Math.min(trigger.right - panel.width, viewportWidth - MARGIN - panel.width)),
@@ -140,9 +138,7 @@ export function TokenMeterDetails({
 }
 
 function ContextFigures({ usage, now }: { usage: TokenUsage; now: () => number }) {
-  const percent = usage.limit === null
-    ? null
-    : Math.round(Math.min(1, Math.max(0, usage.current / usage.limit)) * 100);
+  const percent = usage.limit === null ? null : Math.round(Math.min(1, Math.max(0, usage.current / usage.limit)) * 100);
   return (
     <dl className="flex flex-col gap-1 text-xs">
       <Figure label="Context">
@@ -152,9 +148,9 @@ function ContextFigures({ usage, now }: { usage: TokenUsage; now: () => number }
       </Figure>
       {usage.model ? <Figure label="Model">{usage.model}</Figure> : null}
       <Figure label="Prompt cache">{cacheText(usage, now())}</Figure>
-      {usage.cost !== undefined && usage.cost > 0
-        ? <Figure label="Session cost">{formatUsd(usage.cost)}</Figure>
-        : null}
+      {usage.cost !== undefined && usage.cost > 0 ? (
+        <Figure label="Session cost">{formatUsd(usage.cost)}</Figure>
+      ) : null}
     </dl>
   );
 }
@@ -196,13 +192,19 @@ function CompactButton({ control, onSent }: { control: CompactControl; onSent: (
         }}
         className="inline-flex h-7 cursor-pointer touch-manipulation items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {sending
-          ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-          : <FoldVertical className="size-3.5" aria-hidden />}
+        {sending ? (
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        ) : (
+          <FoldVertical className="size-3.5" aria-hidden />
+        )}
         Compact
       </button>
       {note ? (
-        <p className={"text-right text-xs " + (failure && !control.blocked ? "text-destructive" : "text-muted-foreground")}>
+        <p
+          className={
+            "text-right text-xs " + (failure && !control.blocked ? "text-destructive" : "text-muted-foreground")
+          }
+        >
           {note}
         </p>
       ) : null}
@@ -267,12 +269,10 @@ function LimitRow({ quota, now }: { quota: UsageQuota; now: () => number }) {
           aria-valuenow={quota.usedPercent}
           aria-valuemin={0}
           aria-valuemax={100}
-          className={"block h-full rounded-full "
-            + (quota.usedPercent >= 90
-              ? "bg-destructive"
-              : quota.usedPercent >= 75
-                ? "bg-amber-500"
-                : "bg-foreground/60")}
+          className={
+            "block h-full rounded-full " +
+            (quota.usedPercent >= 90 ? "bg-destructive" : quota.usedPercent >= 75 ? "bg-amber-500" : "bg-foreground/60")
+          }
           style={{ width: `${Math.min(100, Math.max(0, quota.usedPercent))}%` }}
         />
       </span>
@@ -280,9 +280,7 @@ function LimitRow({ quota, now }: { quota: UsageQuota; now: () => number }) {
           passed -- so it answers "how old is this" instead, which is the only true thing left to
           say about it. */}
       <span className="text-muted-foreground">
-        {stale
-          ? `reading ${formatAge(quota.sampledAt, at)}`
-          : `resets in ${formatResetIn(quota.resetsAt, at)}`}
+        {stale ? `reading ${formatAge(quota.sampledAt, at)}` : `resets in ${formatResetIn(quota.resetsAt, at)}`}
       </span>
     </div>
   );

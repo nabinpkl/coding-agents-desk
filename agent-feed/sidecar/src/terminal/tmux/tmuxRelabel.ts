@@ -76,7 +76,7 @@ export async function adoptTitleName(
     // The read that licenses the rename. Anything other than this pane -- null for an option that
     // did not land, another name for a stamp that belongs elsewhere -- means the derived name is
     // still the only way back to this session, so it stays.
-    if (await deps.stamped(sessionId) !== pane) return pane;
+    if ((await deps.stamped(sessionId)) !== pane) return pane;
     const taken = (await deps.list()).map((session) => session.name).filter((name) => name !== pane);
     const next = uniqueTmuxSessionName(title, sessionId, taken);
     if (next === pane) return pane;

@@ -29,12 +29,7 @@
 // while a file was still being written, and of whatever causes it next -- and it is the question
 // the projection has been asking all along.
 
-import type {
-  ActivityEvent,
-  EventMode,
-  TimelineEnvelope,
-  TokenUsage,
-} from "@agentdesk/agent-feed-wire";
+import type { ActivityEvent, EventMode, TimelineEnvelope, TokenUsage } from "@agentdesk/agent-feed-wire";
 
 /**
  * How many of a session's most recent events one window carries.

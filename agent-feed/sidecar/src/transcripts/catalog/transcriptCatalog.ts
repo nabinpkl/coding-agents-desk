@@ -11,11 +11,7 @@ import { basename, join } from "node:path";
 import { config } from "@/config/config";
 import { state } from "@/transcripts/transcriptState";
 import type { SourceId } from "@/transcripts/transcriptTypes";
-import {
-  broadcast,
-  resetCatalogBroadcast,
-  ROLLOUT_PATTERN,
-} from "@/transcripts/catalog/catalogState";
+import { broadcast, resetCatalogBroadcast, ROLLOUT_PATTERN } from "@/transcripts/catalog/catalogState";
 import { projectSummaries } from "@/transcripts/catalog/catalogViews";
 import { publishTranscriptWrite } from "@/transcripts/catalog/transcriptWrites";
 import { resolveStateDbPath } from "@/transcripts/codex/codexTranscript";
@@ -31,10 +27,7 @@ import {
   stopCodexReconcile,
 } from "@/transcripts/catalog/codexCatalog";
 import { reconcilePi } from "@/transcripts/catalog/piCatalog";
-import {
-  reconcileOpencode,
-  stopOpencodeReconcile,
-} from "@/transcripts/catalog/opencodeCatalog";
+import { reconcileOpencode, stopOpencodeReconcile } from "@/transcripts/catalog/opencodeCatalog";
 
 // Re-exported because the catalog is one subsystem with one address: nineteen callers
 // already import it, and the parts below are how it is built rather than what it offers.
@@ -97,10 +90,11 @@ function attachSourceWatchers(): void {
 
   const databasePath = resolveStateDbPath();
   if (databasePath) {
-    const databaseWatcher = chokidar.watch(
-      [databasePath, `${databasePath}-wal`, `${databasePath}-shm`],
-      { ignoreInitial: true, persistent: true, awaitWriteFinish: false },
-    );
+    const databaseWatcher = chokidar.watch([databasePath, `${databasePath}-wal`, `${databasePath}-shm`], {
+      ignoreInitial: true,
+      persistent: true,
+      awaitWriteFinish: false,
+    });
     databaseWatcher.on("add", scheduleCodexReconcile);
     databaseWatcher.on("change", scheduleCodexReconcile);
     databaseWatcher.on("unlink", scheduleCodexReconcile);
@@ -143,9 +137,11 @@ function attachSourceWatchers(): void {
     if (piReconcileTimer) clearTimeout(piReconcileTimer);
     piReconcileTimer = setTimeout(() => {
       piReconcileTimer = null;
-      void reconcilePi().then(broadcast).catch((error) => {
-        console.error("agent feed Pi catalog reconcile failed", error);
-      });
+      void reconcilePi()
+        .then(broadcast)
+        .catch((error) => {
+          console.error("agent feed Pi catalog reconcile failed", error);
+        });
     }, 40);
   };
   // Same reconcile whatever happened, so again the event kind was never read. The root
@@ -169,18 +165,17 @@ function attachSourceWatchers(): void {
  * no data at all rather than the partial data it had. Loud in the log, empty
  * for that source, alive for the rest.
  */
-export async function reconcileSource(
-  source: SourceId,
-  reconcile: () => Promise<void>,
-): Promise<void> {
+export async function reconcileSource(source: SourceId, reconcile: () => Promise<void>): Promise<void> {
   try {
     await reconcile();
   } catch (error) {
-    console.error(JSON.stringify({
-      event: "agent-feed-catalog-source-failed",
-      source,
-      message: error instanceof Error ? error.message : String(error),
-    }));
+    console.error(
+      JSON.stringify({
+        event: "agent-feed-catalog-source-failed",
+        source,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   }
 }
 
@@ -234,12 +229,14 @@ export async function startCatalog(): Promise<void> {
       .catch((error) => console.error("agent feed catalog safety rescan failed", error));
   }, config.discoveryRescanMs);
   state.watcherState = "live";
-  console.log(JSON.stringify({
-    event: "agent-feed-catalog-ready",
-    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
-    sessions: state.sessions.size,
-    projects: projectSummaries().length,
-  }));
+  console.log(
+    JSON.stringify({
+      event: "agent-feed-catalog-ready",
+      durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+      sessions: state.sessions.size,
+      projects: projectSummaries().length,
+    }),
+  );
   markCatalogReady();
 }
 

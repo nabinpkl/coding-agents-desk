@@ -190,4 +190,12 @@ if grep -rnE '\bReact\.use(Layout|Insertion)?Effect\b' packages/AgentPanel/Web/s
     fail "an effect reached through the React namespace; ADR-0146 bans them outside src/hooks"
 fi
 
+# 9. Every file in those trees is as oxfmt would write it (`.oxfmtrc.json`). Checked rather than
+#    applied on save, because several sessions edit this tree at once: a formatter that ran
+#    behind one of them would rewrite a file another is mid-edit in.
+if ! tools/format.sh --check >/dev/null; then
+    tools/format.sh --list-different >&2 || true
+    fail "files not formatted; run tools/format.sh"
+fi
+
 echo "agent-feed-fitness: OK"

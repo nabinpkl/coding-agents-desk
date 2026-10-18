@@ -154,10 +154,10 @@ export async function liveSessionProcesses(
       sessionId,
       cwd: typeof cwd === "string" ? cwd : "",
       startedAt: kernelStart,
-      messagingSocketPath: typeof record.messagingSocketPath === "string" &&
-          record.messagingSocketPath !== ""
-        ? record.messagingSocketPath
-        : null,
+      messagingSocketPath:
+        typeof record.messagingSocketPath === "string" && record.messagingSocketPath !== ""
+          ? record.messagingSocketPath
+          : null,
       entrypoint: readEntrypoint(record.entrypoint),
       tmuxSession: readTmuxSession(record.tmux),
       waiting: record.status === "waiting",

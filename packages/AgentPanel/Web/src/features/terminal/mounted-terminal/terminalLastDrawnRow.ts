@@ -32,7 +32,13 @@ export function lastDrawnRow(terminal: DrawnScreen): number {
   const buffer = terminal.buffer.active;
   const cursor = buffer.cursorY;
   for (let row = terminal.rows - 1; row > cursor; row -= 1) {
-    if (buffer.getLine(buffer.baseY + row)?.translateToString(true).trim()) return row;
+    if (
+      buffer
+        .getLine(buffer.baseY + row)
+        ?.translateToString(true)
+        .trim()
+    )
+      return row;
   }
   return cursor;
 }

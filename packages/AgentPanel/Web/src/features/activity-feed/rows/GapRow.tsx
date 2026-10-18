@@ -33,7 +33,9 @@ export function GapRow({ failed, onRetry }: { failed: boolean; onRetry: () => vo
             </button>
           </span>
         ) : (
-          <span className={CHIP_CLASS} style={CHIP_STYLE}>Loading lines…</span>
+          <span className={CHIP_CLASS} style={CHIP_STYLE}>
+            Loading lines…
+          </span>
         )}
         <span className="h-px flex-1 border-t border-dashed border-border" aria-hidden />
       </div>

@@ -99,34 +99,19 @@ export type AgentSessionControlState = Pick<AgentSessionState, "runState" | "que
 export interface AgentDataSource {
   /** Fetches `limit` events read before, after or around a position (`EventsPageAt`), or the
    *  newest of all for `{ before: null }`. Throws on non-ok HTTP. */
-  fetchEventsPage(
-    session: SessionReference,
-    at: EventsPageAt,
-    limit: number,
-  ): Promise<EventsPage>;
+  fetchEventsPage(session: SessionReference, at: EventsPageAt, limit: number): Promise<EventsPage>;
 
   /** Opens an SSE stream for new events after `after`. Returns unsubscribe. */
-  subscribeSessionEvents(
-    session: SessionReference,
-    after: number,
-    handlers: SessionEventsHandlers,
-  ): () => void;
+  subscribeSessionEvents(session: SessionReference, after: number, handlers: SessionEventsHandlers): () => void;
 
   /** Fetches the exact original JSONL line for one visible event. */
-  fetchRawEvent(
-    session: SessionReference,
-    eventIndex: number,
-  ): Promise<string>;
+  fetchRawEvent(session: SessionReference, eventIndex: number): Promise<string>;
 
   /**
    * Where the page can load the picture behind one image block, or null where it cannot: a
    * relayed transport has no address a browser loads by itself.
    */
-  eventImageUrl(
-    session: SessionReference,
-    eventIndex: number,
-    blockIndex: number,
-  ): string | null;
+  eventImageUrl(session: SessionReference, eventIndex: number, blockIndex: number): string | null;
 
   /**
    * Where the page can load a picture a tool call HANDED to the reader, by its place in that
@@ -135,12 +120,7 @@ export interface AgentDataSource {
    * Addressed by position rather than by path on purpose: the request never carries a filename,
    * so the panel can only ask for what the session already said it was sending.
    */
-  eventFileUrl(
-    session: SessionReference,
-    eventIndex: number,
-    blockIndex: number,
-    fileIndex: number,
-  ): string | null;
+  eventFileUrl(session: SessionReference, eventIndex: number, blockIndex: number, fileIndex: number): string | null;
 
   /**
    * Follows the session's background tasks. Returns unsubscribe.

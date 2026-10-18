@@ -142,8 +142,7 @@ test("refuses when the directory would show up in git status, and names the fix"
   // it, not only the one that made it.
   const checkout = await repository();
 
-  await expect(prepareWorktree({ checkout, branch: "side" }))
-    .rejects.toThrow(/\.git\/info\/exclude/);
+  await expect(prepareWorktree({ checkout, branch: "side" })).rejects.toThrow(/\.git\/info\/exclude/);
 });
 
 test("refuses a branch name git will not take", async () => {

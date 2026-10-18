@@ -36,10 +36,7 @@ const statusCall: ActivityBlock = { kind: "tool_use", tool: "Bash", summary: "gi
 
 describe("splitLiveTails", () => {
   it("gives each block of a streaming message the row the transcript will give it", () => {
-    const rows = splitLiveTails(
-      [message("streaming", [firstThought, secondThought, listCall, statusCall])],
-      [],
-    );
+    const rows = splitLiveTails([message("streaming", [firstThought, secondThought, listCall, statusCall])], []);
 
     expect(rows.map((row) => [row.type, row.blocks.map((block) => block.kind)])).toEqual([
       ["reasoning", ["reasoning"]],
@@ -63,19 +60,14 @@ describe("splitLiveTails", () => {
   });
 
   it("drops the last block once its line landed, whether or not the mirror saw the message end", () => {
-    expect(splitLiveTails([message("streaming", [firstThought])], [line(1, firstThought)]))
-      .toEqual([]);
-    expect(splitLiveTails([message("complete", [firstThought])], [line(1, firstThought)]))
-      .toEqual([]);
+    expect(splitLiveTails([message("streaming", [firstThought])], [line(1, firstThought)])).toEqual([]);
+    expect(splitLiveTails([message("complete", [firstThought])], [line(1, firstThought)])).toEqual([]);
   });
 
   it("drops a mirror that stopped short of a message the transcript finished", () => {
     const reply: ActivityBlock = { kind: "text", text: "The fourth review passed." };
     // The observer dropped after the thinking, so the mirror never heard the reply or the end.
-    expect(splitLiveTails(
-      [message("streaming", [firstThought])],
-      [line(1, firstThought), line(2, reply)],
-    )).toEqual([]);
+    expect(splitLiveTails([message("streaming", [firstThought])], [line(1, firstThought), line(2, reply)])).toEqual([]);
   });
 
   it("keeps the blocks a streaming message has not had written yet", () => {
@@ -86,10 +78,7 @@ describe("splitLiveTails", () => {
   });
 
   it("counts only the lines of the message itself", () => {
-    const rows = splitLiveTails(
-      [message("streaming", [firstThought, listCall])],
-      [line(1, firstThought, "msg_0")],
-    );
+    const rows = splitLiveTails([message("streaming", [firstThought, listCall])], [line(1, firstThought, "msg_0")]);
 
     expect(rows).toHaveLength(2);
   });
@@ -118,14 +107,24 @@ describe("retireLiveRows", () => {
   });
 
   it("retires the rows the mirror published before a row it retires", () => {
-    const earlier: ActivityEvent = { ...message("complete", [listCall]), id: "claude-live:msg_0", index: 3, messageId: "msg_0" };
+    const earlier: ActivityEvent = {
+      ...message("complete", [listCall]),
+      id: "claude-live:msg_0",
+      index: 3,
+      messageId: "msg_0",
+    };
     const stalled = message("streaming", [firstThought]);
     expect(retireLiveRows(rows(earlier, stalled), [line(1, firstThought)]).size).toBe(0);
   });
 });
 
 describe("an SDK session's queued prompts", () => {
-  const user = (text: string, ts: number): ActivityEvent => ({ index: ts, ts, type: "user", blocks: [{ kind: "text", text }] });
+  const user = (text: string, ts: number): ActivityEvent => ({
+    index: ts,
+    ts,
+    type: "user",
+    blocks: [{ kind: "text", text }],
+  });
   const queued = [
     { id: "q1", text: "also this", images: 0, sentAt: 10_000 },
     { id: "q2", text: "and that", images: 0, sentAt: 11_000 },

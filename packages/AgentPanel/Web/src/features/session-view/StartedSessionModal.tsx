@@ -37,13 +37,15 @@ function folderName(path: string): string {
 
 /** The project it runs in. A directory with no sessions before this one may not be listed yet. */
 function projectOf(started: StartedNewSession, projects: readonly ProjectSummary[], at: number): ProjectSummary {
-  return projects.find((entry) => entry.projectPath === started.projectPath) ?? {
-    projectPath: started.projectPath,
-    displayName: folderName(started.projectPath),
-    sourceCounts: { [started.source]: 1 },
-    sessionCount: 1,
-    lastEventAt: at,
-  };
+  return (
+    projects.find((entry) => entry.projectPath === started.projectPath) ?? {
+      projectPath: started.projectPath,
+      displayName: folderName(started.projectPath),
+      sourceCounts: { [started.source]: 1 },
+      sessionCount: 1,
+      lastEventAt: at,
+    }
+  );
 }
 
 export function StartedSessionModal({
@@ -70,9 +72,10 @@ export function StartedSessionModal({
   const closeButton = useRef<HTMLButtonElement>(null);
   const [body, setBody] = useState<HTMLElement | null>(null);
 
-  const listed = sessionsByProject.get(started.projectPath)?.find(
-    (entry) => entry.source === started.source && entry.sessionId === started.sessionId,
-  ) ?? null;
+  const listed =
+    sessionsByProject
+      .get(started.projectPath)
+      ?.find((entry) => entry.source === started.source && entry.sessionId === started.sessionId) ?? null;
   // The catalog listing it is what hands the session over to the ordinary session modal.
   useNotify(listed, (session) => {
     if (session) onListed(projectOf(started, projects, session.lastEventAt), session);
@@ -136,7 +139,11 @@ export function StartedSessionModal({
             <X className="size-4" aria-hidden />
           </button>
         </header>
-        <section ref={setBody} className="flex min-h-0 flex-1 flex-col bg-background" aria-label={`${started.title} session`}>
+        <section
+          ref={setBody}
+          className="flex min-h-0 flex-1 flex-col bg-background"
+          aria-label={`${started.title} session`}
+        >
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-auto p-4 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
             <SquareTerminal className="size-5" aria-hidden />
             <p>Type below to give it its first turn; the transcript replaces this once it has one.</p>

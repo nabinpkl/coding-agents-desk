@@ -37,34 +37,34 @@ export interface NormalizedClaudeLine {
 // indistinguishable from 4,891 rows of hook telemetry in this project's transcripts.
 // The subtype is the label.
 const CLAUDE_ATTACHMENT_LABELS: Readonly<Record<string, string>> = {
-  diagnostics: 'Diagnostics',
-  queued_command: 'Queued Command',
-  edited_text_file: 'Edited File',
-  file: 'File',
-  compact_file_reference: 'Compacted File',
-  structured_output: 'Structured Output',
-  goal_status: 'Goal Status',
-  nested_memory: 'Memory',
-  plan_mode: 'Plan Mode',
-  plan_mode_exit: 'Plan Mode Exit',
-  plan_mode_reentry: 'Plan Mode Re-entry',
-  plan_file_reference: 'Plan File',
-  invoked_skills: 'Skills Invoked',
-  task_status: 'Task Status',
-  task_reminder: 'Task Reminder',
-  async_hook_response: 'Hook',
-  hook_success: 'Hook',
-  hook_failure: 'Hook Failed',
-  hook_additional_context: 'Hook Context',
-  deferred_tools_delta: 'Deferred Tools',
-  agent_listing_delta: 'Agent Listing',
-  mcp_instructions_delta: 'MCP Instructions',
-  command_permissions: 'Command Permissions',
-  skill_listing: 'Skill Listing',
-  date_change: 'Date Change',
-  auto_mode: 'Auto Mode',
-  max_turns_reached: 'Max Turns Reached',
-  opened_file_in_ide: 'Opened In IDE',
+  diagnostics: "Diagnostics",
+  queued_command: "Queued Command",
+  edited_text_file: "Edited File",
+  file: "File",
+  compact_file_reference: "Compacted File",
+  structured_output: "Structured Output",
+  goal_status: "Goal Status",
+  nested_memory: "Memory",
+  plan_mode: "Plan Mode",
+  plan_mode_exit: "Plan Mode Exit",
+  plan_mode_reentry: "Plan Mode Re-entry",
+  plan_file_reference: "Plan File",
+  invoked_skills: "Skills Invoked",
+  task_status: "Task Status",
+  task_reminder: "Task Reminder",
+  async_hook_response: "Hook",
+  hook_success: "Hook",
+  hook_failure: "Hook Failed",
+  hook_additional_context: "Hook Context",
+  deferred_tools_delta: "Deferred Tools",
+  agent_listing_delta: "Agent Listing",
+  mcp_instructions_delta: "MCP Instructions",
+  command_permissions: "Command Permissions",
+  skill_listing: "Skill Listing",
+  date_change: "Date Change",
+  auto_mode: "Auto Mode",
+  max_turns_reached: "Max Turns Reached",
+  opened_file_in_ide: "Opened In IDE",
 };
 
 /**
@@ -76,23 +76,23 @@ const CLAUDE_ATTACHMENT_LABELS: Readonly<Record<string, string>> = {
  */
 function attachmentLabel(record: Record<string, unknown>): string {
   const attachment = record.attachment;
-  if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) {
-    return 'Attachment';
+  if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) {
+    return "Attachment";
   }
   const subtype = (attachment as Record<string, unknown>).type;
-  if (typeof subtype !== 'string' || !subtype) return 'Attachment';
+  if (typeof subtype !== "string" || !subtype) return "Attachment";
   return CLAUDE_ATTACHMENT_LABELS[subtype] ?? `Attachment: ${subtype}`;
 }
 
 const CLAUDE_METADATA_LABELS: Readonly<Record<string, string>> = {
-  attachment: 'Attachment',
-  'last-prompt': 'Last Prompt',
-  'custom-title': 'Title',
-  mode: 'Mode',
-  'queue-operation': 'Queue Operation',
-  system: 'System',
-  'permission-mode': 'Permission Mode',
-  'file-history-snapshot': 'File History Snapshot',
+  attachment: "Attachment",
+  "last-prompt": "Last Prompt",
+  "custom-title": "Title",
+  mode: "Mode",
+  "queue-operation": "Queue Operation",
+  system: "System",
+  "permission-mode": "Permission Mode",
+  "file-history-snapshot": "File History Snapshot",
 };
 
 export function normalizedLine(line: string): NormalizedClaudeLine | null {
@@ -100,12 +100,24 @@ export function normalizedLine(line: string): NormalizedClaudeLine | null {
   let ev: Record<string, unknown>;
   try {
     const parsed = JSON.parse(line);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { result: { event: plainEvent(line) }, rawBlocks: [{ block: plainBlock(line), raw: line }, { block: rawBlock(), raw: line }] };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        result: { event: plainEvent(line) },
+        rawBlocks: [
+          { block: plainBlock(line), raw: line },
+          { block: rawBlock(), raw: line },
+        ],
+      };
     }
     ev = parsed as Record<string, unknown>;
   } catch {
-    return { result: { event: plainEvent(line) }, rawBlocks: [{ block: plainBlock(line), raw: line }, { block: rawBlock(), raw: line }] };
+    return {
+      result: { event: plainEvent(line) },
+      rawBlocks: [
+        { block: plainBlock(line), raw: line },
+        { block: rawBlock(), raw: line },
+      ],
+    };
   }
   const normalized = normalizedRecord(line, ev);
   // Stamped here, once, from the parsed record rather than the rendered blocks:
@@ -117,31 +129,30 @@ export function normalizedLine(line: string): NormalizedClaudeLine | null {
   return normalized;
 }
 
-export function normalizedRecord(
-  line: string,
-  ev: Record<string, unknown>,
-): NormalizedClaudeLine {
+export function normalizedRecord(line: string, ev: Record<string, unknown>): NormalizedClaudeLine {
   const t = ev.type;
-  const cwd = typeof ev.cwd === 'string' && ev.cwd.trim() ? ev.cwd.trim() : undefined;
+  const cwd = typeof ev.cwd === "string" && ev.cwd.trim() ? ev.cwd.trim() : undefined;
   const ts = timestampMs(ev.timestamp);
 
   const appendCommon = (blocks: NormalizedClaudeBlock[]): NormalizedClaudeBlock[] => {
     const next = [...blocks];
-    if (cwd) next.push({ block: metadataBlock('Working Directory', cwd), raw: null });
+    if (cwd) next.push({ block: metadataBlock("Working Directory", cwd), raw: null });
     next.push({ block: rawBlock(), raw: line });
     return next;
   };
 
   // Claude harness writes (and rewrites) the session name as its own line
   // type. The bounded session probe keeps the latest observed title.
-  if (t === 'ai-title') {
-    const title = typeof ev.aiTitle === 'string' && ev.aiTitle.trim() ? ev.aiTitle.trim() : undefined;
-    const rawBlocks = appendCommon(title
-      ? [{ block: metadataBlock('Title', title), raw: null }]
-      : [{ block: plainBlock(ev), raw: stringifyForDisplay(ev) }]);
+  if (t === "ai-title") {
+    const title = typeof ev.aiTitle === "string" && ev.aiTitle.trim() ? ev.aiTitle.trim() : undefined;
+    const rawBlocks = appendCommon(
+      title
+        ? [{ block: metadataBlock("Title", title), raw: null }]
+        : [{ block: plainBlock(ev), raw: stringifyForDisplay(ev) }],
+    );
     return {
       result: {
-        event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) },
+        event: { ts, type: "system", blocks: rawBlocks.map(({ block }) => block) },
         ...(title ? { title } : {}),
         ...(cwd ? { cwd } : {}),
       },
@@ -155,39 +166,42 @@ export function normalizedRecord(
   // the same subtype and stay metadata.
   const queued = queuedHumanPrompt(ev);
   if (queued !== null) {
-    return normalizedRecord(line, { ...ev, type: 'user', message: { role: 'user', content: queued } });
+    return normalizedRecord(line, { ...ev, type: "user", message: { role: "user", content: queued } });
   }
 
-  if (typeof t === 'string' && t !== 'user' && t !== 'assistant') {
-    if (t === 'system' && ev.subtype === 'compact_boundary') {
-      const rawBlocks = appendCommon([{ block: { kind: 'compaction' }, raw: null }]);
+  if (typeof t === "string" && t !== "user" && t !== "assistant") {
+    if (t === "system" && ev.subtype === "compact_boundary") {
+      const rawBlocks = appendCommon([{ block: { kind: "compaction" }, raw: null }]);
       // The one record in a Claude transcript that reports occupancy without being a turn. It is
       // read here rather than left to the next assistant line because the whole point of the
       // reading is that the next assistant line may be hours away.
       const usage = extractCompactionUsage(ev, ts);
       return {
         result: {
-          event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) },
+          event: { ts, type: "system", blocks: rawBlocks.map(({ block }) => block) },
           ...(usage ? { usage } : {}),
           ...(cwd ? { cwd } : {}),
         },
         rawBlocks,
       };
     }
-    const label = t === 'attachment' ? attachmentLabel(ev) : CLAUDE_METADATA_LABELS[t];
+    const label = t === "attachment" ? attachmentLabel(ev) : CLAUDE_METADATA_LABELS[t];
     if (label) {
       // The model attachment renders as the metadata row it always did; what is new is that its
       // identity is read on the way past, because it is the only record that keeps the context
       // tier the run was given.
-      const declaredModel = t === 'attachment' ? declaredModelIn(ev) : null;
-      const titleCandidate = t === 'custom-title'
-        ? [ev.customTitle, ev.title, ev.value].find((value) => typeof value === 'string' && value.trim()) as string | undefined
-        : undefined;
+      const declaredModel = t === "attachment" ? declaredModelIn(ev) : null;
+      const titleCandidate =
+        t === "custom-title"
+          ? ([ev.customTitle, ev.title, ev.value].find((value) => typeof value === "string" && value.trim()) as
+              | string
+              | undefined)
+          : undefined;
       const text = titleCandidate?.trim() || metadataText(ev);
       const rawBlocks = appendCommon([{ block: metadataBlock(label, text), raw: null }]);
       return {
         result: {
-          event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) },
+          event: { ts, type: "system", blocks: rawBlocks.map(({ block }) => block) },
           ...(titleCandidate ? { title: titleCandidate.trim() } : {}),
           ...(declaredModel ? { declaredModel } : {}),
           ...(cwd ? { cwd } : {}),
@@ -197,19 +211,23 @@ export function normalizedRecord(
     }
     const rawBlocks = appendCommon([{ block: plainBlock(ev), raw: stringifyForDisplay(ev) }]);
     return {
-      result: { event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) }, ...(cwd ? { cwd } : {}) },
+      result: { event: { ts, type: "system", blocks: rawBlocks.map(({ block }) => block) }, ...(cwd ? { cwd } : {}) },
       rawBlocks,
     };
   }
 
-  if (t !== 'user' && t !== 'assistant') {
+  if (t !== "user" && t !== "assistant") {
     const rawBlocks = appendCommon([{ block: plainBlock(ev), raw: stringifyForDisplay(ev) }]);
-    return { result: { event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) }, ...(cwd ? { cwd } : {}) }, rawBlocks };
+    return {
+      result: { event: { ts, type: "system", blocks: rawBlocks.map(({ block }) => block) }, ...(cwd ? { cwd } : {}) },
+      rawBlocks,
+    };
   }
 
-  const message = ev.message && typeof ev.message === 'object' && !Array.isArray(ev.message)
-    ? ev.message as Record<string, unknown>
-    : {};
+  const message =
+    ev.message && typeof ev.message === "object" && !Array.isArray(ev.message)
+      ? (ev.message as Record<string, unknown>)
+      : {};
 
   // Compaction marker. The harness injects a synthetic user message with
   // `isCompactSummary: true` whose content is the summary that replaced
@@ -218,33 +236,38 @@ export function normalizedRecord(
   // showing the full summary as user prose. The summary rides the banner's
   // block as its text, for a reader who opens the banner to see what the
   // session now remembers.
-  if (t === 'user' && ev.isCompactSummary === true) {
+  if (t === "user" && ev.isCompactSummary === true) {
     const summary = compactSummaryText(message.content);
-    const block: ActivityBlock = summary ? { kind: 'compaction', text: summary } : { kind: 'compaction' };
+    const block: ActivityBlock = summary ? { kind: "compaction", text: summary } : { kind: "compaction" };
     const rawBlocks = appendCommon([{ block, raw: null }]);
-    return { result: { event: { ts, type: 'system', blocks: rawBlocks.map(({ block }) => block) }, turnClosed: false, ...(cwd ? { cwd } : {}) }, rawBlocks };
+    return {
+      result: {
+        event: { ts, type: "system", blocks: rawBlocks.map(({ block }) => block) },
+        turnClosed: false,
+        ...(cwd ? { cwd } : {}),
+      },
+      rawBlocks,
+    };
   }
 
   const contentBlocks = commandOutputBlocks(message.content) ?? normalizeBlocks(message.content);
   const stateBlocks: NormalizedClaudeBlock[] = [];
-  const usage = t === 'assistant'
-    ? extractClaudeUsage(message.usage, assistantModel(message), ts)
-    : null;
-  if (usage) stateBlocks.push({ block: metadataBlock('Token Usage', `${usage.current.toLocaleString()} tokens`), raw: null });
-  if (typeof message.stop_reason === 'string' && message.stop_reason) {
-    stateBlocks.push({ block: metadataBlock('Stop Reason', message.stop_reason), raw: null });
+  const usage = t === "assistant" ? extractClaudeUsage(message.usage, assistantModel(message), ts) : null;
+  if (usage)
+    stateBlocks.push({ block: metadataBlock("Token Usage", `${usage.current.toLocaleString()} tokens`), raw: null });
+  if (typeof message.stop_reason === "string" && message.stop_reason) {
+    stateBlocks.push({ block: metadataBlock("Stop Reason", message.stop_reason), raw: null });
   }
   const rawBlocks = appendCommon([...contentBlocks, ...stateBlocks]);
-  const semanticType = t === 'assistant' && contentBlocks.every(({ block }) => block.kind === 'reasoning')
-    ? 'reasoning'
-    : t;
+  const semanticType =
+    t === "assistant" && contentBlocks.every(({ block }) => block.kind === "reasoning") ? "reasoning" : t;
   // Turn-boundary signal per line. `t` is user or assistant by here, so the rule
   // always has an answer; the `?? false` is for the type, not for a real case.
   const turnClosed = turnClosedFor(ev) ?? false;
   // The Anthropic message id the live `/v1/messages` stream also names on
   // `message_start`, so the viewer can hand a streaming live tail off to the
   // durable transcript once it contains this same id.
-  const rawMessageId = typeof message.id === 'string' ? message.id.trim() : '';
+  const rawMessageId = typeof message.id === "string" ? message.id.trim() : "";
   const event: ParsedLine = {
     ts,
     type: semanticType,
@@ -260,7 +283,7 @@ export function normalizedRecord(
   if (ev.isMeta !== true && isHumanTurnStart(event)) event.humanTurn = true;
   const result: LineResult = { turnClosed, event };
   if (usage) result.usage = usage;
-  if (t === 'assistant') {
+  if (t === "assistant") {
     const cacheHit = extractClaudeCacheHit(message.usage);
     if (cacheHit) result.cacheHit = cacheHit;
   }
@@ -274,11 +297,13 @@ export function normalizedRecord(
  * task notifications carry `commandMode: "task-notification"`.
  */
 function queuedHumanPrompt(ev: Record<string, unknown>): string | null {
-  if (ev.type !== 'attachment') return null;
+  if (ev.type !== "attachment") return null;
   const attachment = ev.attachment as Record<string, unknown> | undefined;
-  if (attachment?.type !== 'queued_command' || attachment.commandMode !== 'prompt') return null;
+  if (attachment?.type !== "queued_command" || attachment.commandMode !== "prompt") return null;
   const origin = attachment.origin as Record<string, unknown> | undefined;
-  return origin?.kind === 'human' && typeof attachment.prompt === 'string' && attachment.prompt.trim() ? attachment.prompt : null;
+  return origin?.kind === "human" && typeof attachment.prompt === "string" && attachment.prompt.trim()
+    ? attachment.prompt
+    : null;
 }
 
 /** Strips SGR colour codes, which is all the CLI's own output ever carries. */
@@ -286,15 +311,15 @@ const SGR = /\u001b\[[0-9;]*m/g;
 
 /** A compaction's summary as the one string it was written as, or null when it holds no text. */
 function compactSummaryText(content: unknown): string | null {
-  if (typeof content === 'string') return content.trim() || null;
+  if (typeof content === "string") return content.trim() || null;
   if (!Array.isArray(content)) return null;
   const text = content
     .flatMap((part) => {
-      if (!part || typeof part !== 'object') return [];
+      if (!part || typeof part !== "object") return [];
       const record = part as Record<string, unknown>;
-      return record.type === 'text' && typeof record.text === 'string' ? [record.text] : [];
+      return record.type === "text" && typeof record.text === "string" ? [record.text] : [];
     })
-    .join('\n')
+    .join("\n")
     .trim();
   return text || null;
 }

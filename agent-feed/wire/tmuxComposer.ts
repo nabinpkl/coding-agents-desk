@@ -165,12 +165,7 @@ export interface ComposerImageRef {
  * given -- a name and a content that disagree end up in somebody's composer as a literal file
  * path, which is the one failure mode worth engineering against.
  */
-export const COMPOSER_IMAGE_MEDIA_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-] as const;
+export const COMPOSER_IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 
 export type ComposerImageMediaType = (typeof COMPOSER_IMAGE_MEDIA_TYPES)[number];
 
@@ -259,16 +254,16 @@ export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
 export type TmuxPermissionModeOutcome =
   | { ok: true; mode: ClaudePermissionMode }
   | {
-    ok: false;
-    /**
-     * `no-pane`: no pane to press in. `no-footer`: nothing on screen names a mode, as when a dialog
-     * covers it. `no-response`: a press did not move the footer. `unreachable`: this session's
-     * Shift+Tab never stops at that mode, as bypass does not unless the session was started with it.
-     */
-    reason: "no-pane" | "tmux-unavailable" | "no-footer" | "no-response" | "unreachable";
-    message: string;
-    mode: ClaudePermissionMode | null;
-  };
+      ok: false;
+      /**
+       * `no-pane`: no pane to press in. `no-footer`: nothing on screen names a mode, as when a dialog
+       * covers it. `no-response`: a press did not move the footer. `unreachable`: this session's
+       * Shift+Tab never stops at that mode, as bypass does not unless the session was started with it.
+       */
+      reason: "no-pane" | "tmux-unavailable" | "no-footer" | "no-response" | "unreachable";
+      message: string;
+      mode: ClaudePermissionMode | null;
+    };
 
 /** The request that asks for it. */
 export interface TmuxPermissionModeRequest {

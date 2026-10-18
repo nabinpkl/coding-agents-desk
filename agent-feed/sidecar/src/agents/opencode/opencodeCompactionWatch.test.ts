@@ -24,7 +24,10 @@ test("a compaction streams its summary beside the thread, then ends", () => {
   expect(watch.isCompacting("ses-1")).toBe(false);
   expect(watch.summary("ses-1")).toBeNull();
 
-  expect(changes).toEqual([["ses-1", true], ["ses-1", false]]);
+  expect(changes).toEqual([
+    ["ses-1", true],
+    ["ses-1", false],
+  ]);
   expect(summaries).toEqual([
     ["ses-1", "## Summary", false],
     ["ses-1", " done", false],
@@ -52,7 +55,10 @@ test("a retry replaces the stale summary instead of appending to it", () => {
   watch.end("msg-2");
   expect(watch.isCompacting("ses-1")).toBe(false);
 
-  expect(changes).toEqual([["ses-1", true], ["ses-1", false]]);
+  expect(changes).toEqual([
+    ["ses-1", true],
+    ["ses-1", false],
+  ]);
   expect(summaries).toEqual([
     ["ses-1", "stale", false],
     ["ses-1", "fresh", false],

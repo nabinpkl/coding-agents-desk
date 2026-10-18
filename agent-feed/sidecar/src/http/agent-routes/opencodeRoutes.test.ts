@@ -5,15 +5,40 @@ import { createOpencodeRoutes } from "@/http/agent-routes/opencodeRoutes";
 function fakeBackend(): AgentBackend {
   return {
     id: "pi",
-    capabilities: { modes: ["nice"], canSend: true, canSteer: true, canAbort: true, canFetchRaw: false, canOpenTerminal: false, supportsExtensionUi: true, canStreamLive: false },
-    describeSession() { return undefined; },
-    async createSession() { throw new Error("not used"); },
-    async page() { return { events: [], total: 0, mode: "nice", sequence: 0, runState: "idle", queue: { steer: 0, followUp: 0 } }; },
-    async subscribe() { return () => {}; },
-    async send(sessionId, requestId, _text, delivery) { return { requestId, delivery: delivery === "steer" ? "steer" : "immediate" }; },
-    async abort(_sessionId, requestId) { return { requestId, delivery: "abort" }; },
-    async subscribeUi() { return () => {}; },
-    async respondToUi() { return "accepted"; },
+    capabilities: {
+      modes: ["nice"],
+      canSend: true,
+      canSteer: true,
+      canAbort: true,
+      canFetchRaw: false,
+      canOpenTerminal: false,
+      supportsExtensionUi: true,
+      canStreamLive: false,
+    },
+    describeSession() {
+      return undefined;
+    },
+    async createSession() {
+      throw new Error("not used");
+    },
+    async page() {
+      return { events: [], total: 0, mode: "nice", sequence: 0, runState: "idle", queue: { steer: 0, followUp: 0 } };
+    },
+    async subscribe() {
+      return () => {};
+    },
+    async send(sessionId, requestId, _text, delivery) {
+      return { requestId, delivery: delivery === "steer" ? "steer" : "immediate" };
+    },
+    async abort(_sessionId, requestId) {
+      return { requestId, delivery: "abort" };
+    },
+    async subscribeUi() {
+      return () => {};
+    },
+    async respondToUi() {
+      return "accepted";
+    },
     async dispose() {},
   };
 }
@@ -23,15 +48,19 @@ const server = { timeout() {} } as never;
 test("opencode commands list from the backend and run with the draft as arguments", async () => {
   const ran: { sessionId: string; name: string; text: string }[] = [];
   const base = fakeBackend();
-  const route = createOpencodeRoutes((id) => id === "opencode" ? {
-    ...base,
-    id: "opencode",
-    listCommands: async () => [{ name: "review", description: "review changes" }],
-    runCommand: async (sessionId: string, requestId: string, name: string, text: string) => {
-      ran.push({ sessionId, name, text });
-      return { requestId, delivery: "followUp" as const };
-    },
-  } : undefined);
+  const route = createOpencodeRoutes((id) =>
+    id === "opencode"
+      ? {
+          ...base,
+          id: "opencode",
+          listCommands: async () => [{ name: "review", description: "review changes" }],
+          runCommand: async (sessionId: string, requestId: string, name: string, text: string) => {
+            ran.push({ sessionId, name, text });
+            return { requestId, delivery: "followUp" as const };
+          },
+        }
+      : undefined,
+  );
 
   const list = new Request("http://localhost/api/agent-sessions/opencode/commands", { method: "GET" });
   const listed = await route(list, new URL(list.url), server);
@@ -75,11 +104,19 @@ test("a command receipt carries the session a fork made, which is how the panel 
     activity: "ready" as const,
     capabilities: base.capabilities,
   };
-  const route = createOpencodeRoutes((id) => id === "opencode" ? {
-    ...base,
-    id: "opencode",
-    runCommand: async (_sessionId: string, requestId: string) => ({ requestId, delivery: "immediate" as const, session: descriptor }),
-  } : undefined);
+  const route = createOpencodeRoutes((id) =>
+    id === "opencode"
+      ? {
+          ...base,
+          id: "opencode",
+          runCommand: async (_sessionId: string, requestId: string) => ({
+            requestId,
+            delivery: "immediate" as const,
+            session: descriptor,
+          }),
+        }
+      : undefined,
+  );
 
   const run = new Request("http://localhost/api/agent-sessions/opencode/s1/command", {
     method: "POST",
@@ -111,15 +148,21 @@ test("opencode command routes answer 404 without the backend", async () => {
 test("opencode models list and switch through the backend", async () => {
   const switched: { sessionId: string; providerID: string; modelID: string }[] = [];
   const base = fakeBackend();
-  const route = createOpencodeRoutes((id) => id === "opencode" ? {
-    ...base,
-    id: "opencode",
-    listModels: async () => [{ providerID: "p", modelID: "m", name: "M", contextLimit: 1000, inputCost: 1, outputCost: 2 }],
-    switchModel: async (sessionId: string, requestId: string, providerID: string, modelID: string) => {
-      switched.push({ sessionId, providerID, modelID });
-      return { requestId, delivery: "followUp" as const };
-    },
-  } : undefined);
+  const route = createOpencodeRoutes((id) =>
+    id === "opencode"
+      ? {
+          ...base,
+          id: "opencode",
+          listModels: async () => [
+            { providerID: "p", modelID: "m", name: "M", contextLimit: 1000, inputCost: 1, outputCost: 2 },
+          ],
+          switchModel: async (sessionId: string, requestId: string, providerID: string, modelID: string) => {
+            switched.push({ sessionId, providerID, modelID });
+            return { requestId, delivery: "followUp" as const };
+          },
+        }
+      : undefined,
+  );
 
   const list = new Request("http://localhost/api/agent-sessions/opencode/models", { method: "GET" });
   const listed = await route(list, new URL(list.url), server);
@@ -146,14 +189,18 @@ test("opencode models list and switch through the backend", async () => {
 test("an aside answers with text and refuses a blank question", async () => {
   const asked: { sessionId: string; question: string }[] = [];
   const base = fakeBackend();
-  const route = createOpencodeRoutes((id) => id === "opencode" ? {
-    ...base,
-    id: "opencode",
-    askAside: async (sessionId: string, question: string) => {
-      asked.push({ sessionId, question });
-      return "we chose the sidecar";
-    },
-  } : undefined);
+  const route = createOpencodeRoutes((id) =>
+    id === "opencode"
+      ? {
+          ...base,
+          id: "opencode",
+          askAside: async (sessionId: string, question: string) => {
+            asked.push({ sessionId, question });
+            return "we chose the sidecar";
+          },
+        }
+      : undefined,
+  );
 
   const ask = new Request("http://localhost/api/agent-sessions/opencode/s1/aside", {
     method: "POST",
@@ -173,11 +220,15 @@ test("an aside answers with text and refuses a blank question", async () => {
 
 test("an export answers with the transcript the backend read", async () => {
   const base = fakeBackend();
-  const route = createOpencodeRoutes((id) => id === "opencode" ? {
-    ...base,
-    id: "opencode",
-    exportTranscript: async (sessionId: string) => ({ info: { id: sessionId }, messages: [] }),
-  } : undefined);
+  const route = createOpencodeRoutes((id) =>
+    id === "opencode"
+      ? {
+          ...base,
+          id: "opencode",
+          exportTranscript: async (sessionId: string) => ({ info: { id: sessionId }, messages: [] }),
+        }
+      : undefined,
+  );
 
   const request = new Request("http://localhost/api/agent-sessions/opencode/s1/export", { method: "GET" });
   const answered = await route(request, new URL(request.url), server);
@@ -188,11 +239,17 @@ test("an export answers with the transcript the backend read", async () => {
 test("a title answers with the name the session now has, and a blank one is refused", async () => {
   const renamed: { sessionId: string; title: string }[] = [];
   const base = fakeBackend();
-  const route = createOpencodeRoutes((id) => id === "opencode" ? {
-    ...base,
-    id: "opencode",
-    renameSession: async (sessionId: string, title: string) => { renamed.push({ sessionId, title }); },
-  } : undefined);
+  const route = createOpencodeRoutes((id) =>
+    id === "opencode"
+      ? {
+          ...base,
+          id: "opencode",
+          renameSession: async (sessionId: string, title: string) => {
+            renamed.push({ sessionId, title });
+          },
+        }
+      : undefined,
+  );
 
   const request = new Request("http://localhost/api/agent-sessions/opencode/s1/title", {
     method: "POST",

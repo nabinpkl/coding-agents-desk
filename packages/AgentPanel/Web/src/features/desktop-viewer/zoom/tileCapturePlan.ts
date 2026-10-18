@@ -89,17 +89,14 @@ export function leadPadding(
   behind = TRAIL_PADDING,
   base = CAPTURE_PADDING,
 ): PaddingSides {
-  const axis = (v: number): [number, number] =>
-    v > 0 ? [behind, ahead] : v < 0 ? [ahead, behind] : [base, base];
+  const axis = (v: number): [number, number] => (v > 0 ? [behind, ahead] : v < 0 ? [ahead, behind] : [base, base]);
   const [left, right] = axis(direction.x);
   const [top, bottom] = axis(direction.y);
   return { left, top, right, bottom };
 }
 
 function sides(padding: number | PaddingSides): PaddingSides {
-  return typeof padding === "number"
-    ? { left: padding, top: padding, right: padding, bottom: padding }
-    : padding;
+  return typeof padding === "number" ? { left: padding, top: padding, right: padding, bottom: padding } : padding;
 }
 
 /** The padded region, clipped to the display: never asks for points outside it. */
@@ -146,10 +143,11 @@ export function planServes(
   surplus = DETAIL_SURPLUS,
 ): boolean {
   if (!plan || plan.region.width <= 0) return false;
-  const covers = plan.region.x <= visible.x
-    && plan.region.y <= visible.y
-    && plan.region.x + plan.region.width >= visible.x + visible.width
-    && plan.region.y + plan.region.height >= visible.y + visible.height;
+  const covers =
+    plan.region.x <= visible.x &&
+    plan.region.y <= visible.y &&
+    plan.region.x + plan.region.width >= visible.x + visible.width &&
+    plan.region.y + plan.region.height >= visible.y + visible.height;
   if (!covers) return false;
   const have = plan.pixelWidth / plan.region.width;
   return have >= wanted * shortfall && have <= wanted * surplus;

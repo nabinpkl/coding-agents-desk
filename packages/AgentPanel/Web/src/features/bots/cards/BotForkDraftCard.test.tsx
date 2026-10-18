@@ -8,10 +8,18 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import { BotForkDraftCard, type ForkDraft } from "@/features/bots/cards/BotForkDraftCard";
 
-const SOURCE = { source: "claude", sessionId: "sid-1", title: "Picker driver", lastEventAt: 0 } as unknown as SessionSummary;
+const SOURCE = {
+  source: "claude",
+  sessionId: "sid-1",
+  title: "Picker driver",
+  lastEventAt: 0,
+} as unknown as SessionSummary;
 
 function draft(from?: { eventId: string; text: string }): ForkDraft {
-  return { key: "fork-draft:1", request: { session: SOURCE, projectPath: "/repo", botId: "bot-1", ...(from ? { from } : {}) } };
+  return {
+    key: "fork-draft:1",
+    request: { session: SOURCE, projectPath: "/repo", botId: "bot-1", ...(from ? { from } : {}) },
+  };
 }
 
 function renderCard(options: { from?: { eventId: string; text: string }; refusal?: string | null } = {}) {
@@ -34,7 +42,9 @@ describe("a fork's draft card", () => {
     expect(screen.getByRole("button", { name: /Runs in Claude SDK/ })).toBeDefined();
     fireEvent.change(screen.getByLabelText("The fork's first message"), { target: { value: "try teal" } });
     fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
-    await waitFor(() => expect(onStart).toHaveBeenCalledWith({ task: "", brief: "try teal", harness: "claude-sdk", worktree: false }));
+    await waitFor(() =>
+      expect(onStart).toHaveBeenCalledWith({ task: "", brief: "try teal", harness: "claude-sdk", worktree: false }),
+    );
   });
 
   it("needs a first message to start through the SDK, which it is prompted through", () => {
@@ -65,7 +75,9 @@ describe("a fork's draft card", () => {
     fireEvent.click(screen.getByRole("menuitemradio", { name: /opencode/ }));
     expect(screen.queryByRole("button", { name: /worktree|checkout/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
-    await waitFor(() => expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ harness: "opencode", worktree: false })));
+    await waitFor(() =>
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ harness: "opencode", worktree: false })),
+    );
   });
 
   it("from a message: seeded with it, and opencode cannot take it", () => {

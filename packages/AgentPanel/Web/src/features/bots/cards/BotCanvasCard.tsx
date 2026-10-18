@@ -154,9 +154,7 @@ export function BotCanvasCard({
   // Dropped as soon as the Bot itself carries the session, rather than when the shell decides it
   // should be gone. The two happen a snapshot apart, and rendering both for that moment would put
   // two cards with one identity side by side.
-  const starting = newSessions.filter(
-    (each) => !bot.sessions.some((session) => session.sessionId === each.sessionId),
-  );
+  const starting = newSessions.filter((each) => !bot.sessions.some((session) => session.sessionId === each.sessionId));
   // The Bot's sessions this canvas is showing. Everything the card says about itself is said about
   // THESE rather than about the Bot: the empty-strip message, and the scroll that brings a card
   // forward when one of its own opens.
@@ -165,11 +163,8 @@ export function BotCanvasCard({
   // regardless, so a session the reader had taken off this canvas came back as a `missing` row
   // occupying the card -- put there by a sidecar restart's half-reconciled catalog, which the reader
   // did not cause. A detached one is counted as off the canvas and left there.
-  const shownMissing = bot.missingSessionRefs.filter(
-    (ref) => !detachedSessionKeys.has(sessionKey(ref)),
-  );
-  const hidden = bot.sessions.length - shown.length
-    + bot.missingSessionRefs.length - shownMissing.length;
+  const shownMissing = bot.missingSessionRefs.filter((ref) => !detachedSessionKeys.has(sessionKey(ref)));
+  const hidden = bot.sessions.length - shown.length + bot.missingSessionRefs.length - shownMissing.length;
   // Over the stored slots and not over `shown`, which is the whole reason it is computed here
   // rather than beside the filter above: the cards on screen are a subset twice over -- missing
   // transcripts and sessions taken off the canvas -- and ranking either subset would repaint the
@@ -408,23 +403,15 @@ export function BotCanvasCard({
                       // The forks are Claude-only, and absent rather than inert on a Codex row: forking
                       // asks the Claude CLI for a branch it alone has. `canRenameSession` answers the
                       // same question for a title, and it is not Claude's alone.
-                      onFork={
-                        session.source === "claude" ? () => onForkSession(bot, session) : undefined
-                      }
+                      onFork={session.source === "claude" ? () => onForkSession(bot, session) : undefined}
                       onForkFromLastMessage={
-                        session.source === "claude"
-                          ? () => onForkFromLastMessage(bot, session)
-                          : undefined
+                        session.source === "claude" ? () => onForkFromLastMessage(bot, session) : undefined
                       }
                       onForkFromLastCompaction={
-                        session.source === "claude"
-                          ? () => onForkFromLastCompaction(bot, session)
-                          : undefined
+                        session.source === "claude" ? () => onForkFromLastCompaction(bot, session) : undefined
                       }
                       handover={handoverMenuProp(session, () => onHandoverSession(bot, session))}
-                      onRename={
-                        canRenameSession(session) ? () => onRenameSession(session) : undefined
-                      }
+                      onRename={canRenameSession(session) ? () => onRenameSession(session) : undefined}
                       // Every source: `/new` and `/fork` are opencode's, but a session made from any
                       // session's composer belongs to the Bot whose card asked.
                       onAttachSession={attachSessionToBot(bot)}
@@ -460,9 +447,7 @@ export function BotCanvasCard({
             </ul>
           </FilePathOpenerContext.Provider>
         )}
-
       </div>
-
     </li>
   );
 }

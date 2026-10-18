@@ -57,10 +57,7 @@ export function createWorkspaceHistoryRoutes(service: WorkspaceService): RouteHa
       const asked = parameters.get("limit");
       const limit = asked === null ? DEFAULT_LIMIT : Number.parseInt(asked, 10);
       if (!Number.isFinite(limit) || limit < 1) {
-        return refusalResponse(
-          new RequestFailure("invalidOperation", '"limit" must be a positive integer.'),
-          id,
-        );
+        return refusalResponse(new RequestFailure("invalidOperation", '"limit" must be a positive integer.'), id);
       }
       return listCommits(root, limit)
         .then((commits) => jsonResponse({ commits }))

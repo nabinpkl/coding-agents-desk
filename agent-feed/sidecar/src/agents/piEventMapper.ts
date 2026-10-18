@@ -2,7 +2,7 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ActivityBlock } from "@/transcripts/transcriptTypes";
 import { LiveAgentProjection, sanitizeAgentValue } from "@/agents/liveAgentProjection";
 
-type AgentMessage = Extract<AgentSessionEvent, { type: "message_start" }>['message'];
+type AgentMessage = Extract<AgentSessionEvent, { type: "message_start" }>["message"];
 
 export class PiEventMapper {
   private noticeSequence = 0;
@@ -50,17 +50,13 @@ export class PiEventMapper {
         this.notice("Compaction", `Started (${event.reason})`, "compaction");
         return;
       case "compaction_end":
-        this.notice(
-          "Compaction",
-          event.aborted ? "Aborted" : event.errorMessage ?? "Completed",
-          "compaction",
-        );
+        this.notice("Compaction", event.aborted ? "Aborted" : (event.errorMessage ?? "Completed"), "compaction");
         return;
       case "auto_retry_start":
         this.notice("Retry", `Attempt ${event.attempt}/${event.maxAttempts}: ${event.errorMessage}`);
         return;
       case "auto_retry_end":
-        this.notice("Retry", event.success ? "Recovered" : event.finalError ?? "Failed");
+        this.notice("Retry", event.success ? "Recovered" : (event.finalError ?? "Failed"));
         return;
       case "session_info_changed":
         this.notice("Session", event.name ?? "Unnamed");
@@ -86,11 +82,12 @@ export class PiEventMapper {
     }
     const standard = message.role === "user" || message.role === "assistant";
     const type = message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : "system";
-    let blocks = message.role === "user"
-      ? userBlocks(message.content)
-      : message.role === "assistant"
-      ? assistantBlocks(message.content)
-      : [{ kind: "metadata" as const, label: message.role, text: textFromUnknown(message) }];
+    let blocks =
+      message.role === "user"
+        ? userBlocks(message.content)
+        : message.role === "assistant"
+          ? assistantBlocks(message.content)
+          : [{ kind: "metadata" as const, label: message.role, text: textFromUnknown(message) }];
     if (message.role === "assistant" && message.stopReason === "error" && message.errorMessage) {
       blocks = [
         ...blocks.filter((block) => block.kind !== "text" || Boolean(block.text?.trim())),
@@ -141,14 +138,16 @@ export class PiEventMapper {
       ts: Date.now(),
       type: "system",
       phase,
-      blocks: [{
-        kind: "tool_result",
-        tool,
-        label: isError ? `${tool} failed` : tool,
-        callId,
-        preview,
-        ...(input ? { input } : {}),
-      }],
+      blocks: [
+        {
+          kind: "tool_result",
+          tool,
+          label: isError ? `${tool} failed` : tool,
+          callId,
+          preview,
+          ...(input ? { input } : {}),
+        },
+      ],
     });
   }
 
@@ -185,17 +184,15 @@ function assistantBlocks(content: unknown): ActivityBlock[] {
     if (item.type === "thinking" && typeof item.thinking === "string") {
       return [{ kind: "reasoning", text: item.thinking }];
     }
-    if (
-      item.type === "toolCall" &&
-      typeof item.id === "string" &&
-      typeof item.name === "string"
-    ) {
-      return [{
-        kind: "tool_use",
-        tool: item.name,
-        callId: item.id,
-        input: sanitizeRecord(item.arguments),
-      }];
+    if (item.type === "toolCall" && typeof item.id === "string" && typeof item.name === "string") {
+      return [
+        {
+          kind: "tool_use",
+          tool: item.name,
+          callId: item.id,
+          input: sanitizeRecord(item.arguments),
+        },
+      ];
     }
     return [{ kind: "metadata", text: textFromUnknown(item) }];
   });
@@ -204,11 +201,9 @@ function assistantBlocks(content: unknown): ActivityBlock[] {
 function textFromUnknown(value: unknown): string {
   if (typeof value === "string") return value;
   if (isRecord(value) && Array.isArray(value.content)) {
-    const text = value.content.flatMap((item) =>
-      isRecord(item) && item.type === "text" && typeof item.text === "string"
-        ? [item.text]
-        : []
-    ).join("\n");
+    const text = value.content
+      .flatMap((item) => (isRecord(item) && item.type === "text" && typeof item.text === "string" ? [item.text] : []))
+      .join("\n");
     if (text) return text;
   }
   return JSON.stringify(sanitizeAgentValue(value));

@@ -17,7 +17,11 @@ const OPENCODE_GO_LIMITS_ROUTE = "/api/limits/opencode-go";
 
 /** This machine's Go plan meter, read with opencode's own key and polled while a reader is here. */
 function configuredSource(): OpencodeGoSource {
-  return createOpencodeGoSource({ readKey: () => readOpencodeGoKey(), url: opencodeGoUsageUrl, pollMs: opencodeGoPollMs() });
+  return createOpencodeGoSource({
+    readKey: () => readOpencodeGoKey(),
+    url: opencodeGoUsageUrl,
+    pollMs: opencodeGoPollMs(),
+  });
 }
 
 /** The source is built here rather than in `server.ts`, whose only use of it was handing it over. */

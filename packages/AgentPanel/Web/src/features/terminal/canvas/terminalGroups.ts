@@ -71,9 +71,7 @@ function compareStrings(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-export function groupTerminalsByDirectory(
-  sources: readonly TerminalGroupSource[],
-): TerminalGrouping {
+export function groupTerminalsByDirectory(sources: readonly TerminalGroupSource[]): TerminalGrouping {
   const parents: TerminalParentGroup[] = [];
   const residue: TerminalParentGroup[] = [];
   for (const source of sources) {
@@ -146,12 +144,7 @@ export function terminalWindowKey(machineId: string | undefined, session: string
 }
 
 /** An open key for one pane: the machine, the session, and the `window.pane` pair. */
-export function terminalPaneKey(
-  machineId: string | undefined,
-  session: string,
-  window: number,
-  pane: number,
-): string {
+export function terminalPaneKey(machineId: string | undefined, session: string, window: number, pane: number): string {
   return `${terminalChildKey(machineId, session)}:${window}.${pane}`;
 }
 
@@ -178,10 +171,7 @@ export function isTerminalSessionNameValid(name: string): boolean {
  * existing set must be the whole machine's listing, not just this directory's: offering a
  * name that stands elsewhere would join that session instead of starting one here.
  */
-export function suggestTerminalSessionName(
-  directoryPath: string,
-  existingNames: Iterable<string>,
-): string {
+export function suggestTerminalSessionName(directoryPath: string, existingNames: Iterable<string>): string {
   const leaf = directoryPath.split("/").filter(Boolean).at(-1) ?? "";
   let slug = leaf
     .replace(/[^A-Za-z0-9_.-]+/g, "-")
@@ -206,10 +196,7 @@ export function suggestTerminalSessionName(
  * The collision check reads the same machine-wide listing the suggestion does, for the same
  * reason: a name standing anywhere on that server is a join, not a start.
  */
-export function terminalSessionNameError(
-  name: string,
-  existingNames: Iterable<string>,
-): string | null {
+export function terminalSessionNameError(name: string, existingNames: Iterable<string>): string | null {
   const trimmed = name.trim();
   if (!trimmed) return "Give the shell a name, or use the default.";
   if (!isTerminalSessionNameValid(trimmed)) {

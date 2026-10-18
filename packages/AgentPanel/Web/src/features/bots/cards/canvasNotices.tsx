@@ -73,9 +73,7 @@ export function CanvasPlaceholder({
     <CanvasNotice>
       <Bot className="size-5" aria-hidden />
       <span>
-        {detachedCount > 0
-          ? "No Bots on the canvas. Put one on from the roster in the sidebar."
-          : "No bots yet"}
+        {detachedCount > 0 ? "No Bots on the canvas. Put one on from the roster in the sidebar." : "No bots yet"}
       </span>
       <button
         type="button"
@@ -173,8 +171,8 @@ export function CanvasNotices({
           one. */}
       {drawn === 0 && onCanvas > 0 ? (
         <Band>
-          {onCanvas} {onCanvas === 1 ? "Bot is" : "Bots are"} on machines you have hidden. The
-          machines are in the sidebar's Canvas roster, above the Bots.
+          {onCanvas} {onCanvas === 1 ? "Bot is" : "Bots are"} on machines you have hidden. The machines are in the
+          sidebar's Canvas roster, above the Bots.
         </Band>
       ) : null}
       {orphanedError ? <Band alert>{orphanedError}</Band> : null}

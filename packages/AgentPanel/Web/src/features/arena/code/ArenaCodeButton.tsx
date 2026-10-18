@@ -64,7 +64,10 @@ function ArenaCodeDialog({
   onClose: () => void;
 }) {
   const source = useMemo(() => arenaFolderSource(transport, { runId, contestantId }), [transport, runId, contestantId]);
-  const subscribe = useMemo(() => subscribeArenaGit(transport, { runId, contestantId }), [transport, runId, contestantId]);
+  const subscribe = useMemo(
+    () => subscribeArenaGit(transport, { runId, contestantId }),
+    [transport, runId, contestantId],
+  );
   const git = useFolderGitStatus(subscribe);
   return (
     <FolderCodeDialog

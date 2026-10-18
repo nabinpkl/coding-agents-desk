@@ -79,23 +79,15 @@ export function deckRows(state: KeyboardDeckState): DeckKey[][] {
     case "numbers":
       return [
         characters("1234567890"),
-        characters(["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""]),
-        [
-          { kind: "page", page: "symbols" },
-          ...characters(PUNCTUATION_ROW),
-          { kind: "delete" },
-        ],
+        characters(["-", "/", ":", ";", "(", ")", "$", "&", "@", '"']),
+        [{ kind: "page", page: "symbols" }, ...characters(PUNCTUATION_ROW), { kind: "delete" }],
         SYMBOL_BOTTOM_ROW,
       ];
     case "symbols":
       return [
         characters(["[", "]", "{", "}", "#", "%", "^", "*", "+", "="]),
         characters(["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "•"]),
-        [
-          { kind: "page", page: "numbers" },
-          ...characters(PUNCTUATION_ROW),
-          { kind: "delete" },
-        ],
+        [{ kind: "page", page: "numbers" }, ...characters(PUNCTUATION_ROW), { kind: "delete" }],
         SYMBOL_BOTTOM_ROW,
       ];
   }
@@ -116,9 +108,7 @@ export function deckKeyId(key: DeckKey): string {
 export function deckKeyLabel(key: DeckKey, state: KeyboardDeckState): string {
   switch (key.kind) {
     case "character":
-      return state.page === "alphabet" && state.shift !== "off"
-        ? key.value.toUpperCase()
-        : key.value;
+      return state.page === "alphabet" && state.shift !== "off" ? key.value.toUpperCase() : key.value;
     case "shift":
       return state.shift === "locked" ? "⇪" : "⇧";
     case "delete":
@@ -221,10 +211,7 @@ export function handleDeckKey(state: KeyboardDeckState, key: DeckKey): DeckKeyRe
   }
 }
 
-export function handleShiftTap(
-  state: KeyboardDeckState,
-  isDoubleTap: boolean,
-): KeyboardDeckState {
+export function handleShiftTap(state: KeyboardDeckState, isDoubleTap: boolean): KeyboardDeckState {
   switch (state.shift) {
     case "off":
       return { ...state, shift: "on" };

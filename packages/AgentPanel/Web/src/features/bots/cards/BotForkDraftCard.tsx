@@ -120,7 +120,9 @@ export function BotForkDraftCard({
         <div className="flex shrink-0 items-center gap-2 bg-muted py-2 pr-1.5 pl-3">
           <GitFork className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           {/* The name it starts under: the anchor, and the task it brackets, both launch arguments. */}
-          <span className="shrink-0 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground">{anchor}</span>
+          <span className="shrink-0 font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground">
+            {anchor}
+          </span>
           <input
             value={task}
             onChange={(event) => setTask(event.target.value)}
@@ -150,7 +152,11 @@ export function BotForkDraftCard({
               Starts just before &ldquo;<span className="text-foreground">{request.from.text}</span>&rdquo;
             </p>
           ) : null}
-          {error ? <p role="alert" className="text-destructive">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="text-destructive">
+              {error}
+            </p>
+          ) : null}
         </div>
         <div className="shrink-0 border-t border-border p-2">
           <div className="rounded-xl border session-view-field shadow-xs transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25">
@@ -175,7 +181,8 @@ export function BotForkDraftCard({
               trigger={{
                 ariaLabel: `Runs in ${harnessLabel}, choose another`,
                 title: "Choose what the fork runs in",
-                className: "flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-foreground outline-none transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/15 disabled:cursor-not-allowed disabled:opacity-40",
+                className:
+                  "flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-foreground outline-none transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/15 disabled:cursor-not-allowed disabled:opacity-40",
                 disabled: pending,
                 content: (
                   <>
@@ -191,7 +198,11 @@ export function BotForkDraftCard({
                 onClick={() => setWorktree((on) => !on)}
                 disabled={pending}
                 aria-pressed={worktree}
-                aria-label={worktree ? "In its own worktree, run in the Bot's checkout instead" : "In the Bot's checkout, run in its own worktree instead"}
+                aria-label={
+                  worktree
+                    ? "In its own worktree, run in the Bot's checkout instead"
+                    : "In the Bot's checkout, run in its own worktree instead"
+                }
                 title={worktree ? "Runs in a worktree of its own" : "Runs in the Bot's checkout"}
                 className={`${COMPOSER_FOOTER_BUTTON_CLASS} ${worktree ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`}
               >
@@ -206,7 +217,11 @@ export function BotForkDraftCard({
               title={needsMessage ? "Write its first message to start it through the SDK" : "Start the fork"}
               className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" aria-hidden />}
+              {pending ? (
+                <LoaderCircle className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Send className="size-4" aria-hidden />
+              )}
             </button>
           </div>
         </div>

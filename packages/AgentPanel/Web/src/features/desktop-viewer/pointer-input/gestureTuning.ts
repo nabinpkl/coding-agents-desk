@@ -45,14 +45,13 @@ function multiplier(value: unknown, fallback: number): number {
 
 /** Anything at all, made into a tuning: each field kept only when it is one a slider could set. */
 export function validGestureTuning(value: unknown): GestureTuning {
-  const stored = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const stored = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   return {
     cursorSpeed: multiplier(stored.cursorSpeed, DEFAULT_GESTURE_TUNING.cursorSpeed),
     cursorAcceleration: multiplier(stored.cursorAcceleration, DEFAULT_GESTURE_TUNING.cursorAcceleration),
     scrollSpeed: multiplier(stored.scrollSpeed, DEFAULT_GESTURE_TUNING.scrollSpeed),
-    naturalScrolling: typeof stored.naturalScrolling === "boolean"
-      ? stored.naturalScrolling
-      : DEFAULT_GESTURE_TUNING.naturalScrolling,
+    naturalScrolling:
+      typeof stored.naturalScrolling === "boolean" ? stored.naturalScrolling : DEFAULT_GESTURE_TUNING.naturalScrolling,
   };
 }
 
@@ -61,24 +60,29 @@ interface GestureTuningStore extends GestureTuning {
   resetTuning: () => void;
 }
 
-export const useGestureTuning = create<GestureTuningStore>()(persist(
-  (set) => ({
-    ...DEFAULT_GESTURE_TUNING,
-    setTuning: (change) => set((current) => validGestureTuning({ ...current, ...change })),
-    resetTuning: () => set({ ...DEFAULT_GESTURE_TUNING }),
-  }),
-  {
-    name: GESTURE_TUNING_STORAGE_KEY,
-    version: 1,
-    // A private window and a container without storage both throw; the tuning then lives for the
-    // session only, which is what an unwritable store can offer.
-    storage: createJSONStorage(() => window.localStorage),
-    partialize: ({ cursorSpeed, cursorAcceleration, scrollSpeed, naturalScrolling }) => ({
-      cursorSpeed, cursorAcceleration, scrollSpeed, naturalScrolling,
+export const useGestureTuning = create<GestureTuningStore>()(
+  persist(
+    (set) => ({
+      ...DEFAULT_GESTURE_TUNING,
+      setTuning: (change) => set((current) => validGestureTuning({ ...current, ...change })),
+      resetTuning: () => set({ ...DEFAULT_GESTURE_TUNING }),
     }),
-    merge: (persisted, current) => ({ ...current, ...validGestureTuning(persisted) }),
-  },
-));
+    {
+      name: GESTURE_TUNING_STORAGE_KEY,
+      version: 1,
+      // A private window and a container without storage both throw; the tuning then lives for the
+      // session only, which is what an unwritable store can offer.
+      storage: createJSONStorage(() => window.localStorage),
+      partialize: ({ cursorSpeed, cursorAcceleration, scrollSpeed, naturalScrolling }) => ({
+        cursorSpeed,
+        cursorAcceleration,
+        scrollSpeed,
+        naturalScrolling,
+      }),
+      merge: (persisted, current) => ({ ...current, ...validGestureTuning(persisted) }),
+    },
+  ),
+);
 
 /** The tuning as it is right now, for code that reads it per event rather than per render. */
 export function currentGestureTuning(): GestureTuning {

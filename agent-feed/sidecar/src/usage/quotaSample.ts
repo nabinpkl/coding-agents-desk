@@ -67,7 +67,7 @@ function windowName(windowMinutes: number): string {
  * exactly the reader who is watching one climb.
  */
 export function orderQuotas(samples: QuotaSample[]): QuotaSample[] {
-  return [...samples].sort((left, right) =>
-    left.windowMinutes - right.windowMinutes
-    || (left.scope ?? "").localeCompare(right.scope ?? ""));
+  return [...samples].sort(
+    (left, right) => left.windowMinutes - right.windowMinutes || (left.scope ?? "").localeCompare(right.scope ?? ""),
+  );
 }

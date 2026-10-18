@@ -171,7 +171,12 @@ describe("the panel's own commands", () => {
 
   it("keeps a failed aside in the dialog, where the reader is looking", async () => {
     const { input } = setup({
-      feed: { askOpencodeAside: vi.fn(async () => { throw new Error("serve answered 500"); }), exportOpencodeTranscript: vi.fn() } as never,
+      feed: {
+        askOpencodeAside: vi.fn(async () => {
+          throw new Error("serve answered 500");
+        }),
+        exportOpencodeTranscript: vi.fn(),
+      } as never,
     });
     const { result } = renderHook(() => usePanelCommands(input));
     await act(async () => {

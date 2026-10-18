@@ -7,12 +7,7 @@
 
 import { resolve } from "node:path";
 
-export function integerEnvironment(
-  name: string,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-): number {
+export function integerEnvironment(name: string, fallback: number, minimum: number, maximum: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return fallback;
   const value = Number(raw);

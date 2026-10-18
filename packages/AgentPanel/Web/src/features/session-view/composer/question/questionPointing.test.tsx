@@ -41,14 +41,17 @@ const CALL: OpenAskUserQuestion = {
   ],
 };
 
-function Mirror(
-  { question, answer, point, pane }: {
-    question: OpenAskUserQuestion;
-    answer: (s: SessionAddress, a: readonly TmuxQuestionAnswer[]) => Promise<TmuxQuestionOutcome>;
-    point?: (s: SessionAddress, w: TmuxQuestionPoint) => Promise<TmuxQuestionPointOutcome>;
-    pane?: TmuxQuestionState | null;
-  },
-) {
+function Mirror({
+  question,
+  answer,
+  point,
+  pane,
+}: {
+  question: OpenAskUserQuestion;
+  answer: (s: SessionAddress, a: readonly TmuxQuestionAnswer[]) => Promise<TmuxQuestionOutcome>;
+  point?: (s: SessionAddress, w: TmuxQuestionPoint) => Promise<TmuxQuestionPointOutcome>;
+  pane?: TmuxQuestionState | null;
+}) {
   const model = useTmuxQuestion(
     { answerTmuxQuestion: answer, pointTmuxQuestion: point ?? (async () => ({ pointed: true })) },
     SESSION,
@@ -148,8 +151,7 @@ describe("the live cursor mirror", () => {
       />,
     );
 
-    expect(screen.getByTitle("The session's terminal has its cursor on this option"))
-      .toBeInTheDocument();
+    expect(screen.getByTitle("The session's terminal has its cursor on this option")).toBeInTheDocument();
     // A highlight is not an answer. If the cursor were folded into the draft this radio would be
     // checked and Submit would be offering to send an answer nobody gave.
     expect(screen.getByRole("radio", { name: "BRAVO" })).not.toBeChecked();
@@ -168,7 +170,10 @@ describe("keeping the panel and the terminal on the same question", () => {
           prompt: "Which toppings?",
           review: false,
           multiSelect: true,
-          tabs: [{ label: "Colour", answered: true }, { label: "Toppings", answered: false }],
+          tabs: [
+            { label: "Colour", answered: true },
+            { label: "Toppings", answered: false },
+          ],
           options: [
             { label: "DELTA", detail: "", marked: false, cursor: false },
             { label: "ECHO", detail: "", marked: false, cursor: false },
@@ -207,12 +212,14 @@ describe("keeping the panel and the terminal on the same question", () => {
     // brought back to what the panel is showing.
     pointed.length = 0;
     fireEvent.click(screen.getByRole("radio", { name: "BRAVO" }));
-    expect(pointed).toEqual([{
-      questions: ["Which colour?", "Which toppings?"],
-      at: 0,
-      option: 1,
-      label: "BRAVO",
-    }]);
+    expect(pointed).toEqual([
+      {
+        questions: ["Which colour?", "Which toppings?"],
+        at: 0,
+        option: 1,
+        label: "BRAVO",
+      },
+    ]);
     // And it is still only a highlight: re-picking did not unpick the answer.
     expect(screen.getByRole("radio", { name: "BRAVO" })).toBeChecked();
   });

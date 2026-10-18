@@ -54,7 +54,10 @@ describe("nextPromptContestants", () => {
   test("every contestant with a session and a pane takes it, a failed one included", () => {
     const failed = contestant({ contestantId: "c2", status: "failed", sessionId: "s2", tmuxSession: "pane-c2" });
     const never = contestant({ contestantId: "c3", status: "failed", sessionId: null, tmuxSession: null });
-    expect(nextPromptContestants(run([contestant(), failed, never])).map((one) => one.contestantId)).toEqual(["c1", "c2"]);
+    expect(nextPromptContestants(run([contestant(), failed, never])).map((one) => one.contestantId)).toEqual([
+      "c1",
+      "c2",
+    ]);
   });
 
   test("a headless contestant needs only its session", () => {

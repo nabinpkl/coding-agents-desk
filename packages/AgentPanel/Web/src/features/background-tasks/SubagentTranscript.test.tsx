@@ -1,10 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import type { ActivityEvent, SubagentTranscriptMessage } from "@agentdesk/agent-feed-wire";
-import type {
-  AgentDataSource,
-  SessionReference,
-} from "@/features/activity-feed/data-source/AgentDataSource";
+import type { AgentDataSource, SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 import { SubagentTranscript } from "@/features/background-tasks/SubagentTranscript";
 
 const session: SessionReference = { source: "claude", sessionId: "s1", mode: "nice" };
@@ -22,7 +19,10 @@ function event(index: number, text: string, type = "assistant"): ActivityEvent {
 }
 
 /** A source that hands the component one scripted stream and records the unsubscribe. */
-function sourceOf(messages: SubagentTranscriptMessage[], onClose?: () => void): {
+function sourceOf(
+  messages: SubagentTranscriptMessage[],
+  onClose?: () => void,
+): {
   source: AgentDataSource;
   push: (message: SubagentTranscriptMessage) => void;
 } {
@@ -51,21 +51,21 @@ describe("SubagentTranscript", () => {
   });
 
   test("names how much context a fork inherited, which no other run has", async () => {
-    const { source } = sourceOf([{
-      kind: "snapshot",
-      agentId: "a1",
-      events: [event(0, "hello")],
-      total: 1,
-      forkOrigin: { parentSessionId: "s1", parentMessageUuid: "u1", contextLength: 543 },
-    }]);
+    const { source } = sourceOf([
+      {
+        kind: "snapshot",
+        agentId: "a1",
+        events: [event(0, "hello")],
+        total: 1,
+        forkOrigin: { parentSessionId: "s1", parentMessageUuid: "u1", contextLength: 543 },
+      },
+    ]);
     render(<SubagentTranscript source={source} session={session} agentId="a1" />);
     expect(await screen.findByText(/Forked with 543 messages of context/)).toBeTruthy();
   });
 
   test("appends rather than replacing, so a growing run keeps what it already showed", async () => {
-    const { source, push } = sourceOf([
-      { kind: "snapshot", agentId: "a1", events: [event(0, "first")], total: 1 },
-    ]);
+    const { source, push } = sourceOf([{ kind: "snapshot", agentId: "a1", events: [event(0, "first")], total: 1 }]);
     render(<SubagentTranscript source={source} session={session} agentId="a1" />);
     expect(await screen.findByText("first")).toBeTruthy();
     act(() => push({ kind: "append", event: event(1, "second") }));
@@ -75,9 +75,7 @@ describe("SubagentTranscript", () => {
   });
 
   test("a replayed event does not appear twice", async () => {
-    const { source, push } = sourceOf([
-      { kind: "snapshot", agentId: "a1", events: [event(0, "only once")], total: 1 },
-    ]);
+    const { source, push } = sourceOf([{ kind: "snapshot", agentId: "a1", events: [event(0, "only once")], total: 1 }]);
     render(<SubagentTranscript source={source} session={session} agentId="a1" />);
     expect(await screen.findByText("only once")).toBeTruthy();
     act(() => push({ kind: "append", event: event(0, "only once") }));
@@ -89,15 +87,15 @@ describe("SubagentTranscript", () => {
     // its presence is what separates the real renderer from a look-alike written for this panel.
     // The absent drawer is the correctness half: these events are the subagent's, and an index
     // among them names a line in a file this session reference does not point at.
-    const { source } = sourceOf([{
-      kind: "snapshot",
-      agentId: "a1",
-      events: [event(0, "reading the transcript")],
-      total: 1,
-    }]);
-    const { container } = render(
-      <SubagentTranscript source={source} session={session} agentId="a1" />,
-    );
+    const { source } = sourceOf([
+      {
+        kind: "snapshot",
+        agentId: "a1",
+        events: [event(0, "reading the transcript")],
+        total: 1,
+      },
+    ]);
+    const { container } = render(<SubagentTranscript source={source} session={session} agentId="a1" />);
     await screen.findByText("reading the transcript");
     expect(container.querySelector("[data-feed-card]")).toBeTruthy();
     expect(container.querySelector("details")).toBeNull();

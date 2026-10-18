@@ -126,8 +126,7 @@ describe("naming a fork of a message", () => {
     // the first turn with it moves that editing to before the fork exists rather than after.
     expect(screen.getByRole("textbox", { name: "" })).toHaveValue("Rewrite the picker driver");
     // And the message is quoted, because "two messages back" is not something a reader can check.
-    expect(screen.getByText(/It starts just before this message/).textContent)
-      .toContain("Rewrite the picker driver");
+    expect(screen.getByText(/It starts just before this message/).textContent).toContain("Rewrite the picker driver");
   });
 
   it("says nothing about a message when the whole session is being forked", () => {

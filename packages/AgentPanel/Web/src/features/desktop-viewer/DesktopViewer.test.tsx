@@ -18,7 +18,12 @@ vi.mock("@/features/desktop-viewer/tile-stream/TileStreamRtc", async (importOrig
   const actual = await importOriginal<typeof import("@/features/desktop-viewer/tile-stream/TileStreamRtc")>();
   return {
     ...actual,
-    TileStreamRtc: ({ onState, onControlTransport, onSourceMetadata, onControlEvent }: {
+    TileStreamRtc: ({
+      onState,
+      onControlTransport,
+      onSourceMetadata,
+      onControlEvent,
+    }: {
       onState?: (state: unknown) => void;
       onControlTransport?: (transport: { send: (input: DesktopControlInput) => "sent" }) => void;
       onSourceMetadata?: (metadata: unknown) => void;
@@ -36,16 +41,28 @@ vi.mock("@/features/desktop-viewer/tile-stream/TileStreamRtc", async (importOrig
           });
         }
         onState?.({ kind: "playing", codec: "webrtc/h264", firstFrameMs: 12 });
-        onControlTransport?.({ send: (input) => {
-          tileMock.sent.push(input);
-          if (tileMock.navigation && input.type === "desktop-refresh") {
-            onControlEvent?.({ type: "desktop-state", revision: 1, captureDisplayId: "A", displays: [{
-              id: "A", label: "Main", isMain: true, activeSpaceId: "1",
-              spaces: Array.from({ length: 8 }, (_, i) => ({ id: String(i + 1), type: 0 })),
-            }] });
-          }
-          return "sent";
-        } });
+        onControlTransport?.({
+          send: (input) => {
+            tileMock.sent.push(input);
+            if (tileMock.navigation && input.type === "desktop-refresh") {
+              onControlEvent?.({
+                type: "desktop-state",
+                revision: 1,
+                captureDisplayId: "A",
+                displays: [
+                  {
+                    id: "A",
+                    label: "Main",
+                    isMain: true,
+                    activeSpaceId: "1",
+                    spaces: Array.from({ length: 8 }, (_, i) => ({ id: String(i + 1), type: 0 })),
+                  },
+                ],
+              });
+            }
+            return "sent";
+          },
+        });
       }, [onControlTransport, onSourceMetadata, onState]);
       return <div data-testid="desktop-video" />;
     },
@@ -62,11 +79,18 @@ beforeEach(() => {
   tileMock.sent = [];
   observed.clear();
   disconnected.mockClear();
-  vi.stubGlobal("ResizeObserver", class {
-    constructor(private callback: () => void) {}
-    observe(element: Element) { observed.set(element, this.callback); }
-    disconnect() { disconnected(); }
-  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private callback: () => void) {}
+      observe(element: Element) {
+        observed.set(element, this.callback);
+      }
+      disconnect() {
+        disconnected();
+      }
+    },
+  );
   localStorage.clear();
 });
 
@@ -123,11 +147,19 @@ describe("DesktopViewer", () => {
   });
 
   it("draws its own keyboard where the browser would raise one, and focuses nothing", async () => {
-    const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-      matches: query === "(hover: none) and (pointer: coarse)",
-      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
-      addListener() {}, removeListener() {}, dispatchEvent: () => false,
-    }) as MediaQueryList);
+    const media = vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === "(hover: none) and (pointer: coarse)",
+          media: query,
+          onchange: null,
+          addEventListener() {},
+          removeEventListener() {},
+          addListener() {},
+          removeListener() {},
+          dispatchEvent: () => false,
+        }) as MediaQueryList,
+    );
     try {
       tileMock.publishSource = true;
       tileMock.controlVersion = 2;
@@ -155,11 +187,19 @@ describe("DesktopViewer", () => {
   });
 
   it("switches between the panel's keyboard and the browser's, and back", async () => {
-    const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-      matches: query === "(hover: none) and (pointer: coarse)",
-      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
-      addListener() {}, removeListener() {}, dispatchEvent: () => false,
-    }) as MediaQueryList);
+    const media = vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === "(hover: none) and (pointer: coarse)",
+          media: query,
+          onchange: null,
+          addEventListener() {},
+          removeEventListener() {},
+          addListener() {},
+          removeListener() {},
+          dispatchEvent: () => false,
+        }) as MediaQueryList,
+    );
     try {
       tileMock.publishSource = true;
       tileMock.controlVersion = 2;
@@ -191,7 +231,12 @@ describe("DesktopViewer", () => {
       expect(document.activeElement).not.toBe(capture);
       // The blur that switching back causes must not read as the keyboard being dismissed, which
       // is decided a tick later and would otherwise tear the whole strip down.
-      await act(() => new Promise((resolve) => { setTimeout(resolve, 1); }));
+      await act(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(resolve, 1);
+          }),
+      );
       expect(screen.getByTestId("keyboard-deck")).toBeInTheDocument();
       expect(screen.getByRole("region", { name: "Remote keyboard controls" })).toBeInTheDocument();
     } finally {
@@ -221,8 +266,11 @@ describe("DesktopViewer", () => {
     expect(screen.queryByTestId("keyboard-deck")).toBeNull();
     expect(within(chrome).getByRole("button", { name: "Paste" })).toBeVisible();
     const rail = within(chrome).getByLabelText("Remote key rail");
-    expect(within(rail).getAllByRole("button").map((button) => button.textContent))
-      .toEqual(["Esc", "Tab", "⇧", "↑", "←", "↓", "→", "Cmd", "Ctrl", "Opt"]);
+    expect(
+      within(rail)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Esc", "Tab", "⇧", "↑", "←", "↓", "→", "Cmd", "Ctrl", "Opt"]);
     expect(within(chrome).getByLabelText("Acknowledged remote input")).toHaveClass("sr-only");
     expect(within(chrome).getByLabelText("Input delivery")).toHaveClass("sr-only");
     expect(within(chrome).queryByText("Local echo above; delivery confirmed here")).not.toBeInTheDocument();
@@ -262,14 +310,14 @@ describe("DesktopViewer", () => {
       surface.dispatchEvent(up);
     });
 
-    await waitFor(() => expect(http.request).toHaveBeenCalledWith(
-      "POST",
-      "/api/park/tile/display/webrtc/telemetry",
-      { body: expect.objectContaining({
-        phase: "viewport-gesture-end",
-        detail: expect.stringContaining('"kind":"pointer"'),
-      }) },
-    ));
+    await waitFor(() =>
+      expect(http.request).toHaveBeenCalledWith("POST", "/api/park/tile/display/webrtc/telemetry", {
+        body: expect.objectContaining({
+          phase: "viewport-gesture-end",
+          detail: expect.stringContaining('"kind":"pointer"'),
+        }),
+      }),
+    );
   });
 
   it("keeps pointer input disabled until WebRTC supplies source metadata", async () => {
@@ -280,8 +328,9 @@ describe("DesktopViewer", () => {
     expect(await screen.findByTestId("desktop-video")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pointer" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Viewer settings" }));
-    expect(within(screen.getByRole("dialog", { name: "Viewer settings" })).getByRole("status"))
-      .toHaveTextContent("Input connecting");
+    expect(within(screen.getByRole("dialog", { name: "Viewer settings" })).getByRole("status")).toHaveTextContent(
+      "Input connecting",
+    );
   });
 
   it("keeps video visible and disables control loudly on a capability mismatch", async () => {
@@ -295,8 +344,9 @@ describe("DesktopViewer", () => {
     const settings = screen.getByRole("button", { name: "Viewer settings" });
     expect(settings).toHaveAttribute("title", "Control v1 unsupported");
     fireEvent.click(settings);
-    expect(within(screen.getByRole("dialog", { name: "Viewer settings" })).getByRole("status"))
-      .toHaveTextContent("Control v1 unsupported");
+    expect(within(screen.getByRole("dialog", { name: "Viewer settings" })).getByRole("status")).toHaveTextContent(
+      "Control v1 unsupported",
+    );
   });
 
   it("ends the video where the keyboard accessory begins", async () => {
@@ -333,17 +383,27 @@ describe("DesktopViewer", () => {
       clientHeight: { configurable: true, value: 500 },
     });
     const capture = screen.getByLabelText("Remote Mac keyboard input");
-    const tap = () => act(() => {
-      for (const type of ["pointerdown", "pointerup"] as const) {
-        const event = new MouseEvent(type, { bubbles: true, clientX: 400, clientY: 250 });
-        Object.defineProperty(event, "pointerId", { value: 1 });
-        surface.dispatchEvent(event);
-      }
-    });
-    const cursor = (cursorKind: "arrow" | "ibeam") => act(() => tileMock.emit!({
-      type: "cursor-image", hash: cursorKind, hotspotXFrac: 0, hotspotYFrac: 0,
-      widthPoints: 16, heightPoints: 16, hidden: false, cursorKind,
-    }));
+    const tap = () =>
+      act(() => {
+        for (const type of ["pointerdown", "pointerup"] as const) {
+          const event = new MouseEvent(type, { bubbles: true, clientX: 400, clientY: 250 });
+          Object.defineProperty(event, "pointerId", { value: 1 });
+          surface.dispatchEvent(event);
+        }
+      });
+    const cursor = (cursorKind: "arrow" | "ibeam") =>
+      act(() =>
+        tileMock.emit!({
+          type: "cursor-image",
+          hash: cursorKind,
+          hotspotXFrac: 0,
+          hotspotYFrac: 0,
+          widthPoints: 16,
+          heightPoints: 16,
+          hidden: false,
+          cursorKind,
+        }),
+      );
 
     cursor("arrow");
     tap();

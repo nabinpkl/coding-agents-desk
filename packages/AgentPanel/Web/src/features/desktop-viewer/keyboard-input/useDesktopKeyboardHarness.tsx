@@ -8,11 +8,13 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { DesktopControlInput, DesktopCursorKind } from "@agentdesk/agent-feed-wire";
 import type { DesktopControlTransport } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
-import { useDesktopKeyboard, type DesktopKeyboardTelemetry } from "@/features/desktop-viewer/keyboard-input/useDesktopKeyboard";
+import {
+  useDesktopKeyboard,
+  type DesktopKeyboardTelemetry,
+} from "@/features/desktop-viewer/keyboard-input/useDesktopKeyboard";
 import { useNotify } from "@/hooks/useNotify";
 
-export 
-type Controller = ReturnType<typeof useDesktopKeyboard>;
+export type Controller = ReturnType<typeof useDesktopKeyboard>;
 
 function Harness({
   transport,
@@ -31,15 +33,9 @@ function Harness({
   const { captureRef, accessoryRef, captureProps, keyboardPresented } = controller;
   return (
     <>
-      <textarea
-        ref={captureRef}
-        aria-label="capture"
-        {...captureProps}
-      />
+      <textarea ref={captureRef} aria-label="capture" {...captureProps} />
       {/* Stands in for the portaled accessory, which is what the hook measures. */}
-      {keyboardPresented
-        ? <section ref={accessoryRef} aria-label="accessory" />
-        : null}
+      {keyboardPresented ? <section ref={accessoryRef} aria-label="accessory" /> : null}
     </>
   );
 }
@@ -55,11 +51,23 @@ export function setup(cursorKind: () => DesktopCursorKind = () => "ibeam") {
   };
   const report = vi.fn();
   let controller!: Controller;
-  render(<Harness transport={transport} cursorKind={cursorKind} report={report}
-    expose={(next) => { controller = next; }} />);
+  render(
+    <Harness
+      transport={transport}
+      cursorKind={cursorKind}
+      report={report}
+      expose={(next) => {
+        controller = next;
+      }}
+    />,
+  );
   return {
-    sent, transport, report,
-    get controller() { return controller; },
+    sent,
+    transport,
+    report,
+    get controller() {
+      return controller;
+    },
     capture: screen.getByLabelText("capture"),
   };
 }
@@ -83,7 +91,12 @@ export function editableFocus(controller: Controller, focusRequestId: string, se
   });
 }
 
-export function beforeInput(_controller: Controller, element: HTMLTextAreaElement, inputType: string, data: string | null) {
+export function beforeInput(
+  _controller: Controller,
+  element: HTMLTextAreaElement,
+  inputType: string,
+  data: string | null,
+) {
   const event = new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType, data });
   act(() => element.dispatchEvent(event));
   return event;
@@ -99,11 +112,16 @@ export function stubAccessoryObserver(): Map<Element, () => void> {
   const accessoryObservers = new Map<Element, () => void>();
 
   beforeEach(() => {
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(private callback: () => void) {}
-      observe(element: Element) { accessoryObservers.set(element, this.callback); }
-      disconnect() {}
-    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private callback: () => void) {}
+        observe(element: Element) {
+          accessoryObservers.set(element, this.callback);
+        }
+        disconnect() {}
+      },
+    );
   });
 
   afterEach(() => {

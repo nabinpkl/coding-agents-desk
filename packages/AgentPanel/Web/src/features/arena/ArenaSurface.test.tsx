@@ -67,11 +67,19 @@ function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]
     async request(method, path, requestOptions): Promise<TransportResponse> {
       if (method === "GET") asked.push(path);
       if (method === "GET" && path === "/api/agent-sessions/opencode/models") {
-        const model = (providerID: string, modelID: string, name: string) =>
-          ({ providerID, modelID, name, contextLimit: null, inputCost: null, outputCost: null });
+        const model = (providerID: string, modelID: string, name: string) => ({
+          providerID,
+          modelID,
+          name,
+          contextLimit: null,
+          inputCost: null,
+          outputCost: null,
+        });
         return {
           status: 200,
-          body: JSON.stringify({ models: [model("opencode", "big-pickle", "Big Pickle"), model("opencode-go", "kimi-k2", "Kimi K2")] }),
+          body: JSON.stringify({
+            models: [model("opencode", "big-pickle", "Big Pickle"), model("opencode-go", "kimi-k2", "Kimi K2")],
+          }),
         };
       }
       if (method === "GET" && path.startsWith("/api/arena/code/tree")) {
@@ -197,17 +205,25 @@ describe("ArenaSurface", () => {
     // Each fact as the name a screen reader hears, then what the eye reads.
     const facts = (name: string) => {
       const lane = screen.getByRole("region", { name: `${name} facts` });
-      return [...lane.querySelectorAll("dl > div")].map((row) =>
-        `${row.querySelector("dt")?.textContent}: ${row.querySelector("dd")?.textContent}`
+      return [...lane.querySelectorAll("dl > div")].map(
+        (row) => `${row.querySelector("dt")?.textContent}: ${row.querySelector("dd")?.textContent}`,
       );
     };
     // Reaching nowhere and changing nothing are not said at all, where a row of "none" had to be read.
     expect(facts("c1 OpenCode")).toEqual([
-      "Time: 2.0s", "Files read: 1 read", "Files written: 0 written", "Context: 1.2k context", "Cost: $0.0200",
+      "Time: 2.0s",
+      "Files read: 1 read",
+      "Files written: 0 written",
+      "Context: 1.2k context",
+      "Cost: $0.0200",
     ]);
     expect(facts("c2 Claude")).toEqual([
-      "Time: 8.0s", "Files read: 1 read", "Files written: 1 written", "Diff: +1 −1 in 1 file",
-      "Context: 1.2k context", "Cost: $0.0200",
+      "Time: 8.0s",
+      "Files read: 1 read",
+      "Files written: 1 written",
+      "Diff: +1 −1 in 1 file",
+      "Context: 1.2k context",
+      "Cost: $0.0200",
     ]);
   });
 
@@ -226,7 +242,9 @@ describe("ArenaSurface", () => {
 
   test("a running lane leaves out what is not known yet, rather than counting it as zero", async () => {
     const running = run({
-      contestants: [contestant({ status: "running", closedAt: null, durationMs: null, contextTokens: null, costUsd: null })],
+      contestants: [
+        contestant({ status: "running", closedAt: null, durationMs: null, contextTokens: null, costUsd: null }),
+      ],
     });
     mount(harness({ runs: [running], detail: running }).transport);
     await openRun("say one word");
@@ -290,9 +308,16 @@ describe("ArenaSurface", () => {
     const waiting = run({
       mode: "terminals",
       prompt: "",
-      contestants: [contestant({ status: "ready" }), contestant({ contestantId: "c2", source: "claude", status: "starting" })],
+      contestants: [
+        contestant({ status: "ready" }),
+        contestant({ contestantId: "c2", source: "claude", status: "starting" }),
+      ],
     });
-    const { transport, posted, postedTo } = harness({ modes: ["terminals", "headless"], runs: [waiting], detail: waiting });
+    const { transport, posted, postedTo } = harness({
+      modes: ["terminals", "headless"],
+      runs: [waiting],
+      detail: waiting,
+    });
     mount(transport);
     await openRun("Waiting for a prompt");
     expect(screen.getByText("1 of 2 ready")).toBeTruthy();
@@ -326,7 +351,10 @@ describe("ArenaSurface", () => {
   });
 
   test("the next prompt cannot be sent while a lane is still on the last one", async () => {
-    const dueling = run({ mode: "terminals", contestants: [contestant({ status: "running", closedAt: null, durationMs: null })] });
+    const dueling = run({
+      mode: "terminals",
+      contestants: [contestant({ status: "running", closedAt: null, durationMs: null })],
+    });
     mount(harness({ runs: [dueling], detail: dueling }).transport);
     await openRun("say one word");
     const box = screen.getByLabelText("Next prompt for every lane");

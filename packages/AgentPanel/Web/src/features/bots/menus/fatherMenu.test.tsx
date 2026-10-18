@@ -26,9 +26,7 @@ function openMenu() {
 describe("the Father on the session menu", () => {
   it("offers the naming on a session that is not the Father", () => {
     const onSetFather = vi.fn();
-    render(
-      <SessionRowMenu label="sid-1" onDetach={() => {}} onSetFather={onSetFather} onClearFather={() => {}} />,
-    );
+    render(<SessionRowMenu label="sid-1" onDetach={() => {}} onSetFather={onSetFather} onClearFather={() => {}} />);
     openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Set as Father" }));
     expect(onSetFather).toHaveBeenCalledTimes(1);
@@ -64,9 +62,7 @@ describe("the Bot on its card menu", () => {
   it("renames above and deletes last", () => {
     const onRenameBot = vi.fn();
     const onDeleteBot = vi.fn();
-    render(
-      <BotCardMenu bot={bot} onDetach={() => {}} onRenameBot={onRenameBot} onDeleteBot={onDeleteBot} />,
-    );
+    render(<BotCardMenu bot={bot} onDetach={() => {}} onRenameBot={onRenameBot} onDeleteBot={onDeleteBot} />);
     openMenu();
     const names = screen.getAllByRole("menuitem").map((item) => item.textContent);
     expect(names).toEqual(["Remove from canvas", "Rename Bot", "Delete Bot"]);

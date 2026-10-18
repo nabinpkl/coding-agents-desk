@@ -182,7 +182,11 @@ export function OpencodeModelsDialog({
           aria-label="Filter models"
           className="min-h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
         />
-        <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto overscroll-contain" role="listbox" aria-label={listLabel}>
+        <ul
+          className="min-h-0 flex-1 divide-y divide-border overflow-y-auto overscroll-contain"
+          role="listbox"
+          aria-label={listLabel}
+        >
           {custom ? (
             <li role="presentation" className="pb-1">
               <button
@@ -196,7 +200,9 @@ export function OpencodeModelsDialog({
                 <span className="min-w-0 flex-1 truncate text-sm text-foreground">
                   Use <span className="font-mono">{custom}</span>
                 </span>
-                {pendingName === `custom:${custom}` ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden /> : null}
+                {pendingName === `custom:${custom}` ? (
+                  <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden />
+                ) : null}
               </button>
             </li>
           ) : null}
@@ -252,7 +258,9 @@ export function OpencodeModelsDialog({
                               </span>
                               <span className="block truncate text-xs text-muted-foreground">
                                 {model.modelID}
-                                {model.contextLimit !== null ? ` · ${(model.contextLimit / 1048576).toFixed(model.contextLimit % 1048576 === 0 ? 0 : 1)}M context` : ""}
+                                {model.contextLimit !== null
+                                  ? ` · ${(model.contextLimit / 1048576).toFixed(model.contextLimit % 1048576 === 0 ? 0 : 1)}M context`
+                                  : ""}
                                 {model.inputCost !== null && model.outputCost !== null
                                   ? ` · $${model.inputCost}/$${model.outputCost} per MTok`
                                   : ""}
@@ -265,7 +273,7 @@ export function OpencodeModelsDialog({
                     })}
                   </ul>
                 ) : null}
-            </li>
+              </li>
             );
           })}
         </ul>
@@ -289,19 +297,27 @@ export function OpencodeModelsDialog({
                       if (!checked) void chooseEffort(level);
                     }}
                     className={`flex h-7 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-md px-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60 ${
-                      checked ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground active:bg-background/60"
+                      checked
+                        ? "bg-background text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground active:bg-background/60"
                     }`}
                   >
-                    {pendingName === `effort:${level}`
-                      ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-                      : EFFORT_LABELS[level] ?? level}
+                    {pendingName === `effort:${level}` ? (
+                      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+                    ) : (
+                      (EFFORT_LABELS[level] ?? level)
+                    )}
                   </button>
                 );
               })}
             </div>
           </div>
         ) : null}
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
       </div>
     </>
   );
@@ -349,10 +365,11 @@ export function OpencodeModelsHost({
   // A list that cannot be read closes the dialog rather than opening an empty one.
   const listed = usePanelQuery({
     queryKey: ["opencode-models", sourceKey(feed)],
-    queryFn: () => feed.listOpencodeModels().catch((cause: unknown) => {
-      onClose();
-      throw cause;
-    }),
+    queryFn: () =>
+      feed.listOpencodeModels().catch((cause: unknown) => {
+        onClose();
+        throw cause;
+      }),
   });
   const models = listed.data ?? null;
 

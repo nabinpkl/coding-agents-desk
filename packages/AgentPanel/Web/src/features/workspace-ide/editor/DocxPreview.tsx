@@ -48,10 +48,7 @@ function loadDocxPreview(): Promise<DocxPreviewLibrary> {
  */
 export const DOCX_FRAME_SANDBOX = "allow-popups allow-popups-to-escape-sandbox";
 
-type Rendered =
-  | { status: "loading" }
-  | { status: "failed"; reason: string }
-  | { status: "ready"; html: string };
+type Rendered = { status: "loading" } | { status: "failed"; reason: string } | { status: "ready"; html: string };
 
 export function DocxPreview({
   name,
@@ -125,11 +122,11 @@ export async function renderDocxFrame(docx: DocxPreviewLibrary, bytes: Uint8Arra
     .map((style) => `<style>${(style.textContent ?? "").replaceAll("</", "<\\/")}</style>`)
     .join("");
   return [
-    "<!doctype html><html><head><meta charset=\"utf-8\">",
+    '<!doctype html><html><head><meta charset="utf-8">',
     `<meta http-equiv="Content-Security-Policy" content="${FRAME_POLICY}">`,
     // A srcdoc frame resolves links against its PARENT's address, so `#bookmark` would load the
     // panel's own page into the frame. Against `about:srcdoc` it is a jump within this document.
-    "<base href=\"about:srcdoc\">",
+    '<base href="about:srcdoc">',
     documentStyles,
     `<style>${FRAME_CSS}</style>`,
     "</head><body>",

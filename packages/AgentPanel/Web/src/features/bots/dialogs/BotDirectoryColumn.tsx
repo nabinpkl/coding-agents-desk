@@ -74,7 +74,9 @@ export function BotDirectoryColumn({
         {machines.length > 1 ? (
           <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
             <Monitor className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="sr-only" id="bot-creator-machine">Machine</span>
+            <span className="sr-only" id="bot-creator-machine">
+              Machine
+            </span>
             <div role="group" aria-labelledby="bot-creator-machine" className="flex flex-wrap gap-1.5">
               {machines.map((candidate) => {
                 const selected = candidate.id === machine.id;
@@ -106,9 +108,7 @@ export function BotDirectoryColumn({
           </div>
         ) : null}
         <div className="flex items-center justify-between gap-2 px-4 py-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Directory
-          </span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Directory</span>
           <button
             type="button"
             onClick={() => {
@@ -124,16 +124,24 @@ export function BotDirectoryColumn({
       </div>
 
       {refusal ? (
-        <p role="alert" className="px-4 py-2 text-xs text-destructive">{refusal}</p>
+        <p role="alert" className="px-4 py-2 text-xs text-destructive">
+          {refusal}
+        </p>
       ) : null}
 
       {loading && rows.length === 0 ? (
-        <div role="status" className="flex min-h-32 items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+        <div
+          role="status"
+          className="flex min-h-32 items-center justify-center gap-2 p-4 text-sm text-muted-foreground"
+        >
           <LoaderCircle className="size-4 animate-spin" aria-hidden />
           Loading projects…
         </div>
       ) : rows.length === 0 ? (
-        <div role="status" className="flex min-h-32 items-center justify-center p-4 text-center text-sm text-muted-foreground">
+        <div
+          role="status"
+          className="flex min-h-32 items-center justify-center p-4 text-center text-sm text-muted-foreground"
+        >
           {error ?? `No AgentDesk projects on ${machine.label}. Browse for a folder instead.`}
         </div>
       ) : (

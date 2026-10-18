@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   DELETE_REPEAT_DELAY_MS,
   DELETE_REPEAT_INTERVAL_MS,
@@ -89,9 +96,11 @@ export function KeyboardDeck({
   // A layout change takes the balloon down, even from under a finger that is still holding its key:
   // `render(_:)` dismisses it whenever the state it is asked for differs from the one on screen.
   // Reachable with two thumbs, where one holds a letter while the other taps shift.
-  const [preview, setPreview] = useStateFor<
-    { pointerId: number; character: string; layout: CharacterPreviewLayout } | null
-  >(state, () => null);
+  const [preview, setPreview] = useStateFor<{
+    pointerId: number;
+    character: string;
+    layout: CharacterPreviewLayout;
+  } | null>(state, () => null);
   const deckRef = useRef<HTMLDivElement>(null);
   const stateRef = useLatestRef(state);
   /** One entry per finger. Two-thumb typing is ordinary typing, and each key tracks its own touch. */
@@ -128,55 +137,63 @@ export function KeyboardDeck({
     cellsRef.current = null;
   });
 
-  const releasePress = useCallback((active: ActivePress) => {
-    if (active.element.hasPointerCapture?.(active.pointerId)) {
-      active.element.releasePointerCapture(active.pointerId);
-    }
-    presses.current.delete(active.pointerId);
-    if (active.key.kind === "delete") stopRepeat();
-    setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
-    setPreview((current) => (current?.pointerId === active.pointerId ? null : current));
-  }, [stopRepeat, setPreview]);
+  const releasePress = useCallback(
+    (active: ActivePress) => {
+      if (active.element.hasPointerCapture?.(active.pointerId)) {
+        active.element.releasePointerCapture(active.pointerId);
+      }
+      presses.current.delete(active.pointerId);
+      if (active.key.kind === "delete") stopRepeat();
+      setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
+      setPreview((current) => (current?.pointerId === active.pointerId ? null : current));
+    },
+    [stopRepeat, setPreview],
+  );
 
-  const showPreview = useCallback((press: ActivePress) => {
-    const deck = deckRef.current;
-    if (!deck) return;
-    const keyRect = press.element.getBoundingClientRect();
-    const deckRect = deck.getBoundingClientRect();
-    setPreview({
-      pointerId: press.pointerId,
-      character: deckKeyLabel(press.key, stateRef.current),
-      layout: characterPreviewLayout(
-        { left: keyRect.left - deckRect.left, top: keyRect.top - deckRect.top, width: keyRect.width },
-        deckRect.width,
-      ),
-    });
-  }, [stateRef, setPreview]);
+  const showPreview = useCallback(
+    (press: ActivePress) => {
+      const deck = deckRef.current;
+      if (!deck) return;
+      const keyRect = press.element.getBoundingClientRect();
+      const deckRect = deck.getBoundingClientRect();
+      setPreview({
+        pointerId: press.pointerId,
+        character: deckKeyLabel(press.key, stateRef.current),
+        layout: characterPreviewLayout(
+          { left: keyRect.left - deckRect.left, top: keyRect.top - deckRect.top, width: keyRect.width },
+          deckRect.width,
+        ),
+      });
+    },
+    [stateRef, setPreview],
+  );
 
-  const commit = useCallback((key: DeckKey) => {
-    if (key.kind === "shift") {
-      const now = performance.now();
-      const isDoubleTap = stateRef.current.shift === "on"
-        && now - lastShiftTapAt.current <= SHIFT_DOUBLE_TAP_MS;
-      const next = handleShiftTap(stateRef.current, isDoubleTap);
-      lastShiftTapAt.current = next.shift === "on" ? now : 0;
-      setState(next);
-      return;
-    }
-    // Delete already fired on press-down, so the first backspace and its repeats are one sequence.
-    // It leaves the double-tap window open too: on iOS a delete never reaches the key handler at
-    // all, because the button returns at `touchUpInside` before it calls `onPress`. The globe key
-    // returned early in the same way, and this key sits in its seat.
-    if (key.kind === "delete") return;
-    if (key.kind === "native") {
-      onSwitchToNative();
-      return;
-    }
-    lastShiftTapAt.current = 0;
-    const result = handleDeckKey(stateRef.current, key);
-    setState(result.state);
-    if (result.output !== null) onCharacter(result.output);
-  }, [onCharacter, onSwitchToNative, stateRef]);
+  const commit = useCallback(
+    (key: DeckKey) => {
+      if (key.kind === "shift") {
+        const now = performance.now();
+        const isDoubleTap = stateRef.current.shift === "on" && now - lastShiftTapAt.current <= SHIFT_DOUBLE_TAP_MS;
+        const next = handleShiftTap(stateRef.current, isDoubleTap);
+        lastShiftTapAt.current = next.shift === "on" ? now : 0;
+        setState(next);
+        return;
+      }
+      // Delete already fired on press-down, so the first backspace and its repeats are one sequence.
+      // It leaves the double-tap window open too: on iOS a delete never reaches the key handler at
+      // all, because the button returns at `touchUpInside` before it calls `onPress`. The globe key
+      // returned early in the same way, and this key sits in its seat.
+      if (key.kind === "delete") return;
+      if (key.kind === "native") {
+        onSwitchToNative();
+        return;
+      }
+      lastShiftTapAt.current = 0;
+      const result = handleDeckKey(stateRef.current, key);
+      setState(result.state);
+      if (result.output !== null) onCharacter(result.output);
+    },
+    [onCharacter, onSwitchToNative, stateRef],
+  );
 
   /**
    * The tiling, measured once and kept until the deck changes shape. Rebuilding it per move would
@@ -212,133 +229,148 @@ export function KeyboardDeck({
    * Resolve a touch to a key by the tiled cells rather than by whatever element is under it, so
    * the gaps, the deck's padding, and the home row's indent all belong to a key.
    */
-  const resolve = useCallback((clientX: number, clientY: number) => {
-    const built = geometry();
-    if (!built) return null;
-    const point = { x: clientX - built.origin.left, y: clientY - built.origin.top };
-    const cell = cellAtPoint(built.cells, point);
-    if (!cell) return null;
-    const element = built.elements[cell.row]?.[cell.key];
-    const key = rowsRef.current[cell.row]?.[cell.key];
-    if (!element || !key) return null;
-    return { cell, element, key, deckOrigin: built.origin };
-  }, [geometry, rowsRef]);
+  const resolve = useCallback(
+    (clientX: number, clientY: number) => {
+      const built = geometry();
+      if (!built) return null;
+      const point = { x: clientX - built.origin.left, y: clientY - built.origin.top };
+      const cell = cellAtPoint(built.cells, point);
+      if (!cell) return null;
+      const element = built.elements[cell.row]?.[cell.key];
+      const key = rowsRef.current[cell.row]?.[cell.key];
+      if (!element || !key) return null;
+      return { cell, element, key, deckOrigin: built.origin };
+    },
+    [geometry, rowsRef],
+  );
 
-  const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    // Nothing on this deck may take focus: a focused editable is what summons WebKit's keyboard
-    // and its form-navigation strip, which is the whole reason the deck exists.
-    event.preventDefault();
-    const hit = resolve(event.clientX, event.clientY);
-    if (!hit) return;
-    const key = hit.key;
-    // A pointer id whose release never arrived would otherwise be poisoned for good, and iOS
-    // reuses ids: one missed `pointerup` would silently swallow every later touch that got the
-    // same id. Discard the stale press and take this one.
-    const stale = presses.current.get(event.pointerId);
-    if (stale) releasePress(stale);
-    // Capture to the deck, not the keycap: the cells are the targets now, and a drag across them
-    // has to keep reporting here. Touch captures implicitly; a mouse does not. jsdom has neither.
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    const active: ActivePress = {
-      pointerId: event.pointerId,
-      key,
-      element: hit.element,
-      cell: hit.cell,
-      deckOrigin: hit.deckOrigin,
-      startX: event.clientX,
-      panOriginX: null,
-      lastStep: 0,
-      panned: false,
-      cancelled: false,
-    };
-    presses.current.set(event.pointerId, active);
-    setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
-    if (key.kind === "character") showPreview(active);
-    if (key.kind === "delete") {
-      onDelete();
-      // One repeat for the one delete key, restarted rather than stacked, as the Swift's scheduler
-      // does by stopping inside `start`. Two fingers on it otherwise leave an orphaned timer.
-      stopRepeat();
-      repeatTimer.current = window.setTimeout(() => {
-        repeatTimer.current = window.setInterval(() => {
-          const held = presses.current.get(active.pointerId);
-          if (!held || held.cancelled) return;
-          onDelete();
-        }, DELETE_REPEAT_INTERVAL_MS);
-      }, DELETE_REPEAT_DELAY_MS);
-    }
-  }, [onDelete, releasePress, resolve, showPreview, stopRepeat]);
+  const onPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      // Nothing on this deck may take focus: a focused editable is what summons WebKit's keyboard
+      // and its form-navigation strip, which is the whole reason the deck exists.
+      event.preventDefault();
+      const hit = resolve(event.clientX, event.clientY);
+      if (!hit) return;
+      const key = hit.key;
+      // A pointer id whose release never arrived would otherwise be poisoned for good, and iOS
+      // reuses ids: one missed `pointerup` would silently swallow every later touch that got the
+      // same id. Discard the stale press and take this one.
+      const stale = presses.current.get(event.pointerId);
+      if (stale) releasePress(stale);
+      // Capture to the deck, not the keycap: the cells are the targets now, and a drag across them
+      // has to keep reporting here. Touch captures implicitly; a mouse does not. jsdom has neither.
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      const active: ActivePress = {
+        pointerId: event.pointerId,
+        key,
+        element: hit.element,
+        cell: hit.cell,
+        deckOrigin: hit.deckOrigin,
+        startX: event.clientX,
+        panOriginX: null,
+        lastStep: 0,
+        panned: false,
+        cancelled: false,
+      };
+      presses.current.set(event.pointerId, active);
+      setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
+      if (key.kind === "character") showPreview(active);
+      if (key.kind === "delete") {
+        onDelete();
+        // One repeat for the one delete key, restarted rather than stacked, as the Swift's scheduler
+        // does by stopping inside `start`. Two fingers on it otherwise leave an orphaned timer.
+        stopRepeat();
+        repeatTimer.current = window.setTimeout(() => {
+          repeatTimer.current = window.setInterval(() => {
+            const held = presses.current.get(active.pointerId);
+            if (!held || held.cancelled) return;
+            onDelete();
+          }, DELETE_REPEAT_INTERVAL_MS);
+        }, DELETE_REPEAT_DELAY_MS);
+      }
+    },
+    [onDelete, releasePress, resolve, showPreview, stopRepeat],
+  );
 
-  const onPointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const active = presses.current.get(event.pointerId);
-    if (!active || active.cancelled) return;
-    if (active.key.kind === "space") {
-      if (active.panOriginX === null) {
-        if (Math.abs(event.clientX - active.startX) < SPACE_PAN_SLOP_PX) return;
-        active.panOriginX = event.clientX;
+  const onPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const active = presses.current.get(event.pointerId);
+      if (!active || active.cancelled) return;
+      if (active.key.kind === "space") {
+        if (active.panOriginX === null) {
+          if (Math.abs(event.clientX - active.startX) < SPACE_PAN_SLOP_PX) return;
+          active.panOriginX = event.clientX;
+          return;
+        }
+        const step = Math.trunc((event.clientX - active.panOriginX) / SPACE_CURSOR_STEP_PX);
+        const delta = step - active.lastStep;
+        if (delta !== 0) {
+          active.panned = true;
+          active.lastStep = step;
+          onCursorDelta(delta);
+        }
         return;
       }
-      const step = Math.trunc((event.clientX - active.panOriginX) / SPACE_CURSOR_STEP_PX);
-      const delta = step - active.lastStep;
-      if (delta !== 0) {
-        active.panned = true;
-        active.lastStep = step;
-        onCursorDelta(delta);
+      // Delete is a hold, not a slide: it fired on press-down and repeats, so leaving its cell ends
+      // it rather than handing the press to whatever is next door.
+      if (active.key.kind === "delete") {
+        const point = {
+          x: event.clientX - active.deckOrigin.left,
+          y: event.clientY - active.deckOrigin.top,
+        };
+        if (!pointHoldsCell(active.cell, point, keyExitSlop(metrics))) {
+          active.cancelled = true;
+          releasePress(active);
+        }
+        return;
       }
-      return;
-    }
-    // Delete is a hold, not a slide: it fired on press-down and repeats, so leaving its cell ends
-    // it rather than handing the press to whatever is next door.
-    if (active.key.kind === "delete") {
-      const point = {
-        x: event.clientX - active.deckOrigin.left,
-        y: event.clientY - active.deckOrigin.top,
-      };
-      if (!pointHoldsCell(active.cell, point, keyExitSlop(metrics))) {
+      // Every other key follows the finger. This is the stock iPhone behaviour and a deliberate
+      // departure from the Swift keyboard, whose buttons abandon the touch on drag-exit: sliding
+      // from one key to another types the one you land on, and the balloon moves with you.
+      const hit = resolve(event.clientX, event.clientY);
+      if (!hit) {
+        // Off the deck entirely. Nothing under the finger to hand the press to.
         active.cancelled = true;
         releasePress(active);
+        return;
       }
-      return;
-    }
-    // Every other key follows the finger. This is the stock iPhone behaviour and a deliberate
-    // departure from the Swift keyboard, whose buttons abandon the touch on drag-exit: sliding
-    // from one key to another types the one you land on, and the balloon moves with you.
-    const hit = resolve(event.clientX, event.clientY);
-    if (!hit) {
-      // Off the deck entirely. Nothing under the finger to hand the press to.
+      if (hit.cell.row === active.cell.row && hit.cell.key === active.cell.key) return;
+      active.cell = hit.cell;
+      active.element = hit.element;
+      active.key = hit.key;
+      setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
+      if (hit.key.kind === "character") {
+        showPreview(active);
+      } else {
+        setPreview((current) => (current?.pointerId === active.pointerId ? null : current));
+      }
+    },
+    [metrics, onCursorDelta, releasePress, resolve, showPreview, setPreview],
+  );
+
+  const onPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const active = presses.current.get(event.pointerId);
+      if (!active) return;
+      const commits = !active.cancelled && !active.panned;
+      // Release before committing, as the Swift does, so the balloon is never the thing standing
+      // over a key that has already typed. React batches both into one paint, so the order is a
+      // statement of intent here rather than a frame the viewer could otherwise catch.
+      releasePress(active);
+      if (commits) commit(active.key);
+    },
+    [commit, releasePress],
+  );
+
+  const onPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const active = presses.current.get(event.pointerId);
+      if (!active) return;
       active.cancelled = true;
       releasePress(active);
-      return;
-    }
-    if (hit.cell.row === active.cell.row && hit.cell.key === active.cell.key) return;
-    active.cell = hit.cell;
-    active.element = hit.element;
-    active.key = hit.key;
-    setPressedKeyIds([...presses.current.values()].map((held) => deckKeyId(held.key)));
-    if (hit.key.kind === "character") {
-      showPreview(active);
-    } else {
-      setPreview((current) => (current?.pointerId === active.pointerId ? null : current));
-    }
-  }, [metrics, onCursorDelta, releasePress, resolve, showPreview, setPreview]);
-
-  const onPointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const active = presses.current.get(event.pointerId);
-    if (!active) return;
-    const commits = !active.cancelled && !active.panned;
-    // Release before committing, as the Swift does, so the balloon is never the thing standing
-    // over a key that has already typed. React batches both into one paint, so the order is a
-    // statement of intent here rather than a frame the viewer could otherwise catch.
-    releasePress(active);
-    if (commits) commit(active.key);
-  }, [commit, releasePress]);
-
-  const onPointerCancel = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const active = presses.current.get(event.pointerId);
-    if (!active) return;
-    active.cancelled = true;
-    releasePress(active);
-  }, [releasePress]);
+    },
+    [releasePress],
+  );
 
   const deckStyle = {
     paddingTop: metrics.topDeckPadding,
@@ -383,8 +415,7 @@ export function KeyboardDeck({
                   state={state}
                   pressed={pressedKeyIds.includes(deckKeyId(key))}
                   centred={centred}
-                  widened={widensOuterGaps
-                    && (keyIndex === 1 || keyIndex === keys.length - 1)}
+                  widened={widensOuterGaps && (keyIndex === 1 || keyIndex === keys.length - 1)}
                   outerGap={outerGap}
                 />
               ))}
@@ -393,9 +424,7 @@ export function KeyboardDeck({
         })}
       </div>
 
-      {preview ? (
-        <DeckKeyPreview layout={preview.layout} character={preview.character} />
-      ) : null}
+      {preview ? <DeckKeyPreview layout={preview.layout} character={preview.character} /> : null}
     </div>
   );
 }

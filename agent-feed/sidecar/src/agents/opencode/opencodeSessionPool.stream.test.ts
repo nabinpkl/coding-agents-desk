@@ -68,9 +68,9 @@ function harness(initial: SessionMessage[] = []): Harness {
       return Response.json({ data: [...durable].reverse() });
     }
     if (parsed.pathname === "/api/model") {
-      return Response.json({ data: [
-        { providerID: "opencode-go", modelID: "m", name: "M", limit: { context: 1000 }, cost: [] },
-      ] });
+      return Response.json({
+        data: [{ providerID: "opencode-go", modelID: "m", name: "M", limit: { context: 1000 }, cost: [] }],
+      });
     }
     return Response.json({ data: {} });
   }) as typeof globalThis.fetch;
@@ -80,17 +80,19 @@ function harness(initial: SessionMessage[] = []): Harness {
       get: async () => ({ id: "s1", model: { id: serveModelId, providerID: "opencode-go" }, tokens: null }),
     },
     event: {
-      subscribe: (options?: { signal?: AbortSignal }) => (async function* () {
-        for (;;) {
-          const event = queued.length > 0
-            ? queued.shift()
-            : await new Promise<unknown>((resolve, reject) => {
-              options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-              waiting.push(resolve);
-            });
-          yield event;
-        }
-      })(),
+      subscribe: (options?: { signal?: AbortSignal }) =>
+        (async function* () {
+          for (;;) {
+            const event =
+              queued.length > 0
+                ? queued.shift()
+                : await new Promise<unknown>((resolve, reject) => {
+                    options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+                    waiting.push(resolve);
+                  });
+            yield event;
+          }
+        })(),
     },
   } as unknown as OpencodeClient;
 
@@ -140,9 +142,18 @@ describe("the opencode pool, streaming a turn", () => {
     const readsAfterSeed = h.historyReads();
 
     h.push({ type: "session.text.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
-    h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "one " } });
-    h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "two" } });
-    h.push({ type: "session.text.ended", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, text: "one two" } });
+    h.push({
+      type: "session.text.delta",
+      data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "one " },
+    });
+    h.push({
+      type: "session.text.delta",
+      data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "two" },
+    });
+    h.push({
+      type: "session.text.ended",
+      data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, text: "one two" },
+    });
     // The serve re-read is a macrotask away; give the event loop a turn.
     await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -162,23 +173,28 @@ describe("the opencode pool, streaming a turn", () => {
     const h = harness();
     const stop = await openAndWatch(h);
     h.push({ type: "session.reasoning.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
-    h.push({ type: "session.reasoning.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "thinking" } });
+    h.push({
+      type: "session.reasoning.delta",
+      data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "thinking" },
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     const streamed = await h.pool.page("s1", 0, 10);
     expect(streamed.events[0]?.blocks).toEqual([{ kind: "reasoning", text: "thinking" }]);
 
     // The step ends, so the serve answers the read with the message it wrote, tool part and all.
-    h.settle([{
-      id: "msg-1",
-      type: "assistant",
-      time: { created: 1, completed: 2 },
-      agent: "build",
-      model: { id: "m", providerID: "opencode-go" },
-      content: [
-        { type: "reasoning", text: "thinking" },
-        { type: "text", text: "the answer" },
-      ],
-    } as unknown as SessionMessage]);
+    h.settle([
+      {
+        id: "msg-1",
+        type: "assistant",
+        time: { created: 1, completed: 2 },
+        agent: "build",
+        model: { id: "m", providerID: "opencode-go" },
+        content: [
+          { type: "reasoning", text: "thinking" },
+          { type: "text", text: "the answer" },
+        ],
+      } as unknown as SessionMessage,
+    ]);
     h.push({ type: "session.step.ended", data: { sessionID: "s1", assistantMessageID: "msg-1", finish: "stop" } });
     await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -203,21 +219,29 @@ describe("the opencode pool, streaming a turn", () => {
     // it already had.
     const h = harness();
     const stop = await openAndWatch(h);
-    h.settle([{
-      id: "msg-1",
-      type: "assistant",
-      time: { created: 1 },
-      agent: "build",
-      model: { id: "m", providerID: "opencode-go" },
-      content: [{ type: "reasoning", text: "" }, { type: "text", text: "" }],
-    } as unknown as SessionMessage]);
+    h.settle([
+      {
+        id: "msg-1",
+        type: "assistant",
+        time: { created: 1 },
+        agent: "build",
+        model: { id: "m", providerID: "opencode-go" },
+        content: [
+          { type: "reasoning", text: "" },
+          { type: "text", text: "" },
+        ],
+      } as unknown as SessionMessage,
+    ]);
     h.push({ type: "session.step.started", data: { sessionID: "s1", assistantMessageID: "msg-1" } });
     await new Promise((resolve) => setTimeout(resolve, 400));
     const drawn = await h.pool.page("s1", 0, 10);
     expect(drawn.events[0]?.blocks).toEqual([{ kind: "reasoning", text: "" }]);
 
     h.push({ type: "session.text.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
-    h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "the answer" } });
+    h.push({
+      type: "session.text.delta",
+      data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "the answer" },
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     const streamed = await h.pool.page("s1", 0, 10);
     // The thinking line is still there, and the text joined it rather than replacing the row.
@@ -230,17 +254,23 @@ describe("the opencode pool, streaming a turn", () => {
     await h.dispose();
   });
 
-  it("forgets the running message, so a late event for it cannot overwrite the settled row", async () => {    const h = harness([{
-      id: "msg-1",
-      type: "assistant",
-      time: { created: 1, completed: 2 },
-      agent: "build",
-      model: { id: "m", providerID: "opencode-go" },
-      content: [{ type: "text", text: "the whole answer" }],
-    } as unknown as SessionMessage]);
+  it("forgets the running message, so a late event for it cannot overwrite the settled row", async () => {
+    const h = harness([
+      {
+        id: "msg-1",
+        type: "assistant",
+        time: { created: 1, completed: 2 },
+        agent: "build",
+        model: { id: "m", providerID: "opencode-go" },
+        content: [{ type: "text", text: "the whole answer" }],
+      } as unknown as SessionMessage,
+    ]);
     const stop = await openAndWatch(h);
     // A delta that arrives after the read, for a message the serve already wrote whole.
-    h.push({ type: "session.text.delta", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "stale" } });
+    h.push({
+      type: "session.text.delta",
+      data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "stale" },
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     const page = await h.pool.page("s1", 0, 10);
     expect(page.events[0]?.blocks).toEqual([{ kind: "text", text: "the whole answer" }]);

@@ -60,7 +60,11 @@ export function resolveFather(bots: readonly BotView[]): FatherResolution {
  * drawer is open takes the corner the drawer used to drop into, so the drawer now hangs from below
  * the switch instead -- which also leaves the bar's other controls reachable while it is open.
  */
-export function FatherButton({ open, onToggle, floating = true }: {
+export function FatherButton({
+  open,
+  onToggle,
+  floating = true,
+}: {
   open: boolean;
   onToggle: () => void;
   /** Floating over the view when it has no header to stand in; inline in the header otherwise. */
@@ -80,12 +84,12 @@ export function FatherButton({ open, onToggle, floating = true }: {
       // an element by that id to point at.
       aria-expanded={open}
       aria-controls="father-home"
-      title={open
-        ? "Put the Father home away"
-        : "Open the Father home: the declared session, over the panel"}
-      className={floating
-        ? `absolute top-3 right-3 z-30 flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border bg-card/95 px-4 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold shadow-lg backdrop-blur outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 ${state}`
-        : `flex min-h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border bg-card px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 ${state}`}
+      title={open ? "Put the Father home away" : "Open the Father home: the declared session, over the panel"}
+      className={
+        floating
+          ? `absolute top-3 right-3 z-30 flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border bg-card/95 px-4 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold shadow-lg backdrop-blur outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 ${state}`
+          : `flex min-h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border bg-card px-3 text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 ${state}`
+      }
     >
       <Crown className="size-4 shrink-0 text-primary" aria-hidden />
       Father
@@ -149,14 +153,16 @@ export function FatherOverlay({
           ) : (
             <span className="min-w-0 flex-1" />
           )}
-          {resolved && "session" in resolved ? <span ref={setControlsHost} className="flex shrink-0 items-center gap-1" /> : null}
+          {resolved && "session" in resolved ? (
+            <span ref={setControlsHost} className="flex shrink-0 items-center gap-1" />
+          ) : null}
         </>
       }
     >
       {resolved === null ? (
         <p className="px-3 py-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-          No Bot names a Father session. Put a `fatherSession` on a Bot&apos;s record in
-          `bots.json` and its session stands here.
+          No Bot names a Father session. Put a `fatherSession` on a Bot&apos;s record in `bots.json` and its session
+          stands here.
         </p>
       ) : "missing" in resolved ? (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-3">
@@ -168,9 +174,7 @@ export function FatherOverlay({
               owns the alert role, so this is text beside it, shown only when it is about this
               same forgotten session. */}
           {botError && botError.session === sessionKey(resolved.missing) ? (
-            <p className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">
-              {botError.message}
-            </p>
+            <p className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">{botError.message}</p>
           ) : null}
           <button
             type="button"
@@ -191,22 +195,20 @@ export function FatherOverlay({
             tasksHost={tasksHost}
             onAcceptFiles={takeAcceptFiles}
             onAttachSession={attachSessionToBot(resolved.bot)}
-            externalError={botError
-                && botError.session !== null
-                && botError.session === sessionKey(resolved.session)
-              ? botError.message
-              : null}
+            externalError={
+              botError && botError.session !== null && botError.session === sessionKey(resolved.session)
+                ? botError.message
+                : null
+            }
           />
           {/* `contents` so this box is not one: the panel inside it positions against the home. */}
           <div ref={setTasksHost} className="contents" />
           <FileDropOverlay
             dragging={drop.dragging}
-            refusal={acceptFiles !== null
-              ? null
-              : "This session has no composer to drop into"}
+            refusal={acceptFiles !== null ? null : "This session has no composer to drop into"}
           />
-          </div>
-        )}
+        </div>
+      )}
     </FloatingWindow>
   );
 }

@@ -34,7 +34,11 @@ export function ReconnectingChip({ machine }: { machine?: string } = {}) {
  */
 export function ReconnectingNotice() {
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center" role="status" aria-live="polite">
+    <div
+      className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center"
+      role="status"
+      aria-live="polite"
+    >
       <ReconnectingChip />
     </div>
   );

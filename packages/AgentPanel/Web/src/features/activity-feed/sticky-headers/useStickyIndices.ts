@@ -54,8 +54,8 @@ function answerAt(
   if (items.length === 0) return { userBar: null, stickyCurrentIndex: null, topRowIndex: null };
   const userBar = selectUserBar(items, measurements, scrollTop, barHeight, oldestStart);
   // A bar the sidecar has not answered for, or answered with nothing, takes no room.
-  const barShown = userBar !== null
-    && ("row" in userBar || (remote !== null && remote.before === userBar.before && remote.found));
+  const barShown =
+    userBar !== null && ("row" in userBar || (remote !== null && remote.before === userBar.before && remote.found));
   const stickyCurrentIndex = selectStickyCurrentIndex(
     items,
     measurements,
@@ -76,15 +76,15 @@ function answerAt(
 
 function sameBar(left: UserBar, right: UserBar): boolean {
   if (left === null || right === null) return left === right;
-  return "row" in left
-    ? "row" in right && left.row === right.row
-    : "before" in right && left.before === right.before;
+  return "row" in left ? "row" in right && left.row === right.row : "before" in right && left.before === right.before;
 }
 
 function sameAnswer(left: StickyAnswer, right: StickyAnswer): boolean {
-  return sameBar(left.userBar, right.userBar)
-    && left.stickyCurrentIndex === right.stickyCurrentIndex
-    && left.topRowIndex === right.topRowIndex;
+  return (
+    sameBar(left.userBar, right.userBar) &&
+    left.stickyCurrentIndex === right.stickyCurrentIndex &&
+    left.topRowIndex === right.topRowIndex
+  );
 }
 
 /**
@@ -139,19 +139,31 @@ export function useStickyIndices({
   // render reads it afresh. For the same reason the list names what moves the geometry rather than
   // the geometry itself, which is one object the virtualizer changes in place.
   const answer = useMemo(
-    // oxlint-disable-next-line react/refs, react/memo-dependencies
-    () => answerAt(items, rowVirtualizer.measurementsCache, rowItems.length, scrollTop, barHeight(), oldestStart, remote),
+    () =>
+      // oxlint-disable-next-line react/refs, react/memo-dependencies
+      answerAt(items, rowVirtualizer.measurementsCache, rowItems.length, scrollTop, barHeight(), oldestStart, remote),
     [scrollTop, virtualItems, items, rowItems.length, oldestStart, remote],
   );
 
   // What the scroll handler compares against, as of the last commit: a scroll arrives after one.
   const latest = useLatestRef({ answer, items, rowCount: rowItems.length, oldestStart, remote });
-  const changesAt = useCallback((offset: number): boolean => {
-    const now = latest.current;
-    const height = stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE;
-    const next = answerAt(now.items, rowVirtualizer.measurementsCache, now.rowCount, offset, height, now.oldestStart, now.remote);
-    return !sameAnswer(next, now.answer);
-  }, [latest, rowVirtualizer, stickyHeaderRef]);
+  const changesAt = useCallback(
+    (offset: number): boolean => {
+      const now = latest.current;
+      const height = stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE;
+      const next = answerAt(
+        now.items,
+        rowVirtualizer.measurementsCache,
+        now.rowCount,
+        offset,
+        height,
+        now.oldestStart,
+        now.remote,
+      );
+      return !sameAnswer(next, now.answer);
+    },
+    [latest, rowVirtualizer, stickyHeaderRef],
+  );
 
   const { userBar, stickyCurrentIndex, topRowIndex } = answer;
   const stickyUserIndex = userBar !== null && "row" in userBar ? userBar.row : null;
@@ -159,7 +171,8 @@ export function useStickyIndices({
   // shared accessor so this does not have to be revisited if another multi-event row
   // kind appears.
   const stickyUserItem = stickyUserIndex === null ? null : items[stickyUserIndex];
-  const stickyUser: ActivityEvent | null = stickyUserItem && isEventItem(stickyUserItem) ? leadEvent(stickyUserItem) : null;
+  const stickyUser: ActivityEvent | null =
+    stickyUserItem && isEventItem(stickyUserItem) ? leadEvent(stickyUserItem) : null;
 
   // Event row currently straddling the top of the viewport: its heading has
   // scrolled past, but its content is still on screen. Drives the secondary
@@ -176,9 +189,12 @@ export function useStickyIndices({
   // one of those preserves.
   // A gap at the top stands for no line, so the place is the row under it, which is what the
   // reader sees next and what a page into the gap keeps still.
-  const topOrUnder = topRowIndex === null
-    ? undefined
-    : rowItems[topRowIndex]?.kind === "gap" ? rowItems[topRowIndex + 1] : rowItems[topRowIndex];
+  const topOrUnder =
+    topRowIndex === null
+      ? undefined
+      : rowItems[topRowIndex]?.kind === "gap"
+        ? rowItems[topRowIndex + 1]
+        : rowItems[topRowIndex];
   // The live tail counts rows in the sidecar's projection rather than lines in the transcript,
   // so it is not an anchor -- and a reader sitting on it is at the end, which needs none.
   const topEvent = !topOrUnder || topOrUnder.kind === "tail" || !isEventItem(topOrUnder) ? null : leadEvent(topOrUnder);
@@ -186,5 +202,14 @@ export function useStickyIndices({
   // The position the bar needs the sidecar's answer for, when no held row stands for it.
   const userBarBefore = userBar !== null && "before" in userBar ? userBar.before : null;
 
-  return { changesAt, stickyCurrent, stickyCurrentIndex, stickyUser, stickyUserIndex, topEvent, topRowIndex, userBarBefore };
+  return {
+    changesAt,
+    stickyCurrent,
+    stickyCurrentIndex,
+    stickyUser,
+    stickyUserIndex,
+    topEvent,
+    topRowIndex,
+    userBarBefore,
+  };
 }

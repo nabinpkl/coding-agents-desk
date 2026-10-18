@@ -1,4 +1,12 @@
-import { useCallback, useRef, useState, type InputEvent as ReactInputEvent, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type CompositionEvent as ReactCompositionEvent } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type InputEvent as ReactInputEvent,
+  type ClipboardEvent as ReactClipboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type CompositionEvent as ReactCompositionEvent,
+} from "react";
 import type {
   DesktopControlEvent,
   DesktopControlInput,
@@ -40,7 +48,10 @@ import { useNotify } from "@/hooks/useNotify";
 import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Re-exported: the surface imports the hook, and these are what it hands back.
-export type { KeyboardMode, DesktopKeyboardTelemetry } from "@/features/desktop-viewer/keyboard-input/desktopKeyboardContext";
+export type {
+  KeyboardMode,
+  DesktopKeyboardTelemetry,
+} from "@/features/desktop-viewer/keyboard-input/desktopKeyboardContext";
 
 /**
  * The desktop keyboard: what a tap arms, what a keystroke sends, and what the Mac says back.
@@ -103,28 +114,66 @@ export function useDesktopKeyboard({
   const blurTimer = useRef<number | null>(null);
 
   const ctx: KeyboardContext = {
-    captureRef, transportRef, presentationRef, showsDeckRef, modifiersRef, draftRef, accessoryRef,
-    pendingKeys, pendingDeliveries, nextSequence, focusTimer, lastSendFailure, focusStarted,
-    composing, compositionCommitEcho, sawKeyboardViewport, fullViewportHeight, handledNativeInput,
-    blurTimer, setPresentation, setAutoKeyboardState, setKeyboardModeState, setModifiers,
-    setReceipt, setLocalEcho, setDeliveryStatus, setDraft, setAccessoryBottom, setAccessoryHeight,
-    setSoftwareKeyboardVisible, report, cursorKind, deckAvailable, autoKeyboard,
+    captureRef,
+    transportRef,
+    presentationRef,
+    showsDeckRef,
+    modifiersRef,
+    draftRef,
+    accessoryRef,
+    pendingKeys,
+    pendingDeliveries,
+    nextSequence,
+    focusTimer,
+    lastSendFailure,
+    focusStarted,
+    composing,
+    compositionCommitEcho,
+    sawKeyboardViewport,
+    fullViewportHeight,
+    handledNativeInput,
+    blurTimer,
+    setPresentation,
+    setAutoKeyboardState,
+    setKeyboardModeState,
+    setModifiers,
+    setReceipt,
+    setLocalEcho,
+    setDeliveryStatus,
+    setDraft,
+    setAccessoryBottom,
+    setAccessoryHeight,
+    setSoftwareKeyboardVisible,
+    report,
+    cursorKind,
+    deckAvailable,
+    autoKeyboard,
   };
   // Read through a ref rather than captured, so every callback below is stable and the parts
   // always see this render's props.
   const ctxRef = useLatestRef(ctx);
 
   const setKeyboardMode = useCallback((mode: KeyboardMode) => session.setKeyboardMode(ctxRef.current, mode), [ctxRef]);
-  const updatePresentation = useCallback((action: KeyboardPresentationAction) => session.updatePresentation(ctxRef.current, action), [ctxRef]);
+  const updatePresentation = useCallback(
+    (action: KeyboardPresentationAction) => session.updatePresentation(ctxRef.current, action),
+    [ctxRef],
+  );
   const clearFocusTimer = useCallback(() => session.clearFocusTimer(ctxRef.current), [ctxRef]);
-  const clearLocalState = useCallback((action: "hide" | "transport-close", reason?: string) => session.clearLocalState(ctxRef.current, action, reason ?? action), [ctxRef]);
+  const clearLocalState = useCallback(
+    (action: "hide" | "transport-close", reason?: string) =>
+      session.clearLocalState(ctxRef.current, action, reason ?? action),
+    [ctxRef],
+  );
   const hide = useCallback(() => session.hide(ctxRef.current), [ctxRef]);
   const setAutoKeyboard = useCallback((enabled: boolean) => session.setAutoKeyboard(ctxRef.current, enabled), [ctxRef]);
   const sendControl = useCallback((input: DesktopControlInput) => send.sendControl(ctxRef.current, input), [ctxRef]);
   const pasteFromClipboard = useCallback(() => send.pasteFromClipboard(ctxRef.current), [ctxRef]);
   const cancelDraft = useCallback(() => send.cancelDraft(ctxRef.current), [ctxRef]);
   const sendDraft = useCallback(() => send.sendDraft(ctxRef.current), [ctxRef]);
-  const sendDeckCharacter = useCallback((character: string) => send.sendDeckCharacter(ctxRef.current, character), [ctxRef]);
+  const sendDeckCharacter = useCallback(
+    (character: string) => send.sendDeckCharacter(ctxRef.current, character),
+    [ctxRef],
+  );
   const sendDeckCursorDelta = useCallback((delta: number) => send.sendDeckCursorDelta(ctxRef.current, delta), [ctxRef]);
   const sendChromeKey = useCallback((code: RemoteKeyCode) => send.sendChromeKey(ctxRef.current, code), [ctxRef]);
   const deckBackspace = useCallback(() => send.deckBackspace(ctxRef.current), [ctxRef]);
@@ -133,13 +182,28 @@ export function useDesktopKeyboard({
   const consumePointerGesture = useCallback(() => capture.consumePointerGesture(ctxRef.current), [ctxRef]);
   const showManually = useCallback(() => capture.showManually(ctxRef.current), [ctxRef]);
   const onBeforeInput = useCallback((input: InputEvent) => capture.onBeforeInput(ctxRef.current, input), [ctxRef]);
-  const onInput = useCallback((event: ReactInputEvent<HTMLTextAreaElement>) => capture.onInput(ctxRef.current, event), [ctxRef]);
-  const onPaste = useCallback((event: ReactClipboardEvent<HTMLTextAreaElement>) => capture.onPaste(ctxRef.current, event), [ctxRef]);
+  const onInput = useCallback(
+    (event: ReactInputEvent<HTMLTextAreaElement>) => capture.onInput(ctxRef.current, event),
+    [ctxRef],
+  );
+  const onPaste = useCallback(
+    (event: ReactClipboardEvent<HTMLTextAreaElement>) => capture.onPaste(ctxRef.current, event),
+    [ctxRef],
+  );
   const onCompositionStart = useCallback(() => capture.onCompositionStart(ctxRef.current), [ctxRef]);
-  const onCompositionEnd = useCallback((event: ReactCompositionEvent<HTMLTextAreaElement>) => capture.onCompositionEnd(ctxRef.current, event), [ctxRef]);
-  const onKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => capture.onKeyDown(ctxRef.current, event), [ctxRef]);
+  const onCompositionEnd = useCallback(
+    (event: ReactCompositionEvent<HTMLTextAreaElement>) => capture.onCompositionEnd(ctxRef.current, event),
+    [ctxRef],
+  );
+  const onKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLTextAreaElement>) => capture.onKeyDown(ctxRef.current, event),
+    [ctxRef],
+  );
   const onBlur = useCallback(() => capture.onBlur(ctxRef.current), [ctxRef]);
-  const handleControlEvent = useCallback((event: DesktopControlEvent) => control.handleControlEvent(ctxRef.current, event), [ctxRef]);
+  const handleControlEvent = useCallback(
+    (event: DesktopControlEvent) => control.handleControlEvent(ctxRef.current, event),
+    [ctxRef],
+  );
 
   // The keyboard follows its transport: open, it may present; closed, everything local goes.
   useNotify(transport, (next) => {
@@ -165,29 +229,42 @@ export function useDesktopKeyboard({
     {
       const bottom = Math.max(0, window.innerHeight - (viewport.offsetTop + viewport.height));
       setAccessoryBottom(bottom);
-      const typing = presentationRef.current.presentation === "shown" || presentationRef.current.presentation === "pending";
+      const typing =
+        presentationRef.current.presentation === "shown" || presentationRef.current.presentation === "pending";
       if (!typing) fullViewportHeight.current = viewport.height;
       // Only the browser's keyboard shrinks the viewport. The deck is part of the page, so a
       // shrink while it is showing is someone else's and says nothing about how text arrives.
-      if (typing && !showsDeckRef.current
-          && viewport.height < fullViewportHeight.current - KEYBOARD_VIEWPORT_SHRINK_PX) {
+      if (
+        typing &&
+        !showsDeckRef.current &&
+        viewport.height < fullViewportHeight.current - KEYBOARD_VIEWPORT_SHRINK_PX
+      ) {
         sawKeyboardViewport.current = true;
         setSoftwareKeyboardVisible(true);
       }
       if (typing) {
-        report({ phase: "keyboard-state", detail: {
-          event: "viewport", height: Math.round(viewport.height), layoutHeight: window.innerHeight,
-          fullHeight: Math.round(fullViewportHeight.current), bottom: Math.round(bottom),
-          offsetTop: Math.round(viewport.offsetTop), captureFocused: document.activeElement === captureRef.current,
-        } });
+        report({
+          phase: "keyboard-state",
+          detail: {
+            event: "viewport",
+            height: Math.round(viewport.height),
+            layoutHeight: window.innerHeight,
+            fullHeight: Math.round(fullViewportHeight.current),
+            bottom: Math.round(bottom),
+            offsetTop: Math.round(viewport.offsetTop),
+            captureFocused: document.activeElement === captureRef.current,
+          },
+        });
       }
       // The viewport coming back means the browser's keyboard left, which is a dismissal only
       // while it was the one typing. Switching to the deck dismisses it too, and that is the deck
       // arriving rather than the keyboard going.
-      if (sawKeyboardViewport.current
-          && !showsDeckRef.current
-          && viewport.height >= fullViewportHeight.current - KEYBOARD_VIEWPORT_RESTORE_TOLERANCE_PX
-          && typing) {
+      if (
+        sawKeyboardViewport.current &&
+        !showsDeckRef.current &&
+        viewport.height >= fullViewportHeight.current - KEYBOARD_VIEWPORT_RESTORE_TOLERANCE_PX &&
+        typing
+      ) {
         clearLocalState("hide", "viewport-restored");
       }
     }
@@ -197,8 +274,7 @@ export function useDesktopKeyboard({
   useEventListener(viewport, "scroll", followViewport);
   useEventListener(viewport ? window : null, "resize", followViewport);
 
-  const keyboardPresented = presentation.presentation === "pending"
-    || presentation.presentation === "shown";
+  const keyboardPresented = presentation.presentation === "pending" || presentation.presentation === "shown";
   // Measured again from nothing each time the keyboard comes or goes.
   const [measuredFor, setMeasuredFor] = useState(keyboardPresented);
   if (measuredFor !== keyboardPresented) {

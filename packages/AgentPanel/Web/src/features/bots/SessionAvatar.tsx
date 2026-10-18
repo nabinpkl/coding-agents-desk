@@ -155,9 +155,7 @@ function sessionMark({
       // hear the session announced three times.
       aria-hidden
       className={`flex size-8 shrink-0 items-center justify-center rounded-full text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold ${
-        shaded
-          ? "bot-session-accent text-foreground"
-          : "border border-border bg-muted text-muted-foreground"
+        shaded ? "bot-session-accent text-foreground" : "border border-border bg-muted text-muted-foreground"
       } ${activity === "live" ? "ring-2 ring-green-500" : ""} ${className}`}
     >
       {sessionInitials(title)}

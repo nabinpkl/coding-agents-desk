@@ -64,13 +64,15 @@ export function rendererPids(claudeMainPid: number, rows: ProcessRow[]): number[
 export function createRendererReviver(options: RendererReviverOptions = {}): RendererReviver {
   const minMissingMs = options.minMissingMs ?? config.claudeRendererReviveMinMissingMs;
   const cooldownMs = options.cooldownMs ?? config.claudeRendererReviveCooldownMs;
-  const terminate = options.terminate ?? ((pid: number) => {
-    try {
-      process.kill(pid, SIGTERM);
-    } catch {
-      // Already gone, which is the outcome the kill was for.
-    }
-  });
+  const terminate =
+    options.terminate ??
+    ((pid: number) => {
+      try {
+        process.kill(pid, SIGTERM);
+      } catch {
+        // Already gone, which is the outcome the kill was for.
+      }
+    });
 
   /** First missing observation per Claude main pid; cleared by `noteFound`. */
   const missingSince = new Map<number, number>();

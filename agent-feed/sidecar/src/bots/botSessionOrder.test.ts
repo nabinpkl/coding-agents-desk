@@ -49,8 +49,7 @@ test("survives a reload, because the order is the record rather than the view", 
 
   const snapshot = await registry.snapshot();
 
-  expect(snapshot.bots[0]!.sessionRefs.map((each) => each.sessionId))
-    .toEqual(["session-2", "session-3", "session-1"]);
+  expect(snapshot.bots[0]!.sessionRefs.map((each) => each.sessionId)).toEqual(["session-2", "session-3", "session-1"]);
 });
 
 test("refuses an order that is missing one of the Bot's sessions", async () => {
@@ -58,11 +57,9 @@ test("refuses an order that is missing one of the Bot's sessions", async () => {
   // the same Bot somewhere else. Taking it as complete would detach what arrived.
   const { registry, botId, ref, claudeRef } = await botWithThree();
 
-  await expect(registry.reorderSessions(
-    botId,
-    { requestId: "r3", sessionRefs: [claudeRef, ref] },
-    { kind: "user" },
-  )).rejects.toThrow(BotConflictError);
+  await expect(
+    registry.reorderSessions(botId, { requestId: "r3", sessionRefs: [claudeRef, ref] }, { kind: "user" }),
+  ).rejects.toThrow(BotConflictError);
 
   const snapshot = await registry.snapshot();
   expect(snapshot.bots[0]!.sessionRefs).toHaveLength(3);
@@ -71,11 +68,13 @@ test("refuses an order that is missing one of the Bot's sessions", async () => {
 test("refuses an order naming a session this Bot does not hold", async () => {
   const { registry, botId, ref, secondRef } = await botWithThree();
 
-  await expect(registry.reorderSessions(
-    botId,
-    { requestId: "r3", sessionRefs: [ref, secondRef, { source: "claude", sessionId: "elsewhere" }] },
-    { kind: "user" },
-  )).rejects.toThrow(BotNotFoundError);
+  await expect(
+    registry.reorderSessions(
+      botId,
+      { requestId: "r3", sessionRefs: [ref, secondRef, { source: "claude", sessionId: "elsewhere" }] },
+      { kind: "user" },
+    ),
+  ).rejects.toThrow(BotNotFoundError);
 });
 
 test("answers a resent request with the order the first one made, rather than applying it twice", async () => {
@@ -92,16 +91,17 @@ test("answers a resent request with the order the first one made, rather than ap
   // applying the same order twice. Reordering happens to be its own inverse-free act -- running it
   // again lands the same list -- so the revision is the only thing that can tell the two apart.
   expect(snapshot.revision).toBe(written);
-  expect(snapshot.bots[0]!.sessionRefs.map((each) => each.sessionId))
-    .toEqual(["session-3", "session-2", "session-1"]);
+  expect(snapshot.bots[0]!.sessionRefs.map((each) => each.sessionId)).toEqual(["session-3", "session-2", "session-1"]);
 });
 
 test("is the authenticated user's alone, like every other edit to a Bot's curation", async () => {
   const { registry, botId, ref, secondRef, claudeRef } = await botWithThree();
 
-  await expect(registry.reorderSessions(
-    botId,
-    { requestId: "r3", sessionRefs: [claudeRef, secondRef, ref] },
-    { kind: "agent", session: ref },
-  )).rejects.toThrow(BotForbiddenError);
+  await expect(
+    registry.reorderSessions(
+      botId,
+      { requestId: "r3", sessionRefs: [claudeRef, secondRef, ref] },
+      { kind: "agent", session: ref },
+    ),
+  ).rejects.toThrow(BotForbiddenError);
 });

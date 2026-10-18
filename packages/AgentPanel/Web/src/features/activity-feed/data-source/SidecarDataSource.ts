@@ -51,7 +51,6 @@ function summaryPath(session: SessionAddress): string {
 
 /** The panel's data source when there is a sidecar behind the transport, which is always. */
 export class SidecarDataSource extends SidecarBots implements AgentDataSource {
-
   /**
    * The one config read, shared. Several features ask "what does this sidecar
    * offer" at mount, and each asking separately turned a startup burst into
@@ -118,45 +117,38 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
       ...(recent === undefined ? [] : [`recent=${recent}`]),
       ...(recent === undefined || reviews === 0 ? [] : [`reviews=${reviews}`]),
     ].join("&");
-    return this.transport.subscribe(
-      query ? `/api/inventory/stream?${query}` : "/api/inventory/stream",
-      {
-        onMessage: (payload) => {
-          const message = JSON.parse(payload) as {
-            projects?: ProjectSummary[];
-            projectPath?: string;
-            sessions?: SessionSummary[];
-            recent?: RecentSessionsPayload["recent"];
-            more?: boolean;
-            securityReviews: RecentSessionsPayload["securityReviews"];
-          };
-          if (message.projects) {
-            handlers.onProjects(
-              message.projects.filter((project) => project.archivedAt === undefined),
-              message.projects.filter((project) => project.archivedAt !== undefined),
-            );
-          }
-          else if (message.recent) {
-            handlers.onRecent?.({
-              recent: message.recent,
-              more: message.more === true,
-              securityReviews: message.securityReviews,
-            });
-          }
-          else if (message.projectPath && message.sessions) {
-            handlers.onSessions(
-              message.projectPath,
-              message.sessions.filter((session) => session.archivedAt === undefined),
-              message.sessions.filter((session) => session.archivedAt !== undefined),
-            );
-          }
-        },
-        onError: (reason) => onError?.(reason),
+    return this.transport.subscribe(query ? `/api/inventory/stream?${query}` : "/api/inventory/stream", {
+      onMessage: (payload) => {
+        const message = JSON.parse(payload) as {
+          projects?: ProjectSummary[];
+          projectPath?: string;
+          sessions?: SessionSummary[];
+          recent?: RecentSessionsPayload["recent"];
+          more?: boolean;
+          securityReviews: RecentSessionsPayload["securityReviews"];
+        };
+        if (message.projects) {
+          handlers.onProjects(
+            message.projects.filter((project) => project.archivedAt === undefined),
+            message.projects.filter((project) => project.archivedAt !== undefined),
+          );
+        } else if (message.recent) {
+          handlers.onRecent?.({
+            recent: message.recent,
+            more: message.more === true,
+            securityReviews: message.securityReviews,
+          });
+        } else if (message.projectPath && message.sessions) {
+          handlers.onSessions(
+            message.projectPath,
+            message.sessions.filter((session) => session.archivedAt === undefined),
+            message.sessions.filter((session) => session.archivedAt !== undefined),
+          );
+        }
       },
-    );
+      onError: (reason) => onError?.(reason),
+    });
   }
-
-
 
   /**
    * Renames one session, whichever source owns it, and answers with the name it now has.
@@ -181,11 +173,9 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
     // than a reader's mistake. Said rather than swallowed.
     if (source !== "claude") throw new Error(`a ${source} session has no title to rename`);
     const answer = parse<{ title?: unknown }>(
-      await this.transport.request(
-        "POST",
-        `/api/sessions/claude/${encodeURIComponent(sessionId)}/title`,
-        { body: { title } },
-      ),
+      await this.transport.request("POST", `/api/sessions/claude/${encodeURIComponent(sessionId)}/title`, {
+        body: { title },
+      }),
     );
     if (typeof answer.title !== "string") throw new Error("Rename returned no title");
     return answer.title;
@@ -213,11 +203,9 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    */
   async setProjectArchived(projectPath: string, archived: boolean): Promise<void> {
     parse<unknown>(
-      await this.transport.request(
-        "POST",
-        `/api/projects/${archived ? "archive" : "unarchive"}`,
-        { body: { projectPath } },
-      ),
+      await this.transport.request("POST", `/api/projects/${archived ? "archive" : "unarchive"}`, {
+        body: { projectPath },
+      }),
     );
   }
 
@@ -253,11 +241,9 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    */
   async forkSession(sessionId: string, command: ForkSessionCommand): Promise<StartedSession> {
     return parse<StartedSession>(
-      await this.transport.request(
-        "POST",
-        `/api/sessions/claude/${encodeURIComponent(sessionId)}/fork`,
-        { body: command },
-      ),
+      await this.transport.request("POST", `/api/sessions/claude/${encodeURIComponent(sessionId)}/fork`, {
+        body: command,
+      }),
     );
   }
 
@@ -304,10 +290,7 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    */
   async lastCompaction(sessionId: string): Promise<LastSessionMessage> {
     return parse<LastSessionMessage>(
-      await this.transport.request(
-        "GET",
-        `/api/sessions/claude/${encodeURIComponent(sessionId)}/last-compaction`,
-      ),
+      await this.transport.request("GET", `/api/sessions/claude/${encodeURIComponent(sessionId)}/last-compaction`),
     );
   }
 
@@ -405,7 +388,6 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
     }
     throw lastFailure;
   }
-
 
   // ---------------------------------------------------------------------
   // Desktop park

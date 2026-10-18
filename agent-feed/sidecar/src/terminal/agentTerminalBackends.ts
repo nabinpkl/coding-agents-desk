@@ -70,8 +70,7 @@ export async function connectTmuxTerminal(
   session: string,
   dimensions: { columns: number; rows: number },
 ): Promise<TmuxSessionConnection> {
-  const created = identity.createTmux !== null &&
-    !(await tmuxExists(backend, session));
+  const created = identity.createTmux !== null && !(await tmuxExists(backend, session));
   if (created) {
     await startTmux(backend, identity.createTmux!, session, dimensions);
     // Only for a pane THIS call just created. An existing pane has already collapsed its
@@ -81,9 +80,7 @@ export async function connectTmuxTerminal(
   }
   // A joined pane whose command had exited is a stopped session running again just as a created one
   // is, so it is announced the same way below.
-  const revived = !created && identity.reviveTmux
-    ? await revive(backend, session, identity.reviveTmux)
-    : false;
+  const revived = !created && identity.reviveTmux ? await revive(backend, session, identity.reviveTmux) : false;
   // Stamped on every open, not only on the one that created the pane. That is what adopts a
   // pane started before this existed, and what re-stamps one whose option was lost -- and it
   // is idempotent, so the ordinary case costs one tmux call that changes nothing.
@@ -101,8 +98,7 @@ export async function connectTmuxTerminal(
       // by name, so attaching under the old one would miss a pane that had just been renamed.
       target = await backend.relabelSession(session, identity.stampSession, identity.nameFromTitle);
     } else {
-      await backend.stampSessionIdentity(session, identity.stampSession)
-        .catch(() => {});
+      await backend.stampSessionIdentity(session, identity.stampSession).catch(() => {});
     }
   }
   // Said once the pane is named, so whoever acts on a session that is running again finds it.

@@ -25,9 +25,7 @@ export interface OpencodeSlashCommand {
  * or before it belong to the context that compacting just emptied, so the anchor
  * search stays strictly after it. -1 when nothing has compacted.
  */
-export function lastCompletedCompactionIndex(
-  messages: readonly { type?: unknown; status?: unknown }[],
-): number {
+export function lastCompletedCompactionIndex(messages: readonly { type?: unknown; status?: unknown }[]): number {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i]!;
     if (message.type === "compaction" && message.status === "completed") return i;
@@ -49,7 +47,12 @@ export function currentWindowTokens(
     type?: unknown;
     role?: unknown;
     status?: unknown;
-    tokens?: { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown; write?: unknown } } | null;
+    tokens?: {
+      input?: unknown;
+      output?: unknown;
+      reasoning?: unknown;
+      cache?: { read?: unknown; write?: unknown };
+    } | null;
   }[],
 ): number | null {
   const boundary = lastCompletedCompactionIndex(messages);
@@ -60,7 +63,11 @@ export function currentWindowTokens(
     const tokens = message.tokens;
     if (!tokens) continue;
     const total =
-      num(tokens.input) + num(tokens.output) + num(tokens.reasoning) + num(tokens.cache?.read) + num(tokens.cache?.write);
+      num(tokens.input) +
+      num(tokens.output) +
+      num(tokens.reasoning) +
+      num(tokens.cache?.read) +
+      num(tokens.cache?.write);
     if (total <= 0) continue;
     return total;
   }
@@ -77,10 +84,18 @@ export interface OpencodeModel {
   outputCost: number | null;
 }
 
-function readModelEntry(entry: { modelID?: unknown; providerID?: unknown; name?: unknown; limit?: unknown; cost?: unknown }): OpencodeModel | null {
+function readModelEntry(entry: {
+  modelID?: unknown;
+  providerID?: unknown;
+  name?: unknown;
+  limit?: unknown;
+  cost?: unknown;
+}): OpencodeModel | null {
   if (typeof entry.modelID !== "string" || typeof entry.providerID !== "string") return null;
   const limit = entry.limit as { context?: unknown } | undefined;
-  const costs = Array.isArray(entry.cost) ? entry.cost[0] as { input?: unknown; output?: unknown } | undefined : undefined;
+  const costs = Array.isArray(entry.cost)
+    ? (entry.cost[0] as { input?: unknown; output?: unknown } | undefined)
+    : undefined;
   return {
     providerID: entry.providerID,
     modelID: entry.modelID,
@@ -189,7 +204,8 @@ export async function listOpencodeServeCommands(): Promise<OpencodeSlashCommand[
   } catch {
     throw new Error("command list: serve answered malformed JSON");
   }
-  if (!Array.isArray((body as { data?: unknown }).data)) throw new Error("command list: serve answered without commands");
+  if (!Array.isArray((body as { data?: unknown }).data))
+    throw new Error("command list: serve answered without commands");
   const data = (body as { data: Array<{ name?: unknown; description?: unknown }> }).data;
   return data.flatMap((entry) =>
     typeof entry.name === "string" && entry.name.length > 0

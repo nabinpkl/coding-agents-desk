@@ -56,13 +56,7 @@ export function encodedCaptureSize(sourceWidth: number, sourceHeight: number, sc
   return `${Math.round(sourceWidth * capped)}×${Math.round(sourceHeight * capped)}`;
 }
 
-export function ResolutionSlider({
-  sourceWidth,
-  sourceHeight,
-}: {
-  sourceWidth?: number;
-  sourceHeight?: number;
-}) {
+export function ResolutionSlider({ sourceWidth, sourceHeight }: { sourceWidth?: number; sourceHeight?: number }) {
   // The slider owns the value while it is being moved, and reports only where it came to rest.
   //
   // Lifting every intermediate step re-rendered the whole viewer -- video element included -- once
@@ -75,9 +69,7 @@ export function ResolutionSlider({
   // its own write would fight the pointer mid-drag.
   const [draft, setDraft] = useState(getCaptureScale);
   useTimeout(() => setCaptureScale(draft), draft === getCaptureScale() ? null : CAPTURE_SCALE_SETTLE_MS, draft);
-  const encoded = sourceWidth && sourceHeight
-    ? encodedCaptureSize(sourceWidth, sourceHeight, draft)
-    : null;
+  const encoded = sourceWidth && sourceHeight ? encodedCaptureSize(sourceWidth, sourceHeight, draft) : null;
   return (
     // Deliberately not a <label> wrapping the input. A label forwards a press anywhere inside it to
     // the control, so pressing the word or the readout dispatched a click on the range -- and the
@@ -86,7 +78,9 @@ export function ResolutionSlider({
       className="flex items-center gap-2 px-2 text-[11px] text-white/75"
       title={encoded ? `Capture resolution ${encoded} (${draft.toFixed(2)}×)` : "Capture resolution"}
     >
-      <span aria-hidden className="w-16 shrink-0 text-white/60">Resolution</span>
+      <span aria-hidden className="w-16 shrink-0 text-white/60">
+        Resolution
+      </span>
       <input
         type="range"
         min={CAPTURE_SCALE_MIN}

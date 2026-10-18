@@ -22,20 +22,31 @@ const PLAN: RunnerPlan = {
 
 function started(plan: RunnerPlan = PLAN) {
   let fake!: FakeQuery;
-  const runner = new ClaudeSdkRunner(plan, ({ prompt, options }) => (fake = new FakeQuery(options, prompt)), () => 1000);
+  const runner = new ClaudeSdkRunner(
+    plan,
+    ({ prompt, options }) => (fake = new FakeQuery(options, prompt)),
+    () => 1000,
+  );
   const done = runner.run(() => {});
   return { runner, fake: () => fake, done };
 }
 
 function call(fake: FakeQuery, toolName: string, input: Record<string, unknown>, toolUseID: string, extra = {}) {
   const abort = new AbortController();
-  const result = fake.canUseTool(toolName, input, { signal: abort.signal, toolUseID, requestId: `req-${toolUseID}`, ...extra }) as Promise<PermissionResult>;
+  const result = fake.canUseTool(toolName, input, {
+    signal: abort.signal,
+    toolUseID,
+    requestId: `req-${toolUseID}`,
+    ...extra,
+  }) as Promise<PermissionResult>;
   return { result, abort };
 }
 
 describe("the options a plan comes to", () => {
   test("a new session at its id, through the installed CLI, in the launch mode, with summaries on", () => {
-    const options = new ClaudeSdkRunner(PLAN, () => { throw new Error("unused"); }).options();
+    const options = new ClaudeSdkRunner(PLAN, () => {
+      throw new Error("unused");
+    }).options();
     expect(options).toMatchObject({
       cwd: "/tmp/project",
       sessionId: PLAN.sessionId,
@@ -51,9 +62,12 @@ describe("the options a plan comes to", () => {
   });
 
   test("a resume names the session to resume, keeps its name, and takes the mode in the SDK's spelling", () => {
-    const options = new ClaudeSdkRunner({ ...PLAN, start: "resume", permissionMode: "default", allowBypass: false }, () => {
-      throw new Error("unused");
-    }).options();
+    const options = new ClaudeSdkRunner(
+      { ...PLAN, start: "resume", permissionMode: "default", allowBypass: false },
+      () => {
+        throw new Error("unused");
+      },
+    ).options();
     expect(options.resume).toBe(PLAN.sessionId);
     expect(options.sessionId).toBeUndefined();
     expect(options.permissionMode).toBe("default");
@@ -64,16 +78,38 @@ describe("the options a plan comes to", () => {
 
 describe("the choices a launch carries", () => {
   test("start the query on the model and effort the session had chosen, and nothing when none", () => {
-    const options = new ClaudeSdkRunner({ ...PLAN, choices: { model: "haiku", effort: "max" } }, () => { throw new Error("unused"); }).options();
+    const options = new ClaudeSdkRunner({ ...PLAN, choices: { model: "haiku", effort: "max" } }, () => {
+      throw new Error("unused");
+    }).options();
     expect(options).toMatchObject({ model: "haiku", effort: "max" });
-    const plain = new ClaudeSdkRunner(PLAN, () => { throw new Error("unused"); }).options();
+    const plain = new ClaudeSdkRunner(PLAN, () => {
+      throw new Error("unused");
+    }).options();
     expect(plain.model).toBeUndefined();
     expect(plain.effort).toBeUndefined();
   });
 
   test("are read off the command line, and refused when malformed", async () => {
-    const base = ["--session", PLAN.sessionId, "--cwd", "/tmp", "--name", "n", "--start", "resume", "--permission-mode", "default", "--claude", "/c", "--socket-dir", "/s"];
-    expect((await planFromArguments([...base, "--model", "haiku", "--effort", "xhigh"])).plan.choices).toEqual({ model: "haiku", effort: "xhigh" });
+    const base = [
+      "--session",
+      PLAN.sessionId,
+      "--cwd",
+      "/tmp",
+      "--name",
+      "n",
+      "--start",
+      "resume",
+      "--permission-mode",
+      "default",
+      "--claude",
+      "/c",
+      "--socket-dir",
+      "/s",
+    ];
+    expect((await planFromArguments([...base, "--model", "haiku", "--effort", "xhigh"])).plan.choices).toEqual({
+      model: "haiku",
+      effort: "xhigh",
+    });
     expect((await planFromArguments(base)).plan.choices).toEqual({});
     expect(planFromArguments([...base, "--effort", "ultra"])).rejects.toThrow("--effort");
     expect(planFromArguments([...base, "--model", "opus; rm -rf"])).rejects.toThrow("--model");
@@ -84,7 +120,9 @@ describe("a fork's options", () => {
   test("open the source's conversation as a new session at the fork's id, cut where it was asked", () => {
     const options = new ClaudeSdkRunner(
       { ...PLAN, start: "fork", forkFrom: "source-session", resumeAt: "uuid-before" },
-      () => { throw new Error("unused"); },
+      () => {
+        throw new Error("unused");
+      },
     ).options();
     expect(options).toMatchObject({
       resume: "source-session",
@@ -156,8 +194,13 @@ describe("a call", () => {
   test("says so for a method the SDK has not, or one that throws, and keeps neither", async () => {
     const { runner, fake, done } = started();
     await Bun.sleep(1);
-    expect(await runner.call("renameSessionLater", [])).toEqual({ ok: false, message: "this SDK has no renameSessionLater" });
-    (fake() as unknown as { setModel: () => Promise<void> }).setModel = async () => { throw new Error("no such model"); };
+    expect(await runner.call("renameSessionLater", [])).toEqual({
+      ok: false,
+      message: "this SDK has no renameSessionLater",
+    });
+    (fake() as unknown as { setModel: () => Promise<void> }).setModel = async () => {
+      throw new Error("no such model");
+    };
     expect(await runner.call("setModel", ["x"])).toEqual({ ok: false, message: "no such model" });
     expect(runner.snapshot().records).toEqual([]);
     fake().end();
@@ -169,7 +212,11 @@ describe("a call", () => {
 describe("the session's input", () => {
   test("a first turn and later inputs go in as they were built, and none after the end", async () => {
     const { runner, fake, done } = started({ ...PLAN, firstTurn: "begin" });
-    const later = { type: "user" as const, message: { role: "user" as const, content: "and then this" }, parent_tool_use_id: null };
+    const later = {
+      type: "user" as const,
+      message: { role: "user" as const, content: "and then this" },
+      parent_tool_use_id: null,
+    };
     expect(runner.input(later)).toEqual({ ok: true, value: null });
     await Bun.sleep(5);
     expect(fake().received.map((message) => message.message.content)).toEqual(["begin", "and then this"]);
@@ -185,13 +232,21 @@ describe("a permission callback", () => {
   test("is held with the CLI's wording until resolved, and resolves with what the sidecar sent", async () => {
     const { runner, fake, done } = started();
     const input = { command: "rm -rf build" };
-    const { result } = call(fake(), "Bash", input, "toolu_9", { title: "Claude wants to run rm -rf build", defaultToNo: true });
+    const { result } = call(fake(), "Bash", input, "toolu_9", {
+      title: "Claude wants to run rm -rf build",
+      defaultToNo: true,
+    });
     const [held] = runner.snapshot().callbacks;
     expect(held).toEqual({
       id: "cb1",
       toolName: "Bash",
       input,
-      options: { toolUseID: "toolu_9", requestId: "req-toolu_9", title: "Claude wants to run rm -rf build", defaultToNo: true },
+      options: {
+        toolUseID: "toolu_9",
+        requestId: "req-toolu_9",
+        title: "Claude wants to run rm -rf build",
+        defaultToNo: true,
+      },
       openedAt: 1000,
     });
     expect(runner.resolve("cb1", { behavior: "deny", message: "not now" })).toEqual({ ok: true, value: null });

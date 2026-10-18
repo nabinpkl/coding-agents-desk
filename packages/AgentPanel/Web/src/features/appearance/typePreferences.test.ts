@@ -35,7 +35,10 @@ describe("panel type preference", () => {
     ]) {
       localStorage.setItem("agent-panel.type", raw);
       const loaded = loadTypePreference();
-      expect(TYPE_FAMILIES.some((family) => family.id === loaded.family), raw).toBe(true);
+      expect(
+        TYPE_FAMILIES.some((family) => family.id === loaded.family),
+        raw,
+      ).toBe(true);
       expect(TYPE_WEIGHTS.includes(loaded.weight), raw).toBe(true);
     }
   });
@@ -64,7 +67,10 @@ describe("panel type preference", () => {
       for (const family of TYPE_FAMILIES) {
         const steps = Object.values(ladderFor(base, family));
         expect(new Set(steps).size, `${family.id} @ ${base}`).toBe(steps.length);
-        expect([...steps].sort((a, b) => a - b), `${family.id} @ ${base}`).toEqual(steps);
+        expect(
+          [...steps].sort((a, b) => a - b),
+          `${family.id} @ ${base}`,
+        ).toEqual(steps);
       }
     }
   });

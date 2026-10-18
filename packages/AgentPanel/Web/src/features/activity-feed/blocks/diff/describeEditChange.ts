@@ -5,7 +5,12 @@
 // model. Indentation-only churn is invisible by construction, since blank and
 // whitespace-only lines never enter the diff. Comment-only edits read as
 // comments with an excerpt, since no code moved.
-import { describeCommentChange, isProsePath, shortText, splitCodeComment } from "@/features/activity-feed/blocks/diff/describeEditComments";
+import {
+  describeCommentChange,
+  isProsePath,
+  shortText,
+  splitCodeComment,
+} from "@/features/activity-feed/blocks/diff/describeEditComments";
 
 const FUNCTION_PATTERNS = [
   /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/,
@@ -74,9 +79,24 @@ function nameList(names: string[]): string {
 // call, then strings, for the same reason. Control keywords and bare
 // language operators are not calls.
 const CALL_EXCLUDE = new Set([
-  "if", "for", "while", "switch", "catch", "with", "function", "return",
-  "typeof", "else", "do", "new", "await", "yield", "delete", "void",
-  "require", "import",
+  "if",
+  "for",
+  "while",
+  "switch",
+  "catch",
+  "with",
+  "function",
+  "return",
+  "typeof",
+  "else",
+  "do",
+  "new",
+  "await",
+  "yield",
+  "delete",
+  "void",
+  "require",
+  "import",
 ]);
 
 function shortModule(mod: string): string {
@@ -100,7 +120,13 @@ function importMoves(lines: string[]): ImportMove[] {
     if (match) {
       const names = match[1]!
         .split(",")
-        .map((part) => part.replace(/^\*\s*as\s+/, "").replace(/\s+as\s+.*$/, "").replace(/[{}]/g, "").trim())
+        .map((part) =>
+          part
+            .replace(/^\*\s*as\s+/, "")
+            .replace(/\s+as\s+.*$/, "")
+            .replace(/[{}]/g, "")
+            .trim(),
+        )
         .filter(Boolean);
       moves.push({ names, mod: match[2] ?? null });
       continue;
@@ -117,7 +143,15 @@ function importMoves(lines: string[]): ImportMove[] {
     }
     match = line.match(/^from\s+(\S+)\s+import\s+(.+)/);
     if (match) {
-      const names = (match[2] ?? "").split(",").map((part) => part.replace(/\s+as\s+.*$/, "").replace(/[()]/g, "").trim()).filter(Boolean);
+      const names = (match[2] ?? "")
+        .split(",")
+        .map((part) =>
+          part
+            .replace(/\s+as\s+.*$/, "")
+            .replace(/[()]/g, "")
+            .trim(),
+        )
+        .filter(Boolean);
       moves.push({ names, mod: match[1] ?? null });
       continue;
     }
@@ -128,7 +162,10 @@ function importMoves(lines: string[]): ImportMove[] {
     }
     match = line.match(/^import\s+(.+)/);
     if (match && !match[1]?.startsWith("(")) {
-      const names = (match[1] ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+      const names = (match[1] ?? "")
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
       moves.push({ names, mod: null });
       continue;
     }
@@ -318,12 +355,7 @@ function scopesFor(text: string): (string | null)[] {
 
 // The single scope every changed line agrees on, or null. Disagreement --
 // or any unscoped line -- degrades to bare counts rather than a wrong name.
-function agreedScope(
-  oldText: string,
-  newText: string,
-  added: PlacedLine[],
-  removed: PlacedLine[],
-): string | null {
+function agreedScope(oldText: string, newText: string, added: PlacedLine[], removed: PlacedLine[]): string | null {
   const oldScopes = scopesFor(oldText);
   const newScopes = scopesFor(newText);
   const names = new Set<string>();

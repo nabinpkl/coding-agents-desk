@@ -81,7 +81,6 @@ export function sizingKey(sizing: TerminalSizing): string {
   return sizing.kind === "fixed" ? `fixed:${sizing.columns}x${sizing.rows}` : "fit";
 }
 
-
 /**
  * How many cells this viewer's box holds.
  *
@@ -102,10 +101,10 @@ export function proposedDimensions(
   const style = getComputedStyle(terminalElement);
   const horizontalPadding = pixelValue(style.paddingLeft) + pixelValue(style.paddingRight);
   const verticalPadding = pixelValue(style.paddingTop) + pixelValue(style.paddingBottom);
-  const scrollbarWidth = terminal.options.scrollback === 0
-    || terminal.options.scrollbar?.showScrollbar === false
-    ? 0
-    : terminal.options.scrollbar?.width ?? 14;
+  const scrollbarWidth =
+    terminal.options.scrollback === 0 || terminal.options.scrollbar?.showScrollbar === false
+      ? 0
+      : (terminal.options.scrollbar?.width ?? 14);
   return {
     columns: Math.max(2, Math.floor((mount.clientWidth - horizontalPadding - scrollbarWidth) / cell.width)),
     rows: Math.max(1, Math.floor((mount.clientHeight - verticalPadding) / cell.height)),

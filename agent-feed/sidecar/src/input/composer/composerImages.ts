@@ -112,12 +112,14 @@ async function sweep(store: ComposerImageStore): Promise<void> {
     return;
   }
   const cutoff = store.now() - KEEP_MS;
-  await Promise.all(names.map(async (name) => {
-    const path = join(store.directory, name);
-    try {
-      if ((await stat(path)).mtimeMs < cutoff) await unlink(path);
-    } catch {
-      // Another sweep got there first, or it is not ours to delete.
-    }
-  }));
+  await Promise.all(
+    names.map(async (name) => {
+      const path = join(store.directory, name);
+      try {
+        if ((await stat(path)).mtimeMs < cutoff) await unlink(path);
+      } catch {
+        // Another sweep got there first, or it is not ours to delete.
+      }
+    }),
+  );
 }

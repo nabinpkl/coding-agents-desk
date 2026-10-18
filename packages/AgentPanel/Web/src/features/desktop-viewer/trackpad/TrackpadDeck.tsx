@@ -94,8 +94,14 @@ export function TrackpadDeck({
           style={{ width: SCROLL_STRIP_WIDTH, borderRadius: SCROLL_STRIP_RADIUS }}
         >
           <svg viewBox="0 0 24 24" className="pointer-events-none size-5" aria-hidden="true">
-            <path d="M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8"
-              strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
           <span aria-hidden className="absolute inset-y-0 left-full" style={{ width: SCROLL_STRIP_HIT_OUTSET }} />
         </div>

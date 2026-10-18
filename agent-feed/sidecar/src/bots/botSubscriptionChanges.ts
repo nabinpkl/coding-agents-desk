@@ -72,21 +72,28 @@ const MINUTE_MS = 60_000;
 
 export function viewSignature(snapshot: BotSnapshot): string {
   return snapshot.bots
-    .map((bot) => [
-      bot.botId,
-      bot.environmentAvailability,
-      bot.sessions
-        .map((one) => [
-          one.source,
-          one.sessionId,
-          one.title,
-          one.taskState?.at ?? "",
-          one.activity,
-          Math.floor(one.lastEventAt / MINUTE_MS),
-        ].join(":"))
-        .sort()
-        .join(","),
-      bot.missingSessionRefs.map((ref) => `${ref.source}:${ref.sessionId}`).sort().join(","),
-    ].join("~"))
+    .map((bot) =>
+      [
+        bot.botId,
+        bot.environmentAvailability,
+        bot.sessions
+          .map((one) =>
+            [
+              one.source,
+              one.sessionId,
+              one.title,
+              one.taskState?.at ?? "",
+              one.activity,
+              Math.floor(one.lastEventAt / MINUTE_MS),
+            ].join(":"),
+          )
+          .sort()
+          .join(","),
+        bot.missingSessionRefs
+          .map((ref) => `${ref.source}:${ref.sessionId}`)
+          .sort()
+          .join(","),
+      ].join("~"),
+    )
     .join("|");
 }

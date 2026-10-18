@@ -98,13 +98,14 @@ export class WebrtcEncoderDiagnostics {
     this.windowKeyframes += 1;
     this.windowKeyframeBytes += bytes;
     const intervalMs = this.lastKeyframeAtMs === null ? -1 : atMs - this.lastKeyframeAtMs;
-    const requestContext = this.pendingPliRequests > 0
-      ? "pending-pli"
-      : this.pendingBootstrapRequests > 0
-        ? "pending-bootstrap"
-        : this.totalKeyframes === 1
-          ? "startup"
-          : "none";
+    const requestContext =
+      this.pendingPliRequests > 0
+        ? "pending-pli"
+        : this.pendingBootstrapRequests > 0
+          ? "pending-bootstrap"
+          : this.totalKeyframes === 1
+            ? "startup"
+            : "none";
     this.record(
       `encoder key=${this.key} keyframe output=${this.totalKeyframes} accessUnit=${this.totalAccessUnits} bytes=${bytes} intervalMs=${intervalMs} accessUnitsSincePrevious=${this.accessUnitsSinceKeyframe} requestContext=${requestContext} pendingPli=${this.pendingPliRequests} pendingBootstrap=${this.pendingBootstrapRequests}`,
     );
@@ -116,9 +117,8 @@ export class WebrtcEncoderDiagnostics {
 
   flush(atMs = Date.now(), reason = "interval") {
     const durationMs = Math.max(0, atMs - this.windowStartedAtMs);
-    const keyframeBytePct = this.windowBytes === 0
-      ? "0.0"
-      : ((this.windowKeyframeBytes / this.windowBytes) * 100).toFixed(1);
+    const keyframeBytePct =
+      this.windowBytes === 0 ? "0.0" : ((this.windowKeyframeBytes / this.windowBytes) * 100).toFixed(1);
     const lastKeyframeAgeMs = this.lastKeyframeAtMs === null ? -1 : atMs - this.lastKeyframeAtMs;
     this.record(
       `encoder key=${this.key} video-window reason=${reason} durationMs=${durationMs} accessUnits=${this.windowAccessUnits} keyframes=${this.windowKeyframes} deltas=${this.windowDeltaFrames} bytes=${this.windowBytes} keyframeBytes=${this.windowKeyframeBytes} keyframeBytePct=${keyframeBytePct} pliRequests=${this.windowPliRequests} bootstrapRequests=${this.windowBootstrapRequests} pendingPli=${this.pendingPliRequests} totalAccessUnits=${this.totalAccessUnits} totalKeyframes=${this.totalKeyframes} lastKeyframeAgeMs=${lastKeyframeAgeMs}`,

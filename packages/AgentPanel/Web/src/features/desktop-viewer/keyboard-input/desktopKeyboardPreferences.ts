@@ -14,7 +14,10 @@ export const KEYBOARD_MODE_STORAGE_KEY = "agentdesk.desktop-keyboard-mode.v1";
 // Give WebKit a deletable character even when the local echo is empty.
 export const CAPTURE_SENTINEL = "\u200b";
 export const OFF_MODIFIERS: Record<RemoteModifier, ModifierState> = {
-  cmd: "off", ctrl: "off", option: "off", shift: "off",
+  cmd: "off",
+  ctrl: "off",
+  option: "off",
+  shift: "off",
 };
 
 export function storedKeyboardMode(): KeyboardMode {

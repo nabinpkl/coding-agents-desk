@@ -7,17 +7,8 @@ import { dirname, join } from "node:path";
 import { BotConflictError, BotInvalidError, BotNotFoundError } from "@/bots/botRegistry";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 
-const {
-  addBot,
-  addSessions,
-  checkoutWithWorktree,
-  fixture,
-  projects,
-  recordingLauncher,
-  rewound,
-  sessions,
-  summary,
-} = botRegistryHarness();
+const { addBot, addSessions, checkoutWithWorktree, fixture, projects, recordingLauncher, rewound, sessions, summary } =
+  botRegistryHarness();
 
 test("attaches a session working in a git worktree of the Bot's directory", async () => {
   // A worktree is the same project by every meaning a reader has, and refusing it made isolation
@@ -28,15 +19,8 @@ test("attaches a session working in a git worktree of the Bot's directory", asyn
   const ref = { source: "claude" as const, sessionId: "in-worktree" };
   sessions.set("claude:in-worktree", { projectPath: worktree, summary: summary(ref) });
 
-  const bot = await addBot(registry, 
-    { requestId: "r1", name: "Repo bot", directoryPath: checkout },
-    { kind: "user" },
-  );
-  const attached = await addSessions(registry, 
-    bot.botId,
-    { requestId: "r2", sessionRefs: [ref] },
-    { kind: "user" },
-  );
+  const bot = await addBot(registry, { requestId: "r1", name: "Repo bot", directoryPath: checkout }, { kind: "user" });
+  const attached = await addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [ref] }, { kind: "user" });
 
   expect(attached.sessions.map((session) => session.sessionId)).toEqual(["in-worktree"]);
   expect(attached.missingSessionRefs).toEqual([]);
@@ -54,16 +38,11 @@ test("still refuses a session from a directory that is not the Bot's and not a w
     summary: summary(secondRef),
   });
 
-  const bot = await addBot(registry, 
-    { requestId: "r1", name: "Repo bot", directoryPath: checkout },
-    { kind: "user" },
-  );
+  const bot = await addBot(registry, { requestId: "r1", name: "Repo bot", directoryPath: checkout }, { kind: "user" });
 
-  await expect(addSessions(registry, 
-    bot.botId,
-    { requestId: "r2", sessionRefs: [secondRef] },
-    { kind: "user" },
-  )).rejects.toThrow(BotConflictError);
+  await expect(
+    addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [secondRef] }, { kind: "user" }),
+  ).rejects.toThrow(BotConflictError);
 });
 
 test("attaches a session whose agent is elsewhere right now, because it has worked here", async () => {
@@ -73,22 +52,18 @@ test("attaches a session whose agent is elsewhere right now, because it has work
   const { registry, project, secondProject } = await fixture();
   const ref = { source: "claude" as const, sessionId: "wandered" };
   const transcriptPath = join(dirname(project), "wandered.jsonl");
-  await writeFile(transcriptPath, [
-    JSON.stringify({ type: "user", cwd: join(dirname(project), "import-graph") }),
-    JSON.stringify({ type: "user", cwd: project }),
-    JSON.stringify({ type: "user", cwd: secondProject }),
-  ].join("\n") + "\n");
+  await writeFile(
+    transcriptPath,
+    [
+      JSON.stringify({ type: "user", cwd: join(dirname(project), "import-graph") }),
+      JSON.stringify({ type: "user", cwd: project }),
+      JSON.stringify({ type: "user", cwd: secondProject }),
+    ].join("\n") + "\n",
+  );
   sessions.set("claude:wandered", { projectPath: secondProject, summary: summary(ref), transcriptPath });
 
-  const bot = await addBot(registry,
-    { requestId: "r1", name: "RepoShape", directoryPath: project },
-    { kind: "user" },
-  );
-  const attached = await addSessions(registry,
-    bot.botId,
-    { requestId: "r2", sessionRefs: [ref] },
-    { kind: "user" },
-  );
+  const bot = await addBot(registry, { requestId: "r1", name: "RepoShape", directoryPath: project }, { kind: "user" });
+  const attached = await addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [ref] }, { kind: "user" });
 
   expect(attached.sessions.map((session) => session.sessionId)).toEqual(["wandered"]);
   expect(attached.missingSessionRefs).toEqual([]);
@@ -100,10 +75,7 @@ test("keeps showing an attached session wherever the catalog files it next, with
   // branch on this Bot's card either.
   const { registry, project, claudeRef } = await fixture();
   const { worktree } = await checkoutWithWorktree();
-  const bot = await addBot(registry,
-    { requestId: "r1", name: "Plain bot", directoryPath: project },
-    { kind: "user" },
-  );
+  const bot = await addBot(registry, { requestId: "r1", name: "Plain bot", directoryPath: project }, { kind: "user" });
   await addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [claudeRef] }, { kind: "user" });
 
   sessions.set(`claude:${claudeRef.sessionId}`, { projectPath: worktree, summary: summary(claudeRef) });
@@ -118,15 +90,8 @@ test("leaves a session in the Bot's own directory unlabelled, so the label means
   // A field present and empty on every ordinary row is one every reader learns to ignore.
   const { registry, project, ref } = await fixture();
 
-  const bot = await addBot(registry, 
-    { requestId: "r1", name: "Plain bot", directoryPath: project },
-    { kind: "user" },
-  );
-  const attached = await addSessions(registry, 
-    bot.botId,
-    { requestId: "r2", sessionRefs: [ref] },
-    { kind: "user" },
-  );
+  const bot = await addBot(registry, { requestId: "r1", name: "Plain bot", directoryPath: project }, { kind: "user" });
+  const attached = await addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [ref] }, { kind: "user" });
 
   expect(attached.sessions[0]!.worktree).toBeUndefined();
 });
@@ -135,11 +100,15 @@ test("starts a session on a Bot that already has some, and attaches it", async (
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
 
-  const bot = await addBot(registry, {
-    requestId: "add",
-    name: "AD bot",
-    directoryPath: project,
-  }, { kind: "user" });
+  const bot = await addBot(
+    registry,
+    {
+      requestId: "add",
+      name: "AD bot",
+      directoryPath: project,
+    },
+    { kind: "user" },
+  );
   const added = await registry.addSessions(
     bot.botId,
     { requestId: "start", launch: { title: "composer fix", prompt: "Read the brief." } },
@@ -148,13 +117,15 @@ test("starts a session on a Bot that already has some, and attaches it", async (
 
   // The first free anchor, with the request bracketed after it. The reservation is spent
   // before the launch, so the stored anchor and the `-n` title always agree.
-  expect(launched).toEqual([{
-    kind: "start",
-    cwd: project,
-    sessionId: "started-1",
-    title: "Aaron (composer fix)",
-    prompt: "Read the brief.",
-  }]);
+  expect(launched).toEqual([
+    {
+      kind: "start",
+      cwd: project,
+      sessionId: "started-1",
+      title: "Aaron (composer fix)",
+      prompt: "Read the brief.",
+    },
+  ]);
   // The pane comes back with it: the caller has nowhere else to read it from, and rebuilding the
   // name at the call site would put the sidecar's rule in two places.
   expect(added.started).toEqual({
@@ -173,11 +144,15 @@ test("forks one of the Bot's own sessions, and puts the brief behind the handoff
   const { launched, launcher } = recordingLauncher();
   const { project, claudeRef, registry } = await fixture(launcher);
 
-  const bot = await addBot(registry, {
-    requestId: "add",
-    name: "AD bot",
-    directoryPath: project,
-  }, { kind: "user" });
+  const bot = await addBot(
+    registry,
+    {
+      requestId: "add",
+      name: "AD bot",
+      directoryPath: project,
+    },
+    { kind: "user" },
+  );
   await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [claudeRef] }, { kind: "user" });
   const added = await registry.addSessions(
     bot.botId,
@@ -188,17 +163,19 @@ test("forks one of the Bot's own sessions, and puts the brief behind the handoff
     { kind: "user" },
   );
 
-  expect(launched).toEqual([{
-    kind: "fork",
-    cwd: project,
-    sessionId: claudeRef.sessionId,
-    forkId: "started-1",
-    // The attach spent Aaron, so the fork takes Adam and the request brackets after it.
-    title: "Adam (Bot background color)",
-    // The launcher composes the handoff note in front of this; what the registry passes is the
-    // reader's own words, unchanged.
-    brief: "Give each card a colour.",
-  }]);
+  expect(launched).toEqual([
+    {
+      kind: "fork",
+      cwd: project,
+      sessionId: claudeRef.sessionId,
+      forkId: "started-1",
+      // The attach spent Aaron, so the fork takes Adam and the request brackets after it.
+      title: "Adam (Bot background color)",
+      // The launcher composes the handoff note in front of this; what the registry passes is the
+      // reader's own words, unchanged.
+      brief: "Give each card a colour.",
+    },
+  ]);
   expect(added.started?.tmuxSession).toBe("agentdesk-fork-started-1");
   expect(added.started?.title).toBe("Adam (Bot background color)");
   expect(added.bot.sessionSlots?.["claude:started-1"]).toBe(1);
@@ -217,7 +194,11 @@ test("stands a fork right after its source rather than at the end of the Bot's r
     { kind: "user" },
   );
 
-  expect(added.bot.sessionRefs.map((each) => each.sessionId)).toEqual([claudeRef.sessionId, "started-1", ref.sessionId]);
+  expect(added.bot.sessionRefs.map((each) => each.sessionId)).toEqual([
+    claudeRef.sessionId,
+    "started-1",
+    ref.sessionId,
+  ]);
 });
 
 test("stands attached sessions after the one named, and at the end when the Bot does not hold it", async () => {
@@ -237,7 +218,11 @@ test("stands attached sessions after the one named, and at the end when the Bot 
     { requestId: "after-held", sessionRefs: [secondRef], after: ref },
     { kind: "user" },
   );
-  expect(beside.bot.sessionRefs.map((each) => each.sessionId)).toEqual([ref.sessionId, secondRef.sessionId, claudeRef.sessionId]);
+  expect(beside.bot.sessionRefs.map((each) => each.sessionId)).toEqual([
+    ref.sessionId,
+    secondRef.sessionId,
+    claudeRef.sessionId,
+  ]);
 });
 
 test("forks one of the Bot's own sessions from a message, and holds the brief for after the rewind", async () => {
@@ -266,11 +251,13 @@ test("forks one of the Bot's own sessions from a message, and holds the brief fo
   );
 
   expect(launched).toMatchObject([{ kind: "fork", forkId: "started-1", brief: undefined }]);
-  expect(rewound).toEqual([{
-    sessionId: "started-1",
-    anchor: { fromEnd: 2, text: "ALPHA one" },
-    prompt: "the sibling task",
-  }]);
+  expect(rewound).toEqual([
+    {
+      sessionId: "started-1",
+      anchor: { fromEnd: 2, text: "ALPHA one" },
+      prompt: "the sibling task",
+    },
+  ]);
   expect(added.started?.rewindFailed).toBeUndefined();
   expect(added.bot.sessionAnchors?.["claude:started-1"]).toBe("Adam");
 });
@@ -284,11 +271,13 @@ test("refuses a fork from a row that is not one of the source's messages, before
   const bot = await addBot(registry, { requestId: "add", name: "AD bot", directoryPath: project }, { kind: "user" });
   await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [claudeRef] }, { kind: "user" });
 
-  await expect(registry.addSessions(
-    bot.botId,
-    { requestId: "fork", launch: { title: "No", from: { ...claudeRef, eventId: "claude:someone-else:at:0" } } },
-    { kind: "user" },
-  )).rejects.toThrow(BotInvalidError);
+  await expect(
+    registry.addSessions(
+      bot.botId,
+      { requestId: "fork", launch: { title: "No", from: { ...claudeRef, eventId: "claude:someone-else:at:0" } } },
+      { kind: "user" },
+    ),
+  ).rejects.toThrow(BotInvalidError);
   expect(launched).toEqual([]);
   expect(rewound).toEqual([]);
 });
@@ -298,17 +287,23 @@ test("refuses to fork a session the Bot does not hold", async () => {
   // about a session it holds. Without this a Bot could branch a stranger's transcript into itself.
   const { project, claudeRef, registry } = await fixture();
 
-  const bot = await addBot(registry, {
-    requestId: "add",
-    name: "AD bot",
-    directoryPath: project,
-  }, { kind: "user" });
-
-  await expect(registry.addSessions(
-    bot.botId,
-    { requestId: "fork", launch: { title: "Nope", from: claudeRef } },
+  const bot = await addBot(
+    registry,
+    {
+      requestId: "add",
+      name: "AD bot",
+      directoryPath: project,
+    },
     { kind: "user" },
-  )).rejects.toThrow(BotNotFoundError);
+  );
+
+  await expect(
+    registry.addSessions(
+      bot.botId,
+      { requestId: "fork", launch: { title: "Nope", from: claudeRef } },
+      { kind: "user" },
+    ),
+  ).rejects.toThrow(BotNotFoundError);
 });
 
 test("an omitted title starts bare under the next free anchor", async () => {
@@ -316,21 +311,27 @@ test("an omitted title starts bare under the next free anchor", async () => {
   // moment cannot preview the same name and a deleted session's number is never reused.
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
-  const bot = await addBot(registry, {
-    requestId: "add",
-    name: "AD bot",
-    directoryPath: project,
-  }, { kind: "user" });
+  const bot = await addBot(
+    registry,
+    {
+      requestId: "add",
+      name: "AD bot",
+      directoryPath: project,
+    },
+    { kind: "user" },
+  );
 
   const added = await registry.addSessions(bot.botId, { requestId: "start", launch: {} }, { kind: "user" });
 
-  expect(launched).toEqual([{
-    kind: "start",
-    cwd: project,
-    sessionId: "started-1",
-    title: "Aaron",
-    prompt: undefined,
-  }]);
+  expect(launched).toEqual([
+    {
+      kind: "start",
+      cwd: project,
+      sessionId: "started-1",
+      title: "Aaron",
+      prompt: undefined,
+    },
+  ]);
   expect(added.started?.title).toBe("Aaron");
   expect(added.bot.sessionSlots).toEqual({ "claude:started-1": 0 });
   expect(added.bot.sessionAnchors).toEqual({ "claude:started-1": "Aaron" });
@@ -339,30 +340,37 @@ test("an omitted title starts bare under the next free anchor", async () => {
 test("a task carrying its own brackets is refused before anything is spent", async () => {
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
-  const bot = await addBot(registry, {
-    requestId: "add",
-    name: "AD bot",
-    directoryPath: project,
-  }, { kind: "user" });
-
-  await expect(registry.addSessions(
-    bot.botId,
-    { requestId: "start", launch: { title: "fix (urgent) bug" } },
+  const bot = await addBot(
+    registry,
+    {
+      requestId: "add",
+      name: "AD bot",
+      directoryPath: project,
+    },
     { kind: "user" },
-  )).rejects.toThrow(/parentheses/);
+  );
+
+  await expect(
+    registry.addSessions(bot.botId, { requestId: "start", launch: { title: "fix (urgent) bug" } }, { kind: "user" }),
+  ).rejects.toThrow(/parentheses/);
   expect(launched).toEqual([]);
 });
 
 test("refuses a command that neither attaches nor starts anything", async () => {
   const { project, registry } = await fixture();
-  const bot = await addBot(registry, {
-    requestId: "add",
-    name: "AD bot",
-    directoryPath: project,
-  }, { kind: "user" });
+  const bot = await addBot(
+    registry,
+    {
+      requestId: "add",
+      name: "AD bot",
+      directoryPath: project,
+    },
+    { kind: "user" },
+  );
 
-  await expect(registry.addSessions(bot.botId, { requestId: "empty" }, { kind: "user" }))
-    .rejects.toThrow(/sessionRefs or launch is required/);
+  await expect(registry.addSessions(bot.botId, { requestId: "empty" }, { kind: "user" })).rejects.toThrow(
+    /sessionRefs or launch is required/,
+  );
 });
 
 test("creates a Bot whose first session is a fork of one already in its directory", async () => {
@@ -372,32 +380,50 @@ test("creates a Bot whose first session is a fork of one already in its director
   const { launched, launcher } = recordingLauncher();
   const { project, claudeRef, registry } = await fixture(launcher);
 
-  const first = await addBot(registry, {
-    requestId: "add-first",
-    name: "First",
-    directoryPath: project,
-  }, { kind: "user" });
+  const first = await addBot(
+    registry,
+    {
+      requestId: "add-first",
+      name: "First",
+      directoryPath: project,
+    },
+    { kind: "user" },
+  );
   await addSessions(registry, first.botId, { requestId: "attach", sessionRefs: [claudeRef] }, { kind: "user" });
 
   // A second Bot cannot take the same directory, so the fork source is checked against the Bot
   // being created rather than against any Bot -- and this one holds nothing yet.
-  await expect(registry.add({
-    requestId: "add-second",
-    name: "Second",
-    directoryPath: project,
-    launch: { title: "Branch", from: claudeRef },
-  }, { kind: "user" })).rejects.toThrow(BotConflictError);
+  await expect(
+    registry.add(
+      {
+        requestId: "add-second",
+        name: "Second",
+        directoryPath: project,
+        launch: { title: "Branch", from: claudeRef },
+      },
+      { kind: "user" },
+    ),
+  ).rejects.toThrow(BotConflictError);
   expect(launched).toEqual([]);
 });
 
 test("every Bot's view carries the name its machine hands out next, whichever Bot spent the last", async () => {
   const { project, secondProject, ref, registry } = await fixture();
   const first = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
-  const second = await addBot(registry, { requestId: "add-2", name: "Second", directoryPath: secondProject }, { kind: "user" });
+  const second = await addBot(
+    registry,
+    { requestId: "add-2", name: "Second", directoryPath: secondProject },
+    { kind: "user" },
+  );
   expect((await registry.snapshot()).bots.map((bot) => bot.nextAnchor)).toEqual(["Aaron", "Aaron"]);
 
   // One Bot spends a name; both now offer the next one, because the pool is the machine's.
-  const attached = await addSessions(registry, first.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+  const attached = await addSessions(
+    registry,
+    first.botId,
+    { requestId: "attach", sessionRefs: [ref] },
+    { kind: "user" },
+  );
   expect(attached.nextAnchor).toBe("Adam");
   const views = (await registry.snapshot()).bots;
   expect(views.find((bot) => bot.botId === second.botId)!.nextAnchor).toBe("Adam");
@@ -407,13 +433,15 @@ test("a session started elsewhere attaches before the catalog has seen it, and r
   // A handover starts a Claude session whose transcript does not exist until its first turn
   // lands. `addSessions` refuses that reference; this door takes it, the way a launch does.
   const { registry, project } = await fixture();
-  const bot = await addBot(registry,
+  const bot = await addBot(
+    registry,
     { requestId: "r1", name: "Handover bot", directoryPath: project },
     { kind: "user" },
   );
   const ref = { source: "claude" as const, sessionId: "handed-over" };
-  await expect(addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [ref] }, { kind: "user" }))
-    .rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(
+    addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [ref] }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
 
   const attached = await registry.attachStartedSession(bot.botId, ref, { kind: "user" });
   expect(attached.missingSessionRefs).toEqual([ref]);

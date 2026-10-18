@@ -97,13 +97,15 @@ export function publishTurnInput(projection: LiveAgentProjection, input: unknown
       const callId = typeof item.call_id === "string" ? item.call_id : undefined;
       const preview = text.slice(0, TOOL_RESULT_PREVIEW_CAP);
       const hiddenChars = text.length - preview.length;
-      const blocks: ActivityBlock[] = [{
-        kind: "tool_result",
-        ...(callId ? { callId } : {}),
-        preview,
-        hiddenChars: hiddenChars > 0 ? hiddenChars : undefined,
-        hiddenLines: hiddenChars > 0 ? (text.slice(TOOL_RESULT_PREVIEW_CAP).match(/\n/g) ?? []).length : undefined,
-      }];
+      const blocks: ActivityBlock[] = [
+        {
+          kind: "tool_result",
+          ...(callId ? { callId } : {}),
+          preview,
+          hiddenChars: hiddenChars > 0 ? hiddenChars : undefined,
+          hiddenLines: hiddenChars > 0 ? (text.slice(TOOL_RESULT_PREVIEW_CAP).match(/\n/g) ?? []).length : undefined,
+        },
+      ];
       projection.upsert({
         id: `codex-live:user:${item.id}`,
         messageId: item.id,

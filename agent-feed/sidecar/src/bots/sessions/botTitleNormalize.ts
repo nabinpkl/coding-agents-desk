@@ -5,20 +5,12 @@
 // whatever mechanism its source needs. `botTitleQueue.ts` keeps every title in that shape.
 
 import type { BotSessionRef, RenamedBracket } from "@agentdesk/agent-feed-wire";
-import {
-  formatBotSessionTitle,
-  refuseTaskText,
-} from "@agentdesk/agent-feed-wire";
+import { formatBotSessionTitle, refuseTaskText } from "@agentdesk/agent-feed-wire";
 import type { BotStore } from "@/bots/botStore";
 import { sessionKey } from "@/bots/botIdempotency";
 import { nextAnchor, spentAnchors } from "@/bots/sessions/botSessionLaunch";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
-import {
-  BotConflictError,
-  BotInvalidError,
-  BotNotFoundError,
-  type BotRegistryCatalog,
-} from "@/bots/botTypes";
+import { BotConflictError, BotInvalidError, BotNotFoundError, type BotRegistryCatalog } from "@/bots/botTypes";
 
 /**
  * Renames one session to the composed title, by whatever mechanism its source needs.
@@ -69,9 +61,7 @@ export async function renameBracketTitle(
 ): Promise<RenamedBracket> {
   const key = sessionKey(ref);
   const record = await store.mutate((snapshot) => {
-    const holders = snapshot.bots.filter((bot) =>
-      bot.sessionRefs.some((held) => sessionKey(held) === key)
-    );
+    const holders = snapshot.bots.filter((bot) => bot.sessionRefs.some((held) => sessionKey(held) === key));
     if (holders.length === 0) throw new BotNotFoundError(`session ${key} is not attached to any Bot`);
     if (holders.length > 1) {
       throw new BotConflictError(
@@ -81,9 +71,7 @@ export async function renameBracketTitle(
     const bot = holders[0]!;
     const anchor = bot.sessionAnchors?.[key] ?? nextAnchor(spentAnchors(snapshot.bots));
     const bots = snapshot.bots.map((one) =>
-      one.botId === bot.botId
-        ? { ...one, sessionAnchors: { ...(one.sessionAnchors ?? {}), [key]: anchor } }
-        : one
+      one.botId === bot.botId ? { ...one, sessionAnchors: { ...(one.sessionAnchors ?? {}), [key]: anchor } } : one,
     );
     return {
       snapshot: { ...snapshot, revision: snapshot.revision + 1, bots },

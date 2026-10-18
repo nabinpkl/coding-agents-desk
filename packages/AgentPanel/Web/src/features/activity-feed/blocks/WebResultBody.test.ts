@@ -37,7 +37,12 @@ describe("parseWebResult", () => {
     expect(parseWebResult("WebSearch", "no frame here")).toBeNull();
     expect(parseWebResult("WebSearch", 'Web search results for query: "q"\nLinks: not json')).toBeNull();
     // A link that is not http(s) is not something to put in an href.
-    expect(parseWebResult("WebSearch", 'Web search results for query: "q"\nLinks: [{"title":"x","url":"javascript:alert(1)"}]')).toBeNull();
+    expect(
+      parseWebResult(
+        "WebSearch",
+        'Web search results for query: "q"\nLinks: [{"title":"x","url":"javascript:alert(1)"}]',
+      ),
+    ).toBeNull();
   });
 
   it("leaves every other tool, and an empty result, alone", () => {

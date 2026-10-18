@@ -19,9 +19,18 @@ function toolEvent(id: string, tool: string, files: string[]): ActivityEvent {
 describe("filesFromEvents", () => {
   test("reads Claude's capitalised tool names the way it reads the serve's", () => {
     const events: ActivityEvent[] = [
-      { ...toolEvent("a", "Read", []), blocks: [{ kind: "tool_use", tool: "Read", input: { file_path: "/repo/a.ts" } }] },
-      { ...toolEvent("b", "Edit", []), blocks: [{ kind: "tool_use", tool: "Edit", input: { file_path: "/repo/b.ts" } }] },
-      { ...toolEvent("c", "MultiEdit", []), blocks: [{ kind: "tool_use", tool: "MultiEdit", input: { file_path: "/repo/c.ts" } }] },
+      {
+        ...toolEvent("a", "Read", []),
+        blocks: [{ kind: "tool_use", tool: "Read", input: { file_path: "/repo/a.ts" } }],
+      },
+      {
+        ...toolEvent("b", "Edit", []),
+        blocks: [{ kind: "tool_use", tool: "Edit", input: { file_path: "/repo/b.ts" } }],
+      },
+      {
+        ...toolEvent("c", "MultiEdit", []),
+        blocks: [{ kind: "tool_use", tool: "MultiEdit", input: { file_path: "/repo/c.ts" } }],
+      },
     ];
     const { filesRead, filesWritten } = filesFromEvents(events);
     expect(filesRead).toEqual(["/repo/a.ts"]);
@@ -63,12 +72,14 @@ describe("filesFromEvents", () => {
   test("prefers the adapter's own resolution when both name the file", () => {
     const event: ActivityEvent = {
       ...toolEvent("a", "read", ["/resolved/README"]),
-      blocks: [{
-        kind: "tool_use",
-        tool: "read",
-        files: ["/resolved/README"],
-        input: { path: "/raw/README" },
-      }],
+      blocks: [
+        {
+          kind: "tool_use",
+          tool: "read",
+          files: ["/resolved/README"],
+          input: { path: "/raw/README" },
+        },
+      ],
     };
     expect(filesFromEvents([event]).filesRead).toEqual(["/resolved/README"]);
   });
@@ -122,9 +133,7 @@ describe("outsideReaches", () => {
   // opencode contestant's commands into its rival's folder went uncounted under the one name.
   test("reads the serve's `shell` call the way it reads Claude's `Bash`", () => {
     const events = [call("a", "shell", { command: "cat ../c1/NOTES.md ../c2/NOTES.md 2>/dev/null; true" })];
-    expect(outsideReaches(events, where)).toEqual([
-      { path: "/arena/run/c1/NOTES.md", how: "shell", rival: "c1" },
-    ]);
+    expect(outsideReaches(events, where)).toEqual([{ path: "/arena/run/c1/NOTES.md", how: "shell", rival: "c1" }]);
   });
 
   test("a rival Claude contestant's transcript counts as the rival's, wherever it is filed", () => {

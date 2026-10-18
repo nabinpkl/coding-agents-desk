@@ -39,10 +39,9 @@ export function noteOpencodeText(sessionId: string, text: string, at: number): v
 
 /** Looks up, once each, the recently active sessions whose block this process has not seen. */
 export function lookUpOpencodeTaskStates(sessions: Iterable<Session>, now = Date.now()): void {
-  const due = [...sessions].filter((session) =>
-    session.source === "opencode" &&
-    !looked.has(session.sessionId) &&
-    now - session.lastEventAt < LOOKUP_WITHIN_MS
+  const due = [...sessions].filter(
+    (session) =>
+      session.source === "opencode" && !looked.has(session.sessionId) && now - session.lastEventAt < LOOKUP_WITHIN_MS,
   );
   for (const session of due) looked.add(session.sessionId);
   if (due.length === 0 || lookingUp) return;

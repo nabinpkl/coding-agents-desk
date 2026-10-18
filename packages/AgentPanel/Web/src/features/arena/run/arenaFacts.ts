@@ -63,9 +63,7 @@ export function fileMatrix(contestants: readonly ArenaContestantDetail[]): FileR
   const touched = (row: FileRow) => row.touches.filter((one) => one !== null).length;
   return [...rows.values()].sort(
     (a, b) =>
-      Number(b.inRepository) - Number(a.inRepository) ||
-      touched(b) - touched(a) ||
-      a.path.localeCompare(b.path),
+      Number(b.inRepository) - Number(a.inRepository) || touched(b) - touched(a) || a.path.localeCompare(b.path),
   );
 }
 

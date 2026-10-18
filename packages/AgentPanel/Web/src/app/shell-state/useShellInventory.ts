@@ -46,10 +46,7 @@ export function useShellInventory({
     const machine = botMachines.get(picker.botId);
     return machine && machine.feed !== feed ? machine : null;
   }, [picker, botMachines, feed]);
-  const pickerPeerPaths = useMemo(
-    () => (pickerPeer && picker ? [picker.projectPath] : []),
-    [pickerPeer, picker],
-  );
+  const pickerPeerPaths = useMemo(() => (pickerPeer && picker ? [picker.projectPath] : []), [pickerPeer, picker]);
   const peerInventory = useMachineInventory(pickerPeer, pickerPeerPaths);
 
   /** The directories this machine's stream must watch beyond the ones the reader expanded. */
@@ -73,12 +70,7 @@ export function useShellInventory({
   // Read once, at mount. Storage is written on every selection, so re-reading it later would race
   // the write the shell just made.
   const [rememberedSelection] = useState(loadSelection);
-  const inventory = useProjectInventory(
-    feed,
-    extraProjectPaths,
-    rememberedSelection?.projectPath,
-    recentWanted,
-  );
+  const inventory = useProjectInventory(feed, extraProjectPaths, rememberedSelection?.projectPath, recentWanted);
 
   /**
    * The sessions each directory holds, as the DIALOGS see it.
@@ -112,10 +104,7 @@ export function useShellInventory({
     (projectPath: string, archived: boolean) => feed.setProjectArchived(projectPath, archived),
     [feed],
   );
-  const archiveProjectSessions = useCallback(
-    (projectPath: string) => feed.archiveProjectSessions(projectPath),
-    [feed],
-  );
+  const archiveProjectSessions = useCallback((projectPath: string) => feed.archiveProjectSessions(projectPath), [feed]);
   const archiving = useMemo<SessionArchiving>(
     () => ({
       archivedByProject: inventory.archivedByProject,
@@ -126,7 +115,13 @@ export function useShellInventory({
         archiveSessions: archiveProjectSessions,
       },
     }),
-    [inventory.archivedByProject, inventory.archivedProjects, setSessionArchived, setProjectArchived, archiveProjectSessions],
+    [
+      inventory.archivedByProject,
+      inventory.archivedProjects,
+      setSessionArchived,
+      setProjectArchived,
+      archiveProjectSessions,
+    ],
   );
 
   return { inventory: { ...inventory, archiving }, dialogSessionsByProject, rememberedSelection };

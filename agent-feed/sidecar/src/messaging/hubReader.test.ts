@@ -41,22 +41,46 @@ describe("runHubReader", () => {
         const url = new URL(request.url);
         if (url.pathname === "/v1/stream") {
           query = url.searchParams;
-          return new Response(new ReadableStream({
-            start(c) {
-              c.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "hello", address: `claude:${SESSION}`, channel: true, streamId: "s1" })}\n\n`));
-              c.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "message", message, fromName: "owner", streamId: "s1" })}\n\n`));
-            },
-          }), { headers: { "content-type": "text/event-stream" } });
+          return new Response(
+            new ReadableStream({
+              start(c) {
+                c.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "hello", address: `claude:${SESSION}`, channel: true, streamId: "s1" })}\n\n`,
+                  ),
+                );
+                c.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "message", message, fromName: "owner", streamId: "s1" })}\n\n`,
+                  ),
+                );
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
         }
         other.push(`${request.method} ${url.pathname}`);
         return Response.json({});
       },
     });
-    const hub = new HubClient({ url: `http://127.0.0.1:${fake.port}`, machine: "mac", clientId: "cid", clientSecret: "secret" });
+    const hub = new HubClient({
+      url: `http://127.0.0.1:${fake.port}`,
+      machine: "mac",
+      clientId: "cid",
+      clientSecret: "secret",
+    });
     const lines: string[] = [];
     const stop = new AbortController();
     const reader = runHubReader(
-      { hub, sessionId: SESSION, cwd: "/work", title: "probe", write: (l) => lines.push(l), log: () => {}, sleep: async () => {} },
+      {
+        hub,
+        sessionId: SESSION,
+        cwd: "/work",
+        title: "probe",
+        write: (l) => lines.push(l),
+        log: () => {},
+        sleep: async () => {},
+      },
       stop.signal,
     );
     for (let i = 0; i < 50 && lines.length === 0; i++) await Bun.sleep(10);

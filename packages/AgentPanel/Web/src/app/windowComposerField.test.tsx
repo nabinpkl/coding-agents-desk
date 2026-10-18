@@ -5,12 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
-import {
-  COMPOSER_STREAM,
-  openClaudeThread,
-  restoreViewport,
-  setup,
-} from "@/app/agentPanelAppHarness";
+import { COMPOSER_STREAM, openClaudeThread, restoreViewport, setup } from "@/app/agentPanelAppHarness";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -87,12 +82,7 @@ describe("Claude window composer field", () => {
    * promise: there is no correlation id to answer late against, which is most of why this path is
    * simpler than the lane it replaced.
    */
-  function answerComposer(
-    transport: FakeHttpTransport,
-    kind: "sync" | "submit" | "read",
-    body: unknown,
-    status = 200,
-  ) {
+  function answerComposer(transport: FakeHttpTransport, kind: "sync" | "submit" | "read", body: unknown, status = 200) {
     transport.responses.set(`POST /api/window/composer/${kind}`, {
       status,
       body: JSON.stringify(body),
@@ -110,9 +100,7 @@ describe("Claude window composer field", () => {
     deliverStatus(transport, { en: false, r: "terminal-only" });
 
     expect(screen.getByLabelText("Claude composer text")).toBeDisabled();
-    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
-      "running in a terminal",
-    );
+    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent("running in a terminal");
     // The only explicit action left is Enter, and it cannot fire without a window.
     expect(screen.getByRole("button", { name: "Send to Claude's composer" })).toBeDisabled();
     unmount();
@@ -133,8 +121,7 @@ describe("Claude window composer field", () => {
     focusComposer(transport);
     deliverStatus(transport, { en: false, r: "no-window" });
 
-    expect(screen.getByLabelText("Claude composer text"))
-      .toHaveAttribute("placeholder", "Composer unavailable");
+    expect(screen.getByLabelText("Claude composer text")).toHaveAttribute("placeholder", "Composer unavailable");
     unmount();
   });
 
@@ -149,9 +136,7 @@ describe("Claude window composer field", () => {
     deliverStatus(transport, { en: false, r: "multiple-instances" });
 
     expect(screen.getByLabelText("Claude composer text")).toBeDisabled();
-    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
-      "more than one Claude instance",
-    );
+    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent("more than one Claude instance");
     unmount();
   });
 
@@ -170,9 +155,7 @@ describe("Claude window composer field", () => {
     // No fill button anymore, and Return still never sends: the sync is automatic.
     expect(screen.queryByRole("button", { name: "Fill Claude's composer" })).toBeNull();
     fireEvent.keyDown(field, { key: "Enter" });
-    expect(
-      composerCalls(transport, "sync"),
-    ).toHaveLength(0);
+    expect(composerCalls(transport, "sync")).toHaveLength(0);
 
     // One burst of typing lands as one sync, 500ms after the last keystroke.
     await act(async () => {
@@ -216,9 +199,7 @@ describe("Claude window composer field", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    expect(
-      composerCalls(transport, "sync"),
-    ).toHaveLength(0);
+    expect(composerCalls(transport, "sync")).toHaveLength(0);
 
     // The host's lease status flips active. The debounce effect must wake up and retry the existing
     // unsynced draft without requiring another keystroke.
@@ -377,9 +358,7 @@ describe("Claude window composer field", () => {
       await vi.advanceTimersByTimeAsync(500);
     });
 
-    expect(
-      composerCalls(transport, "sync"),
-    ).toHaveLength(0);
+    expect(composerCalls(transport, "sync")).toHaveLength(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Send to Claude's composer" }));
     expect(lastComposerCall(transport, "submit")).toMatchObject({
@@ -406,9 +385,8 @@ describe("Claude window composer field", () => {
     deliverStatus(transport, { cur: false, tx: null });
 
     await waitFor(() =>
-      expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
-        "does not expose the window mover",
-      ));
+      expect(screen.getByLabelText("Claude window composer")).toHaveTextContent("does not expose the window mover"),
+    );
     unmount();
   });
 });

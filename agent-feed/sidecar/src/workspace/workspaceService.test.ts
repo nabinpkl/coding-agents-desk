@@ -104,9 +104,7 @@ test("an expanded path that could not have come from this tree is refused, not w
   const project = await scratch("workspace-service-project-");
   const { service, shared, workspace } = await serviceOver(project);
 
-  await expect(
-    shared.apply(workspace.id, 0, "op-escape", { type: "expand", path: "../escape" }),
-  ).rejects.toThrow();
+  await expect(shared.apply(workspace.id, 0, "op-escape", { type: "expand", path: "../escape" })).rejects.toThrow();
 
   expect(service.watchedDirectories).toEqual([project]);
 });

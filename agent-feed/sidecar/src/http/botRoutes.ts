@@ -10,11 +10,7 @@ import type {
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
-import {
-  BotConflictError,
-  BotNotFoundError,
-  type BotRegistry,
-} from "@/bots/botRegistry";
+import { BotConflictError, BotNotFoundError, type BotRegistry } from "@/bots/botRegistry";
 import { decodeBotId, errorPayload, requestObject, routeError } from "@/http/botRouteProtocol";
 import {
   encodeServerSentEvent,
@@ -54,16 +50,17 @@ export function createBotRoutes(
       return startServerSentEventStream(request, server, (write) => {
         let closed = false;
         let unsubscribe: (() => void) | undefined;
-        void registry.subscribe(
-          (snapshot) => write(encodeServerSentEvent(snapshot)),
-          (error) => write(encodeServerSentEvent({ error: errorPayload(error) })),
-          // `"view"`, because this stream feeds a canvas and a roster that draw a row per resolved
-          // session and a row per unresolved reference. The hub publishes membership and wants the
-          // store's revision; this one has to hear about a reference that started or stopped
-          // resolving, or a restart's half-reconciled catalog becomes the panel's picture for as
-          // long as the reader does not touch a Bot.
-          { onChange: "view" },
-        )
+        void registry
+          .subscribe(
+            (snapshot) => write(encodeServerSentEvent(snapshot)),
+            (error) => write(encodeServerSentEvent({ error: errorPayload(error) })),
+            // `"view"`, because this stream feeds a canvas and a roster that draw a row per resolved
+            // session and a row per unresolved reference. The hub publishes membership and wants the
+            // store's revision; this one has to hear about a reference that started or stopped
+            // resolving, or a restart's half-reconciled catalog becomes the panel's picture for as
+            // long as the reader does not touch a Bot.
+            { onChange: "view" },
+          )
           .then((stop) => {
             if (closed) stop();
             else unsubscribe = stop;
@@ -199,11 +196,7 @@ async function botGitStream(
   }
 }
 
-async function botGitDiff(
-  botId: string,
-  path: string | null,
-  registry: BotRegistry,
-): Promise<Response> {
+async function botGitDiff(botId: string, path: string | null, registry: BotRegistry): Promise<Response> {
   try {
     const directory = await botDirectory(botId, registry);
     const answer: BotGitDiff = { botId: decodeBotId(botId), ...(await folderGitDiff(directory, path)) };
@@ -221,11 +214,7 @@ async function botGitDiff(
   }
 }
 
-async function botTree(
-  botId: string,
-  expanded: string[],
-  registry: BotRegistry,
-): Promise<Response> {
+async function botTree(botId: string, expanded: string[], registry: BotRegistry): Promise<Response> {
   try {
     const directory = await botDirectory(botId, registry);
     const answer: BotTree = { botId: decodeBotId(botId), ...(await folderTree(directory, expanded)) };
@@ -284,11 +273,7 @@ async function placeSession(request: Request, registry: BotRegistry): Promise<Re
   }
 }
 
-async function addBotSessions(
-  request: Request,
-  botId: string,
-  registry: BotRegistry,
-): Promise<Response> {
+async function addBotSessions(request: Request, botId: string, registry: BotRegistry): Promise<Response> {
   try {
     const decodedBotId = decodeBotId(botId);
     const body = await requestObject(request);
@@ -301,11 +286,7 @@ async function addBotSessions(
   }
 }
 
-async function detachBotSessions(
-  request: Request,
-  botId: string,
-  registry: BotRegistry,
-): Promise<Response> {
+async function detachBotSessions(request: Request, botId: string, registry: BotRegistry): Promise<Response> {
   try {
     const decodedBotId = decodeBotId(botId);
     const body = await requestObject(request);
@@ -318,11 +299,7 @@ async function detachBotSessions(
   }
 }
 
-async function retireBotSessions(
-  request: Request,
-  botId: string,
-  registry: BotRegistry,
-): Promise<Response> {
+async function retireBotSessions(request: Request, botId: string, registry: BotRegistry): Promise<Response> {
   try {
     const decodedBotId = decodeBotId(botId);
     const body = await requestObject(request);
@@ -335,11 +312,7 @@ async function retireBotSessions(
   }
 }
 
-async function reorderBotSessions(
-  request: Request,
-  botId: string,
-  registry: BotRegistry,
-): Promise<Response> {
+async function reorderBotSessions(request: Request, botId: string, registry: BotRegistry): Promise<Response> {
   try {
     const decodedBotId = decodeBotId(botId);
     const body = await requestObject(request);
@@ -352,35 +325,23 @@ async function reorderBotSessions(
   }
 }
 
-async function setBotCanvas(
-  request: Request,
-  botId: string,
-  registry: BotRegistry,
-): Promise<Response> {
+async function setBotCanvas(request: Request, botId: string, registry: BotRegistry): Promise<Response> {
   try {
     const decodedBotId = decodeBotId(botId);
     const body = await requestObject(request);
     if (body instanceof Response) return body;
-    return jsonResponse(
-      await registry.setCanvas(decodedBotId, body, { kind: "user" }),
-    );
+    return jsonResponse(await registry.setCanvas(decodedBotId, body, { kind: "user" }));
   } catch (error) {
     return routeError(error);
   }
 }
 
-async function updateBot(
-  request: Request,
-  botId: string,
-  registry: BotRegistry,
-): Promise<Response> {
+async function updateBot(request: Request, botId: string, registry: BotRegistry): Promise<Response> {
   try {
     const decodedBotId = decodeBotId(botId);
     const body = await requestObject(request);
     if (body instanceof Response) return body;
-    return jsonResponse(
-      await registry.updateBot(decodedBotId, body, { kind: "user" }),
-    );
+    return jsonResponse(await registry.updateBot(decodedBotId, body, { kind: "user" }));
   } catch (error) {
     return routeError(error);
   }

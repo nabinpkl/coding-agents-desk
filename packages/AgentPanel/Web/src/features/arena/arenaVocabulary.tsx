@@ -42,22 +42,19 @@ export const TEXT = {
   meta: "text-(length:--agent-panel-fs-sidebar-meta,13px)",
 } as const;
 
-const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
+const FOCUS =
+  "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
 
 /** A bordered action: rest, hover, pressed, keyboard focus and disabled, all defined here. */
-export const BUTTON =
-  `inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 ${TEXT.body} font-medium transition-colors duration-150 hover:bg-muted active:bg-accent disabled:pointer-events-none disabled:opacity-50 ${FOCUS}`;
+export const BUTTON = `inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 ${TEXT.body} font-medium transition-colors duration-150 hover:bg-muted active:bg-accent disabled:pointer-events-none disabled:opacity-50 ${FOCUS}`;
 
 /** The one filled action on a surface: starting a run. */
-export const PRIMARY_BUTTON =
-  `inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 ${TEXT.body} font-medium text-primary-foreground transition-opacity duration-150 hover:opacity-90 active:opacity-80 disabled:pointer-events-none disabled:opacity-40 ${FOCUS}`;
+export const PRIMARY_BUTTON = `inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 ${TEXT.body} font-medium text-primary-foreground transition-opacity duration-150 hover:opacity-90 active:opacity-80 disabled:pointer-events-none disabled:opacity-40 ${FOCUS}`;
 
 /** An icon-only action; its name rides `aria-label` and `title`, never a visible word. */
-export const ICON_BUTTON =
-  `inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-accent disabled:pointer-events-none disabled:opacity-40 ${FOCUS}`;
+export const ICON_BUTTON = `inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-accent disabled:pointer-events-none disabled:opacity-40 ${FOCUS}`;
 
-export const FIELD =
-  `w-full rounded-md border border-input bg-background px-3 py-2 ${TEXT.body} text-foreground placeholder:text-muted-foreground transition-colors focus-visible:border-ring ${FOCUS}`;
+export const FIELD = `w-full rounded-md border border-input bg-background px-3 py-2 ${TEXT.body} text-foreground placeholder:text-muted-foreground transition-colors focus-visible:border-ring ${FOCUS}`;
 
 export { FOCUS };
 
@@ -108,4 +105,3 @@ export function StatusGlyph({ status }: { status: ArenaContestantStatus }) {
   if (status === "ready") return <span aria-hidden className="inline-flex size-2 rounded-full bg-current" />;
   return <span aria-hidden className="inline-flex size-2 rounded-full border border-current" />;
 }
-

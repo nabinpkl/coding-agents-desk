@@ -297,10 +297,7 @@ export class GestureTranslator {
       return;
     }
     const magnitude = Math.hypot(delta.x, delta.y);
-    this.dragEdgeSpeed = Math.min(
-      Math.max(magnitude / elapsed, DRAG_EDGE_MINIMUM_SPEED),
-      DRAG_EDGE_MAXIMUM_SPEED,
-    );
+    this.dragEdgeSpeed = Math.min(Math.max(magnitude / elapsed, DRAG_EDGE_MINIMUM_SPEED), DRAG_EDGE_MAXIMUM_SPEED);
     this.dragEdgeDirection = { x: delta.x / magnitude, y: delta.y / magnitude };
     if (!this.dragEdgeActive) {
       this.dragEdgeActive = true;
@@ -343,9 +340,13 @@ function nearestDragEdge(at: Point, bounds: DragBounds): DragEdge | null {
 
 function movingOutward(edge: DragEdge, delta: Point): boolean {
   switch (edge) {
-    case "left": return delta.x < 0;
-    case "right": return delta.x > 0;
-    case "top": return delta.y < 0;
-    case "bottom": return delta.y > 0;
+    case "left":
+      return delta.x < 0;
+    case "right":
+      return delta.x > 0;
+    case "top":
+      return delta.y < 0;
+    case "bottom":
+      return delta.y > 0;
   }
 }

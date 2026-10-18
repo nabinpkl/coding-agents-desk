@@ -2,11 +2,7 @@ import { describe, it, expect } from "vitest";
 import { openAskUserQuestion, parseAskUserQuestion } from "@/app/askUserQuestion";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
-function event(
-  index: number,
-  blocks: ActivityEvent["blocks"],
-  extra: Partial<ActivityEvent> = {},
-): ActivityEvent {
+function event(index: number, blocks: ActivityEvent["blocks"], extra: Partial<ActivityEvent> = {}): ActivityEvent {
   return {
     id: `ev-${index}`,
     index,
@@ -46,16 +42,18 @@ describe("parseAskUserQuestion", () => {
   it("parses the full question from a tool_use input", () => {
     expect(parseAskUserQuestion("toolu_01", QUESTION_INPUT)).toEqual({
       callId: "toolu_01",
-      questions: [{
-        question: "Which release identity should the manual deploy of current main use?",
-        header: "Release id",
-        multiSelect: false,
-        options: [
-          { label: "Mint 2026-08-08.1 (Recommended)", description: "Add a ledger entry." },
-          { label: "Reuse 2026-08-03.1", description: "Deploy immediately." },
-          { label: "Don't deploy app code yet", description: "Leave the running release alone." },
-        ],
-      }],
+      questions: [
+        {
+          question: "Which release identity should the manual deploy of current main use?",
+          header: "Release id",
+          multiSelect: false,
+          options: [
+            { label: "Mint 2026-08-08.1 (Recommended)", description: "Add a ledger entry." },
+            { label: "Reuse 2026-08-03.1", description: "Deploy immediately." },
+            { label: "Don't deploy app code yet", description: "Leave the running release alone." },
+          ],
+        },
+      ],
     });
   });
 
@@ -68,8 +66,10 @@ describe("parseAskUserQuestion", () => {
     };
     // Taking only the first is what the Desktop panel's single-pane UI wanted. The terminal
     // dialog draws a tab per question and will not submit until each has an answer.
-    expect(parseAskUserQuestion("toolu_1", input)?.questions.map((entry) => entry.question))
-      .toEqual(["First question", "Second question"]);
+    expect(parseAskUserQuestion("toolu_1", input)?.questions.map((entry) => entry.question)).toEqual([
+      "First question",
+      "Second question",
+    ]);
   });
 
   it("reads multiSelect and omits an absent header", () => {
@@ -82,10 +82,12 @@ describe("parseAskUserQuestion", () => {
 
   it("keeps an option preview as written, because its shape is the content", () => {
     const parsed = parseAskUserQuestion("toolu_1", {
-      questions: [{
-        question: "Which layout?",
-        options: [{ label: "Split", preview: "left | right\n  a  |  b" }, { label: "Stacked" }],
-      }],
+      questions: [
+        {
+          question: "Which layout?",
+          options: [{ label: "Split", preview: "left | right\n  a  |  b" }, { label: "Stacked" }],
+        },
+      ],
     });
     expect(parsed?.questions[0]?.options[0]?.preview).toBe("left | right\n  a  |  b");
     expect(parsed?.questions[0]?.options[1]?.preview).toBeUndefined();
@@ -105,22 +107,22 @@ describe("parseAskUserQuestion", () => {
   it("returns null when ONE question of several is unusable", () => {
     // Dropping it would leave the answers one short and every answer after it matched against the
     // wrong question, which the dialog cannot detect and neither could a reader.
-    expect(parseAskUserQuestion("toolu_1", {
-      questions: [
-        { question: "Fine", options: [{ label: "A" }] },
-        { question: "Broken", options: [] },
-        { question: "Also fine", options: [{ label: "B" }] },
-      ],
-    })).toBeNull();
+    expect(
+      parseAskUserQuestion("toolu_1", {
+        questions: [
+          { question: "Fine", options: [{ label: "A" }] },
+          { question: "Broken", options: [] },
+          { question: "Also fine", options: [{ label: "B" }] },
+        ],
+      }),
+    ).toBeNull();
   });
 });
 
 describe("openAskUserQuestion", () => {
   it("returns null when no question is present", () => {
     expect(openAskUserQuestion([], [])).toBeNull();
-    expect(
-      openAskUserQuestion([event(0, [{ kind: "text", text: "hello" }])], []),
-    ).toBeNull();
+    expect(openAskUserQuestion([event(0, [{ kind: "text", text: "hello" }])], [])).toBeNull();
   });
 
   it("returns the open question from durable events", () => {
@@ -129,10 +131,7 @@ describe("openAskUserQuestion", () => {
   });
 
   it("returns null once the matching tool_result arrives", () => {
-    const events = [
-      event(0, [toolUse("toolu_1", QUESTION_INPUT)]),
-      event(1, [toolResult("toolu_1")]),
-    ];
+    const events = [event(0, [toolUse("toolu_1", QUESTION_INPUT)]), event(1, [toolResult("toolu_1")])];
     expect(openAskUserQuestion(events, [])).toBeNull();
   });
 
@@ -146,19 +145,14 @@ describe("openAskUserQuestion", () => {
   });
 
   it("keeps the question open when a DIFFERENT tool_result arrives", () => {
-    const events = [
-      event(0, [toolUse("toolu_1", QUESTION_INPUT)]),
-      event(1, [toolResult("toolu_other")]),
-    ];
+    const events = [event(0, [toolUse("toolu_1", QUESTION_INPUT)]), event(1, [toolResult("toolu_other")])];
     expect(openAskUserQuestion(events, [])?.callId).toBe("toolu_1");
   });
 
   it("closes a question carried only by the live tail", () => {
     const tail = event(1, [toolResult("toolu_1")]);
     expect(openAskUserQuestion([event(0, [toolUse("toolu_1", QUESTION_INPUT)])], [tail])).toBeNull();
-    expect(openAskUserQuestion([event(0, [toolUse("toolu_1", QUESTION_INPUT)])], [])?.callId).toBe(
-      "toolu_1",
-    );
+    expect(openAskUserQuestion([event(0, [toolUse("toolu_1", QUESTION_INPUT)])], [])?.callId).toBe("toolu_1");
   });
 
   it("survives the live tail duplicating a durable event", () => {

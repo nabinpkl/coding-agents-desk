@@ -66,26 +66,24 @@ function sanitizeProse(html: string): string {
 }
 
 /** A fenced block, however deep in the document it was written. */
-export type FenceBlock =
-  | { kind: "code"; code: string; lang: string }
-  | { kind: "mermaid"; code: string };
+export type FenceBlock = { kind: "code"; code: string; lang: string } | { kind: "mermaid"; code: string };
 
 export type Block =
   | {
-    kind: "prose";
-    html: string;
-    /**
-     * The fences this run holds that its HTML cannot draw.
-     *
-     * Marked renders a fence nested in a list item or a blockquote as a bare `<pre><code>`, which
-     * is neither highlighted nor copyable and, until it was given a rule of its own, was wide
-     * enough to push the whole transcript sideways. A nested fence is therefore peeled like a
-     * top-level one and the prose keeps an empty slot where it stood, for the renderer to mount
-     * the same component into. Indexed by the number in the slot's attribute, and never reordered
-     * once written -- a streaming run appends to this list, it does not rebuild it.
-     */
-    fences: readonly FenceBlock[];
-  }
+      kind: "prose";
+      html: string;
+      /**
+       * The fences this run holds that its HTML cannot draw.
+       *
+       * Marked renders a fence nested in a list item or a blockquote as a bare `<pre><code>`, which
+       * is neither highlighted nor copyable and, until it was given a rule of its own, was wide
+       * enough to push the whole transcript sideways. A nested fence is therefore peeled like a
+       * top-level one and the prose keeps an empty slot where it stood, for the renderer to mount
+       * the same component into. Indexed by the number in the slot's attribute, and never reordered
+       * once written -- a streaming run appends to this list, it does not rebuild it.
+       */
+      fences: readonly FenceBlock[];
+    }
   | FenceBlock;
 
 /** The attribute a peeled nested fence leaves behind, carrying its index into `fences`. */
@@ -281,7 +279,10 @@ export function createStreamingBlocks(): StreamingBlocks {
       // tail, because the last token is where marked normalizes: a half-typed bullet
       // arrives as `"- "` and comes back as `"-\n"`, which is not a mismatch worth
       // throwing away a document over -- and never lands in a token being settled.
-      const consumed = tokens.slice(0, settledTokens).map((token) => token.raw).join("");
+      const consumed = tokens
+        .slice(0, settledTokens)
+        .map((token) => token.raw)
+        .join("");
       if (consumed !== tail.slice(0, settledChars)) return restart(content);
       appendTokens(settled, tokens.slice(0, settledTokens), links);
       settledText += consumed;

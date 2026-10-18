@@ -84,9 +84,9 @@ export function useFolderCode(
       // A collapsed directory's own expanded children are kept: the sidecar lists only what is
       // reachable through expanded parents, so they cost nothing, and reopening it puts the reader
       // back where they were inside it.
-      setExpanded((current) => (open
-        ? (current.includes(path) ? current : [...current, path])
-        : current.filter((each) => each !== path)));
+      setExpanded((current) =>
+        open ? (current.includes(path) ? current : [...current, path]) : current.filter((each) => each !== path),
+      );
     }, []),
   };
 }

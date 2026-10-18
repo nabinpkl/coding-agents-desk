@@ -39,8 +39,10 @@ const staticLet = (name: string) => new RegExp(String.raw`static let ${name}: [A
 describe("the web's gesture numbers are the Swift client's", () => {
   it("pointer slop and acceleration", () => {
     expect(gesture.POINTER_SLOP).toBe(swiftNumber("GestureTranslator.swift", staticLet("slopThreshold")));
-    const mac = /static let mac = GestureAcceleration \{ velocity in\s+([\d.]+) \+ min\(velocity \* ([\d.]+), ([\d.]+)\)/
-      .exec(swift("GestureTranslator.swift"));
+    const mac =
+      /static let mac = GestureAcceleration \{ velocity in\s+([\d.]+) \+ min\(velocity \* ([\d.]+), ([\d.]+)\)/.exec(
+        swift("GestureTranslator.swift"),
+      );
     expect(mac?.slice(1).map(Number)).toEqual([
       gesture.POINTER_ACCELERATION_FLOOR,
       gesture.POINTER_ACCELERATION_SLOPE,
@@ -49,8 +51,10 @@ describe("the web's gesture numbers are the Swift client's", () => {
   });
 
   it("scroll acceleration, axis lock and coast", () => {
-    const scroll = /static let scroll = GestureAcceleration \{ velocity in\s+([\d.]+) \+ min\(velocity \* ([\d.]+), ([\d.]+)\)/
-      .exec(swift("GestureTranslator.swift"));
+    const scroll =
+      /static let scroll = GestureAcceleration \{ velocity in\s+([\d.]+) \+ min\(velocity \* ([\d.]+), ([\d.]+)\)/.exec(
+        swift("GestureTranslator.swift"),
+      );
     expect(scroll?.slice(1).map(Number)).toEqual([
       gesture.SCROLL_ACCELERATION_FLOOR,
       gesture.SCROLL_ACCELERATION_SLOPE,
@@ -74,21 +78,26 @@ describe("the web's gesture numbers are the Swift client's", () => {
   });
 
   it("cursor reconciliation", () => {
-    expect(CURSOR_CONFIRMATION_TIMEOUT_MS).toBe(swiftNumber(
-      "Config.swift",
-      new RegExp(String.raw`AGENTDESK_CURSOR_CONFIRMATION_TIMEOUT_MS",\s+defaultValue: ${NUMBER}`),
-    ));
-    expect(DEFAULT_PENDING_OPERATION_LIMIT).toBe(swiftNumber(
-      "CursorReconciliationStateMachine.swift",
-      new RegExp(String.raw`defaultPendingOperationLimit = ${NUMBER}`),
-    ));
+    expect(CURSOR_CONFIRMATION_TIMEOUT_MS).toBe(
+      swiftNumber(
+        "Config.swift",
+        new RegExp(String.raw`AGENTDESK_CURSOR_CONFIRMATION_TIMEOUT_MS",\s+defaultValue: ${NUMBER}`),
+      ),
+    );
+    expect(DEFAULT_PENDING_OPERATION_LIMIT).toBe(
+      swiftNumber(
+        "CursorReconciliationStateMachine.swift",
+        new RegExp(String.raw`defaultPendingOperationLimit = ${NUMBER}`),
+      ),
+    );
     expect(CURSOR_MIRROR_RENDER_SCALE).toBe(swiftNumber("CursorPointerView.swift", staticLet("mirrorRenderScale")));
   });
 
   it("the scroll puck", () => {
     expect(POINTER_SCROLL_PUCK_SIDE).toBe(swiftNumber("PointerScrollPuck.swift", staticLet("side")));
-    const offset = /pointerScrollPuckOffset\s+\?\? CGPoint\(x: (-?\d+), y: (-?\d+)\)/
-      .exec(swift("PairingViewController+Layout.swift"));
+    const offset = /pointerScrollPuckOffset\s+\?\? CGPoint\(x: (-?\d+), y: (-?\d+)\)/.exec(
+      swift("PairingViewController+Layout.swift"),
+    );
     expect(offset?.slice(1).map((value) => -Number(value))).toEqual([
       DEFAULT_POINTER_SCROLL_PUCK_OFFSET.right,
       DEFAULT_POINTER_SCROLL_PUCK_OFFSET.bottom,
@@ -97,19 +106,31 @@ describe("the web's gesture numbers are the Swift client's", () => {
 
   it("the trackpad and the scroll strip", () => {
     const layout = swift("PairingViewController+Layout.swift");
-    expect(trackpad.SCROLL_STRIP_WIDTH).toBe(Number(
-      /scrollStripView\.widthAnchor\.constraint\(equalToConstant: (\d+)\)/.exec(layout)?.[1],
-    ));
+    expect(trackpad.SCROLL_STRIP_WIDTH).toBe(
+      Number(/scrollStripView\.widthAnchor\.constraint\(equalToConstant: (\d+)\)/.exec(layout)?.[1]),
+    );
     expect(trackpad.SCROLL_STRIP_RADIUS).toBe(Number(/scrollStripView\.layer\.cornerRadius = (\d+)/.exec(layout)?.[1]));
     const controller = swift("PairingViewController.swift");
-    expect(trackpad.SCROLL_STRIP_HIT_OUTSET).toBe(Number(
-      /let scrollStripView[\s\S]*?hitOutsets = UIEdgeInsets\(top: 0, left: 0, bottom: 0, right: (\d+)\)/.exec(controller)?.[1],
-    ));
-    expect(trackpad.TRACKPAD_HIT_OUTSET).toBe(Number(
-      /let trackpadView[\s\S]*?hitOutsets = UIEdgeInsets\(top: 0, left: (\d+), bottom: 0, right: 0\)/.exec(controller)?.[1],
-    ));
-    expect(trackpad.TRACKPAD_STRIP_GAP).toBe(-Number(
-      /trackpadView\.trailingAnchor\.constraint\(equalTo: scrollStripView\.leadingAnchor, constant: (-?\d+)\)/.exec(layout)?.[1],
-    ));
+    expect(trackpad.SCROLL_STRIP_HIT_OUTSET).toBe(
+      Number(
+        /let scrollStripView[\s\S]*?hitOutsets = UIEdgeInsets\(top: 0, left: 0, bottom: 0, right: (\d+)\)/.exec(
+          controller,
+        )?.[1],
+      ),
+    );
+    expect(trackpad.TRACKPAD_HIT_OUTSET).toBe(
+      Number(
+        /let trackpadView[\s\S]*?hitOutsets = UIEdgeInsets\(top: 0, left: (\d+), bottom: 0, right: 0\)/.exec(
+          controller,
+        )?.[1],
+      ),
+    );
+    expect(trackpad.TRACKPAD_STRIP_GAP).toBe(
+      -Number(
+        /trackpadView\.trailingAnchor\.constraint\(equalTo: scrollStripView\.leadingAnchor, constant: (-?\d+)\)/.exec(
+          layout,
+        )?.[1],
+      ),
+    );
   });
 });

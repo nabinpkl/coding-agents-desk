@@ -17,9 +17,8 @@ import { summarizeToolUse } from "@/transcripts/codex/codexPayloads";
 // a missing cache field never fabricates a 0% badge.
 function cachedInputTokens(usage: Record<string, unknown>): number | undefined {
   const details = usage.input_tokens_details;
-  const nested = details && typeof details === "object"
-    ? (details as Record<string, unknown>).cached_tokens
-    : undefined;
+  const nested =
+    details && typeof details === "object" ? (details as Record<string, unknown>).cached_tokens : undefined;
   const flat = usage.cached_input_tokens;
   const value = typeof nested === "number" ? nested : flat;
   return typeof value === "number" && value >= 0 ? value : undefined;
@@ -191,9 +190,8 @@ export function applyCodexEvent(
       break;
     }
     case "response_completed": {
-      const response = event.response && typeof event.response === "object"
-        ? event.response as Record<string, unknown>
-        : {};
+      const response =
+        event.response && typeof event.response === "object" ? (event.response as Record<string, unknown>) : {};
       const model = typeof response.model === "string" ? response.model : undefined;
       const reported = usageFor(model, response.usage, ts);
       if (reported) usage.set(sessionId, reported);

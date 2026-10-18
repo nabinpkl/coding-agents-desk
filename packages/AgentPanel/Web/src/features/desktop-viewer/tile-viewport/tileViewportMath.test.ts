@@ -16,28 +16,14 @@ const H = 500;
 
 describe("followRemoteCursor", () => {
   it("pans at the safe-band edge without changing zoom", () => {
-    const followed = followRemoteCursor(
-      { scale: 2, tx: -400, ty: -250 },
-      { x: 650, y: 250 },
-      W,
-      H,
-      W,
-      H,
-    );
+    const followed = followRemoteCursor({ scale: 2, tx: -400, ty: -250 }, { x: 650, y: 250 }, W, H, W, H);
 
     expect(followed).toEqual({ scale: 2, tx: -596, ty: -250 });
   });
 
   it("does not pan an axis that has no additional video", () => {
     const transform = { scale: 1.1, tx: -40, ty: -25 };
-    const followed = followRemoteCursor(
-      transform,
-      { x: 800, y: 899 },
-      1600,
-      900,
-      W,
-      H,
-    );
+    const followed = followRemoteCursor(transform, { x: 800, y: 899 }, 1600, 900, W, H);
 
     expect(followed.ty).toBe(transform.ty);
     expect(followed.scale).toBe(transform.scale);
@@ -46,14 +32,10 @@ describe("followRemoteCursor", () => {
 
 describe("projectRemoteCursor", () => {
   it("projects through aspect-fit letterboxing and the viewport transform", () => {
-    expect(projectRemoteCursor(
-      { scale: 2, tx: -200, ty: -100 },
-      { x: 800, y: 450 },
-      1600,
-      900,
-      800,
-      500,
-    )).toEqual({ x: 600, y: 400 });
+    expect(projectRemoteCursor({ scale: 2, tx: -200, ty: -100 }, { x: 800, y: 450 }, 1600, 900, 800, 500)).toEqual({
+      x: 600,
+      y: 400,
+    });
   });
 
   it("returns no position until both source and viewport geometry exist", () => {
@@ -76,8 +58,7 @@ describe("zoomAt", () => {
   });
 
   it("absorbs floating-point residue at the 1x boundary", () => {
-    expect(zoomAt({ scale: 1.25, tx: -87.5, ty: -62.5 }, 0.8000000000000002, 400, 250, W, H))
-      .toEqual(IDENTITY);
+    expect(zoomAt({ scale: 1.25, tx: -87.5, ty: -62.5 }, 0.8000000000000002, 400, 250, W, H)).toEqual(IDENTITY);
   });
 
   it("clamps scale to its bounds", () => {
@@ -165,7 +146,11 @@ describe("unprojectRemoteCursor", () => {
     const transform = { scale: 1.7, tx: -120, ty: -75 };
     const source = { w: 7680, h: 4320 };
     const viewport = { w: 1604, h: 952 };
-    for (const cursor of [{ x: 0, y: 0 }, { x: 3840, y: 2160 }, { x: 7679, y: 4319 }]) {
+    for (const cursor of [
+      { x: 0, y: 0 },
+      { x: 3840, y: 2160 },
+      { x: 7679, y: 4319 },
+    ]) {
       const screen = projectRemoteCursor(transform, cursor, source.w, source.h, viewport.w, viewport.h)!;
       const back = unprojectRemoteCursor(transform, screen, source.w, source.h, viewport.w, viewport.h)!;
       expect(back.x).toBeCloseTo(cursor.x, 6);

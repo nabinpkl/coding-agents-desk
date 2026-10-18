@@ -57,14 +57,16 @@ export function readCodexThreadRows(databasePath: string): CodexThreadRow[] {
   const database = new Database(databasePath, { readwrite: true });
   try {
     database.run("PRAGMA query_only = ON");
-    return database.prepare(`
+    return database
+      .prepare(`
       SELECT id, cwd, title, rollout_path,
              created_at_ms, updated_at_ms, created_at, updated_at,
              git_sha, git_branch, git_origin_url
       FROM threads
       WHERE archived = 0
       ORDER BY updated_at_ms DESC, id DESC
-    `).all() as CodexThreadRow[];
+    `)
+      .all() as CodexThreadRow[];
   } finally {
     database.close();
   }
@@ -99,36 +101,39 @@ export async function reconcileCodex(): Promise<void> {
     projects.set(cwd, resolving);
     return resolving;
   };
-  const resolved = await Promise.all(rows.map(async (row): Promise<Session | null> => {
-    if (!row.id || !row.cwd || !row.rollout_path) return null;
-    const project = await projectOf(row.cwd);
-    if (!project) return null;
-    // The database and the rollout file are two records of the same session and the
-    // file is the one that moves first, so the catalog takes the newer. Resolved here
-    // rather than by each consumer: `lastEventAt` is what everything downstream uses
-    // to decide whether a session changed, and a stamp that lags the file makes that
-    // question unanswerable anywhere else.
-    let updatedAt = row.updated_at_ms ?? row.updated_at * 1000;
-    try {
-      updatedAt = Math.max(updatedAt, (await stat(row.rollout_path)).mtimeMs);
-    } catch {
-      // A row whose rollout file is gone keeps the database's own stamp.
-    }
-    // The one read in this function that touches a rollout, and the only place the
-    // catalog opens a transcript that SQLite could not answer for. Restricted to the
-    // live window because that is the only place the answer can change anything:
-    // outside it `computeActivity` decides from age alone. A stamp that later goes
-    // stale is harmless for the same reason -- age is re-checked at read time, so a
-    // stale "open" cannot keep a cold session showing live.
-    const lastTurnClosed = Date.now() - updatedAt < config.liveWindowMs
-      ? await codexAdapter.readTail(row.rollout_path, CODEX_TAIL_BYTES)
-      : undefined;
-    return makeSession("codex", row.id, project, row.rollout_path, updatedAt, {
-      title: row.title.trim() || undefined,
-      gitBranch: row.git_branch ?? undefined,
-      lastTurnClosed,
-    });
-  }));
+  const resolved = await Promise.all(
+    rows.map(async (row): Promise<Session | null> => {
+      if (!row.id || !row.cwd || !row.rollout_path) return null;
+      const project = await projectOf(row.cwd);
+      if (!project) return null;
+      // The database and the rollout file are two records of the same session and the
+      // file is the one that moves first, so the catalog takes the newer. Resolved here
+      // rather than by each consumer: `lastEventAt` is what everything downstream uses
+      // to decide whether a session changed, and a stamp that lags the file makes that
+      // question unanswerable anywhere else.
+      let updatedAt = row.updated_at_ms ?? row.updated_at * 1000;
+      try {
+        updatedAt = Math.max(updatedAt, (await stat(row.rollout_path)).mtimeMs);
+      } catch {
+        // A row whose rollout file is gone keeps the database's own stamp.
+      }
+      // The one read in this function that touches a rollout, and the only place the
+      // catalog opens a transcript that SQLite could not answer for. Restricted to the
+      // live window because that is the only place the answer can change anything:
+      // outside it `computeActivity` decides from age alone. A stamp that later goes
+      // stale is harmless for the same reason -- age is re-checked at read time, so a
+      // stale "open" cannot keep a cold session showing live.
+      const lastTurnClosed =
+        Date.now() - updatedAt < config.liveWindowMs
+          ? await codexAdapter.readTail(row.rollout_path, CODEX_TAIL_BYTES)
+          : undefined;
+      return makeSession("codex", row.id, project, row.rollout_path, updatedAt, {
+        title: row.title.trim() || undefined,
+        gitBranch: row.git_branch ?? undefined,
+        lastTurnClosed,
+      });
+    }),
+  );
   const next = new Map(
     resolved
       .filter((session): session is Session => session !== null)
@@ -138,13 +143,15 @@ export async function reconcileCodex(): Promise<void> {
     if (session.source === "codex" && !next.has(key)) state.sessions.delete(key);
   }
   for (const [key, session] of next) state.sessions.set(key, session);
-  console.log(JSON.stringify({
-    event: "agent-feed-catalog-source-ready",
-    source: "codex",
-    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
-    rows: rows.length,
-    sessions: next.size,
-  }));
+  console.log(
+    JSON.stringify({
+      event: "agent-feed-catalog-source-ready",
+      source: "codex",
+      durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+      rows: rows.length,
+      sessions: next.size,
+    }),
+  );
 }
 
 /**
@@ -188,9 +195,10 @@ export async function refreshCodexRollout(filePath: string): Promise<void> {
   const lastEventAt = Math.max(known.lastEventAt, mtimeMs);
   // Same rule the full pass uses: outside the live window `computeActivity` decides
   // from age alone, so opening the transcript there would buy nothing.
-  const lastTurnClosed = Date.now() - lastEventAt < config.liveWindowMs
-    ? await codexAdapter.readTail(filePath, CODEX_TAIL_BYTES)
-    : known.lastTurnClosed;
+  const lastTurnClosed =
+    Date.now() - lastEventAt < config.liveWindowMs
+      ? await codexAdapter.readTail(filePath, CODEX_TAIL_BYTES)
+      : known.lastTurnClosed;
 
   // Re-read rather than writing into the record captured above: a full pass may have
   // replaced it while the tail read was in flight, and updating the old object would
@@ -224,10 +232,7 @@ const CODEX_RECONCILE_COALESCE_MS = 40;
  */
 export function scheduleCodexReconcile(): void {
   if (codexReconcileTimer) return;
-  const wait = Math.max(
-    CODEX_RECONCILE_COALESCE_MS,
-    codexReconcileSettledAt + CODEX_RECONCILE_FLOOR_MS - Date.now(),
-  );
+  const wait = Math.max(CODEX_RECONCILE_COALESCE_MS, codexReconcileSettledAt + CODEX_RECONCILE_FLOOR_MS - Date.now());
   codexReconcileTimer = setTimeout(() => {
     codexReconcileTimer = null;
     codexReconcilePass = codexReconcilePass

@@ -52,7 +52,8 @@ export function SourceControl({
               const next = new Set(current);
               if (!next.delete(section.id)) next.add(section.id);
               return next;
-            })}
+            })
+          }
           onOpen={onOpen}
           selectedPath={selectedPath ?? null}
         />
@@ -86,9 +87,11 @@ function Group({
         className={`sticky top-0 z-10 flex w-full items-center gap-1.5 bg-background px-1.5 py-1
           text-left text-[11px] uppercase tracking-wide outline-none
           focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset
-          ${section.id === "conflicts"
-            ? "text-fuchsia-600 dark:text-fuchsia-400"
-            : "text-muted-foreground hover:text-foreground"}`}
+          ${
+            section.id === "conflicts"
+              ? "text-fuchsia-600 dark:text-fuchsia-400"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
       >
         <Chevron aria-hidden className="size-3.5 shrink-0" />
         <span className="overflow-hidden text-ellipsis whitespace-nowrap">{section.title}</span>
@@ -99,49 +102,47 @@ function Group({
           {section.rows.length}
         </span>
       </button>
-      {collapsed
-        ? null
-        : (
-          <ul aria-label={section.title} className="m-0 list-none p-0">
-            {section.rows.map((row) => (
-              <li key={`${section.id}:${row.path}`}>
-                <button
-                  type="button"
-                  title={row.path}
-                  aria-label={`Show the diff of ${row.path}`}
-                  aria-current={row.path === selectedPath ? "true" : undefined}
-                  onClick={() => onOpen(row.path)}
-                  className={`group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left
+      {collapsed ? null : (
+        <ul aria-label={section.title} className="m-0 list-none p-0">
+          {section.rows.map((row) => (
+            <li key={`${section.id}:${row.path}`}>
+              <button
+                type="button"
+                title={row.path}
+                aria-label={`Show the diff of ${row.path}`}
+                aria-current={row.path === selectedPath ? "true" : undefined}
+                onClick={() => onOpen(row.path)}
+                className={`group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left
                     outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary
                     focus-visible:ring-inset active:bg-muted
                     ${row.path === selectedPath ? "bg-muted" : ""}`}
-                >
-                  <span
-                    className={`grid h-[17px] min-w-[18px] shrink-0 place-items-center rounded px-1
+              >
+                <span
+                  className={`grid h-[17px] min-w-[18px] shrink-0 place-items-center rounded px-1
                       font-mono text-[10px] leading-none ${TONE_BADGE[row.tone]}`}
-                  >
-                    {row.letters}
-                  </span>
-                  <FileIcon name={row.name} />
-                  <span
-                    className={`min-w-0 shrink overflow-hidden text-ellipsis whitespace-nowrap
+                >
+                  {row.letters}
+                </span>
+                <FileIcon name={row.name} />
+                <span
+                  className={`min-w-0 shrink overflow-hidden text-ellipsis whitespace-nowrap
                       ${row.tone === "deleted" ? "line-through" : ""}`}
-                  >
-                    {row.name}
-                  </span>
-                  {/* The directory is context, so it yields first and the filename survives the
+                >
+                  {row.name}
+                </span>
+                {/* The directory is context, so it yields first and the filename survives the
                       squeeze: a zero basis means it only ever occupies leftover space. */}
-                  <span
-                    className="min-w-0 flex-1 basis-0 overflow-hidden text-ellipsis whitespace-nowrap
+                <span
+                  className="min-w-0 flex-1 basis-0 overflow-hidden text-ellipsis whitespace-nowrap
                       text-[11px] text-muted-foreground"
-                  >
-                    {row.directory}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+                >
+                  {row.directory}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

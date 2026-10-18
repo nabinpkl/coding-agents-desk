@@ -103,9 +103,7 @@ function row(path: string, letters: string, tone: GitTone): SourceControlRow {
  * reader has to act on twice. Ignored paths are dropped: they are on the wire only to dim the
  * explorer.
  */
-export function sourceControlSections(
-  entries: readonly WorkspaceGitEntry[],
-): SourceControlSection[] {
+export function sourceControlSections(entries: readonly WorkspaceGitEntry[]): SourceControlSection[] {
   const conflicts: SourceControlRow[] = [];
   const staged: SourceControlRow[] = [];
   const changes: SourceControlRow[] = [];
@@ -129,12 +127,14 @@ export function sourceControlSections(
     if (workTree) changes.push(row(path, workTree, gitStatusTone(workTree)));
   }
 
-  return ([
-    { id: "conflicts", title: "Merge Conflicts", rows: conflicts },
-    { id: "staged", title: "Staged Changes", rows: staged },
-    { id: "changes", title: "Changes", rows: changes },
-    { id: "untracked", title: "Untracked", rows: untracked },
-  ] as SourceControlSection[]).filter((section) => section.rows.length > 0);
+  return (
+    [
+      { id: "conflicts", title: "Merge Conflicts", rows: conflicts },
+      { id: "staged", title: "Staged Changes", rows: staged },
+      { id: "changes", title: "Changes", rows: changes },
+      { id: "untracked", title: "Untracked", rows: untracked },
+    ] as SourceControlSection[]
+  ).filter((section) => section.rows.length > 0);
 }
 
 /**

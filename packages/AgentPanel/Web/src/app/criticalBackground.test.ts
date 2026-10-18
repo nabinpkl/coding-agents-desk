@@ -25,9 +25,7 @@ describe("critical background", () => {
   });
 
   it("matches the --background token in both themes", () => {
-    expect(matches(html, /^\s*background:\s*([^;]+);/gm)).toEqual(
-      matches(css, /--background:\s*([^;]+);/g),
-    );
+    expect(matches(html, /^\s*background:\s*([^;]+);/gm)).toEqual(matches(css, /--background:\s*([^;]+);/g));
   });
 
   it("keeps the inline style ahead of the module script", () => {

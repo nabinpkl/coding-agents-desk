@@ -49,12 +49,8 @@ import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
  */
 export function anchoredTitle(anchor: string, current: string): { title: string; dropped?: string } {
   const parsed = parseBotSessionTitle(current);
-  const rawTask = parsed.anchor === anchor || isPoolAnchor(parsed.anchor)
-    ? parsed.task
-    : backfillTaskText(current);
-  const fits = rawTask
-    && !refuseTaskText(rawTask)
-    && !sessionTitleRefusal(formatBotSessionTitle(anchor, rawTask));
+  const rawTask = parsed.anchor === anchor || isPoolAnchor(parsed.anchor) ? parsed.task : backfillTaskText(current);
+  const fits = rawTask && !refuseTaskText(rawTask) && !sessionTitleRefusal(formatBotSessionTitle(anchor, rawTask));
   const task = fits ? rawTask : "";
   return {
     title: formatBotSessionTitle(anchor, task),
@@ -106,10 +102,12 @@ export class BotTitleQueue {
    * the shape this repo wants of a watch under Bun anyway (AGENTS.md, "Reach for an event").
    */
   start(): void {
-    this.stops.push(this.options.store.subscribe((snapshot) => {
-      this.latest = snapshot;
-      this.wake();
-    }));
+    this.stops.push(
+      this.options.store.subscribe((snapshot) => {
+        this.latest = snapshot;
+        this.wake();
+      }),
+    );
     this.stops.push(this.options.catalog.subscribe(() => this.wake()));
     this.stops.push(this.options.paneStarts((sessionId) => this.paneStarted(sessionId)));
     this.wake();
@@ -125,11 +123,14 @@ export class BotTitleQueue {
     const snapshot = this.latest;
     const ref = snapshot?.bots.flatMap((bot) => bot.sessionRefs).find((one) => one.sessionId === sessionId);
     if (!ref || !this.options.renamable(ref.source)) return;
-    void this.options.whenReady(ref).then((ready) => {
-      if (!ready) return;
-      this.started.add(sessionKey(ref));
-      this.wake();
-    }, (error: unknown) => console.error("agent feed bot titles: waiting for a started session failed", error));
+    void this.options.whenReady(ref).then(
+      (ready) => {
+        if (!ready) return;
+        this.started.add(sessionKey(ref));
+        this.wake();
+      },
+      (error: unknown) => console.error("agent feed bot titles: waiting for a started session failed", error),
+    );
   }
 
   stop(): void {
@@ -147,10 +148,13 @@ export class BotTitleQueue {
     const run = this.drain();
     this.running = run;
     // Cleared from outside the promise, so the clear always lands after the assignment above.
-    void run.then(() => this.finished(run), (error: unknown) => {
-      console.error("agent feed bot titles: a pass failed", error);
-      this.finished(run);
-    });
+    void run.then(
+      () => this.finished(run),
+      (error: unknown) => {
+        console.error("agent feed bot titles: a pass failed", error);
+        this.finished(run);
+      },
+    );
   }
 
   private finished(run: Promise<void>): void {
@@ -167,7 +171,7 @@ export class BotTitleQueue {
   }
 
   private async pass(): Promise<void> {
-    let snapshot = this.latest ?? await this.options.store.snapshot();
+    let snapshot = this.latest ?? (await this.options.store.snapshot());
     this.latest = snapshot;
     if (snapshot.bots.some((bot) => bot.sessionRefs.some((ref) => !bot.sessionAnchors?.[sessionKey(ref)]))) {
       // Records from before anchors existed: spend theirs first-free, in one write.

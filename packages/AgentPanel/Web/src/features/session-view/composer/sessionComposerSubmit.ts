@@ -70,9 +70,7 @@ export function compactControl(m: ComposerModel): CompactControl | null {
   const opencode = m.session.source === "opencode";
   if (!m.isClaude && !(opencode && m.transport.kind === "agent-session")) return null;
   const busy = m.pending || m.deliveryPending || m.tmuxComposer.pending;
-  const draft = m.editorValue.trim()
-    ? "Send or clear the draft in the composer first."
-    : null;
+  const draft = m.editorValue.trim() ? "Send or clear the draft in the composer first." : null;
   if (opencode) {
     return {
       blocked: draft ?? (busy ? "The composer is still sending." : null),
@@ -85,28 +83,35 @@ export function compactControl(m: ComposerModel): CompactControl | null {
   }
   if (m.sdkBand) {
     return {
-      blocked: draft ?? (!m.sdkSession.state.connected
-        ? "This session is not running."
-        : busy || m.sdkSession.pending ? "The composer is still sending." : null),
+      blocked:
+        draft ??
+        (!m.sdkSession.state.connected
+          ? "This session is not running."
+          : busy || m.sdkSession.pending
+            ? "The composer is still sending."
+            : null),
       // A slash command is a turn the CLI runs rather than reads, through the SDK as at a keyboard.
       run: async () => await submitOwnedTransport(m, COMPACT_COMMAND, false),
     };
   }
   if (m.tmuxBand || m.agentTerminalBand) {
     return {
-      blocked: draft
-        ?? (m.tmuxBand && m.tmuxComposer.reason !== null
+      blocked:
+        draft ??
+        (m.tmuxBand && m.tmuxComposer.reason !== null
           ? "This session's terminal can't take input right now."
-          : busy ? "The composer is still sending." : null),
-      run: async () => m.tmuxBand
-        ? await m.tmuxComposer.submit(COMPACT_COMMAND)
-        : await submitOwnedTransport(m, COMPACT_COMMAND),
+          : busy
+            ? "The composer is still sending."
+            : null),
+      run: async () =>
+        m.tmuxBand ? await m.tmuxComposer.submit(COMPACT_COMMAND) : await submitOwnedTransport(m, COMPACT_COMMAND),
     };
   }
   return {
-    blocked: m.tmuxComposer.reason === "no-pane"
-      ? "This session has no terminal the panel can type /compact into."
-      : "Reaching this session's terminal\u2026",
+    blocked:
+      m.tmuxComposer.reason === "no-pane"
+        ? "This session has no terminal the panel can type /compact into."
+        : "Reaching this session's terminal\u2026",
     prepare: m.engage,
     run: async () => false,
   };
@@ -140,9 +145,10 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
   // A listed slash command runs natively rather than sending: the serve reads "/name args"
   // as literal text (measured), so only the command route expands the template. Held images
   // stay out of it -- that route takes none -- and ride the next ordinary send instead.
-  const slash = m.session.source === "opencode" && m.sendAttachments.images.length === 0
-    ? parseOpencodeCommand(m.opencodeCommands, text)
-    : null;
+  const slash =
+    m.session.source === "opencode" && m.sendAttachments.images.length === 0
+      ? parseOpencodeCommand(m.opencodeCommands, text)
+      : null;
   if (slash) {
     // One door, whatever the command is: `/model` opens a dialog here rather than at the sidecar,
     // `/fork` names a session the card then opens, and everything else is a turn. Held images
@@ -159,9 +165,10 @@ export async function submitComposer(m: ComposerModel, delivery: "next" | "steer
     // Images ride the same request as the text: a turn cannot be amended after it is queued,
     // so holding them for a second call would strand them. Read at send time rather than held,
     // because base64 inflates a photo by a third and the strip already shows it.
-    const files = m.session.source === "opencode" && m.sendAttachments.images.length > 0
-      ? await m.sendAttachments.toWire(m.sendAttachments.images)
-      : undefined;
+    const files =
+      m.session.source === "opencode" && m.sendAttachments.images.length > 0
+        ? await m.sendAttachments.toWire(m.sendAttachments.images)
+        : undefined;
     await m.onSendMessage(text, delivery, files);
     m.setLocalDraft("");
     m.sendAttachments.clear();

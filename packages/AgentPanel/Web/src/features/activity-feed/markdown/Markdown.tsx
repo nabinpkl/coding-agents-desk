@@ -6,11 +6,7 @@ import "katex/dist/katex.min.css";
 import "@/features/activity-feed/markdown/markdown.css";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { MermaidBlock } from "@/features/activity-feed/markdown/MermaidBlock";
-import {
-  filePathAt,
-  FilePathOpenerContext,
-  linkFilePaths,
-} from "@/features/activity-feed/markdown/filePathLinks";
+import { filePathAt, FilePathOpenerContext, linkFilePaths } from "@/features/activity-feed/markdown/filePathLinks";
 import { applyProseHtml } from "@/features/activity-feed/markdown/patchProse";
 import {
   createStreamingBlocks,
@@ -63,7 +59,7 @@ const ProseBlock = memo(function ProseBlock({
     // Marked paths whose opener has gone are links to nowhere, so they go with it.
     const stale = root === null && restructured.has(el);
     if (renderedHtml.get(el) !== html || stale) {
-      applyProseHtml(el, restructured.has(el) ? "" : renderedHtml.get(el) ?? "", html);
+      applyProseHtml(el, restructured.has(el) ? "" : (renderedHtml.get(el) ?? ""), html);
       restructured.delete(el);
       renderedHtml.set(el, html);
     }
@@ -71,11 +67,9 @@ const ProseBlock = memo(function ProseBlock({
     // path still being typed is not yet the path it will be.
     if (root !== null && settled && linkFilePaths(el, root)) restructured.add(el);
     const found = [...el.querySelectorAll(`[${FENCE_SLOT_ATTRIBUTE}]`)];
-    setSlots((current) => (
-      current.length === found.length && current.every((node, at) => node === found[at])
-        ? current
-        : found
-    ));
+    setSlots((current) =>
+      current.length === found.length && current.every((node, at) => node === found[at]) ? current : found,
+    );
   }, [html, root, settled]);
   const openPath = (event: SyntheticEvent<HTMLDivElement>): void => {
     if (opener === null) return;
@@ -92,9 +86,13 @@ const ProseBlock = memo(function ProseBlock({
         ref={ref}
         className="agent-panel-md__prose"
         onClick={opener === null ? undefined : openPath}
-        onKeyDown={opener === null ? undefined : (event) => {
-          if (event.key === "Enter") openPath(event);
-        }}
+        onKeyDown={
+          opener === null
+            ? undefined
+            : (event) => {
+                if (event.key === "Enter") openPath(event);
+              }
+        }
       />
       {slots.map((slot, at) => {
         // The slot's own number, not its position: the prose is sanitized but still
@@ -118,9 +116,11 @@ const ProseBlock = memo(function ProseBlock({
  */
 function Fence({ block, settled }: { block: FenceBlock; settled: boolean }) {
   if (block.kind === "mermaid") {
-    return settled
-      ? <MermaidBlock code={block.code} />
-      : <CodeBlock code={block.code} lang="mermaid" highlight={false} />;
+    return settled ? (
+      <MermaidBlock code={block.code} />
+    ) : (
+      <CodeBlock code={block.code} lang="mermaid" highlight={false} />
+    );
   }
   return <CodeBlock code={block.code} lang={block.lang} highlight={settled} />;
 }
@@ -163,13 +163,8 @@ export function Markdown({
   // reader decided. If React ever discards this memo mid-stream the reader simply
   // starts again -- the blocks are the same either way, only the work differs.
   const incremental = useMemo(() => (streaming ? createStreamingBlocks() : null), [streaming]);
-  const blocks = useMemo(
-    () => (incremental ? incremental(content) : toBlocks(content)),
-    [incremental, content],
-  );
-  const surface = variant === "document"
-    ? "agent-panel-md agent-panel-md--document"
-    : "agent-panel-md";
+  const blocks = useMemo(() => (incremental ? incremental(content) : toBlocks(content)), [incremental, content]);
+  const surface = variant === "document" ? "agent-panel-md agent-panel-md--document" : "agent-panel-md";
   return (
     <div className={surface}>
       {blocks.map((b, i) => {

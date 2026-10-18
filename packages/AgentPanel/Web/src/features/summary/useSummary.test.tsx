@@ -5,9 +5,13 @@ import type { SessionAddress } from "@/features/activity-feed/data-source/Sideca
 import { useSummary } from "@/features/summary/useSummary";
 
 const enabled: SidecarConfig = {
-  staleThresholdMs: 1, readyThresholdMs: 1, liveWindowMs: 1,
-  watcherState: "live", sessionCount: 1,
-  summaryEnabled: true, summaryModel: "opencode-go/deepseek-v4-flash",
+  staleThresholdMs: 1,
+  readyThresholdMs: 1,
+  liveWindowMs: 1,
+  watcherState: "live",
+  sessionCount: 1,
+  summaryEnabled: true,
+  summaryModel: "opencode-go/deepseek-v4-flash",
   usageVendors: ["codex"],
   parkAvailable: false,
   machineShell: "pty",
@@ -17,8 +21,14 @@ const enabled: SidecarConfig = {
 
 function digest(headline: string): SummaryResult {
   return {
-    phase: "final", generatedAt: 1, model: "m", headline, narrative: "n",
-    filesTouched: [], risks: [], reasoning: [],
+    phase: "final",
+    generatedAt: 1,
+    model: "m",
+    headline,
+    narrative: "n",
+    filesTouched: [],
+    risks: [],
+    reasoning: [],
     coverage: { fromEventIndex: 0, toEventIndex: 1, mode: "nice", truncated: false },
     runState: "idle",
   };
@@ -39,7 +49,9 @@ function fakeStream() {
     deliver = handlers.onMessage;
     fail = handlers.onError;
     open += 1;
-    return () => { open -= 1; };
+    return () => {
+      open -= 1;
+    };
   });
   return {
     feed: { fetchConfig: vi.fn().mockResolvedValue(enabled), summarizeTurn },
@@ -57,20 +69,16 @@ function Probe({ feed, session }: { feed: Parameters<typeof useSummary>[0]; sess
       <span data-testid="available">{String(summary.available)}</span>
       <span data-testid="model">{summary.model ?? "-"}</span>
       <span data-testid="kind">{summary.state.kind}</span>
-      <span data-testid="reasoning">
-        {summary.state.kind === "pending" ? summary.state.reasoning.length : "-"}
-      </span>
-      <span data-testid="thought">
-        {summary.state.kind === "pending" ? summary.state.thought : "-"}
-      </span>
-      <span data-testid="headline">
-        {summary.state.kind === "ready" ? summary.state.result.headline : "-"}
-      </span>
-      <span data-testid="message">
-        {summary.state.kind === "error" ? summary.state.message : "-"}
-      </span>
-      <button type="button" onClick={summary.summarize}>go</button>
-      <button type="button" onClick={summary.dismiss}>clear</button>
+      <span data-testid="reasoning">{summary.state.kind === "pending" ? summary.state.reasoning.length : "-"}</span>
+      <span data-testid="thought">{summary.state.kind === "pending" ? summary.state.thought : "-"}</span>
+      <span data-testid="headline">{summary.state.kind === "ready" ? summary.state.result.headline : "-"}</span>
+      <span data-testid="message">{summary.state.kind === "error" ? summary.state.message : "-"}</span>
+      <button type="button" onClick={summary.summarize}>
+        go
+      </button>
+      <button type="button" onClick={summary.dismiss}>
+        clear
+      </button>
     </div>
   );
 }
@@ -79,7 +87,9 @@ const S1: SessionAddress = { source: "claude", sessionId: "s1" };
 const S2: SessionAddress = { source: "claude", sessionId: "s2" };
 
 async function flush() {
-  await act(async () => { await Promise.resolve(); });
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 describe("useSummary", () => {
@@ -113,7 +123,9 @@ describe("useSummary", () => {
     const stream = fakeStream();
     render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
     expect(screen.getByTestId("kind").textContent).toBe("pending");
 
     await stream.send({ type: "thinking-delta", text: "Read " });
@@ -130,7 +142,9 @@ describe("useSummary", () => {
     const stream = fakeStream();
     render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
 
     await stream.send({ type: "reasoning", text: "first" });
     await stream.send({ type: "reasoning", text: "second" });
@@ -143,7 +157,9 @@ describe("useSummary", () => {
     const stream = fakeStream();
     render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
     expect(stream.openStreams()).toBe(1);
 
     await stream.send({ type: "result", result: digest("done") });
@@ -159,7 +175,9 @@ describe("useSummary", () => {
     const stream = fakeStream();
     render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
 
     await stream.send({
       type: "error",
@@ -175,7 +193,9 @@ describe("useSummary", () => {
     const stream = fakeStream();
     render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
 
     await stream.fail("sidecar answered 503");
 
@@ -188,8 +208,12 @@ describe("useSummary", () => {
     const stream = fakeStream();
     render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
+    act(() => {
+      screen.getByText("go").click();
+    });
     expect(stream.feed.summarizeTurn).toHaveBeenCalledTimes(1);
   });
 
@@ -197,7 +221,9 @@ describe("useSummary", () => {
     const stream = fakeStream();
     const { rerender } = render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
     await stream.send({ type: "result", result: digest("about s1") });
     expect(screen.getByTestId("headline").textContent).toBe("about s1");
 
@@ -210,7 +236,9 @@ describe("useSummary", () => {
     const stream = fakeStream();
     const { rerender } = render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
     expect(stream.openStreams()).toBe(1);
 
     rerender(<Probe feed={stream.feed} session={S2} />);
@@ -225,8 +253,12 @@ describe("useSummary", () => {
     const stream = fakeStream();
     render(<Probe feed={stream.feed} session={S1} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
-    act(() => { screen.getByText("clear").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
+    act(() => {
+      screen.getByText("clear").click();
+    });
     expect(screen.getByTestId("kind").textContent).toBe("idle");
     expect(stream.openStreams()).toBe(0);
   });
@@ -235,7 +267,9 @@ describe("useSummary", () => {
     const feed = { fetchConfig: vi.fn().mockResolvedValue(enabled), summarizeTurn: vi.fn() };
     render(<Probe feed={feed} session={null} />);
     await flush();
-    act(() => { screen.getByText("go").click(); });
+    act(() => {
+      screen.getByText("go").click();
+    });
     expect(feed.summarizeTurn).not.toHaveBeenCalled();
   });
 });

@@ -24,14 +24,8 @@ describe("layered inventory routes", () => {
 
   test("rejects a malformed page position before reading anything", async () => {
     state.watcherState = "live";
-    const request = new Request(
-      `http://localhost/api/sessions/codex/${sessionId}/events?before=invalid`,
-    );
-    const response = await handleSessionRoutes(
-      request,
-      new URL(request.url),
-      server,
-    );
+    const request = new Request(`http://localhost/api/sessions/codex/${sessionId}/events?before=invalid`);
+    const response = await handleSessionRoutes(request, new URL(request.url), server);
 
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(400);

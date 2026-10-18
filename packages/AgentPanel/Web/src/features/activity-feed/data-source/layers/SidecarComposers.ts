@@ -117,8 +117,8 @@ export class SidecarComposers extends SidecarTranscript {
     },
   ): () => void {
     return this.transport.subscribe(
-      `/api/window/composer/stream?source=${encodeURIComponent(session.source)}`
-        + `&sessionId=${encodeURIComponent(session.sessionId)}`,
+      `/api/window/composer/stream?source=${encodeURIComponent(session.source)}` +
+        `&sessionId=${encodeURIComponent(session.sessionId)}`,
       {
         onMessage: (payload) => {
           try {
@@ -141,10 +141,7 @@ export class SidecarComposers extends SidecarTranscript {
   }
 
   /** Fills the composer without committing it. Returns what the field reads back. */
-  async syncWindowComposer(
-    session: { source: string; sessionId: string },
-    text: string,
-  ): Promise<string> {
+  async syncWindowComposer(session: { source: string; sessionId: string }, text: string): Promise<string> {
     return parse<{ text: string }>(
       await this.transport.request("POST", "/api/window/composer/sync", {
         body: { ...session, text },
@@ -153,10 +150,7 @@ export class SidecarComposers extends SidecarTranscript {
   }
 
   /** Fills the composer and presses Return. This one deliberately fronts the Claude window. */
-  async submitWindowComposer(
-    session: { source: string; sessionId: string },
-    text: string,
-  ): Promise<string> {
+  async submitWindowComposer(session: { source: string; sessionId: string }, text: string): Promise<string> {
     return parse<{ text: string }>(
       await this.transport.request("POST", "/api/window/composer/submit", {
         body: { ...session, text },
@@ -172,16 +166,12 @@ export class SidecarComposers extends SidecarTranscript {
    * prefetch should be free to do.
    */
   async readWindowComposer(session: { source: string; sessionId: string }): Promise<string> {
-    return parse<{ text: string }>(
-      await this.transport.request("POST", "/api/window/composer/read", { body: session }),
-    ).text;
+    return parse<{ text: string }>(await this.transport.request("POST", "/api/window/composer/read", { body: session }))
+      .text;
   }
 
   /** One AskUserQuestion interaction, answered with the panel's post-action state. */
-  async actOnWindowQuestion(
-    sessionId: string,
-    action: WindowQuestionAction,
-  ): Promise<WindowQuestionStatus> {
+  async actOnWindowQuestion(sessionId: string, action: WindowQuestionAction): Promise<WindowQuestionStatus> {
     return parse<WindowQuestionStatus>(
       await this.transport.request("POST", "/api/window/question/action", {
         body: { sessionId, ...action },
@@ -201,9 +191,7 @@ export class SidecarComposers extends SidecarTranscript {
    * open or was closed an hour ago; only the harness's live registry knows the difference.
    */
   async cliSessionStatus(session: SessionAddress): Promise<CliSessionStatus> {
-    return parse<CliSessionStatus>(
-      await this.transport.request("GET", cliSessionPath(session)),
-    );
+    return parse<CliSessionStatus>(await this.transport.request("GET", cliSessionPath(session)));
   }
 
   /**
@@ -259,9 +247,7 @@ export class SidecarComposers extends SidecarTranscript {
 
   /** Presses Return in the session's pane, which is what makes it take the turn. */
   async submitTmuxComposer(session: SessionAddress): Promise<TmuxComposerState> {
-    return parse<TmuxComposerState>(
-      await this.transport.request("POST", tmuxComposerPath(session, "/submit")),
-    );
+    return parse<TmuxComposerState>(await this.transport.request("POST", tmuxComposerPath(session, "/submit")));
   }
 
   /**
@@ -271,9 +257,7 @@ export class SidecarComposers extends SidecarTranscript {
    * belongs to Claude. What the box then holds arrives on the stream like any other change.
    */
   async acceptTmuxComposerHint(session: SessionAddress): Promise<TmuxComposerState> {
-    return parse<TmuxComposerState>(
-      await this.transport.request("POST", tmuxComposerPath(session, "/accept")),
-    );
+    return parse<TmuxComposerState>(await this.transport.request("POST", tmuxComposerPath(session, "/accept")));
   }
 
   /**
@@ -342,10 +326,7 @@ export class SidecarComposers extends SidecarTranscript {
    */
   async readTmuxComposerPaste(session: SessionAddress, token: string): Promise<string | null> {
     const answer = await parse<{ text: string | null }>(
-      await this.transport.request(
-        "GET",
-        tmuxComposerPath(session, `/paste/${encodeURIComponent(token)}`),
-      ),
+      await this.transport.request("GET", tmuxComposerPath(session, `/paste/${encodeURIComponent(token)}`)),
     );
     return typeof answer.text === "string" ? answer.text : null;
   }
@@ -380,10 +361,7 @@ export class SidecarComposers extends SidecarTranscript {
    * out of step rather than that anything was lost. The sidecar is what enforces that only arrows
    * are pressed to do it -- a digit would answer the question instead of pointing at it.
    */
-  async pointTmuxQuestion(
-    session: SessionAddress,
-    point: TmuxQuestionPoint,
-  ): Promise<TmuxQuestionPointOutcome> {
+  async pointTmuxQuestion(session: SessionAddress, point: TmuxQuestionPoint): Promise<TmuxQuestionPointOutcome> {
     return parse<TmuxQuestionPointOutcome>(
       await this.transport.request(
         "POST",

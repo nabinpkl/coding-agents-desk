@@ -76,8 +76,14 @@ export function describeCommentChange(added: string[], removed: string[], prose:
   const all = [...addedSplit, ...removedSplit];
   if (all.length === 0 || all.some((part) => !part.comment)) return null;
   const coresEqual =
-    addedSplit.map((part) => part.core).sort().join("\0") ===
-    removedSplit.map((part) => part.core).sort().join("\0");
+    addedSplit
+      .map((part) => part.core)
+      .sort()
+      .join("\0") ===
+    removedSplit
+      .map((part) => part.core)
+      .sort()
+      .join("\0");
   if (!coresEqual) return null;
   const before = shortText(removedSplit.map((part) => part.comment).join(" / "));
   const after = shortText(addedSplit.map((part) => part.comment).join(" / "));

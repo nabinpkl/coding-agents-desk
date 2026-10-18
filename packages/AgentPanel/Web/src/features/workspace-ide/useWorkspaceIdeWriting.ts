@@ -81,32 +81,41 @@ export function useWorkspaceIdeWriting({
   const draftTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   /** Stop a pending draft write, and drop whatever is stored. The text is on disk or discarded. */
-  const forgetDraft = useCallback((path: string) => {
-    const timer = draftTimers.current.get(path);
-    if (timer) clearTimeout(timer);
-    draftTimers.current.delete(path);
-    if (workspaceId) removeDraft(workspaceId, path);
-  }, [workspaceId]);
+  const forgetDraft = useCallback(
+    (path: string) => {
+      const timer = draftTimers.current.get(path);
+      if (timer) clearTimeout(timer);
+      draftTimers.current.delete(path);
+      if (workspaceId) removeDraft(workspaceId, path);
+    },
+    [workspaceId],
+  );
 
   /** Keep this tab's unsaved text, after a rest, against the revision it was typed from. */
-  const keepDraft = useCallback((path: string) => {
-    if (!workspaceId) return;
-    const existing = draftTimers.current.get(path);
-    if (existing) clearTimeout(existing);
-    draftTimers.current.set(path, setTimeout(() => {
-      draftTimers.current.delete(path);
-      const file = openFilesRef.current[path];
-      if (!file || file.saveState === "clean") return;
-      const kept = storeDraft(workspaceId, path, {
-        text: file.text,
-        baselineRevision: file.revision,
-        updatedAt: Date.now(),
-      });
-      // The one storage failure worth saying out loud: the reader is relying on text being held
-      // somewhere, and it is not.
-      if (!kept) setError("This tab could not keep a copy of your unsaved changes.");
-    }, DRAFT_DELAY_MS));
-  }, [openFilesRef, setError, workspaceId]);
+  const keepDraft = useCallback(
+    (path: string) => {
+      if (!workspaceId) return;
+      const existing = draftTimers.current.get(path);
+      if (existing) clearTimeout(existing);
+      draftTimers.current.set(
+        path,
+        setTimeout(() => {
+          draftTimers.current.delete(path);
+          const file = openFilesRef.current[path];
+          if (!file || file.saveState === "clean") return;
+          const kept = storeDraft(workspaceId, path, {
+            text: file.text,
+            baselineRevision: file.revision,
+            updatedAt: Date.now(),
+          });
+          // The one storage failure worth saying out loud: the reader is relying on text being held
+          // somewhere, and it is not.
+          if (!kept) setError("This tab could not keep a copy of your unsaved changes.");
+        }, DRAFT_DELAY_MS),
+      );
+    },
+    [openFilesRef, setError, workspaceId],
+  );
 
   useUnmountEffect(() => {
     for (const timer of draftTimers.current.values()) clearTimeout(timer);
@@ -137,115 +146,145 @@ export function useWorkspaceIdeWriting({
   const writeNowRef = useRef<(path: string, revision: string, text: string) => void>(() => {});
 
   /** Rest an edit for `AUTOSAVE_DELAY_MS`, then write whatever is on screen by then. */
-  const scheduleSave = useCallback((path: string) => {
-    cancelTimer(path);
-    timers.current.set(path, setTimeout(() => {
-      timers.current.delete(path);
-      const file = openFilesRef.current[path];
-      if (!file || file.saveState !== "dirty") return;
-      writeNowRef.current(path, file.revision, file.text);
-    }, AUTOSAVE_DELAY_MS));
-  }, [cancelTimer, openFilesRef]);
+  const scheduleSave = useCallback(
+    (path: string) => {
+      cancelTimer(path);
+      timers.current.set(
+        path,
+        setTimeout(() => {
+          timers.current.delete(path);
+          const file = openFilesRef.current[path];
+          if (!file || file.saveState !== "dirty") return;
+          writeNowRef.current(path, file.revision, file.text);
+        }, AUTOSAVE_DELAY_MS),
+      );
+    },
+    [cancelTimer, openFilesRef],
+  );
 
-  const writeNow = useCallback(async (path: string, revision: string, text: string) => {
-    if (!workspaceId) return;
-    // One write per path at a time. A second one would state the revision the first is about to
-    // replace, so it would conflict with this reader's own save -- which reads to them as somebody
-    // else having edited the file, and is what the Swift's `.writing` phase existed to prevent.
-    if (writingRef.current.has(path)) return;
-    writingRef.current.add(path);
-    const generation = generationRef.current;
-    setOpenFiles((current) => {
-      const held = current[path];
-      return held ? { ...current, [path]: { ...held, saveState: "saving" } } : current;
-    });
-    return runWithFinally(async () => {
-      try {
-        const outcome = await client.writeFile(workspaceId, path, revision, text);
-        if (generation !== generationRef.current) return;
-        // Decided from the ref rather than inside the updater, which React may run twice.
-        const moved = (openFilesRef.current[path]?.text ?? text) !== text;
-        setOpenFiles((current) => {
-          const held = current[path];
-          if (!held) return current;
-          if (outcome.status === "conflict") {
-            return { ...current, [path]: { ...held, saveState: "conflict" } };
+  const writeNow = useCallback(
+    async (path: string, revision: string, text: string) => {
+      if (!workspaceId) return;
+      // One write per path at a time. A second one would state the revision the first is about to
+      // replace, so it would conflict with this reader's own save -- which reads to them as somebody
+      // else having edited the file, and is what the Swift's `.writing` phase existed to prevent.
+      if (writingRef.current.has(path)) return;
+      writingRef.current.add(path);
+      const generation = generationRef.current;
+      setOpenFiles((current) => {
+        const held = current[path];
+        return held ? { ...current, [path]: { ...held, saveState: "saving" } } : current;
+      });
+      return runWithFinally(
+        async () => {
+          try {
+            const outcome = await client.writeFile(workspaceId, path, revision, text);
+            if (generation !== generationRef.current) return;
+            // Decided from the ref rather than inside the updater, which React may run twice.
+            const moved = (openFilesRef.current[path]?.text ?? text) !== text;
+            setOpenFiles((current) => {
+              const held = current[path];
+              if (!held) return current;
+              if (outcome.status === "conflict") {
+                return { ...current, [path]: { ...held, saveState: "conflict" } };
+              }
+              return {
+                ...current,
+                [path]: {
+                  ...held,
+                  revision: outcome.written.revision,
+                  saveState: moved ? "dirty" : "clean",
+                },
+              };
+            });
+            // A conflict is one of the two states autosave will never rescue, so the text is kept
+            // against the revision it was typed from rather than the one that beat it.
+            if (outcome.status === "conflict") {
+              keepDraft(path);
+              return;
+            }
+            // Keystrokes landed while the write was in flight, so the file is dirty again against the
+            // revision this write just produced. Without this it would sit dirty and unscheduled until
+            // the reader typed once more.
+            if (moved) {
+              keepDraft(path);
+              scheduleSave(path);
+              return;
+            }
+            // On disk and identical, so there is nothing left for a draft to preserve.
+            forgetDraft(path);
+            if (pendingCloseRef.current.delete(path)) {
+              setOpenFiles((current) => {
+                const next = { ...current };
+                delete next[path];
+                return next;
+              });
+              void applyOperation({ type: "close", path });
+            }
+          } catch (cause) {
+            if (generation !== generationRef.current) return;
+            setOpenFiles((current) => {
+              const held = current[path];
+              return held ? { ...current, [path]: { ...held, saveState: "dirty" } } : current;
+            });
+            pendingCloseRef.current.delete(path);
+            // The other state autosave does not come back to: a failed write waits for the next
+            // keystroke, so without this the text would have nothing behind it until then.
+            keepDraft(path);
+            setError(describe(cause, "The file could not be saved."));
           }
-          return {
-            ...current,
-            [path]: {
-              ...held,
-              revision: outcome.written.revision,
-              saveState: moved ? "dirty" : "clean",
-            },
-          };
-        });
-        // A conflict is one of the two states autosave will never rescue, so the text is kept
-        // against the revision it was typed from rather than the one that beat it.
-        if (outcome.status === "conflict") {
-          keepDraft(path);
-          return;
-        }
-        // Keystrokes landed while the write was in flight, so the file is dirty again against the
-        // revision this write just produced. Without this it would sit dirty and unscheduled until
-        // the reader typed once more.
-        if (moved) {
-          keepDraft(path);
-          scheduleSave(path);
-          return;
-        }
-        // On disk and identical, so there is nothing left for a draft to preserve.
-        forgetDraft(path);
-        if (pendingCloseRef.current.delete(path)) {
-          setOpenFiles((current) => {
-            const next = { ...current };
-            delete next[path];
-            return next;
-          });
-          void applyOperation({ type: "close", path });
-        }
-      } catch (cause) {
-        if (generation !== generationRef.current) return;
-        setOpenFiles((current) => {
-          const held = current[path];
-          return held ? { ...current, [path]: { ...held, saveState: "dirty" } } : current;
-        });
-        pendingCloseRef.current.delete(path);
-        // The other state autosave does not come back to: a failed write waits for the next
-        // keystroke, so without this the text would have nothing behind it until then.
-        keepDraft(path);
-        setError(describe(cause, "The file could not be saved."));
-      }
-    }, () => writingRef.current.delete(path));
-  }, [applyOperation, client, forgetDraft, keepDraft, openFilesRef, scheduleSave, setError, setOpenFiles, generationRef, writingRef, pendingCloseRef, workspaceId]);
+        },
+        () => writingRef.current.delete(path),
+      );
+    },
+    [
+      applyOperation,
+      client,
+      forgetDraft,
+      keepDraft,
+      openFilesRef,
+      scheduleSave,
+      setError,
+      setOpenFiles,
+      generationRef,
+      writingRef,
+      pendingCloseRef,
+      workspaceId,
+    ],
+  );
 
   useCommitToRef(writeNowRef, (path: string, revision: string, text: string) => void writeNow(path, revision, text));
 
-  const edit = useCallback((path: string, text: string) => {
-    setOpenFiles((current) => {
-      const file = current[path];
-      if (!file) return current;
-      // A conflicted file stays conflicted while it is edited: the reader has to resolve it, and
-      // quietly clearing the flag on the next keystroke would lose that. It is also why no save is
-      // scheduled here for one -- the write would conflict again against the same stale revision.
-      if (file.saveState === "conflict") return current[path] === file
-        ? { ...current, [path]: { ...file, text } }
-        : current;
-      return { ...current, [path]: { ...file, text, saveState: "dirty" } };
-    });
-    keepDraft(path);
-    if (openFilesRef.current[path]?.saveState === "conflict") return;
-    scheduleSave(path);
-  }, [keepDraft, openFilesRef, scheduleSave, setOpenFiles]);
+  const edit = useCallback(
+    (path: string, text: string) => {
+      setOpenFiles((current) => {
+        const file = current[path];
+        if (!file) return current;
+        // A conflicted file stays conflicted while it is edited: the reader has to resolve it, and
+        // quietly clearing the flag on the next keystroke would lose that. It is also why no save is
+        // scheduled here for one -- the write would conflict again against the same stale revision.
+        if (file.saveState === "conflict")
+          return current[path] === file ? { ...current, [path]: { ...file, text } } : current;
+        return { ...current, [path]: { ...file, text, saveState: "dirty" } };
+      });
+      keepDraft(path);
+      if (openFilesRef.current[path]?.saveState === "conflict") return;
+      scheduleSave(path);
+    },
+    [keepDraft, openFilesRef, scheduleSave, setOpenFiles],
+  );
 
-  const takeHostVersion = useCallback((path: string) => {
-    cancelTimer(path);
-    pendingCloseRef.current.delete(path);
-    // Dropped before the read, not after: the reader asked for the file on disk, and a draft left
-    // in place would be restored over it by the very reload that is meant to discard it.
-    forgetDraft(path);
-    void reload(path);
-  }, [cancelTimer, forgetDraft, reload, pendingCloseRef]);
+  const takeHostVersion = useCallback(
+    (path: string) => {
+      cancelTimer(path);
+      pendingCloseRef.current.delete(path);
+      // Dropped before the read, not after: the reader asked for the file on disk, and a draft left
+      // in place would be restored over it by the very reload that is meant to discard it.
+      forgetDraft(path);
+      void reload(path);
+    },
+    [cancelTimer, forgetDraft, reload, pendingCloseRef],
+  );
 
   /**
    * Keep the local text, re-based on whatever is on disk now.
@@ -258,24 +297,27 @@ export function useWorkspaceIdeWriting({
    * would read the stale revision -- and, because the file is still marked conflicted at that
    * moment, would decline to write at all.
    */
-  const keepMyVersion = useCallback(async (path: string) => {
-    if (!workspaceId) return;
-    const retained = openFilesRef.current[path]?.text;
-    if (retained === undefined) return;
-    cancelTimer(path);
-    try {
-      const { file } = await client.readFile(workspaceId, path);
-      setOpenFiles((current) => {
-        const held = current[path];
-        return held
-          ? { ...current, [path]: { ...held, text: retained, revision: file.revision, saveState: "dirty" } }
-          : current;
-      });
-      writeNowRef.current(path, file.revision, retained);
-    } catch (cause) {
-      setError(describe(cause, "Could not fetch the latest revision."));
-    }
-  }, [cancelTimer, client, workspaceId, openFilesRef, setOpenFiles, setError]);
+  const keepMyVersion = useCallback(
+    async (path: string) => {
+      if (!workspaceId) return;
+      const retained = openFilesRef.current[path]?.text;
+      if (retained === undefined) return;
+      cancelTimer(path);
+      try {
+        const { file } = await client.readFile(workspaceId, path);
+        setOpenFiles((current) => {
+          const held = current[path];
+          return held
+            ? { ...current, [path]: { ...held, text: retained, revision: file.revision, saveState: "dirty" } }
+            : current;
+        });
+        writeNowRef.current(path, file.revision, retained);
+      } catch (cause) {
+        setError(describe(cause, "Could not fetch the latest revision."));
+      }
+    },
+    [cancelTimer, client, workspaceId, openFilesRef, setOpenFiles, setError],
+  );
 
   /**
    * Close a tab, but never before its text is on disk.
@@ -285,28 +327,30 @@ export function useWorkspaceIdeWriting({
    * because closing it is the one action that would discard the reader's side of the conflict with
    * nothing to undo it.
    */
-  const closePath = useCallback((path: string) => {
-    const file = openFilesRef.current[path];
-    if (!file || file.saveState === "clean") {
+  const closePath = useCallback(
+    (path: string) => {
+      const file = openFilesRef.current[path];
+      if (!file || file.saveState === "clean") {
+        cancelTimer(path);
+        forgetDraft(path);
+        setOpenFiles((current) => {
+          const next = { ...current };
+          delete next[path];
+          return next;
+        });
+        void applyOperation({ type: "close", path });
+        return;
+      }
+      if (file.saveState === "conflict") {
+        setError("Resolve the file conflict before closing this tab.");
+        return;
+      }
       cancelTimer(path);
-      forgetDraft(path);
-      setOpenFiles((current) => {
-        const next = { ...current };
-        delete next[path];
-        return next;
-      });
-      void applyOperation({ type: "close", path });
-      return;
-    }
-    if (file.saveState === "conflict") {
-      setError("Resolve the file conflict before closing this tab.");
-      return;
-    }
-    cancelTimer(path);
-    pendingCloseRef.current.add(path);
-    if (file.saveState === "dirty") writeNowRef.current(path, file.revision, file.text);
-  }, [applyOperation, cancelTimer, forgetDraft, openFilesRef, setError, setOpenFiles, pendingCloseRef]);
-
+      pendingCloseRef.current.add(path);
+      if (file.saveState === "dirty") writeNowRef.current(path, file.revision, file.text);
+    },
+    [applyOperation, cancelTimer, forgetDraft, openFilesRef, setError, setOpenFiles, pendingCloseRef],
+  );
 
   return {
     edit,

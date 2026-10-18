@@ -7,11 +7,7 @@
 // Father that would not name says so on the session it was about.
 
 import { useCallback, useState } from "react";
-import type {
-  AddBotCommand,
-  BotSessionRef,
-  BotView,
-} from "@agentdesk/agent-feed-wire";
+import type { AddBotCommand, BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { BotFeeds, BotMachine } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
@@ -30,10 +26,7 @@ export function useBotRecordCommands(
    * registry that will own the record is that machine's. The dialog picks it, since the dialog is
    * where the reader picked the folder.
    */
-  const createBot = useCallback(async (
-    command: Omit<AddBotCommand, "requestId">,
-    machine: BotMachine,
-  ) => {
+  const createBot = useCallback(async (command: Omit<AddBotCommand, "requestId">, machine: BotMachine) => {
     await machine.feed.createBot(command);
     setBotCreatorOpen(false);
   }, []);
@@ -51,47 +44,53 @@ export function useBotRecordCommands(
    * edited from another surface. A failure is named against the session because its row and
    * its card are both on screen to say the naming did not happen.
    */
-  const setFatherBotSession = useCallback((bot: BotView, ref: BotSessionRef | null) => {
-    const label = ref === null
-      ? null
-      : bot.sessions
-        .find((session) => session.source === ref.source && session.sessionId === ref.sessionId)
-        ?.title || ref.sessionId;
-    const reason = (error: unknown) => error instanceof Error ? error.message : String(error);
-    setBotCommandError(null);
-    void (async () => {
-      let home: SidecarDataSource;
-      try {
-        home = feeds.forBot(bot.botId);
-        await home.updateBot(bot.botId, {
-          fatherSession: ref === null ? null : { source: ref.source, sessionId: ref.sessionId },
-        });
-      } catch (error) {
-        setBotCommandError({
-          session: ref === null ? null : `${ref.source}:${ref.sessionId}`,
-          message: ref === null
-            ? `Could not clear the Father of ${bot.name}: ${reason(error)}`
-            : `Could not name ${label} the Father of ${bot.name}: ${reason(error)}`,
-        });
-        return;
-      }
-      if (ref === null) return;
-      const elsewhere = feeds.bots().filter((other) =>
-        other.fatherSession !== undefined && feeds.forBot(other.botId) !== home
-      );
-      const failed = (await Promise.allSettled(elsewhere.map((other) =>
-        feeds.forBot(other.botId).updateBot(other.botId, { fatherSession: null })
-      ))).flatMap((result, index) =>
-        result.status === "rejected" ? [`${elsewhere[index]!.name}: ${reason(result.reason)}`] : []
-      );
-      if (failed.length > 0) {
-        setBotCommandError({
-          session: `${ref.source}:${ref.sessionId}`,
-          message: `${label} is the Father now, but another machine still names one. ${failed.join("; ")}`,
-        });
-      }
-    })();
-  }, [feeds, setBotCommandError]);
+  const setFatherBotSession = useCallback(
+    (bot: BotView, ref: BotSessionRef | null) => {
+      const label =
+        ref === null
+          ? null
+          : bot.sessions.find((session) => session.source === ref.source && session.sessionId === ref.sessionId)
+              ?.title || ref.sessionId;
+      const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
+      setBotCommandError(null);
+      void (async () => {
+        let home: SidecarDataSource;
+        try {
+          home = feeds.forBot(bot.botId);
+          await home.updateBot(bot.botId, {
+            fatherSession: ref === null ? null : { source: ref.source, sessionId: ref.sessionId },
+          });
+        } catch (error) {
+          setBotCommandError({
+            session: ref === null ? null : `${ref.source}:${ref.sessionId}`,
+            message:
+              ref === null
+                ? `Could not clear the Father of ${bot.name}: ${reason(error)}`
+                : `Could not name ${label} the Father of ${bot.name}: ${reason(error)}`,
+          });
+          return;
+        }
+        if (ref === null) return;
+        const elsewhere = feeds
+          .bots()
+          .filter((other) => other.fatherSession !== undefined && feeds.forBot(other.botId) !== home);
+        const failed = (
+          await Promise.allSettled(
+            elsewhere.map((other) => feeds.forBot(other.botId).updateBot(other.botId, { fatherSession: null })),
+          )
+        ).flatMap((result, index) =>
+          result.status === "rejected" ? [`${elsewhere[index]!.name}: ${reason(result.reason)}`] : [],
+        );
+        if (failed.length > 0) {
+          setBotCommandError({
+            session: `${ref.source}:${ref.sessionId}`,
+            message: `${label} is the Father now, but another machine still names one. ${failed.join("; ")}`,
+          });
+        }
+      })();
+    },
+    [feeds, setBotCommandError],
+  );
 
   /**
    * The Bot being renamed, if any. Held as the Bot rather than its fields so the dialog opens
@@ -99,17 +98,17 @@ export function useBotRecordCommands(
    * renaming a Bot is usually fixing its face at the same time.
    */
   const [renamingBot, setRenamingBot] = useState<BotView | null>(null);
-  const renameBot = useCallback(async (
-    bot: BotView,
-    restyle: { name: string; iconUrl?: string; role?: string },
-  ) => {
-    await feeds.forBot(bot.botId).updateBot(bot.botId, {
-      name: restyle.name,
-      ...(restyle.iconUrl === undefined ? {} : { iconUrl: restyle.iconUrl }),
-      ...(restyle.role === undefined ? {} : { metadata: { role: restyle.role } }),
-    });
-    setRenamingBot(null);
-  }, [feeds]);
+  const renameBot = useCallback(
+    async (bot: BotView, restyle: { name: string; iconUrl?: string; role?: string }) => {
+      await feeds.forBot(bot.botId).updateBot(bot.botId, {
+        name: restyle.name,
+        ...(restyle.iconUrl === undefined ? {} : { iconUrl: restyle.iconUrl }),
+        ...(restyle.role === undefined ? {} : { metadata: { role: restyle.role } }),
+      });
+      setRenamingBot(null);
+    },
+    [feeds],
+  );
 
   /**
    * Forgets a Bot. Nothing is set here on success: the Bot stream publishes without it and the
@@ -117,19 +116,20 @@ export function useBotRecordCommands(
    * the sessions survive and a recreate restores the Bot, so this undoes like a detach does.
    * A failure has no card to land on, so it goes on the canvas band with no session.
    */
-  const deleteBot = useCallback((bot: BotView) => {
-    setBotCommandError(null);
-    void Promise.resolve()
-      .then(() => feeds.forBot(bot.botId).deleteBot(bot.botId))
-      .catch((error: unknown) => {
-        setBotCommandError({
-          session: null,
-          message: `Could not delete ${bot.name}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+  const deleteBot = useCallback(
+    (bot: BotView) => {
+      setBotCommandError(null);
+      void Promise.resolve()
+        .then(() => feeds.forBot(bot.botId).deleteBot(bot.botId))
+        .catch((error: unknown) => {
+          setBotCommandError({
+            session: null,
+            message: `Could not delete ${bot.name}: ${error instanceof Error ? error.message : String(error)}`,
+          });
         });
-      });
-  }, [feeds, setBotCommandError]);
+    },
+    [feeds, setBotCommandError],
+  );
 
   return {
     botCreatorOpen,

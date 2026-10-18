@@ -5,23 +5,13 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  AgentTerminalInvalidError,
-  liveTmuxSession,
-} from "@/terminal/agentTerminalService";
+import { AgentTerminalInvalidError, liveTmuxSession } from "@/terminal/agentTerminalService";
 import { claudeSessionRunning } from "@/terminal/session-panes/tmuxSessionOwner";
-import {
-  agentTerminalHarness,
-  SESSION_ID,
-  type SessionTmuxFakes,
-} from "@/terminal/agentTerminalHarness";
+import { agentTerminalHarness, SESSION_ID, type SessionTmuxFakes } from "@/terminal/agentTerminalHarness";
 import { subscribeSessionPaneStarts } from "@/terminal/session-panes/sessionPaneStarts";
 import { resumeClaudeSessionCommand } from "@/terminal/session-panes/claudeSessionLaunch";
 
-const {
-  roots,
-  sessionTmuxService,
-} = agentTerminalHarness();
+const { roots, sessionTmuxService } = agentTerminalHarness();
 
 test("joins the tmux session a live agent session is already running in", async () => {
   const fakes: SessionTmuxFakes = { owner: "composerprobe", running: new Set(), created: [] };
@@ -45,19 +35,18 @@ test("starts a tmux session that resumes the agent session when nothing is runni
   const attached: { session: string; columns: number; rows: number }[] = [];
   const service = await sessionTmuxService(fakes, attached);
 
-  await service.open(
-    { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
-    { columns: 100, rows: 30 },
-  );
+  await service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
 
   // At the viewer's geometry, because this session has no other client to take a size from.
-  expect(fakes.created).toEqual([{
-    session: `agentdesk-${SESSION_ID}`,
-    cwd: expect.stringContaining("projects/agent-desk"),
-    command: resumeClaudeSessionCommand(SESSION_ID),
-    columns: 100,
-    rows: 30,
-  }]);
+  expect(fakes.created).toEqual([
+    {
+      session: `agentdesk-${SESSION_ID}`,
+      cwd: expect.stringContaining("projects/agent-desk"),
+      command: resumeClaudeSessionCommand(SESSION_ID),
+      columns: 100,
+      rows: 30,
+    },
+  ]);
   expect(attached).toEqual([{ session: `agentdesk-${SESSION_ID}`, columns: 100, rows: 30 }]);
 });
 
@@ -66,8 +55,9 @@ test("refuses to start a pane while a process it cannot attach to holds the sess
   // would put a second process on one transcript, which forks it (ADR-0143).
   const fakes: SessionTmuxFakes = { owner: null, running: new Set(), created: [], claudeRunning: true };
   const service = await sessionTmuxService(fakes, []);
-  await expect(service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 }))
-    .rejects.toThrow(/second process/);
+  await expect(
+    service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 }),
+  ).rejects.toThrow(/second process/);
   expect(fakes.created).toEqual([]);
 });
 
@@ -87,17 +77,15 @@ test("says a session is running again when it starts its pane, and not when it j
   const stop = subscribeSessionPaneStarts((sessionId) => heard.push(sessionId));
   try {
     const started: SessionTmuxFakes = { owner: null, running: new Set(), created: [] };
-    await (await sessionTmuxService(started, [])).open(
-      { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
-      { columns: 100, rows: 30 },
-    );
+    await (
+      await sessionTmuxService(started, [])
+    ).open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
     expect(heard).toEqual([SESSION_ID]);
 
     const joined: SessionTmuxFakes = { owner: "composerprobe", running: new Set(), created: [] };
-    await (await sessionTmuxService(joined, [])).open(
-      { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
-      { columns: 100, rows: 30 },
-    );
+    await (
+      await sessionTmuxService(joined, [])
+    ).open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
     expect(heard).toEqual([SESSION_ID]);
   } finally {
     stop();
@@ -109,23 +97,27 @@ test("waits for a pane it just created to settle, and never for one it merely jo
   // live and makes the viewer emulate every repaint. Waiting lets `capture-pane` collapse it, the
   // way tmux collapses it for its own clients.
   const created: SessionTmuxFakes = {
-    owner: null, running: new Set(), created: [], settled: [],
+    owner: null,
+    running: new Set(),
+    created: [],
+    settled: [],
   };
-  await (await sessionTmuxService(created, [])).open(
-    { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
-    { columns: 100, rows: 30 },
-  );
+  await (
+    await sessionTmuxService(created, [])
+  ).open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
   expect(created.settled).toEqual([`agentdesk-${SESSION_ID}`]);
 
   // A pane that already exists has already collapsed its startup into scrollback, so waiting on it
   // would spend seconds to gain nothing.
   const joined: SessionTmuxFakes = {
-    owner: null, running: new Set([`agentdesk-${SESSION_ID}`]), created: [], settled: [],
+    owner: null,
+    running: new Set([`agentdesk-${SESSION_ID}`]),
+    created: [],
+    settled: [],
   };
-  await (await sessionTmuxService(joined, [])).open(
-    { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
-    { columns: 100, rows: 30 },
-  );
+  await (
+    await sessionTmuxService(joined, [])
+  ).open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
   expect(joined.settled).toEqual([]);
 });
 
@@ -162,14 +154,13 @@ test("prefers a human's pane over the one the sidecar resumed for the same sessi
     { sessionId: SESSION_ID, tmuxSession: "agent-desk" },
     { sessionId: "another", tmuxSession: "elsewhere" },
   ];
-  expect(await liveTmuxSession("claude", SESSION_ID, async () => rows, unstamped))
-    .toBe("agent-desk");
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => rows, unstamped)).toBe("agent-desk");
 
   // Ours when it is the only one, so a second viewer joins the first's pane.
-  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[0]!], unstamped))
-    .toBe(`agentdesk-${SESSION_ID}`);
-  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[1]!], unstamped))
-    .toBe(null);
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[0]!], unstamped)).toBe(
+    `agentdesk-${SESSION_ID}`,
+  );
+  expect(await liveTmuxSession("claude", SESSION_ID, async () => [rows[1]!], unstamped)).toBe(null);
   // Codex publishes no registry, so it has nothing to look up and lands on the resume path.
   expect(await liveTmuxSession("codex", SESSION_ID, async () => rows)).toBe(null);
 });
@@ -258,13 +249,15 @@ test("an opencode session starts a pane running the TUI in its own directory", a
   // No harness CLI to resume under -- the serve owns the session -- so the pane runs the TUI
   // resumed directly onto the session, by absolute path: the login shell a pane runs its command
   // through does not have opencode's directory on PATH. A second open joins this pane by name.
-  expect(fakes.created).toEqual([{
-    session: `agentdesk-opencode-${OPENCODE_SESSION_ID}`,
-    cwd: expect.stringContaining("projects/agent-desk"),
-    command: [binary, "--session", OPENCODE_SESSION_ID],
-    columns: 100,
-    rows: 30,
-  }]);
+  expect(fakes.created).toEqual([
+    {
+      session: `agentdesk-opencode-${OPENCODE_SESSION_ID}`,
+      cwd: expect.stringContaining("projects/agent-desk"),
+      command: [binary, "--session", OPENCODE_SESSION_ID],
+      columns: 100,
+      rows: 30,
+    },
+  ]);
   expect(attached).toEqual([{ session: `agentdesk-opencode-${OPENCODE_SESSION_ID}`, columns: 100, rows: 30 }]);
   expect(descriptor.ptySessionName).toBe(`agent-tmux-agentdesk-opencode-${OPENCODE_SESSION_ID}`);
 });
@@ -296,14 +289,16 @@ test("an opencode session joins the pane its stamp names instead of starting a s
   expect(attached).toEqual([{ session: "opencode-title-pane", columns: 100, rows: 30 }]);
   // The stamp outlives the TUI, so the joined pane is offered the TUI again; whether it takes it
   // is `reviveExitedPane`'s rule, tested beside it.
-  expect(fakes.revived).toEqual([{
-    session: "opencode-title-pane",
-    revival: {
-      startedFor: OPENCODE_SESSION_ID,
-      cwd: expect.stringContaining("projects/agent-desk"),
-      command: [binary, "--session", OPENCODE_SESSION_ID],
+  expect(fakes.revived).toEqual([
+    {
+      session: "opencode-title-pane",
+      revival: {
+        startedFor: OPENCODE_SESSION_ID,
+        cwd: expect.stringContaining("projects/agent-desk"),
+        command: [binary, "--session", OPENCODE_SESSION_ID],
+      },
     },
-  }]);
+  ]);
   // The pane's TUI had exited, so the revival ran: a stopped session running again.
   expect(heard).toEqual([OPENCODE_SESSION_ID]);
 });
@@ -315,10 +310,12 @@ test("a joined Claude pane is offered its resume when no Claude process holds th
   await service.open({ kind: "session-tmux", source: "claude", sessionId: SESSION_ID }, { columns: 100, rows: 30 });
 
   // The same argv the resume path and Restart run, so a revived pane launches as a fresh one does.
-  expect(fakes.revived).toEqual([{
-    session: "composerprobe",
-    revival: { startedFor: SESSION_ID, cwd: expect.any(String), command: resumeClaudeSessionCommand(SESSION_ID) },
-  }]);
+  expect(fakes.revived).toEqual([
+    {
+      session: "composerprobe",
+      revival: { startedFor: SESSION_ID, cwd: expect.any(String), command: resumeClaudeSessionCommand(SESSION_ID) },
+    },
+  ]);
 });
 
 test("a joined Claude pane is not offered a resume while the session runs somewhere else", async () => {
@@ -342,10 +339,12 @@ test("an opencode session is refused a pane when this machine has no opencode", 
   const service = await sessionTmuxService(fakes, []);
   process.env.AGENT_FEED_OPENCODE_PATH = join(tmpdir(), "agentdesk-no-such-opencode");
 
-  await expect(service.open(
-    { kind: "session-tmux", source: "opencode", sessionId: OPENCODE_SESSION_ID },
-    { columns: 100, rows: 30 },
-  )).rejects.toThrow("opencode is not installed");
+  await expect(
+    service.open(
+      { kind: "session-tmux", source: "opencode", sessionId: OPENCODE_SESSION_ID },
+      { columns: 100, rows: 30 },
+    ),
+  ).rejects.toThrow("opencode is not installed");
   expect(fakes.created).toEqual([]);
 });
 
@@ -354,18 +353,32 @@ test("an opencode session id that is not a serve id is refused before touching t
   const attached: { session: string; columns: number; rows: number }[] = [];
   const service = await sessionTmuxService(fakes, attached);
 
-  await expect(service.open(
-    { kind: "session-tmux", source: "opencode", sessionId: "019c3708-fadb-7e2f-a744-322df224faf4" },
-    { columns: 100, rows: 30 },
-  )).rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  await expect(
+    service.open(
+      { kind: "session-tmux", source: "opencode", sessionId: "019c3708-fadb-7e2f-a744-322df224faf4" },
+      { columns: 100, rows: 30 },
+    ),
+  ).rejects.toBeInstanceOf(AgentTerminalInvalidError);
   expect(fakes.created).toEqual([]);
   expect(attached).toEqual([]);
 });
 
 test("liveTmuxSession answers an opencode session from its stamp alone", async () => {
   // No process registry for the serve's sessions: the stamp on the pane is the whole lookup.
-  expect(await liveTmuxSession("opencode", OPENCODE_SESSION_ID, async () => [], async () => "opencode-title-pane"))
-    .toBe("opencode-title-pane");
-  expect(await liveTmuxSession("opencode", OPENCODE_SESSION_ID, async () => [], async () => null))
-    .toBeNull();
+  expect(
+    await liveTmuxSession(
+      "opencode",
+      OPENCODE_SESSION_ID,
+      async () => [],
+      async () => "opencode-title-pane",
+    ),
+  ).toBe("opencode-title-pane");
+  expect(
+    await liveTmuxSession(
+      "opencode",
+      OPENCODE_SESSION_ID,
+      async () => [],
+      async () => null,
+    ),
+  ).toBeNull();
 });

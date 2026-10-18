@@ -134,9 +134,7 @@ describe("Claude window composer field", () => {
     });
 
     expect(field).toHaveValue("already readable");
-    expect(
-      composerCalls(transport, "read"),
-    ).toHaveLength(0);
+    expect(composerCalls(transport, "read")).toHaveLength(0);
     unmount();
   });
 
@@ -151,8 +149,7 @@ describe("Claude window composer field", () => {
     // The band's gutter is a share of its column, the same expression the transcript above it
     // uses, or the two would disagree about where the text begins. A window this wide is past the
     // 24px cap, which is what this view has always had.
-    expect(screen.getByLabelText("Claude window composer").className)
-      .toContain("px-[clamp(0.75rem,3%,1.5rem)]");
+    expect(screen.getByLabelText("Claude window composer").className).toContain("px-[clamp(0.75rem,3%,1.5rem)]");
     // The resting height and padding are the load-bearing part of the redesign: a multi-line draft
     // must have room to breathe before it even begins to grow. `min-h-12` (a two-line resting field)
     // and the `pl-4 py-3` gutter are the contract (the right side holds the send); the auto-grow

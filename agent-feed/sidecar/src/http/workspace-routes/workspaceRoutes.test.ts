@@ -70,21 +70,14 @@ async function harness(): Promise<Harness> {
  */
 async function json<T>(response: Response | undefined): Promise<T> {
   expect(response).toBeDefined();
-  return await response!.json() as T;
+  return (await response!.json()) as T;
 }
 
-function call(
-  route: RouteHandler,
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response | undefined> {
+function call(route: RouteHandler, method: string, path: string, body?: unknown): Promise<Response | undefined> {
   const url = new URL(`http://127.0.0.1${path}`);
   const request = new Request(url.toString(), {
     method,
-    ...(body === undefined
-      ? {}
-      : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
   });
   return Promise.resolve(route(request, url, server));
 }
@@ -189,11 +182,7 @@ test("a symlink escape is 403 on read and on write", async () => {
   await writeFile(join(outside, "secret.txt"), "secret\n");
   await symlink(outside, join(root, "escape"));
 
-  const read = await call(
-    files,
-    "GET",
-    `/api/workspaces/${workspaceId}/file?path=escape/secret.txt`,
-  );
+  const read = await call(files, "GET", `/api/workspaces/${workspaceId}/file?path=escape/secret.txt`);
   expect(read?.status).toBe(403);
 
   const write = await call(files, "POST", `/api/workspaces/${workspaceId}/file`, {
@@ -208,11 +197,7 @@ test("a symlink escape is 403 on read and on write", async () => {
 test("an absolute path or a traversal is 400, and never reaches the filesystem", async () => {
   const { files, workspaceId } = await harness();
   for (const path of ["/etc/passwd", "../../etc/passwd", "src/../../etc/passwd"]) {
-    const response = await call(
-      files,
-      "GET",
-      `/api/workspaces/${workspaceId}/file?path=${encodeURIComponent(path)}`,
-    );
+    const response = await call(files, "GET", `/api/workspaces/${workspaceId}/file?path=${encodeURIComponent(path)}`);
     expect(response?.status).toBe(400);
   }
 });
@@ -244,11 +229,9 @@ test("writes when the revision matches, and 409s when it does not", async () => 
 test("refuses a body that is not a JSON object", async () => {
   const { roster } = await harness();
   const url = new URL("http://127.0.0.1/api/workspaces");
-  const response = await Promise.resolve(roster(
-    new Request(url.toString(), { method: "POST", body: "not json" }),
-    url,
-    server,
-  ));
+  const response = await Promise.resolve(
+    roster(new Request(url.toString(), { method: "POST", body: "not json" }), url, server),
+  );
   expect(response?.status).toBe(400);
 });
 
@@ -259,9 +242,13 @@ test("adds, renames, reorders and removes through the roster routes", async () =
   expect(added?.status).toBe(200);
   const { workspace } = await json<{ workspace: { id: string } }>(added);
 
-  expect((await call(roster, "PATCH", `/api/workspaces/${workspace.id}`, {
-    name: "Renamed",
-  }))?.status).toBe(204);
+  expect(
+    (
+      await call(roster, "PATCH", `/api/workspaces/${workspace.id}`, {
+        name: "Renamed",
+      })
+    )?.status,
+  ).toBe(204);
 
   const listed = await json<{ workspaces: { id: string; name: string }[] }>(
     await call(roster, "GET", "/api/workspaces"),
@@ -271,8 +258,7 @@ test("adds, renames, reorders and removes through the roster routes", async () =
   const ids = listed.workspaces.map((entry) => entry.id).reverse();
   expect((await call(roster, "PUT", "/api/workspaces/order", { ids }))?.status).toBe(204);
 
-  expect((await call(roster, "DELETE", `/api/workspaces/${workspace.id}`))?.status)
-    .toBe(204);
+  expect((await call(roster, "DELETE", `/api/workspaces/${workspace.id}`))?.status).toBe(204);
 });
 
 test("a rename without a name is 400", async () => {
@@ -324,6 +310,5 @@ test("refuses to make a folder outside the home directory", async () => {
 
 test("a folder creation without a name is 400, like every other body this roster reads", async () => {
   const { roster } = await harness();
-  expect((await call(roster, "POST", "/api/workspaces/folders", { path: "/tmp" }))?.status)
-    .toBe(400);
+  expect((await call(roster, "POST", "/api/workspaces/folders", { path: "/tmp" }))?.status).toBe(400);
 });

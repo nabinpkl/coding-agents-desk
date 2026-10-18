@@ -44,12 +44,13 @@ const CODE = "pl-2 pr-3";
  * Left alone it keeps its own background and font, and it is the element the horizontal scroll has
  * to happen on, so these push the outer layer's metrics onto it and let it grow past the box.
  */
-const PAINTED = "[&_.shiki]:m-0 [&_.shiki]:bg-transparent [&_.shiki]:whitespace-pre"
-  + " [&_.shiki]:font-[inherit] [&_.shiki]:text-[length:inherit] [&_.shiki]:leading-[inherit]"
+const PAINTED =
+  "[&_.shiki]:m-0 [&_.shiki]:bg-transparent [&_.shiki]:whitespace-pre" +
+  " [&_.shiki]:font-[inherit] [&_.shiki]:text-[length:inherit] [&_.shiki]:leading-[inherit]" +
   // As wide as its longest line rather than as wide as the box, so the layer it sits in has
   // something to scroll. Left at the box's width its lines would overflow a child that is already
   // the full width, and the outer layer would have no horizontal range to follow the textarea's.
-  + " [&_.shiki]:w-max [&_.shiki]:overflow-visible";
+  " [&_.shiki]:w-max [&_.shiki]:overflow-visible";
 
 /** A line to bring into view and mark: `[start, end)` are character offsets into that line. */
 export interface LineReveal {
@@ -194,30 +195,28 @@ export function CodeEditor({
         style={{ left: gutterWidth, display: reveal ? undefined : "none" }}
         className="pointer-events-none absolute right-0 top-0 bg-primary/15"
       />
-      {html
-        ? (
-          <pre
-            ref={painted}
-            aria-hidden
-            style={{ left: gutterWidth }}
-            className={`${LAYER} ${CODE} ${PAINTED} pointer-events-none absolute inset-y-0 right-0
+      {html ? (
+        <pre
+          ref={painted}
+          aria-hidden
+          style={{ left: gutterWidth }}
+          className={`${LAYER} ${CODE} ${PAINTED} pointer-events-none absolute inset-y-0 right-0
               overflow-hidden`}
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        )
-        : (
-          // Before the grammars load, the plain text stands in at identical metrics, so the
-          // caret never sits over blank space and nothing reflows when highlighting arrives.
-          <pre
-            ref={painted}
-            aria-hidden
-            style={{ left: gutterWidth }}
-            className={`${LAYER} ${CODE} pointer-events-none absolute inset-y-0 right-0
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      ) : (
+        // Before the grammars load, the plain text stands in at identical metrics, so the
+        // caret never sits over blank space and nothing reflows when highlighting arrives.
+        <pre
+          ref={painted}
+          aria-hidden
+          style={{ left: gutterWidth }}
+          className={`${LAYER} ${CODE} pointer-events-none absolute inset-y-0 right-0
               overflow-hidden text-foreground`}
-          >
-            {`${text}\n`}
-          </pre>
-        )}
+        >
+          {`${text}\n`}
+        </pre>
+      )}
       <textarea
         ref={input}
         value={text}

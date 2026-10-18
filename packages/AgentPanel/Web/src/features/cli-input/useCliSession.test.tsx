@@ -11,13 +11,15 @@ const GONE: CliSessionStatus = { entrypoint: null, tmuxSession: null, liveProces
 const S1: SessionAddress = { source: "claude", sessionId: "s1" };
 const S2: SessionAddress = { source: "claude", sessionId: "s2" };
 
-function Probe(
-  { feed, session, active = true }: {
-    feed: Parameters<typeof useCliSession>[0];
-    session: SessionAddress | null;
-    active?: boolean;
-  },
-) {
+function Probe({
+  feed,
+  session,
+  active = true,
+}: {
+  feed: Parameters<typeof useCliSession>[0];
+  session: SessionAddress | null;
+  active?: boolean;
+}) {
   const cliSession = useCliSession(feed, session, active);
   return <span data-testid="terminal">{String(cliSession.isTerminalSession)}</span>;
 }
@@ -54,8 +56,14 @@ describe("useCliSession", () => {
     // answer for s1 lands after the viewer has moved to s2.
     let settleFirst: ((value: CliSessionStatus) => void) | undefined;
     const feed = {
-      cliSessionStatus: vi.fn()
-        .mockImplementationOnce(() => new Promise<CliSessionStatus>((r) => { settleFirst = r; }))
+      cliSessionStatus: vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise<CliSessionStatus>((r) => {
+              settleFirst = r;
+            }),
+        )
         .mockResolvedValue(GONE),
     };
     const view = render(<Probe feed={feed} session={S1} />);
@@ -79,7 +87,8 @@ describe("useCliSession", () => {
   it("reads again on refresh, keeping the old answer until the new one lands, and counts processes", async () => {
     // The one time a session stops being what it was launched as: the panel switched it.
     const feed = {
-      cliSessionStatus: vi.fn()
+      cliSessionStatus: vi
+        .fn()
         .mockResolvedValueOnce(TERMINAL)
         .mockResolvedValue({ entrypoint: "sdk-cli", tmuxSession: "keyboard", liveProcesses: 2 }),
     };

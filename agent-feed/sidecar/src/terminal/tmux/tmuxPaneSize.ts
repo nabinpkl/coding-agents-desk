@@ -115,7 +115,7 @@ export async function adoptPaneSize(
       if (want.columns === pane.columns && want.rows === pane.rows) continue;
       // Asked every pass, not once: a human can attach between two reports, and the whole
       // guarantee is that this never reshapes a session somebody is sitting in front of.
-      if (await runtime.clients(pane.session) > 0) return;
+      if ((await runtime.clients(pane.session)) > 0) return;
       await runtime.resize(pane.session, want.columns, want.rows);
       // Handed straight back. `resize-window -x -y` pins the window to `window-size manual` as a
       // side effect -- measured, and it is what left four sessions stuck that way the last time
@@ -156,11 +156,13 @@ export async function adoptPaneSize(
   // promise that nothing ever clears. Every later report joins it and returns without resizing.
   // Measured on three live cards: each reached a size, took one report that matched it, and then
   // ignored every ask after that, sitting six or seven columns short of the box for good.
-  void applier.finally(() => {
-    if (pane.resizing === applier) pane.resizing = null;
-    // Swallowed HERE only. The applier's rejection is the caller's to report -- this branch of it
-    // exists to clear the latch, and leaving it unhandled makes a failed tmux call an unhandled
-    // rejection as well as a logged one.
-  }).catch(() => {});
+  void applier
+    .finally(() => {
+      if (pane.resizing === applier) pane.resizing = null;
+      // Swallowed HERE only. The applier's rejection is the caller's to report -- this branch of it
+      // exists to clear the latch, and leaving it unhandled makes a failed tmux call an unhandled
+      // rejection as well as a logged one.
+    })
+    .catch(() => {});
   return applier;
 }

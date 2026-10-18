@@ -33,19 +33,33 @@ afterEach(async () => {
 });
 
 test("the pane name is the session id, so a second viewer lands on the first's pane", () => {
-  expect(claudeSessionPaneName("0a9952cf-8338-46cf-bfd8-3f82e941b969"))
-    .toBe("agentdesk-0a9952cf-8338-46cf-bfd8-3f82e941b969");
+  expect(claudeSessionPaneName("0a9952cf-8338-46cf-bfd8-3f82e941b969")).toBe(
+    "agentdesk-0a9952cf-8338-46cf-bfd8-3f82e941b969",
+  );
 });
 
 test("the command names the session and its title, and carries a prompt as the first turn", () => {
-  expect(newClaudeSessionCommand({ sessionId: "abc", title: "OSS agent", prompt: "read AGENTS.md" }))
-    .toEqual(["claude", ...permission, "--session-id", "abc", "-n", "OSS agent", "read AGENTS.md"]);
+  expect(newClaudeSessionCommand({ sessionId: "abc", title: "OSS agent", prompt: "read AGENTS.md" })).toEqual([
+    "claude",
+    ...permission,
+    "--session-id",
+    "abc",
+    "-n",
+    "OSS agent",
+    "read AGENTS.md",
+  ]);
 });
 
 test("no prompt means no trailing argument, not an empty one", () => {
   // An empty positional would be a first turn of nothing, which the CLI answers.
-  expect(newClaudeSessionCommand({ sessionId: "abc", title: "OSS agent" }))
-    .toEqual(["claude", ...permission, "--session-id", "abc", "-n", "OSS agent"]);
+  expect(newClaudeSessionCommand({ sessionId: "abc", title: "OSS agent" })).toEqual([
+    "claude",
+    ...permission,
+    "--session-id",
+    "abc",
+    "-n",
+    "OSS agent",
+  ]);
 });
 
 test("a hostile prompt arrives as exactly one argument, through the shells tmux uses", async () => {
@@ -105,7 +119,7 @@ test("a first turn far past tmux's command limit reaches the CLI whole, through 
   await writeFile(stub, `#!/bin/sh\n: > "${argvFile}"\nfor a in "$@"; do printf '%s\\0' "$a" >> "${argvFile}"; done\n`);
   await chmod(stub, 0o755);
 
-  const line = "it's `$HOME` and \"$(rm -rf x)\"; (fork 1) \\ end\n";
+  const line = 'it\'s `$HOME` and "$(rm -rf x)"; (fork 1) \\ end\n';
   const prompt = `${line.repeat(Math.ceil(300_000 / line.length))}\n\n`;
   const turnDirectory = join(directory, "turn");
   await mkdir(turnDirectory);
@@ -147,8 +161,17 @@ test("a fork opens the way its source last ran, its brief still the last word", 
     { model: "haiku", effort: "low", permissionMode: "plan" },
   );
   expect(command.slice(0, 3)).toEqual(["claude", "--permission-mode", "plan"]);
-  expect(command.slice(command.indexOf("--fork-session"), -1))
-    .toEqual(["--fork-session", "--session-id", "fork", "-n", "Bot colours", "--model", "haiku", "--effort", "low"]);
+  expect(command.slice(command.indexOf("--fork-session"), -1)).toEqual([
+    "--fork-session",
+    "--session-id",
+    "fork",
+    "-n",
+    "Bot colours",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+  ]);
   expect(command.at(-1)).toContain("try teal");
 });
 
@@ -160,9 +183,19 @@ test("a reopened session resumes in the mode, model and effort it last ran with"
 
 test("what a session resumes with is checked, and a runner's newer choice wins", () => {
   const last = { model: "claude-opus-5-5[1m]", effort: "high", permissionMode: "default" };
-  expect(resumeSelection(last, {}, "auto")).toEqual({ model: "claude-opus-5-5[1m]", effort: "high", permissionMode: "manual" });
-  expect(resumeSelection(last, { model: "haiku", effort: "max" }, "auto")).toEqual({ model: "haiku", effort: "max", permissionMode: "manual" });
-  expect(resumeSelection({ model: "opus; rm -rf /", effort: "ultra", permissionMode: "sideways" }, {}, "auto")).toEqual({});
+  expect(resumeSelection(last, {}, "auto")).toEqual({
+    model: "claude-opus-5-5[1m]",
+    effort: "high",
+    permissionMode: "manual",
+  });
+  expect(resumeSelection(last, { model: "haiku", effort: "max" }, "auto")).toEqual({
+    model: "haiku",
+    effort: "max",
+    permissionMode: "manual",
+  });
+  expect(resumeSelection({ model: "opus; rm -rf /", effort: "ultra", permissionMode: "sideways" }, {}, "auto")).toEqual(
+    {},
+  );
   expect(resumeSelection(undefined, {}, "auto")).toEqual({});
 });
 
@@ -173,7 +206,9 @@ test("a mode read from the transcript never gives a session more than a fresh la
   for (const mode of ["plan", "dontAsk", "default", "acceptEdits", "auto"]) {
     expect(resumeSelection({ permissionMode: mode }, {}, "auto").permissionMode).toBeDefined();
   }
-  expect(resumeSelection({ permissionMode: "bypassPermissions" }, {}, "bypassPermissions")).toEqual({ permissionMode: "bypassPermissions" });
+  expect(resumeSelection({ permissionMode: "bypassPermissions" }, {}, "bypassPermissions")).toEqual({
+    permissionMode: "bypassPermissions",
+  });
 });
 
 test("a fork's pane is named after the fork, so two forks of one session do not collide", () => {
@@ -184,8 +219,17 @@ test("a fork's pane is named after the fork, so two forks of one session do not 
 });
 
 test("a fork resumes its source and lands at its own id", () => {
-  expect(forkClaudeSessionCommand({ sessionId: "src", forkId: "fork", title: "Bot colours" }))
-    .toEqual(["claude", ...permission, "--resume", "src", "--fork-session", "--session-id", "fork", "-n", "Bot colours"]);
+  expect(forkClaudeSessionCommand({ sessionId: "src", forkId: "fork", title: "Bot colours" })).toEqual([
+    "claude",
+    ...permission,
+    "--resume",
+    "src",
+    "--fork-session",
+    "--session-id",
+    "fork",
+    "-n",
+    "Bot colours",
+  ]);
 });
 
 test("a fork given a brief is told whose work it is holding before it is told what to do", () => {
@@ -281,28 +325,41 @@ test("a restart runs the session's own pane again under today's launch flags", a
   const { respawned, tmux } = restartTmux([
     { pane: "%7", command: `/bin/zsh -l -c 'claude --resume ${id}; exec /bin/zsh -l'` },
   ]);
-  expect(await restartClaudeSession({ sessionId: id, cwd: "/repo" }, tmux))
-    .toEqual({ kind: "restarted", pane: "%7" });
+  expect(await restartClaudeSession({ sessionId: id, cwd: "/repo" }, tmux)).toEqual({ kind: "restarted", pane: "%7" });
   expect(respawned).toEqual([{ pane: "%7", cwd: "/repo", command: resumeClaudeSessionCommand(id) }]);
 });
 
 test("a pane somebody started by hand is refused, even when the stamp points at it", async () => {
   const id = "11111111-2222-4333-8444-555555555555";
-  const { respawned, tmux } = restartTmux([{ pane: "%3", command: "" }, { pane: "%4", command: "zsh" }]);
-  expect(await restartClaudeSession({ sessionId: id, cwd: "/repo" }, tmux))
-    .toEqual({ kind: "not-ours", session: "Work title" });
+  const { respawned, tmux } = restartTmux([
+    { pane: "%3", command: "" },
+    { pane: "%4", command: "zsh" },
+  ]);
+  expect(await restartClaudeSession({ sessionId: id, cwd: "/repo" }, tmux)).toEqual({
+    kind: "not-ours",
+    session: "Work title",
+  });
   expect(respawned).toEqual([]);
 });
 
 test("a session with no stamped pane has nothing to restart", async () => {
   const { respawned, tmux } = restartTmux([], null);
-  expect(await restartClaudeSession({ sessionId: "11111111-2222-4333-8444-555555555555", cwd: "/repo" }, tmux))
-    .toEqual({ kind: "no-pane" });
+  expect(await restartClaudeSession({ sessionId: "11111111-2222-4333-8444-555555555555", cwd: "/repo" }, tmux)).toEqual(
+    { kind: "no-pane" },
+  );
   expect(respawned).toEqual([]);
 });
 
 test("a respawn targets the pane by id and runs the same script a new pane would", () => {
   const command = ["claude", "--resume", "x"];
   const created = newSessionArgs({ session: "s", cwd: "/repo", command, columns: 80, rows: 24 });
-  expect(respawnPaneArgs("%7", "/repo", command)).toEqual(["respawn-pane", "-k", "-t", "%7", "-c", "/repo", created.at(-1)!]);
+  expect(respawnPaneArgs("%7", "/repo", command)).toEqual([
+    "respawn-pane",
+    "-k",
+    "-t",
+    "%7",
+    "-c",
+    "/repo",
+    created.at(-1)!,
+  ]);
 });

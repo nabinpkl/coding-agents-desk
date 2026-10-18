@@ -44,21 +44,12 @@
  *   questions by matching the QUESTION TEXT rather than by counting tabs -- which is also what
  *   makes it work when somebody has already navigated the dialog by hand.
  */
-import type {
-  TmuxQuestionAnswer,
-  TmuxQuestionOutcome,
-  TmuxQuestionRefusal,
-} from "@agentdesk/agent-feed-wire";
+import type { TmuxQuestionAnswer, TmuxQuestionOutcome, TmuxQuestionRefusal } from "@agentdesk/agent-feed-wire";
 import { captureTmuxQuestionView, hexSend, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { inTurn } from "@/input/tmuxComposerPanes";
 import { saysTheSame } from "@/input/rewindPicker";
-import {
-  isPlaceholder,
-  otherRowIndex,
-  questionDialog,
-  type QuestionDialog,
-} from "@/input/question/questionDialog";
+import { isPlaceholder, otherRowIndex, questionDialog, type QuestionDialog } from "@/input/question/questionDialog";
 import { answerPreviewQuestion } from "@/input/question/questionPreview";
 import {
   dialogGone,
@@ -121,11 +112,7 @@ export async function answerTmuxQuestion(
     } catch (error) {
       // No Escape on the way out, deliberately: see the header. A dialog left standing is one the
       // reader can still finish, and the words they typed here go back in the outcome.
-      return refused(
-        error instanceof TmuxUnavailable ? "tmux-unavailable" : "no-pane",
-        answers,
-        sent,
-      );
+      return refused(error instanceof TmuxUnavailable ? "tmux-unavailable" : "no-pane", answers, sent);
     }
   });
 }

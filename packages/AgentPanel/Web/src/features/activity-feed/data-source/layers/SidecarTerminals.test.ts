@@ -28,12 +28,18 @@ describe("SidecarTerminals", () => {
     const source = new SidecarDataSource(transport);
     const messages: unknown[] = [];
 
-    expect(await source.openTerminal({
-      kind: "agent-session",
-      projectPath: "/projects/agent-desk",
-      source: "codex",
-      sessionId: "session-1",
-    }, 80, 24)).toEqual(descriptor);
+    expect(
+      await source.openTerminal(
+        {
+          kind: "agent-session",
+          projectPath: "/projects/agent-desk",
+          source: "codex",
+          sessionId: "session-1",
+        },
+        80,
+        24,
+      ),
+    ).toEqual(descriptor);
     source.subscribeTerminal("terminal-1", { onMessage: (message) => messages.push(message) });
     transport.open("/api/terminals/stream");
     await Promise.resolve();
@@ -99,9 +105,10 @@ describe("SidecarTerminals", () => {
     const transport = new FakeHttpTransport();
     const source = new SidecarDataSource(transport);
     const release = transport.hold("POST /api/terminals/terminal-1/input");
-    const writes = () => transport.requests
-      .filter((request) => request.path === "/api/terminals/terminal-1/input")
-      .map((request) => (request.body as { data: string }).data);
+    const writes = () =>
+      transport.requests
+        .filter((request) => request.path === "/api/terminals/terminal-1/input")
+        .map((request) => (request.body as { data: string }).data);
 
     const typed = ["e", "c", "h", "o"].map((key) => source.sendTerminalInput("terminal-1", key));
     await Promise.resolve();
@@ -124,8 +131,7 @@ describe("SidecarTerminals", () => {
     release();
     await Promise.all(typed);
 
-    expect(transport.requests.filter((request) => request.path.endsWith("/input")))
-      .toHaveLength(3);
+    expect(transport.requests.filter((request) => request.path.endsWith("/input"))).toHaveLength(3);
   });
 
   it("takes the next keystroke after one is refused, rather than wedging the terminal shut", async () => {
@@ -137,8 +143,7 @@ describe("SidecarTerminals", () => {
     transport.responses.set("POST /api/terminals/terminal-1/input", { status: 204, body: "" });
     await source.sendTerminalInput("terminal-1", "b");
 
-    expect(transport.requests.map((request) => (request.body as { data: string }).data))
-      .toEqual(["a", "b"]);
+    expect(transport.requests.map((request) => (request.body as { data: string }).data)).toEqual(["a", "b"]);
   });
 
   it("waits for the shared stream to carry before asking for a screen replay", async () => {
@@ -170,8 +175,7 @@ describe("SidecarTerminals", () => {
 
     const stopFirst = source.subscribeTerminal("terminal-1", { onMessage: (m) => first.push(m) });
     const stopSecond = source.subscribeTerminal("terminal-2", { onMessage: (m) => second.push(m) });
-    expect(transport.subscriptions.map((subscription) => subscription.path))
-      .toEqual(["/api/terminals/stream"]);
+    expect(transport.subscriptions.map((subscription) => subscription.path)).toEqual(["/api/terminals/stream"]);
 
     transport.deliver("/api/terminals/stream", {
       terminalId: "terminal-2",
@@ -243,22 +247,23 @@ describe("SidecarTerminals", () => {
 
     await source.sendTerminalPrompt("terminal-1", "first line\nsecond \u001b[31mline");
 
-    expect(transport.requests).toEqual([{
-      method: "POST",
-      path: "/api/terminals/terminal-1/input",
-      body: {
-        data: "\u001b[200~first line\nsecond \u241b[31mline\u001b[201~\r",
-        encoding: "utf8",
+    expect(transport.requests).toEqual([
+      {
+        method: "POST",
+        path: "/api/terminals/terminal-1/input",
+        body: {
+          data: "\u001b[200~first line\nsecond \u241b[31mline\u001b[201~\r",
+          encoding: "utf8",
+        },
       },
-    }]);
+    ]);
   });
 
   it("refuses an oversized terminal prompt before writing partial input", async () => {
     const transport = new FakeHttpTransport();
     const source = new SidecarDataSource(transport);
 
-    await expect(source.sendTerminalPrompt("terminal-1", "x".repeat(64 * 1024)))
-      .rejects.toThrow("64 KiB");
+    await expect(source.sendTerminalPrompt("terminal-1", "x".repeat(64 * 1024))).rejects.toThrow("64 KiB");
     expect(transport.requests).toEqual([]);
   });
 });

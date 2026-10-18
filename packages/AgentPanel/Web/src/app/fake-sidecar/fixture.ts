@@ -72,11 +72,13 @@ export function installFixture(): void {
     }, last + 5);
   };
 
-  (window as Window & {
-    webkit: {
-      messageHandlers: { agentFeed: { postMessage: (message: unknown) => void } };
-    };
-  }).webkit = {
+  (
+    window as Window & {
+      webkit: {
+        messageHandlers: { agentFeed: { postMessage: (message: unknown) => void } };
+      };
+    }
+  ).webkit = {
     messageHandlers: {
       agentFeed: {
         postMessage: (message: unknown) => {

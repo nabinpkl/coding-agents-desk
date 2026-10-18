@@ -1,12 +1,7 @@
 import { ArenaRunRegistry } from "@/arena/arenaRun";
 import { ArenaService } from "@/arena/arenaService";
 import { ArenaStore } from "@/arena/arenaStore";
-import {
-  arenaClaudeEffort,
-  arenaClaudeModel,
-  arenaHome,
-  arenaRoot,
-} from "@/arena/arenaConfig";
+import { arenaClaudeEffort, arenaClaudeModel, arenaHome, arenaRoot } from "@/arena/arenaConfig";
 import { runClaudeContestant } from "@/arena/contestants/claudeContestant";
 import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
 import { runClaudeTerminalContestant, runOpencodeTerminalContestant } from "@/arena/contestants/terminalContestants";
@@ -26,20 +21,20 @@ import { config } from "@/config/config";
  * in a pane too, so it is wired only with them. A lane that names no model runs the configured one.
  * The manager is told this sidecar's own address, which it calls for its run.
  */
-export function startArenaService(
-  opencodeBackend: OpencodeContestantBackend & ManagerOpencodeBackend,
-): ArenaService {
+export function startArenaService(opencodeBackend: OpencodeContestantBackend & ManagerOpencodeBackend): ArenaService {
   const store = new ArenaStore(arenaRoot());
   const registry = new ArenaRunRegistry({
     initial: store.load(),
   });
   const managers = config.tmuxPath
     ? new ArenaManagers({
-      registry,
-      steps: liveManagerSteps(opencodeBackend, (runId, contestantId) => store.readContestantDiff(runId, contestantId)),
-      claude: { model: arenaClaudeModel(), effort: arenaClaudeEffort() },
-      api: `http://127.0.0.1:${config.port}`,
-    })
+        registry,
+        steps: liveManagerSteps(opencodeBackend, (runId, contestantId) =>
+          store.readContestantDiff(runId, contestantId),
+        ),
+        claude: { model: arenaClaudeModel(), effort: arenaClaudeEffort() },
+        api: `http://127.0.0.1:${config.port}`,
+      })
     : null;
   const service = new ArenaService({
     registry,
@@ -51,10 +46,10 @@ export function startArenaService(
     },
     terminalDrivers: config.tmuxPath
       ? {
-        opencode: (plan) => runOpencodeTerminalContestant(opencodeBackend, plan),
-        claude: (plan) =>
-          runClaudeTerminalContestant(plan, { model: plan.model ?? arenaClaudeModel(), effort: arenaClaudeEffort() }),
-      }
+          opencode: (plan) => runOpencodeTerminalContestant(opencodeBackend, plan),
+          claude: (plan) =>
+            runClaudeTerminalContestant(plan, { model: plan.model ?? arenaClaudeModel(), effort: arenaClaudeEffort() }),
+        }
       : null,
     managers,
     arenaHome: arenaHome(),

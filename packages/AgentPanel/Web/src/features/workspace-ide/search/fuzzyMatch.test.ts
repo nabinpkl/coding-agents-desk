@@ -47,8 +47,10 @@ describe("fuzzyFilter", () => {
   });
 
   it("keeps up with a large list", () => {
-    const many = Array.from({ length: 20_000 }, (_, index) =>
-      `packages/area-${index % 97}/src/feature-${index % 13}/Component${index}.tsx`);
+    const many = Array.from(
+      { length: 20_000 },
+      (_, index) => `packages/area-${index % 97}/src/feature-${index % 13}/Component${index}.tsx`,
+    );
     const started = performance.now();
     fuzzyFilter(many, "comp123", 50);
     fuzzyFilter(many, "f", 50);

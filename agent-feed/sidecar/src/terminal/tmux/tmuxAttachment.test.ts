@@ -21,37 +21,51 @@ interface Recorded {
   emit: (chunk: Uint8Array) => void;
 }
 
-function runtime(
-  overrides: Partial<TmuxPaneRuntime> = {},
-): {
+function runtime(overrides: Partial<TmuxPaneRuntime> = {}): {
   runtime: TmuxPaneRuntime;
   log: Recorded;
   pane: { pid: number; columns: number; rows: number; mouseReporting: boolean };
 } {
   const log: Recorded = {
-    pipes: 0, stops: 0, sent: [], captures: 0, resizes: [], clientChecks: 0, releases: 0,
+    pipes: 0,
+    stops: 0,
+    sent: [],
+    captures: 0,
+    resizes: [],
+    clientChecks: 0,
+    releases: 0,
     emit: () => {},
   };
   // The pane's real shape, so `describe` answers what `resize` did rather than a constant.
   const pane = { pid: 4242, columns: 80, rows: 24, mouseReporting: false };
   const base: TmuxPaneRuntime = {
     describe: async () => ({ ...pane }),
-    capture: async () => { log.captures += 1; return "screen bytes"; },
+    capture: async () => {
+      log.captures += 1;
+      return "screen bytes";
+    },
     pipe: async (_session, onData) => {
       log.pipes += 1;
       log.emit = onData;
-      return async () => { log.stops += 1; };
+      return async () => {
+        log.stops += 1;
+      };
     },
     send: async (_session, bytes) => {
       log.sent.push(hexKeyArguments(bytes));
     },
-    clients: async () => { log.clientChecks += 1; return 0; },
+    clients: async () => {
+      log.clientChecks += 1;
+      return 0;
+    },
     resize: async (_session, columns, rows) => {
       log.resizes.push({ columns, rows });
       pane.columns = columns;
       pane.rows = rows;
     },
-    releaseSize: async () => { log.releases += 1; },
+    releaseSize: async () => {
+      log.releases += 1;
+    },
   };
   return { runtime: { ...base, ...overrides }, log, pane };
 }
@@ -66,8 +80,13 @@ test("reports the pane's pid and geometry, so the tile renders what is actually 
   const { runtime: tmux } = runtime();
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 80, rows: 24 });
-  expect(connection.attachment)
-    .toEqual({ sessionName: "rags", pid: 4242, columns: 80, rows: 24, mouseReporting: false });
+  expect(connection.attachment).toEqual({
+    sessionName: "rags",
+    pid: 4242,
+    columns: 80,
+    rows: 24,
+    mouseReporting: false,
+  });
 });
 
 test("a second viewer shares the first one's pipe rather than opening another", async () => {
@@ -157,8 +176,11 @@ test("a checkpoint is the capture, framed as begin/chunk/end with a moving revis
   await Promise.resolve();
   await Promise.resolve();
   expect(log.captures).toBe(1);
-  expect(seen.map((envelope) => Object.keys(envelope).filter((key) => key.startsWith("terminal"))[0]))
-    .toEqual(["terminalCheckpointBegin", "terminalCheckpointChunk", "terminalCheckpointEnd"]);
+  expect(seen.map((envelope) => Object.keys(envelope).filter((key) => key.startsWith("terminal"))[0])).toEqual([
+    "terminalCheckpointBegin",
+    "terminalCheckpointChunk",
+    "terminalCheckpointEnd",
+  ]);
   expect(seen[0]?.terminalCheckpointBegin?.revision).toBe("1");
   expect(seen[1]?.terminalCheckpointChunk?.data).toBe(btoa("screen bytes"));
   expect(seen[2]?.terminalCheckpointEnd?.revision).toBe("1");
@@ -182,7 +204,9 @@ test("a viewer arriving during a teardown gets a pipe, because it waits for the 
       log.emit = onData;
       return async () => {
         log.stops += 1;
-        await new Promise<void>((resolve) => { releaseStop = resolve; });
+        await new Promise<void>((resolve) => {
+          releaseStop = resolve;
+        });
       };
     },
   });
@@ -220,7 +244,9 @@ test("a window this process never resized is left entirely alone", async () => {
 
 test("a failing send surfaces on the connection rather than vanishing", async () => {
   const { runtime: tmux } = runtime({
-    send: async () => { throw new Error("tmux send-keys exited 1"); },
+    send: async () => {
+      throw new Error("tmux send-keys exited 1");
+    },
   });
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 80, rows: 24 });
@@ -234,7 +260,9 @@ test("a failing send surfaces on the connection rather than vanishing", async ()
 
 test("a pipe that cannot be set fails the open instead of returning a dead terminal", async () => {
   const { runtime: tmux } = runtime({
-    pipe: async () => { throw new Error("tmux pipe-pane exited 1"); },
+    pipe: async () => {
+      throw new Error("tmux pipe-pane exited 1");
+    },
   });
   const attachments = new TmuxAttachments(tmux);
   await expect(attachments.open("rags", { columns: 80, rows: 24 })).rejects.toThrow("pipe-pane");

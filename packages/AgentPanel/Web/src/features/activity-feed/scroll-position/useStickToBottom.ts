@@ -186,29 +186,49 @@ export function useStickToBottom(
     }
   };
   const scroller = active ? scrollRef : null;
-  useEventListener<WheelEvent>(scroller, "wheel", (event) => {
-    if (event.deltaY < 0) markUpward();
-    if (event.deltaY > 0) markDownward();
-  }, { passive: true });
-  useEventListener<TouchEvent>(scroller, "touchstart", (event) => {
-    lastTouchYRef.current = event.touches[0]?.clientY ?? null;
-  }, { passive: true });
-  useEventListener<TouchEvent>(scroller, "touchmove", (event) => {
-    const y = event.touches[0]?.clientY;
-    if (y == null) return;
-    const previous = lastTouchYRef.current;
-    lastTouchYRef.current = y;
-    // A finger travelling DOWN the screen drags earlier content into view.
-    if (previous != null && y > previous) markUpward();
-    if (previous != null && y < previous) markDownward();
-  }, { passive: true });
+  useEventListener<WheelEvent>(
+    scroller,
+    "wheel",
+    (event) => {
+      if (event.deltaY < 0) markUpward();
+      if (event.deltaY > 0) markDownward();
+    },
+    { passive: true },
+  );
+  useEventListener<TouchEvent>(
+    scroller,
+    "touchstart",
+    (event) => {
+      lastTouchYRef.current = event.touches[0]?.clientY ?? null;
+    },
+    { passive: true },
+  );
+  useEventListener<TouchEvent>(
+    scroller,
+    "touchmove",
+    (event) => {
+      const y = event.touches[0]?.clientY;
+      if (y == null) return;
+      const previous = lastTouchYRef.current;
+      lastTouchYRef.current = y;
+      // A finger travelling DOWN the screen drags earlier content into view.
+      if (previous != null && y > previous) markUpward();
+      if (previous != null && y < previous) markDownward();
+    },
+    { passive: true },
+  );
   // A press on the scrollbar is dispatched to the scroller itself, never to a row inside it.
-  useEventListener<PointerEvent>(scroller, "pointerdown", (event) => {
-    const el = scrollRef.current;
-    if (el && event.target === el && event.offsetX >= el.clientWidth - SCROLLBAR_GRAB_PX) {
-      scrollbarHeldRef.current = true;
-    }
-  }, { passive: true });
+  useEventListener<PointerEvent>(
+    scroller,
+    "pointerdown",
+    (event) => {
+      const el = scrollRef.current;
+      if (el && event.target === el && event.offsetX >= el.clientWidth - SCROLLBAR_GRAB_PX) {
+        scrollbarHeldRef.current = true;
+      }
+    },
+    { passive: true },
+  );
   const released = () => {
     scrollbarHeldRef.current = false;
   };
@@ -216,16 +236,22 @@ export function useStickToBottom(
   useEventListener(active ? window : null, "pointercancel", released, { capture: true });
   // On window: scrolling by keyboard does not require focus to be inside the feed, and usually
   // is not.
-  useEventListener<KeyboardEvent>(active ? window : null, "keydown", (event) => {
-    // Typed into a field, a space or an arrow moves the caret, not the feed, so it is the reader
-    // taking the feed neither up nor to its end. Upward matters as much as downward: an upward
-    // input holds off the follower's snap, and the composer's ArrowUp would hold it off mid-turn.
-    const typing = event.target instanceof HTMLElement
-      && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
-    if (typing) return;
-    if (UPWARD_KEYS.has(event.key) || (event.key === " " && event.shiftKey)) markUpward();
-    if (DOWNWARD_KEYS.has(event.key) || (event.key === " " && !event.shiftKey)) markDownward();
-  }, { capture: true });
+  useEventListener<KeyboardEvent>(
+    active ? window : null,
+    "keydown",
+    (event) => {
+      // Typed into a field, a space or an arrow moves the caret, not the feed, so it is the reader
+      // taking the feed neither up nor to its end. Upward matters as much as downward: an upward
+      // input holds off the follower's snap, and the composer's ArrowUp would hold it off mid-turn.
+      const typing =
+        event.target instanceof HTMLElement &&
+        (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
+      if (typing) return;
+      if (UPWARD_KEYS.has(event.key) || (event.key === " " && event.shiftKey)) markUpward();
+      if (DOWNWARD_KEYS.has(event.key) || (event.key === " " && !event.shiftKey)) markDownward();
+    },
+    { capture: true },
+  );
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -247,8 +273,7 @@ export function useStickToBottom(
     } else if (fromEnd <= END_EPSILON_PX) {
       // At the end is not enough: the reader has to be the one who brought it there.
       const pushedDown =
-        scrollbarHeldRef.current
-        || performance.now() - downwardIntentAtRef.current <= DOWNWARD_INTENT_WINDOW_MS;
+        scrollbarHeldRef.current || performance.now() - downwardIntentAtRef.current <= DOWNWARD_INTENT_WINDOW_MS;
       if (pushedDown) setFollowing(true);
     }
   }, [scrollRef, setFollowing, snapToBottom, pullingUp]);

@@ -4,11 +4,7 @@
 // measured 2026-09-30 on `~/projects` that is 2.6 million lines and 306MB per query. What stands
 // in for it is two cheap rules: smart case, and several words matched in any order on one line.
 
-import type {
-  WorkspaceSearchFile,
-  WorkspaceSearchMatch,
-  WorkspaceSearchOptions,
-} from "@agentdesk/agent-feed-wire";
+import type { WorkspaceSearchFile, WorkspaceSearchMatch, WorkspaceSearchOptions } from "@agentdesk/agent-feed-wire";
 import { MAXIMUM_SEARCHED_FILE_SIZE, relativePath, scopeArguments } from "@/workspace/search/searchScope";
 import { runRipgrep, SearchFailure } from "@/workspace/search/ripgrep";
 
@@ -28,7 +24,7 @@ type Range = [number, number];
 interface Plan {
   args: string[];
   /** Ranges to highlight in a line `rg` matched, or null to drop the line. */
-  filter: ((line: string, submatches: Range[]) => Range[] | null);
+  filter: (line: string, submatches: Range[]) => Range[] | null;
 }
 
 function escapeRegExp(text: string): string {
@@ -66,8 +62,9 @@ export function planSearch(query: string, options: WorkspaceSearchOptions): Plan
   }
   const anchor = words.reduce((longest, word) => (word.length > longest.length ? word : longest));
   const boundary = options.wholeWord ? "\\b" : "";
-  const patterns = words.map((word) =>
-    new RegExp(`${boundary}${escapeRegExp(word)}${boundary}`, insensitive ? "gi" : "g"));
+  const patterns = words.map(
+    (word) => new RegExp(`${boundary}${escapeRegExp(word)}${boundary}`, insensitive ? "gi" : "g"),
+  );
   return {
     args: [...base, "--fixed-strings", "--", anchor, "."],
     filter: (line) => {
@@ -142,34 +139,40 @@ export async function searchContent(
   let matchCount = 0;
   let truncated = false;
 
-  await runRipgrep(binary, plan.args, root, (record) => {
-    let event: RipgrepMatch;
-    try {
-      event = JSON.parse(record) as RipgrepMatch;
-    } catch {
+  await runRipgrep(
+    binary,
+    plan.args,
+    root,
+    (record) => {
+      let event: RipgrepMatch;
+      try {
+        event = JSON.parse(record) as RipgrepMatch;
+      } catch {
+        return true;
+      }
+      if (event.type !== "match") return true;
+      const path = event.data?.path?.text;
+      const text = event.data?.lines?.text;
+      const line = event.data?.line_number;
+      // A path or line that is not UTF-8 arrives as base64 `bytes` instead; it is skipped, because
+      // the viewer could not open that file as text either.
+      if (path === undefined || text === undefined || line === undefined) return true;
+      const content = text.replace(/\r?\n$/, "");
+      const ranges = plan.filter(content, characterRanges(content, event.data?.submatches ?? []));
+      if (ranges === null) return true;
+      if (matchCount >= MAXIMUM_MATCHES) {
+        truncated = true;
+        return false;
+      }
+      matchCount += 1;
+      const relative = relativePath(path);
+      const matches = byPath.get(relative) ?? [];
+      matches.push({ line, ...trimPreview(content, ranges) });
+      byPath.set(relative, matches);
       return true;
-    }
-    if (event.type !== "match") return true;
-    const path = event.data?.path?.text;
-    const text = event.data?.lines?.text;
-    const line = event.data?.line_number;
-    // A path or line that is not UTF-8 arrives as base64 `bytes` instead; it is skipped, because
-    // the viewer could not open that file as text either.
-    if (path === undefined || text === undefined || line === undefined) return true;
-    const content = text.replace(/\r?\n$/, "");
-    const ranges = plan.filter(content, characterRanges(content, event.data?.submatches ?? []));
-    if (ranges === null) return true;
-    if (matchCount >= MAXIMUM_MATCHES) {
-      truncated = true;
-      return false;
-    }
-    matchCount += 1;
-    const relative = relativePath(path);
-    const matches = byPath.get(relative) ?? [];
-    matches.push({ line, ...trimPreview(content, ranges) });
-    byPath.set(relative, matches);
-    return true;
-  }, { separator: "\n", signal });
+    },
+    { separator: "\n", signal },
+  );
 
   const files = [...byPath.entries()]
     .map(([path, matches]) => ({ path, matches: matches.sort((left, right) => left.line - right.line) }))

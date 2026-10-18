@@ -39,10 +39,7 @@ function isMarkdownPath(p: unknown): p is string {
 }
 
 /** First non-empty string under any of these input keys, or null. */
-function toolStringInput(
-  input: Record<string, unknown> | undefined,
-  keys: readonly string[],
-): string | null {
+function toolStringInput(input: Record<string, unknown> | undefined, keys: readonly string[]): string | null {
   if (!input) return null;
   for (const key of keys) {
     const value = input[key];
@@ -83,7 +80,13 @@ function SkillBodyBlock({ body, ctx }: { body: SkillBody; ctx: EventRowContext }
 }
 
 export function Block({
-  b, ctx, eventIndex, blockIndex, eventType, phase, resultImages = [],
+  b,
+  ctx,
+  eventIndex,
+  blockIndex,
+  eventType,
+  phase,
+  resultImages = [],
 }: {
   b: ActivityBlock;
   ctx: EventRowContext;
@@ -104,8 +107,7 @@ export function Block({
   // of what is on screen, so it was the jumping half of a row whose other half
   // typed. User text and tool payloads are excluded: they are not being written
   // as we watch, and revealing them would animate a paste.
-  const isModelProse =
-    b.kind === "reasoning" || (b.kind === "text" && eventType === "assistant");
+  const isModelProse = b.kind === "reasoning" || (b.kind === "text" && eventType === "assistant");
   const isStreamingProse = isModelProse && phase === "streaming";
   const revealed = useProgressiveText(isModelProse ? (b.text ?? "") : "", isStreamingProse);
   // Held back to a boundary that renders, so a cut inside `**` never shows its own
@@ -126,7 +128,7 @@ export function Block({
     // A one-token joined break beats a full reflow of the paragraph being read.
     if (eventType === "assistant" && b.text) {
       return (
-<div
+        <div
           className="leading-(--agent-panel-prose-leading) text-foreground"
           style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
         >
@@ -164,10 +166,8 @@ export function Block({
     const writePath = toolStringInput(b.input, ["file_path", "path"]);
     const writeContent = toolStringInput(b.input, ["content"]);
     const isWrite = b.tool === "Write" || b.tool === "write";
-    const isMarkdownWrite =
-      isWrite && writePath !== null && isMarkdownPath(writePath) && writeContent !== null;
-    const isCodeWrite =
-      isWrite && writePath !== null && !isMarkdownPath(writePath) && writeContent !== null;
+    const isMarkdownWrite = isWrite && writePath !== null && isMarkdownPath(writePath) && writeContent !== null;
+    const isCodeWrite = isWrite && writePath !== null && !isMarkdownPath(writePath) && writeContent !== null;
     const isFileBody = isEditDiff || isMarkdownWrite || isCodeWrite;
     const fileBodyPath = isEditDiff ? editPath : isFileBody ? writePath : null;
     // A file the call READ, drawn as source once its result lands: the paired result's preview
@@ -178,10 +178,8 @@ export function Block({
     const readPath = toolStringInput(b.input, ["file_path", "path"]);
     const isReadCall = b.tool === "Read" || b.tool === "read";
     const readText = pairedResult?.block.preview?.trim() ? pairedResult.block.preview : null;
-    const isMarkdownRead =
-      isReadCall && readPath !== null && isMarkdownPath(readPath) && readText !== null;
-    const isCodeRead =
-      isReadCall && readPath !== null && !isMarkdownPath(readPath) && readText !== null;
+    const isMarkdownRead = isReadCall && readPath !== null && isMarkdownPath(readPath) && readText !== null;
+    const isCodeRead = isReadCall && readPath !== null && !isMarkdownPath(readPath) && readText !== null;
     // A search the call drew structured above: content matches grouped by file, file lists as
     // rows. Parsed off the same result text; null stays on the generic `pre` below.
     const searchBody = parseSearchResult(b.tool, readText ?? "");
@@ -196,8 +194,7 @@ export function Block({
     // named are not drawn a second time above it. `Read screenshot.png` is that case.
     const namedFiles = pairedResult?.images.length ? null : sentFiles(b);
     const caption = typeof b.input?.caption === "string" ? b.input.caption.trim() : "";
-    const hasBody =
-      isFileBody || command !== null || pairedResult !== undefined || namedFiles !== null;
+    const hasBody = isFileBody || command !== null || pairedResult !== undefined || namedFiles !== null;
     // Opencode's lowercase `edit` chips as Edit: the case is a harness
     // accent, not a different tool, and `edit edit` reads as a stutter.
     const headerChip = isEditDiff || b.tool === "edit" ? "Edit" : b.tool;
@@ -205,34 +202,27 @@ export function Block({
     // chip beside it -- so on this line, which draws the chip, it repeats the tool's name back:
     // `SendUserFile  SendUserFile aim-deep.png`. Said once.
     const summary = b.summary ?? "";
-    const named = headerChip && summary.startsWith(`${headerChip} `)
-      ? summary.slice(headerChip.length + 1)
-      : summary;
-    const headerLabel = fileBodyPath !== null
-      ? (fileBodyPath.split("/").pop() ?? "")
-      : named;
+    const named = headerChip && summary.startsWith(`${headerChip} `) ? summary.slice(headerChip.length + 1) : summary;
+    const headerLabel = fileBodyPath !== null ? (fileBodyPath.split("/").pop() ?? "") : named;
     // A call that returned a picture shows it while folded, since that picture is usually why the
     // call was made. Open, the result draws it full size, so the header's copy steps aside.
     const headerImages = !isExpanded && pairedResult ? pairedResult.images : [];
     // The same for a call that HANDED pictures over, which is the other way one reaches a row.
     // Capped, because these come in sets and each one is `shrink-0`: past a few, the thumbnails
     // would take the width the call's own name is truncating in.
-    const headerFiles = !isExpanded && namedFiles
-      ? namedFiles.map((path, fileIndex) => ({ path, fileIndex }))
-        .filter(({ path }) => isPicture(path))
-        .slice(0, HEADER_THUMBNAILS)
-      : [];
+    const headerFiles =
+      !isExpanded && namedFiles
+        ? namedFiles
+            .map((path, fileIndex) => ({ path, fileIndex }))
+            .filter(({ path }) => isPicture(path))
+            .slice(0, HEADER_THUMBNAILS)
+        : [];
     // What the edit changed, on its own row under the header: the header
     // keeps naming the file, this names the change. Null stays off the row.
-    const editDetail = isEditDiff
-      ? describeEditChange(editOld ?? "", editNew ?? "", editPath ?? undefined)
-      : null;
+    const editDetail = isEditDiff ? describeEditChange(editOld ?? "", editNew ?? "", editPath ?? undefined) : null;
     return (
       <div className="space-y-1.5">
-        <div
-          className="flex items-center gap-1.5"
-          style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-        >
+        <div className="flex items-center gap-1.5" style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}>
           <button
             type="button"
             onClick={() => hasBody && ctx.onToggleTool(toolKey)}
@@ -302,25 +292,11 @@ export function Block({
                 holds the whole line. Wrapped: this is one command, not source, so it has no
                 indentation to read and nothing is gained by a horizontal scroll. */}
             {command !== null ? <CodeBlock code={command} lang="bash" wrap /> : null}
-            {isEditDiff ? (
-              <DiffBlock
-                filePath={editPath}
-                oldString={editOld ?? ""}
-                newString={editNew ?? ""}
-              />
-            ) : null}
-            {isMarkdownWrite ? (
-              <Markdown content={writeContent} />
-            ) : null}
-            {isCodeWrite ? (
-              <CodeBlock code={writeContent} lang={writePath} />
-            ) : null}
-            {isMarkdownRead ? (
-              <Markdown content={stripReadLineNumbers(readText)} />
-            ) : null}
-            {isCodeRead ? (
-              <CodeBlock code={stripReadLineNumbers(readText)} lang={readPath} />
-            ) : null}
+            {isEditDiff ? <DiffBlock filePath={editPath} oldString={editOld ?? ""} newString={editNew ?? ""} /> : null}
+            {isMarkdownWrite ? <Markdown content={writeContent} /> : null}
+            {isCodeWrite ? <CodeBlock code={writeContent} lang={writePath} /> : null}
+            {isMarkdownRead ? <Markdown content={stripReadLineNumbers(readText)} /> : null}
+            {isCodeRead ? <CodeBlock code={stripReadLineNumbers(readText)} lang={readPath} /> : null}
             {searchBody ? <SearchResultBody body={searchBody} /> : null}
             {webBody ? <WebResultBody body={webBody} /> : null}
             {namedFiles ? (
@@ -351,9 +327,7 @@ export function Block({
                 }
               />
             ) : null}
-            {pairedResult?.skillBody ? (
-              <SkillBodyBlock body={pairedResult.skillBody} ctx={ctx} />
-            ) : null}
+            {pairedResult?.skillBody ? <SkillBodyBlock body={pairedResult.skillBody} ctx={ctx} /> : null}
           </>
         ) : null}
       </div>

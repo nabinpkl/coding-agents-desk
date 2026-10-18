@@ -11,14 +11,20 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 vi.mock("@/features/activity-feed/markdown/Markdown", () => ({
   Markdown: ({ content }: { content: string }) => <div data-testid="markdown-view">{content}</div>,
 }));
-vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({
+  DiffBlock: () => <div data-testid="diff-block" />,
+}));
 
 const SESSION = "sid-bar";
 /** Rows are 1000 bytes apart, as transcript lines are named by where they start. */
 const at = (n: number) => n * 1000;
 
 beforeEach(() => {
-  for (const [name, value] of [["offsetWidth", 900], ["clientHeight", 800], ["scrollHeight", 10000]] as const) {
+  for (const [name, value] of [
+    ["offsetWidth", 900],
+    ["clientHeight", 800],
+    ["scrollHeight", 10000],
+  ] as const) {
     Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value });
   }
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
@@ -37,7 +43,14 @@ afterEach(() => {
 });
 
 function answer(n: number): ActivityEvent {
-  return { id: `claude:${SESSION}:at:${at(n)}`, index: at(n), previous: at(n - 1), ts: n, type: "assistant", blocks: [{ kind: "text", text: `answer ${n}` }] };
+  return {
+    id: `claude:${SESSION}:at:${at(n)}`,
+    index: at(n),
+    previous: at(n - 1),
+    ts: n,
+    type: "assistant",
+    blocks: [{ kind: "text", text: `answer ${n}` }],
+  };
 }
 
 function asked(n: number): ActivityEvent {
@@ -77,7 +90,15 @@ describe("the user bar for a message the feed does not hold", () => {
     act(() => {
       transport.deliver(SESSION, {
         type: "timeline",
-        envelope: { kind: "snapshot", sequence: 1, mode: "nice", events: window, windowStart: at(500), runState: "idle", queue: { steer: 0, followUp: 0 } },
+        envelope: {
+          kind: "snapshot",
+          sequence: 1,
+          mode: "nice",
+          events: window,
+          windowStart: at(500),
+          runState: "idle",
+          queue: { steer: 0, followUp: 0 },
+        },
       });
     });
 

@@ -8,9 +8,7 @@ import { afterEach } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  AgentTerminalService,
-} from "@/terminal/agentTerminalService";
+import { AgentTerminalService } from "@/terminal/agentTerminalService";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
 
@@ -56,8 +54,12 @@ export function agentTerminalHarness() {
       sendInput() {},
       sendBinaryInput() {},
       updateViewerState() {},
-      detach() { acts.push("detach"); },
-      kill() { acts.push("detach"); },
+      detach() {
+        acts.push("detach");
+      },
+      kill() {
+        acts.push("detach");
+      },
       closeTransport() {},
     } as unknown as TmuxSessionConnection;
   }
@@ -77,10 +79,7 @@ export function agentTerminalHarness() {
   }
 
   /** Points the session-to-pane resolution at recording fakes, the way `serviceWithTmux` does. */
-  function serviceWithSessionTmux(
-    service: AgentTerminalService,
-    fakes: SessionTmuxFakes,
-  ): AgentTerminalService {
+  function serviceWithSessionTmux(service: AgentTerminalService, fakes: SessionTmuxFakes): AgentTerminalService {
     // Never the real ones: they would read this machine's Claude registry, and run `respawn-pane`
     // against the default tmux server.
     (service as unknown as { claudeRunning: unknown }).claudeRunning = async () => fakes.claudeRunning ?? false;
@@ -121,7 +120,12 @@ export function agentTerminalHarness() {
       "/unused/pty.sock",
       () => ({ projectPath: project, activity: "live", title: "Source session", lastEntrypoint: fakes.lastEntrypoint }),
       home,
-      { listSessions: async () => [], openSession: async () => { throw new Error("unreached"); } },
+      {
+        listSessions: async () => [],
+        openSession: async () => {
+          throw new Error("unreached");
+        },
+      },
       async () => "",
       async () => {},
     );

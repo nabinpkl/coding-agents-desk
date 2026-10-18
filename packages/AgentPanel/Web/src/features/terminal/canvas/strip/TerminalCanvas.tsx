@@ -51,7 +51,8 @@ export function TerminalCanvas({
   activeOnly,
   onToggleActiveOnly,
   canvasZoom,
-}: {  /** The whole roster, every machine, before hiding: ranks and counts read this, not the strip. */
+}: {
+  /** The whole roster, every machine, before hiding: ranks and counts read this, not the strip. */
   grouping: TerminalGrouping;
   /** Every parent's hue, by `machine:path`, computed over the whole roster above. */
   hues: ReadonlyMap<string, number>;
@@ -225,50 +226,58 @@ export function TerminalCanvas({
           a reader who started a session elsewhere needs the way back on the surface showing it.
           One machine still gets the row, holding only the refresh -- hiding it there would leave
           a single-machine canvas with no way to re-read at all. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-2" role="group" aria-label="Machines">
-        {mixed ? machines.map((machine) => {
-            const hidden = hiddenMachines.has(machine.key);
-            const count = all.filter((parent) => (parent.machineId ?? "") === machine.key).length;
-            return (
-              <button
-                key={machine.key}
-                type="button"
-                onClick={() => onToggleMachine(machine.key)}
-                aria-pressed={!hidden}
-                title={hidden ? `Show ${machine.label} (${count} hidden)` : `Hide ${machine.label}`}
-                className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
-                  hidden
-                    ? "border-border text-muted-foreground opacity-60 hover:bg-muted"
-                    : "border-border bg-muted text-foreground hover:bg-muted/60"
-                }`}
-              >
-                {machine.label} · {hidden ? `${count} hidden` : count}
-              </button>
-            );
-          }) : null}
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="min-h-9 cursor-pointer rounded-md border border-border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            Refresh
-          </button>
-          <button
-            type="button"
-            onClick={onToggleActiveOnly}
-            aria-pressed={activeOnly}
-            title={activeOnly
+      <div
+        className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-2"
+        role="group"
+        aria-label="Machines"
+      >
+        {mixed
+          ? machines.map((machine) => {
+              const hidden = hiddenMachines.has(machine.key);
+              const count = all.filter((parent) => (parent.machineId ?? "") === machine.key).length;
+              return (
+                <button
+                  key={machine.key}
+                  type="button"
+                  onClick={() => onToggleMachine(machine.key)}
+                  aria-pressed={!hidden}
+                  title={hidden ? `Show ${machine.label} (${count} hidden)` : `Hide ${machine.label}`}
+                  className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+                    hidden
+                      ? "border-border text-muted-foreground opacity-60 hover:bg-muted"
+                      : "border-border bg-muted text-foreground hover:bg-muted/60"
+                  }`}
+                >
+                  {machine.label} · {hidden ? `${count} hidden` : count}
+                </button>
+              );
+            })
+          : null}
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="min-h-9 cursor-pointer rounded-md border border-border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          Refresh
+        </button>
+        <button
+          type="button"
+          onClick={onToggleActiveOnly}
+          aria-pressed={activeOnly}
+          title={
+            activeOnly
               ? "Show empty directories again: where a shell gets started"
-              : "Hide empty directories: only parents with tmux standing in them"}
-            className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
-              activeOnly
-                ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
-                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
-            }`}
-          >
-            Active only
-          </button>
-        </div>
+              : "Hide empty directories: only parents with tmux standing in them"
+          }
+          className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+            activeOnly
+              ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
+              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
+          }`}
+        >
+          Active only
+        </button>
+      </div>
       <div
         ref={scroller}
         onScroll={rememberScroll}
@@ -292,8 +301,8 @@ export function TerminalCanvas({
             role="status"
             className="mx-3 mt-3 rounded-lg border border-border bg-muted/60 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
           >
-            {standing.length} {standing.length === 1 ? "parent is" : "parents are"} on machines
-            you have hidden. The machines are in the row above the strip.
+            {standing.length} {standing.length === 1 ? "parent is" : "parents are"} on machines you have hidden. The
+            machines are in the row above the strip.
           </div>
         ) : null}
         {orphanedError ? (
@@ -346,10 +355,7 @@ export function TerminalCanvas({
  * Split on the FIRST colon, the way `parseTerminalChildKey` does: machine keys never hold one,
  * so the rest is the path -- or empty, for a residue group, which names itself honestly.
  */
-function hiddenParentLabel(
-  key: string,
-  machines: readonly { key: string; label: string }[],
-): string {
+function hiddenParentLabel(key: string, machines: readonly { key: string; label: string }[]): string {
   const at = key.indexOf(":");
   const machine = at < 0 ? "" : key.slice(0, at);
   const path = at < 0 ? key : key.slice(at + 1);

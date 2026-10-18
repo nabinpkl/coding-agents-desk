@@ -60,11 +60,13 @@ describe("PiEventMapper", () => {
       expect.objectContaining({
         type: "assistant",
         phase: "complete",
-        blocks: [{
-          kind: "metadata",
-          label: "Error",
-          text: "OAuth auth derivation failed",
-        }],
+        blocks: [
+          {
+            kind: "metadata",
+            label: "Error",
+            text: "OAuth auth derivation failed",
+          },
+        ],
       }),
     ]);
   });
@@ -73,15 +75,29 @@ describe("PiEventMapper", () => {
     const projection = new LiveAgentProjection();
     const mapper = new PiEventMapper(projection);
     mapper.accept({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: { command: "pwd" } });
-    mapper.accept({ type: "tool_execution_update", toolCallId: "call-1", toolName: "bash", args: { command: "pwd" }, partialResult: { content: [{ type: "text", text: "/tmp" }] } });
-    mapper.accept({ type: "tool_execution_end", toolCallId: "call-1", toolName: "bash", result: { content: [{ type: "text", text: "/tmp/project" }] }, isError: false });
+    mapper.accept({
+      type: "tool_execution_update",
+      toolCallId: "call-1",
+      toolName: "bash",
+      args: { command: "pwd" },
+      partialResult: { content: [{ type: "text", text: "/tmp" }] },
+    });
+    mapper.accept({
+      type: "tool_execution_end",
+      toolCallId: "call-1",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "/tmp/project" }] },
+      isError: false,
+    });
     expect(projection.page(0, 10)).toEqual([
       expect.objectContaining({
         id: "tool:call-1",
         index: 0,
         revision: 2,
         phase: "complete",
-        blocks: [expect.objectContaining({ kind: "tool_result", tool: "bash", callId: "call-1", preview: "/tmp/project" })],
+        blocks: [
+          expect.objectContaining({ kind: "tool_result", tool: "bash", callId: "call-1", preview: "/tmp/project" }),
+        ],
       }),
     ]);
   });

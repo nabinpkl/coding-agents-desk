@@ -183,10 +183,10 @@ function loadHandles(file: string): [string, string][] {
   try {
     const parsed = JSON.parse(raw) as { version?: unknown; entries?: unknown };
     if (parsed.version !== 1 || !Array.isArray(parsed.entries)) throw new Error("not version 1");
-    return parsed.entries.filter((entry): entry is [string, string] => (
-      Array.isArray(entry) && entry.length === 2
-        && typeof entry[0] === "string" && typeof entry[1] === "string"
-    ));
+    return parsed.entries.filter(
+      (entry): entry is [string, string] =>
+        Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string" && typeof entry[1] === "string",
+    );
   } catch (error) {
     console.error(`composer handles: ${file} is not a handles file, starting empty`, error);
     return [];
@@ -236,9 +236,6 @@ function handleWriter(file: string, held: ReadonlyMap<string, string>): () => vo
  * unchanged rather than retyping the characters of its name, which would detach the paste in
  * somebody's session and lose what they pasted.
  */
-export function meaning(
-  text: string,
-  lookup: (token: string) => string | null,
-): string {
+export function meaning(text: string, lookup: (token: string) => string | null): string {
   return text.replace(PASTE, (token) => lookup(token) ?? token);
 }

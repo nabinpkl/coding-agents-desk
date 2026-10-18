@@ -122,10 +122,7 @@ export function mergeSidecars(
  * and every existing caller already speak. Sorting the rest keeps the picker order from jumping
  * between reads.
  */
-export function indexFor(
-  live: ReadonlyMap<string, LiveSidecar>,
-  self: string,
-): { id?: string; label: string }[] {
+export function indexFor(live: ReadonlyMap<string, LiveSidecar>, self: string): { id?: string; label: string }[] {
   const others = [...live.values()]
     .filter((entry) => entry.id !== self)
     .sort((a, b) => a.label.localeCompare(b.label))

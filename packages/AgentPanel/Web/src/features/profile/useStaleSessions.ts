@@ -121,10 +121,13 @@ function restartOn(
     const key = machineKey(machine);
     const sessionIds = sessionIdsByMachine.get(key)!;
     setAction(key, { kind: "restarting", count: sessionIds.length });
-    return machine.feed.restartStaleSessions(sessionIds).then(
-      (results) => setAction(key, { kind: "done", results }),
-      (error: unknown) => setAction(key, { kind: "failed", message: messageOf(error) }),
-    ).finally(() => loadMachine(machine));
+    return machine.feed
+      .restartStaleSessions(sessionIds)
+      .then(
+        (results) => setAction(key, { kind: "done", results }),
+        (error: unknown) => setAction(key, { kind: "failed", message: messageOf(error) }),
+      )
+      .finally(() => loadMachine(machine));
   });
   void Promise.all(runs).finally(() => store.setState({ restarting: false }));
 }
@@ -154,14 +157,18 @@ export function useStaleSessions(all: readonly StaleSessionsMachine[]): StaleSes
     (sessionIdsByMachine: ReadonlyMap<string, readonly string[]>) => restartOn(all, sessionIdsByMachine),
     [all],
   );
-  const machines = useMemo(() => all.map((machine) => {
-    const key = machineKey(machine);
-    return {
-      key,
-      label: machine.label,
-      view: views.get(key) ?? { kind: "idle" as const },
-      action: actions.get(key) ?? { kind: "none" as const },
-    };
-  }), [all, views, actions]);
+  const machines = useMemo(
+    () =>
+      all.map((machine) => {
+        const key = machineKey(machine);
+        return {
+          key,
+          label: machine.label,
+          view: views.get(key) ?? { kind: "idle" as const },
+          action: actions.get(key) ?? { kind: "none" as const },
+        };
+      }),
+    [all, views, actions],
+  );
   return { machines, load, restart };
 }

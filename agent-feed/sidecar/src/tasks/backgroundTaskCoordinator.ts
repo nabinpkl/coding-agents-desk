@@ -147,23 +147,29 @@ export function createBackgroundTaskCoordinator(options: BackgroundTaskCoordinat
     }
 
     const at = now();
-    await Promise.all(sessionIds.map(async (sessionId) => {
-      let snapshot: BackgroundTaskSnapshot;
-      try {
-        const owner = kernel.owners.get(sessionId) ?? null;
-        snapshot = await backgroundTaskSnapshot(sessionId, {
-          owner,
-          shells: owner ? kernel.shellsByOwner.get(owner.pid) ?? [] : [],
-          table: kernel.table,
-        }, at);
-      } catch (error) {
-        // A probe that throws is a bug in the probe, not a reason to drop the subscriber. Report it
-        // and keep the stream alive so a fixed probe recovers on the next tick.
-        console.error("agent feed background task probe failed", error);
-        snapshot = EMPTY;
-      }
-      publish(sessionId, snapshot);
-    }));
+    await Promise.all(
+      sessionIds.map(async (sessionId) => {
+        let snapshot: BackgroundTaskSnapshot;
+        try {
+          const owner = kernel.owners.get(sessionId) ?? null;
+          snapshot = await backgroundTaskSnapshot(
+            sessionId,
+            {
+              owner,
+              shells: owner ? (kernel.shellsByOwner.get(owner.pid) ?? []) : [],
+              table: kernel.table,
+            },
+            at,
+          );
+        } catch (error) {
+          // A probe that throws is a bug in the probe, not a reason to drop the subscriber. Report it
+          // and keep the stream alive so a fixed probe recovers on the next tick.
+          console.error("agent feed background task probe failed", error);
+          snapshot = EMPTY;
+        }
+        publish(sessionId, snapshot);
+      }),
+    );
   }
 
   function publish(sessionId: string, snapshot: BackgroundTaskSnapshot): void {

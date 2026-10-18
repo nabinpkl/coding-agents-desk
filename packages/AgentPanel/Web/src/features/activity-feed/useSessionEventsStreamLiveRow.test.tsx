@@ -27,10 +27,7 @@ describe("a row that streams in past the paged window", () => {
     });
 
     act(() => handlers?.onEvent?.(streamed(0, "one ")));
-    expect(view.result.current.events.map((value) => value.id)).toEqual([
-      "reader-turn",
-      "opencode:msg-1",
-    ]);
+    expect(view.result.current.events.map((value) => value.id)).toEqual(["reader-turn", "opencode:msg-1"]);
 
     act(() => handlers?.onEvent?.(streamed(1, "one two")));
     expect(view.result.current.events[1]?.blocks).toEqual([{ kind: "text", text: "one two" }]);

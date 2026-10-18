@@ -16,10 +16,7 @@
 import { watch } from "node:fs";
 import { lstat } from "node:fs/promises";
 import type { Socket } from "bun";
-import {
-  DISCONNECTED_CLAUDE_SDK_STATE,
-  type ClaudeSdkSessionState,
-} from "@agentdesk/agent-feed-wire";
+import { DISCONNECTED_CLAUDE_SDK_STATE, type ClaudeSdkSessionState } from "@agentdesk/agent-feed-wire";
 import {
   encodeLine,
   LineReader,
@@ -44,7 +41,11 @@ type RunnerMessage = DistributiveOmit<Exclude<SidecarToRunner, { type: "hello" }
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
 /** A command that could not reach a runner at all, as distinct from one a runner refused. */
-export const NO_RUNNER: SessionReply = { ok: false, reason: "failed", message: "no runner is answering for this session" };
+export const NO_RUNNER: SessionReply = {
+  ok: false,
+  reason: "failed",
+  message: "no runner is answering for this session",
+};
 const NO_RUNNER_REPLY: RunnerReply = { ok: false, message: NO_RUNNER.message };
 
 interface Connection {
@@ -70,9 +71,16 @@ let shared: ClaudeSdkClient | null = null;
  * routes, which do, before anything else can ask.
  */
 export function sharedClaudeSdkClient(sink: Pick<ClaudeSdkLiveFeed, "stream" | "gone"> | null = null): ClaudeSdkClient {
-  shared ??= new ClaudeSdkClient(config.claudeSdkSocketDirectory, undefined, sink, (client, sessionId, state) =>
-    // Imported when first needed: the relaunch reaches tmux and the catalog, which this module does not.
-    void import("@/claude-sdk/claudeSdkSwitch").then(({ relaunchStaleRunner }) => relaunchStaleRunner(client, sessionId, state)));
+  shared ??= new ClaudeSdkClient(
+    config.claudeSdkSocketDirectory,
+    undefined,
+    sink,
+    (client, sessionId, state) =>
+      // Imported when first needed: the relaunch reaches tmux and the catalog, which this module does not.
+      void import("@/claude-sdk/claudeSdkSwitch").then(({ relaunchStaleRunner }) =>
+        relaunchStaleRunner(client, sessionId, state),
+      ),
+  );
   return shared;
 }
 
@@ -143,7 +151,7 @@ export class ClaudeSdkClient {
   /** Carries out one of the panel's commands, answering whether it happened and why not. */
   async command(sessionId: string, command: SessionCommand): Promise<SessionReply> {
     const connection = this.connection(sessionId);
-    if (!await this.open(connection) || !connection.session) {
+    if (!(await this.open(connection)) || !connection.session) {
       this.release(connection);
       return NO_RUNNER;
     }
@@ -236,7 +244,7 @@ export class ClaudeSdkClient {
 
   private async connect(connection: Connection): Promise<boolean> {
     const path = runnerSocketPath(this.socketDirectory, connection.sessionId);
-    if (!await this.directoryIsPrivate() || !await this.socketIsOurs(path)) return false;
+    if (!(await this.directoryIsPrivate()) || !(await this.socketIsOurs(path))) return false;
     const reader = new LineReader();
     let introduced = false;
     let greeted!: (ok: boolean) => void;
@@ -291,10 +299,20 @@ export class ClaudeSdkClient {
    */
   private introduces(connection: Connection, line: string): boolean {
     const message = parseRunnerMessage(line);
-    if (message?.type === "hello" && message.version === PROTOCOL_VERSION && message.sessionId === connection.sessionId) {
-      connection.session = new SdkSession(connection.sessionId, message.allowBypass, message.choices, message.permissionMode);
+    if (
+      message?.type === "hello" &&
+      message.version === PROTOCOL_VERSION &&
+      message.sessionId === connection.sessionId
+    ) {
+      connection.session = new SdkSession(
+        connection.sessionId,
+        message.allowBypass,
+        message.choices,
+        message.permissionMode,
+      );
       connection.stale = message.build !== this.currentBuild();
-      if (connection.stale) this.log(`${connection.sessionId}: its runner is build ${message.build}, older than this code`);
+      if (connection.stale)
+        this.log(`${connection.sessionId}: its runner is build ${message.build}, older than this code`);
       return true;
     }
     if (this.olderRunner(connection, line)) return false;
@@ -314,8 +332,11 @@ export class ClaudeSdkClient {
     } catch {
       return false;
     }
-    if (hello?.type !== "hello" || hello.sessionId !== connection.sessionId || hello.version === PROTOCOL_VERSION) return false;
-    this.log(`${connection.sessionId}: its runner speaks protocol ${String(hello.version)}, not ${PROTOCOL_VERSION}; relaunching it once idle`);
+    if (hello?.type !== "hello" || hello.sessionId !== connection.sessionId || hello.version === PROTOCOL_VERSION)
+      return false;
+    this.log(
+      `${connection.sessionId}: its runner speaks protocol ${String(hello.version)}, not ${PROTOCOL_VERSION}; relaunching it once idle`,
+    );
     this.onStale?.(this, connection.sessionId, DISCONNECTED_CLAUDE_SDK_STATE);
     return true;
   }
@@ -342,7 +363,11 @@ export class ClaudeSdkClient {
       case "callback": {
         const refusal = session.hold(message.callback);
         if (refusal) {
-          void this.send(connection, { type: "settle", callback: message.callback.id, result: refusal as { behavior: "deny" } });
+          void this.send(connection, {
+            type: "settle",
+            callback: message.callback.id,
+            result: refusal as { behavior: "deny" },
+          });
         }
         this.update(connection);
         return;
@@ -441,7 +466,7 @@ export class ClaudeSdkClient {
   private async watchDirectory(): Promise<void> {
     if (this.watching) return;
     this.watching = true;
-    if (!await this.directoryIsPrivate()) return;
+    if (!(await this.directoryIsPrivate())) return;
     try {
       watch(this.socketDirectory, (_event, file) => {
         const sessionId = typeof file === "string" && file.endsWith(".sock") ? file.slice(0, -".sock".length) : null;

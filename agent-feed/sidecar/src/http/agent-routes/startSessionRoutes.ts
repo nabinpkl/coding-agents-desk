@@ -134,7 +134,8 @@ async function startOpencode(
   plan: { requestId: string; projectPath: string; title: string; prompt: string | undefined },
 ): Promise<Response> {
   const backend = resolveBackend("opencode") as unknown as OpencodeStartBackend | undefined;
-  if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404, plan.requestId);
+  if (!backend)
+    return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404, plan.requestId);
   // Before the serve makes anything, so a machine without the TUI refuses rather than leaving a
   // session that has no pane to watch it in.
   if (!actions.opencodeInstalled()) {

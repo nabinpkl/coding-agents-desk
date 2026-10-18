@@ -67,19 +67,32 @@ export function messageText(ev: ActivityEvent): string {
 export function eventPreview(ev: ActivityEvent): string {
   let preview = "";
   for (const block of ev.blocks) {
-    if (block.kind === "text" && block.text) { preview = block.text; break; }
-    if (block.kind === "tool_use") { preview = block.summary || block.tool || ""; break; }
-    if (block.kind === "tool_result" && block.preview) { preview = block.preview; break; }
-    if (block.kind === "reasoning" && block.text) { preview = block.text; break; }
-    if (block.kind === "image") { preview = "Image"; break; }
+    if (block.kind === "text" && block.text) {
+      preview = block.text;
+      break;
+    }
+    if (block.kind === "tool_use") {
+      preview = block.summary || block.tool || "";
+      break;
+    }
+    if (block.kind === "tool_result" && block.preview) {
+      preview = block.preview;
+      break;
+    }
+    if (block.kind === "reasoning" && block.text) {
+      preview = block.text;
+      break;
+    }
+    if (block.kind === "image") {
+      preview = "Image";
+      break;
+    }
     // A metadata or plain block IS the content of a harness state line -- the whole
     // event is one labelled dump. Scanning only the four kinds above made every such
     // row in the raw view read as a chip beside "(no content)", which is exactly the
     // rows the raw view exists to show.
     if ((block.kind === "metadata" || block.kind === "plain") && (block.label || block.text)) {
-      preview = block.label && block.text
-        ? `${block.label}: ${block.text}`
-        : block.label ?? block.text ?? "";
+      preview = block.label && block.text ? `${block.label}: ${block.text}` : (block.label ?? block.text ?? "");
       break;
     }
   }

@@ -8,21 +8,14 @@ import { announceDirectory, announceSidecar, readSupervisorDescriptor } from "@/
 import { createSupervisorRoutes } from "@/http/supervisorRoutes";
 import { createTelemetryRoutes } from "@/telemetry/telemetryRoutes";
 import { sinkEnvelope } from "@/telemetry/telemetrySink";
-import {
-  BYE_BYTES,
-  errorResponse,
-  jsonResponse,
-} from "@/http/protocol/httpResponses";
+import { BYE_BYTES, errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
 import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
 import { createStartSessionRoutes } from "@/http/agent-routes/startSessionRoutes";
 import { createHandoverRoutes, LIVE_HANDOVER_ACTIONS } from "@/http/agent-routes/handoverRoutes";
 import { createOpencodeRoutes } from "@/http/agent-routes/opencodeRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
 import { createCliSessionRoutes } from "@/http/session-routes/cliSessionRoutes";
-import {
-  createTmuxComposerRoutes,
-  liveTmuxComposerDependencies,
-} from "@/http/session-routes/tmuxComposerRoutes";
+import { createTmuxComposerRoutes, liveTmuxComposerDependencies } from "@/http/session-routes/tmuxComposerRoutes";
 import { createTmuxQuestionRoutes } from "@/http/session-routes/tmuxQuestionRoutes";
 import { createClaudeSdkRoutes } from "@/claude-sdk/claudeSdkRoutes";
 import { answerTmuxQuestion } from "@/input/question/questionAnswer";
@@ -115,8 +108,7 @@ registerBunOAuthFlows();
 
 const backends = new AgentBackendRegistry();
 const resolveBackend = (id: string) => backends.get(id);
-const describeAgentSession = (source: string, sessionId: string) =>
-  backends.get(source)?.describeSession(sessionId);
+const describeAgentSession = (source: string, sessionId: string) => backends.get(source)?.describeSession(sessionId);
 const botStore = new BotStore(config.botsPath);
 const sessionArchive = new SessionArchiveStore(config.sessionArchivePath);
 installSessionArchive(sessionArchive);
@@ -130,17 +122,16 @@ const botCatalog: BotRegistryCatalog = {
     // The catalog first, then any directory this machine has under home: a project nobody has
     // started a session in yet is not in the catalog, and it is the one the panel's folder picker
     // exists to bind. `botDirectory.ts` carries the confinement and why it is there.
-    return bindableDirectory(path, (candidate) =>
-      getSnapshot().some((session) => session.project === candidate));
+    return bindableDirectory(path, (candidate) => getSnapshot().some((session) => session.project === candidate));
   },
   resolveSession(ref) {
     const session = findSession(ref.source, ref.sessionId);
     return session
       ? {
-        projectPath: session.project,
-        summary: summarizeSession(session, describeAgentSession),
-        ...(session.transcriptPath ? { transcriptPath: session.transcriptPath } : {}),
-      }
+          projectPath: session.project,
+          summary: summarizeSession(session, describeAgentSession),
+          ...(session.transcriptPath ? { transcriptPath: session.transcriptPath } : {}),
+        }
       : undefined;
   },
   subscribe(listener) {
@@ -153,25 +144,24 @@ const botRegistry = new BotRegistry(botStore, botCatalog);
 startLiveIdleSessionSweep(botStore);
 // Asked now rather than at the first launch, which would otherwise wait on the user's ~/.zshrc.
 void userShellPath();
-const agentTerminals = new AgentTerminalService(
-  config.ptyManagerSocketPath,
-  (source, sessionId) => {
-    const session = findSession(source, sessionId);
-    if (!session) return undefined;
-    const summary = summarizeSession(session, describeAgentSession);
-    const { project: projectPath, lastEntrypoint } = session;
-    return { projectPath, activity: summary.activity, title: summary.title, lastEntrypoint };
-  },
+const agentTerminals = new AgentTerminalService(config.ptyManagerSocketPath, (source, sessionId) => {
+  const session = findSession(source, sessionId);
+  if (!session) return undefined;
+  const summary = summarizeSession(session, describeAgentSession);
+  const { project: projectPath, lastEntrypoint } = session;
+  return { projectPath, activity: summary.activity, title: summary.title, lastEntrypoint };
+});
+backends.register(
+  new PiAgentBackend({
+    resolveSession: resolvePiSession,
+    onSessionCreated: registerPiSession,
+    onSessionChanged: notifyPiSessionChanged,
+    customToolsForSession: async ({ source, sessionId }) =>
+      (await botRegistry.botAllowedToAdd({ source, sessionId }))
+        ? [createAddBotTool(botRegistry, { source, sessionId })]
+        : [],
+  }),
 );
-backends.register(new PiAgentBackend({
-  resolveSession: resolvePiSession,
-  onSessionCreated: registerPiSession,
-  onSessionChanged: notifyPiSessionChanged,
-  customToolsForSession: async ({ source, sessionId }) =>
-    await botRegistry.botAllowedToAdd({ source, sessionId })
-      ? [createAddBotTool(botRegistry, { source, sessionId })]
-      : [],
-}));
 // Opencode sessions are owned by the serve on this machine, not by files the
 // catalog watches: the backend reads them over the SDK client while the
 // catalog reconciler lists them, the same split Pi keeps between runtime and
@@ -291,9 +281,7 @@ const routes: RouteHandler[] = [
   createSubagentRoutes(),
   // And `/composer`, which is the other way of typing at the same session. It takes the pane
   // signal from the terminal service because that service owns the pane's one pipe.
-  createTmuxComposerRoutes(liveTmuxComposerDependencies(
-    (pane, onOutput) => agentTerminals.watchPane(pane, onOutput),
-  )),
+  createTmuxComposerRoutes(liveTmuxComposerDependencies((pane, onOutput) => agentTerminals.watchPane(pane, onOutput))),
   // And `/question`, which drives the same keyboard at the dialog that replaces that composer
   // while Claude is waiting for an answer. No pane signal: it is one operation, not a watch.
   // Two drivers behind one path, split by what each may press: `answer` may press the keys that
@@ -304,13 +292,15 @@ const routes: RouteHandler[] = [
   createSummaryRoutes(resolveBackend, describeAgentSession),
   // And `/events/<n>/blocks/<b>/image`, the picture behind an image block.
   createEventImageRoutes((sessionId, eventIndex, blockIndex) => {
-    const backend = resolveBackend("opencode") as {
-      opencodeImage?: (
-        sessionId: string,
-        eventIndex: number,
-        blockIndex: number,
-      ) => { mediaType: string; data: string } | null;
-    } | undefined;
+    const backend = resolveBackend("opencode") as
+      | {
+          opencodeImage?: (
+            sessionId: string,
+            eventIndex: number,
+            blockIndex: number,
+          ) => { mediaType: string; data: string } | null;
+        }
+      | undefined;
     return backend?.opencodeImage?.(sessionId, eventIndex, blockIndex) ?? null;
   }),
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position
@@ -425,10 +415,7 @@ sidecarListening();
 // A sidecar pointed at its own announce directory joins a board of one instead, which is how a
 // probe or an arena sidecar keeps this user's real entry intact.
 const announcementDir = announceDirectory();
-const announcement = announceSidecar(
-  config.port,
-  announcementDir ? { dir: announcementDir } : undefined,
-);
+const announcement = announceSidecar(config.port, announcementDir ? { dir: announcementDir } : undefined);
 void startCatalog()
   .then(async () => {
     await claudeLive.start();
@@ -464,9 +451,7 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   state.shuttingDown = true;
-  console.log(
-    `agent feed sidecar ${signal}: draining ${state.openStreams.size} stream(s)`,
-  );
+  console.log(`agent feed sidecar ${signal}: draining ${state.openStreams.size} stream(s)`);
   for (const stream of [...state.openStreams]) {
     try {
       stream.controller.enqueue(BYE_BYTES);

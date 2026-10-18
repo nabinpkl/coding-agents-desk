@@ -10,11 +10,7 @@
 // session opens its card, and puts its Bot back on the canvas if it was off.
 
 import { useCallback, useState } from "react";
-import type {
-  BotSessionRef,
-  BotView,
-  SessionSummary,
-} from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
@@ -97,60 +93,57 @@ export function useBotCommands(
    * progress to show. A failure lands on the canvas band named against the source session,
    * which is still on screen holding the menu that asked.
    */
-  const startHandover = useCallback(async (request: HandoverRequest, message: string) => {
-    setHandoverRequest(null);
-    setBotCommandError(null);
-    const destination = handoverDestination(request.session);
-    const band = `${request.session.source}:${request.session.sessionId}`;
-    if (!destination) {
-      // Unreachable through the dialog, which only opens for a session that has one. Said out
-      // loud rather than returned quietly, because the quiet version is a confirmed handover that
-      // starts nothing and reports nothing.
-      setBotCommandError({ session: band, message: "That session has nothing to hand over." });
-      return;
-    }
-    try {
-      const feed = feeds.forBot(request.botId);
-      if (destination === "claude") {
-        // Attached by the sidecar inside the handover, because an attach from here resolves the
-        // session against the catalog, which has not seen a Claude session whose first turn is
-        // still being written. Opened the way a fresh Bot launch is, as a stand-in card until
-        // its transcript lands.
-        const { session: started } = await feed.handoverToClaude(
-          request.session.sessionId,
-          message,
-          request.botId,
-        );
-        setNewSessions((current) => [
-          ...current,
-          {
-            botId: request.botId,
-            sessionId: started.sessionId,
-            title: started.title,
-            projectPath: started.projectPath,
-            tmuxSession: started.tmuxSession,
-          },
-        ]);
-        putBotOnCanvas(request.botId);
-        setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
+  const startHandover = useCallback(
+    async (request: HandoverRequest, message: string) => {
+      setHandoverRequest(null);
+      setBotCommandError(null);
+      const destination = handoverDestination(request.session);
+      const band = `${request.session.source}:${request.session.sessionId}`;
+      if (!destination) {
+        // Unreachable through the dialog, which only opens for a session that has one. Said out
+        // loud rather than returned quietly, because the quiet version is a confirmed handover that
+        // starts nothing and reports nothing.
+        setBotCommandError({ session: band, message: "That session has nothing to hand over." });
         return;
       }
-      // An opencode session is in the catalog the moment the serve creates it, so it attaches as
-      // an ordinary reference.
-      const { session: started } = await feed.handoverToOpencode(request.session.sessionId, message);
-      await feed.addBotSessions(request.botId, {
-        sessionRefs: [{ source: destination, sessionId: started.sessionId }],
-      });
-      setCanvasOpenKeys((current) => new Set(current).add(`${destination}:${started.sessionId}`));
-    } catch (error) {
-      setBotCommandError({
-        session: band,
-        message: `Could not hand over the session: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-  }, [feeds, putBotOnCanvas, setCanvasOpenKeys]);
+      try {
+        const feed = feeds.forBot(request.botId);
+        if (destination === "claude") {
+          // Attached by the sidecar inside the handover, because an attach from here resolves the
+          // session against the catalog, which has not seen a Claude session whose first turn is
+          // still being written. Opened the way a fresh Bot launch is, as a stand-in card until
+          // its transcript lands.
+          const { session: started } = await feed.handoverToClaude(request.session.sessionId, message, request.botId);
+          setNewSessions((current) => [
+            ...current,
+            {
+              botId: request.botId,
+              sessionId: started.sessionId,
+              title: started.title,
+              projectPath: started.projectPath,
+              tmuxSession: started.tmuxSession,
+            },
+          ]);
+          putBotOnCanvas(request.botId);
+          setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
+          return;
+        }
+        // An opencode session is in the catalog the moment the serve creates it, so it attaches as
+        // an ordinary reference.
+        const { session: started } = await feed.handoverToOpencode(request.session.sessionId, message);
+        await feed.addBotSessions(request.botId, {
+          sessionRefs: [{ source: destination, sessionId: started.sessionId }],
+        });
+        setCanvasOpenKeys((current) => new Set(current).add(`${destination}:${started.sessionId}`));
+      } catch (error) {
+        setBotCommandError({
+          session: band,
+          message: `Could not hand over the session: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    },
+    [feeds, putBotOnCanvas, setCanvasOpenKeys],
+  );
 
   const forks = useForkCommands(feeds, roster, setBotCommandError, setNewSessions);
 
@@ -162,63 +155,69 @@ export function useBotCommands(
    * at once and opens as an ordinary card -- no stand-in card waiting on a first turn. Naming comes
    * after the attach because the anchor it brackets onto is spent BY the attach.
    */
-  const startOpencodeSession = useCallback(async (bot: BotView, task: string) => {
-    const feed = feeds.forBot(bot.botId);
-    let created: { sessionId: string } | null = null;
-    try {
-      created = await feed.createSession(bot.environment.path, "opencode");
-      await feed.addBotSessions(bot.botId, { sessionRefs: [{ source: "opencode", sessionId: created.sessionId }] });
-      putBotOnCanvas(bot.botId);
-      setCanvasOpenKeys((current) => new Set(current).add(`opencode:${created!.sessionId}`));
-      await feed.setSessionTask("opencode", created.sessionId, task);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      // Said in terms of how far it got: a session that exists but is not on the Bot, or is on it
-      // under the serve's own name, is not the same report as one that was never made.
-      setBotCommandError(created === null
-        ? { session: null, message: `Could not start the opencode session: ${reason}` }
-        : {
-          session: null,
-          message: `The opencode session ${created.sessionId} was created, but setting it up on ${bot.name} failed: ${reason}`,
-        });
-    }
-  }, [feeds, putBotOnCanvas, setCanvasOpenKeys]);
+  const startOpencodeSession = useCallback(
+    async (bot: BotView, task: string) => {
+      const feed = feeds.forBot(bot.botId);
+      let created: { sessionId: string } | null = null;
+      try {
+        created = await feed.createSession(bot.environment.path, "opencode");
+        await feed.addBotSessions(bot.botId, { sessionRefs: [{ source: "opencode", sessionId: created.sessionId }] });
+        putBotOnCanvas(bot.botId);
+        setCanvasOpenKeys((current) => new Set(current).add(`opencode:${created!.sessionId}`));
+        await feed.setSessionTask("opencode", created.sessionId, task);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        // Said in terms of how far it got: a session that exists but is not on the Bot, or is on it
+        // under the serve's own name, is not the same report as one that was never made.
+        setBotCommandError(
+          created === null
+            ? { session: null, message: `Could not start the opencode session: ${reason}` }
+            : {
+                session: null,
+                message: `The opencode session ${created.sessionId} was created, but setting it up on ${bot.name} failed: ${reason}`,
+              },
+        );
+      }
+    },
+    [feeds, putBotOnCanvas, setCanvasOpenKeys],
+  );
 
-  const startNewSession = useCallback(async (bot: BotView, title: string, harness: NewSessionHarness) => {
-    setBotSessionPickerId(null);
-    setBotCommandError(null);
-    if (harness === "opencode") {
-      await startOpencodeSession(bot, title);
-      return;
-    }
-    try {
-      const { claudeMode } = harnessStart(harness);
-      const added = await feeds.forBot(bot.botId).addBotSessions(bot.botId, {
-        launch: { title, ...(claudeMode ? { claudeMode } : {}) },
-      });
-      if (!added.started) return;
-      const started = added.started;
-      setNewSessions((current) => [
-        ...current,
-        {
-          botId: bot.botId,
-          sessionId: started.sessionId,
-          title: started.title,
-          projectPath: started.projectPath,
-          tmuxSession: started.tmuxSession,
-        },
-      ]);
-      putBotOnCanvas(bot.botId);
-      setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
-    } catch (error) {
-      setBotCommandError({
-        session: null,
-        message: `Could not start the session: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-  }, [feeds, putBotOnCanvas, startOpencodeSession, setCanvasOpenKeys]);
+  const startNewSession = useCallback(
+    async (bot: BotView, title: string, harness: NewSessionHarness) => {
+      setBotSessionPickerId(null);
+      setBotCommandError(null);
+      if (harness === "opencode") {
+        await startOpencodeSession(bot, title);
+        return;
+      }
+      try {
+        const { claudeMode } = harnessStart(harness);
+        const added = await feeds.forBot(bot.botId).addBotSessions(bot.botId, {
+          launch: { title, ...(claudeMode ? { claudeMode } : {}) },
+        });
+        if (!added.started) return;
+        const started = added.started;
+        setNewSessions((current) => [
+          ...current,
+          {
+            botId: bot.botId,
+            sessionId: started.sessionId,
+            title: started.title,
+            projectPath: started.projectPath,
+            tmuxSession: started.tmuxSession,
+          },
+        ]);
+        putBotOnCanvas(bot.botId);
+        setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
+      } catch (error) {
+        setBotCommandError({
+          session: null,
+          message: `Could not start the session: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    },
+    [feeds, putBotOnCanvas, startOpencodeSession, setCanvasOpenKeys],
+  );
 
   /** Takes a started session off the canvas. Its tmux session keeps running; see the card. */
   const closeNewSession = useCallback((sessionId: string) => {
@@ -234,20 +233,29 @@ export function useBotCommands(
    * here has to be updated when the rename lands.
    */
   const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
-  const renameSession = useCallback(async (session: SessionSummary, title: string) => {
-    await feeds.forSession(session).renameSession(session.source, session.sessionId, title);
-    setRenamingSession(null);
-  }, [feeds]);
+  const renameSession = useCallback(
+    async (session: SessionSummary, title: string) => {
+      await feeds.forSession(session).renameSession(session.source, session.sessionId, title);
+      setRenamingSession(null);
+    },
+    [feeds],
+  );
 
-  const openBotSessionPicker = useCallback((bot: BotView) => {
-    setBotSessionPickerId(bot.botId);
-    setHoverPreviewOpen(false);
-  }, [setHoverPreviewOpen]);
+  const openBotSessionPicker = useCallback(
+    (bot: BotView) => {
+      setBotSessionPickerId(bot.botId);
+      setHoverPreviewOpen(false);
+    },
+    [setHoverPreviewOpen],
+  );
 
-  const attachBotSessions = useCallback(async (bot: BotView, sessionRefs: BotSessionRef[]) => {
-    await feeds.forBot(bot.botId).addBotSessions(bot.botId, { sessionRefs });
-    setBotSessionPickerId(null);
-  }, [feeds]);
+  const attachBotSessions = useCallback(
+    async (bot: BotView, sessionRefs: BotSessionRef[]) => {
+      await feeds.forBot(bot.botId).addBotSessions(bot.botId, { sessionRefs });
+      setBotSessionPickerId(null);
+    },
+    [feeds],
+  );
 
   /**
    * Drops one session from a Bot's projection.
@@ -257,34 +265,37 @@ export function useBotCommands(
    * failure surfaces on the same band the thread's own command errors use, because a removal that
    * silently did nothing is indistinguishable from one that worked.
    */
-  const detachBotSession = useCallback((bot: BotView, ref: BotSessionRef) => {
-    // A missing reference has no summary to take a title from, which is exactly the row this has
-    // to work on, so the id stands in.
-    const label = bot.sessions
-      .find((session) => session.source === ref.source && session.sessionId === ref.sessionId)
-      ?.title || ref.sessionId;
-    // Rebuilt field by field rather than forwarded. A `SessionSummary` structurally satisfies
-    // `BotSessionRef`, so an attached row hands this its whole summary -- capabilities, title,
-    // timestamps -- and passing it straight on would put all of it on the wire.
-    const target: BotSessionRef = { source: ref.source, sessionId: ref.sessionId };
-    // Cleared as the next removal starts rather than by the open session's own commands: the
-    // failure belongs to the Bot edit, so it should outlive a send and not outlive another edit.
-    setBotCommandError(null);
-    // Nothing to forget about its place on the canvas: the sidecar drops the session from the
-    // Bot's off-canvas list in the same write that detaches it.
-    void Promise.resolve()
-      .then(() => feeds.forBot(bot.botId).detachBotSessions(bot.botId, { sessionRefs: [target] }))
-      .catch((error: unknown) => {
-        // Named: the detach failed, so the session is still on the canvas and its own card is
-        // what says the removal did not happen.
-        setBotCommandError({
-          session: `${target.source}:${target.sessionId}`,
-          message: `Could not remove ${label} from ${bot.name}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+  const detachBotSession = useCallback(
+    (bot: BotView, ref: BotSessionRef) => {
+      // A missing reference has no summary to take a title from, which is exactly the row this has
+      // to work on, so the id stands in.
+      const label =
+        bot.sessions.find((session) => session.source === ref.source && session.sessionId === ref.sessionId)?.title ||
+        ref.sessionId;
+      // Rebuilt field by field rather than forwarded. A `SessionSummary` structurally satisfies
+      // `BotSessionRef`, so an attached row hands this its whole summary -- capabilities, title,
+      // timestamps -- and passing it straight on would put all of it on the wire.
+      const target: BotSessionRef = { source: ref.source, sessionId: ref.sessionId };
+      // Cleared as the next removal starts rather than by the open session's own commands: the
+      // failure belongs to the Bot edit, so it should outlive a send and not outlive another edit.
+      setBotCommandError(null);
+      // Nothing to forget about its place on the canvas: the sidecar drops the session from the
+      // Bot's off-canvas list in the same write that detaches it.
+      void Promise.resolve()
+        .then(() => feeds.forBot(bot.botId).detachBotSessions(bot.botId, { sessionRefs: [target] }))
+        .catch((error: unknown) => {
+          // Named: the detach failed, so the session is still on the canvas and its own card is
+          // what says the removal did not happen.
+          setBotCommandError({
+            session: `${target.source}:${target.sessionId}`,
+            message: `Could not remove ${label} from ${bot.name}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
         });
-      });
-  }, [feeds]);
+    },
+    [feeds],
+  );
 
   /**
    * Stands one Bot's sessions in a new order.
@@ -300,9 +311,9 @@ export function useBotCommands(
    */
   const reorderBotSessions = useCallback(
     (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => {
-      const label = bot.sessions
-        .find((session) => session.source === moved.source && session.sessionId === moved.sessionId)
-        ?.title || moved.sessionId;
+      const label =
+        bot.sessions.find((session) => session.source === moved.source && session.sessionId === moved.sessionId)
+          ?.title || moved.sessionId;
       setBotCommandError(null);
       void Promise.resolve()
         .then(() => feeds.forBot(bot.botId).reorderBotSessions(bot.botId, { sessionRefs }))

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { clusterLabel, isSkillActivation, itemKey, leadEvent, isEventItem, type DisplayItem } from "@/features/activity-feed/rows/activityDisplayItems";
+import {
+  clusterLabel,
+  isSkillActivation,
+  itemKey,
+  leadEvent,
+  isEventItem,
+  type DisplayItem,
+} from "@/features/activity-feed/rows/activityDisplayItems";
 import { buildFeedLayout } from "@/features/activity-feed/rows/activityFeedLayout";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
@@ -46,29 +53,21 @@ describe("nice-mode clustering", () => {
       system("item completed"),
       reasoning("**Designing diagnostics**\n\n**Defining sampling**"),
       system("item completed"),
-      reasoning(
-        "**Designing diagnostics**\n\n**Defining sampling**\n\n**Adding repair metrics**",
-      ),
-      reasoning(
-        "**Designing diagnostics**\n\n**Defining sampling**\n\n**Adding repair metrics**",
-      ),
+      reasoning("**Designing diagnostics**\n\n**Defining sampling**\n\n**Adding repair metrics**"),
+      reasoning("**Designing diagnostics**\n\n**Defining sampling**\n\n**Adding repair metrics**"),
     ];
 
-    const niceReasoning = buildFeedLayout(events, NICE).items
-      .filter(isEventItem)
+    const niceReasoning = buildFeedLayout(events, NICE)
+      .items.filter(isEventItem)
       .map(leadEvent)
       .flatMap((event) => event.blocks)
       .filter((block) => block.kind === "reasoning")
       .map((block) => block.text);
 
-    expect(niceReasoning).toEqual([
-      "**Designing diagnostics**",
-      "**Defining sampling**",
-      "**Adding repair metrics**",
-    ]);
+    expect(niceReasoning).toEqual(["**Designing diagnostics**", "**Defining sampling**", "**Adding repair metrics**"]);
 
-    const rawReasoning = buildFeedLayout(events).items
-      .filter(isEventItem)
+    const rawReasoning = buildFeedLayout(events)
+      .items.filter(isEventItem)
       .map(leadEvent)
       .flatMap((event) => event.blocks)
       .filter((block) => block.kind === "reasoning")
@@ -80,10 +79,18 @@ describe("nice-mode clustering", () => {
     nextIndex = 0;
     const events = [system("session initialized"), prose("Ready")];
 
-    expect(buildFeedLayout(events, NICE).items.filter(isEventItem).map(leadEvent).map((event) => event.type))
-      .toEqual(["assistant"]);
-    expect(buildFeedLayout(events).items.filter(isEventItem).map(leadEvent).map((event) => event.type))
-      .toEqual(["system", "assistant"]);
+    expect(
+      buildFeedLayout(events, NICE)
+        .items.filter(isEventItem)
+        .map(leadEvent)
+        .map((event) => event.type),
+    ).toEqual(["assistant"]);
+    expect(
+      buildFeedLayout(events)
+        .items.filter(isEventItem)
+        .map(leadEvent)
+        .map((event) => event.type),
+    ).toEqual(["system", "assistant"]);
   });
 
   it("shows a run of tool work as its own rows until the reader folds it", () => {
@@ -120,11 +127,7 @@ describe("nice-mode clustering", () => {
     nextIndex = 0;
     const layout = buildFeedLayout([prose("a"), call("Read"), prose("b")], NICE);
 
-    expect(layout.items.map((item) => item.kind)).toEqual([
-      "segment_event",
-      "segment_event",
-      "segment_event",
-    ]);
+    expect(layout.items.map((item) => item.kind)).toEqual(["segment_event", "segment_event", "segment_event"]);
   });
 
   it("never folds a skill activation or a delegation", () => {
@@ -140,13 +143,10 @@ describe("nice-mode clustering", () => {
 
     // A skill activation changes what the agent is doing. Folding it into "3 steps"
     // would hide the one line that explains the next twenty.
-    expect(layout.items.map((item) => item.kind)).toEqual([
-      "segment_event",
-      "segment_event",
-      "cluster",
-    ]);
-    expect(layout.items[1]!.kind === "segment_event" &&
-      layout.items[1]!.ev.blocks[0]?.summary).toBe("Skill codebase-onboarding");
+    expect(layout.items.map((item) => item.kind)).toEqual(["segment_event", "segment_event", "cluster"]);
+    expect(layout.items[1]!.kind === "segment_event" && layout.items[1]!.ev.blocks[0]?.summary).toBe(
+      "Skill codebase-onboarding",
+    );
   });
 
   it("detects a codex skill activation from the truncated summary", () => {
@@ -154,9 +154,7 @@ describe("nice-mode clustering", () => {
     // 3,123 of the 3,322 such calls across this project's rollouts (94%) name the
     // path inside the 200 characters the summary keeps -- which is why this works
     // from the summary the phone also receives, with no untruncated input needed.
-    expect(isSkillActivation(
-      call("exec_command", "cat /Users/dev/.agents/skills/taste/SKILL.md"),
-    )).toBe(true);
+    expect(isSkillActivation(call("exec_command", "cat /Users/dev/.agents/skills/taste/SKILL.md"))).toBe(true);
     expect(isSkillActivation(call("exec_command", "cat README.md"))).toBe(false);
   });
 
@@ -185,11 +183,7 @@ describe("nice-mode clustering", () => {
     const events = [call("Read", "a"), call("Read", "b"), call("Edit", "c")];
     const opened = buildFeedLayout(events, NICE);
 
-    expect(opened.items.map((item) => item.kind)).toEqual([
-      "segment_event",
-      "segment_event",
-      "segment_event",
-    ]);
+    expect(opened.items.map((item) => item.kind)).toEqual(["segment_event", "segment_event", "segment_event"]);
     expect(opened.clusterLeadIds).toEqual([events[0]!.index]);
     expect(foldedLayout(events).clusterLeadIds).toEqual([events[0]!.index]);
   });
@@ -215,10 +209,9 @@ describe("nice-mode clustering", () => {
 describe("clusterLabel", () => {
   it("names the tools and their counts", () => {
     nextIndex = 0;
-    expect(clusterLabel([
-      call("Bash"), call("Bash"), call("Bash"), call("Bash"),
-      call("Edit"), call("Edit"), call("Read"),
-    ])).toBe("7 steps · Bash ×4, Edit ×2, Read");
+    expect(
+      clusterLabel([call("Bash"), call("Bash"), call("Bash"), call("Bash"), call("Edit"), call("Edit"), call("Read")]),
+    ).toBe("7 steps · Bash ×4, Edit ×2, Read");
   });
 
   it("falls back to a bare count when nothing names a tool", () => {
@@ -228,9 +221,7 @@ describe("clusterLabel", () => {
 
   it("caps the named tools so one row cannot stretch", () => {
     nextIndex = 0;
-    const label = clusterLabel([
-      call("A"), call("B"), call("C"), call("D"), call("E"), call("F"),
-    ]);
+    const label = clusterLabel([call("A"), call("B"), call("C"), call("D"), call("E"), call("F")]);
     expect(label).toBe("6 steps · A, B, C, D");
   });
 });

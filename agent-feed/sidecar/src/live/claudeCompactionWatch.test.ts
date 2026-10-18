@@ -23,11 +23,17 @@ describe("CompactionWatch summary", () => {
     expect(watch.append("f1", text(" and intent"))).toBe(true);
     expect(watch.summary("s1")).toBe("Primary request and intent");
     expect(active).toEqual([["s1", true]]);
-    expect(summaries).toEqual([["s1", "Primary request", true], ["s1", " and intent", false]]);
+    expect(summaries).toEqual([
+      ["s1", "Primary request", true],
+      ["s1", " and intent", false],
+    ]);
 
     watch.end("f1");
     expect(watch.summary("s1")).toBeNull();
-    expect(active).toEqual([["s1", true], ["s1", false]]);
+    expect(active).toEqual([
+      ["s1", true],
+      ["s1", false],
+    ]);
   });
 
   test("keeps thinking out of the summary, and leaves other flows' deltas alone", () => {
@@ -54,7 +60,11 @@ describe("CompactionWatch summary", () => {
     // The older flow keeps writing, and nobody is shown it while the retry is the newest.
     watch.append("f1", text(" more"));
     watch.append("f2", text("second"));
-    expect(summaries).toEqual([["s1", "first", true], ["s1", "", true], ["s1", "second", false]]);
+    expect(summaries).toEqual([
+      ["s1", "first", true],
+      ["s1", "", true],
+      ["s1", "second", false],
+    ]);
 
     watch.end("f2");
     expect(watch.summary("s1")).toBe("first more");

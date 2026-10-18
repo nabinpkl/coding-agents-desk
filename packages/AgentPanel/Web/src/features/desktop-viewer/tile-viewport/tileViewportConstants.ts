@@ -42,8 +42,12 @@ export function storedPointerScrollPuckOffset(): PointerScrollPuckOffset {
     const stored = window.localStorage.getItem(POINTER_SCROLL_PUCK_STORAGE_KEY);
     if (!stored) return DEFAULT_POINTER_SCROLL_PUCK_OFFSET;
     const parsed = JSON.parse(stored) as Partial<PointerScrollPuckOffset>;
-    if (typeof parsed.right !== "number" || !Number.isFinite(parsed.right)
-        || typeof parsed.bottom !== "number" || !Number.isFinite(parsed.bottom)) {
+    if (
+      typeof parsed.right !== "number" ||
+      !Number.isFinite(parsed.right) ||
+      typeof parsed.bottom !== "number" ||
+      !Number.isFinite(parsed.bottom)
+    ) {
       return DEFAULT_POINTER_SCROLL_PUCK_OFFSET;
     }
     return { right: parsed.right, bottom: parsed.bottom };

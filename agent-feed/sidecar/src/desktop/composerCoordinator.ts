@@ -164,10 +164,7 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
     return result;
   }
 
-  async function withResolvedTarget<T>(
-    key: SessionKey,
-    body: (target: WindowTarget) => Promise<T>,
-  ): Promise<T> {
+  async function withResolvedTarget<T>(key: SessionKey, body: (target: WindowTarget) => Promise<T>): Promise<T> {
     const resolved = await resolveTarget(key, await processRows(), await auditSnapshot());
     if ("reason" in resolved) throw new ComposerError(resolved.reason);
     return await body(resolved);
@@ -226,7 +223,8 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
               pollMs: config.claudeComposerSettlePollMs,
             });
             return typeof answer.text === "string" ? answer.text : "";
-          }));
+          }),
+        );
         // The window's state just changed, and a caller that only sees the result would not learn
         // the new text or Desktop. Re-resolving keeps every watching panel agreeing with the real
         // window without waiting out the poll -- including the OTHER surface, which never saw the
@@ -254,7 +252,8 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
               pollMs: config.claudeComposerSettlePollMs,
             });
             return typeof answer.text === "string" ? answer.text : "";
-          }));
+          }),
+        );
         void refresh({});
         return result;
       });
@@ -272,7 +271,9 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
           withWindowHere(key.source, target, false, async () => {
             const answer = await call(verb(key.source, "read"), payloadFor(key.source, target));
             return typeof answer.text === "string" ? answer.text : "";
-          })));
+          }),
+        ),
+      );
     },
 
     /** One AskUserQuestion interaction, answered with the panel's post-action state. */
@@ -285,9 +286,7 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
             const state = await call("question-action", {
               ...targetPayload(target),
               action: action.kind,
-              ...(action.kind === "select"
-                ? { option: action.option, desired: action.desired }
-                : {}),
+              ...(action.kind === "select" ? { option: action.option, desired: action.desired } : {}),
               ...(action.kind === "other" ? { text: action.text } : {}),
             });
             return {
@@ -299,7 +298,9 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
               otherText: (state.otherText as string | undefined) ?? null,
               submitEnabled: (state.submitEnabled as boolean | undefined) ?? null,
             } satisfies QuestionStatus;
-          })));
+          }),
+        ),
+      );
     },
 
     /**
@@ -312,8 +313,8 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
      */
     census(sessionId: string): Promise<Record<string, unknown>> {
       return serialize(() =>
-        withResolvedTarget({ source: "claude", sessionId }, (target) =>
-          call("composer-census", targetPayload(target))));
+        withResolvedTarget({ source: "claude", sessionId }, (target) => call("composer-census", targetPayload(target))),
+      );
     },
 
     /** Test seam. Ends polling and drops every subscription. */

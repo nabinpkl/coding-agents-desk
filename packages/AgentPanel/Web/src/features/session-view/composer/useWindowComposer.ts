@@ -86,13 +86,16 @@ export function useWindowComposer(
     async (operation: () => Promise<string>) => {
       setPending(true);
       setError(null);
-      return runWithFinally(async () => {
-        try {
-          adopt(await operation());
-        } catch (failure) {
-          reportFailure(failure);
-        }
-      }, () => setPending(false));
+      return runWithFinally(
+        async () => {
+          try {
+            adopt(await operation());
+          } catch (failure) {
+            reportFailure(failure);
+          }
+        },
+        () => setPending(false),
+      );
     },
     [adopt, reportFailure],
   );
@@ -130,16 +133,13 @@ export function useWindowComposer(
     }
   }, [adopt, host, reportFailure, sessionId]);
 
-  const submitWindow = useCallback(
-    () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-        debounceTimer.current = null;
-      }
-      return run(() => host.submitWindowComposer(sessionId, draftRef.current));
-    },
-    [host, run, sessionId],
-  );
+  const submitWindow = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    return run(() => host.submitWindowComposer(sessionId, draftRef.current));
+  }, [host, run, sessionId]);
 
   // The focus-gated watch: subscribing makes the host's forced status prefill
   // the field and starts the poll plus the AX value observer; the cleanup on

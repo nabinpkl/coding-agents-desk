@@ -9,7 +9,12 @@ import { contextWindowFor } from "@/config/config";
 import { longContextModelId } from "@/config/contextWindows";
 import { cacheTtlFromUsage } from "@/cacheTtl";
 import { LiveAgentProjection } from "@/agents/liveAgentProjection";
-import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type EventCacheHit, type TokenUsage } from "@/transcripts/transcriptTypes";
+import {
+  TOOL_RESULT_PREVIEW_CAP,
+  type ActivityBlock,
+  type EventCacheHit,
+  type TokenUsage,
+} from "@/transcripts/transcriptTypes";
 import type { AnthropicStreamEvent } from "@/live/claudeNetworkSource";
 import type { ToolResultItem } from "@/live/claudeRequestBody";
 import { summarizeToolUse } from "@/transcripts/claude/claudePayloads";
@@ -134,9 +139,7 @@ export function applyStreamEvent(
 ): void {
   switch (event.kind) {
     case "message_start": {
-      const messageId = typeof event.message.id === "string" && event.message.id
-        ? event.message.id
-        : undefined;
+      const messageId = typeof event.message.id === "string" && event.message.id ? event.message.id : undefined;
       context.message = {
         id: `claude-live:${messageId ?? flowId}`,
         ...(messageId ? { messageId } : {}),

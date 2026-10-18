@@ -5,14 +5,7 @@
 // the box itself does.
 
 import { expect, test } from "bun:test";
-import {
-  BACKSPACE,
-  CLOSE,
-  END,
-  held,
-  KILL,
-  OPEN,
-} from "@/input/tmuxComposerHarness";
+import { BACKSPACE, CLOSE, END, held, KILL, OPEN } from "@/input/tmuxComposerHarness";
 import { composerPastes, keystrokesFor } from "@/input/tmuxComposer";
 
 test("sends nothing when the box already reads that way", () => {
@@ -20,27 +13,25 @@ test("sends nothing when the box already reads that way", () => {
 });
 
 test("appends what was typed, so one keystroke costs one keystroke", () => {
-  expect(keystrokesFor(held(["make the hover ring"]), "make the hover rings"))
-    .toBe(`${END}${OPEN}s${CLOSE}`);
+  expect(keystrokesFor(held(["make the hover ring"]), "make the hover rings")).toBe(`${END}${OPEN}s${CLOSE}`);
   // Including from empty, where there is no prefix to match on.
   expect(keystrokesFor(held([""]), "m")).toBe(`${END}${OPEN}m${CLOSE}`);
   // A trailing space is not in the reading -- `capture-pane` strips it -- so the next letter
   // carries it back in. That is why the append is a slice of the DRAFT rather than the character
   // that was typed: sending only "r" here would have closed up a gap the reader had put there.
-  expect(keystrokesFor(held(["make the hover"]), "make the hover r"))
-    .toBe(`${END}${OPEN} r${CLOSE}`);
+  expect(keystrokesFor(held(["make the hover"]), "make the hover r")).toBe(`${END}${OPEN} r${CLOSE}`);
 });
 
 test("appends onto a wrapped composer when the reconstruction holds", () => {
   // The hypothesis was right, so a long prompt keeps costing one keystroke per keystroke instead
   // of being retyped from scratch on every letter.
-  expect(keystrokesFor(held(["alpha bravo", "charlie"]), "alpha bravo charlie delta"))
-    .toBe(`${END}${OPEN} delta${CLOSE}`);
+  expect(keystrokesFor(held(["alpha bravo", "charlie"]), "alpha bravo charlie delta")).toBe(
+    `${END}${OPEN} delta${CLOSE}`,
+  );
 });
 
 test("rubs out only what diverged on a row it knows exactly", () => {
-  expect(keystrokesFor(held(["hello world"]), "hello there"))
-    .toBe(`${END}${BACKSPACE.repeat(5)}${OPEN}there${CLOSE}`);
+  expect(keystrokesFor(held(["hello world"]), "hello there")).toBe(`${END}${BACKSPACE.repeat(5)}${OPEN}there${CLOSE}`);
   // A pure deletion sends no paste at all.
   expect(keystrokesFor(held(["hello world"]), "hello")).toBe(END + BACKSPACE.repeat(6));
 });
@@ -52,8 +43,9 @@ test("counts a backspace per code point, not per UTF-16 unit", () => {
 test("clears by row count and retypes when the reconstruction was wrong", () => {
   // Two rows, and what is wanted does not start with the guess -- so the guess is abandoned rather
   // than trusted. Three kills would be wrong; two is what the screen said.
-  expect(keystrokesFor(held(["alpha bravo", "charlie"]), "something else entirely"))
-    .toBe(`${END}${KILL.repeat(2)}${OPEN}something else entirely${CLOSE}`);
+  expect(keystrokesFor(held(["alpha bravo", "charlie"]), "something else entirely")).toBe(
+    `${END}${KILL.repeat(2)}${OPEN}something else entirely${CLOSE}`,
+  );
 });
 
 test("renders an escape visibly so a draft cannot smuggle a control sequence into the pane", () => {
@@ -64,11 +56,9 @@ test("rubs out an attachment token with ONE backspace, because that is what the 
   // Measured on a live pane: with `[Image #2] omega` in the box, six presses took " omega" one
   // character at a time and the seventh took the whole token. Counting its characters instead
   // would have sent eleven presses and deleted four characters of whatever sat to its left.
-  expect(keystrokesFor(held(["alpha [Image #2] omega"]), "alpha "))
-    .toBe(END + BACKSPACE.repeat(7));
+  expect(keystrokesFor(held(["alpha [Image #2] omega"]), "alpha ")).toBe(END + BACKSPACE.repeat(7));
   // Twenty-six characters, one press, same as the image.
-  expect(keystrokesFor(held(["[Pasted text #3 +38 lines] tail"]), ""))
-    .toBe(END + BACKSPACE.repeat(6));
+  expect(keystrokesFor(held(["[Pasted text #3 +38 lines] tail"]), "")).toBe(END + BACKSPACE.repeat(6));
 });
 
 test("never splits a token, since half of one cannot be deleted", () => {
@@ -76,14 +66,16 @@ test("never splits a token, since half of one cannot be deleted", () => {
   // of the token by character and then meet a token that goes whole, taking the neighbours too.
   // Backed up to the token's start, so it is six presses for " after" and one for the token,
   // then the whole tail is retyped.
-  expect(keystrokesFor(held(["before [Image #12] after"]), "before [Image #1] after"))
-    .toBe(`${END}${BACKSPACE.repeat(7)}${OPEN}[Image #1] after${CLOSE}`);
+  expect(keystrokesFor(held(["before [Image #12] after"]), "before [Image #1] after")).toBe(
+    `${END}${BACKSPACE.repeat(7)}${OPEN}[Image #1] after${CLOSE}`,
+  );
 });
 
 test("takes a token out of the middle without touching what sits either side", () => {
   // What removing an image from the panel's strip comes to: the token goes and the text does not.
-  expect(keystrokesFor(held(["alpha [Image #2] omega"]), "alpha omega"))
-    .toBe(`${END}${BACKSPACE.repeat(7)}${OPEN}omega${CLOSE}`);
+  expect(keystrokesFor(held(["alpha [Image #2] omega"]), "alpha omega")).toBe(
+    `${END}${BACKSPACE.repeat(7)}${OPEN}omega${CLOSE}`,
+  );
 });
 
 test("goes to the end before editing, because a backspace bites wherever the cursor is", () => {
@@ -131,8 +123,7 @@ test("appends one keystroke to a collapsed paste instead of re-pasting the messa
   store.bind("pane-1", "[Pasted text #1]", words);
   const pasted = (token: string) => store.textFor("pane-1", token);
 
-  expect(keystrokesFor(held(["[Pasted text #1]"]), `${words}!`, pasted))
-    .toBe(`${END}${OPEN}!${CLOSE}`);
+  expect(keystrokesFor(held(["[Pasted text #1]"]), `${words}!`, pasted)).toBe(`${END}${OPEN}!${CLOSE}`);
   // And the push that changes nothing sends nothing, which is the commonest outcome of all: the
   // panel pushes after a debounce and the previous push has usually already landed.
   expect(keystrokesFor(held(["[Pasted text #1]"]), words, pasted)).toBe("");
@@ -148,8 +139,9 @@ test("matches a draft that carries the handle against the box that is holding it
   const pasted = (token: string) => store.textFor("pane-1", token);
 
   expect(keystrokesFor(held(["[Pasted text #1]"]), "[Pasted text #1]", pasted)).toBe("");
-  expect(keystrokesFor(held(["[Pasted text #1]"]), "[Pasted text #1] and this", pasted))
-    .toBe(`${END}${OPEN} and this${CLOSE}`);
+  expect(keystrokesFor(held(["[Pasted text #1]"]), "[Pasted text #1] and this", pasted)).toBe(
+    `${END}${OPEN} and this${CLOSE}`,
+  );
 });
 
 test("rubs out a whole handle when the edit reaches inside the paste", () => {
@@ -162,14 +154,16 @@ test("rubs out a whole handle when the edit reaches inside the paste", () => {
   const pasted = (token: string) => store.textFor("pane-1", token);
   const shorter = words.slice(0, -10);
 
-  expect(keystrokesFor(held(["[Pasted text #1]"]), shorter, pasted))
-    .toBe(`${END}${BACKSPACE}${OPEN}${shorter}${CLOSE}`);
+  expect(keystrokesFor(held(["[Pasted text #1]"]), shorter, pasted)).toBe(
+    `${END}${BACKSPACE}${OPEN}${shorter}${CLOSE}`,
+  );
 });
 
 test("leaves a paste it did not make alone, handle and all", () => {
   // Somebody pasted at the keyboard. Nothing on this side has those words, so the handle is not
   // expanded and not retyped: appending after it is still one keystroke, which is all that can
   // honestly be offered.
-  expect(keystrokesFor(held(["[Pasted text #9 +38 lines]"]), "[Pasted text #9 +38 lines] hi"))
-    .toBe(`${END}${OPEN} hi${CLOSE}`);
+  expect(keystrokesFor(held(["[Pasted text #9 +38 lines]"]), "[Pasted text #9 +38 lines] hi")).toBe(
+    `${END}${OPEN} hi${CLOSE}`,
+  );
 });

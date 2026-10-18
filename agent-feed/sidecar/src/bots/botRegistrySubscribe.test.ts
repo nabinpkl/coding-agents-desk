@@ -22,7 +22,13 @@ async function aBotWithASession() {
   const world = await fixture();
   const bot = await addBot(
     world.registry,
-    { requestId: "r1", name: "Release Captain", directoryPath: world.project, metadata: { role: "x", labels: ["release"], custom: {} }, grants: ["add_bot"] },
+    {
+      requestId: "r1",
+      name: "Release Captain",
+      directoryPath: world.project,
+      metadata: { role: "x", labels: ["release"], custom: {} },
+      grants: ["add_bot"],
+    },
     { kind: "user" },
   );
   return { ...world, bot };
@@ -30,7 +36,12 @@ async function aBotWithASession() {
 
 test("a subscriber is woken once for the current state, and not again for session churn", async () => {
   const { registry, bot } = await aBotWithASession();
-  await addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [{ source: "pi", sessionId: "session-1" }] }, { kind: "user" });
+  await addSessions(
+    registry,
+    bot.botId,
+    { requestId: "r2", sessionRefs: [{ source: "pi", sessionId: "session-1" }] },
+    { kind: "user" },
+  );
 
   const seen: number[] = [];
   const stop = await registry.subscribe((snapshot) => seen.push(snapshot.revision));
@@ -51,7 +62,12 @@ test("a real change still gets through, because every one of them bumps the revi
   const before = seen.length;
 
   // Attaching a session changes what the hub would publish for this Bot: its sessionIds.
-  await addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [{ source: "pi", sessionId: "session-1" }] }, { kind: "user" });
+  await addSessions(
+    registry,
+    bot.botId,
+    { requestId: "r2", sessionRefs: [{ source: "pi", sessionId: "session-1" }] },
+    { kind: "user" },
+  );
   await settle();
   expect(seen.length).toBe(before + 1);
   expect(seen.at(-1)).toBeGreaterThan(seen[before - 1]!);
@@ -72,7 +88,13 @@ test("a second Bot appears exactly once, not once per subscriber-visible event",
 
   await addBot(
     world.registry,
-    { requestId: "r1", name: "Second", directoryPath: world.secondProject, metadata: { role: "y", labels: ["ops"], custom: {} }, grants: ["add_bot"] },
+    {
+      requestId: "r1",
+      name: "Second",
+      directoryPath: world.secondProject,
+      metadata: { role: "y", labels: ["ops"], custom: {} },
+      grants: ["add_bot"],
+    },
     { kind: "user" },
   );
   await settle();
@@ -90,7 +112,12 @@ test("unsubscribed means unsubscribed, so a stopped publisher stops being woken"
   const seen: number[] = [];
   const stop = await registry.subscribe((snapshot) => seen.push(snapshot.revision));
   stop();
-  await addSessions(registry, bot.botId, { requestId: "r2", sessionRefs: [{ source: "pi", sessionId: "session-1" }] }, { kind: "user" });
+  await addSessions(
+    registry,
+    bot.botId,
+    { requestId: "r2", sessionRefs: [{ source: "pi", sessionId: "session-1" }] },
+    { kind: "user" },
+  );
   notifyCatalog();
   await settle();
   expect(seen).toHaveLength(1);
@@ -120,10 +147,11 @@ test("nothing is said about a Bot until the catalog has been read, and then it i
 
   const drawn: { sessions: number; missing: number }[] = [];
   const subscribed = registry.subscribe(
-    (snapshot) => drawn.push({
-      sessions: snapshot.bots[0]!.sessions.length,
-      missing: snapshot.bots[0]!.missingSessionRefs.length,
-    }),
+    (snapshot) =>
+      drawn.push({
+        sessions: snapshot.bots[0]!.sessions.length,
+        missing: snapshot.bots[0]!.missingSessionRefs.length,
+      }),
     undefined,
     { onChange: "view" },
   );
@@ -141,7 +169,7 @@ test("nothing is said about a Bot until the catalog has been read, and then it i
   stop();
 });
 
-test('a subscriber drawing the view is told when a reference stops resolving', async () => {
+test("a subscriber drawing the view is told when a reference stops resolving", async () => {
   const { registry } = await aBotHoldingAResolvableReference();
   const drawn: number[][] = [];
   const stop = await registry.subscribe(
@@ -193,11 +221,7 @@ test("a view subscriber is not woken by writes inside the minute a card already 
   const { registry } = await aBotHoldingAResolvableReference();
   const held = sessions.get("pi:session-1")!;
   const woken: number[] = [];
-  const stop = await registry.subscribe(
-    () => woken.push(1),
-    undefined,
-    { onChange: "view" },
-  );
+  const stop = await registry.subscribe(() => woken.push(1), undefined, { onChange: "view" });
   woken.length = 0;
 
   for (const lastEventAt of [5_000, 30_000, 59_999]) {
@@ -244,11 +268,9 @@ test("a view subscriber IS woken by a rename, which is a value change and not a 
   const { registry } = await aBotHoldingAResolvableReference();
   const held = sessions.get("pi:session-1")!;
   const drawn: string[] = [];
-  const stop = await registry.subscribe(
-    (snapshot) => drawn.push(snapshot.bots[0]!.sessions[0]!.title),
-    undefined,
-    { onChange: "view" },
-  );
+  const stop = await registry.subscribe((snapshot) => drawn.push(snapshot.bots[0]!.sessions[0]!.title), undefined, {
+    onChange: "view",
+  });
   const before = drawn.length;
 
   sessions.set("pi:session-1", { ...held, summary: { ...held.summary, title: "What I called it" } });

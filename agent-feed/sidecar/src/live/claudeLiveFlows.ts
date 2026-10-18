@@ -101,9 +101,12 @@ export function flowsLostWithCapture(
   const cut = flowIds.filter((flowId) => contexts.get(flowId)!.message?.phase === "streaming").length;
   return {
     flowIds,
-    line: cut === 0 ? null : `agent-feed-claude-live-capture-lost: replies=${cut}`
-      + ` capture=${source} lifecycle=${String(health.lifecycle ?? "?")}`
-      + (health.failureCategory ? ` failure=${String(health.failureCategory)}` : ""),
+    line:
+      cut === 0
+        ? null
+        : `agent-feed-claude-live-capture-lost: replies=${cut}` +
+          ` capture=${source} lifecycle=${String(health.lifecycle ?? "?")}` +
+          (health.failureCategory ? ` failure=${String(health.failureCategory)}` : ""),
   };
 }
 

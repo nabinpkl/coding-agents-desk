@@ -33,18 +33,21 @@ function failure(error: unknown): Response {
   return errorResponse("hub-unreachable", error instanceof Error ? error.message : String(error), 502);
 }
 
-export function createHubRoutes(load: () => HubClient | string = () => {
-  const settings = loadHubSettings();
-  return typeof settings === "string" ? settings : new HubClient(settings);
-}): RouteHandler {
+export function createHubRoutes(
+  load: () => HubClient | string = () => {
+    const settings = loadHubSettings();
+    return typeof settings === "string" ? settings : new HubClient(settings);
+  },
+): RouteHandler {
   return (request, url) => {
     if (!url.pathname.startsWith("/api/hub/")) return undefined;
     // Read per request, so a token written after the sidecar started is picked up without a restart.
     const hub = load();
     if (request.method === "GET" && url.pathname === "/api/hub/status") {
-      const status: HubStatus = typeof hub === "string"
-        ? { configured: false, machine: null, reason: hub }
-        : { configured: true, machine: hub.settings.machine, reason: null };
+      const status: HubStatus =
+        typeof hub === "string"
+          ? { configured: false, machine: null, reason: hub }
+          : { configured: true, machine: hub.settings.machine, reason: null };
       return jsonResponse(status);
     }
     if (typeof hub === "string") return errorResponse("hub-unconfigured", hub, 503);
@@ -61,9 +64,10 @@ async function handle(hub: HubClient, request: Request, url: URL): Promise<Respo
   }
   if (request.method === "POST" && url.pathname === "/api/hub/messages") {
     const body = await readBody(request);
-    const payload = typeof body.inReplyTo === "string"
-      ? { as: "human", inReplyTo: body.inReplyTo, body: body.body }
-      : { as: "human", to: body.to, kind: body.kind, body: body.body };
+    const payload =
+      typeof body.inReplyTo === "string"
+        ? { as: "human", inReplyTo: body.inReplyTo, body: body.body }
+        : { as: "human", to: body.to, kind: body.kind, body: body.body };
     return jsonResponse(await hub.request<Message>("POST", "/v1/messages", payload), 201);
   }
   const cancel = /^\/api\/hub\/messages\/([^/]+)\/cancel$/.exec(url.pathname);

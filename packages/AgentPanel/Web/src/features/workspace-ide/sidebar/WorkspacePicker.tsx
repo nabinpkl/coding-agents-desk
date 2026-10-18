@@ -18,8 +18,9 @@ import { useMountEffect } from "@/hooks/useMountEffect";
 import { ChevronRight, CornerLeftUp, Folder, FolderPlus, Loader2, X } from "lucide-react";
 import type { WorkspaceBrowseListing } from "@agentdesk/agent-feed-wire";
 
-const ROW = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left outline-none"
-  + " hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
+const ROW =
+  "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left outline-none" +
+  " hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
 
 export function WorkspacePicker({
   browse,
@@ -67,8 +68,7 @@ export function WorkspacePicker({
           // can see to correct is worse than a field still holding what was written in it.
           setTyped(null);
         })
-        .catch((cause: unknown) =>
-          setFailure(cause instanceof Error ? cause.message : String(cause)))
+        .catch((cause: unknown) => setFailure(cause instanceof Error ? cause.message : String(cause)))
         .finally(() => setLoading(false));
     },
     [browse],
@@ -122,7 +122,8 @@ export function WorkspacePicker({
           name,
           error: cause instanceof Error ? cause.message : String(cause),
           busy: false,
-        }));
+        }),
+      );
   }, [createFolder, naming, listing]);
 
   return (
@@ -135,7 +136,8 @@ export function WorkspacePicker({
         if (event.target === event.currentTarget) onCancel();
       }}
     >
-      <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl
+      <div
+        className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl
         border border-border bg-background shadow-xl"
       >
         <header className="shrink-0 border-b border-border px-4 py-3">
@@ -147,7 +149,9 @@ export function WorkspacePicker({
               So it is a field: it reports where we are until it is typed at, and Return goes
               there. Flat and borderless until it is used, because a reader who is only browsing
               should not be invited to type at all. */}
-          <label htmlFor="workspace-picker-path" className="sr-only">Folder path</label>
+          <label htmlFor="workspace-picker-path" className="sr-only">
+            Folder path
+          </label>
           <input
             id="workspace-picker-path"
             value={typed ?? listing?.path ?? ""}
@@ -179,47 +183,41 @@ export function WorkspacePicker({
         </header>
 
         <div className="min-h-0 flex-1 overflow-auto p-1.5">
-          {failure
-            ? <p className="px-2 py-6 text-center text-sm text-destructive">{failure}</p>
-            : (
-              <>
-                {listing?.parent
-                  ? (
-                    <button
-                      type="button"
-                      aria-label="Go up one folder"
-                      onClick={() => show(listing.parent)}
-                      className={`${ROW} text-muted-foreground`}
-                    >
-                      <CornerLeftUp className="size-4 shrink-0" />
-                      Up one folder
-                    </button>
-                  )
-                  : null}
-                {listing?.entries.length === 0 && !loading
-                  ? (
-                    <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                      No folders in here. This one can still be chosen, or you can make one below.
-                    </p>
-                  )
-                  : null}
-                {listing?.entries.map((entry) => (
-                  <button
-                    key={entry.path}
-                    type="button"
-                    aria-label={`Open ${entry.name}`}
-                    onClick={() => show(entry.path)}
-                    className={ROW}
-                  >
-                    <Folder className="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
-                    <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                      {entry.name}
-                    </span>
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                  </button>
-                ))}
-              </>
-            )}
+          {failure ? (
+            <p className="px-2 py-6 text-center text-sm text-destructive">{failure}</p>
+          ) : (
+            <>
+              {listing?.parent ? (
+                <button
+                  type="button"
+                  aria-label="Go up one folder"
+                  onClick={() => show(listing.parent)}
+                  className={`${ROW} text-muted-foreground`}
+                >
+                  <CornerLeftUp className="size-4 shrink-0" />
+                  Up one folder
+                </button>
+              ) : null}
+              {listing?.entries.length === 0 && !loading ? (
+                <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                  No folders in here. This one can still be chosen, or you can make one below.
+                </p>
+              ) : null}
+              {listing?.entries.map((entry) => (
+                <button
+                  key={entry.path}
+                  type="button"
+                  aria-label={`Open ${entry.name}`}
+                  onClick={() => show(entry.path)}
+                  className={ROW}
+                >
+                  <Folder className="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
+                  <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{entry.name}</span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         {/* The create form, above the footer rather than inside it: the footer is where the two
@@ -228,14 +226,15 @@ export function WorkspacePicker({
         {naming === null ? null : (
           <div className="shrink-0 border-t border-border px-4 py-3">
             <div className="flex items-center gap-2">
-              <label htmlFor="workspace-picker-new-folder" className="sr-only">New folder name</label>
+              <label htmlFor="workspace-picker-new-folder" className="sr-only">
+                New folder name
+              </label>
               <input
                 id="workspace-picker-new-folder"
                 autoFocus
                 value={naming.name}
                 placeholder="Folder name"
-                onChange={(event) =>
-                  setNaming({ ...naming, name: event.target.value, error: null })}
+                onChange={(event) => setNaming({ ...naming, name: event.target.value, error: null })}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
@@ -277,7 +276,9 @@ export function WorkspacePicker({
                 component can invent, and a refusal the reader cannot read is a refusal they will
                 try again the same way. */}
             {naming.error === null ? null : (
-              <p role="alert" className="m-0 mt-2 text-xs text-destructive">{naming.error}</p>
+              <p role="alert" className="m-0 mt-2 text-xs text-destructive">
+                {naming.error}
+              </p>
             )}
           </div>
         )}

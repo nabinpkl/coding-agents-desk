@@ -94,7 +94,9 @@ test("unarchives a folder without asking the catalog", async () => {
 
 test("answers an unknown folder, a starting catalog, a failed check and a bad body without archiving", async () => {
   expect(await errorCode(await harness().post("archive", { projectPath: "/nowhere" }))).toBe("project-not-found");
-  expect(await errorCode(await harness({ ready: false }).post("archive", { projectPath: "/repo" }))).toBe("inventory-not-ready");
+  expect(await errorCode(await harness({ ready: false }).post("archive", { projectPath: "/repo" }))).toBe(
+    "inventory-not-ready",
+  );
   const failing = harness({ failCheck: true });
   const failed = await failing.post("archive-sessions", { projectPath: "/repo" });
   expect(failed?.status).toBe(503);

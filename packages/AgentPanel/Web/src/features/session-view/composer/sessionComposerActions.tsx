@@ -3,14 +3,27 @@
 // The composer's action row: send, steer, stop, attach, the mode and model menus, and where each
 // is drawn. What sending does is `sessionComposerSubmit.ts`.
 
-import { Braces, ChevronsUpDown, CornerDownLeft, LoaderCircle, Paperclip, Send, ShieldQuestion, Square } from "lucide-react";
+import {
+  Braces,
+  ChevronsUpDown,
+  CornerDownLeft,
+  LoaderCircle,
+  Paperclip,
+  Send,
+  ShieldQuestion,
+  Square,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import type { ChoiceMenuProps } from "@/features/bots/menus/ChoiceMenu";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { submitComposer, submitOwnedTransport } from "@/features/session-view/composer/sessionComposerSubmit";
 import { currentSdkModel } from "@/features/cli-input/useSdkSession";
-import { PERMISSION_MODE_ICONS, PERMISSION_MODE_LABELS, permissionModeChoices } from "@/features/cli-input/permissionModes";
+import {
+  PERMISSION_MODE_ICONS,
+  PERMISSION_MODE_LABELS,
+  permissionModeChoices,
+} from "@/features/cli-input/permissionModes";
 
 /**
  * The small icon buttons on the line under the field, beside the context meter: attach, and the
@@ -49,7 +62,6 @@ export type ComposerAction = {
 const SEND_IN_FIELD_CLASS =
   "mb-2 mr-2 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40";
 
-
 export function composerActions(m: ComposerModel): ComposerAction[] {
   const actions: ComposerAction[] = [];
   // Offered wherever an image has somewhere to go, which is the same rule the card's drop target
@@ -83,9 +95,11 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
         ? "Running through the SDK. Move this idle session back to the terminal, in the same pane"
         : "Running in the terminal. Move this idle session to the SDK runner, in the same pane",
       pressed: onSdk,
-      icon: m.runModeSwitch.pending
-        ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-        : <Braces className="size-3.5" aria-hidden />,
+      icon: m.runModeSwitch.pending ? (
+        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+      ) : (
+        <Braces className="size-3.5" aria-hidden />
+      ),
       disabled: m.runModeSwitch.pending,
       className: `${COMPOSER_FOOTER_BUTTON_CLASS} ${onSdk ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`,
       placement: "footer",
@@ -109,7 +123,9 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
         <span className="flex items-center gap-1 whitespace-nowrap">
           <Icon className="size-3.5 shrink-0" aria-hidden />
           <span className="hidden @[420px]:inline">{label}</span>
-          {m.sdkBand || mode !== null ? <ChevronsUpDown className="hidden size-3 shrink-0 opacity-60 @[420px]:block" aria-hidden /> : null}
+          {m.sdkBand || mode !== null ? (
+            <ChevronsUpDown className="hidden size-3 shrink-0 opacity-60 @[420px]:block" aria-hidden />
+          ) : null}
         </span>
       ),
       // Not squeezed: a mode cut to "B…" hides the one fact the chip is there to show.
@@ -194,137 +210,141 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       onClick: () => void m.onRunSlash("model", ""),
     });
   }
-if (m.windowBand) {
-  // The window band's only explicit action is the Enter button: filling and
-  // reading are automatic (focus prefill, debounced sync, one round trip for
-  // an off-Desktop window), so there is nothing left to button.
-  actions.push({
-    key: "submit-window",
-    ariaLabel: m.isCodex ? "Send to Codex's composer" : "Send to Claude's composer",
-    title: m.isCodex
-      ? "Fill and press Enter in Codex, sending the prompt now"
-      : "Fill and press Enter in Claude, sending the prompt now",
-    icon: m.windowComposer.pending ? (
-      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-    ) : (
-      <CornerDownLeft className="size-3.5" aria-hidden />
-    ),
-    disabled: !m.windowComposer.canSubmit || m.windowComposer.pending,
-    className: SEND_IN_FIELD_CLASS,
-    placement: "field",
-    onClick: () => void m.windowComposer.submitWindow(),
-  });
-} else if (m.tmuxBand) {
-  // One action, like the bands below it and for the same reason: Steer and Stop act
-  // on a queue the panel owns, and this session owns its own.
-  actions.push({
-    key: "send-tmux-composer",
-    ariaLabel: "Send in this session's terminal",
-    title: "Press Return in this session's terminal, sending what its composer holds",
-    icon: m.tmuxComposer.pending ? (
-      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-    ) : (
-      <CornerDownLeft className="size-3.5" aria-hidden />
-    ),
-    disabled: m.tmuxComposer.pending || !m.editorValue.trim(),
-    className: SEND_IN_FIELD_CLASS,
-    placement: "field",
-    onClick: () => void m.tmuxComposer.submit(),
-  });
-} else if (m.sdkBand) {
-  // Stop while a turn runs, since nothing else can interrupt a session with no screen; Send
-  // otherwise. Return still sends during a turn, which the runner queues behind it.
-  const status = m.sdkSession.state.status;
-  if (status === "running" || status === "requires-action") {
+  if (m.windowBand) {
+    // The window band's only explicit action is the Enter button: filling and
+    // reading are automatic (focus prefill, debounced sync, one round trip for
+    // an off-Desktop window), so there is nothing left to button.
     actions.push({
-      key: "stop-sdk",
-      ariaLabel: "Stop this turn",
-      title: "Interrupt the turn this session is running",
-      icon: m.sdkSession.pending
-        ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-        : <Square className="size-3.5 fill-current" aria-hidden />,
-      disabled: m.sdkSession.pending,
+      key: "submit-window",
+      ariaLabel: m.isCodex ? "Send to Codex's composer" : "Send to Claude's composer",
+      title: m.isCodex
+        ? "Fill and press Enter in Codex, sending the prompt now"
+        : "Fill and press Enter in Claude, sending the prompt now",
+      icon: m.windowComposer.pending ? (
+        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+      ) : (
+        <CornerDownLeft className="size-3.5" aria-hidden />
+      ),
+      disabled: !m.windowComposer.canSubmit || m.windowComposer.pending,
       className: SEND_IN_FIELD_CLASS,
       placement: "field",
-      onClick: () => void m.sdkSession.interrupt(),
+      onClick: () => void m.windowComposer.submitWindow(),
     });
-  } else {
+  } else if (m.tmuxBand) {
+    // One action, like the bands below it and for the same reason: Steer and Stop act
+    // on a queue the panel owns, and this session owns its own.
     actions.push({
-      key: "send-sdk",
-      ariaLabel: "Send message",
-      title: "Send to this session",
-      icon: m.deliveryPending
-        ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-        : <Send className="size-3.5" aria-hidden />,
+      key: "send-tmux-composer",
+      ariaLabel: "Send in this session's terminal",
+      title: "Press Return in this session's terminal, sending what its composer holds",
+      icon: m.tmuxComposer.pending ? (
+        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+      ) : (
+        <CornerDownLeft className="size-3.5" aria-hidden />
+      ),
+      disabled: m.tmuxComposer.pending || !m.editorValue.trim(),
+      className: SEND_IN_FIELD_CLASS,
+      placement: "field",
+      onClick: () => void m.tmuxComposer.submit(),
+    });
+  } else if (m.sdkBand) {
+    // Stop while a turn runs, since nothing else can interrupt a session with no screen; Send
+    // otherwise. Return still sends during a turn, which the runner queues behind it.
+    const status = m.sdkSession.state.status;
+    if (status === "running" || status === "requires-action") {
+      actions.push({
+        key: "stop-sdk",
+        ariaLabel: "Stop this turn",
+        title: "Interrupt the turn this session is running",
+        icon: m.sdkSession.pending ? (
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        ) : (
+          <Square className="size-3.5 fill-current" aria-hidden />
+        ),
+        disabled: m.sdkSession.pending,
+        className: SEND_IN_FIELD_CLASS,
+        placement: "field",
+        onClick: () => void m.sdkSession.interrupt(),
+      });
+    } else {
+      actions.push({
+        key: "send-sdk",
+        ariaLabel: "Send message",
+        title: "Send to this session",
+        icon: m.deliveryPending ? (
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        ) : (
+          <Send className="size-3.5" aria-hidden />
+        ),
+        disabled: m.unavailable || m.deliveryPending || !m.editorValue.trim(),
+        className: SEND_IN_FIELD_CLASS,
+        placement: "field",
+        onClick: () => void submitOwnedTransport(m),
+      });
+    }
+  } else if (m.cliSessionBand) {
+    // No action: nothing is sent from this band. The pane's mirror, once it attaches, brings its own.
+  } else if (m.agentTerminalBand) {
+    // One action, deliberately. Steer and Stop act on a queue the panel owns; a terminal session
+    // owns its own, and the person at that keyboard is the one who can interrupt it.
+    actions.push({
+      key: "send-agent-terminal",
+      ariaLabel: "Send through Agent Feed terminal",
+      title: "Send through the open Agent Feed terminal",
+      icon: m.deliveryPending ? (
+        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+      ) : (
+        <Send className="size-3.5" aria-hidden />
+      ),
       disabled: m.unavailable || m.deliveryPending || !m.editorValue.trim(),
       className: SEND_IN_FIELD_CLASS,
       placement: "field",
       onClick: () => void submitOwnedTransport(m),
     });
+  } else if (!m.unavailable) {
+    if (m.running && m.capabilities.canSteer) {
+      actions.push({
+        key: "steer",
+        ariaLabel: "Steer",
+        title: "Steer",
+        icon: <span>Steer</span>,
+        disabled: m.pending || !m.editorValue.trim(),
+        className:
+          "h-9 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40",
+        onClick: () => void submitComposer(m, "steer"),
+      });
+    }
+    if (m.running && m.capabilities.canAbort) {
+      actions.push({
+        key: "send",
+        ariaLabel: "Stop agent",
+        title: "Stop agent",
+        icon: m.pending ? (
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        ) : (
+          <Square className="size-3.5 fill-current" aria-hidden />
+        ),
+        disabled: m.pending,
+        className: SEND_IN_FIELD_CLASS,
+        placement: "field",
+        onClick: () => void m.onAbort(),
+      });
+    } else {
+      actions.push({
+        key: "send",
+        ariaLabel: m.running ? "Queue message" : "Send message",
+        title: m.running ? "Queue message" : "Send message",
+        icon: m.pending ? (
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        ) : (
+          <Send className="size-3.5" aria-hidden />
+        ),
+        disabled: m.pending || !m.editorValue.trim(),
+        className: SEND_IN_FIELD_CLASS,
+        placement: "field",
+        onClick: () => void submitComposer(m, "next"),
+      });
+    }
   }
-} else if (m.cliSessionBand) {
-  // No action: nothing is sent from this band. The pane's mirror, once it attaches, brings its own.
-} else if (m.agentTerminalBand) {
-  // One action, deliberately. Steer and Stop act on a queue the panel owns; a terminal session
-  // owns its own, and the person at that keyboard is the one who can interrupt it.
-  actions.push({
-    key: "send-agent-terminal",
-    ariaLabel: "Send through Agent Feed terminal",
-    title: "Send through the open Agent Feed terminal",
-    icon: m.deliveryPending ? (
-      <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-    ) : (
-      <Send className="size-3.5" aria-hidden />
-    ),
-    disabled: m.unavailable || m.deliveryPending || !m.editorValue.trim(),
-    className: SEND_IN_FIELD_CLASS,
-    placement: "field",
-    onClick: () => void submitOwnedTransport(m),
-  });
-} else if (!m.unavailable) {
-  if (m.running && m.capabilities.canSteer) {
-    actions.push({
-      key: "steer",
-      ariaLabel: "Steer",
-      title: "Steer",
-      icon: <span>Steer</span>,
-      disabled: m.pending || !m.editorValue.trim(),
-      className:
-        "h-9 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40",
-      onClick: () => void submitComposer(m, "steer"),
-    });
-  }
-  if (m.running && m.capabilities.canAbort) {
-    actions.push({
-      key: "send",
-      ariaLabel: "Stop agent",
-      title: "Stop agent",
-      icon: m.pending ? (
-        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-      ) : (
-        <Square className="size-3.5 fill-current" aria-hidden />
-      ),
-      disabled: m.pending,
-      className: SEND_IN_FIELD_CLASS,
-      placement: "field",
-      onClick: () => void m.onAbort(),
-    });
-  } else {
-    actions.push({
-      key: "send",
-      ariaLabel: m.running ? "Queue message" : "Send message",
-      title: m.running ? "Queue message" : "Send message",
-      icon: m.pending ? (
-        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-      ) : (
-        <Send className="size-3.5" aria-hidden />
-      ),
-      disabled: m.pending || !m.editorValue.trim(),
-      className: SEND_IN_FIELD_CLASS,
-      placement: "field",
-      onClick: () => void submitComposer(m, "next"),
-    });
-  }
-}
   return actions;
 }

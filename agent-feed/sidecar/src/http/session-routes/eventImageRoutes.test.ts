@@ -8,8 +8,7 @@ import { state } from "@/transcripts/transcriptState";
 
 const server = { timeout() {} } as never;
 const SESSION_ID = "44444444-4444-4444-8444-444444444444";
-const PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
 const route = createEventImageRoutes();
 const roots: string[] = [];
 
@@ -96,12 +95,14 @@ async function transcriptSendingFiles(files: string[]): Promise<string> {
     type: "assistant",
     message: {
       role: "assistant",
-      content: [{
-        type: "tool_use",
-        id: "call-1",
-        name: "SendUserFile",
-        input: { files, caption: "Two renders", status: "normal" },
-      }],
+      content: [
+        {
+          type: "tool_use",
+          id: "call-1",
+          name: "SendUserFile",
+          input: { files, caption: "Two renders", status: "normal" },
+        },
+      ],
     },
     timestamp: "2026-09-15T05:00:00.000Z",
     uuid: crypto.randomUUID(),
@@ -140,11 +141,9 @@ test("serves nothing the transcript did not name, whatever the request asks for"
   await transcriptSendingFiles([picture]);
 
   // Past the end of the list the call actually made.
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1`)).status)
-    .toBe(404);
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1`)).status).toBe(404);
   // And a block that hands nothing over.
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/files/0`)).status)
-    .toBe(404);
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/1/files/0`)).status).toBe(404);
 });
 
 test("refuses a file whose bytes are not the picture its name promises", async () => {
@@ -155,13 +154,10 @@ test("refuses a file whose bytes are not the picture its name promises", async (
   await transcriptSendingFiles([secret, join(root, "gone.png"), root]);
 
   // Named by the transcript, extension and all, and still refused: the bytes are sniffed.
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`)).status)
-    .toBe(415);
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`)).status).toBe(415);
   // A path that is not there, and a directory.
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1`)).status)
-    .toBe(404);
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/2`)).status)
-    .toBe(404);
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/1`)).status).toBe(404);
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/2`)).status).toBe(404);
 });
 
 test("serves a page a call handed over, in an origin of its own", async () => {
@@ -177,13 +173,9 @@ test("serves a page a call handed over, in an origin of its own", async () => {
   expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
   // No `allow-same-origin`, which is the whole point: the panel's origin has no auth in front of
   // it, so a page served AS the panel would be handed the sidecar's whole API.
-  expect(response.headers.get("content-security-policy")).toBe(
-    "sandbox allow-scripts allow-forms allow-popups",
-  );
+  expect(response.headers.get("content-security-policy")).toBe("sandbox allow-scripts allow-forms allow-popups");
   // Rendered in the tab, under the name the reader knows it by, spaces and all.
-  expect(response.headers.get("content-disposition")).toBe(
-    "inline; filename*=UTF-8''eye%20variants.html",
-  );
+  expect(response.headers.get("content-disposition")).toBe("inline; filename*=UTF-8''eye%20variants.html");
   expect(await response.text()).toContain("Ten eyes");
 });
 
@@ -213,16 +205,13 @@ test("hands a file it cannot recognise over as a download rather than rendering 
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("application/octet-stream");
-  expect(response.headers.get("content-disposition")).toBe(
-    "attachment; filename*=UTF-8''trace.bin",
-  );
+  expect(response.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''trace.bin");
 });
 
 test("refuses a relative path, which names a directory nobody agreed on", async () => {
   await transcriptSendingFiles(["render.png"]);
 
-  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`)).status)
-    .toBe(404);
+  expect((await get(`/api/sessions/claude/${SESSION_ID}/events/0/blocks/0/files/0`)).status).toBe(404);
 });
 
 const OPENCODE_PNG_BASE64 =
@@ -257,12 +246,9 @@ test("serves an opencode picture by its event and block address", async () => {
 });
 
 test("an opencode address naming no picture is a 404, not a neighbouring row's", async () => {
-  expect((await getOpencode("/api/sessions/opencode/ses_abc/events/4/blocks/1/image?mode=nice")).status)
-    .toBe(404);
-  expect((await getOpencode("/api/sessions/opencode/ses_abc/events/9/blocks/2/image?mode=nice")).status)
-    .toBe(404);
-  expect((await getOpencode("/api/sessions/opencode/ses_nope/events/4/blocks/2/image?mode=nice")).status)
-    .toBe(404);
+  expect((await getOpencode("/api/sessions/opencode/ses_abc/events/4/blocks/1/image?mode=nice")).status).toBe(404);
+  expect((await getOpencode("/api/sessions/opencode/ses_abc/events/9/blocks/2/image?mode=nice")).status).toBe(404);
+  expect((await getOpencode("/api/sessions/opencode/ses_nope/events/4/blocks/2/image?mode=nice")).status).toBe(404);
 });
 
 test("without a store the opencode pattern falls through to the routes after it", async () => {

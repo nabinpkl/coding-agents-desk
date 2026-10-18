@@ -26,17 +26,13 @@ const TERMINALS_RESTART_ROUTE = "/api/terminals/restart";
 /** Every session behind the launch flags or the installed CLI, and restarting the ones agreed to. */
 const TERMINALS_STALE_ROUTE = "/api/terminals/stale";
 const TERMINALS_RESTART_STALE_ROUTE = "/api/terminals/restart-stale";
-const TERMINAL_ROUTE_PATTERN =
-  /^\/api\/terminals\/([0-9a-f-]+)\/(input|viewport|close|checkpoint|history)$/;
+const TERMINAL_ROUTE_PATTERN = /^\/api\/terminals\/([0-9a-f-]+)\/(input|viewport|close|checkpoint|history)$/;
 /** Enough to cover a generous tmux history without letting one request become a memory decision. */
 const MAXIMUM_HISTORY_LINES = 50_000;
 const MAXIMUM_BODY_BYTES = 256 * 1024;
 
 export interface AgentTerminalRoutesService {
-  open(
-    context: AgentTerminalContext,
-    dimensions: { columns: number; rows: number },
-  ): Promise<AgentTerminalDescriptor>;
+  open(context: AgentTerminalContext, dimensions: { columns: number; rows: number }): Promise<AgentTerminalDescriptor>;
   observe(listener: (envelope: AgentTerminalStreamEnvelope) => void): () => void;
   requestCheckpoint(terminalId: string): void;
   history(terminalId: string, lines: number): Promise<string>;
@@ -65,7 +61,8 @@ export function createAgentTerminalRoutes(service: AgentTerminalRoutesService): 
     // Before the id pattern, because "stream" is not a terminal id and must not be read as one.
     if (request.method === "GET" && url.pathname === TERMINALS_STREAM_ROUTE) {
       return startServerSentEventStream(request, server, (write) =>
-        service.observe((envelope) => write(encodeServerSentEvent(envelope))));
+        service.observe((envelope) => write(encodeServerSentEvent(envelope))),
+      );
     }
     const match = TERMINAL_ROUTE_PATTERN.exec(url.pathname);
     if (!match) return undefined;
@@ -83,10 +80,7 @@ export function createAgentTerminalRoutes(service: AgentTerminalRoutesService): 
   };
 }
 
-async function openTerminal(
-  request: Request,
-  service: AgentTerminalRoutesService,
-): Promise<Response> {
+async function openTerminal(request: Request, service: AgentTerminalRoutesService): Promise<Response> {
   try {
     const body = await requestObject(request);
     if (body instanceof Response) return body;
@@ -100,10 +94,7 @@ async function openTerminal(
   }
 }
 
-async function restartSession(
-  request: Request,
-  service: AgentTerminalRoutesService,
-): Promise<Response> {
+async function restartSession(request: Request, service: AgentTerminalRoutesService): Promise<Response> {
   try {
     const body = await requestObject(request);
     if (body instanceof Response) return body;
@@ -118,10 +109,7 @@ async function restartSession(
   }
 }
 
-async function restartStale(
-  request: Request,
-  service: AgentTerminalRoutesService,
-): Promise<Response> {
+async function restartStale(request: Request, service: AgentTerminalRoutesService): Promise<Response> {
   try {
     const body = await requestObject(request);
     if (body instanceof Response) return body;
@@ -234,11 +222,7 @@ async function terminalViewport(
  * Empty for a terminal with no history behind it, which is not an error: a resumed CLI's screen
  * comes from the PTY manager's own replay instead.
  */
-async function terminalHistory(
-  url: URL,
-  terminalId: string,
-  service: AgentTerminalRoutesService,
-): Promise<Response> {
+async function terminalHistory(url: URL, terminalId: string, service: AgentTerminalRoutesService): Promise<Response> {
   try {
     const requested = Number(url.searchParams.get("lines") ?? MAXIMUM_HISTORY_LINES);
     if (!Number.isInteger(requested) || requested < 1 || requested > MAXIMUM_HISTORY_LINES) {
@@ -252,10 +236,7 @@ async function terminalHistory(
 }
 
 /** No body: the request is the whole message, and a replay is the same ask every time. */
-function terminalCheckpoint(
-  terminalId: string,
-  service: AgentTerminalRoutesService,
-): Response {
+function terminalCheckpoint(terminalId: string, service: AgentTerminalRoutesService): Response {
   try {
     service.requestCheckpoint(terminalId);
     return new Response(null, { status: 204 });
@@ -334,7 +315,8 @@ function routeError(error: unknown): Response {
   if (error instanceof AgentTerminalInvalidError) return errorResponse("invalid-terminal", error.message, 400);
   if (error instanceof AgentTerminalNotFoundError) return errorResponse("terminal-not-found", error.message, 404);
   if (error instanceof AgentTerminalConflictError) return errorResponse("terminal-conflict", error.message, 409);
-  if (error instanceof AgentTerminalUnavailableError) return errorResponse("pty-manager-unavailable", error.message, 503);
+  if (error instanceof AgentTerminalUnavailableError)
+    return errorResponse("pty-manager-unavailable", error.message, 503);
   console.error("Agent terminal route failed", error);
   return errorResponse("terminal-failed", error instanceof Error ? error.message : String(error), 500);
 }

@@ -13,13 +13,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readJsonLines } from "@/usage/readJsonLines";
 import type { QuotaSample } from "@/usage/quotaSample";
-import {
-  addInto,
-  emptyTuple,
-  localDayKey,
-  type DayModelTotals,
-  type UsageTuple,
-} from "@/usage/usageTotals";
+import { addInto, emptyTuple, localDayKey, type DayModelTotals, type UsageTuple } from "@/usage/usageTotals";
 
 export interface ScannedSession {
   days: DayModelTotals;

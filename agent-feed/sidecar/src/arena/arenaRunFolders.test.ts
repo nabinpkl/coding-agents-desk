@@ -3,13 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  claimRunFolder,
-  nextRunName,
-  releaseRunFolder,
-  runFolderName,
-  runNameFor,
-} from "@/arena/arenaRunFolders";
+import { claimRunFolder, nextRunName, releaseRunFolder, runFolderName, runNameFor } from "@/arena/arenaRunFolders";
 
 const roots: string[] = [];
 

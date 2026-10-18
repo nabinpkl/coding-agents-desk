@@ -30,17 +30,17 @@ import type { LineClass } from "@/transcripts/transcriptTypes";
  * superseded by the next record of its kind.
  */
 const CLAUDE_MACHINERY_TYPES: ReadonlySet<string> = new Set([
-  'mode',
-  'permission-mode',
-  'ai-title',
-  'custom-title',
-  'last-prompt',
-  'queue-operation',
-  'file-history-delta',
-  'file-history-snapshot',
-  'bridge-session',
-  'agent-name',
-  'worktree-state',
+  "mode",
+  "permission-mode",
+  "ai-title",
+  "custom-title",
+  "last-prompt",
+  "queue-operation",
+  "file-history-delta",
+  "file-history-snapshot",
+  "bridge-session",
+  "agent-name",
+  "worktree-state",
 ]);
 
 /**
@@ -52,14 +52,14 @@ const CLAUDE_MACHINERY_TYPES: ReadonlySet<string> = new Set([
  * real type errors -- stay.
  */
 const CLAUDE_MACHINERY_ATTACHMENTS: ReadonlySet<string> = new Set([
-  'task_reminder',
-  'hook_additional_context',
-  'deferred_tools_delta',
-  'agent_listing_delta',
-  'mcp_instructions_delta',
-  'command_permissions',
-  'date_change',
-  'skill_listing',
+  "task_reminder",
+  "hook_additional_context",
+  "deferred_tools_delta",
+  "agent_listing_delta",
+  "mcp_instructions_delta",
+  "command_permissions",
+  "date_change",
+  "skill_listing",
 ]);
 
 /**
@@ -71,11 +71,7 @@ const CLAUDE_MACHINERY_ATTACHMENTS: ReadonlySet<string> = new Set([
  * history exited 0, which is why the failure case has never once appeared on
  * screen and why it is still the branch worth writing.
  */
-const CLAUDE_HOOK_ATTACHMENTS: ReadonlySet<string> = new Set([
-  'async_hook_response',
-  'hook_success',
-  'hook_failure',
-]);
+const CLAUDE_HOOK_ATTACHMENTS: ReadonlySet<string> = new Set(["async_hook_response", "hook_success", "hook_failure"]);
 
 /**
  * The wrappers the CLI writes around a slash command a person ran.
@@ -101,10 +97,7 @@ const CLAUDE_HOOK_ATTACHMENTS: ReadonlySet<string> = new Set([
  * A person who literally types one of these tags loses that row from the nice view. That is the
  * trade the raw view exists to cover, and it is the same one every rule in this file makes.
  */
-const CLAUDE_COMMAND_SCAFFOLD_TAGS: readonly string[] = [
-  '<local-command-caveat>',
-  '<command-name>',
-];
+const CLAUDE_COMMAND_SCAFFOLD_TAGS: readonly string[] = ["<local-command-caveat>", "<command-name>"];
 
 /**
  * Codex top-level record types that carry only harness state.
@@ -114,28 +107,28 @@ const CLAUDE_COMMAND_SCAFFOLD_TAGS: readonly string[] = [
  * Communication`) -- 22,030 rows across this project's rollouts.
  */
 const CODEX_MACHINERY_TOP_LEVEL: ReadonlySet<string> = new Set([
-  'session_meta',
-  'turn_context',
-  'world_state',
-  'inter_agent_communication_metadata',
+  "session_meta",
+  "turn_context",
+  "world_state",
+  "inter_agent_communication_metadata",
 ]);
 
 export function classifyClaudeLine(record: Record<string, unknown>): LineClass {
   const type = record.type;
-  if (typeof type !== 'string') return 'content';
+  if (typeof type !== "string") return "content";
 
-  if (type === 'attachment') {
+  if (type === "attachment") {
     const attachment = record.attachment;
-    if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) {
-      return 'content';
+    if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) {
+      return "content";
     }
     const subtype = (attachment as Record<string, unknown>).type;
-    if (typeof subtype !== 'string') return 'content';
+    if (typeof subtype !== "string") return "content";
     if (CLAUDE_HOOK_ATTACHMENTS.has(subtype)) {
       const exitCode = (attachment as Record<string, unknown>).exitCode;
-      return exitCode === 0 ? 'machinery' : 'content';
+      return exitCode === 0 ? "machinery" : "content";
     }
-    return CLAUDE_MACHINERY_ATTACHMENTS.has(subtype) ? 'machinery' : 'content';
+    return CLAUDE_MACHINERY_ATTACHMENTS.has(subtype) ? "machinery" : "content";
   }
 
   // Claude's counterpart to Codex's encrypted reasoning: an assistant line whose
@@ -143,49 +136,46 @@ export function classifyClaudeLine(record: Record<string, unknown>): LineClass {
   // signature, which renders today as a Plain card holding the blob. The text scan
   // is shared with the renderer so the two cannot disagree about which lines those
   // are. A line that ALSO holds prose or a tool call stays content.
-  if (type === 'assistant') {
+  if (type === "assistant") {
     const message = record.message;
-    if (message && typeof message === 'object' && !Array.isArray(message)) {
+    if (message && typeof message === "object" && !Array.isArray(message)) {
       if (isTracelessThinking((message as Record<string, unknown>).content)) {
-        return 'machinery';
+        return "machinery";
       }
     }
   }
 
-  if (type === 'user') {
+  if (type === "user") {
     const message = record.message;
-    if (message && typeof message === 'object' && !Array.isArray(message)) {
+    if (message && typeof message === "object" && !Array.isArray(message)) {
       const content = (message as Record<string, unknown>).content;
       // A string in every one of the 645 measured; an array of blocks is a person's real message
       // with an attachment in it, and none of those starts with a command tag.
-      if (typeof content === 'string') {
+      if (typeof content === "string") {
         const head = content.trimStart();
-        if (CLAUDE_COMMAND_SCAFFOLD_TAGS.some((tag) => head.startsWith(tag))) return 'machinery';
+        if (CLAUDE_COMMAND_SCAFFOLD_TAGS.some((tag) => head.startsWith(tag))) return "machinery";
       }
     }
   }
 
-  return CLAUDE_MACHINERY_TYPES.has(type) ? 'machinery' : 'content';
+  return CLAUDE_MACHINERY_TYPES.has(type) ? "machinery" : "content";
 }
 
-export function classifyCodexLine(record: {
-  type?: unknown;
-  payload?: unknown;
-}): LineClass {
+export function classifyCodexLine(record: { type?: unknown; payload?: unknown }): LineClass {
   const top = record.type;
-  if (typeof top !== 'string') return 'content';
-  if (CODEX_MACHINERY_TOP_LEVEL.has(top)) return 'machinery';
+  if (typeof top !== "string") return "content";
+  if (CODEX_MACHINERY_TOP_LEVEL.has(top)) return "machinery";
 
   const payload = record.payload;
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return 'content';
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return "content";
   }
   const inner = (payload as Record<string, unknown>).type;
 
   // Occupancy left the transcript entirely: it is 143,407 rows across this
   // project's rollouts, every one supersedes the last, and it now renders as a
   // live header readout instead.
-  if (top === 'event_msg' && inner === 'token_count') return 'machinery';
+  if (top === "event_msg" && inner === "token_count") return "machinery";
 
   // One message written twice. `event_msg.agent_message` is the notification as the
   // text is produced; the `response_item.message` assistant record that ALWAYS
@@ -202,16 +192,14 @@ export function classifyCodexLine(record: {
   // Scoped to the `event_msg` form. `response_item.agent_message` is a different
   // record (453 here against 72,324) and has not been shown to duplicate anything,
   // so it keeps the content default.
-  if (top === 'event_msg' && inner === 'agent_message') return 'machinery';
+  if (top === "event_msg" && inner === "agent_message") return "machinery";
 
   // A reasoning item whose trace is encrypted renders as the JSON of a Fernet
   // blob and says nothing. 81,905 rows / 7.2 MB here. The text check is shared
   // with the adapter so the two cannot disagree about which items those are.
-  if (top === 'response_item' && inner === 'reasoning') {
-    return extractReasoningText(payload)
-      ? 'content'
-      : 'machinery';
+  if (top === "response_item" && inner === "reasoning") {
+    return extractReasoningText(payload) ? "content" : "machinery";
   }
 
-  return 'content';
+  return "content";
 }

@@ -130,12 +130,16 @@ function liveTurn(mode: EventMode, sequence: number): Array<{ delay: number; pay
     },
   });
   const thought = (step: number) => ({ kind: "reasoning" as const, text: reasoning[step]! });
-  const withTool = [thought(2), { kind: "text" as const, text: prose[2]! }, {
-    kind: "tool_use" as const,
-    tool: "Read",
-    summary: "packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx",
-    callId: "fixture-call",
-  }];
+  const withTool = [
+    thought(2),
+    { kind: "text" as const, text: prose[2]! },
+    {
+      kind: "tool_use" as const,
+      tool: "Read",
+      summary: "packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx",
+      callId: "fixture-call",
+    },
+  ];
   // Absolute from the moment the stream opens, not gaps between messages: the
   // fixture arms one timer per message off a single open, so a "delay" read as a
   // gap would fire the end of the turn before its beginning.
@@ -162,17 +166,19 @@ function liveTurn(mode: EventMode, sequence: number): Array<{ delay: number; pay
           kind: "upsert",
           sequence: sequence + 1,
           mode,
-          events: [{
-            id: "fixture-tail-durable",
-            index: sequence,
-            otherModeIndex: null,
-            revision: 0,
-            phase: "complete",
-            ts: Date.now(),
-            type: "assistant",
-            messageId: "msg_fixture_tail",
-            blocks: withTool,
-          }],
+          events: [
+            {
+              id: "fixture-tail-durable",
+              index: sequence,
+              otherModeIndex: null,
+              revision: 0,
+              phase: "complete",
+              ts: Date.now(),
+              type: "assistant",
+              messageId: "msg_fixture_tail",
+              blocks: withTool,
+            },
+          ],
           windowStart: 0,
           runState: "idle",
           queue: { steer: 0, followUp: 0 },

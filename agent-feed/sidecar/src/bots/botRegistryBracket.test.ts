@@ -31,7 +31,9 @@ test("renameBracket answers already when the title is wearing it", async () => {
   expect(stored.sessionAnchors).toEqual({ "pi:session-1": "Aaron" });
 
   let calls = 0;
-  const done = await registry.renameBracket(ref, "night shift", async () => { calls += 1; });
+  const done = await registry.renameBracket(ref, "night shift", async () => {
+    calls += 1;
+  });
   expect(done.status).toBe("already");
   expect(calls).toBe(0);
 });

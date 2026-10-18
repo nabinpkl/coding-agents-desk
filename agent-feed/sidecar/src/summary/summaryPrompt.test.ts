@@ -48,10 +48,12 @@ test("reasoning and the agent's own words get room; results get a quotation", ()
   // rendering it at the same fidelity as the agent's reasoning spent the context on the least
   // informative part of the turn.
   const long = "z".repeat(20_000);
-  const rendered = renderEvent(blocks(2, [
-    { kind: "reasoning", text: long },
-    { kind: "tool_result", text: long },
-  ]));
+  const rendered = renderEvent(
+    blocks(2, [
+      { kind: "reasoning", text: long },
+      { kind: "tool_result", text: long },
+    ]),
+  );
   const reasoning = rendered.slice(rendered.indexOf("[reasoning]"), rendered.indexOf("[result]"));
   const result = rendered.slice(rendered.indexOf("[result]"));
   expect(reasoning.length).toBeGreaterThan(result.length * 5);
@@ -59,9 +61,9 @@ test("reasoning and the agent's own words get room; results get a quotation", ()
 });
 
 test("a tool call is rendered as what it did, not as its arguments", () => {
-  const rendered = renderEvent(blocks(3, [
-    { kind: "tool_use", tool: "Write", input: { file_path: "a.ts", content: "x\n".repeat(9_000) } },
-  ]));
+  const rendered = renderEvent(
+    blocks(3, [{ kind: "tool_use", tool: "Write", input: { file_path: "a.ts", content: "x\n".repeat(9_000) } }]),
+  );
   expect(rendered).toContain("[called] Write a.ts +9001/-0 lines");
   // The payload was 18,000 characters. Dumping it would have cost the whole event budget to say
   // one thing the line above already says.
@@ -69,9 +71,7 @@ test("a tool call is rendered as what it did, not as its arguments", () => {
 });
 
 test("a result says how much was cut, so a short quotation is not read as the whole output", () => {
-  const rendered = renderEvent(blocks(4, [
-    { kind: "tool_result", text: "first line", hiddenLines: 412 },
-  ]));
+  const rendered = renderEvent(blocks(4, [{ kind: "tool_result", text: "first line", hiddenLines: 412 }]));
   expect(rendered).toContain("[result] (+412 more lines)");
 });
 
@@ -110,8 +110,7 @@ test("risks defaults to empty rather than throwing when absent", () => {
 });
 
 test("non-string entries are dropped from risks", () => {
-  expect(parseSummaryPayload('{"headline":"h","narrative":"n","risks":["a",7,"",null,"b"]}').risks)
-    .toEqual(["a", "b"]);
+  expect(parseSummaryPayload('{"headline":"h","narrative":"n","risks":["a",7,"",null,"b"]}').risks).toEqual(["a", "b"]);
 });
 
 test("a reply with no JSON raises rather than degrading to its raw text", () => {

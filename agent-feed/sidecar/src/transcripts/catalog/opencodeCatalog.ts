@@ -8,7 +8,12 @@
 
 import type { SessionInfo } from "@opencode/client";
 import { config } from "@/config/config";
-import { isServeUnauthorized, opencodeClient, resetOpencodeClient, type OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
+import {
+  isServeUnauthorized,
+  opencodeClient,
+  resetOpencodeClient,
+  type OpencodeClient,
+} from "@/agents/opencode/serve/opencodeClient";
 import type { OpencodeSessionLocation } from "@/agents/opencode/opencodeAgentBackend";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
@@ -41,11 +46,13 @@ export async function reconcileOpencode(client: OpencodeClient | null = opencode
   if (!client) {
     // Loud in the log, empty for the source, alive for the rest: the same
     // contract `reconcileSource` keeps for an unreadable transcript store.
-    console.error(JSON.stringify({
-      event: "agent-feed-catalog-source-failed",
-      source: "opencode",
-      message: "opencode serve password is not configured",
-    }));
+    console.error(
+      JSON.stringify({
+        event: "agent-feed-catalog-source-failed",
+        source: "opencode",
+        message: "opencode serve password is not configured",
+      }),
+    );
     return;
   }
   let sessions: SessionInfo[];
@@ -65,20 +72,22 @@ export async function reconcileOpencode(client: OpencodeClient | null = opencode
   }
   for (const [key, session] of next) state.sessions.set(key, session);
   lookUpOpencodeTaskStates(next.values());
-  console.log(JSON.stringify({
-    event: "agent-feed-catalog-source-ready",
-    source: "opencode",
-    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
-    sessions: next.size,
-  }));
+  console.log(
+    JSON.stringify({
+      event: "agent-feed-catalog-source-ready",
+      source: "opencode",
+      durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+      sessions: next.size,
+    }),
+  );
 }
 
 async function toRecord(session: SessionInfo): Promise<Session | null> {
   // Canonicalised, because the catalog compares by identity: the serve reports
   // the directory as opened, which may spell a symlink differently than the
   // paths Claude records carry for the same checkout.
-  const project = (await canonicalDirectory(session.location.directory).catch(() => null))
-    ?? session.location.directory;
+  const project =
+    (await canonicalDirectory(session.location.directory).catch(() => null)) ?? session.location.directory;
   return makeSession("opencode", session.id, project, undefined, session.time.updated, {
     title: session.title || undefined,
     taskState: opencodeTaskState(session.id),
@@ -86,13 +95,10 @@ async function toRecord(session: SessionInfo): Promise<Session | null> {
 }
 
 export function registerOpencodeSession(location: OpencodeSessionLocation): void {
-  state.sessions.set(sessionKey("opencode", location.sessionId), makeSession(
-    "opencode",
-    location.sessionId,
-    location.projectPath,
-    undefined,
-    Date.now(),
-  ));
+  state.sessions.set(
+    sessionKey("opencode", location.sessionId),
+    makeSession("opencode", location.sessionId, location.projectPath, undefined, Date.now()),
+  );
   broadcast();
 }
 

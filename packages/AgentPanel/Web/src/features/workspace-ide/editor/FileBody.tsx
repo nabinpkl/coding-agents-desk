@@ -12,10 +12,11 @@ import { FilePreview, type ViewedFile } from "@/features/workspace-ide/editor/Fi
 import type { FileView } from "@/features/workspace-ide/workspaceIdePreferences";
 
 /** A toolbar control beside a file: an icon, pressed while its state holds. */
-export const FILE_CONTROL = "grid h-7 w-8 shrink-0 place-items-center rounded-md text-muted-foreground"
-  + " outline-none transition-colors hover:bg-muted/60 hover:text-foreground"
-  + " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-  + " aria-pressed:bg-muted aria-pressed:text-foreground";
+export const FILE_CONTROL =
+  "grid h-7 w-8 shrink-0 place-items-center rounded-md text-muted-foreground" +
+  " outline-none transition-colors hover:bg-muted/60 hover:text-foreground" +
+  " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset" +
+  " aria-pressed:bg-muted aria-pressed:text-foreground";
 
 // `grid-flow-col` because `FILE_CONTROL` is a grid and a grid stacks its children: the icon sat on
 // top of its own label in both of the controls that carry one, inside a button 28px tall.

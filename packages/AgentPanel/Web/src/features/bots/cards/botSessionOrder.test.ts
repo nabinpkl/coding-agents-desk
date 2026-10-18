@@ -39,10 +39,7 @@ describe("reorderSessionRefs", () => {
   it("sends the Bot's own reference rather than the summary the card was drawn from", () => {
     // A row is rendered from a `SessionSummary`, which satisfies `BotSessionRef` and carries a
     // title and timestamps besides. Forwarding it would put all of that on the wire.
-    const laidOut = [
-      { ...ref("a"), title: "A long title", lastEventAt: 12 } as unknown as BotSessionRef,
-      ref("b"),
-    ];
+    const laidOut = [{ ...ref("a"), title: "A long title", lastEventAt: 12 } as unknown as BotSessionRef, ref("b")];
 
     const moved = reorderSessionRefs(ORDER, laidOut, 0, 1);
 

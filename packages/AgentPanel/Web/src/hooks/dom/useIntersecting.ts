@@ -2,11 +2,7 @@
 
 import { useEffect, useState, type RefObject } from "react";
 
-export function useIntersecting(
-  target: RefObject<Element | null>,
-  root: Element | null,
-  rootMargin: string,
-): boolean {
+export function useIntersecting(target: RefObject<Element | null>, root: Element | null, rootMargin: string): boolean {
   const [intersecting, setIntersecting] = useState(false);
   useEffect(() => {
     const element = target.current;

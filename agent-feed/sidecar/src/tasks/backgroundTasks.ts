@@ -282,11 +282,7 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
     // reached this loop was not matched to a live shell above, which means nothing is running its
     // command: it is over, whatever its last tick said, and it belongs in `finished` rather than
     // disappearing from both lists.
-    if (
-      notification?.kind === "progress" &&
-      !sources.identities.has(taskId) &&
-      !sources.monitors.has(taskId)
-    ) {
+    if (notification?.kind === "progress" && !sources.identities.has(taskId) && !sources.monitors.has(taskId)) {
       continue;
     }
     const state = resolveTaskState({
@@ -300,17 +296,15 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
       taskId,
       kind: sources.monitors.has(taskId)
         ? "monitor"
-        // A launch record is stronger evidence than a notification's tags: it says what this run
-        // WAS, where the tags only say what its ending looked like. A completion whose notification
-        // aged out of the window would otherwise demote a finished subagent to a shell.
-        : sources.agents.has(taskId)
-        ? "agent"
-        : notification?.kind === "completion"
-        ? notification.taskKind
-        : "bash",
-      ...(sources.agents.has(taskId)
-        ? { agent: detailOf(sources.agents.get(taskId)!) }
-        : {}),
+        : // A launch record is stronger evidence than a notification's tags: it says what this run
+          // WAS, where the tags only say what its ending looked like. A completion whose notification
+          // aged out of the window would otherwise demote a finished subagent to a shell.
+          sources.agents.has(taskId)
+          ? "agent"
+          : notification?.kind === "completion"
+            ? notification.taskKind
+            : "bash",
+      ...(sources.agents.has(taskId) ? { agent: detailOf(sources.agents.get(taskId)!) } : {}),
       state,
     });
   }
@@ -348,11 +342,11 @@ export async function backgroundTaskSnapshot(
   const scan = transcriptPath
     ? await scanSessionTasks(sessionId, transcriptPath, new Set(shells.map((shell) => shell.taskId)))
     : {
-      starts: new Map<string, TaskIdentity>(),
-      monitors: new Map<string, MonitorIdentity>(),
-      agents: new Map<string, AgentIdentity>(),
-      notifications: new Map<string, TaskNotification>(),
-    };
+        starts: new Map<string, TaskIdentity>(),
+        monitors: new Map<string, MonitorIdentity>(),
+        agents: new Map<string, AgentIdentity>(),
+        notifications: new Map<string, TaskNotification>(),
+      };
 
   const markers = new Map<string, ReturnType<typeof parseTerminalMarker>>();
   const captureSizes = new Map<string, number>();

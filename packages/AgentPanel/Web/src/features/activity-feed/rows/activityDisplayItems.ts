@@ -58,13 +58,7 @@ export function itemKey(item: FeedItem): string {
   return `cluster-${events[0]!.index}-${events[events.length - 1]!.index}`;
 }
 
-export type DisplayRole =
-  | "user"
-  | "assistant"
-  | "tool"
-  | "result"
-  | "reasoning"
-  | "system";
+export type DisplayRole = "user" | "assistant" | "tool" | "result" | "reasoning" | "system";
 
 // Metadata never disqualifies an event from its shape: the adapters append a
 // Working Directory block to nearly every Claude line, so demanding blocks be
@@ -74,13 +68,10 @@ export type DisplayRole =
 // Exported because Nice's scaffolding filter has to ask the same question. A compaction is a
 // `system` event, so dropping every system event dropped the banner with them.
 export function isCompactionEvent(ev: ActivityEvent): boolean {
-  return ev.blocks.some((block) => block.kind === "compaction") &&
-    ev.blocks.every(
-      (block) =>
-        block.kind === "compaction" ||
-        block.kind === "raw" ||
-        block.kind === "metadata",
-    );
+  return (
+    ev.blocks.some((block) => block.kind === "compaction") &&
+    ev.blocks.every((block) => block.kind === "compaction" || block.kind === "raw" || block.kind === "metadata")
+  );
 }
 
 /**
@@ -195,7 +186,7 @@ export function buildActivityDisplayItems(
 
   const flush = () => {
     const emitted: DisplayItem[] = [];
-    for (let index = 0; index < segmentEvents.length; ) {
+    for (let index = 0; index < segmentEvents.length;) {
       const event = segmentEvents[index]!;
       if (options.cluster && isClusterable(event)) {
         let end = index + 1;

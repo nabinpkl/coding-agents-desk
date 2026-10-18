@@ -27,7 +27,15 @@ describe("SessionModal's Move to canvas", () => {
   it("closes once the session is on a Bot", async () => {
     const onClose = vi.fn();
     const onMoveToCanvas = vi.fn(async () => {});
-    render(<SessionModal context={context} project={project} session={session} onClose={onClose} onMoveToCanvas={onMoveToCanvas} />);
+    render(
+      <SessionModal
+        context={context}
+        project={project}
+        session={session}
+        onClose={onClose}
+        onMoveToCanvas={onMoveToCanvas}
+      />,
+    );
 
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Move to canvas" })));
 
@@ -37,8 +45,18 @@ describe("SessionModal's Move to canvas", () => {
 
   it("stays open and says why when the move fails, with the button usable again", async () => {
     const onClose = vi.fn();
-    const onMoveToCanvas = vi.fn(async () => { throw new Error("a Bot named \"repo\" already exists"); });
-    render(<SessionModal context={context} project={project} session={session} onClose={onClose} onMoveToCanvas={onMoveToCanvas} />);
+    const onMoveToCanvas = vi.fn(async () => {
+      throw new Error('a Bot named "repo" already exists');
+    });
+    render(
+      <SessionModal
+        context={context}
+        project={project}
+        session={session}
+        onClose={onClose}
+        onMoveToCanvas={onMoveToCanvas}
+      />,
+    );
 
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Move to canvas" })));
 

@@ -28,31 +28,32 @@ export const runCommand: CommandRunner = async (argv) => {
       // the panel reported no background work at all, on a machine that had plenty.
       env: { ...process.env, LC_ALL: "C" },
     });
-    const [text, diagnostic] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
+    const [text, diagnostic] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
     const code = await proc.exited;
     // A non-zero exit is an ordinary answer here: `lsof` exits non-zero when a pid has already
     // gone. Producing NOTHING while complaining on stderr is not -- that is the tool declining to
     // run, and it used to be indistinguishable from a quiet machine.
     if (code !== 0 && !text && diagnostic.trim()) {
-      console.error(JSON.stringify({
-        event: "agent-feed-task-probe-failed",
-        command: argv[0],
-        exitCode: code,
-        detail: diagnostic.trim().slice(0, 200),
-      }));
+      console.error(
+        JSON.stringify({
+          event: "agent-feed-task-probe-failed",
+          command: argv[0],
+          exitCode: code,
+          detail: diagnostic.trim().slice(0, 200),
+        }),
+      );
     }
     return text;
   } catch (error) {
     // Could not be started at all -- missing binary, denied exec. Loud, because the alternative
     // is a panel that quietly reports no background work forever.
-    console.error(JSON.stringify({
-      event: "agent-feed-task-probe-unavailable",
-      command: argv[0],
-      detail: String(error).slice(0, 200),
-    }));
+    console.error(
+      JSON.stringify({
+        event: "agent-feed-task-probe-unavailable",
+        command: argv[0],
+        detail: String(error).slice(0, 200),
+      }),
+    );
     return "";
   }
 };

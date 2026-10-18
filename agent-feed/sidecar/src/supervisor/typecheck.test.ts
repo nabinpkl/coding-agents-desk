@@ -2,13 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  describeTypeError,
-  introduced,
-  parseErrors,
-  typeErrors,
-  type TypeCheckError,
-} from "@/supervisor/typecheck";
+import { describeTypeError, introduced, parseErrors, typeErrors, type TypeCheckError } from "@/supervisor/typecheck";
 
 function error(file: string, line: number, message: string, code = "TS2339"): TypeCheckError {
   return { file, line, code, message };
@@ -22,7 +16,12 @@ describe("reading the compiler's answer", () => {
       "Found 1 error.",
     ].join("\n");
     expect(parseErrors(output, "/repo/web")).toEqual([
-      error("/repo/web/src/app/AgentPanelApp.tsx", 105, "Argument of type 'Feed' is not assignable to parameter of type 'readonly Machine[]'.", "TS2345"),
+      error(
+        "/repo/web/src/app/AgentPanelApp.tsx",
+        105,
+        "Argument of type 'Feed' is not assignable to parameter of type 'readonly Machine[]'.",
+        "TS2345",
+      ),
     ]);
   });
 });
@@ -51,7 +50,9 @@ describe("a check that cannot run", () => {
     const work = mkdtempSync(join(tmpdir(), "typecheck-"));
     try {
       writeFileSync(join(work, "tsconfig.json"), "{}");
-      expect(await typeErrors(join(work, "tsconfig.json"))).toEqual({ failed: "no TypeScript installed beside tsconfig.json" });
+      expect(await typeErrors(join(work, "tsconfig.json"))).toEqual({
+        failed: "no TypeScript installed beside tsconfig.json",
+      });
     } finally {
       rmSync(work, { recursive: true, force: true });
     }

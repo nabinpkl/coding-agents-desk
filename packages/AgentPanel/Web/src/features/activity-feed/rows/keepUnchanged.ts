@@ -25,8 +25,7 @@ function sameEvent(left: ActivityEvent, right: ActivityEvent): boolean {
   if (left === right) return true;
   const leftKeys = Object.keys(left) as (keyof ActivityEvent)[];
   if (leftKeys.length !== Object.keys(right).length) return false;
-  return leftKeys.every((key) =>
-    key === "blocks" ? sameList(left.blocks, right.blocks) : left[key] === right[key]);
+  return leftKeys.every((key) => (key === "blocks" ? sameList(left.blocks, right.blocks) : left[key] === right[key]));
 }
 
 function sameItem(left: FeedItem, right: FeedItem): boolean {
@@ -34,13 +33,19 @@ function sameItem(left: FeedItem, right: FeedItem): boolean {
     return left.kind === "gap" && right.kind === "gap" && left.above === right.above && left.below === right.below;
   }
   if (left.kind === "cluster" || right.kind === "cluster") {
-    return left.kind === "cluster" && right.kind === "cluster"
-      && left.events.length === right.events.length
-      && left.events.every((event, index) => sameEvent(event, right.events[index]!));
+    return (
+      left.kind === "cluster" &&
+      right.kind === "cluster" &&
+      left.events.length === right.events.length &&
+      left.events.every((event, index) => sameEvent(event, right.events[index]!))
+    );
   }
   if (left.kind !== right.kind || !sameEvent(left.ev, right.ev)) return false;
-  return left.kind !== "segment_event" || right.kind !== "segment_event"
-    || (left.isFirst === right.isFirst && left.isLast === right.isLast);
+  return (
+    left.kind !== "segment_event" ||
+    right.kind !== "segment_event" ||
+    (left.isFirst === right.isFirst && left.isLast === right.isLast)
+  );
 }
 
 /** `next`, with each item that matches the previous one at its key replaced by that previous one. */
@@ -60,19 +65,21 @@ export function keepUnchangedItems(previous: readonly FeedItem[], next: FeedItem
 function samePair(left: PairedToolResult, right: PairedToolResult): boolean {
   const leftSkill = left.skillBody;
   const rightSkill = right.skillBody;
-  return left.block === right.block
-    && left.eventIndex === right.eventIndex
-    && left.blockIndex === right.blockIndex
-    && left.includesRawEvent === right.includesRawEvent
-    && sameList(left.metadata, right.metadata)
-    && sameList(left.images, right.images)
-    && (leftSkill === rightSkill || (
-      leftSkill !== undefined && rightSkill !== undefined
-      && leftSkill.text === rightSkill.text
-      && leftSkill.eventIndex === rightSkill.eventIndex
-      && leftSkill.includesRawEvent === rightSkill.includesRawEvent
-      && sameList(leftSkill.metadata, rightSkill.metadata)
-    ));
+  return (
+    left.block === right.block &&
+    left.eventIndex === right.eventIndex &&
+    left.blockIndex === right.blockIndex &&
+    left.includesRawEvent === right.includesRawEvent &&
+    sameList(left.metadata, right.metadata) &&
+    sameList(left.images, right.images) &&
+    (leftSkill === rightSkill ||
+      (leftSkill !== undefined &&
+        rightSkill !== undefined &&
+        leftSkill.text === rightSkill.text &&
+        leftSkill.eventIndex === rightSkill.eventIndex &&
+        leftSkill.includesRawEvent === rightSkill.includesRawEvent &&
+        sameList(leftSkill.metadata, rightSkill.metadata)))
+  );
 }
 
 /** `next`, with each result that matches the previous one for its call replaced by that previous one. */

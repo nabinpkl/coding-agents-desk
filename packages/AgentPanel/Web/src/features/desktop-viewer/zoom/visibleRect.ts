@@ -128,21 +128,19 @@ export function zoomVisible(
   const size = shaped((visible.width * visible.height) / (factor * factor), display, aspect);
   const ratioX = size.width / visible.width;
   const ratioY = size.height / visible.height;
-  return clampVisible({
-    x: anchor.x - (anchor.x - visible.x) * ratioX,
-    y: anchor.y - (anchor.y - visible.y) * ratioY,
-    width: size.width,
-    height: size.height,
-  }, display);
+  return clampVisible(
+    {
+      x: anchor.x - (anchor.x - visible.x) * ratioX,
+      y: anchor.y - (anchor.y - visible.y) * ratioY,
+      width: size.width,
+      height: size.height,
+    },
+    display,
+  );
 }
 
 /** Moves the visible rect by a delta in display points. */
-export function panVisible(
-  visible: DisplayRect,
-  display: DisplaySize,
-  dx: number,
-  dy: number,
-): DisplayRect {
+export function panVisible(visible: DisplayRect, display: DisplaySize, dx: number, dy: number): DisplayRect {
   const next = clampVisible({ ...visible, x: visible.x + dx, y: visible.y + dy }, display);
   return next.x === visible.x && next.y === visible.y ? visible : next;
 }
@@ -178,11 +176,14 @@ export function centreVisible(
   display: DisplaySize,
   point: { x: number; y: number },
 ): DisplayRect {
-  return clampVisible({
-    ...visible,
-    x: point.x - visible.width / 2,
-    y: point.y - visible.height / 2,
-  }, display);
+  return clampVisible(
+    {
+      ...visible,
+      x: point.x - visible.width / 2,
+      y: point.y - visible.height / 2,
+    },
+    display,
+  );
 }
 
 /**
@@ -256,8 +257,10 @@ export function unprojectPoint(
 /** True when `region` covers all of `visible`, which is the condition for showing it at all. */
 export function regionCovers(region: DisplayRect, visible: DisplayRect): boolean {
   const epsilon = 1e-6;
-  return region.x <= visible.x + epsilon
-    && region.y <= visible.y + epsilon
-    && region.x + region.width >= visible.x + visible.width - epsilon
-    && region.y + region.height >= visible.y + visible.height - epsilon;
+  return (
+    region.x <= visible.x + epsilon &&
+    region.y <= visible.y + epsilon &&
+    region.x + region.width >= visible.x + visible.width - epsilon &&
+    region.y + region.height >= visible.y + visible.height - epsilon
+  );
 }

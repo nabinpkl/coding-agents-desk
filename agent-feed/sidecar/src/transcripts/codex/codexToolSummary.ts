@@ -21,7 +21,7 @@
 // back to naming the verb or the tool, and what was actually written stays one
 // Raw JSON press away.
 //
-import { basename } from 'node:path';
+import { basename } from "node:path";
 
 /**
  * Beyond this many files or images a row names the first few and counts the rest.
@@ -32,13 +32,13 @@ import { basename } from 'node:path';
 export const ITEMS_NAMED = 6;
 
 export const PATCH_CHANGE_MARKS: Readonly<Record<string, string>> = {
-  add: 'A',
-  update: 'M',
-  delete: 'D',
+  add: "A",
+  update: "M",
+  delete: "D",
 };
 
 /** Every one of the 17,065 patch payloads measured here opens with this line. */
-const PATCH_OPENING = '*** Begin Patch';
+const PATCH_OPENING = "*** Begin Patch";
 
 const SUMMARY_MAX = 200;
 /** Leaves room inside SUMMARY_MAX for the verb name in front of the detail. */
@@ -54,12 +54,12 @@ const VERB_NAMESPACE = /^multi_agent_v1__/;
  * a function call. Both spellings take the same rule.
  */
 const SUB_AGENT_VERBS: ReadonlySet<string> = new Set([
-  'spawn_agent',
-  'wait_agent',
-  'send_input',
-  'resume_agent',
-  'close_agent',
-  'list_agents',
+  "spawn_agent",
+  "wait_agent",
+  "send_input",
+  "resume_agent",
+  "close_agent",
+  "list_agents",
 ]);
 
 interface KeyedValue {
@@ -75,14 +75,14 @@ interface KeyedValue {
  */
 function readStringLiteral(source: string, i: number): { value: string; end: number } | null {
   const quote = source[i];
-  if (quote !== '"' && quote !== "'" && quote !== '`') return null;
-  let value = '';
+  if (quote !== '"' && quote !== "'" && quote !== "`") return null;
+  let value = "";
   for (let j = i + 1; j < source.length; j += 1) {
     const char = source[j];
-    if (char === '\\') {
+    if (char === "\\") {
       const escaped = source[j + 1];
       if (escaped === undefined) break;
-      value += escaped === 'n' ? '\n' : escaped === 't' ? '\t' : escaped;
+      value += escaped === "n" ? "\n" : escaped === "t" ? "\t" : escaped;
       j += 1;
       continue;
     }
@@ -103,7 +103,7 @@ function readStringLiteral(source: string, i: number): { value: string; end: num
  */
 function keyedValues(source: string): KeyedValue[] {
   const pairs: KeyedValue[] = [];
-  let pendingKey = '';
+  let pendingKey = "";
   let i = 0;
   const skipSpace = (from: number): number => {
     let j = from;
@@ -112,14 +112,14 @@ function keyedValues(source: string): KeyedValue[] {
   };
   while (i < source.length) {
     const char = source.charAt(i);
-    if (char === '"' || char === "'" || char === '`') {
+    if (char === '"' || char === "'" || char === "`") {
       const literal = readStringLiteral(source, i);
       if (!literal) {
         i += 1;
         continue;
       }
       const after = skipSpace(literal.end + 1);
-      if (source.charAt(after) === ':') {
+      if (source.charAt(after) === ":") {
         pendingKey = literal.value;
         i = after + 1;
         continue;
@@ -132,7 +132,7 @@ function keyedValues(source: string): KeyedValue[] {
       let end = i;
       while (end < source.length && /[\w$]/.test(source.charAt(end))) end += 1;
       const after = skipSpace(end);
-      if (source.charAt(after) === ':') {
+      if (source.charAt(after) === ":") {
         pendingKey = source.slice(i, end);
         i = after + 1;
         continue;
@@ -144,7 +144,7 @@ function keyedValues(source: string): KeyedValue[] {
       let end = i;
       while (end < source.length && /[\d.]/.test(source.charAt(end))) end += 1;
       pairs.push({ key: pendingKey, value: source.slice(i, end) });
-      pendingKey = '';
+      pendingKey = "";
       i = end;
       continue;
     }
@@ -161,16 +161,16 @@ function keyedValues(source: string): KeyedValue[] {
  * reader does with `{targets:["a","b"]}`, so one rule serves both spellings of a
  * verb. Booleans and nulls are skipped: `success: true` names no row.
  */
-function jsonValues(value: unknown, key = '', pairs: KeyedValue[] = []): KeyedValue[] {
+function jsonValues(value: unknown, key = "", pairs: KeyedValue[] = []): KeyedValue[] {
   if (Array.isArray(value)) {
     for (const item of value) jsonValues(item, key, pairs);
     return pairs;
   }
-  if (value !== null && typeof value === 'object') {
+  if (value !== null && typeof value === "object") {
     for (const [childKey, child] of Object.entries(value)) jsonValues(child, childKey, pairs);
     return pairs;
   }
-  if (key && (typeof value === 'string' || typeof value === 'number')) {
+  if (key && (typeof value === "string" || typeof value === "number")) {
     pairs.push({ key, value: String(value) });
   }
   return pairs;
@@ -187,7 +187,7 @@ function primaryVerb(source: string): string {
     if (!verb) continue;
     counts.set(verb, (counts.get(verb) ?? 0) + 1);
   }
-  let best = '';
+  let best = "";
   let bestCount = 0;
   for (const [verb, count] of counts) {
     if (count > bestCount) {
@@ -199,7 +199,7 @@ function primaryVerb(source: string): string {
 }
 
 function firstLine(text: string): string {
-  return (text.split('\n')[0] ?? '').trim();
+  return (text.split("\n")[0] ?? "").trim();
 }
 
 /**
@@ -213,14 +213,14 @@ function firstLine(text: string): string {
  */
 function nameFirstCountRest(items: string[]): string {
   const [first] = items;
-  if (first === undefined) return '';
+  if (first === undefined) return "";
   const siblings = items.length - 1;
-  const extraLines = first.split('\n').length - 1;
+  const extraLines = first.split("\n").length - 1;
   // A row with no suffix to fit gets the whole budget; a command is the most
   // informative thing a row can carry and was never cut short before.
   const head = firstLine(first).slice(0, siblings || extraLines ? MESSAGE_MAX : SUMMARY_MAX);
   if (siblings > 0) return `${head}  (+${siblings} more)`;
-  if (extraLines > 0) return `${head}  (+${extraLines} more line${extraLines === 1 ? '' : 's'})`;
+  if (extraLines > 0) return `${head}  (+${extraLines} more line${extraLines === 1 ? "" : "s"})`;
   return head;
 }
 
@@ -231,10 +231,10 @@ export function commandSummary(command: string): string {
 
 /** `M FileTab.swift, A New.swift, +2 more` */
 function nameEach(items: string[]): string {
-  if (items.length === 0) return '';
+  if (items.length === 0) return "";
   const named = items.slice(0, ITEMS_NAMED);
   const rest = items.length - named.length;
-  return `${named.join(', ')}${rest > 0 ? `, +${rest} more` : ''}`;
+  return `${named.join(", ")}${rest > 0 ? `, +${rest} more` : ""}`;
 }
 
 /**
@@ -246,14 +246,14 @@ function nameEach(items: string[]): string {
  */
 function patchFilesFromText(text: string): string {
   const headers = [...text.matchAll(/\*\*\* (Add|Update|Delete) File:[ \t]*(.+)/g)];
-  if (headers.length === 0) return '';
+  if (headers.length === 0) return "";
   const files = headers.map((header) => {
-    const mark = PATCH_CHANGE_MARKS[(header[1] ?? '').toLowerCase()] ?? '?';
+    const mark = PATCH_CHANGE_MARKS[(header[1] ?? "").toLowerCase()] ?? "?";
     // A patch embedded in a script has its line breaks written as the two
     // characters backslash-n, which no line-oriented pattern stops at. Without
     // this cut the "path" runs on into the diff and the whole patch lands in the
     // row -- the failure this module exists to remove.
-    const path = ((header[2] ?? '').split('\\n')[0] ?? '').trim();
+    const path = ((header[2] ?? "").split("\\n")[0] ?? "").trim();
     return `${mark} ${basename(path)}`;
   });
   return nameEach(files);
@@ -263,42 +263,41 @@ type VerbRule = (pairs: KeyedValue[], source: string) => string;
 
 const VERB_RULES: Readonly<Record<string, VerbRule>> = {
   // The command is the row. Multiple `cmd`s mean a Promise.all fan-out.
-  exec_command: (pairs) => nameFirstCountRest(valuesFor(pairs, 'cmd')),
+  exec_command: (pairs) => nameFirstCountRest(valuesFor(pairs, "cmd")),
 
   // Feeding an already-running shell. Most of these send nothing and exist only
   // to collect more output, which is worth saying rather than showing as blank.
   write_stdin: (pairs) => {
-    const session = valuesFor(pairs, 'session_id')[0];
-    if (!session) return '';
-    const typed = firstLine(valuesFor(pairs, 'chars')[0] ?? '');
+    const session = valuesFor(pairs, "session_id")[0];
+    if (!session) return "";
+    const typed = firstLine(valuesFor(pairs, "chars")[0] ?? "");
     return typed ? `session ${session}  ${typed.slice(0, MESSAGE_MAX)}` : `session ${session}  (poll)`;
   },
 
   apply_patch: (_pairs, source) => patchFilesFromText(source),
 
   // A search carries `search_query`; a fetch carries `open`/`find` targets.
-  web__run: (pairs) => nameFirstCountRest(valuesFor(pairs, 'q'))
-    || nameFirstCountRest(valuesFor(pairs, 'ref_id')),
+  web__run: (pairs) => nameFirstCountRest(valuesFor(pairs, "q")) || nameFirstCountRest(valuesFor(pairs, "ref_id")),
 
-  view_image: (pairs) => nameEach(valuesFor(pairs, 'path').map((path) => basename(path))),
+  view_image: (pairs) => nameEach(valuesFor(pairs, "path").map((path) => basename(path))),
 
   update_plan: (pairs) => {
-    const steps = valuesFor(pairs, 'step');
+    const steps = valuesFor(pairs, "step");
     const [first] = steps;
     if (first !== undefined) {
-      return `${steps.length} step${steps.length === 1 ? '' : 's'} · ${firstLine(first).slice(0, MESSAGE_MAX)}`;
+      return `${steps.length} step${steps.length === 1 ? "" : "s"} · ${firstLine(first).slice(0, MESSAGE_MAX)}`;
     }
-    return firstLine(valuesFor(pairs, 'explanation')[0] ?? '').slice(0, HEAD_MAX);
+    return firstLine(valuesFor(pairs, "explanation")[0] ?? "").slice(0, HEAD_MAX);
   },
 };
 
 /** Sub-agent verbs all address agents by id and mostly carry a message. */
 function subAgentDetail(pairs: KeyedValue[]): string {
-  const message = valuesFor(pairs, 'message')[0];
+  const message = valuesFor(pairs, "message")[0];
   if (message) return firstLine(message).slice(0, HEAD_MAX);
-  const targets = new Set([...valuesFor(pairs, 'target'), ...valuesFor(pairs, 'targets')]);
-  if (targets.size === 0) return '';
-  return `${targets.size} agent${targets.size === 1 ? '' : 's'}`;
+  const targets = new Set([...valuesFor(pairs, "target"), ...valuesFor(pairs, "targets")]);
+  if (targets.size === 0) return "";
+  return `${targets.size} agent${targets.size === 1 ? "" : "s"}`;
 }
 
 /** Knobs that describe the harness rather than the work. */
@@ -314,7 +313,7 @@ const HARNESS_KEYS = /^(yield_time_ms|max_output_tokens|timeout|detail|type|stat
  * the entire content of the row.
  */
 function firstArgumentDetail(pairs: KeyedValue[]): string {
-  let fallback = '';
+  let fallback = "";
   for (const pair of pairs) {
     if (HARNESS_KEYS.test(pair.key)) continue;
     const text = firstLine(pair.value);
@@ -335,7 +334,7 @@ function firstArgumentDetail(pairs: KeyedValue[]): string {
  * rows already read.
  */
 export function summarizeScriptCall(raw: string, toolName: string): string {
-  if (!raw.trim()) return '';
+  if (!raw.trim()) return "";
   // A bare patch document, recognized by its own opening line rather than by the
   // absence of script syntax: a diff that happens to add a line mentioning
   // `tools.` would otherwise be read as a script and labelled with a verb picked
@@ -344,7 +343,7 @@ export function summarizeScriptCall(raw: string, toolName: string): string {
     return patchFilesFromText(raw).slice(0, SUMMARY_MAX);
   }
   const verb = primaryVerb(raw);
-  if (!verb) return '';
+  if (!verb) return "";
   return compose(verb, toolName, keyedValues(raw), raw);
 }
 
@@ -359,25 +358,23 @@ export function summarizeScriptCall(raw: string, toolName: string): string {
  * past it to the bare tool name with their arguments sitting right there.
  */
 export function summarizeJsonCall(input: Record<string, unknown>, toolName: string): string {
-  if (Object.keys(input).length === 0) return '';
-  return compose(toolName, toolName, jsonValues(input), '');
+  if (Object.keys(input).length === 0) return "";
+  return compose(toolName, toolName, jsonValues(input), "");
 }
 
 function compose(verb: string, toolName: string, pairs: KeyedValue[], source: string): string {
-  const bare = verb.replace(VERB_NAMESPACE, '');
+  const bare = verb.replace(VERB_NAMESPACE, "");
   const rule = VERB_RULES[verb];
   // A verb with a rule never falls through to the generic reader: when the rule
   // finds nothing the argument it wanted was computed rather than written down,
   // and the next literal in the source is something else entirely -- a workdir,
   // not a command. Naming the verb alone is the honest answer there.
-  const ruled = SUB_AGENT_VERBS.has(bare)
-    ? subAgentDetail(pairs)
-    : rule ? rule(pairs, source) : '';
-  const detail = ruled || (rule ? '' : firstArgumentDetail(pairs));
+  const ruled = SUB_AGENT_VERBS.has(bare) ? subAgentDetail(pairs) : rule ? rule(pairs, source) : "";
+  const detail = ruled || (rule ? "" : firstArgumentDetail(pairs));
   // A rule's detail says what the call did, so repeating the name the row's chip
   // already shows just gives back the "exec exec" this replaces. The generic
   // reader's detail is a bare argument value, which needs the name to make sense
   // -- and keeping it there is the convention the Claude adapter also follows.
-  const named = ruled && (verb === toolName || verb === 'exec_command') ? '' : bare;
-  return [named, detail].filter(Boolean).join(' ').slice(0, SUMMARY_MAX);
+  const named = ruled && (verb === toolName || verb === "exec_command") ? "" : bare;
+  return [named, detail].filter(Boolean).join(" ").slice(0, SUMMARY_MAX);
 }

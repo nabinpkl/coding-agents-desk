@@ -30,10 +30,7 @@ export const CAPTURES: readonly { name: string; screen: string; entries: readonl
       "",
       "  Enter to continue · Esc to cancel",
     ].join("\n"),
-    entries: [
-      "ALPHA one. Reply with just OK.",
-      "CHARLIE three. Reply with just OK.",
-    ],
+    entries: ["ALPHA one. Reply with just OK.", "CHARLIE three. Reply with just OK."],
   },
   {
     name: "a cleared session",
@@ -81,9 +78,7 @@ export const CAPTURES: readonly { name: string; screen: string; entries: readonl
       "",
       "  Enter to continue · Esc to cancel",
     ].join("\n"),
-    entries: [
-      "CHARLIE three. Reply with just OK.",
-    ],
+    entries: ["CHARLIE three. Reply with just OK."],
   },
   {
     name: "a fork of another session",
@@ -104,9 +99,6 @@ export const CAPTURES: readonly { name: string; screen: string; entries: readonl
       "",
       "  Enter to continue · Esc to cancel",
     ].join("\n"),
-    entries: [
-      "ALPHA one. Reply with just OK.",
-      "CHARLIE three. Reply with just OK.",
-    ],
+    entries: ["ALPHA one. Reply with just OK.", "CHARLIE three. Reply with just OK."],
   },
 ];

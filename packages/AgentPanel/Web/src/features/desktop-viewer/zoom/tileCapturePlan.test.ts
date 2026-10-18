@@ -24,14 +24,16 @@ describe("wantedPixelsPerPoint", () => {
 
 describe("paddedRegion", () => {
   it("captures beyond the visible area so a small pan needs no new capture", () => {
-    expect(paddedRegion({ x: 1000, y: 1000, width: 1000, height: 1000 },
-      DISPLAY.width, DISPLAY.height, 0.2))
-      .toEqual({ x: 800, y: 800, width: 1400, height: 1400 });
+    expect(paddedRegion({ x: 1000, y: 1000, width: 1000, height: 1000 }, DISPLAY.width, DISPLAY.height, 0.2)).toEqual({
+      x: 800,
+      y: 800,
+      width: 1400,
+      height: 1400,
+    });
   });
 
   it("never runs off the display", () => {
-    const region = paddedRegion({ x: 0, y: 0, width: 7680, height: 4320 },
-      DISPLAY.width, DISPLAY.height, 0.2);
+    const region = paddedRegion({ x: 0, y: 0, width: 7680, height: 4320 }, DISPLAY.width, DISPLAY.height, 0.2);
     expect(region).toEqual({ x: 0, y: 0, width: 7680, height: 4320 });
   });
 });
@@ -40,16 +42,20 @@ describe("capturePlanFor", () => {
   it("spends the viewport's pixels on the region, not on the whole display", () => {
     // Visible 1920 points in a 1920-pixel viewport wants one pixel per point; the padded region is
     // 20% larger each way, so it is captured at proportionally more pixels to hold that detail.
-    const plan = capturePlanFor({ x: 2400, y: 1200, width: 1920, height: 1080 },
-      DISPLAY.width, DISPLAY.height, 1920, 1);
+    const plan = capturePlanFor(
+      { x: 2400, y: 1200, width: 1920, height: 1080 },
+      DISPLAY.width,
+      DISPLAY.height,
+      1920,
+      1,
+    );
     expect(plan.region.width).toBeCloseTo(2688, 6);
     expect(plan.pixelWidth).toBe(2688);
   });
 
   it("stops at the display's own resolution when zoomed past it", () => {
     // 480 visible points shown across 1920 pixels: the display holds 480 and that is what it gives.
-    const plan = capturePlanFor({ x: 0, y: 0, width: 480, height: 270 },
-      DISPLAY.width, DISPLAY.height, 1920, 1);
+    const plan = capturePlanFor({ x: 0, y: 0, width: 480, height: 270 }, DISPLAY.width, DISPLAY.height, 1920, 1);
     expect(plan.pixelWidth).toBe(Math.round(plan.region.width) & ~1);
   });
 });

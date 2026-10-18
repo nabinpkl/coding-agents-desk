@@ -10,14 +10,9 @@ import {
   type AgentTerminalPtyClient,
 } from "@/terminal/agentTerminalService";
 import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
-import {
-  agentTerminalHarness,
-  SESSION_ID,
-} from "@/terminal/agentTerminalHarness";
+import { agentTerminalHarness, SESSION_ID } from "@/terminal/agentTerminalHarness";
 
-const {
-  roots,
-} = agentTerminalHarness();
+const { roots } = agentTerminalHarness();
 
 test("opens a UUIDv7 Codex session with the deterministic resume command", async () => {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
@@ -57,12 +52,15 @@ test("opens a UUIDv7 Codex session with the deterministic resume command", async
     pty,
   );
 
-  const descriptor = await service.open({
-    kind: "agent-session",
-    projectPath: project,
-    source: "codex",
-    sessionId: SESSION_ID,
-  }, { columns: 90, rows: 30 });
+  const descriptor = await service.open(
+    {
+      kind: "agent-session",
+      projectPath: project,
+      source: "codex",
+      sessionId: SESSION_ID,
+    },
+    { columns: 90, rows: 30 },
+  );
 
   expect(descriptor).toMatchObject({
     ptySessionName: `agent-shell-codex-${SESSION_ID}`,
@@ -70,20 +68,22 @@ test("opens a UUIDv7 Codex session with the deterministic resume command", async
     columns: 90,
     rows: 30,
   });
-  expect(opened).toEqual([{
-    sessionName: `agent-shell-codex-${SESSION_ID}`,
-    launch: {
-      cwd: canonicalProject,
-      executable: "/bin/zsh",
-      // A shell, not `codex resume`: the control opens a terminal in the session's directory, and
-      // a live session used to be refused outright rather than given one.
-      arguments: ["-l"],
+  expect(opened).toEqual([
+    {
+      sessionName: `agent-shell-codex-${SESSION_ID}`,
+      launch: {
+        cwd: canonicalProject,
+        executable: "/bin/zsh",
+        // A shell, not `codex resume`: the control opens a terminal in the session's directory, and
+        // a live session used to be refused outright rather than given one.
+        arguments: ["-l"],
+      },
+      columns: 90,
+      rows: 30,
+      createIfMissing: true,
+      clientTitle: "Agent Feed",
     },
-    columns: 90,
-    rows: 30,
-    createIfMissing: true,
-    clientTitle: "Agent Feed",
-  }]);
+  ]);
   service.stop();
 });
 
@@ -133,10 +133,12 @@ test("an observer sees every terminal, including ones opened after it started", 
   );
   for (const emit of publishers) emit({ output: { revision: "4", data: "aGk=" } });
 
-  expect(seen).toEqual([{
-    terminalId: descriptor.terminalId,
-    message: { type: "output", revision: "4", data: "aGk=" },
-  }]);
+  expect(seen).toEqual([
+    {
+      terminalId: descriptor.terminalId,
+      message: { type: "output", revision: "4", data: "aGk=" },
+    },
+  ]);
 
   // The replay is its own act now, asked for by a viewer rather than implied by the transport.
   expect(checkpoints).toEqual([]);
@@ -150,22 +152,26 @@ test("an observer sees every terminal, including ones opened after it started", 
 
 test("rejects a non-canonical session id before touching the PTY manager", async () => {
   const pty: AgentTerminalPtyClient = {
-    listSessions: async () => { throw new Error("must not be called"); },
-    openSession: async () => { throw new Error("must not be called"); },
+    listSessions: async () => {
+      throw new Error("must not be called");
+    },
+    openSession: async () => {
+      throw new Error("must not be called");
+    },
   };
-  const service = new AgentTerminalService(
-    "/unused/pty.sock",
-    () => undefined,
-    "/tmp",
-    pty,
-  );
+  const service = new AgentTerminalService("/unused/pty.sock", () => undefined, "/tmp", pty);
 
-  await expect(service.open({
-    kind: "agent-session",
-    projectPath: "/tmp/project",
-    source: "codex",
-    sessionId: SESSION_ID.toUpperCase(),
-  }, { columns: 80, rows: 24 })).rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  await expect(
+    service.open(
+      {
+        kind: "agent-session",
+        projectPath: "/tmp/project",
+        source: "codex",
+        sessionId: SESSION_ID.toUpperCase(),
+      },
+      { columns: 80, rows: 24 },
+    ),
+  ).rejects.toBeInstanceOf(AgentTerminalInvalidError);
 });
 
 test("opens a workspace shell in the root, under one name per directory", async () => {
@@ -193,21 +199,10 @@ test("opens a workspace shell in the root, under one name per directory", async 
       } as unknown as PtySessionConnection;
     },
   };
-  const service = new AgentTerminalService(
-    "/unused/pty.sock",
-    () => undefined,
-    home,
-    pty,
-  );
+  const service = new AgentTerminalService("/unused/pty.sock", () => undefined, home, pty);
 
-  const first = await service.open(
-    { kind: "workspace", workspacePath: root },
-    { columns: 100, rows: 30 },
-  );
-  const second = await service.open(
-    { kind: "workspace", workspacePath: root },
-    { columns: 100, rows: 30 },
-  );
+  const first = await service.open({ kind: "workspace", workspacePath: root }, { columns: 100, rows: 30 });
+  const second = await service.open({ kind: "workspace", workspacePath: root }, { columns: 100, rows: 30 });
 
   // The login shell itself, in the workspace, with nothing to exec: this terminal is a place to
   // work rather than a CLI being resumed.
@@ -227,12 +222,12 @@ test("refuses a workspace shell outside the user home", async () => {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
   const elsewhere = await mkdtemp(join(tmpdir(), "agent-terminal-elsewhere-"));
   roots.push(home, elsewhere);
-  const service = new AgentTerminalService(
-    "/unused/pty.sock",
-    () => undefined,
-    home,
-    { listSessions: async () => [], openSession: async () => { throw new Error("unreached"); } },
-  );
+  const service = new AgentTerminalService("/unused/pty.sock", () => undefined, home, {
+    listSessions: async () => [],
+    openSession: async () => {
+      throw new Error("unreached");
+    },
+  });
 
   // The panel only ever sends a root it has registered, and the sidecar does not take its word
   // for it: the panel is a browser tab, and this is what keeps `/api/terminals` from being a
@@ -321,12 +316,15 @@ test("opens an opencode session as a shell in its directory, under its serve id"
     pty,
   );
 
-  const descriptor = await service.open({
-    kind: "agent-session",
-    projectPath: project,
-    source: "opencode",
-    sessionId: "ses_abc123XYZ",
-  }, { columns: 90, rows: 30 });
+  const descriptor = await service.open(
+    {
+      kind: "agent-session",
+      projectPath: project,
+      source: "opencode",
+      sessionId: "ses_abc123XYZ",
+    },
+    { columns: 90, rows: 30 },
+  );
 
   expect(descriptor).toMatchObject({
     ptySessionName: "agent-shell-opencode-ses_abc123XYZ",
@@ -334,17 +332,19 @@ test("opens an opencode session as a shell in its directory, under its serve id"
   });
   // A shell in the session's directory, the same as every other source: the serve owns the
   // session, so there is no CLI to resume and nothing to refuse.
-  expect(opened).toEqual([{
-    sessionName: "agent-shell-opencode-ses_abc123XYZ",
-    launch: {
-      cwd: canonicalProject,
-      executable: "/bin/zsh",
-      arguments: ["-l"],
+  expect(opened).toEqual([
+    {
+      sessionName: "agent-shell-opencode-ses_abc123XYZ",
+      launch: {
+        cwd: canonicalProject,
+        executable: "/bin/zsh",
+        arguments: ["-l"],
+      },
+      columns: 90,
+      rows: 30,
+      createIfMissing: true,
+      clientTitle: "Agent Feed",
     },
-    columns: 90,
-    rows: 30,
-    createIfMissing: true,
-    clientTitle: "Agent Feed",
-  }]);
+  ]);
   service.stop();
 });

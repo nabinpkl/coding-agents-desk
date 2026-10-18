@@ -40,7 +40,13 @@ export interface TerminalTileSession {
   attachedClients?: number;
 }
 
-export function TerminalTile({ feed, session, target, storageKey, onAttachImage }: {
+export function TerminalTile({
+  feed,
+  session,
+  target,
+  storageKey,
+  onAttachImage,
+}: {
   feed: SidecarDataSource;
   session: TerminalTileSession;
   /**
@@ -62,16 +68,15 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
   // Constant for this mount: the sizing is the effect's reopen key, and the box below is
   // local presentation -- the grid stays the pane's shape either way.
   const [initialGrid] = useState<TileGrid>(() => loadTileGrid(storageKey));
-  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey, measureCell } =
-    useAgentTerminal({
-      feed,
-      context,
-      sizing: { kind: "fixed", columns: initialGrid.columns, rows: initialGrid.rows },
-      // Follow, never claim: this tile is a look at somebody else's session, and claiming
-      // would set the tmux window's one shared size to whatever box this tile holds.
-      paneShape: "follow",
-      onState,
-    });
+  const { mountRef, labels, focused, modifiers, toggleModifier, pressKey, measureCell } = useAgentTerminal({
+    feed,
+    context,
+    sizing: { kind: "fixed", columns: initialGrid.columns, rows: initialGrid.rows },
+    // Follow, never claim: this tile is a look at somebody else's session, and claiming
+    // would set the tmux window's one shared size to whatever box this tile holds.
+    paneShape: "follow",
+    onState,
+  });
   // Read once per tile rather than at import: a browser does not grow a software keyboard part way
   // through a session, but a test has to be able to say which kind of browser it is.
   const [softwareKeyboard] = useState(drawsOwnKeyboard);
@@ -85,15 +90,17 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
   // the first left off; the pane's shape never enters it, which is what keeps the grid --
   // and every long line in it -- whole.
   const [box, setBox] = useState<TileBox | null>(() => loadTileBox(storageKey));
-  const applyBox = useCallback((next: TileBox, persist: boolean): TileBox => {
-    const bounded = clampTileBox(next);
-    setBox((previous) =>
-      previous && previous.width === bounded.width && previous.height === bounded.height
-        ? previous
-        : bounded);
-    if (persist) storeTileBox(storageKey, bounded);
-    return bounded;
-  }, [storageKey]);
+  const applyBox = useCallback(
+    (next: TileBox, persist: boolean): TileBox => {
+      const bounded = clampTileBox(next);
+      setBox((previous) =>
+        previous && previous.width === bounded.width && previous.height === bounded.height ? previous : bounded,
+      );
+      if (persist) storeTileBox(storageKey, bounded);
+      return bounded;
+    },
+    [storageKey],
+  );
 
   // A drag in flight, or null. The box follows the pointer per pixel through the badge;
   // the pane is never asked, so a drag reflows only this view. The axis is which handle
@@ -122,32 +129,35 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
     const mount = mountRef.current;
     if (!mount) return null;
     const rect = mount.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0
-      ? { width: rect.width, height: rect.height }
-      : null;
+    return rect.width > 0 && rect.height > 0 ? { width: rect.width, height: rect.height } : null;
   }, [mountRef]);
 
-  const beginDrag = useCallback((clientX: number, clientY: number, axis: DragAxis): void => {
-    // From the arranged box first: the pane never moves it, so state cannot go stale the
-    // way a grid store could. The live mount is only the start while never arranged.
-    const live = box ?? measureBox();
-    const start = live ?? { width: 0, height: 0 };
-    drag.current = { startX: clientX, startY: clientY, start, axis };
-    stagedBox.current = null;
-    setDragBox(null);
-  }, [box, measureBox]);
+  const beginDrag = useCallback(
+    (clientX: number, clientY: number, axis: DragAxis): void => {
+      // From the arranged box first: the pane never moves it, so state cannot go stale the
+      // way a grid store could. The live mount is only the start while never arranged.
+      const live = box ?? measureBox();
+      const start = live ?? { width: 0, height: 0 };
+      drag.current = { startX: clientX, startY: clientY, start, axis };
+      stagedBox.current = null;
+      setDragBox(null);
+    },
+    [box, measureBox],
+  );
 
-  const moveDrag = useCallback((clientX: number, clientY: number): void => {
-    if (!drag.current) return;
-    const staged = boxFromPointer(clientX, clientY);
-    if (!staged) return;
-    stagedBox.current = staged;
-    setBox(staged);
-    setDragBox((previous) =>
-      previous && previous.width === staged.width && previous.height === staged.height
-        ? previous
-        : staged);
-  }, [boxFromPointer]);
+  const moveDrag = useCallback(
+    (clientX: number, clientY: number): void => {
+      if (!drag.current) return;
+      const staged = boxFromPointer(clientX, clientY);
+      if (!staged) return;
+      stagedBox.current = staged;
+      setBox(staged);
+      setDragBox((previous) =>
+        previous && previous.width === staged.width && previous.height === staged.height ? previous : staged,
+      );
+    },
+    [boxFromPointer],
+  );
 
   const endDrag = useCallback((): void => {
     if (!drag.current) return;
@@ -159,21 +169,24 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
 
   // A press moves the box by cells at the type on screen: one cell, or ten with shift.
   // Without a measured cell there is no step to take, so the press is ignored.
-  const nudgeBox = useCallback((deltaWidth: number, deltaHeight: number): void => {
-    const from = box ?? measureBox();
-    if (!from) return;
-    applyBox(
-      { width: from.width + deltaWidth, height: from.height + deltaHeight },
-      true,
-    );
-  }, [applyBox, box, measureBox]);
+  const nudgeBox = useCallback(
+    (deltaWidth: number, deltaHeight: number): void => {
+      const from = box ?? measureBox();
+      if (!from) return;
+      applyBox({ width: from.width + deltaWidth, height: from.height + deltaHeight }, true);
+    },
+    [applyBox, box, measureBox],
+  );
 
   // One cell step at the type on screen, for the keyboard handlers below.
-  const nudgeCells = useCallback((columns: number, rows: number): void => {
-    const cell = measureCell();
-    if (!cell) return;
-    nudgeBox(columns * cell.width, rows * cell.height);
-  }, [measureCell, nudgeBox]);
+  const nudgeCells = useCallback(
+    (columns: number, rows: number): void => {
+      const cell = measureCell();
+      if (!cell) return;
+      nudgeBox(columns * cell.width, rows * cell.height);
+    },
+    [measureCell, nudgeBox],
+  );
 
   return (
     <section
@@ -198,19 +211,17 @@ export function TerminalTile({ feed, session, target, storageKey, onAttachImage 
         style={box ? { width: box.width, height: box.height } : undefined}
         className="min-h-0 min-w-0 overflow-auto p-1 [&>.xterm]:shrink-0"
       />
-      {showsKeyRail ? (
-        <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
-      ) : null}
+      {showsKeyRail ? <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} /> : null}
       <footer className="flex min-h-5 shrink-0 items-center gap-2 overflow-hidden border-t border-border px-2 font-mono text-[10px] text-muted-foreground">
         <span className="min-w-0 flex-1 truncate">
           {state?.kind === "error"
             ? state.message
             : state?.kind === "ended"
               ? "attach ended"
-              // Before the first checkpoint the sync label still says "Opening terminal", which is
-              // no longer true once the attach has answered: a fresh tmux client has no history to
-              // replay, so it paints as ordinary output and no checkpoint ever arrives.
-              : state?.kind === "ready" && labels.sync === "Opening terminal"
+              : // Before the first checkpoint the sync label still says "Opening terminal", which is
+                // no longer true once the attach has answered: a fresh tmux client has no history to
+                // replay, so it paints as ordinary output and no checkpoint ever arrives.
+                state?.kind === "ready" && labels.sync === "Opening terminal"
                 ? "attached"
                 : labels.sync}
         </span>

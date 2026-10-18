@@ -41,9 +41,11 @@ test("expanding a directory that is not in the tree changes nothing", async () =
 });
 
 test("decorates a file and the directories above it", async () => {
-  const tree = await buildTree(await project(), ["src"], [
-    { relativePath: "src/index.ts", indexStatus: null, workTreeStatus: "M" },
-  ]);
+  const tree = await buildTree(
+    await project(),
+    ["src"],
+    [{ relativePath: "src/index.ts", indexStatus: null, workTreeStatus: "M" }],
+  );
   expect(tree[0]!.gitStatus).toBe("M");
   expect(tree[0]!.children.find((node) => node.name === "index.ts")!.gitStatus).toBe("M");
   expect(tree.find((node) => node.name === "README.md")!.gitStatus).toBe(null);

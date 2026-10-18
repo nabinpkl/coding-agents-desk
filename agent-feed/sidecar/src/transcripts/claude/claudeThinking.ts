@@ -15,8 +15,8 @@
  * counterpart to Codex's encrypted reasoning items.
  */
 export function thinkingText(block: Record<string, unknown>): string {
-  if (block?.type !== 'thinking') return '';
-  return typeof block.thinking === 'string' ? block.thinking.trim() : '';
+  if (block?.type !== "thinking") return "";
+  return typeof block.thinking === "string" ? block.thinking.trim() : "";
 }
 
 /**
@@ -32,9 +32,9 @@ export function isTracelessThinking(content: unknown): boolean {
   return content.every(
     (entry) =>
       entry !== null &&
-      typeof entry === 'object' &&
+      typeof entry === "object" &&
       !Array.isArray(entry) &&
-      (entry as Record<string, unknown>).type === 'thinking' &&
-      thinkingText(entry as Record<string, unknown>) === '',
+      (entry as Record<string, unknown>).type === "thinking" &&
+      thinkingText(entry as Record<string, unknown>) === "",
   );
 }

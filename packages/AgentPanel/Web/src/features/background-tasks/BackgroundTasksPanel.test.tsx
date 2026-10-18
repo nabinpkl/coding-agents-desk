@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type {
-  BackgroundTaskSnapshot,
-  RunningBackgroundTask,
-  TaskOutputMessage,
-} from "@agentdesk/agent-feed-wire";
+import type { BackgroundTaskSnapshot, RunningBackgroundTask, TaskOutputMessage } from "@agentdesk/agent-feed-wire";
 import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 import type { SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 import { BackgroundTasksContent } from "@/features/background-tasks/BackgroundTasksPanel";
@@ -118,10 +114,12 @@ describe("BackgroundTasksContent", () => {
     render(
       <BackgroundTasksContent
         snapshot={snapshot({
-          running: [running({
-            hasOutput: false,
-            activity: { pid: 702, command: "node build.ts", cpuMs: 83_450, elapsedMs: 299_000 },
-          })],
+          running: [
+            running({
+              hasOutput: false,
+              activity: { pid: 702, command: "node build.ts", cpuMs: 83_450, elapsedMs: 299_000 },
+            }),
+          ],
         })}
         source={stubDataSource()}
         session={SESSION}
@@ -213,14 +211,16 @@ describe("BackgroundTasksContent", () => {
     render(
       <BackgroundTasksContent
         snapshot={snapshot({
-          finished: [{
-            taskId: "b9",
-            kind: "bash",
-            description: "Rebuild the host",
-            command: "just host-run",
-            startedAt: 1,
-            state: { status: "exited", exitCode: 0 },
-          }],
+          finished: [
+            {
+              taskId: "b9",
+              kind: "bash",
+              description: "Rebuild the host",
+              command: "just host-run",
+              startedAt: 1,
+              state: { status: "exited", exitCode: 0 },
+            },
+          ],
         })}
         source={stubDataSource({ subscribeTaskOutput })}
         session={SESSION}
@@ -353,14 +353,16 @@ describe("BackgroundTasksContent", () => {
     render(
       <BackgroundTasksContent
         snapshot={snapshot({
-          finished: [{
-            taskId: "b9",
-            kind: "bash",
-            description: "Gate",
-            command: null,
-            startedAt: 1,
-            state: { status: "exited", exitCode: null },
-          }],
+          finished: [
+            {
+              taskId: "b9",
+              kind: "bash",
+              description: "Gate",
+              command: null,
+              startedAt: 1,
+              state: { status: "exited", exitCode: null },
+            },
+          ],
         })}
         source={stubDataSource()}
         session={SESSION}

@@ -7,12 +7,7 @@
  * share is the shape of the answers, so the IDE's tree and file views draw both.
  */
 
-import type {
-  BotFileRead,
-  BotGitDiff,
-  BotGitStatus,
-  BotTree,
-} from "@agentdesk/agent-feed-wire";
+import type { BotFileRead, BotGitDiff, BotGitStatus, BotTree } from "@agentdesk/agent-feed-wire";
 import { parse } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarAgentSessions } from "@/features/activity-feed/data-source/SidecarAgentSessions";
 
@@ -51,9 +46,7 @@ export class SidecarBotDirectory extends SidecarAgentSessions {
   /** One path's uncommitted change in the Bot's directory, against `HEAD`. */
   async botGitDiff(botId: string, path: string): Promise<BotGitDiff> {
     const query = new URLSearchParams({ path });
-    return parse<BotGitDiff>(
-      await this.transport.request("GET", botPath(botId, `git/diff?${query}`)),
-    );
+    return parse<BotGitDiff>(await this.transport.request("GET", botPath(botId, `git/diff?${query}`)));
   }
 
   /**

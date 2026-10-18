@@ -52,10 +52,7 @@ export function composerTerminalPane(
   } | null,
   terminalHeightBasis: HTMLElement | null,
 ): ComposerTerminalPane | null {
-  const layout = terminalArrangement(
-    Boolean(terminalComposer?.shown),
-    Boolean(terminalHeightBasis),
-  );
+  const layout = terminalArrangement(Boolean(terminalComposer?.shown), Boolean(terminalHeightBasis));
   if (!terminalComposer || !layout) return null;
   const { context, height, onResized } = terminalComposer;
   return { context, layout, height, onResized };

@@ -60,9 +60,7 @@ export type AgentTerminalState =
  * said it was. Both were measured on a live Claude Code pane. A terminal that is entirely BLANK is
  * a different fault -- its event stream never opened -- and `openTerminalStream` says so now.
  */
-export type TerminalSizing =
-  | { kind: "fit" }
-  | { kind: "fixed"; columns: number; rows: number };
+export type TerminalSizing = { kind: "fit" } | { kind: "fixed"; columns: number; rows: number };
 
 /** What the terminal knows about itself that is worth showing next to it. */
 export interface TerminalLabels {

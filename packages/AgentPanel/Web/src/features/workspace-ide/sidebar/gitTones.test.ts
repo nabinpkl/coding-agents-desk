@@ -1,16 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { WorkspaceGitEntry } from "@agentdesk/agent-feed-wire";
-import {
-  changedFileCount,
-  gitDecorationTone,
-  sourceControlSections,
-} from "@/features/workspace-ide/sidebar/gitTones";
+import { changedFileCount, gitDecorationTone, sourceControlSections } from "@/features/workspace-ide/sidebar/gitTones";
 
-function entry(
-  relativePath: string,
-  indexStatus: string | null,
-  workTreeStatus: string | null,
-): WorkspaceGitEntry {
+function entry(relativePath: string, indexStatus: string | null, workTreeStatus: string | null): WorkspaceGitEntry {
   return { relativePath, indexStatus, workTreeStatus };
 }
 
@@ -70,8 +62,7 @@ describe("sourceControlSections", () => {
       entry("changed.ts", null, "M"),
       entry("conflict.ts", "U", "U"),
     ]);
-    expect(sections.map((section) => section.id))
-      .toEqual(["conflicts", "staged", "changes", "untracked"]);
+    expect(sections.map((section) => section.id)).toEqual(["conflicts", "staged", "changes", "untracked"]);
   });
 
   it("splits a row into a name and the directory that gives way first", () => {
@@ -103,20 +94,24 @@ describe("changedFileCount", () => {
   });
 
   it("leaves ignored paths out, the way the section list does", () => {
-    expect(changedFileCount([
-      entry("src/a.ts", null, "M"),
-      entry("build/out.js", "!", "!"),
-      entry("node_modules/x", null, "!"),
-    ])).toBe(1);
+    expect(
+      changedFileCount([
+        entry("src/a.ts", null, "M"),
+        entry("build/out.js", "!", "!"),
+        entry("node_modules/x", null, "!"),
+      ]),
+    ).toBe(1);
   });
 
   it("counts every kind of change, not only the tracked ones", () => {
-    expect(changedFileCount([
-      entry("conflict.ts", "U", "U"),
-      entry("staged.ts", "A", null),
-      entry("changed.ts", null, "M"),
-      entry("new.ts", "?", "?"),
-    ])).toBe(4);
+    expect(
+      changedFileCount([
+        entry("conflict.ts", "U", "U"),
+        entry("staged.ts", "A", null),
+        entry("changed.ts", null, "M"),
+        entry("new.ts", "?", "?"),
+      ]),
+    ).toBe(4);
   });
 
   it("ignores an entry with no path rather than counting an empty string", () => {

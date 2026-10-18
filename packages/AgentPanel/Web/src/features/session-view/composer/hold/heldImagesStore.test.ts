@@ -200,9 +200,7 @@ describe("the held-images store", () => {
 
   it("refuses rather than swallowing a browser that will not store", async () => {
     fake.refuseNextWrite();
-    await expect(
-      appendHeldImage("opencode/s1", { name: "a.png", mime: "image/png", blob: png() }),
-    ).rejects.toThrow();
+    await expect(appendHeldImage("opencode/s1", { name: "a.png", mime: "image/png", blob: png() })).rejects.toThrow();
   });
 
   it("answers empty where this browser has no IndexedDB at all", async () => {

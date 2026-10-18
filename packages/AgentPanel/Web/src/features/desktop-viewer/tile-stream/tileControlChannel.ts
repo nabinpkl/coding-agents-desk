@@ -48,7 +48,9 @@ export function createControlChannel({
     }
   };
   const controlTransport: DesktopControlTransport = {
-    abort() { finish("control channel backpressure"); },
+    abort() {
+      finish("control channel backpressure");
+    },
     send(input) {
       if (inputChannel.readyState !== "open") return "channel-closed";
       if (inputChannel.bufferedAmount > CONTROL_BUFFER_LIMIT) return "backpressured";

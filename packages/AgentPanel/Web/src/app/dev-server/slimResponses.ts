@@ -80,7 +80,7 @@ export function moveInlineMap(code: string, moduleUrl: string, store: MapStore):
 
 /** The encoding to send, from what the request accepts: brotli first, then gzip, else none. */
 export function chooseEncoding(acceptEncoding: string | string[] | undefined): "br" | "gzip" | null {
-  const accepted = (Array.isArray(acceptEncoding) ? acceptEncoding.join(",") : acceptEncoding ?? "")
+  const accepted = (Array.isArray(acceptEncoding) ? acceptEncoding.join(",") : (acceptEncoding ?? ""))
     .split(",")
     .map((part) => part.trim().split(";"))
     .filter(([, quality]) => quality?.trim() !== "q=0")
@@ -92,13 +92,21 @@ export function chooseEncoding(acceptEncoding: string | string[] | undefined): "
 
 async function encode(body: Buffer, encoding: "br" | "gzip"): Promise<Buffer> {
   if (encoding === "br") {
-    return brotli(body, { params: { [constants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY, [constants.BROTLI_PARAM_SIZE_HINT]: body.length } });
+    return brotli(body, {
+      params: { [constants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY, [constants.BROTLI_PARAM_SIZE_HINT]: body.length },
+    });
   }
   return deflate(body);
 }
 
 /** Sends a finished body: compressed when the request takes it and it is worth compressing. */
-async function sendBody(request: IncomingMessage, response: ServerResponse, body: Buffer, end: ServerResponse["end"], callback?: () => void): Promise<void> {
+async function sendBody(
+  request: IncomingMessage,
+  response: ServerResponse,
+  body: Buffer,
+  end: ServerResponse["end"],
+  callback?: () => void,
+): Promise<void> {
   const encoding = body.length >= MIN_COMPRESS_BYTES ? chooseEncoding(request.headers["accept-encoding"]) : null;
   const vary = String(response.getHeader("vary") ?? "");
   if (!/accept-encoding/i.test(vary)) response.setHeader("vary", vary ? `${vary}, Accept-Encoding` : "Accept-Encoding");
@@ -127,24 +135,38 @@ export function slimResponse(request: IncomingMessage, response: ServerResponse,
     restore();
     return (write as (...a: unknown[]) => boolean).apply(this, args);
   } as ServerResponse["write"];
-  response.end = function (this: ServerResponse, chunk?: unknown, encodingOrCallback?: unknown, maybeCallback?: unknown) {
+  response.end = function (
+    this: ServerResponse,
+    chunk?: unknown,
+    encodingOrCallback?: unknown,
+    maybeCallback?: unknown,
+  ) {
     restore();
-    const callback = (typeof encodingOrCallback === "function" ? encodingOrCallback : maybeCallback) as (() => void) | undefined;
+    const callback = (typeof encodingOrCallback === "function" ? encodingOrCallback : maybeCallback) as
+      | (() => void)
+      | undefined;
     const type = String(response.getHeader("content-type") ?? "");
     // `isView` rather than `instanceof Uint8Array`, which a Buffer from another realm fails.
     const whole = typeof chunk === "string" || ArrayBuffer.isView(chunk);
     if (!whole || response.statusCode !== 200 || response.getHeader("content-encoding") || !COMPRESSIBLE.test(type)) {
       return (end as (...a: unknown[]) => ServerResponse).call(this, chunk, encodingOrCallback, maybeCallback);
     }
-    const bytes = typeof chunk === "string"
-      ? Buffer.from(chunk, typeof encodingOrCallback === "string" ? (encodingOrCallback as BufferEncoding) : "utf8")
-      : Buffer.from((chunk as ArrayBufferView).buffer, (chunk as ArrayBufferView).byteOffset, (chunk as ArrayBufferView).byteLength);
+    const bytes =
+      typeof chunk === "string"
+        ? Buffer.from(chunk, typeof encodingOrCallback === "string" ? (encodingOrCallback as BufferEncoding) : "utf8")
+        : Buffer.from(
+            (chunk as ArrayBufferView).buffer,
+            (chunk as ArrayBufferView).byteOffset,
+            (chunk as ArrayBufferView).byteLength,
+          );
     // Only a script or a stylesheet is read as text, to move its map; Vite sends both as UTF-8.
     // Anything else is compressed byte for byte, whatever its charset.
     const body = /javascript|css/.test(type)
       ? Buffer.from(moveInlineMap(bytes.toString("utf8"), request.url ?? "", store), "utf8")
       : bytes;
-    sendBody(request, response, body, end, callback).catch((error: unknown) => fail(error instanceof Error ? error : new Error(String(error))));
+    sendBody(request, response, body, end, callback).catch((error: unknown) =>
+      fail(error instanceof Error ? error : new Error(String(error))),
+    );
     return this;
   } as ServerResponse["end"];
 }
@@ -162,7 +184,9 @@ function serveMap(request: IncomingMessage, response: ServerResponse, store: Map
   response.statusCode = 200;
   response.setHeader("content-type", "application/json; charset=utf-8");
   response.setHeader("cache-control", "no-cache");
-  sendBody(request, response, map, response.end).catch((error: unknown) => fail(error instanceof Error ? error : new Error(String(error))));
+  sendBody(request, response, map, response.end).catch((error: unknown) =>
+    fail(error instanceof Error ? error : new Error(String(error))),
+  );
 }
 
 /** The middleware itself, apart from the plugin so a test can stand it up on a bare server. */

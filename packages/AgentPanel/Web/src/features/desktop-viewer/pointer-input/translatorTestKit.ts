@@ -10,12 +10,14 @@ import {
 } from "@/features/desktop-viewer/pointer-input/gestureTranslator";
 import { DEFAULT_GESTURE_TUNING, type GestureTuning } from "@/features/desktop-viewer/pointer-input/gestureTuning";
 
-export function translatorTestKit(options: {
-  tuning?: Partial<GestureTuning>;
-  /** True for the shipped curves; the Swift vectors ran with none. */
-  accelerated?: boolean;
-  refuse?: (output: GestureOutput) => boolean;
-} = {}) {
+export function translatorTestKit(
+  options: {
+    tuning?: Partial<GestureTuning>;
+    /** True for the shipped curves; the Swift vectors ran with none. */
+    accelerated?: boolean;
+    refuse?: (output: GestureOutput) => boolean;
+  } = {},
+) {
   const outputs: GestureOutput[] = [];
   const frames = new Map<number, (now: number) => void>();
   let nextFrame = 1;

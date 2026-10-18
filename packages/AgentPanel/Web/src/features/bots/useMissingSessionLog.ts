@@ -49,24 +49,28 @@ export function useMissingSessionLog(bot: BotView, surface: MissingSessionSurfac
     for (const key of now) {
       if (held.current.has(key)) continue;
       const ref = missing.find((one) => attachedSessionKey(one) === key);
-      console.log(JSON.stringify({
-        event: "agent-panel-bot-session-missing",
-        surface,
-        botId: bot.botId,
-        bot: bot.name,
-        source: ref?.source ?? null,
-        sessionId: ref?.sessionId ?? null,
-      }));
+      console.log(
+        JSON.stringify({
+          event: "agent-panel-bot-session-missing",
+          surface,
+          botId: bot.botId,
+          bot: bot.name,
+          source: ref?.source ?? null,
+          sessionId: ref?.sessionId ?? null,
+        }),
+      );
     }
     for (const key of held.current) {
       if (now.has(key)) continue;
-      console.log(JSON.stringify({
-        event: "agent-panel-bot-session-drawn",
-        surface,
-        botId: bot.botId,
-        bot: bot.name,
-        session: key,
-      }));
+      console.log(
+        JSON.stringify({
+          event: "agent-panel-bot-session-drawn",
+          surface,
+          botId: bot.botId,
+          bot: bot.name,
+          session: key,
+        }),
+      );
     }
     held.current = now;
   });

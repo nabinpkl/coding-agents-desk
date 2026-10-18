@@ -78,14 +78,13 @@ export function FolderCodeDialog({
   // same text without its line numbers.
   // A named line is in the source, so a markdown file asked for at a line opens there rather than
   // on its preview, which has no lines to mark.
-  const [chosen, setChosen] = useState<Record<string, boolean>>(
-    () => (initialFile?.line == null ? {} : { [initialFile.path]: false }),
+  const [chosen, setChosen] = useState<Record<string, boolean>>(() =>
+    initialFile?.line == null ? {} : { [initialFile.path]: false },
   );
 
   // A change committed or reverted while its diff was open is no longer a change, and asking for
   // it would answer a 404 about a row the reader can see is gone from the list.
-  const changeGone = showing?.kind === "change"
-    && !entries.some((entry) => entry.relativePath === showing.path);
+  const changeGone = showing?.kind === "change" && !entries.some((entry) => entry.relativePath === showing.path);
   if (changeGone) setShowing(null);
 
   const openFile = (path: string): void => {
@@ -93,13 +92,13 @@ export function FolderCodeDialog({
     setShowing({ kind: "file", path });
   };
   const file = showing?.kind === "file" ? code.file : null;
-  const preview = file ? chosen[file.path] ?? defaultFileView(file.kind) === "preview" : false;
+  const preview = file ? (chosen[file.path] ?? defaultFileView(file.kind) === "preview") : false;
 
   return (
     <FolderWideDialog
       titleId={titleId}
       title={title}
-      subtitle={(
+      subtitle={
         <>
           <span className="font-mono">{path}</span>
           {repository ? (
@@ -111,7 +110,7 @@ export function FolderCodeDialog({
             </>
           ) : null}
         </>
-      )}
+      }
       closeLabel="Close"
       error={code.error ?? git.error}
       onClose={onClose}
@@ -213,9 +212,11 @@ export function FolderCodeDialog({
                   <FileBody
                     file={file}
                     preview={preview}
-                    reveal={initialFile?.line != null && file.path === initialFile.path
-                      ? { line: initialFile.line, start: 0, end: 0, nonce: 1 }
-                      : undefined}
+                    reveal={
+                      initialFile?.line != null && file.path === initialFile.path
+                        ? { line: initialFile.line, start: 0, end: 0, nonce: 1 }
+                        : undefined
+                    }
                   />
                 ) : (
                   <p className="m-0 p-6 text-center text-sm text-muted-foreground">Opening file…</p>
@@ -226,7 +227,9 @@ export function FolderCodeDialog({
             <p className="m-auto p-6 text-center text-sm text-muted-foreground">
               {section === "explorer"
                 ? "Choose a file to read it."
-                : count > 0 ? "Choose a file to see its diff." : "No uncommitted changes."}
+                : count > 0
+                  ? "Choose a file to see its diff."
+                  : "No uncommitted changes."}
             </p>
           )}
         </section>

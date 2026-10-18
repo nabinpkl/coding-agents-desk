@@ -22,26 +22,12 @@ import type {
   UsageVendorId,
   VendorUsage,
 } from "@agentdesk/agent-feed-wire";
-import type {
-  CachedDaysSession,
-  CachedRowsSession,
-  CachedSession,
-  UsageCache,
-} from "@/usage/usageCache";
-import {
-  claudeInstalled,
-  findClaudeSessionFiles,
-  scanClaudeSession,
-  type ClaudeUsageRow,
-} from "@/usage/claudeUsage";
+import type { CachedDaysSession, CachedRowsSession, CachedSession, UsageCache } from "@/usage/usageCache";
+import { claudeInstalled, findClaudeSessionFiles, scanClaudeSession, type ClaudeUsageRow } from "@/usage/claudeUsage";
 import { claudeModelAlias } from "@/usage/claudeModels";
 import { currentLiveQuotas } from "@/usage/claudeLiveQuota";
 import { readClaudeQuotas } from "@/usage/claudeQuota";
-import {
-  codexInstalled,
-  findCodexSessionFiles,
-  scanCodexSession,
-} from "@/usage/codexUsage";
+import { codexInstalled, findCodexSessionFiles, scanCodexSession } from "@/usage/codexUsage";
 import { describeQuota, type QuotaSample } from "@/usage/quotaSample";
 import { loadUsageCache, saveUsageCache } from "@/usage/usageCache";
 import {
@@ -309,21 +295,23 @@ async function sweepFiles(
 
   for (let start = 0; start < files.length; start += SCAN_CONCURRENCY) {
     const batch = files.slice(start, start + SCAN_CONCURRENCY);
-    const results = await Promise.all(batch.map(async (path) => {
-      try {
-        const metadata = await stat(path);
-        const known = cache.sessions[path];
-        if (known && known.size === metadata.size && known.mtimeMs === metadata.mtimeMs) {
-          return { path, entry: known, fresh: false as const };
+    const results = await Promise.all(
+      batch.map(async (path) => {
+        try {
+          const metadata = await stat(path);
+          const known = cache.sessions[path];
+          if (known && known.size === metadata.size && known.mtimeMs === metadata.mtimeMs) {
+            return { path, entry: known, fresh: false as const };
+          }
+          const scanned = await scan(path);
+          return { path, entry: stamp(scanned, metadata.size, metadata.mtimeMs), fresh: true as const };
+        } catch {
+          // Counted and surfaced on the report rather than swallowed: a file skipped in silence is
+          // a total that is wrong without saying so.
+          return { path, entry: null, fresh: false as const };
         }
-        const scanned = await scan(path);
-        return { path, entry: stamp(scanned, metadata.size, metadata.mtimeMs), fresh: true as const };
-      } catch {
-        // Counted and surfaced on the report rather than swallowed: a file skipped in silence is
-        // a total that is wrong without saying so.
-        return { path, entry: null, fresh: false as const };
-      }
-    }));
+      }),
+    );
 
     for (const result of results) {
       if (!result.entry) {
@@ -342,9 +330,7 @@ async function sweepFiles(
 }
 
 /** What a scan produces, before the sweep stamps the file's size and mtime onto it. */
-type ScannedBody =
-  | Omit<CachedDaysSession, "size" | "mtimeMs">
-  | Omit<CachedRowsSession, "size" | "mtimeMs">;
+type ScannedBody = Omit<CachedDaysSession, "size" | "mtimeMs"> | Omit<CachedRowsSession, "size" | "mtimeMs">;
 
 /** Written out per arm rather than spread, so the entry stays a discriminated union. */
 function stamp(body: ScannedBody, size: number, mtimeMs: number): CachedSession {

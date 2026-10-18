@@ -2,10 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { CliSessionStatus } from "@agentdesk/agent-feed-wire";
-import type {
-  SessionAddress,
-  SidecarDataSource,
-} from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { SessionAddress, SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 import { useLatestRef } from "@/hooks/useLatestRef";
 

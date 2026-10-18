@@ -172,9 +172,11 @@ export function botRegistryHarness() {
    * something git decides: whether a directory is a worktree of THIS checkout, whether it is
    * clean, and whether a branch is merged enough to delete.
    */
-  async function checkoutWithWorktree(
-    { remote = false }: { remote?: boolean } = {},
-  ): Promise<{ checkout: string; worktree: string; remote?: string }> {
+  async function checkoutWithWorktree({ remote = false }: { remote?: boolean } = {}): Promise<{
+    checkout: string;
+    worktree: string;
+    remote?: string;
+  }> {
     const created = await mkdtemp(join(tmpdir(), "agentdesk-bots-worktree-"));
     temporaryDirectories.push(created);
     const root = await realpath(created);
@@ -242,7 +244,6 @@ export function botRegistryHarness() {
       ),
     };
   }
-
 
   /**
    * Puts the catalog back where a sidecar that has just started has it: answering, but not yet

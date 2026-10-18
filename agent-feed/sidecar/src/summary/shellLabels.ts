@@ -98,21 +98,52 @@ export function redactCommandSecrets(text: string): string {
 }
 
 const VERBS: Record<string, string> = {
-  grep: "Search", rg: "Search", ag: "Search",
-  sed: "Read", cat: "Read", tail: "Show", head: "Show", less: "Read",
-  ls: "List", find: "Find", du: "Show disk use of", df: "Show disk",
-  ps: "List processes", git: "Git", docker: "Docker",
-  npm: "npm", pnpm: "pnpm", bun: "Run", node: "Run", python3: "Run",
-  curl: "Fetch", wget: "Fetch", ssh: "Run on host", chmod: "Make executable",
-  mkdir: "Create directory", rm: "Remove", cp: "Copy", mv: "Move",
-  tar: "Archive", rsync: "Sync", psql: "Query database", mysqldump: "Dump database",
-  kubectl: "Kubernetes", cd: "Go to",
+  grep: "Search",
+  rg: "Search",
+  ag: "Search",
+  sed: "Read",
+  cat: "Read",
+  tail: "Show",
+  head: "Show",
+  less: "Read",
+  ls: "List",
+  find: "Find",
+  du: "Show disk use of",
+  df: "Show disk",
+  ps: "List processes",
+  git: "Git",
+  docker: "Docker",
+  npm: "npm",
+  pnpm: "pnpm",
+  bun: "Run",
+  node: "Run",
+  python3: "Run",
+  curl: "Fetch",
+  wget: "Fetch",
+  ssh: "Run on host",
+  chmod: "Make executable",
+  mkdir: "Create directory",
+  rm: "Remove",
+  cp: "Copy",
+  mv: "Move",
+  tar: "Archive",
+  rsync: "Sync",
+  psql: "Query database",
+  mysqldump: "Dump database",
+  kubectl: "Kubernetes",
+  cd: "Go to",
 };
 
 const GIT_SUBCOMMANDS: Record<string, string> = {
-  status: "Show working tree status", log: "List commits", diff: "Show changes",
-  push: "Push", pull: "Pull", commit: "Commit", show: "Show commit",
-  branch: "List branches", stash: "Stash changes",
+  status: "Show working tree status",
+  log: "List commits",
+  diff: "Show changes",
+  push: "Push",
+  pull: "Pull",
+  commit: "Commit",
+  show: "Show commit",
+  branch: "List branches",
+  stash: "Stash changes",
 };
 
 function splitTop(src: string, sep: string): string[] {
@@ -168,7 +199,11 @@ function prettifyPattern(pattern: string): string {
   let out = pattern.replace(/^['"]|['"]$/g, "");
   out = out.replace(/^\^/, "").replace(/\$$/, "");
   // Alternation reads as a list whether written `\|` or bare `|`.
-  out = out.split(/\\?\s*\|\s*/).map((part) => part.trim()).filter(Boolean).join(", ");
+  out = out
+    .split(/\\?\s*\|\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
   out = out.replace(/\\([.?*+()[\]{}|^$/\\])/g, "$1");
   out = out.replace(/\s+/g, " ").trim();
   return clipToken(out);
@@ -205,10 +240,20 @@ function labelStage(stage: string): string | null {
   // Shell keywords stage nothing on their own: `for`, `do`, and `done` wrap
   // the loop, the body inside carries the meaning.
   if (
-    verb === "for" || verb === "do" || verb === "done" || verb === "if" ||
-    verb === "then" || verb === "else" || verb === "elif" || verb === "fi" ||
-    verb === "while" || verb === "until" || verb === "case" || verb === "esac" ||
-    verb === "time" || verb === "coproc"
+    verb === "for" ||
+    verb === "do" ||
+    verb === "done" ||
+    verb === "if" ||
+    verb === "then" ||
+    verb === "else" ||
+    verb === "elif" ||
+    verb === "fi" ||
+    verb === "while" ||
+    verb === "until" ||
+    verb === "case" ||
+    verb === "esac" ||
+    verb === "time" ||
+    verb === "coproc"
   ) {
     return null;
   }
@@ -218,7 +263,7 @@ function labelStage(stage: string): string | null {
     // is one pattern, and splitting it loses every alternate after the space.
     const quoted = stage.match(/"([^"]+)"|'([^']+)'/);
     const rawPattern = quoted?.[1] ?? quoted?.[2] ?? rest.find((arg) => !arg.startsWith("-")) ?? "";
-    const scope = rest.length > 1 ? rest[rest.length - 1] ?? null : null;
+    const scope = rest.length > 1 ? (rest[rest.length - 1] ?? null) : null;
     const location = scope && /[/.]/.test(scope) ? ` in ${scope.replace(/^['"]|['"]$/g, "")}` : "";
     const pretty = rawPattern ? prettifyPattern(rawPattern) : "";
     return pretty ? `Search for ${pretty}${location}` : "Search code";
@@ -293,7 +338,9 @@ function hasPipe(chain: string): boolean {
 function labelChain(chain: string): string | null {
   if (/<<\s*['"]?(PY|EOF|SH)\b/.test(chain)) return labelHeredoc(chain);
   if (hasPipe(chain)) {
-    const stages = splitTop(chain, "|").map((part) => part.trim()).filter(Boolean);
+    const stages = splitTop(chain, "|")
+      .map((part) => part.trim())
+      .filter(Boolean);
     const significant = stages.filter((stage) => {
       const verb = stageWords(stage)[0];
       return verb !== "echo" && verb !== "sleep";
@@ -318,7 +365,13 @@ function labelChain(chain: string): string | null {
     }
     if (lastVerb === "grep" || lastVerb === "rg") {
       const quoted = last.match(/"([^"]+)"|'([^']+)'/);
-      const raw = quoted?.[1] ?? quoted?.[2] ?? stageWords(last).filter((arg) => !arg.startsWith("-")).slice(1)[0] ?? "";
+      const raw =
+        quoted?.[1] ??
+        quoted?.[2] ??
+        stageWords(last)
+          .filter((arg) => !arg.startsWith("-"))
+          .slice(1)[0] ??
+        "";
       const pretty = raw ? prettifyPattern(raw) : "";
       const filt = pretty ? `filter for ${pretty}` : "filter output";
       // The sink alone hides what flowed into it: name the source too.
@@ -329,7 +382,11 @@ function labelChain(chain: string): string | null {
     if (lastVerb === "tee") return "Save output";
     if (lastVerb === "xargs") return "Act on each result";
     if (lastVerb && /python3|node|bun/.test(lastVerb)) {
-      const source = significant.slice(0, -1).map(labelStage).filter((label): label is string => label !== null).pop();
+      const source = significant
+        .slice(0, -1)
+        .map(labelStage)
+        .filter((label): label is string => label !== null)
+        .pop();
       return source ? `${source}, parsed` : "Parse output";
     }
     const labeled = labelStage(last);

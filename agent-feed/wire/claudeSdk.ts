@@ -190,9 +190,7 @@ export type ClaudeSdkRefusal =
   /** The runner took the command and the SDK refused it. */
   | "failed";
 
-export type ClaudeSdkCommandOutcome =
-  | { ok: true }
-  | { ok: false; reason: ClaudeSdkRefusal; message: string };
+export type ClaudeSdkCommandOutcome = { ok: true } | { ok: false; reason: ClaudeSdkRefusal; message: string };
 
 /**
  * An answer's outcome, in the terminal dialog's shape so the panel's question band reads both.
@@ -217,6 +215,4 @@ export type ClaudeSdkSwitchRefusal =
   | "invalid"
   | "failed";
 
-export type ClaudeSdkSwitchOutcome =
-  | { ok: true }
-  | { ok: false; reason: ClaudeSdkSwitchRefusal; message: string };
+export type ClaudeSdkSwitchOutcome = { ok: true } | { ok: false; reason: ClaudeSdkSwitchRefusal; message: string };

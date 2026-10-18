@@ -23,9 +23,7 @@ const event = (id: string, tool?: string): ActivityEvent => ({
   phase: "complete",
   ts: 1,
   type: "assistant",
-  blocks: tool
-    ? [{ kind: "tool_use", tool, files: ["/repo/README"] }]
-    : [{ kind: "text", text: `event ${id}` }],
+  blocks: tool ? [{ kind: "tool_use", tool, files: ["/repo/README"] }] : [{ kind: "text", text: `event ${id}` }],
 });
 
 const envelope = (over: Partial<TimelineEnvelope> = {}): TimelineEnvelope => ({
@@ -205,9 +203,9 @@ describe("runOpencodeContestant", () => {
   test("fails a turn that never closes, rather than waiting forever", async () => {
     const { backend } = fakeBackend({ envelopes: [envelope({ runState: "running" })] });
     const { options } = fakeServe();
-    await expect(
-      runOpencodeContestant(backend, { ...plan, turnTimeoutMs: 50 }, options),
-    ).rejects.toThrow(OpencodeContestantError);
+    await expect(runOpencodeContestant(backend, { ...plan, turnTimeoutMs: 50 }, options)).rejects.toThrow(
+      OpencodeContestantError,
+    );
   });
 
   test("carries the usage the backend named at close", async () => {

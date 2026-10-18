@@ -47,6 +47,10 @@ export async function sessionPaneRevival(
     const tui = opencodeTuiCommand(sessionId);
     return tui ? { startedFor: sessionId, cwd, command: tui } : null;
   }
-  if (source !== "claude" || await claudeRunning(sessionId)) return null;
-  return { startedFor: sessionId, cwd, command: resumeCommandFor(claude.mode, { sessionId, cwd, title: claude.title }) };
+  if (source !== "claude" || (await claudeRunning(sessionId))) return null;
+  return {
+    startedFor: sessionId,
+    cwd,
+    command: resumeCommandFor(claude.mode, { sessionId, cwd, title: claude.title }),
+  };
 }

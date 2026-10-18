@@ -8,7 +8,11 @@ function post(body: string, path = TELEMETRY_ROUTE, headers: Record<string, stri
   const sunk: [string, string][] = [];
   const url = new URL(`http://127.0.0.1${path}`);
   const request = new Request(url.href, { method: "POST", body, headers });
-  const response = createTelemetryRoutes((source, envelope) => sunk.push([source, envelope]))(request, url, undefined as never);
+  const response = createTelemetryRoutes((source, envelope) => sunk.push([source, envelope]))(
+    request,
+    url,
+    undefined as never,
+  );
   return { response, sunk };
 }
 

@@ -34,7 +34,9 @@ export function loadHubSettings(file: string = process.env.AGENTDESK_HUB_ENV ?? 
     const match = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(line);
     if (match) values.set(match[1]!, match[2]!);
   }
-  const missing = ["HUB_URL", "HUB_MACHINE", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"].filter((k) => !values.get(k));
+  const missing = ["HUB_URL", "HUB_MACHINE", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"].filter(
+    (k) => !values.get(k),
+  );
   if (missing.length > 0) return `hub not configured: ${file} lacks ${missing.join(", ")}`;
   return {
     url: values.get("HUB_URL")!.replace(/\/+$/, ""),
@@ -45,7 +47,10 @@ export function loadHubSettings(file: string = process.env.AGENTDESK_HUB_ENV ?? 
 }
 
 export class HubError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -69,14 +74,19 @@ export class HubClient {
       redirect: "manual",
     });
     const text = await response.text();
-    if (response.status >= 300 && response.status < 400) throw new HubError(response.status, "Access refused the service token (redirect to login)");
+    if (response.status >= 300 && response.status < 400)
+      throw new HubError(response.status, "Access refused the service token (redirect to login)");
     let data: unknown = null;
     try {
       data = text ? JSON.parse(text) : null;
     } catch {
       throw new HubError(response.status, `hub answered ${response.status} with non-JSON: ${text.slice(0, 200)}`);
     }
-    if (!response.ok) throw new HubError(response.status, (data as { error?: string } | null)?.error ?? `hub answered ${response.status}`);
+    if (!response.ok)
+      throw new HubError(
+        response.status,
+        (data as { error?: string } | null)?.error ?? `hub answered ${response.status}`,
+      );
     return data as T;
   }
 
@@ -109,7 +119,11 @@ export class HubClient {
       while ((end = buffer.indexOf("\n\n")) >= 0) {
         const frame = buffer.slice(0, end);
         buffer = buffer.slice(end + 2);
-        const data = frame.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+        const data = frame
+          .split("\n")
+          .filter((l) => l.startsWith("data: "))
+          .map((l) => l.slice(6))
+          .join("\n");
         if (data) await onEvent(JSON.parse(data) as HubStreamEvent & { streamId: string });
       }
     }

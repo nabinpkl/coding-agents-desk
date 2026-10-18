@@ -50,7 +50,9 @@ describe("the publish gate", () => {
   // the reader taking the tree: they asked, and code that does not typecheck often still runs.
   it("shows a file held on a type error, and lets the reader reload past it", () => {
     const { gate, reloaded } = gateWith();
-    gate.setTypeHeld(new Map([[`${PANEL}/features/profile/useStaleSessions.ts`, "AgentPanelApp.tsx:105: Argument is wrong."]]));
+    gate.setTypeHeld(
+      new Map([[`${PANEL}/features/profile/useStaleSessions.ts`, "AgentPanelApp.tsx:105: Argument is wrong."]]),
+    );
     expect(gate.report().held).toEqual(["useStaleSessions.ts"]);
     expect(gate.report().blocked).toBe("useStaleSessions.ts waits on AgentPanelApp.tsx:105: Argument is wrong.");
 
@@ -109,10 +111,22 @@ describe("the publish gate", () => {
   // a reader looking at a feed with no new rows cannot otherwise tell it apart from a quiet session.
   it("carries what each machine's supervisor is holding", () => {
     const { gate } = gateWith([
-      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file", mode: "auto", behind: false },
+      {
+        machine: "oracle",
+        held: true,
+        blocked: "sessionRoutes.ts: Unexpected end of file",
+        mode: "auto",
+        behind: false,
+      },
     ]);
     expect(gate.report().sidecars).toEqual([
-      { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Unexpected end of file", mode: "auto", behind: false },
+      {
+        machine: "oracle",
+        held: true,
+        blocked: "sessionRoutes.ts: Unexpected end of file",
+        mode: "auto",
+        behind: false,
+      },
     ]);
   });
 
@@ -350,7 +364,10 @@ describe("an update to a file the page never loaded", () => {
   const stylesheet = { file: `${PANEL}/app/styles.css` };
   const component = { file: `${PANEL}/features/bots/cards/BotCanvasCard.tsx` };
   const node = (imports: number, importers: { file: string }[]) =>
-    ({ importedModules: new Set(Array.from({ length: imports })), importers: new Set(importers) }) as unknown as Parameters<typeof neverLoaded>[0];
+    ({
+      importedModules: new Set(Array.from({ length: imports })),
+      importers: new Set(importers),
+    }) as unknown as Parameters<typeof neverLoaded>[0];
 
   it("is dropped for a test, a harness or a type-only module, which only the stylesheet points at", () => {
     expect(neverLoaded(node(0, [stylesheet]))).toBe(true);

@@ -15,9 +15,7 @@ afterEach(async () => {
   await stopCatalog();
   state.sessions.clear();
   state.watcherState = "idle";
-  await Promise.all(temporaryDirectories.splice(0).map((path) =>
-    rm(path, { recursive: true, force: true })
-  ));
+  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
 type InventoryMessage = ProjectsPayload | SessionsPayload | RecentSessionsPayload | { error: string };
@@ -102,17 +100,13 @@ test("one stream carries the project list and every requested project's sessions
   const alpha = await projectWithSession("alpha", "11111111-1111-1111-1111-111111111111");
   const beta = await projectWithSession("beta", "22222222-2222-2222-2222-222222222222");
 
-  const response = await open(
-    `?projectPath=${encodeURIComponent(alpha)}&projectPath=${encodeURIComponent(beta)}`,
-  );
+  const response = await open(`?projectPath=${encodeURIComponent(alpha)}&projectPath=${encodeURIComponent(beta)}`);
   const { take, leave } = streamReader(response);
   const messages = await take(3);
 
   // The project list leads, because the sidebar cannot place a session list without it.
   const projects = messages[0] as ProjectsPayload;
-  expect(projects.projects.map((project) => project.projectPath).sort()).toEqual(
-    [alpha, beta].sort(),
-  );
+  expect(projects.projects.map((project) => project.projectPath).sort()).toEqual([alpha, beta].sort());
   // Both session lists arrive on the same connection, each named by its project.
   const sessions = messages.slice(1) as SessionsPayload[];
   expect(sessions.map((message) => message.projectPath).sort()).toEqual([alpha, beta].sort());
@@ -162,9 +156,7 @@ test("a project that vanished is dropped from the stream, not fatal to it", asyn
   state.watcherState = "live";
   const alpha = await projectWithSession("alpha", "11111111-1111-1111-1111-111111111111");
 
-  const response = await open(
-    `?projectPath=${encodeURIComponent(alpha)}&projectPath=%2Fno%2Fsuch%2Fproject`,
-  );
+  const response = await open(`?projectPath=${encodeURIComponent(alpha)}&projectPath=%2Fno%2Fsuch%2Fproject`);
   const { take, leave } = streamReader(response);
   const messages = await take(2);
 

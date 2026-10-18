@@ -1,15 +1,14 @@
 import { Check, ChevronDown } from "lucide-react";
-import {
-  useCallback,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { DirectoryEntry } from "@agentdesk/agent-feed-wire";
-import { BOTS_SECTION, recipientGroups, runtimesOf, SESSIONS_SECTION, type RecipientGroup } from "@/features/messages/hubRuntime";
+import {
+  BOTS_SECTION,
+  recipientGroups,
+  runtimesOf,
+  SESSIONS_SECTION,
+  type RecipientGroup,
+} from "@/features/messages/hubRuntime";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
 import { useDomSync } from "@/hooks/dom/useDomSync";
@@ -152,10 +151,7 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
   );
   const rows = useMemo(() => flatten(groups), [groups]);
   /** Where each session sits in the flat order, so a row's index is a lookup rather than a scan. */
-  const indexOf = useMemo(
-    () => new Map(rows.map((row, index) => [row.entry.address, index])),
-    [rows],
-  );
+  const indexOf = useMemo(() => new Map(rows.map((row, index) => [row.entry.address, index])), [rows]);
 
   const chosen = entries.find((entry) => entry.address === value) ?? null;
   const chosenRuntimes = chosen ? runtimesOf(chosen) : [];
@@ -177,31 +173,34 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
    * and clamps instead, and the panel is dropped only when the trigger is gone from the document --
    * a closed rail or a switched tab, both of which unmount it.
    */
-  const reposition = useCallback((scrolled: boolean) => {
-    const button = trigger.current;
-    const popup = panel.current;
-    if (!button || !popup) return;
-    if (!button.isConnected) {
-      setOpen(false);
-      return;
-    }
-    if (scrolled && !triggerIsVisible(button)) {
-      // One frame of "not visible" is not the same as gone. A window reflow, a scrollbar appearing
-      // or a drag on the rail edge all measure an ancestor at nothing for a frame on the way to
-      // somewhere perfectly visible, and closing on that measurement threw away a filter the
-      // reader had not finished typing. So the close waits for the layout to settle and only
-      // happens if the trigger is still out of sight once it has. The fallback is for the sake of
-      // a host without animation frames: better to close on the first reading than never to close.
-      const settled = () => {
-        const after = trigger.current;
-        if (after && (!after.isConnected || !triggerIsVisible(after))) setOpen(false);
-      };
-      if (globalThis.requestAnimationFrame) globalThis.requestAnimationFrame(settled);
-      else globalThis.setTimeout(settled, 0);
-      return;
-    }
-    setPlacement(placePanel(button.getBoundingClientRect(), popup.getBoundingClientRect()));
-  }, [setPlacement]);
+  const reposition = useCallback(
+    (scrolled: boolean) => {
+      const button = trigger.current;
+      const popup = panel.current;
+      if (!button || !popup) return;
+      if (!button.isConnected) {
+        setOpen(false);
+        return;
+      }
+      if (scrolled && !triggerIsVisible(button)) {
+        // One frame of "not visible" is not the same as gone. A window reflow, a scrollbar appearing
+        // or a drag on the rail edge all measure an ancestor at nothing for a frame on the way to
+        // somewhere perfectly visible, and closing on that measurement threw away a filter the
+        // reader had not finished typing. So the close waits for the layout to settle and only
+        // happens if the trigger is still out of sight once it has. The fallback is for the sake of
+        // a host without animation frames: better to close on the first reading than never to close.
+        const settled = () => {
+          const after = trigger.current;
+          if (after && (!after.isConnected || !triggerIsVisible(after))) setOpen(false);
+        };
+        if (globalThis.requestAnimationFrame) globalThis.requestAnimationFrame(settled);
+        else globalThis.setTimeout(settled, 0);
+        return;
+      }
+      setPlacement(placePanel(button.getBoundingClientRect(), popup.getBoundingClientRect()));
+    },
+    [setPlacement],
+  );
 
   useOverlayPlacement(open, (cause) => reposition(cause !== "resize"), [groups]);
 
@@ -288,96 +287,97 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
         <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       </button>
 
-      {open ? createPortal(
-        <div
-          ref={panel}
-          style={{
-            top: placement?.top ?? 0,
-            left: placement?.left ?? 0,
-            maxHeight: placement?.maxHeight ?? MAX_HEIGHT,
-            visibility: placement ? undefined : "hidden",
-          }}
-          className="fixed z-50 flex w-80 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl"
-          data-portal-menu=""
-          onKeyDown={onKeyDown}
-        >
-          <div className="flex shrink-0 items-center border-b border-border px-3">
-            <label className="sr-only" htmlFor={`${listId}-filter`}>Filter sessions</label>
-            <input
-              id={`${listId}-filter`}
-              ref={filter}
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(0);
+      {open
+        ? createPortal(
+            <div
+              ref={panel}
+              style={{
+                top: placement?.top ?? 0,
+                left: placement?.left ?? 0,
+                maxHeight: placement?.maxHeight ?? MAX_HEIGHT,
+                visibility: placement ? undefined : "hidden",
               }}
-              placeholder="Filter by name, Bot or directory"
-              className="min-h-10 w-full bg-transparent text-(length:--agent-panel-fs-sidebar-body,15px) outline-none placeholder:text-muted-foreground"
-            />
-          </div>
-          <div
-            ref={list}
-            id={listId}
-            role="listbox"
-            aria-label="Sessions to send to"
-            aria-activedescendant={rows[active] ? `${listId}-opt-${active}` : undefined}
-            tabIndex={-1}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1"
-          >
-            {rows.length === 0 ? (
-              <p className="px-3 py-6 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-                No session matches “{query}”
-              </p>
-            ) : null}
-            {sections.map((section) => (
-              <div key={section.name} role="group" aria-label={section.name}>
-                <p className="px-3 pt-2 pb-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium uppercase tracking-wide text-muted-foreground">
-                  {section.name}
-                </p>
-                {section.groups.map((group) => (
-                  <div key={group.label} role="group" aria-label={group.label}>
-                    <p className="px-3 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground/80">
-                      {group.label.slice(section.name.length + 3)}
+              className="fixed z-50 flex w-80 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl"
+              data-portal-menu=""
+              onKeyDown={onKeyDown}
+            >
+              <div className="flex shrink-0 items-center border-b border-border px-3">
+                <label className="sr-only" htmlFor={`${listId}-filter`}>
+                  Filter sessions
+                </label>
+                <input
+                  id={`${listId}-filter`}
+                  ref={filter}
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setActive(0);
+                  }}
+                  placeholder="Filter by name, Bot or directory"
+                  className="min-h-10 w-full bg-transparent text-(length:--agent-panel-fs-sidebar-body,15px) outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+              <div
+                ref={list}
+                id={listId}
+                role="listbox"
+                aria-label="Sessions to send to"
+                aria-activedescendant={rows[active] ? `${listId}-opt-${active}` : undefined}
+                tabIndex={-1}
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1"
+              >
+                {rows.length === 0 ? (
+                  <p className="px-3 py-6 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+                    No session matches “{query}”
+                  </p>
+                ) : null}
+                {sections.map((section) => (
+                  <div key={section.name} role="group" aria-label={section.name}>
+                    <p className="px-3 pt-2 pb-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium uppercase tracking-wide text-muted-foreground">
+                      {section.name}
                     </p>
-                    {group.entries.map((entry) => {
-                      const index = indexOf.get(entry.address) ?? 0;
-                      const isActive = index === active;
-                      const isChosen = entry.address === value;
-                      return (
-                        <div
-                          key={entry.address}
-                          id={`${listId}-opt-${index}`}
-                          role="option"
-                          aria-selected={isChosen}
-                          onClick={() => choose(rows[index]!)}
-                          onPointerMove={() => setActive(index)}
-                          className={`flex cursor-pointer items-center gap-2 px-3 py-1.5 outline-none ${
-                            isActive ? "bg-accent text-accent-foreground" : ""
-                          }`}
-                        >
-                          <Check
-                            className={`size-3.5 shrink-0 ${isChosen ? "" : "invisible"}`}
-                            aria-hidden
-                          />
-                          <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-body,15px)">
-                            {entry.name}
-                          </span>
-                          {entry.reachability === "reachable" ? null : (
-                            <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-                              no live session
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {section.groups.map((group) => (
+                      <div key={group.label} role="group" aria-label={group.label}>
+                        <p className="px-3 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground/80">
+                          {group.label.slice(section.name.length + 3)}
+                        </p>
+                        {group.entries.map((entry) => {
+                          const index = indexOf.get(entry.address) ?? 0;
+                          const isActive = index === active;
+                          const isChosen = entry.address === value;
+                          return (
+                            <div
+                              key={entry.address}
+                              id={`${listId}-opt-${index}`}
+                              role="option"
+                              aria-selected={isChosen}
+                              onClick={() => choose(rows[index]!)}
+                              onPointerMove={() => setActive(index)}
+                              className={`flex cursor-pointer items-center gap-2 px-3 py-1.5 outline-none ${
+                                isActive ? "bg-accent text-accent-foreground" : ""
+                              }`}
+                            >
+                              <Check className={`size-3.5 shrink-0 ${isChosen ? "" : "invisible"}`} aria-hidden />
+                              <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-body,15px)">
+                                {entry.name}
+                              </span>
+                              {entry.reachability === "reachable" ? null : (
+                                <span className="shrink-0 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+                                  no live session
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
-            ))}
-          </div>
-        </div>,
-        document.body,
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

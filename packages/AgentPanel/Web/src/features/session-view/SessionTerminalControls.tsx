@@ -35,12 +35,7 @@ export function TerminalControl({
   const busy = state.kind === "loading";
   const ready = state.kind === "ready";
   const label = ready ? `Close ${harness} terminal` : `Open ${harness} terminal`;
-  const announcement =
-    state.kind === "loading"
-      ? `Opening ${harness}`
-      : ready
-        ? `${harness} terminal ready`
-        : null;
+  const announcement = state.kind === "loading" ? `Opening ${harness}` : ready ? `${harness} terminal ready` : null;
   return (
     <>
       <button
@@ -123,13 +118,7 @@ export function composerReasonText(reason: string | null): string {
   }
 }
 
-export function TerminalNotice({
-  source,
-  state,
-}: {
-  source: "claude" | "codex" | "opencode";
-  state: TerminalState;
-}) {
+export function TerminalNotice({ source, state }: { source: "claude" | "codex" | "opencode"; state: TerminalState }) {
   const harness = harnessName(source);
   if (state.kind === "error") {
     return (

@@ -6,11 +6,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceSharedState } from "@agentdesk/agent-feed-wire";
-import {
-  MAXIMUM_OPEN_PATHS,
-  SharedStateFailure,
-  WorkspaceSharedStateStore,
-} from "@/workspace/workspaceSharedState";
+import { MAXIMUM_OPEN_PATHS, SharedStateFailure, WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
 
 const WORKSPACE = "workspace-1";
 const directories: string[] = [];
@@ -34,10 +30,7 @@ function nextOperationId(): string {
   return `operation-${operations}`;
 }
 
-async function open(
-  created: WorkspaceSharedStateStore,
-  path: string,
-): Promise<WorkspaceSharedState> {
+async function open(created: WorkspaceSharedStateStore, path: string): Promise<WorkspaceSharedState> {
   return created.apply(WORKSPACE, created.snapshot(WORKSPACE).revision, nextOperationId(), {
     type: "open",
     path,
@@ -83,9 +76,10 @@ test("a stale base revision conflicts and reports the revision on disk", async (
   const { store: created } = await store();
   await open(created, "a.ts");
 
-  const failure = await created
-    .apply(WORKSPACE, 0, nextOperationId(), { type: "open", path: "b.ts" })
-    .then(() => null, (error: unknown) => error as SharedStateFailure);
+  const failure = await created.apply(WORKSPACE, 0, nextOperationId(), { type: "open", path: "b.ts" }).then(
+    () => null,
+    (error: unknown) => error as SharedStateFailure,
+  );
   expect(failure).toBeInstanceOf(SharedStateFailure);
   expect(failure!.code).toBe("revisionConflict");
   expect(failure!.currentRevision).toBe(1);
@@ -121,9 +115,9 @@ test("a reorder must be a permutation of what is open", async () => {
   expect(reordered.orderedOpenPaths).toEqual(["b.ts", "a.ts"]);
 
   for (const orderedPaths of [["a.ts"], ["a.ts", "a.ts"], ["a.ts", "b.ts", "c.ts"]]) {
-    await expect(
-      created.apply(WORKSPACE, 3, nextOperationId(), { type: "reorder", orderedPaths }),
-    ).rejects.toThrow(SharedStateFailure);
+    await expect(created.apply(WORKSPACE, 3, nextOperationId(), { type: "reorder", orderedPaths })).rejects.toThrow(
+      SharedStateFailure,
+    );
   }
 });
 
@@ -146,17 +140,15 @@ test("expand and collapse track directories independently of open files", async 
 test("refuses a path the file layer would refuse, before it can be stored", async () => {
   const { store: created } = await store();
   for (const path of ["", "/etc/passwd", "../escape", "a//b", "a\0b"]) {
-    await expect(
-      created.apply(WORKSPACE, 0, nextOperationId(), { type: "open", path }),
-    ).rejects.toThrow(SharedStateFailure);
+    await expect(created.apply(WORKSPACE, 0, nextOperationId(), { type: "open", path })).rejects.toThrow(
+      SharedStateFailure,
+    );
   }
 });
 
 test("refuses an empty operation id", async () => {
   const { store: created } = await store();
-  await expect(
-    created.apply(WORKSPACE, 0, "", { type: "open", path: "a.ts" }),
-  ).rejects.toThrow(SharedStateFailure);
+  await expect(created.apply(WORKSPACE, 0, "", { type: "open", path: "a.ts" })).rejects.toThrow(SharedStateFailure);
 });
 
 test("refuses to open past the cap", async () => {
@@ -213,10 +205,7 @@ test("refuses a state file written by something else", async () => {
   await expect(new WorkspaceSharedStateStore(path).ready).rejects.toThrow();
 });
 
-async function preview(
-  created: WorkspaceSharedStateStore,
-  path: string,
-): Promise<WorkspaceSharedState> {
+async function preview(created: WorkspaceSharedStateStore, path: string): Promise<WorkspaceSharedState> {
   return created.apply(WORKSPACE, created.snapshot(WORKSPACE).revision, nextOperationId(), {
     type: "preview",
     path,
@@ -260,12 +249,15 @@ test("closing the preview clears the slot", async () => {
 
 test("a record stored before previews existed loads with no preview", async () => {
   const { path } = await store();
-  await writeFile(path, JSON.stringify({
-    version: 1,
-    records: {
-      [WORKSPACE]: { revision: 3, orderedOpenPaths: ["a.ts"], expandedDirectoryPaths: [], appliedOperationIds: [] },
-    },
-  }));
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 1,
+      records: {
+        [WORKSPACE]: { revision: 3, orderedOpenPaths: ["a.ts"], expandedDirectoryPaths: [], appliedOperationIds: [] },
+      },
+    }),
+  );
   const reloaded = new WorkspaceSharedStateStore(path);
   await reloaded.ready;
   expect(reloaded.snapshot(WORKSPACE)).toMatchObject({ orderedOpenPaths: ["a.ts"], previewPath: null });

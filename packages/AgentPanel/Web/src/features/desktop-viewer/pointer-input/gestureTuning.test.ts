@@ -16,13 +16,17 @@ describe("gesture tuning", () => {
   it("defaults to the Swift client's: everything 1x, natural scrolling off", () => {
     expect(currentGestureTuning()).toEqual(DEFAULT_GESTURE_TUNING);
     expect(DEFAULT_GESTURE_TUNING).toEqual({
-      cursorSpeed: 1, cursorAcceleration: 1, scrollSpeed: 1, naturalScrolling: false,
+      cursorSpeed: 1,
+      cursorAcceleration: 1,
+      scrollSpeed: 1,
+      naturalScrolling: false,
     });
   });
 
   it("keeps only values a slider could have set", () => {
-    expect(validGestureTuning({ cursorSpeed: 2, scrollSpeed: 9, cursorAcceleration: "fast", naturalScrolling: 1 }))
-      .toEqual({ ...DEFAULT_GESTURE_TUNING, cursorSpeed: 2 });
+    expect(
+      validGestureTuning({ cursorSpeed: 2, scrollSpeed: 9, cursorAcceleration: "fast", naturalScrolling: 1 }),
+    ).toEqual({ ...DEFAULT_GESTURE_TUNING, cursorSpeed: 2 });
     expect(validGestureTuning(null)).toEqual(DEFAULT_GESTURE_TUNING);
   });
 

@@ -88,7 +88,10 @@ export interface WebrtcSessionsClose {
 }
 
 /** Closes what the request names. Idempotent: a viewer reports every close, including of peers already gone. */
-export function closeWebrtcSessions(request: WebrtcSessionsClose, reason: string): {
+export function closeWebrtcSessions(
+  request: WebrtcSessionsClose,
+  reason: string,
+): {
   closedConnections: string[];
   stoppedEncoders: string[];
 } {

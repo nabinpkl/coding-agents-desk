@@ -11,13 +11,13 @@
 // the service's errors onto the statuses the panel's own client reads.
 
 import type { ArenaRunsStreamMessage } from "@agentdesk/agent-feed-wire";
+import { ArenaBadRequestError, ArenaRunBusyError, ArenaRunNotFoundError, ArenaService } from "@/arena/arenaService";
 import {
-  ArenaBadRequestError,
-  ArenaRunBusyError,
-  ArenaRunNotFoundError,
-  ArenaService,
-} from "@/arena/arenaService";
-import { encodeServerSentEvent, errorResponse, jsonResponse, startServerSentEventStream } from "@/http/protocol/httpResponses";
+  encodeServerSentEvent,
+  errorResponse,
+  jsonResponse,
+  startServerSentEventStream,
+} from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 
 const RUNS_ROUTE = "/api/arena/runs";
@@ -119,7 +119,10 @@ async function addContestants(service: ArenaService, runId: string, request: Req
     return errorResponse("arena-bad-request", "a lanes request must be JSON", 400);
   }
   try {
-    return jsonResponse(await service.addContestants(runId, (body as { contestants?: unknown } | null)?.contestants), 201);
+    return jsonResponse(
+      await service.addContestants(runId, (body as { contestants?: unknown } | null)?.contestants),
+      201,
+    );
   } catch (error) {
     if (error instanceof ArenaRunNotFoundError) return notFound(path);
     if (error instanceof ArenaBadRequestError) return errorResponse("arena-bad-request", error.message, 400);
@@ -152,9 +155,5 @@ function notFound(path: string): Response {
 
 function internal(error: unknown): Response {
   console.error("agent feed arena route failed", error);
-  return errorResponse(
-    "arena-internal",
-    error instanceof Error ? error.message : String(error),
-    500,
-  );
+  return errorResponse("arena-internal", error instanceof Error ? error.message : String(error), 500);
 }

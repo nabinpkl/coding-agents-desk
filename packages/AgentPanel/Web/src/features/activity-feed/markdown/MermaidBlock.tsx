@@ -21,10 +21,7 @@ export function MermaidBlock({ code }: { code: string }) {
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        <ChevronRight
-          className={"size-[1em] shrink-0 transition-transform " + (open ? "rotate-90" : "")}
-          aria-hidden
-        />
+        <ChevronRight className={"size-[1em] shrink-0 transition-transform " + (open ? "rotate-90" : "")} aria-hidden />
         <span>Mermaid diagram</span>
       </button>
       {open ? <MermaidRender code={code} /> : null}

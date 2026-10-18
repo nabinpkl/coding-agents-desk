@@ -113,13 +113,7 @@ export function BotGitButton({
         ) : null}
       </button>
       {open ? (
-        <BotCodeDialog
-          bot={bot}
-          feed={feed}
-          git={git}
-          initialSection="sourceControl"
-          onClose={() => setOpen(false)}
-        />
+        <BotCodeDialog bot={bot} feed={feed} git={git} initialSection="sourceControl" onClose={() => setOpen(false)} />
       ) : null}
     </>
   );

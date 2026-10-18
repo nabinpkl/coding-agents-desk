@@ -53,8 +53,7 @@ function tap(id: string, pointerId = 1) {
   press(id, { pointerId });
   release(id, { pointerId });
 }
-const typed = (fn: ReturnType<typeof vi.fn>) =>
-  fn.mock.calls.map((call) => String(call[0])).join("");
+const typed = (fn: ReturnType<typeof vi.fn>) => fn.mock.calls.map((call) => String(call[0])).join("");
 
 afterEach(() => {
   vi.useRealTimers();
@@ -286,8 +285,12 @@ describe("KeyboardDeck", () => {
     const { onSwitchToNative, onCharacter } = renderDeck();
     const row = [...deck().querySelectorAll("[data-deck-row]")][3]!;
     // Between the page key and the space bar, which is where iOS put the globe.
-    expect([...row.children].map((child) => child.getAttribute("aria-label")))
-      .toEqual(["Numbers", "Switch to the system keyboard", "Space", "Return"]);
+    expect([...row.children].map((child) => child.getAttribute("aria-label"))).toEqual([
+      "Numbers",
+      "Switch to the system keyboard",
+      "Space",
+      "Return",
+    ]);
     tap("native");
     expect(onSwitchToNative).toHaveBeenCalledTimes(1);
     expect(onCharacter).not.toHaveBeenCalled();

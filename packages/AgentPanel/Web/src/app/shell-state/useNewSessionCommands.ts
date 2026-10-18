@@ -21,11 +21,14 @@ export function useNewSessionCommands(feed: SidecarDataSource) {
    * Starts it and closes the dialog, or throws for the dialog to show beside the fields it leaves
    * filled in: the first message the reader typed survives a refusal that way.
    */
-  const start = useCallback(async (command: StartSessionCommand) => {
-    const session = await feed.startSession(command);
-    setStarted({ ...session, sdk: command.source === "claude" && command.claudeMode === "sdk" });
-    setDialogOpen(false);
-  }, [feed]);
+  const start = useCallback(
+    async (command: StartSessionCommand) => {
+      const session = await feed.startSession(command);
+      setStarted({ ...session, sdk: command.source === "claude" && command.claudeMode === "sdk" });
+      setDialogOpen(false);
+    },
+    [feed],
+  );
 
   const openDialog = useCallback(() => setDialogOpen(true), []);
   const closeDialog = useCallback(() => setDialogOpen(false), []);
@@ -35,10 +38,7 @@ export function useNewSessionCommands(feed: SidecarDataSource) {
    * The started session's directory, for the inventory to watch until the catalog lists it there.
    * Shaped like a Bot's started sessions, with no Bot: it is on the machine this feed reads.
    */
-  const watched = useMemo(
-    () => (started ? [{ projectPath: started.projectPath }] : []),
-    [started],
-  );
+  const watched = useMemo(() => (started ? [{ projectPath: started.projectPath }] : []), [started]);
 
   return { dialogOpen, openDialog, closeDialog, start, started, clearStarted, watched };
 }

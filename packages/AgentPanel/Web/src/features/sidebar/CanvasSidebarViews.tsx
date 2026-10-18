@@ -50,7 +50,9 @@ export function CanvasSidebarViews({
             return (
               <button
                 key={entry.view}
-                ref={(node) => { tabs.current.set(entry.view, node); }}
+                ref={(node) => {
+                  tabs.current.set(entry.view, node);
+                }}
                 id={`${groupId}-${entry.view}-tab`}
                 type="button"
                 role="tab"

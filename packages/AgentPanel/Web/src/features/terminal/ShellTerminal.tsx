@@ -19,7 +19,13 @@ import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import { useLatestRef } from "@/hooks/useLatestRef";
 
-export function ShellTerminal({ feed, context, label, where, onState: reportState }: {
+export function ShellTerminal({
+  feed,
+  context,
+  label,
+  where,
+  onState: reportState,
+}: {
   feed: SidecarDataSource;
   /**
    * What the shell is pointed at. Must be stable by identity: the hook tears the terminal down and
@@ -39,12 +45,15 @@ export function ShellTerminal({ feed, context, label, where, onState: reportStat
   // Read through a ref so a caller's inline callback does not re-attach the terminal every render:
   // the hook tears down and reopens whenever `onState` changes by identity.
   const report = useLatestRef(reportState);
-  const onState = useCallback((_context: AgentTerminalContext, state: AgentTerminalState) => {
-    if (state.kind === "error") setProblem(state.message);
-    else if (state.kind === "ended") setProblem("The shell exited");
-    else setProblem(null);
-    report.current?.(state);
-  }, [report]);
+  const onState = useCallback(
+    (_context: AgentTerminalContext, state: AgentTerminalState) => {
+      if (state.kind === "error") setProblem(state.message);
+      else if (state.kind === "ended") setProblem("The shell exited");
+      else setProblem(null);
+      report.current?.(state);
+    },
+    [report],
+  );
   const { mountRef, labels, focused, modifiers, toggleModifier, pressKey } = useAgentTerminal({
     feed,
     context,
@@ -75,16 +84,18 @@ export function ShellTerminal({ feed, context, label, where, onState: reportStat
           PADDING box while the rows that paint over it are inset to the content box. Flush avoids
           both, and an IDE terminal running to the edge of its pane is what one looks like anyway. */}
       <div ref={mountRef} className="min-h-0 flex-1 overflow-auto bg-white dark:bg-[#0b0e14]" />
-      {showsKeyRail
-        ? <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
-        : null}
+      {showsKeyRail ? <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} /> : null}
       <footer
         className="flex min-h-6 shrink-0 items-center gap-3 overflow-hidden border-t border-border
           px-2 font-mono text-[10px] text-muted-foreground"
       >
-        {problem
-          ? <span role="alert" className="min-w-0 truncate text-destructive">{problem}</span>
-          : <span className="shrink-0">{labels.sync}</span>}
+        {problem ? (
+          <span role="alert" className="min-w-0 truncate text-destructive">
+            {problem}
+          </span>
+        ) : (
+          <span className="shrink-0">{labels.sync}</span>
+        )}
         {/* The directory, because a shell's whole identity is where it is. Trailing rather than
             leading so the status, which changes, keeps the edge the eye returns to -- and it is
             the half that gives way on a phone, where the status is short enough to always fit.

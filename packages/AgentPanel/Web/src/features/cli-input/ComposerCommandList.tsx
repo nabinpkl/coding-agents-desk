@@ -52,9 +52,7 @@ export function ComposerCommandList({
           {/* The description is a caption for the name beside it, which is the row's content. A
               long one is elided by Claude before it ever gets here, so this only has to stop it
               pushing the name out of the row. */}
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-            {command.description}
-          </span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{command.description}</span>
         </button>
       ))}
     </div>

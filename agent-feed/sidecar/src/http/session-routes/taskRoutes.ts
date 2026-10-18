@@ -12,12 +12,7 @@ import type { BackgroundTaskSnapshot, TaskOutputMessage } from "@agentdesk/agent
 import { config } from "@/config/config";
 import { backgroundTasks } from "@/tasks/backgroundTaskCoordinator";
 import { readTerminalMarker } from "@/tasks/backgroundTasks";
-import {
-  lastLines,
-  OutputProgress,
-  snapshotOffset,
-  trimPartialFirstLine,
-} from "@/tasks/outputFollower";
+import { lastLines, OutputProgress, snapshotOffset, trimPartialFirstLine } from "@/tasks/outputFollower";
 import {
   currentProcessTable,
   isInsideTaskRoot,

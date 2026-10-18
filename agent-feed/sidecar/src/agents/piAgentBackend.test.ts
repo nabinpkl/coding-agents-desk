@@ -21,19 +21,36 @@ class FakeSession implements PiSessionFacade {
   aborted = 0;
   private readonly listeners = new Set<(event: AgentSessionEvent) => void>();
 
-  async prompt(text: string) { this.calls.push(`prompt:${text}`); this.isIdle = false; }
-  async steer(text: string) { this.calls.push(`steer:${text}`); }
-  async followUp(text: string) { this.calls.push(`followUp:${text}`); }
-  async abort() { this.aborted += 1; this.isIdle = true; }
-  subscribe(listener: (event: AgentSessionEvent) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  async prompt(text: string) {
+    this.calls.push(`prompt:${text}`);
+    this.isIdle = false;
+  }
+  async steer(text: string) {
+    this.calls.push(`steer:${text}`);
+  }
+  async followUp(text: string) {
+    this.calls.push(`followUp:${text}`);
+  }
+  async abort() {
+    this.aborted += 1;
+    this.isIdle = true;
+  }
+  subscribe(listener: (event: AgentSessionEvent) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
   async bindExtensions() {}
-  emit(event: AgentSessionEvent) { for (const listener of this.listeners) listener(event); }
+  emit(event: AgentSessionEvent) {
+    for (const listener of this.listeners) listener(event);
+  }
 }
 
 class FakeRuntime implements PiRuntimeFacade {
   disposed = 0;
   constructor(readonly session: FakeSession) {}
-  async dispose() { this.disposed += 1; }
+  async dispose() {
+    this.disposed += 1;
+  }
 }
 
 function fixture(options: { idleRuntimeMs?: number; toolCallBudget?: number } = {}) {
@@ -42,20 +59,34 @@ function fixture(options: { idleRuntimeMs?: number; toolCallBudget?: number } = 
   const session = new FakeSession();
   const runtime = new FakeRuntime(session);
   const backend = new PiAgentBackend({
-    resolveSession: (sessionId) => sessionId === "session-1" ? {
-      sessionId,
-      projectPath: "/tmp/project",
-      transcriptPath: "/tmp/session-1.jsonl",
-      title: "One",
-      lastEventAt: 1,
-    } : undefined,
+    resolveSession: (sessionId) =>
+      sessionId === "session-1"
+        ? {
+            sessionId,
+            projectPath: "/tmp/project",
+            transcriptPath: "/tmp/session-1.jsonl",
+            title: "One",
+            lastEventAt: 1,
+          }
+        : undefined,
     onSessionCreated() {},
-    runtimeFactory: async () => { starts += 1; return runtime; },
+    runtimeFactory: async () => {
+      starts += 1;
+      return runtime;
+    },
     idleRuntimeMs: options.idleRuntimeMs ?? 1000,
     toolCallBudget: options.toolCallBudget ?? 64,
     now: () => now,
   });
-  return { backend, session, runtime, starts: () => starts, setNow: (value: number) => { now = value; } };
+  return {
+    backend,
+    session,
+    runtime,
+    starts: () => starts,
+    setNow: (value: number) => {
+      now = value;
+    },
+  };
 }
 
 test("concurrent viewers share one runtime and disconnect independently", async () => {
@@ -94,7 +125,9 @@ test("run-state transitions invalidate session-list subscribers", async () => {
       lastEventAt: 1,
     }),
     onSessionCreated() {},
-    onSessionChanged() { changes += 1; },
+    onSessionChanged() {
+      changes += 1;
+    },
     runtimeFactory: async () => runtime,
     idleRuntimeMs: 1000,
   });
@@ -148,8 +181,9 @@ test("a runaway tool loop aborts after the configured budget", async () => {
 });
 
 test("new persistent sessions use Pi's encoded project directory under the configured root", () => {
-  expect(piProjectSessionDirectory("/tmp/project:one", "/tmp/pi-sessions"))
-    .toBe("/tmp/pi-sessions/--tmp-project-one--");
+  expect(piProjectSessionDirectory("/tmp/project:one", "/tmp/pi-sessions")).toBe(
+    "/tmp/pi-sessions/--tmp-project-one--",
+  );
 });
 
 test("new Pi session identity is durable before the first prompt", async () => {
@@ -184,7 +218,10 @@ test("a runtime that finishes opening during dispose is disposed instead of re-r
       lastEventAt: 1,
     }),
     onSessionCreated() {},
-    runtimeFactory: () => new Promise((resolve) => { release = resolve; }),
+    runtimeFactory: () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
     idleRuntimeMs: 1000,
   });
 

@@ -31,9 +31,7 @@ export function verb(source: WindowSource, intent: "read" | "write" | "submit" |
 }
 
 export function payloadFor(source: WindowSource, target: WindowTarget): Record<string, unknown> {
-  return source === "codex"
-    ? { windowID: target.windowID, mainPid: target.claudeMainPid }
-    : targetPayload(target);
+  return source === "codex" ? { windowID: target.windowID, mainPid: target.claudeMainPid } : targetPayload(target);
 }
 
 export function createWindowAccess(helper: ControlHelper) {
@@ -53,9 +51,7 @@ export function createWindowAccess(helper: ControlHelper) {
   async function awaitComposer(source: WindowSource, target: WindowTarget): Promise<void> {
     await call(verb(source, "await"), {
       ...payloadFor(source, target),
-      timeoutMs: source === "codex"
-        ? config.codexTreeMaterializeTimeoutMs
-        : config.claudeComposerMaterializeTimeoutMs,
+      timeoutMs: source === "codex" ? config.codexTreeMaterializeTimeoutMs : config.claudeComposerMaterializeTimeoutMs,
       pollMs: config.claudeComposerMaterializePollMs,
     });
   }
@@ -107,7 +103,7 @@ export function createWindowAccess(helper: ControlHelper) {
 
     // Sampled after the restore so the whole sequence is covered. Nothing above activates an
     // application, so a change means an assumption broke; it cannot be undone, only reported.
-    if (!allowsActivation && frontmostBefore !== null && await frontmostPid() !== frontmostBefore) {
+    if (!allowsActivation && frontmostBefore !== null && (await frontmostPid()) !== frontmostBefore) {
       throw new ComposerError("focus-stolen");
     }
     return outcome;
@@ -169,7 +165,7 @@ export function createWindowAccess(helper: ControlHelper) {
   }
 
   async function auditSnapshot(): Promise<DesktopAuditSnapshot> {
-    return await helper.request("desktop-audit") as unknown as DesktopAuditSnapshot;
+    return (await helper.request("desktop-audit")) as unknown as DesktopAuditSnapshot;
   }
 
   return {

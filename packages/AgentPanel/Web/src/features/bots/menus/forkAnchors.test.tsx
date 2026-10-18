@@ -42,14 +42,22 @@ const BOT = { botId: "bot-1", environment: { kind: "directory", path: "/repo" } 
  */
 function commands(feed: SidecarDataSource) {
   const machine = { label: "this machine", feed };
-  return renderHook(() => useBotCommands(
-    botFeeds(feed, [machine], () => machine, () => machine, () => []),
-    {
-      putBotOnCanvas: () => {},
-      setCanvasOpenKeys: () => {},
-    },
-    () => {},
-  )).result;
+  return renderHook(() =>
+    useBotCommands(
+      botFeeds(
+        feed,
+        [machine],
+        () => machine,
+        () => machine,
+        () => [],
+      ),
+      {
+        putBotOnCanvas: () => {},
+        setCanvasOpenKeys: () => {},
+      },
+      () => {},
+    ),
+  ).result;
 }
 
 describe("the item on the session menu", () => {
@@ -118,12 +126,14 @@ describe("what the command does with it", () => {
 
     // The card's Bot rides along, so the fork's draft lands on it as a card beside its source.
     expect(result.current.forkRequest).toBeNull();
-    expect(result.current.forkDrafts.map((draft) => draft.request)).toEqual([{
-      session: SOURCE,
-      projectPath: "/repo",
-      botId: "bot-1",
-      from: { eventId: "claude:sid-1:line:12", text: "Rewrite the picker driver" },
-    }]);
+    expect(result.current.forkDrafts.map((draft) => draft.request)).toEqual([
+      {
+        session: SOURCE,
+        projectPath: "/repo",
+        botId: "bot-1",
+        from: { eventId: "claude:sid-1:line:12", text: "Rewrite the picker driver" },
+      },
+    ]);
   });
 
   it("says why on the session's own card when there is no message yet", async () => {
@@ -196,12 +206,14 @@ describe("finding the compaction", () => {
       await result.current.forkFromLastCompaction(BOT, SOURCE);
     });
 
-    expect(result.current.forkDrafts.map((draft) => draft.request)).toEqual([{
-      session: SOURCE,
-      projectPath: "/repo",
-      botId: "bot-1",
-      from: { eventId: "claude:sid-1:line:88", text: "Now do the other half" },
-    }]);
+    expect(result.current.forkDrafts.map((draft) => draft.request)).toEqual([
+      {
+        session: SOURCE,
+        projectPath: "/repo",
+        botId: "bot-1",
+        from: { eventId: "claude:sid-1:line:88", text: "Now do the other half" },
+      },
+    ]);
   });
 
   it("says why when the session has no compaction to start from", async () => {

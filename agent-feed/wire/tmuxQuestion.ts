@@ -135,29 +135,29 @@ export interface TmuxQuestionAnswer {
 export type TmuxQuestionOutcome =
   | { answered: true }
   | {
-    answered: false;
-    reason: TmuxQuestionRefusal;
-    /**
-     * Every non-empty `other` that was sent, returned verbatim beside the question it was for.
-     *
-     * The point of the whole shape. A refusal that dropped a person's typed words would be the
-     * failure this protocol exists to prevent, so the words come back with the reason and the
-     * caller puts them back in the field they were written in. Paired with its question rather
-     * than sent as a bare list, because a list of sentences with no idea which box each came out
-     * of is not something a surface can put back.
-     */
-    keptText: { question: string; text: string }[];
-    /**
-     * Whether any key reached the pane before this refused.
-     *
-     * A refusal is not always a no-op, and saying it was is the failure this field exists to stop.
-     * The driver walks the dialog pressing as it goes, so a question that moves under it can refuse
-     * with one question already answered and a box already ticked in the terminal -- measured, and
-     * the panel said "nothing was sent" over the top of it. False means no key went out at all,
-     * which is the ordinary case: most refusals are decided before the first press.
-     */
-    sent: boolean;
-  };
+      answered: false;
+      reason: TmuxQuestionRefusal;
+      /**
+       * Every non-empty `other` that was sent, returned verbatim beside the question it was for.
+       *
+       * The point of the whole shape. A refusal that dropped a person's typed words would be the
+       * failure this protocol exists to prevent, so the words come back with the reason and the
+       * caller puts them back in the field they were written in. Paired with its question rather
+       * than sent as a bare list, because a list of sentences with no idea which box each came out
+       * of is not something a surface can put back.
+       */
+      keptText: { question: string; text: string }[];
+      /**
+       * Whether any key reached the pane before this refused.
+       *
+       * A refusal is not always a no-op, and saying it was is the failure this field exists to stop.
+       * The driver walks the dialog pressing as it goes, so a question that moves under it can refuse
+       * with one question already answered and a box already ticked in the terminal -- measured, and
+       * the panel said "nothing was sent" over the top of it. False means no key went out at all,
+       * which is the ordinary case: most refusals are decided before the first press.
+       */
+      sent: boolean;
+    };
 
 /**
  * Where the pane's cursor should be sitting, which is not an answer to anything.
@@ -195,6 +195,4 @@ export interface TmuxQuestionPoint {
  * lose here: nothing was typed, and a refusal leaves a cursor wherever it already was. A caller
  * that gets `false` has a mirror one step behind, not a reader's words missing.
  */
-export type TmuxQuestionPointOutcome =
-  | { pointed: true }
-  | { pointed: false; reason: TmuxQuestionRefusal };
+export type TmuxQuestionPointOutcome = { pointed: true } | { pointed: false; reason: TmuxQuestionRefusal };

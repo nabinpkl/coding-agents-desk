@@ -27,15 +27,17 @@ export function questionFromPane(pane: TmuxQuestionState | null): OpenAskUserQue
     // Keyed by what is on screen, so the draft starts over when the dialog moves to another
     // question and survives every re-reading of the same one.
     callId: `pane:${pane.question}`,
-    questions: [{
-      // The whole drawn question, which starts with the line everything matches by.
-      question: pane.prompt ?? pane.question,
-      multiSelect: pane.multiSelect,
-      options: options.map((option) => ({
-        label: option.label,
-        ...(option.detail ? { description: option.detail } : {}),
-      })),
-    }],
+    questions: [
+      {
+        // The whole drawn question, which starts with the line everything matches by.
+        question: pane.prompt ?? pane.question,
+        multiSelect: pane.multiSelect,
+        options: options.map((option) => ({
+          label: option.label,
+          ...(option.detail ? { description: option.detail } : {}),
+        })),
+      },
+    ],
     pane: { unseen: Math.max(0, pane.tabs.length - 1) },
   };
 }

@@ -56,9 +56,19 @@ export const QUESTION_HISTORY_LINES = 60;
  */
 export function captureQuestionViewArgs(session: string, lines: number): string[] {
   return [
-    "display-message", "-p", "-t", session, "#{cursor_y} #{cursor_x}",
+    "display-message",
+    "-p",
+    "-t",
+    session,
+    "#{cursor_y} #{cursor_x}",
     ";",
-    "capture-pane", "-p", "-e", "-S", `-${lines}`, "-t", session,
+    "capture-pane",
+    "-p",
+    "-e",
+    "-S",
+    `-${lines}`,
+    "-t",
+    session,
   ];
 }
 
@@ -80,9 +90,7 @@ export function captureQuestionViewArgs(session: string, lines: number): string[
  * `terminalHistoryPayload`.
  */
 export function paneGeometryArgs(session: string): string[] {
-  return [
-    "display-message", "-p", "-t", session, "#{pane_height} #{cursor_y} #{cursor_x} #{alternate_on}",
-  ];
+  return ["display-message", "-p", "-t", session, "#{pane_height} #{cursor_y} #{cursor_x} #{alternate_on}"];
 }
 
 /** What tmux says about a pane right now: the screen it is showing, and where its cursor sits. */
@@ -108,11 +116,7 @@ export interface TmuxPaneView {
  * row says which line of a wrapped box the reader is actually on.
  */
 export function capturePaneViewArgs(session: string): string[] {
-  return [
-    "display-message", "-p", "-t", session, "#{cursor_y} #{cursor_x}",
-    ";",
-    ...captureScreenArgs(session),
-  ];
+  return ["display-message", "-p", "-t", session, "#{cursor_y} #{cursor_x}", ";", ...captureScreenArgs(session)];
 }
 
 /**
@@ -166,17 +170,21 @@ async function readPaneView(args: string[]): Promise<TmuxPaneView> {
  * Composed here rather than in the viewer because the row count that has to match is the pane's,
  * and the pane is what this module can see.
  */
-export function terminalHistoryPayload(
-  { scrollback, screen, rows, cursor, alternateScreen = false }: {
-    scrollback: string;
-    screen: string;
-    rows: number;
-    /** The pane's cursor, zero-based as tmux reports it. */
-    cursor: { row: number; column: number };
-    /** Whether the pane is on the alternate screen, which changes what there is to hand over. */
-    alternateScreen?: boolean;
-  },
-): string {
+export function terminalHistoryPayload({
+  scrollback,
+  screen,
+  rows,
+  cursor,
+  alternateScreen = false,
+}: {
+  scrollback: string;
+  screen: string;
+  rows: number;
+  /** The pane's cursor, zero-based as tmux reports it. */
+  cursor: { row: number; column: number };
+  /** Whether the pane is on the alternate screen, which changes what there is to hand over. */
+  alternateScreen?: boolean;
+}): string {
   // CUP is one-based, and addresses the screen -- which the opening rows below put exactly where
   // the pane's screen is.
   const home = `\u001b[${cursor.row + 1};${cursor.column + 1}H`;
@@ -278,21 +286,23 @@ function leadingSgrRun(line: string): string {
  */
 export function fullBleedCapture(captured: string): string {
   const lines = captured.split("\n");
-  return lines.map((line, index) => {
-    // A row with anything in it, colours included: a row the trim reduced to only its
-    // colours is still a row, and its own run still says what its width was painted.
-    if (line.length > 0) return `\u001b[0m${line}\u001b[K`;
-    for (let below = index + 1; below < lines.length; below += 1) {
-      const candidate = lines[below]!;
-      if (candidate.length === 0) continue;
-      const run = leadingSgrRun(candidate);
-      // A next row starting in the default colours says the gap is default too, and bare
-      // inherits whatever the row above left -- which the reset above just made explicit.
-      if (run === "") return "";
-      return `${run}\u001b[K`;
-    }
-    return "";
-  }).join("\r\n");
+  return lines
+    .map((line, index) => {
+      // A row with anything in it, colours included: a row the trim reduced to only its
+      // colours is still a row, and its own run still says what its width was painted.
+      if (line.length > 0) return `\u001b[0m${line}\u001b[K`;
+      for (let below = index + 1; below < lines.length; below += 1) {
+        const candidate = lines[below]!;
+        if (candidate.length === 0) continue;
+        const run = leadingSgrRun(candidate);
+        // A next row starting in the default colours says the gap is default too, and bare
+        // inherits whatever the row above left -- which the reset above just made explicit.
+        if (run === "") return "";
+        return `${run}\u001b[K`;
+      }
+      return "";
+    })
+    .join("\r\n");
 }
 
 /**
@@ -303,10 +313,7 @@ export function fullBleedCapture(captured: string): string {
  * "still working" looks like.
  */
 export function paneActivityArgs(session: string): string[] {
-  return [
-    "display-message", "-p", "-t", session,
-    "#{history_size} #{cursor_y} #{cursor_x} #{pane_dead}",
-  ];
+  return ["display-message", "-p", "-t", session, "#{history_size} #{cursor_y} #{cursor_x} #{pane_dead}"];
 }
 
 export async function paneActivity(session: string): Promise<string> {

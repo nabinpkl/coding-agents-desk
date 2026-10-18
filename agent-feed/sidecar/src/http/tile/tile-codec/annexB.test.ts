@@ -3,11 +3,7 @@ import { splitAnnexB } from "@/http/tile/tile-codec/annexB";
 
 describe("splitAnnexB", () => {
   test("splits four-byte start codes into bare NAL units", () => {
-    const data = new Uint8Array([
-      0, 0, 0, 1, 0x67, 1, 2,
-      0, 0, 0, 1, 0x68, 3,
-      0, 0, 0, 1, 0x65, 4, 5, 6,
-    ]);
+    const data = new Uint8Array([0, 0, 0, 1, 0x67, 1, 2, 0, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 4, 5, 6]);
 
     expect(splitAnnexB(data).map((unit) => [...unit])).toEqual([
       [0x67, 1, 2],

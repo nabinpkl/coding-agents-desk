@@ -109,7 +109,12 @@ export const LIVE_TERMINAL_STEPS: TerminalContestantSteps = {
   harnessExited: (pane) => tmuxPaneCommandExited(pane),
   paneTail: async (pane) => {
     const { out } = await tmux(["capture-pane", "-p", "-t", pane]);
-    return out.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-3).join(" / ");
+    return out
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .slice(-3)
+      .join(" / ");
   },
   typePrompt: async (sessionId, prompt) => {
     const typed = await syncTmuxComposer(sessionId, prompt);
@@ -187,7 +192,7 @@ export async function runClaudeTerminalContestant(
 ): Promise<ContestantResult> {
   const terminal = terminalOf(plan);
   const steps = options.steps ?? LIVE_TERMINAL_STEPS;
-  const { pane, sessionId } = terminal.resume ?? await startClaudeContestant(plan, terminal, options, steps);
+  const { pane, sessionId } = terminal.resume ?? (await startClaudeContestant(plan, terminal, options, steps));
 
   // The prompt to type, or null when the turn it opens is already under way; and how many turns
   // the session had opened before it, so only a turn opened after the prompt can close this one.
@@ -228,7 +233,7 @@ export async function runClaudeTerminalContestant(
       timer.unref?.();
     });
     void check();
-    if (await Promise.race([closed, timedOut]) === "timeout") {
+    if ((await Promise.race([closed, timedOut])) === "timeout") {
       throw new ClaudeContestantError(`contestant did not close its turn within ${plan.turnTimeoutMs}ms`);
     }
   } finally {
@@ -249,9 +254,7 @@ async function startClaudeContestant(
 ): Promise<{ pane: string; sessionId: string }> {
   const binary = options.binary !== undefined ? options.binary : claudeBinary();
   if (!binary) {
-    throw new ClaudeContestantError(
-      "no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH",
-    );
+    throw new ClaudeContestantError("no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH");
   }
   const sessionId = options.newSessionId?.() ?? randomUUID();
   const command = claudeContestantArgv({
@@ -309,7 +312,7 @@ export async function runOpencodeTerminalContestant(
     const alreadySent = await (options.promptSent ?? opencodePromptSent)(resume.sessionId);
     return driveOpencodeTurn(backend, resume.sessionId, plan, { ...options, alreadySent });
   }
-  const { pane, sessionId } = resume ?? await startOpencodeContestant(backend, plan, terminal, options, steps);
+  const { pane, sessionId } = resume ?? (await startOpencodeContestant(backend, plan, terminal, options, steps));
   // Settled is not running: a TUI that failed to start leaves a quiet pane at its shell, and the
   // serve would still take the prompt, so the contestant would run with nothing to watch.
   if (await steps.harnessExited(pane)) {

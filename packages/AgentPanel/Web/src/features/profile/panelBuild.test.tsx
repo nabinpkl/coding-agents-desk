@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import {
-  PANEL_BUILD_ID,
-  usePanelBuild,
-  type DevServerHooks,
-} from "@/features/profile/panelBuild";
+import { PANEL_BUILD_ID, usePanelBuild, type DevServerHooks } from "@/features/profile/panelBuild";
 import {
   PANEL_BUILD_ROUTE,
   PANEL_COMMAND_PARAM,
@@ -23,8 +19,7 @@ function devServer() {
   };
   return {
     hooks,
-    emit: (event: string, data?: unknown) =>
-      listeners.get(event)?.forEach((listener) => listener(data)),
+    emit: (event: string, data?: unknown) => listeners.get(event)?.forEach((listener) => listener(data)),
     listening: (event: string) => listeners.get(event)?.size ?? 0,
   };
 }
@@ -209,7 +204,9 @@ describe("work the dev server is holding", () => {
     const server = devServer();
     serveReport({
       build: "7373cec",
-      sidecars: [{ machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto", behind: false }],
+      sidecars: [
+        { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto", behind: false },
+      ],
     });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
 

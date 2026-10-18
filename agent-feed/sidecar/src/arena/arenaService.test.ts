@@ -7,12 +7,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  ArenaBadRequestError,
-  ArenaRunBusyError,
-  ArenaRunNotFoundError,
-  ArenaService,
-} from "@/arena/arenaService";
+import { ArenaBadRequestError, ArenaRunBusyError, ArenaRunNotFoundError, ArenaService } from "@/arena/arenaService";
 import { ArenaRunRegistry, type ArenaRunRecord } from "@/arena/arenaRun";
 import { ArenaStore } from "@/arena/arenaStore";
 import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
@@ -100,7 +95,15 @@ function fakeBackend(
     },
     async subscribe(sessionId, _after, listener) {
       const envelopes: TimelineEnvelope[] = [
-        { kind: "state", sequence: 1, mode: "nice", events: [], windowStart: 0, runState: "running", queue: { steer: 0, followUp: 0 } },
+        {
+          kind: "state",
+          sequence: 1,
+          mode: "nice",
+          events: [],
+          windowStart: 0,
+          runState: "running",
+          queue: { steer: 0, followUp: 0 },
+        },
         {
           kind: "upsert",
           sequence: 2,
@@ -110,11 +113,27 @@ function fakeBackend(
           runState: "running",
           queue: { steer: 0, followUp: 0 },
         },
-        { kind: "state", sequence: 3, mode: "nice", events: [], windowStart: 0, runState: "idle", queue: { steer: 0, followUp: 0 } },
+        {
+          kind: "state",
+          sequence: 3,
+          mode: "nice",
+          events: [],
+          windowStart: 0,
+          runState: "idle",
+          queue: { steer: 0, followUp: 0 },
+        },
       ];
       if (options.fail) {
         queueMicrotask(() => {
-          listener({ kind: "state", sequence: 1, mode: "nice", events: [], windowStart: 0, runState: "error", queue: { steer: 0, followUp: 0 } });
+          listener({
+            kind: "state",
+            sequence: 1,
+            mode: "nice",
+            events: [],
+            windowStart: 0,
+            runState: "error",
+            queue: { steer: 0, followUp: 0 },
+          });
         });
         return () => {};
       }
@@ -148,10 +167,7 @@ function toolEvent(id: string, tool: string, files: string[]): ActivityEvent {
  * The drivers a run is wired with: opencode over the given fake backend, and a Claude driver
  * that closes at once having named one written file, unless the test hands its own.
  */
-function driversOver(
-  backend: OpencodeContestantBackend,
-  claude?: ContestantDriver,
-): ContestantDrivers {
+function driversOver(backend: OpencodeContestantBackend, claude?: ContestantDriver): ContestantDrivers {
   return {
     // The serve's end-of-turn marker is the driver's own concern, pinned in its tests; here
     // every turn the fake backend plays is one the serve has marked done.
@@ -160,21 +176,25 @@ function driversOver(
         lastUserId: async () => null,
         turnOutcome: async () => ({ closed: true, failure: null }),
       }),
-    claude: claude ?? (async (plan) => {
-      plan.onSessionId("claude-session");
-      return {
-        sessionId: "claude-session",
-        events: [toolEvent("claude:0", "Write", ["/repo/claude.ts"])],
-        usage: null,
-      };
-    }),
+    claude:
+      claude ??
+      (async (plan) => {
+        plan.onSessionId("claude-session");
+        return {
+          sessionId: "claude-session",
+          events: [toolEvent("claude:0", "Write", ["/repo/claude.ts"])],
+          usage: null,
+        };
+      }),
   };
 }
 
-async function service(options: {
-  backend?: OpencodeContestantBackend;
-  claude?: ContestantDriver;
-} = {}) {
+async function service(
+  options: {
+    backend?: OpencodeContestantBackend;
+    claude?: ContestantDriver;
+  } = {},
+) {
   const root = await arenaRoot();
   const home = join(root, "home");
   let runs = 0;
@@ -201,20 +221,19 @@ async function service(options: {
  * of -- a source this arena cannot drive, a relative repoPath -- and those are the requests whose
  * refusals are the point.
  */
-const request = (over: Record<string, unknown> = {}): ArenaCreateRunRequest =>
-  ({
-    prompt: "say one word",
-    repoPath: "/repos/one",
-    contestants: [{ source: "opencode" }, { source: "opencode" }],
-    ...over,
-  });
+const request = (over: Record<string, unknown> = {}): ArenaCreateRunRequest => ({
+  prompt: "say one word",
+  repoPath: "/repos/one",
+  contestants: [{ source: "opencode" }, { source: "opencode" }],
+  ...over,
+});
 
 async function whenContestantsSettle(registry: ArenaRunRegistry): Promise<void> {
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
     const runs = registry.list();
     const settled = runs.every((run: ArenaRunRecord) =>
-      run.contestants.every((c) => c.status === "closed" || c.status === "failed")
+      run.contestants.every((c) => c.status === "closed" || c.status === "failed"),
     );
     if (runs.length > 0 && settled) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -253,7 +272,11 @@ test("a headless run's next prompt continues each session, and its facts add to 
     requestIds.push(plan.requestId);
     turn += 1;
     plan.onSessionId("claude-session");
-    return { sessionId: "claude-session", events: [toolEvent(`claude:${turn}`, "Write", [`/repo/turn${turn}.ts`])], usage: null };
+    return {
+      sessionId: "claude-session",
+      events: [toolEvent(`claude:${turn}`, "Write", [`/repo/turn${turn}.ts`])],
+      usage: null,
+    };
   };
   const { arena, registry } = await service({ claude });
   const summary = await arena.createRun(request({ contestants: [{ source: "claude" }] }));
@@ -269,9 +292,7 @@ test("a headless run's next prompt continues each session, and its facts add to 
 
 test("one run duels both harnesses, each contestant driven by the driver its source names", async () => {
   const { arena, registry } = await service();
-  const summary = await arena.createRun(
-    request({ contestants: [{ source: "opencode" }, { source: "claude" }] }),
-  );
+  const summary = await arena.createRun(request({ contestants: [{ source: "opencode" }, { source: "claude" }] }));
   await whenContestantsSettle(registry);
   const detail = arena.runDetailFor(summary.runId);
   expect(detail?.contestants.map((one) => [one.source, one.status])).toEqual([
@@ -319,7 +340,9 @@ test("a run that names no repository gets a new one of its own: its folder, work
   const folder = join(home, "arena-run-1");
   expect([summary.name, summary.repoPath, summary.repoCreated]).toEqual(["arena run 1", folder, true]);
   // The repository is made before any worktree of it, with the worktree folders kept out of it.
-  expect(worktrees.initialized).toEqual([{ path: folder, message: "arena run 1", worktreeFolders: ["c[0-9]*", "manager"] }]);
+  expect(worktrees.initialized).toEqual([
+    { path: folder, message: "arena run 1", worktreeFolders: ["c[0-9]*", "manager"] },
+  ]);
   expect(worktrees.added.map((one) => [one.repoPath, one.path])).toEqual([
     [folder, join(folder, "c1")],
     [folder, join(folder, "c2")],
@@ -364,9 +387,7 @@ test("refuses a request no run could be made of, naming what was wrong", async (
   await expect(arena.createRun(request({ prompt: "" }))).rejects.toThrow(ArenaBadRequestError);
   await expect(arena.createRun(request({ repoPath: "relative/path" }))).rejects.toThrow("absolute");
   await expect(arena.createRun(request({ contestants: [] }))).rejects.toThrow("at least one contestant");
-  await expect(
-    arena.createRun(request({ contestants: [{ source: "pi" }] })),
-  ).rejects.toThrow("cannot drive");
+  await expect(arena.createRun(request({ contestants: [{ source: "pi" }] }))).rejects.toThrow("cannot drive");
 });
 
 test("a worktree failure leaves no run behind and undoes the worktrees it made", async () => {

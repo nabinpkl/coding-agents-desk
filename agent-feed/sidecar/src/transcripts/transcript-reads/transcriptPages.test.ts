@@ -11,7 +11,11 @@ import {
   readSessionMeter,
 } from "@/transcripts/transcript-reads/transcriptPages";
 import { completeEnd, LINE_READ_BYTES, linesBefore } from "@/transcripts/transcript-reads/transcriptLines";
-import { clearFollowsForTest, followTranscript, syncFollowedTranscript } from "@/transcripts/transcript-reads/transcriptFollow";
+import {
+  clearFollowsForTest,
+  followTranscript,
+  syncFollowedTranscript,
+} from "@/transcripts/transcript-reads/transcriptFollow";
 import type { ParsedTranscriptLine } from "@/transcripts/transcript-reads/transcriptPages";
 
 const roots: string[] = [];
@@ -82,7 +86,9 @@ describe("reading a page back from a position", () => {
 
     expect(texts(page.events)).toEqual(["turn 8", "turn 9", "turn 10", "turn 11"]);
     expect(page.events.map((event) => event.index)).toEqual(
-      ["turn 8", "turn 9", "turn 10", "turn 11"].map((text) => at[lines.findIndex((line) => line.includes(`"${text}"`))]!),
+      ["turn 8", "turn 9", "turn 10", "turn 11"].map(
+        (text) => at[lines.findIndex((line) => line.includes(`"${text}"`))]!,
+      ),
     );
     expect(page.end).toBe(Buffer.byteLength(`${lines.join("\n")}\n`));
     // Older rows exist, so the page starts at its own oldest row.
@@ -187,7 +193,10 @@ describe("reading a page after or around a position", () => {
 
     // Turn 3 is followed by its machinery line, which only the raw view shows.
     const raw = await readPageAfter(source, sessionId, path, turnAt(3), 2, "raw");
-    expect(raw.events.map((event) => event.index)).toEqual([turnAt(3) + Buffer.byteLength(lines[at.indexOf(turnAt(3))]!) + 1, turnAt(4)]);
+    expect(raw.events.map((event) => event.index)).toEqual([
+      turnAt(3) + Buffer.byteLength(lines[at.indexOf(turnAt(3))]!) + 1,
+      turnAt(4),
+    ]);
   });
 
   test("after the newest row: nothing, and a position inside a line is refused", async () => {
@@ -195,7 +204,9 @@ describe("reading a page after or around a position", () => {
     const path = await transcript(lines);
     const at = positions(lines);
     expect((await readPageAfter(source, sessionId, path, at.at(-1)!, 5, "raw")).events).toEqual([]);
-    await expect(readPageAfter(source, sessionId, path, at[1]! + 1, 5, "raw")).rejects.toThrow("not where a line starts");
+    await expect(readPageAfter(source, sessionId, path, at[1]! + 1, 5, "raw")).rejects.toThrow(
+      "not where a line starts",
+    );
   });
 
   test("around a row: the row and rows either side, joined in one run", async () => {
@@ -274,18 +285,19 @@ describe("reading lines backwards", () => {
 
 describe("the occupancy meter", () => {
   test("is the newest report, read from the end", async () => {
-    const usageLine = (tokens: number) => JSON.stringify({
-      timestamp: "2026-01-01T00:00:00Z",
-      type: "event_msg",
-      payload: {
-        type: "token_count",
-        info: {
-          total_token_usage: { input_tokens: tokens, output_tokens: 0, total_tokens: tokens },
-          last_token_usage: { input_tokens: tokens, output_tokens: 0, total_tokens: tokens },
-          model_context_window: 200_000,
+    const usageLine = (tokens: number) =>
+      JSON.stringify({
+        timestamp: "2026-01-01T00:00:00Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: tokens, output_tokens: 0, total_tokens: tokens },
+            last_token_usage: { input_tokens: tokens, output_tokens: 0, total_tokens: tokens },
+            model_context_window: 200_000,
+          },
         },
-      },
-    });
+      });
     const lines = [contentLine(0), usageLine(1000), contentLine(1), usageLine(4200), contentLine(2)];
     const path = await transcript(lines);
 
@@ -301,7 +313,13 @@ describe("following a transcript", () => {
     const path = await transcript(lines);
     const end = await completeEnd(path);
     const heard: ParsedTranscriptLine[] = [];
-    const follow = followTranscript(source, sessionId, path, (line) => heard.push(line), () => {});
+    const follow = followTranscript(
+      source,
+      sessionId,
+      path,
+      (line) => heard.push(line),
+      () => {},
+    );
     expect(follow.start(end, { usage: null, model: undefined })).toBe(end);
 
     await appendFile(path, `${[contentLine(1), contentLine(2)].join("\n")}\n`);
@@ -316,13 +334,25 @@ describe("following a transcript", () => {
   test("a second reader is told where the follow already is, so it can read what came between", async () => {
     const path = await transcript([contentLine(0)]);
     const first = await completeEnd(path);
-    const one = followTranscript(source, sessionId, path, () => {}, () => {});
+    const one = followTranscript(
+      source,
+      sessionId,
+      path,
+      () => {},
+      () => {},
+    );
     one.start(first, { usage: null, model: undefined });
     await appendFile(path, `${contentLine(1)}\n`);
     syncFollowedTranscript(source, sessionId);
     const grown = await completeEnd(path);
     const deadline = Date.now() + 2000;
-    const two = followTranscript(source, sessionId, path, () => {}, () => {});
+    const two = followTranscript(
+      source,
+      sessionId,
+      path,
+      () => {},
+      () => {},
+    );
     let from = two.start(first, { usage: null, model: undefined });
     while (from < grown && Date.now() < deadline) {
       await Bun.sleep(5);
@@ -337,7 +367,13 @@ describe("following a transcript", () => {
   test("a transcript that shrinks is reported rather than read against stale positions", async () => {
     const path = await transcript([contentLine(0), contentLine(1)]);
     const errors: unknown[] = [];
-    const follow = followTranscript(source, sessionId, path, () => {}, (error) => errors.push(error));
+    const follow = followTranscript(
+      source,
+      sessionId,
+      path,
+      () => {},
+      (error) => errors.push(error),
+    );
     follow.start(await completeEnd(path), { usage: null, model: undefined });
     await writeFile(path, `${contentLine(0)}\n`);
     syncFollowedTranscript(source, sessionId);

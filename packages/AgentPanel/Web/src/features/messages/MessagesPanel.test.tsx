@@ -36,11 +36,56 @@ function message(over: Partial<Message> = {}): Message {
 // session entry carries the address that reaches it and the session it is. Every session gets the
 // qualified form, even under a Bot curating one, so no two entries share an address.
 const directory: DirectoryEntry[] = [
-  { address: "human", session: null, name: "owner", machine: null, reachability: "reachable", lastSeenAt: null, related: [], cwd: null },
-  { address: "bot:fixer", session: null, name: "Site fixer", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer/one", "bot:fixer/two"], cwd: "/work/site" },
-  { address: "bot:sleeping", session: null, name: "Sleeping bot", machine: "mac", reachability: "offline", lastSeenAt: null, related: [], cwd: "/work/site" },
-  { address: "bot:fixer/one", session: "opencode:ses_1", name: "OpenCode session", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
-  { address: "bot:fixer/two", session: "opencode:ses_2", name: "OpenCode session 2", machine: "oracle", reachability: "offline", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
+  {
+    address: "human",
+    session: null,
+    name: "owner",
+    machine: null,
+    reachability: "reachable",
+    lastSeenAt: null,
+    related: [],
+    cwd: null,
+  },
+  {
+    address: "bot:fixer",
+    session: null,
+    name: "Site fixer",
+    machine: "mac",
+    reachability: "reachable",
+    lastSeenAt: null,
+    related: ["bot:fixer/one", "bot:fixer/two"],
+    cwd: "/work/site",
+  },
+  {
+    address: "bot:sleeping",
+    session: null,
+    name: "Sleeping bot",
+    machine: "mac",
+    reachability: "offline",
+    lastSeenAt: null,
+    related: [],
+    cwd: "/work/site",
+  },
+  {
+    address: "bot:fixer/one",
+    session: "opencode:ses_1",
+    name: "OpenCode session",
+    machine: "mac",
+    reachability: "reachable",
+    lastSeenAt: null,
+    related: ["bot:fixer"],
+    cwd: "/work/site",
+  },
+  {
+    address: "bot:fixer/two",
+    session: "opencode:ses_2",
+    name: "OpenCode session 2",
+    machine: "oracle",
+    reachability: "offline",
+    lastSeenAt: null,
+    related: ["bot:fixer"],
+    cwd: "/work/site",
+  },
 ];
 
 function feed(over: Record<string, unknown> = {}): HubHandle {
@@ -93,9 +138,36 @@ describe("MessagesPanel", () => {
       ]),
       directory: vi.fn(async () => [
         ...directory,
-        { address: "bot:both", session: null, name: "Both runtimes", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:both/opencode:ses_3", "bot:both/claude:ses_4"], cwd: "/work/site" },
-        { address: "bot:both/opencode:ses_3", session: "opencode:ses_3", name: "An opencode run", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:both"], cwd: "/work/site" },
-        { address: "bot:both/claude:ses_4", session: "claude:ses_4", name: "A claude run", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:both"], cwd: "/work/site" },
+        {
+          address: "bot:both",
+          session: null,
+          name: "Both runtimes",
+          machine: "mac",
+          reachability: "reachable",
+          lastSeenAt: null,
+          related: ["bot:both/opencode:ses_3", "bot:both/claude:ses_4"],
+          cwd: "/work/site",
+        },
+        {
+          address: "bot:both/opencode:ses_3",
+          session: "opencode:ses_3",
+          name: "An opencode run",
+          machine: "mac",
+          reachability: "reachable",
+          lastSeenAt: null,
+          related: ["bot:both"],
+          cwd: "/work/site",
+        },
+        {
+          address: "bot:both/claude:ses_4",
+          session: "claude:ses_4",
+          name: "A claude run",
+          machine: "mac",
+          reachability: "reachable",
+          lastSeenAt: null,
+          related: ["bot:both"],
+          cwd: "/work/site",
+        },
       ]),
     });
     render(<Harness data={data} />);
@@ -134,7 +206,16 @@ describe("MessagesPanel", () => {
     // in a Bot is not in the directory, and so is not something this picker could deliver to.
     const data = feed({
       directory: vi.fn(async () => [
-        { address: "human", session: null, name: "owner", machine: null, reachability: "reachable", lastSeenAt: null, related: [], cwd: null },
+        {
+          address: "human",
+          session: null,
+          name: "owner",
+          machine: null,
+          reachability: "reachable",
+          lastSeenAt: null,
+          related: [],
+          cwd: null,
+        },
         {
           address: "bot:fixer",
           session: null,
@@ -145,9 +226,36 @@ describe("MessagesPanel", () => {
           related: ["bot:fixer/one", "bot:fixer/two"],
           cwd: "/work/site",
         },
-        { address: "bot:fixer/one", session: "opencode:ses_1", name: "Fix the header", machine: "mac", reachability: "reachable", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
-        { address: "bot:fixer/two", session: "opencode:ses_2", name: "Fix the footer", machine: "mac", reachability: "offline", lastSeenAt: null, related: ["bot:fixer"], cwd: "/work/site" },
-        { address: "bot:loose", session: null, name: "Empty bot", machine: "mac", reachability: "offline", lastSeenAt: null, related: [], cwd: "/work/other" },
+        {
+          address: "bot:fixer/one",
+          session: "opencode:ses_1",
+          name: "Fix the header",
+          machine: "mac",
+          reachability: "reachable",
+          lastSeenAt: null,
+          related: ["bot:fixer"],
+          cwd: "/work/site",
+        },
+        {
+          address: "bot:fixer/two",
+          session: "opencode:ses_2",
+          name: "Fix the footer",
+          machine: "mac",
+          reachability: "offline",
+          lastSeenAt: null,
+          related: ["bot:fixer"],
+          cwd: "/work/site",
+        },
+        {
+          address: "bot:loose",
+          session: null,
+          name: "Empty bot",
+          machine: "mac",
+          reachability: "offline",
+          lastSeenAt: null,
+          related: [],
+          cwd: "/work/other",
+        },
       ]),
     });
     render(<Harness data={data} />);
@@ -243,7 +351,8 @@ describe("MessagesPanel", () => {
     const previousClip = clipper.style.overflowY;
     const previousRect = clipper.getBoundingClientRect;
     clipper.style.overflowY = "auto";
-    clipper.getBoundingClientRect = () => ({ top: 0, bottom: 800, left: 0, right: 340, width: 340, height: 800 }) as DOMRect;
+    clipper.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 800, left: 0, right: 340, width: 340, height: 800 }) as DOMRect;
     const offScreen = { top: 900, bottom: 944, left: 36, right: 327, width: 291, height: 44 } as DOMRect;
     try {
       trigger.getBoundingClientRect = () => offScreen;
@@ -306,7 +415,15 @@ describe("MessagesPanel", () => {
       threads: vi.fn(async () => [
         [
           message({ id: "r1", from: "human", kind: "request", state: "answered" }),
-          message({ id: "r2", from: "opencode:ses_1", fromKind: "agent", kind: "reply", to: "human", state: "delivered", body: "HUB-OK" }),
+          message({
+            id: "r2",
+            from: "opencode:ses_1",
+            fromKind: "agent",
+            kind: "reply",
+            to: "human",
+            state: "delivered",
+            body: "HUB-OK",
+          }),
         ],
       ]),
     });
@@ -321,7 +438,16 @@ describe("MessagesPanel", () => {
   test("an unanswered agent question is the one state that asks for something", async () => {
     const data = feed({
       threads: vi.fn(async () => [
-        [message({ id: "q1", from: "opencode:ses_1", fromKind: "agent", kind: "request", to: "human", state: "delivered" })],
+        [
+          message({
+            id: "q1",
+            from: "opencode:ses_1",
+            fromKind: "agent",
+            kind: "request",
+            to: "human",
+            state: "delivered",
+          }),
+        ],
       ]),
     });
     render(<Harness data={data} />);

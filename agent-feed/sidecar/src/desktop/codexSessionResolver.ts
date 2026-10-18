@@ -124,16 +124,17 @@ export function matchWindow(
     if (window.projectName.length > 0) {
       if (window.projectName !== project) return false;
       if (isGeneric) return true;
-      return (threadName.length > 0 && window.threadTitle === threadName)
-        || (title.length > 0 && window.threadTitle.toLowerCase() === title.toLowerCase());
+      return (
+        (threadName.length > 0 && window.threadTitle === threadName) ||
+        (title.length > 0 && window.threadTitle.toLowerCase() === title.toLowerCase())
+      );
     }
     // Projects/Recents layout: the window's current thread is pinned as the first row of its Recents
     // list. A named thread matches its display title exactly; a generic thread matches the generic
     // first row, and uniqueness across windows still refuses ambiguity.
     const firstRow = window.recentsFirstRow;
     if (firstRow === undefined || firstRow.length === 0) return false;
-    return firstRow === displayName
-      || (title.length > 0 && firstRow.toLowerCase() === title.toLowerCase());
+    return firstRow === displayName || (title.length > 0 && firstRow.toLowerCase() === title.toLowerCase());
   });
 
   if (candidates.length === 1) return { kind: "matched", window: candidates[0]! };
@@ -167,12 +168,17 @@ export async function threadRecord(
   // Doubling embedded quotes is what keeps a thread id from the wire inside the SQL literal.
   const literal = threadId.replaceAll("'", "''");
   const child = Bun.spawn(
-    ["/usr/bin/sqlite3", "-readonly", "-json", sqlitePath,
-      `SELECT id, title, cwd FROM threads WHERE id = '${literal}' LIMIT 1;`],
+    [
+      "/usr/bin/sqlite3",
+      "-readonly",
+      "-json",
+      sqlitePath,
+      `SELECT id, title, cwd FROM threads WHERE id = '${literal}' LIMIT 1;`,
+    ],
     { stdout: "pipe", stderr: "ignore" },
   );
   const text = await new Response(child.stdout as ReadableStream).text();
-  if (await child.exited !== 0 || text.length === 0) return null;
+  if ((await child.exited) !== 0 || text.length === 0) return null;
   return parseThreadRows(text)[0] ?? null;
 }
 
@@ -205,11 +211,13 @@ export function target(
   // Both views name the window by the same id, so this is a lookup rather than a comparison. The pid
   // and layer conditions stay: an id that resolves to another app's window, or to a panel rather than
   // a real window, is a bug worth refusing rather than addressing.
-  const window = snapshot.windows.find((candidate) =>
-    candidate.windowID === windowID
-    && candidate.ownerPID === mainPid
-    && candidate.layer === 0
-    && candidate.spaceIDs.length === 1);
+  const window = snapshot.windows.find(
+    (candidate) =>
+      candidate.windowID === windowID &&
+      candidate.ownerPID === mainPid &&
+      candidate.layer === 0 &&
+      candidate.spaceIDs.length === 1,
+  );
   const homeSpaceID = window?.spaceIDs[0];
   if (!window || homeSpaceID === undefined) return { reason: "no-window" };
   return {

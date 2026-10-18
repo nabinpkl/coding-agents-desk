@@ -17,12 +17,14 @@ export async function reconcilePi(): Promise<void> {
     if (session.source === "pi" && !next.has(key)) state.sessions.delete(key);
   }
   for (const [key, session] of next) state.sessions.set(key, session);
-  console.log(JSON.stringify({
-    event: "agent-feed-catalog-source-ready",
-    source: "pi",
-    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
-    sessions: next.size,
-  }));
+  console.log(
+    JSON.stringify({
+      event: "agent-feed-catalog-source-ready",
+      source: "pi",
+      durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+      sessions: next.size,
+    }),
+  );
 }
 
 export function registerPiSession(location: PiSessionLocation): void {

@@ -5,24 +5,12 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  AgentTerminalInvalidError,
-  AgentTerminalService,
-} from "@/terminal/agentTerminalService";
+import { AgentTerminalInvalidError, AgentTerminalService } from "@/terminal/agentTerminalService";
 import { MACHINE_SHELL_SESSION } from "@agentdesk/agent-feed-wire";
 import type { PtySessionConnection } from "@/terminal/pty/ptyClient";
-import {
-  agentTerminalHarness,
-  SESSION_ID,
-  type SessionTmuxFakes,
-} from "@/terminal/agentTerminalHarness";
+import { agentTerminalHarness, SESSION_ID, type SessionTmuxFakes } from "@/terminal/agentTerminalHarness";
 
-const {
-  roots,
-  serviceWithTmux,
-  sessionTmuxFixture,
-  tmuxConnection,
-} = agentTerminalHarness();
+const { roots, serviceWithTmux, sessionTmuxFixture, tmuxConnection } = agentTerminalHarness();
 
 test("attaches to a tmux session rather than resuming a CLI", async () => {
   const opened: unknown[] = [];
@@ -79,9 +67,16 @@ test("attaches to a window or pane target, refusing anything wilder", async () =
       "/unused/pty.sock",
       () => undefined,
       home,
-      { listSessions: async () => [], openSession: async () => { throw new Error("no PTY here"); } },
+      {
+        listSessions: async () => [],
+        openSession: async () => {
+          throw new Error("no PTY here");
+        },
+      },
       async () => "",
-      async (session) => { mouseRestored.push(session); },
+      async (session) => {
+        mouseRestored.push(session);
+      },
     ),
     attached,
   );
@@ -94,10 +89,12 @@ test("attaches to a window or pane target, refusing anything wilder", async () =
   ]);
   // `mouse` is a session option, so the restore strips the window and pane halves.
   expect(mouseRestored).toEqual(["canvas-fork", "canvas-fork"]);
-  await expect(service.open({ kind: "tmux", session: "canvas-fork:1.x" }, { columns: 80, rows: 24 }))
-    .rejects.toBeInstanceOf(AgentTerminalInvalidError);
-  await expect(service.open({ kind: "tmux", session: "../evil" }, { columns: 80, rows: 24 }))
-    .rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  await expect(
+    service.open({ kind: "tmux", session: "canvas-fork:1.x" }, { columns: 80, rows: 24 }),
+  ).rejects.toBeInstanceOf(AgentTerminalInvalidError);
+  await expect(service.open({ kind: "tmux", session: "../evil" }, { columns: 80, rows: 24 })).rejects.toBeInstanceOf(
+    AgentTerminalInvalidError,
+  );
 });
 
 test("a viewer leaving a shared tmux attach never ends the session", async () => {
@@ -108,7 +105,12 @@ test("a viewer leaving a shared tmux attach never ends the session", async () =>
     "/unused/pty.sock",
     () => undefined,
     home,
-    { listSessions: async () => [], openSession: async () => { throw new Error("no PTY here"); } },
+    {
+      listSessions: async () => [],
+      openSession: async () => {
+        throw new Error("no PTY here");
+      },
+    },
     async () => "",
     async () => {},
     { open: async () => tmuxConnection(acts) },
@@ -157,15 +159,14 @@ test("takes the wheel back from tmux and hands over the pane's history", async (
         asked.push({ capture: { session, lines } });
         return "earlier bytes\n";
       },
-      async (session) => { asked.push({ mouseRestored: session }); },
+      async (session) => {
+        asked.push({ mouseRestored: session });
+      },
     ),
     [],
   );
 
-  const descriptor = await service.open(
-    { kind: "tmux", session: "canvas-fork" },
-    { columns: 80, rows: 24 },
-  );
+  const descriptor = await service.open({ kind: "tmux", session: "canvas-fork" }, { columns: 80, rows: 24 });
   // `mouse` is a session option with no per-client form, so a tile that forced it off took
   // copy-mode and mouse selection from every other client of the session. Opening now releases the
   // option instead, which is the one direction that cannot surprise another client.
@@ -173,10 +174,7 @@ test("takes the wheel back from tmux and hands over the pane's history", async (
   expect(asked).toEqual([{ mouseRestored: "canvas-fork" }]);
 
   expect(await service.history(descriptor.terminalId, 2_000)).toBe("earlier bytes\n");
-  expect(asked).toEqual([
-    { mouseRestored: "canvas-fork" },
-    { capture: { session: "canvas-fork", lines: 2_000 } },
-  ]);
+  expect(asked).toEqual([{ mouseRestored: "canvas-fork" }, { capture: { session: "canvas-fork", lines: 2_000 } }]);
 });
 
 test("a resumed CLI has no tmux history to hand over", async () => {
@@ -202,8 +200,13 @@ test("a resumed CLI has no tmux history to hand over", async () => {
     () => ({ projectPath: project, activity: "ready", title: "Source session" }),
     home,
     { listSessions: async () => [], openSession: async () => connection },
-    async () => { asked.push("captured"); return "should not happen\n"; },
-    async () => { asked.push("mouseRestored"); },
+    async () => {
+      asked.push("captured");
+      return "should not happen\n";
+    },
+    async () => {
+      asked.push("mouseRestored");
+    },
   );
 
   const descriptor = await service.open(
@@ -220,18 +223,19 @@ test("a resumed CLI has no tmux history to hand over", async () => {
 test("refuses a tmux name that is not a plain identifier", async () => {
   const home = await mkdtemp(join(tmpdir(), "agent-terminal-home-"));
   roots.push(home);
-  const service = new AgentTerminalService(
-    "/unused/pty.sock",
-    () => undefined,
-    home,
-    { listSessions: async () => [], openSession: async () => { throw new Error("unreached"); } },
-  );
+  const service = new AgentTerminalService("/unused/pty.sock", () => undefined, home, {
+    listSessions: async () => [],
+    openSession: async () => {
+      throw new Error("unreached");
+    },
+  });
 
   // The name reaches a shell argument list, so anything but an identifier is refused before it
   // gets there rather than quoted and hoped for.
   for (const session of ["", "a b", "one;rm -rf /", "$(whoami)", "../escape"]) {
-    await expect(service.open({ kind: "tmux", session }, { columns: 80, rows: 24 }))
-      .rejects.toBeInstanceOf(AgentTerminalInvalidError);
+    await expect(service.open({ kind: "tmux", session }, { columns: 80, rows: 24 })).rejects.toBeInstanceOf(
+      AgentTerminalInvalidError,
+    );
   }
 });
 
@@ -248,13 +252,15 @@ test("starts a login shell in the directory when the session is not running", as
   // The one thing this kind does that a plain tmux target does not: start the session it names,
   // as a login shell in the vouched directory, at the viewer's own geometry. A second viewer
   // of the same name lands on it rather than starting another.
-  expect(fakes.created).toEqual([{
-    session: "agentterm-1a2b3c4d",
-    cwd: await realpath(project),
-    command: [],
-    columns: 100,
-    rows: 30,
-  }]);
+  expect(fakes.created).toEqual([
+    {
+      session: "agentterm-1a2b3c4d",
+      cwd: await realpath(project),
+      command: [],
+      columns: 100,
+      rows: 30,
+    },
+  ]);
   expect(fakes.settled).toEqual(["agentterm-1a2b3c4d"]);
   expect(attached).toEqual([{ session: "agentterm-1a2b3c4d", columns: 100, rows: 30 }]);
   expect(descriptor.ptySessionName).toBe("agent-tmux-agentterm-1a2b3c4d");
@@ -287,8 +293,9 @@ test("a tmux-new open vouches for its name and its directory", async () => {
 
   // The name reaches tmux as `-s`, the directory as `-c`, so both are refused at the door.
   for (const session of ["", "a b", "../escape"]) {
-    await expect(service.open({ kind: "tmux-new", session, directory: project }, { columns: 80, rows: 24 }))
-      .rejects.toBeInstanceOf(AgentTerminalInvalidError);
+    await expect(
+      service.open({ kind: "tmux-new", session, directory: project }, { columns: 80, rows: 24 }),
+    ).rejects.toBeInstanceOf(AgentTerminalInvalidError);
   }
   for (const directory of ["/tmp", join(project, "missing"), "relative/path"]) {
     await expect(
@@ -308,13 +315,15 @@ test("a machine shell on a machine with no PTY manager is a tmux session in the 
 
   // Started the first time, as a login shell in the home the workspace kinds refuse, and under
   // the one name the panel ends it by.
-  expect(fakes.created).toEqual([{
-    session: MACHINE_SHELL_SESSION,
-    cwd: await realpath(home),
-    command: [],
-    columns: 100,
-    rows: 30,
-  }]);
+  expect(fakes.created).toEqual([
+    {
+      session: MACHINE_SHELL_SESSION,
+      cwd: await realpath(home),
+      command: [],
+      columns: 100,
+      rows: 30,
+    },
+  ]);
   expect(attached).toEqual([{ session: MACHINE_SHELL_SESSION, columns: 100, rows: 30 }]);
   expect(descriptor.ptySessionName).toBe(`agent-tmux-${MACHINE_SHELL_SESSION}`);
 });

@@ -101,7 +101,8 @@ export function usePdfCanvas(
     if (width <= 0) return;
     let current = true;
     let task: RenderTask | null = null;
-    void document.getPage(number)
+    void document
+      .getPage(number)
       .then((page) => {
         if (!current) return;
         const shape = page.getViewport({ scale: 1 });

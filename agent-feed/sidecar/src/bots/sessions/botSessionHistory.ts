@@ -31,20 +31,17 @@ import { canonicalDirectory } from "@/transcripts/catalog/catalogRecords";
  * A source with no transcript file (opencode, whose project comes from its serve) answers from the
  * catalog alone, which for it is already stable.
  */
-export async function sessionWorkedIn(
-  session: ResolvedBotSession,
-  directory: string,
-): Promise<boolean> {
+export async function sessionWorkedIn(session: ResolvedBotSession, directory: string): Promise<boolean> {
   if (await directoryBelongsTo(session.projectPath, directory)) return true;
   if (!session.transcriptPath) return false;
   // Canonicalised on both sides, because the transcript records whatever the shell said and a
   // worktree's link back to its checkout is a `realpath`. A directory that no longer exists cannot
   // be the Bot's, so a visited path that does not canonicalise is skipped rather than compared.
-  const home = await canonicalDirectory(directory) ?? directory;
+  const home = (await canonicalDirectory(directory)) ?? directory;
   for (const visited of await visitedDirectories(session.transcriptPath)) {
     if (visited === directory || visited === home) return true;
     const canonical = await canonicalDirectory(visited);
-    if (canonical && await directoryBelongsTo(canonical, home)) return true;
+    if (canonical && (await directoryBelongsTo(canonical, home))) return true;
   }
   return false;
 }

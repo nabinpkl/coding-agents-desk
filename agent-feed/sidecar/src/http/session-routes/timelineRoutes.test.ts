@@ -42,12 +42,7 @@ interface Recorded {
   stopped: string[];
 }
 
-function fakeBackend(
-  total: number,
-  recorded: Recorded,
-  id: SourceId = "pi",
-  projectionId?: string,
-): AgentBackend {
+function fakeBackend(total: number, recorded: Recorded, id: SourceId = "pi", projectionId?: string): AgentBackend {
   return {
     id,
     capabilities: PI_CAPABILITIES,
@@ -62,7 +57,9 @@ function fakeBackend(
         capabilities: PI_CAPABILITIES,
       };
     },
-    async createSession() { throw new Error("not used"); },
+    async createSession() {
+      throw new Error("not used");
+    },
     async page(_sessionId, offset, limit) {
       const end = Math.min(total, offset + limit);
       const events: ActivityEvent[] = [];
@@ -81,13 +78,19 @@ function fakeBackend(
       recorded.subscribeCalls.push(afterSequence);
       return () => recorded.stopped.push("timeline");
     },
-    async send(_sessionId, requestId) { return { requestId, delivery: "immediate" }; },
-    async abort(_sessionId, requestId) { return { requestId, delivery: "abort" }; },
+    async send(_sessionId, requestId) {
+      return { requestId, delivery: "immediate" };
+    },
+    async abort(_sessionId, requestId) {
+      return { requestId, delivery: "abort" };
+    },
     async subscribeUi() {
       recorded.uiCalls += 1;
       return () => recorded.stopped.push("ui");
     },
-    async respondToUi() { return "accepted"; },
+    async respondToUi() {
+      return "accepted";
+    },
     async dispose() {},
   };
 }
@@ -196,12 +199,7 @@ test("an opencode backend claims stable indices for reconnect retention", async 
   // projection indices survive the opening snapshot being sent again.
   const recorded = recorder();
   const backend = fakeBackend(250, recorded, "opencode", "projection-opencode");
-  const { messages, leave } = await openTimeline(
-    routesFor(backend),
-    "?mode=nice",
-    1,
-    "opencode",
-  );
+  const { messages, leave } = await openTimeline(routesFor(backend), "?mode=nice", 1, "opencode");
 
   expect(envelopeOf(messages[0]).stableIndices).toBe(true);
   expect(envelopeOf(messages[0]).projectionId).toBe("projection-opencode");
@@ -303,9 +301,11 @@ test("a mirror that arrives after the stream opened still gets a tail, with no r
   });
   // The announcement the real backends make from `ensureProjection`.
   const announce = new Set<(sessionId: string) => void>();
-  (backend as unknown as {
-    onSessionLive(listener: (sessionId: string) => void): () => void;
-  }).onSessionLive = (listener) => {
+  (
+    backend as unknown as {
+      onSessionLive(listener: (sessionId: string) => void): () => void;
+    }
+  ).onSessionLive = (listener) => {
     announce.add(listener);
     return () => announce.delete(listener);
   };
@@ -340,12 +340,7 @@ test("opening the tail lands on the newest row the projection holds, not its old
   const reader = readMessages(response, 2);
   await Bun.sleep(5);
 
-  publish(
-    liveEnvelope(
-      [liveRow(3, "assistant", "complete"), liveRow(4, "assistant", "streaming")],
-      1,
-    ),
-  );
+  publish(liveEnvelope([liveRow(3, "assistant", "complete"), liveRow(4, "assistant", "streaming")], 1));
   const { messages, leave } = await reader;
 
   expect(tailEvents(messages)).toEqual([4]);

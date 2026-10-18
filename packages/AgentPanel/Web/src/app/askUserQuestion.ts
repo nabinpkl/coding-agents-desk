@@ -130,9 +130,7 @@ function closesQuestion(event: ActivityEvent, open: OpenQuestion, live: boolean)
   }
   if (live) return false;
   if (event.humanTurn === true) return true;
-  return event.messageId !== undefined
-    && open.messageId !== undefined
-    && event.messageId !== open.messageId;
+  return event.messageId !== undefined && open.messageId !== undefined && event.messageId !== open.messageId;
 }
 
 /**
@@ -192,9 +190,7 @@ function parseOption(raw: unknown): AskUserQuestionOption | null {
   const preview = entry.preview;
   return {
     label: label.trim(),
-    ...(typeof description === "string" && description.trim()
-      ? { description: description.trim() }
-      : {}),
+    ...(typeof description === "string" && description.trim() ? { description: description.trim() } : {}),
     // Kept as written, newlines and all: a preview is a small diagram and trimming its interior
     // would take its shape away.
     ...(typeof preview === "string" && preview.trim() ? { preview } : {}),

@@ -25,26 +25,26 @@ describe("keyboard deck layout", () => {
   it("lays the three pages out the way the iPhone does", () => {
     const alphabet = deckRows(INITIAL_DECK_STATE);
     expect(alphabet.map((row) => row.length)).toEqual([10, 9, 9, 4]);
-    expect(alphabet[0]!.map((key) => deckKeyLabel(key, INITIAL_DECK_STATE)).join(""))
-      .toBe("qwertyuiop");
+    expect(alphabet[0]!.map((key) => deckKeyLabel(key, INITIAL_DECK_STATE)).join("")).toBe("qwertyuiop");
     expect(alphabet[2]![0]).toEqual({ kind: "shift" });
     expect(alphabet[2]!.at(-1)).toEqual({ kind: "delete" });
     // The globe's seat, holding the only other input mode a page has: the browser's own keyboard.
     expect(alphabet[3]).toEqual([
-      { kind: "page", page: "numbers" }, { kind: "native" }, { kind: "space" }, { kind: "return" },
+      { kind: "page", page: "numbers" },
+      { kind: "native" },
+      { kind: "space" },
+      { kind: "return" },
     ]);
     for (const page of ["numbers", "symbols"] as const) {
       expect(deckRows({ page, shift: "off" })[3]![1]).toEqual({ kind: "native" });
     }
 
     const numbers = deckRows({ page: "numbers", shift: "off" });
-    expect(numbers[0]!.map((key) => deckKeyLabel(key, INITIAL_DECK_STATE)).join(""))
-      .toBe("1234567890");
+    expect(numbers[0]!.map((key) => deckKeyLabel(key, INITIAL_DECK_STATE)).join("")).toBe("1234567890");
     expect(numbers[2]![0]).toEqual({ kind: "page", page: "symbols" });
 
     const symbols = deckRows({ page: "symbols", shift: "off" });
-    expect(symbols[1]!.map((key) => deckKeyLabel(key, INITIAL_DECK_STATE)).join(""))
-      .toBe("_\\|~<>€£¥•");
+    expect(symbols[1]!.map((key) => deckKeyLabel(key, INITIAL_DECK_STATE)).join("")).toBe("_\\|~<>€£¥•");
   });
 
   it("shifts only the alphabet page, and only its labels", () => {
@@ -57,12 +57,15 @@ describe("keyboard deck layout", () => {
   });
 
   it("clears an armed shift on typing but not on delete", () => {
-    expect(handleDeckKey(shifted, character("q")))
-      .toEqual({ state: { page: "alphabet", shift: "off" }, output: "Q" });
-    expect(handleDeckKey(shifted, { kind: "space" }))
-      .toEqual({ state: { page: "alphabet", shift: "off" }, output: " " });
-    expect(handleDeckKey(shifted, { kind: "return" }))
-      .toEqual({ state: { page: "alphabet", shift: "off" }, output: "\n" });
+    expect(handleDeckKey(shifted, character("q"))).toEqual({ state: { page: "alphabet", shift: "off" }, output: "Q" });
+    expect(handleDeckKey(shifted, { kind: "space" })).toEqual({
+      state: { page: "alphabet", shift: "off" },
+      output: " ",
+    });
+    expect(handleDeckKey(shifted, { kind: "return" })).toEqual({
+      state: { page: "alphabet", shift: "off" },
+      output: "\n",
+    });
     expect(handleDeckKey(shifted, { kind: "delete" })).toEqual({ state: shifted, output: null });
   });
 
@@ -82,10 +85,8 @@ describe("keyboard deck layout", () => {
   });
 
   it("drops shift when leaving the alphabet page and keeps it on returning", () => {
-    expect(handleDeckKey(shifted, { kind: "page", page: "numbers" }).state)
-      .toEqual({ page: "numbers", shift: "off" });
-    expect(handleDeckKey(shifted, { kind: "page", page: "alphabet" }).state)
-      .toEqual({ page: "alphabet", shift: "on" });
+    expect(handleDeckKey(shifted, { kind: "page", page: "numbers" }).state).toEqual({ page: "numbers", shift: "off" });
+    expect(handleDeckKey(shifted, { kind: "page", page: "alphabet" }).state).toEqual({ page: "alphabet", shift: "on" });
   });
 
   it("weights keys the way the Swift width constraints do", () => {
@@ -98,8 +99,7 @@ describe("keyboard deck layout", () => {
   it("sizes the page key with the switch beside it, not wider as the Swift does", () => {
     // 1.35 against the globe's 1.05 drew `123` about forty percent wider than an iPhone's, and
     // the width came out of the space bar.
-    expect(keyWidthWeight({ kind: "page", page: "numbers" }))
-      .toBe(keyWidthWeight({ kind: "native" }));
+    expect(keyWidthWeight({ kind: "page", page: "numbers" })).toBe(keyWidthWeight({ kind: "native" }));
     expect(keyWidthWeight({ kind: "space" })).toBeGreaterThan(3.4);
 
     const bottom = deckRows(INITIAL_DECK_STATE)[3]!;

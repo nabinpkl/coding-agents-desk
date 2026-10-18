@@ -25,9 +25,7 @@ export function SummaryBand({
 }) {
   const [expanded, setExpanded] = useState(true);
   const band = useRef<HTMLElement>(null);
-  const pendingLength = state.kind === "pending"
-    ? state.reasoning.length + state.thought.length
-    : 0;
+  const pendingLength = state.kind === "pending" ? state.reasoning.length + state.thought.length : 0;
 
   // Follows the run while it is running, and only then. The band is short and the newest line is
   // the one being written, so a viewer watching it should not have to chase it downward; once
@@ -58,7 +56,9 @@ export function SummaryBand({
         <RunInProgress reasoning={state.reasoning} thought={state.thought} onDismiss={onDismiss} />
       ) : state.kind === "error" ? (
         <div className="flex items-start gap-2">
-          <p className="min-w-0 flex-1 text-destructive" role="alert">{state.message}</p>
+          <p className="min-w-0 flex-1 text-destructive" role="alert">
+            {state.message}
+          </p>
           <DismissButton onDismiss={onDismiss} />
         </div>
       ) : (
@@ -96,9 +96,11 @@ function Digest({
           aria-expanded={expanded}
           className="flex min-w-0 flex-1 items-start gap-1.5 rounded text-left text-foreground hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
-          {expanded
-            ? <ChevronDown className="mt-0.5 size-4 shrink-0" aria-hidden />
-            : <ChevronRight className="mt-0.5 size-4 shrink-0" aria-hidden />}
+          {expanded ? (
+            <ChevronDown className="mt-0.5 size-4 shrink-0" aria-hidden />
+          ) : (
+            <ChevronRight className="mt-0.5 size-4 shrink-0" aria-hidden />
+          )}
           <span className="min-w-0 font-semibold">{result.headline}</span>
         </button>
         {/* Said plainly rather than styled as a warning: a digest of a turn still in flight is
@@ -122,13 +124,13 @@ function Digest({
                   <span className="w-12 shrink-0 text-foreground">{file.action}</span>
                   <span className="min-w-0 truncate">{file.path}</span>
                   {file.added || file.removed ? (
-                    <span className="shrink-0">+{file.added} −{file.removed}</span>
+                    <span className="shrink-0">
+                      +{file.added} −{file.removed}
+                    </span>
                   ) : null}
                   {/* Three calls to one file is a different story from one, and it is the shape
                       of an agent going back and forth over the same thing. */}
-                  {file.edits > 1 ? (
-                    <span className="shrink-0">×{file.edits}</span>
-                  ) : null}
+                  {file.edits > 1 ? <span className="shrink-0">×{file.edits}</span> : null}
                 </li>
               ))}
             </ul>
@@ -136,7 +138,9 @@ function Digest({
 
           {result.risks.length > 0 ? (
             <ul className="flex list-disc flex-col gap-0.5 pl-4 text-muted-foreground">
-              {result.risks.map((risk) => <li key={risk}>{risk}</li>)}
+              {result.risks.map((risk) => (
+                <li key={risk}>{risk}</li>
+              ))}
             </ul>
           ) : null}
 
@@ -181,7 +185,9 @@ function RunInProgress({
       </div>
       {reasoning.length > 0 || thought ? (
         <ol className="flex flex-col gap-1 border-l border-border pl-2.5">
-          {reasoning.map((text, index) => <Thought key={index} text={text} />)}
+          {reasoning.map((text, index) => (
+            <Thought key={index} text={text} />
+          ))}
           {/* The block still arriving. Replaced by its finished form rather than kept beside it,
               so one thought never appears twice. */}
           {thought ? <Thought text={thought} /> : null}
@@ -211,15 +217,19 @@ function ReasoningList({ reasoning }: { reasoning: string[] }) {
         aria-expanded={open}
         className="flex w-fit cursor-pointer items-center gap-1 rounded text-xs text-muted-foreground transition-colors hover:text-foreground active:text-foreground/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
-        {open
-          ? <ChevronDown className="size-3.5 shrink-0" aria-hidden />
-          : <ChevronRight className="size-3.5 shrink-0" aria-hidden />}
+        {open ? (
+          <ChevronDown className="size-3.5 shrink-0" aria-hidden />
+        ) : (
+          <ChevronRight className="size-3.5 shrink-0" aria-hidden />
+        )}
         how it read the turn
       </button>
 
       {open ? (
         <ol className="flex flex-col gap-1 border-l border-border pl-2.5">
-          {reasoning.map((text, index) => <Thought key={index} text={text} />)}
+          {reasoning.map((text, index) => (
+            <Thought key={index} text={text} />
+          ))}
         </ol>
       ) : null}
     </div>
@@ -228,9 +238,7 @@ function ReasoningList({ reasoning }: { reasoning: string[] }) {
 
 /** One reasoning block, rendered the same whether the run is going or long finished. */
 function Thought({ text }: { text: string }) {
-  return (
-    <li className="whitespace-pre-wrap text-xs text-muted-foreground italic">{text}</li>
-  );
+  return <li className="whitespace-pre-wrap text-xs text-muted-foreground italic">{text}</li>;
 }
 
 function DismissButton({ onDismiss }: { onDismiss: () => void }) {

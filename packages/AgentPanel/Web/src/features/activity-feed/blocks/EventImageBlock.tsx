@@ -78,20 +78,11 @@ export function EventPicture({
           loading="lazy"
           onError={() => setFailedUrl(url)}
           className={
-            compact
-              ? "block h-[1.4em] max-w-[4em] object-contain"
-              : "block max-h-40 max-w-full object-contain"
+            compact ? "block h-[1.4em] max-w-[4em] object-contain" : "block max-h-40 max-w-full object-contain"
           }
         />
       </button>
-      {opened ? (
-        <ImageLightbox
-          title={title ?? "Image"}
-          url={url}
-          alt={alt}
-          onClose={() => setOpened(false)}
-        />
-      ) : null}
+      {opened ? <ImageLightbox title={title ?? "Image"} url={url} alt={alt} onClose={() => setOpened(false)} /> : null}
     </>
   );
 }
@@ -113,9 +104,7 @@ export function EventImageBlock({
   const dataSource = useDataSource();
   // A feed read THROUGH this session (a subagent's run) counts its own lines, so an address built
   // from the parent's id would load some other row's picture, or none.
-  const url = ctx.rawSource === "addressable"
-    ? dataSource.eventImageUrl(ctx.session, eventIndex, blockIndex)
-    : null;
+  const url = ctx.rawSource === "addressable" ? dataSource.eventImageUrl(ctx.session, eventIndex, blockIndex) : null;
   return <EventPicture url={url} alt={alt} compact={compact} />;
 }
 
@@ -144,9 +133,8 @@ export function EventFileImage({
   compact?: boolean;
 }) {
   const dataSource = useDataSource();
-  const url = ctx.rawSource === "addressable"
-    ? dataSource.eventFileUrl(ctx.session, eventIndex, blockIndex, fileIndex)
-    : null;
+  const url =
+    ctx.rawSource === "addressable" ? dataSource.eventFileUrl(ctx.session, eventIndex, blockIndex, fileIndex) : null;
   return (
     <EventPicture
       url={url}

@@ -8,28 +8,25 @@
 
 import { describe, expect, it } from "vitest";
 import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import {
-  SESSIONS_FOLDED_ABOVE,
-  splitSessionsByCanvas,
-  withOffCanvasLast,
-} from "@/features/bots/botRosterOrder";
+import { SESSIONS_FOLDED_ABOVE, splitSessionsByCanvas, withOffCanvasLast } from "@/features/bots/botRosterOrder";
 
-const bot = (botId: string, createdAt: number, lastEventAt?: number[]): BotView => ({
-  botId,
-  name: botId,
-  createdAt,
-  sessionRefs: [],
-  sessions: (lastEventAt ?? []).map((at, index) => ({
-    source: "claude",
-    sessionId: `${botId}-${index}`,
-    title: `${botId} ${index}`,
-    lastEventAt: at,
-  })),
-  missingSessionRefs: [],
-  environment: { path: `/Users/dev/${botId}` },
-  environmentAvailability: "available",
-  metadata: {},
-} as unknown as BotView);
+const bot = (botId: string, createdAt: number, lastEventAt?: number[]): BotView =>
+  ({
+    botId,
+    name: botId,
+    createdAt,
+    sessionRefs: [],
+    sessions: (lastEventAt ?? []).map((at, index) => ({
+      source: "claude",
+      sessionId: `${botId}-${index}`,
+      title: `${botId} ${index}`,
+      lastEventAt: at,
+    })),
+    missingSessionRefs: [],
+    environment: { path: `/Users/dev/${botId}` },
+    environmentAvailability: "available",
+    metadata: {},
+  }) as unknown as BotView;
 
 const ids = (bots: readonly BotView[]) => bots.map((each) => each.botId);
 const none = new Set<string>();
@@ -40,43 +37,63 @@ describe("withOffCanvasLast", () => {
   const BUSY = bot("busy", 100, [50, 5_000]);
 
   it("leaves a roster alone where every Bot has a card", () => {
-    expect(ids(withOffCanvasLast([QUIET, NEWER, BUSY], {
-      detachedBotIds: none,
-      machineHiddenBotIds: none,
-    }))).toEqual(["quiet", "newer", "busy"]);
+    expect(
+      ids(
+        withOffCanvasLast([QUIET, NEWER, BUSY], {
+          detachedBotIds: none,
+          machineHiddenBotIds: none,
+        }),
+      ),
+    ).toEqual(["quiet", "newer", "busy"]);
   });
 
   it("keeps the canvas arrangement among the Bots that have cards", () => {
     // The list arrives in the strip's own left-to-right order, so a reader who moved a card has
     // moved this row with it. Sinking one Bot must not disturb the rest of that.
-    expect(ids(withOffCanvasLast([QUIET, NEWER, BUSY], {
-      detachedBotIds: new Set(["newer"]),
-      machineHiddenBotIds: none,
-    }))).toEqual(["quiet", "busy", "newer"]);
+    expect(
+      ids(
+        withOffCanvasLast([QUIET, NEWER, BUSY], {
+          detachedBotIds: new Set(["newer"]),
+          machineHiddenBotIds: none,
+        }),
+      ),
+    ).toEqual(["quiet", "busy", "newer"]);
   });
 
   it("sinks a Bot on a hidden machine the same way it sinks a detached one", () => {
-    expect(ids(withOffCanvasLast([QUIET, NEWER, BUSY], {
-      detachedBotIds: none,
-      machineHiddenBotIds: new Set(["quiet"]),
-    }))).toEqual(["newer", "busy", "quiet"]);
+    expect(
+      ids(
+        withOffCanvasLast([QUIET, NEWER, BUSY], {
+          detachedBotIds: none,
+          machineHiddenBotIds: new Set(["quiet"]),
+        }),
+      ),
+    ).toEqual(["newer", "busy", "quiet"]);
   });
 
   it("reads a sunk Bot's liveliness from its newest session, not from when it was made", () => {
     // `busy` is the oldest of the three by creation and the newest by use: ordering on `createdAt`
     // alone would bury the one Bot here that has been doing anything.
-    expect(ids(withOffCanvasLast([QUIET, NEWER, BUSY], {
-      detachedBotIds: new Set(["quiet", "newer", "busy"]),
-      machineHiddenBotIds: none,
-    }))).toEqual(["busy", "newer", "quiet"]);
+    expect(
+      ids(
+        withOffCanvasLast([QUIET, NEWER, BUSY], {
+          detachedBotIds: new Set(["quiet", "newer", "busy"]),
+          machineHiddenBotIds: none,
+        }),
+      ),
+    ).toEqual(["busy", "newer", "quiet"]);
   });
 
   it("falls back to when a Bot was made, so a new one does not sink under a stale one", () => {
     // Neither has a session, which is the whole of what a just-created Bot can offer.
-    expect(ids(withOffCanvasLast([QUIET, NEWER], {
-      detachedBotIds: new Set(["quiet", "newer"]),
-      machineHiddenBotIds: none,
-    }))).toEqual(["newer", "quiet"]);
+    expect(
+      ids(
+        withOffCanvasLast([QUIET, NEWER], {
+          detachedBotIds: new Set(["quiet", "newer"]),
+          machineHiddenBotIds: none,
+        }),
+      ),
+    ).toEqual(["newer", "quiet"]);
   });
 
   it("has nothing to sink where there is no canvas to be off", () => {
@@ -87,14 +104,21 @@ describe("withOffCanvasLast", () => {
 
 describe("splitSessionsByCanvas", () => {
   const sessions = (count: number): SessionSummary[] =>
-    Array.from({ length: count }, (_, index) => ({
-      source: "claude",
-      sessionId: `s-${index}`,
-      title: `Session ${index}`,
-      lastEventAt: index,
-    } as unknown as SessionSummary));
+    Array.from(
+      { length: count },
+      (_, index) =>
+        ({
+          source: "claude",
+          sessionId: `s-${index}`,
+          title: `Session ${index}`,
+          lastEventAt: index,
+        }) as unknown as SessionSummary,
+    );
 
-  const off = (...ids: string[]) => (session: SessionSummary) => ids.includes(session.sessionId);
+  const off =
+    (...ids: string[]) =>
+    (session: SessionSummary) =>
+      ids.includes(session.sessionId);
 
   it("puts the sessions with cards first and keeps the Bot's own order inside each group", () => {
     // Not resorted by activity the way a sunk BOT is: a session's place in its Bot survives being

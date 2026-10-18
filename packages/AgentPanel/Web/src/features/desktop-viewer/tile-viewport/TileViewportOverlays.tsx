@@ -33,9 +33,9 @@ export function PointerScrollPuck({
       data-testid="pointer-scroll-puck"
       aria-label="Scroll clutch"
       aria-pressed={scrollEngaged}
-      title={scrollEngaged
-        ? "Scrolling: one finger scrolls at the parked pointer"
-        : "Pointer: tap to make one finger scroll"}
+      title={
+        scrollEngaged ? "Scrolling: one finger scrolls at the parked pointer" : "Pointer: tap to make one finger scroll"
+      }
       onClick={(event) => {
         // Keyboard and assistive-technology activation has detail=0. Physical pointers are
         // arbitrated by the delayed single/double-tap state machine installed above.
@@ -110,20 +110,9 @@ export function CursorOverlay({
         data-testid="client-drag-halo"
         className="absolute -left-2.5 -top-2.5 size-5 rounded-full border-2 border-blue-400 bg-blue-400/25"
       />
-      <span
-        ref={dragPriming}
-        hidden
-        data-testid="client-drag-priming"
-        className="absolute -left-3.5 -top-3.5 size-7"
-      >
+      <span ref={dragPriming} hidden data-testid="client-drag-priming" className="absolute -left-3.5 -top-3.5 size-7">
         <svg viewBox="0 0 28 28" className="size-full -rotate-90" aria-hidden="true">
-          <circle
-            cx="14"
-            cy="14"
-            r={DRAG_PRIMING_RADIUS}
-            strokeWidth="2.5"
-            className="fill-black/25 stroke-white/40"
-          />
+          <circle cx="14" cy="14" r={DRAG_PRIMING_RADIUS} strokeWidth="2.5" className="fill-black/25 stroke-white/40" />
           <circle
             ref={dragPrimingArc}
             cx="14"

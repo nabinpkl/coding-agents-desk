@@ -18,12 +18,14 @@ function session(name: string, path: string) {
 
 describe("groupTerminalsByDirectory", () => {
   it("stands one parent per directory with its sessions name-sorted inside", () => {
-    const { parents, residue } = groupTerminalsByDirectory([{
-      machineLabel: "mac",
-      sessions: [session("zebra", "/proj"), session("apple", "/proj"), session("solo", "/other")],
-      workspaceRoots: [],
-      botDirs: [],
-    }]);
+    const { parents, residue } = groupTerminalsByDirectory([
+      {
+        machineLabel: "mac",
+        sessions: [session("zebra", "/proj"), session("apple", "/proj"), session("solo", "/other")],
+        workspaceRoots: [],
+        botDirs: [],
+      },
+    ]);
     expect(residue).toEqual([]);
     expect(parents.map((parent) => parent.path)).toEqual(["/other", "/proj"]);
     expect(parents[1]!.children.map((child) => child.name)).toEqual(["apple", "zebra"]);
@@ -31,12 +33,14 @@ describe("groupTerminalsByDirectory", () => {
   });
 
   it("keeps an empty registered directory standing as the place a shell gets started", () => {
-    const { parents } = groupTerminalsByDirectory([{
-      machineLabel: "mac",
-      sessions: [],
-      workspaceRoots: ["/registered"],
-      botDirs: ["/bot-dir", "/registered/"],
-    }]);
+    const { parents } = groupTerminalsByDirectory([
+      {
+        machineLabel: "mac",
+        sessions: [],
+        workspaceRoots: ["/registered"],
+        botDirs: ["/bot-dir", "/registered/"],
+      },
+    ]);
     expect(parents.map((parent) => parent.path)).toEqual(["/bot-dir", "/registered"]);
     expect(parents[0]!.children).toEqual([]);
   });
@@ -50,12 +54,14 @@ describe("groupTerminalsByDirectory", () => {
   });
 
   it("parks pathless sessions in their own machine's residue group, after the parents", () => {
-    const { parents, residue } = groupTerminalsByDirectory([{
-      machineLabel: "mac",
-      sessions: [session("lost", ""), session("kept", "/proj")],
-      workspaceRoots: [],
-      botDirs: [],
-    }]);
+    const { parents, residue } = groupTerminalsByDirectory([
+      {
+        machineLabel: "mac",
+        sessions: [session("lost", ""), session("kept", "/proj")],
+        workspaceRoots: [],
+        botDirs: [],
+      },
+    ]);
     expect(parents.map((parent) => parent.path)).toEqual(["/proj"]);
     expect(residue).toHaveLength(1);
     expect(residue[0]!.path).toBe("");
@@ -64,12 +70,14 @@ describe("groupTerminalsByDirectory", () => {
   });
 
   it("strips a trailing slash, so one directory is not two parents", () => {
-    const { parents } = groupTerminalsByDirectory([{
-      machineLabel: "mac",
-      sessions: [session("a", "/proj/")],
-      workspaceRoots: ["/proj"],
-      botDirs: [],
-    }]);
+    const { parents } = groupTerminalsByDirectory([
+      {
+        machineLabel: "mac",
+        sessions: [session("a", "/proj/")],
+        workspaceRoots: ["/proj"],
+        botDirs: [],
+      },
+    ]);
     expect(parents).toHaveLength(1);
     expect(parents[0]!.path).toBe("/proj");
   });
@@ -93,10 +101,17 @@ describe("terminalChildKey", () => {
     expect(parseTerminalChildKey(":a")).toEqual({ machineId: undefined, session: "a", target: "a" });
     expect(parseTerminalChildKey("peer:a")).toEqual({ machineId: "peer", session: "a", target: "a" });
     expect(parseTerminalChildKey(":harbor:1")).toEqual({
-      machineId: undefined, session: "harbor", window: 1, target: "harbor:1",
+      machineId: undefined,
+      session: "harbor",
+      window: 1,
+      target: "harbor:1",
     });
     expect(parseTerminalChildKey("peer:harbor:1.2")).toEqual({
-      machineId: "peer", session: "harbor", window: 1, pane: 2, target: "harbor:1.2",
+      machineId: "peer",
+      session: "harbor",
+      window: 1,
+      pane: 2,
+      target: "harbor:1.2",
     });
     expect(parseTerminalChildKey("no-colon")).toBeNull();
     expect(parseTerminalChildKey(":")).toBeNull();

@@ -57,8 +57,9 @@ describe("terminal child steps", () => {
     const first = terminalChildStyle(120, steps.get(":a"))!;
     const seventh = terminalChildStyle(120, steps.get(":g"))!;
     expect(seventh["--terminal-session-step" as keyof typeof seventh]).toBe("0");
-    expect(seventh["--terminal-session-hue" as keyof typeof seventh])
-      .not.toBe(first["--terminal-session-hue" as keyof typeof first]);
+    expect(seventh["--terminal-session-hue" as keyof typeof seventh]).not.toBe(
+      first["--terminal-session-hue" as keyof typeof first],
+    );
   });
 
   it("hands CSS the parent hue and the child's own step, both or neither", () => {

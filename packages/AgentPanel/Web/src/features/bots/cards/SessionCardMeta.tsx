@@ -127,33 +127,37 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
       >
         {taskState.task}
       </button>
-      {showing ? createPortal(
-        <div
-          ref={popup}
-          id={popupId}
-          role="dialog"
-          aria-label="What this session set out to do"
-          // For anything that asks "is the pointer still inside me" with a DOM containment test,
-          // the way the row menus mark themselves: the portal is outside the card in the DOM.
-          data-portal-menu=""
-          onPointerEnter={enter}
-          onPointerLeave={leave}
-          style={{
-            top: placement?.top ?? 0,
-            left: placement?.left ?? 0,
-            visibility: placement ? undefined : "hidden",
-          }}
-          className="fixed z-50 w-max max-w-80 cursor-text select-text rounded-lg border border-border bg-popover p-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-popover-foreground shadow-xl"
-        >
-          <p className="font-medium text-pretty">{taskState.task}</p>
-          {taskState.lines.length > 0 ? (
-            <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
-              {taskState.lines.map((line, index) => <li key={index}>{line}</li>)}
-            </ul>
-          ) : null}
-        </div>,
-        document.body,
-      ) : null}
+      {showing
+        ? createPortal(
+            <div
+              ref={popup}
+              id={popupId}
+              role="dialog"
+              aria-label="What this session set out to do"
+              // For anything that asks "is the pointer still inside me" with a DOM containment test,
+              // the way the row menus mark themselves: the portal is outside the card in the DOM.
+              data-portal-menu=""
+              onPointerEnter={enter}
+              onPointerLeave={leave}
+              style={{
+                top: placement?.top ?? 0,
+                left: placement?.left ?? 0,
+                visibility: placement ? undefined : "hidden",
+              }}
+              className="fixed z-50 w-max max-w-80 cursor-text select-text rounded-lg border border-border bg-popover p-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-popover-foreground shadow-xl"
+            >
+              <p className="font-medium text-pretty">{taskState.task}</p>
+              {taskState.lines.length > 0 ? (
+                <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+                  {taskState.lines.map((line, index) => (
+                    <li key={index}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

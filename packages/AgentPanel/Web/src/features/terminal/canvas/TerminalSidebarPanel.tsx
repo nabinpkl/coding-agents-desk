@@ -118,27 +118,33 @@ export function TerminalSidebarPanel({
       </div>
       {/* The machine chips live here as well as above the strip: a reader with this list open is
           looking here and not there. Same sets both places, so they cannot disagree. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-2" role="group" aria-label="Machines">
-        {mixed ? machines.map((machine) => {
-          const hidden = hiddenMachines.has(machine.key);
-          const count = all.filter((parent) => (parent.machineId ?? "") === machine.key).length;
-          return (
-            <button
-              key={machine.key}
-              type="button"
-              onClick={() => onToggleMachine(machine.key)}
-              aria-pressed={!hidden}
-              title={hidden ? `Show ${machine.label} (${count} hidden)` : `Hide ${machine.label}`}
-              className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
-                hidden
-                  ? "border-border text-muted-foreground opacity-60 hover:bg-muted"
-                  : "border-border bg-muted text-foreground hover:bg-muted/60"
-              }`}
-            >
-              {machine.label} · {hidden ? `${count} hidden` : count}
-            </button>
-          );
-        }) : null}
+      <div
+        className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-2"
+        role="group"
+        aria-label="Machines"
+      >
+        {mixed
+          ? machines.map((machine) => {
+              const hidden = hiddenMachines.has(machine.key);
+              const count = all.filter((parent) => (parent.machineId ?? "") === machine.key).length;
+              return (
+                <button
+                  key={machine.key}
+                  type="button"
+                  onClick={() => onToggleMachine(machine.key)}
+                  aria-pressed={!hidden}
+                  title={hidden ? `Show ${machine.label} (${count} hidden)` : `Hide ${machine.label}`}
+                  className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
+                    hidden
+                      ? "border-border text-muted-foreground opacity-60 hover:bg-muted"
+                      : "border-border bg-muted text-foreground hover:bg-muted/60"
+                  }`}
+                >
+                  {machine.label} · {hidden ? `${count} hidden` : count}
+                </button>
+              );
+            })
+          : null}
         <button
           type="button"
           onClick={onRefresh}
@@ -150,9 +156,11 @@ export function TerminalSidebarPanel({
           type="button"
           onClick={onToggleActiveOnly}
           aria-pressed={activeOnly}
-          title={activeOnly
-            ? "Show empty directories again: where a shell gets started"
-            : "Hide empty directories: only parents with tmux standing in them"}
+          title={
+            activeOnly
+              ? "Show empty directories again: where a shell gets started"
+              : "Hide empty directories: only parents with tmux standing in them"
+          }
           className={`min-h-9 cursor-pointer rounded-md border px-2 py-1 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
             activeOnly
               ? "border-primary bg-primary/10 text-foreground hover:bg-primary/15 active:bg-primary/20"
@@ -164,7 +172,10 @@ export function TerminalSidebarPanel({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {loading ? (
-          <div role="status" className="flex min-h-28 items-center justify-center gap-2 p-4 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+          <div
+            role="status"
+            className="flex min-h-28 items-center justify-center gap-2 p-4 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
+          >
             <LoaderCircle className="size-4 animate-spin" aria-hidden />
             Reading tmux sessions…
           </div>
@@ -173,7 +184,10 @@ export function TerminalSidebarPanel({
             Terminals unavailable: {error}
           </div>
         ) : all.length === 0 ? (
-          <div role="status" className="flex min-h-28 flex-col items-center justify-center gap-2 p-4 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+          <div
+            role="status"
+            className="flex min-h-28 flex-col items-center justify-center gap-2 p-4 text-center text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
+          >
             <SquareTerminal className="size-5" aria-hidden />
             No sessions standing
           </div>
@@ -196,35 +210,35 @@ export function TerminalSidebarPanel({
                   .filter((each) => (each.machineId ?? "") === (parent.machineId ?? ""))
                   .flatMap((each) => each.children.map((child) => child.name));
                 return (
-                <TerminalSidebarParent
-                  key={parent.key}
-                  parent={parent}
-                  hue={hues.get(parent.key)}
-                  rank={ranks.get(parent.key)}
-                  machineLabel={mixed
-                    ? machines.find((machine) => machine.key === (parent.machineId ?? ""))?.label
-                    : undefined}
-                  // Two axes with two controls: this row owns the parent's own hiding, the chip
-                  // above owns the machine's. A machine-hidden parent stays listed and dims the
-                  // same way, but its eye is disabled -- pressing it would move this parent's
-                  // own membership and still leave the strip exactly as it was.
-                  machineHidden={hiddenMachines.has(parent.machineId ?? "")}
-                  offStrip={hiddenParents.has(parent.key)}
-                  offStripChildren={offStripChildren}
-                  openChildren={openChildren}
-                  onToggleParent={() => hiddenParents.has(parent.key)
-                    ? onShowParent(parent.key)
-                    : onHideParent(parent.key)}
-                  onSelectChild={(childKey) => onSelectChild(parent.key, childKey)}
-                  onHideChild={onHideChild}
-                  onKillChild={onKillChild}
-                  adding={addingKeys.has(parent.key)}
-                  addError={addErrors.get(parent.key) ?? null}
-                  suggestedName={suggestTerminalSessionName(parent.path, standing)}
-                  existingNames={standing}
-                  {...(parent.path ? { onAdd: (session: string) => onAddTerminal(parent, session) } : {})}
-                  onDismissAddError={() => onDismissAddError(parent.key)}
-                />
+                  <TerminalSidebarParent
+                    key={parent.key}
+                    parent={parent}
+                    hue={hues.get(parent.key)}
+                    rank={ranks.get(parent.key)}
+                    machineLabel={
+                      mixed ? machines.find((machine) => machine.key === (parent.machineId ?? ""))?.label : undefined
+                    }
+                    // Two axes with two controls: this row owns the parent's own hiding, the chip
+                    // above owns the machine's. A machine-hidden parent stays listed and dims the
+                    // same way, but its eye is disabled -- pressing it would move this parent's
+                    // own membership and still leave the strip exactly as it was.
+                    machineHidden={hiddenMachines.has(parent.machineId ?? "")}
+                    offStrip={hiddenParents.has(parent.key)}
+                    offStripChildren={offStripChildren}
+                    openChildren={openChildren}
+                    onToggleParent={() =>
+                      hiddenParents.has(parent.key) ? onShowParent(parent.key) : onHideParent(parent.key)
+                    }
+                    onSelectChild={(childKey) => onSelectChild(parent.key, childKey)}
+                    onHideChild={onHideChild}
+                    onKillChild={onKillChild}
+                    adding={addingKeys.has(parent.key)}
+                    addError={addErrors.get(parent.key) ?? null}
+                    suggestedName={suggestTerminalSessionName(parent.path, standing)}
+                    existingNames={standing}
+                    {...(parent.path ? { onAdd: (session: string) => onAddTerminal(parent, session) } : {})}
+                    onDismissAddError={() => onDismissAddError(parent.key)}
+                  />
                 );
               })}
             </ul>

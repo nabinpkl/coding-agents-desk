@@ -10,7 +10,13 @@ import { ChoiceMenu, type MenuChoice } from "@/features/bots/menus/ChoiceMenu";
 const CHOICES: MenuChoice<string>[] = [
   { value: "plan", label: "Plan", description: "Reads and plans." },
   { value: "auto", label: "Auto", description: "Runs routine actions." },
-  { value: "bypass", label: "Bypass", description: "Runs everything.", warning: true, unavailable: "Started without it." },
+  {
+    value: "bypass",
+    label: "Bypass",
+    description: "Runs everything.",
+    warning: true,
+    unavailable: "Started without it.",
+  },
 ];
 
 function renderMenu(value: string | null = "auto") {
@@ -77,7 +83,9 @@ describe("a choice menu", () => {
     expect(document.activeElement).toBe(plan);
     fireEvent.keyDown(menu, { key: "End" });
     expect(document.activeElement).toBe(auto);
-    act(() => { fireEvent.keyDown(menu, { key: "Escape" }); });
+    act(() => {
+      fireEvent.keyDown(menu, { key: "Escape" });
+    });
     expect(screen.queryByRole("menu")).toBeNull();
   });
 

@@ -18,9 +18,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 /** The sidebar's top row, scoped because the Canvas tab has its own Bots and Sessions tabs. */
 const agentTab = (name: string) =>
@@ -110,8 +108,7 @@ describe("App shell", () => {
     expect(screen.queryByRole("tablist", { name: "Agent views" })).not.toBeInTheDocument();
     expect(threadHeader).toHaveClass("agent-window-titlebar-main-leading");
     expect(
-      screen.getByRole("button", { name: "Pin agent sidebar" })
-        .querySelector(".lucide-panel-left"),
+      screen.getByRole("button", { name: "Pin agent sidebar" }).querySelector(".lucide-panel-left"),
     ).not.toBeNull();
     unmount();
   });
@@ -212,14 +209,16 @@ describe("App shell", () => {
     deliverSessions(transport);
 
     fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
-    deliverProjectSessions(transport, FIXTURE_PROJECT_B.projectPath, [{
-      sessionId: "sid-beta-01",
-      source: "claude",
-      title: "Beta session",
-      lastEventAt: Date.now(),
-      activity: "ready",
-      capabilities: READ_ONLY_CAPABILITIES,
-    }]);
+    deliverProjectSessions(transport, FIXTURE_PROJECT_B.projectPath, [
+      {
+        sessionId: "sid-beta-01",
+        source: "claude",
+        title: "Beta session",
+        lastEventAt: Date.now(),
+        activity: "ready",
+        capabilities: READ_ONLY_CAPABILITIES,
+      },
+    ]);
 
     expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
     expect(screen.getByText("Beta session")).toBeInTheDocument();
@@ -362,14 +361,11 @@ describe("App shell", () => {
     // navigations answering one pointer, so hovering the trigger changes nothing.
     const trigger = screen.getByRole("button", { name: "Open agent navigation" });
     fireEvent.pointerEnter(trigger);
-    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
-      .not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" })).not.toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("dialog", { name: "Agent navigation" }))
-      .toHaveAttribute("open");
+    expect(screen.getByRole("dialog", { name: "Agent navigation" })).toHaveAttribute("open");
     // Width still owns composition: no pointer makes a compact layout grow a pinned column.
-    expect(screen.queryByRole("complementary", { name: "Agent navigation" }))
-      .not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Agent navigation" })).not.toBeInTheDocument();
     unmount();
   });
 
@@ -378,33 +374,36 @@ describe("App shell", () => {
     // The Agents window is 480pt wide, which is compact, and it is on a Mac, which hovers. Both
     // at once is the case that used to fall through to the touch story and ignore the mouse.
     installViewport({ compact: true, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
+    storeSidebarPreferences({
+      open: false,
+      width: 300,
+      mode: "sessions",
+      botFaces: false,
+      canvasView: "bots",
+      canvasSessionsGrouped: true,
+    });
     const { transport, unmount } = setup();
     deliverProjects(transport);
 
     const trigger = screen.getByRole("button", { name: "Open agent navigation" });
-    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
-      .not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" })).not.toBeInTheDocument();
 
     fireEvent.pointerEnter(trigger);
     const preview = screen.getByRole("complementary", { name: "Agent navigation preview" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     // An overlay, never the pinned column, and never wide enough to hide the thread behind it.
-    expect(screen.queryByRole("complementary", { name: "Agent navigation" }))
-      .not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Agent navigation" })).not.toBeInTheDocument();
     expect(preview).toHaveStyle({ width: "300px", maxWidth: "calc(100% - 3.5rem)" });
 
     fireEvent.pointerLeave(trigger);
     act(() => vi.advanceTimersByTime(120));
-    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
-      .not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" })).not.toBeInTheDocument();
 
     // Pressing commits to the modal drawer, and the peek is dropped rather than stacked under it.
     fireEvent.pointerEnter(trigger);
     fireEvent.click(trigger);
     expect(screen.getByRole("dialog", { name: "Agent navigation" })).toHaveAttribute("open");
-    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
-      .not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" })).not.toBeInTheDocument();
 
     unmount();
     vi.useRealTimers();
@@ -413,7 +412,14 @@ describe("App shell", () => {
   it("previews on desktop hover, pins on click, and restores the saved width", () => {
     vi.useFakeTimers();
     installViewport({ compact: false, hoverCapable: true });
-    storeSidebarPreferences({ open: false, width: 300, mode: "sessions", botFaces: false, canvasView: "bots", canvasSessionsGrouped: true });
+    storeSidebarPreferences({
+      open: false,
+      width: 300,
+      mode: "sessions",
+      botFaces: false,
+      canvasView: "bots",
+      canvasSessionsGrouped: true,
+    });
     const first = setup();
     deliverProjects(first.transport);
 
@@ -422,8 +428,9 @@ describe("App shell", () => {
 
     fireEvent.pointerEnter(trigger);
     expect(screen.getByRole("complementary", { name: "Agent navigation preview" })).toBeInTheDocument();
-    expect(screen.getByRole("tablist", { name: "Agent views" }).parentElement)
-      .toHaveClass("agent-window-titlebar-sidebar-leading");
+    expect(screen.getByRole("tablist", { name: "Agent views" }).parentElement).toHaveClass(
+      "agent-window-titlebar-sidebar-leading",
+    );
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
       open: false,
       width: 300,
@@ -470,10 +477,7 @@ describe("App shell", () => {
 
     first.unmount();
     const restored = setup();
-    expect(screen.getByRole("separator", { name: "Resize agent sidebar" })).toHaveAttribute(
-      "aria-valuenow",
-      "356",
-    );
+    expect(screen.getByRole("separator", { name: "Resize agent sidebar" })).toHaveAttribute("aria-valuenow", "356");
     fireEvent.click(screen.getByRole("button", { name: "Close agent navigation" }));
     expect(screen.getByRole("button", { name: "Pin agent sidebar" })).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({

@@ -141,7 +141,11 @@ test("the summary route emits the fixture's digest, field for field", async () =
     const route = createSummaryRoutes(
       (id) => (id === backend.id ? backend : undefined),
       () => descriptor,
-      { async run() { return summaryResult; } },
+      {
+        async run() {
+          return summaryResult;
+        },
+      },
     );
     const request = new Request("http://localhost/api/sessions/pi/s1/summary");
     const response = (await route(request, new URL(request.url), server)) as Response;

@@ -29,7 +29,16 @@ const FORK_ID = "66666666-6666-4666-8666-666666666666";
 
 type Asked =
   | { kind: "start"; cwd: string; sessionId: string; title: string; prompt?: string; mode?: string }
-  | { kind: "fork"; cwd: string; sessionId: string; forkId: string; title: string; brief?: string; mode?: string; resumeAt?: string };
+  | {
+      kind: "fork";
+      cwd: string;
+      sessionId: string;
+      forkId: string;
+      title: string;
+      brief?: string;
+      mode?: string;
+      resumeAt?: string;
+    };
 
 let asked: Asked[] = [];
 
@@ -94,13 +103,14 @@ function knownSession(project: string, sessionId = SESSION_ID): void {
 
 /** That session's transcript on disk: two messages, with an assistant reply between them. */
 async function withTranscript(project: string, sessionId = SESSION_ID): Promise<void> {
-  const said = (text: string) => JSON.stringify({
-    type: "user",
-    message: { role: "user", content: text },
-    cwd: project,
-    timestamp: "2026-09-09T05:00:00.000Z",
-    uuid: crypto.randomUUID(),
-  });
+  const said = (text: string) =>
+    JSON.stringify({
+      type: "user",
+      message: { role: "user", content: text },
+      cwd: project,
+      timestamp: "2026-09-09T05:00:00.000Z",
+      uuid: crypto.randomUUID(),
+    });
   const replied = JSON.stringify({
     type: "assistant",
     message: { role: "assistant", content: [{ type: "text", text: "OK" }] },
@@ -141,15 +151,9 @@ const neverRewinds: ForkRewinder = async () => {
 test("a launch with no source starts an empty session in the checkout", async () => {
   const checkout = await directory();
 
-  const started = await launchSession(
-    { checkout, title: "Fresh", prompt: "do the thing" },
-    launcher,
-    newForkId,
-  );
+  const started = await launchSession({ checkout, title: "Fresh", prompt: "do the thing" }, launcher, newForkId);
 
-  expect(asked).toEqual([
-    { kind: "start", cwd: checkout, sessionId: FORK_ID, title: "Fresh", prompt: "do the thing" },
-  ]);
+  expect(asked).toEqual([{ kind: "start", cwd: checkout, sessionId: FORK_ID, title: "Fresh", prompt: "do the thing" }]);
   expect(started).toEqual({
     sessionId: FORK_ID,
     title: "Fresh",
@@ -221,11 +225,7 @@ test("git's refusal comes out unmapped, for each caller to say in its own words"
   const checkout = await repository();
   await run(["git", "branch", "taken"], checkout);
 
-  const refused = launchSession(
-    { checkout, title: "Fork", worktree: { branch: "taken" } },
-    launcher,
-    newForkId,
-  );
+  const refused = launchSession({ checkout, title: "Fork", worktree: { branch: "taken" } }, launcher, newForkId);
 
   await expect(refused).rejects.toBeInstanceOf(WorktreeError);
   expect(asked).toEqual([]);
@@ -290,8 +290,9 @@ test("refuses a title that cannot be one argument of one command", async () => {
   knownSession(project);
 
   for (const title of ["   ", "one\ntwo", "x".repeat(241)]) {
-    await expect(forkClaudeSession(SESSION_ID, { title }, launcher, newForkId))
-      .rejects.toBeInstanceOf(SessionForkInvalidError);
+    await expect(forkClaudeSession(SESSION_ID, { title }, launcher, newForkId)).rejects.toBeInstanceOf(
+      SessionForkInvalidError,
+    );
   }
   // Refused before anything was started.
   expect(asked).toEqual([]);
@@ -324,8 +325,9 @@ test("does not need the source to be running", async () => {
   const project = await directory();
   knownSession(project);
 
-  await expect(forkClaudeSession(SESSION_ID, { title: "Cold source" }, launcher, newForkId))
-    .resolves.toMatchObject({ sessionId: FORK_ID });
+  await expect(forkClaudeSession(SESSION_ID, { title: "Cold source" }, launcher, newForkId)).resolves.toMatchObject({
+    sessionId: FORK_ID,
+  });
 });
 
 test("starts the fork at a named message, and holds the brief back for after the rewind", async () => {
@@ -346,11 +348,13 @@ test("starts the fork at a named message, and holds the brief back for after the
 
   expect(started.rewindFailed).toBeUndefined();
   expect(asked[0]).toMatchObject({ kind: "fork", brief: undefined });
-  expect(rewinder.asked).toEqual([{
-    sessionId: FORK_ID,
-    anchor: { fromEnd: 1, text: "BRAVO two" },
-    prompt: "the sibling task",
-  }]);
+  expect(rewinder.asked).toEqual([
+    {
+      sessionId: FORK_ID,
+      anchor: { fromEnd: 1, text: "BRAVO two" },
+      prompt: "the sibling task",
+    },
+  ]);
 });
 
 test("counts the message back from the newest, not from the top of the file", async () => {
@@ -396,13 +400,7 @@ test("a fork that named no message is not rewound, and its brief rides the launc
   const project = await directory();
   knownSession(project);
 
-  await forkClaudeSession(
-    SESSION_ID,
-    { title: "Whole thing", prompt: "carry on" },
-    launcher,
-    newForkId,
-    neverRewinds,
-  );
+  await forkClaudeSession(SESSION_ID, { title: "Whole thing", prompt: "carry on" }, launcher, newForkId, neverRewinds);
 
   expect(asked[0]).toMatchObject({ kind: "fork", brief: "carry on" });
 });
@@ -416,13 +414,9 @@ test("refuses a row that is not a message before anything is started", async () 
 
   // The assistant line, and a position past the end of the file.
   for (const eventId of [await rowId(project, 1), `claude:${SESSION_ID}:at:99999`]) {
-    await expect(forkClaudeSession(
-      SESSION_ID,
-      { title: "No", from: { eventId } },
-      launcher,
-      newForkId,
-      neverRewinds,
-    )).rejects.toBeInstanceOf(SessionForkInvalidError);
+    await expect(
+      forkClaudeSession(SESSION_ID, { title: "No", from: { eventId } }, launcher, newForkId, neverRewinds),
+    ).rejects.toBeInstanceOf(SessionForkInvalidError);
   }
   expect(asked).toEqual([]);
 });

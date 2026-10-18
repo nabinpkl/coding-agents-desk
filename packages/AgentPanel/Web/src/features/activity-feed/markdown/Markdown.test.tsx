@@ -8,16 +8,7 @@ import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 // the ordinary block into the empty slot left behind. These assert the thing that made the
 // difference visible: the chrome, and that nothing is drawing the code twice.
 
-const NESTED = [
-  "1. **Files:**",
-  "",
-  "   ```ts",
-  "   const x = 1;",
-  "   ```",
-  "",
-  "2. done",
-  "",
-].join("\n");
+const NESTED = ["1. **Files:**", "", "   ```ts", "   const x = 1;", "   ```", "", "2. done", ""].join("\n");
 
 describe("Markdown", () => {
   it("gives a fence inside a list item the same block a top-level one gets", () => {

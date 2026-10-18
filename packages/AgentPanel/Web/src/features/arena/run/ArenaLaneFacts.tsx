@@ -68,15 +68,27 @@ export function ArenaLaneFacts({
         </span>
       </header>
       <dl className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 ${TEXT.meta}`}>
-        {contestant.model ? <Fact label="Model" caption="model"><span className="font-mono">{contestant.model}</span></Fact> : null}
+        {contestant.model ? (
+          <Fact label="Model" caption="model">
+            <span className="font-mono">{contestant.model}</span>
+          </Fact>
+        ) : null}
         {ms === null ? null : (
           <Fact label="Time">
             {formatDuration(ms)}
             {contestant.status === "running" ? <span className="text-muted-foreground"> so far</span> : null}
           </Fact>
         )}
-        {settled ? <Fact label="Files read" caption="read">{contestant.filesRead.length}</Fact> : null}
-        {settled ? <Fact label="Files written" caption="written">{contestant.filesWritten.length}</Fact> : null}
+        {settled ? (
+          <Fact label="Files read" caption="read">
+            {contestant.filesRead.length}
+          </Fact>
+        ) : null}
+        {settled ? (
+          <Fact label="Files written" caption="written">
+            {contestant.filesWritten.length}
+          </Fact>
+        ) : null}
         {stat.files > 0 ? (
           <Fact label="Diff" caption={`in ${stat.files} ${stat.files === 1 ? "file" : "files"}`}>
             <span className="text-arena-added">+{stat.added}</span>{" "}
@@ -84,10 +96,14 @@ export function ArenaLaneFacts({
           </Fact>
         ) : null}
         {settled && contestant.outsideReached.length > 0 ? (
-          <Fact label="Outside its folder"><OutsideReach contestant={contestant} /></Fact>
+          <Fact label="Outside its folder">
+            <OutsideReach contestant={contestant} />
+          </Fact>
         ) : null}
         {contestant.contextTokens !== null ? (
-          <Fact label="Context" caption="context">{formatTokens(contestant.contextTokens)}</Fact>
+          <Fact label="Context" caption="context">
+            {formatTokens(contestant.contextTokens)}
+          </Fact>
         ) : null}
         {contestant.costUsd !== null ? <Fact label="Cost">${contestant.costUsd.toFixed(4)}</Fact> : null}
       </dl>
@@ -133,7 +149,9 @@ function Fact({ label, caption, children }: { label: string; caption?: string; c
   return (
     <div>
       {/* Visually hidden on purpose, so the layout sweep's clipped-text check is told to pass it. */}
-      <dt className="sr-only" data-sweep-ignore>{label}</dt>
+      <dt className="sr-only" data-sweep-ignore>
+        {label}
+      </dt>
       <dd className="tabular-nums text-foreground">
         {children}
         {caption ? <span className="text-muted-foreground"> {caption}</span> : null}

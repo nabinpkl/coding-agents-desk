@@ -97,9 +97,5 @@ function routeError(error: unknown): Response {
   // 502 rather than 500: the request was valid and the Bot was written. What failed is the thing
   // this sidecar delegates to -- the session's own rename.
   console.error("Session bracket rename failed", error);
-  return errorResponse(
-    "bracket-failed",
-    error instanceof Error ? error.message : String(error),
-    502,
-  );
+  return errorResponse("bracket-failed", error instanceof Error ? error.message : String(error), 502);
 }

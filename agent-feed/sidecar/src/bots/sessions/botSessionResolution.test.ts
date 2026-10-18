@@ -63,9 +63,7 @@ function recordWith(...refs: BotSessionRef[]): BotRecord {
  * the splits so a caller can assert on the lists as well as the log.
  */
 async function pass(...records: Array<[BotRecord, Resolve]>): Promise<Split[]> {
-  const splits = await Promise.all(
-    records.map(([record, resolve]) => resolveBotSessions(record, resolve)),
-  );
+  const splits = await Promise.all(records.map(([record, resolve]) => resolveBotSessions(record, resolve)));
   const outcomes: BotSessionOutcome[] = splits.flatMap((split) => split.outcomes);
   noteBotSessionOutcomes(outcomes);
   return splits;
@@ -73,7 +71,7 @@ async function pass(...records: Array<[BotRecord, Resolve]>): Promise<Split[]> {
 
 /** One Bot's split, asserted. This tree indexes as possibly undefined, hence the two `!`s. */
 async function passOne(record: BotRecord, resolve: Resolve): Promise<Split> {
-  const [split] = (await pass([record, resolve]));
+  const [split] = await pass([record, resolve]);
   return split!;
 }
 
@@ -211,7 +209,8 @@ describe("an archived session", () => {
     const split = await resolveBotSessions(recordWith(REF, OTHER_REF), (ref) =>
       ref.sessionId === REF.sessionId
         ? { projectPath: "/repo", summary: summary({ archivedAt: 1_000 }) }
-        : { projectPath: "/repo", summary: summary({ sessionId: OTHER_REF.sessionId, source: "codex" }) });
+        : { projectPath: "/repo", summary: summary({ sessionId: OTHER_REF.sessionId, source: "codex" }) },
+    );
     expect(split.sessions.map((session) => session.sessionId)).toEqual([OTHER_REF.sessionId]);
     expect(split.missingSessionRefs).toEqual([]);
   });

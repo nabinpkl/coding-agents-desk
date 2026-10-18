@@ -14,9 +14,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -112,8 +110,9 @@ describe("App shell", () => {
     // What the sidecar now holds, and nothing in this browser says so.
     const held = first.bots.latest()!;
     expect(held.bots.find((bot) => bot.botId === "bot-2")?.offCanvas).toBe(true);
-    expect(held.bots.find((bot) => bot.botId === "bot-1")?.offCanvasSessionRefs)
-      .toEqual([{ source: "claude", sessionId: "sid-claude-01" }]);
+    expect(held.bots.find((bot) => bot.botId === "bot-1")?.offCanvasSessionRefs).toEqual([
+      { source: "claude", sessionId: "sid-claude-01" },
+    ]);
     expect(Object.keys(localStorage).filter((key) => key.includes("off-canvas"))).toEqual([]);
 
     // A reload: new app, and the bots arrive from the stream as the sidecar now holds them.
@@ -152,16 +151,18 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          ...BOT_WITH_ONE_SESSION,
-          sessionRefs: [
-            { source: "claude", sessionId: "sid-claude-01" },
-            // Held by the Bot, but not resolving right now, so its card is not on the canvas.
-            { source: "codex", sessionId: "sid-codex-01" },
-          ],
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [{ source: "codex", sessionId: "sid-codex-01" }],
-        }],
+        bots: [
+          {
+            ...BOT_WITH_ONE_SESSION,
+            sessionRefs: [
+              { source: "claude", sessionId: "sid-claude-01" },
+              // Held by the Bot, but not resolving right now, so its card is not on the canvas.
+              { source: "codex", sessionId: "sid-codex-01" },
+            ],
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [{ source: "codex", sessionId: "sid-codex-01" }],
+          },
+        ],
       });
     });
 
@@ -178,10 +179,7 @@ describe("App shell", () => {
     // Two ways to have no Bots to check against, and neither may throw the canvas away: `loading`
     // goes false on a stream FAILURE as well as on a snapshot, and a snapshot itself arrives before
     // the Bots are in it. Either one pruned would forget the whole canvas when the sidecar blinked.
-    localStorage.setItem(
-      "agent-panel.bot-canvas.open-session",
-      JSON.stringify(["claude:sid-claude-01"]),
-    );
+    localStorage.setItem("agent-panel.bot-canvas.open-session", JSON.stringify(["claude:sid-claude-01"]));
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -189,19 +187,15 @@ describe("App shell", () => {
       transport.fail("/api/bots/stream", "sidecar is restarting");
     });
 
-    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.open-session")!)).toEqual([
-      "claude:sid-claude-01",
-    ]);
+    expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.open-session")!)).toEqual(["claude:sid-claude-01"]);
     unmount();
   });
 
   it("opens a session picked in the canvas roster on the canvas, and scrolls its card to it", () => {
     const scrolled: Element[] = [];
-    const scrollIntoView = vi
-      .spyOn(Element.prototype, "scrollIntoView")
-      .mockImplementation(function (this: Element) {
-        scrolled.push(this);
-      });
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+      scrolled.push(this);
+    });
     try {
       const { transport, unmount } = setup();
       deliverProjects(transport);
@@ -210,19 +204,21 @@ describe("App shell", () => {
         transport.deliver("/api/bots/stream", {
           version: 2,
           revision: 1,
-          bots: [{
-            botId: "bot-1",
-            name: "Release Captain",
-            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-            metadata: { labels: [], custom: {} },
-            grants: [],
-            createdAt: 1,
-            createdBy: { kind: "user" },
-            environmentAvailability: "available",
-            sessions: [FIXTURE_SESSIONS[0]!],
-            missingSessionRefs: [],
-          }],
+          bots: [
+            {
+              botId: "bot-1",
+              name: "Release Captain",
+              environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+              sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+              metadata: { labels: [], custom: {} },
+              grants: [],
+              createdAt: 1,
+              createdBy: { kind: "user" },
+              environmentAvailability: "available",
+              sessions: [FIXTURE_SESSIONS[0]!],
+              missingSessionRefs: [],
+            },
+          ],
         });
       });
 
@@ -233,21 +229,19 @@ describe("App shell", () => {
 
       // On the canvas, not instead of it: the roster is still up and the card unfolded in place.
       expect(screen.getByRole("list", { name: "Bot canvas" })).toBeInTheDocument();
-      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      );
+      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
 
       // And the card came to the reader, because in a tiled roster it can be anywhere.
-      const card = canvas().getByRole("button", { name: /^Session Claude 01/ }).closest("li")!.closest("ul")!.closest("li");
+      const card = canvas()
+        .getByRole("button", { name: /^Session Claude 01/ })
+        .closest("li")!
+        .closest("ul")!
+        .closest("li");
       expect(scrolled).toContain(card);
 
       // The roster marks the row that is open, which is what "selected" means on this tab.
-      expect(roster.getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
-        "aria-current",
-        "page",
-      );
+      expect(roster.getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute("aria-current", "page");
       unmount();
     } finally {
       scrollIntoView.mockRestore();
@@ -262,19 +256,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -303,19 +299,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -338,9 +336,7 @@ describe("App shell", () => {
     // now has a grip, because there is a width to drag.
     fireEvent.click(within(card!).getByRole("button", { name: /^Session Claude 01/ }));
     expect(sessions().style.width).toBe("900px");
-    expect(
-      screen.getByRole("separator", { name: /^Resize Session Claude 01.* session$/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("separator", { name: /^Resize Session Claude 01.* session$/ })).toBeInTheDocument();
     unmount();
   });
 
@@ -348,44 +344,48 @@ describe("App shell", () => {
     const { transport, unmount, bots } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
-    const deliver = () => act(() => {
-      transport.deliver("/api/bots/stream", {
-        version: 2,
-        revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }, {
-          botId: "bot-2",
-          name: "Nightly Sweeper",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+    const deliver = () =>
+      act(() => {
+        transport.deliver("/api/bots/stream", {
+          version: 2,
+          revision: 1,
+          bots: [
+            {
+              botId: "bot-1",
+              name: "Release Captain",
+              environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+              sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+              metadata: { labels: [], custom: {} },
+              grants: [],
+              createdAt: 1,
+              createdBy: { kind: "user" },
+              environmentAvailability: "available",
+              sessions: [FIXTURE_SESSIONS[0]!],
+              missingSessionRefs: [],
+            },
+            {
+              botId: "bot-2",
+              name: "Nightly Sweeper",
+              environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+              sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+              metadata: { labels: [], custom: {} },
+              grants: [],
+              createdAt: 1,
+              createdBy: { kind: "user" },
+              environmentAvailability: "available",
+              sessions: [FIXTURE_SESSIONS[0]!],
+              missingSessionRefs: [],
+            },
+          ],
+        });
       });
-    });
     deliver();
 
     // Read off each card's own session list, which is labelled with its Bot. The name in the header
     // is not a usable handle: the avatar beside it carries the Bot's initials in the same span.
     const standing = () =>
-      [...document.querySelectorAll('ul[aria-label="Bot canvas"] > li')].map((card) =>
-        card.querySelector('ul[aria-label$=" sessions"]')?.getAttribute("aria-label") ?? "",
+      [...document.querySelectorAll('ul[aria-label="Bot canvas"] > li')].map(
+        (card) => card.querySelector('ul[aria-label$=" sessions"]')?.getAttribute("aria-label") ?? "",
       );
     expect(standing()).toEqual(["Release Captain sessions", "Nightly Sweeper sessions"]);
 
@@ -396,9 +396,11 @@ describe("App shell", () => {
 
     expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
     // Written to each Bot's record, as positions, and nothing to this browser.
-    expect(transport.requests
-      .filter((request) => request.path.endsWith("/canvas"))
-      .map((request) => [request.path, request.body])).toEqual([
+    expect(
+      transport.requests
+        .filter((request) => request.path.endsWith("/canvas"))
+        .map((request) => [request.path, request.body]),
+    ).toEqual([
       ["/api/bots/bot-2/canvas", { position: 0 }],
       ["/api/bots/bot-1/canvas", { position: 1 }],
     ]);
@@ -418,5 +420,4 @@ describe("App shell", () => {
     expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
     second.unmount();
   });
-
 });

@@ -59,9 +59,7 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
       }
       ctx.pointers.set(event.pointerId, { ...at, startX: at.x, startY: at.y });
       if (countBefore === 0) {
-        ctx.startGesture(ctx.pointerMode
-          ? (ctx.scrollEngagedRef.current ? "scroll" : "pointer")
-          : "view-pan");
+        ctx.startGesture(ctx.pointerMode ? (ctx.scrollEngagedRef.current ? "scroll" : "pointer") : "view-pan");
         // Only a lone finger meant for the remote pointer can become a held button. A scrolling
         // finger already means something else, and view-pan never touches the far Mac.
         if (ctx.pointerMode && !ctx.scrollEngagedRef.current) ctx.armTouchHold();
@@ -85,8 +83,10 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
       if (ctx.pointerSequenceConsumed) return;
       if (ctx.pointerMode && ctx.pointers.size === 1) {
         const coalesced = event.getCoalescedEvents?.() ?? [];
-        const samples = (coalesced.length > 0 ? coalesced : [event])
-          .map((sample) => ({ at: ctx.local(sample), sampledAt: sampledAt(sample) }));
+        const samples = (coalesced.length > 0 ? coalesced : [event]).map((sample) => ({
+          at: ctx.local(sample),
+          sampledAt: sampledAt(sample),
+        }));
         const latest = samples.at(-1)!.at;
         ctx.pointers.set(event.pointerId, { ...previous, ...latest });
         if (ctx.hadMultiplePointers) return;
@@ -95,8 +95,7 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
         } else if (ctx.input.translator.isDragging) {
           const { w, h } = ctx.size();
           ctx.input.translator.dragMove(latest, { width: w, height: h });
-        } else if (ctx.input.translator.cursorSamples(samples.map((sample) => sample.at))
-            && !ctx.didCrossPointerSlop) {
+        } else if (ctx.input.translator.cursorSamples(samples.map((sample) => sample.at)) && !ctx.didCrossPointerSlop) {
           ctx.cancelTouchHold();
           ctx.didCrossPointerSlop = true;
           ctx.reportGestureStart();
@@ -119,7 +118,8 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
         if (previousDistance > 0 && distance > 0) {
           ctx.gestureTransformed = ctx.view.zoomAt(distance / previousDistance, cx, cy, w, h) || ctx.gestureTransformed;
         }
-        ctx.gestureTransformed = ctx.view.panBy((now.x - previous.x) / 2, (now.y - previous.y) / 2, w, h) || ctx.gestureTransformed;
+        ctx.gestureTransformed =
+          ctx.view.panBy((now.x - previous.x) / 2, (now.y - previous.y) / 2, w, h) || ctx.gestureTransformed;
         ctx.apply();
         return;
       }
@@ -163,9 +163,7 @@ export function createPointerHandlers(ctx: ViewportRuntime) {
           } else if (dropped) {
             ctx.finishGesture("drag");
           } else {
-            ctx.finishGesture(ctx.didCrossPointerSlop
-              ? (ctx.scrollEngagedRef.current ? "scroll" : "move")
-              : "click");
+            ctx.finishGesture(ctx.didCrossPointerSlop ? (ctx.scrollEngagedRef.current ? "scroll" : "move") : "click");
           }
         }
         return;

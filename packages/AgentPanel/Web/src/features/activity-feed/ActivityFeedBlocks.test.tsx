@@ -36,14 +36,14 @@ describe("complete activity blocks", () => {
     // signal instead of the scheduler's.
     let release: ((text: string) => void) | null = null;
     const fetchRawEvent = vi.fn(
-      () => new Promise<string>((resolve) => { release = resolve; }),
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
     );
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
-        <RawJsonBlock
-          session={{ source: "claude", sessionId: "session", mode: "raw" }}
-          eventIndex={7}
-        />
+        <RawJsonBlock session={{ source: "claude", sessionId: "session", mode: "raw" }} eventIndex={7} />
       </DataSourceProvider>,
     );
 
@@ -61,12 +61,11 @@ describe("complete activity blocks", () => {
 
     // The mode travels WITH the index, because the index is counted in it: a fetch
     // that dropped it would read a different line.
-    expect(fetchRawEvent).toHaveBeenCalledWith(
-      { source: "claude", sessionId: "session", mode: "raw" },
-      7,
-    );
+    expect(fetchRawEvent).toHaveBeenCalledWith({ source: "claude", sessionId: "session", mode: "raw" }, 7);
 
-    await act(async () => { release!(exact); });
+    await act(async () => {
+      release!(exact);
+    });
     // The drawer pretty-prints the line. The pre may be the plain fallback or
     // the Shiki-highlighted markup depending on whether the singleton loaded
     // during this run, so assert on the element's merged text content rather
@@ -84,10 +83,7 @@ describe("complete activity blocks", () => {
     const fetchRawEvent = vi.fn(async () => notJson);
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
-        <RawJsonBlock
-          session={{ source: "claude", sessionId: "session", mode: "raw" }}
-          eventIndex={8}
-        />
+        <RawJsonBlock session={{ source: "claude", sessionId: "session", mode: "raw" }} eventIndex={8} />
       </DataSourceProvider>,
     );
     const details = container.querySelector("details")!;
@@ -102,10 +98,7 @@ describe("complete activity blocks", () => {
     const fetchRawEvent = vi.fn(async () => huge);
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
-        <RawJsonBlock
-          session={{ source: "claude", sessionId: "session", mode: "raw" }}
-          eventIndex={9}
-        />
+        <RawJsonBlock session={{ source: "claude", sessionId: "session", mode: "raw" }} eventIndex={9} />
       </DataSourceProvider>,
     );
     const details = container.querySelector("details")!;
@@ -119,16 +112,13 @@ describe("complete activity blocks", () => {
   });
 
   it("formatRawJson pretty-prints valid JSON and passes through everything else", () => {
-    expect(formatRawJson('{"a":1,"b":[true,null]}')).toBe(
-      '{\n  "a": 1,\n  "b": [\n    true,\n    null\n  ]\n}',
-    );
+    expect(formatRawJson('{"a":1,"b":[true,null]}')).toBe('{\n  "a": 1,\n  "b": [\n    true,\n    null\n  ]\n}');
     expect(formatRawJson("plain text")).toBe("plain text");
     expect(formatRawJson('{"unclosed": ')).toBe('{"unclosed": ');
     // The cap is respected by the pure function as well as the component.
     const atCap = `[${"0,".repeat(RAW_JSON_FORMAT_MAX_CHARS)}0]`;
     expect(formatRawJson(atCap)).toBe(atCap);
   });
-
 });
 
 describe("raw drawer", () => {
@@ -175,7 +165,10 @@ describe("raw drawer", () => {
     const exact = '{"type":"assistant"}';
     let release: ((text: string) => void) | null = null;
     const fetchRawEvent = vi.fn(
-      () => new Promise<string>((resolve) => { release = resolve; }),
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
     );
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
@@ -211,7 +204,9 @@ describe("raw drawer", () => {
     fireEvent(inner, new Event("toggle"));
     expect(fetchRawEvent).toHaveBeenCalledTimes(1);
 
-    await act(async () => { release!(exact); });
+    await act(async () => {
+      release!(exact);
+    });
     // Shiki splits the rendered line into token spans, so assert on the merged
     // text content: the pretty-printed form with a spaced key. The metadata
     // blocks render their own <pre>s first, so the raw JSON one is the last.

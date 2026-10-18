@@ -30,11 +30,7 @@ export interface Placeable {
  * Windows keep their own size and are only shrunk to fit the area, never grown:
  * a wider terminal is not a more readable one.
  */
-export function packFromTopLeft(
-  area: Rect,
-  sizes: readonly Placeable[],
-  gap: number,
-): Rect[] {
+export function packFromTopLeft(area: Rect, sizes: readonly Placeable[], gap: number): Rect[] {
   if (gap < 0) throw new RangeError(`gap must not be negative, got ${gap}`);
   const maxWidth = area.w - gap * 2;
   const maxHeight = area.h - gap * 2;

@@ -22,7 +22,12 @@ vi.mock("@/features/desktop-viewer/tile-stream/TileStreamRtc", async (importOrig
   const actual = await importOriginal<typeof import("@/features/desktop-viewer/tile-stream/TileStreamRtc")>();
   return {
     ...actual,
-    TileStreamRtc: ({ onState, onControlTransport, onSourceMetadata, onControlEvent }: {
+    TileStreamRtc: ({
+      onState,
+      onControlTransport,
+      onSourceMetadata,
+      onControlEvent,
+    }: {
       onState?: (state: unknown) => void;
       onControlTransport?: (transport: { send: (input: DesktopControlInput) => "sent" }) => void;
       onSourceMetadata?: (metadata: unknown) => void;
@@ -40,16 +45,28 @@ vi.mock("@/features/desktop-viewer/tile-stream/TileStreamRtc", async (importOrig
           });
         }
         onState?.({ kind: "playing", codec: "webrtc/h264", firstFrameMs: 12 });
-        onControlTransport?.({ send: (input) => {
-          tileMock.sent.push(input);
-          if (tileMock.navigation && input.type === "desktop-refresh") {
-            onControlEvent?.({ type: "desktop-state", revision: 1, captureDisplayId: "A", displays: [{
-              id: "A", label: "Main", isMain: true, activeSpaceId: "1",
-              spaces: Array.from({ length: 8 }, (_, i) => ({ id: String(i + 1), type: 0 })),
-            }] });
-          }
-          return "sent";
-        } });
+        onControlTransport?.({
+          send: (input) => {
+            tileMock.sent.push(input);
+            if (tileMock.navigation && input.type === "desktop-refresh") {
+              onControlEvent?.({
+                type: "desktop-state",
+                revision: 1,
+                captureDisplayId: "A",
+                displays: [
+                  {
+                    id: "A",
+                    label: "Main",
+                    isMain: true,
+                    activeSpaceId: "1",
+                    spaces: Array.from({ length: 8 }, (_, i) => ({ id: String(i + 1), type: 0 })),
+                  },
+                ],
+              });
+            }
+            return "sent";
+          },
+        });
       }, [onControlTransport, onSourceMetadata, onState]);
       return <div data-testid="desktop-video" />;
     },
@@ -67,11 +84,18 @@ beforeEach(() => {
   tileMock.sent = [];
   observed.clear();
   disconnected.mockClear();
-  vi.stubGlobal("ResizeObserver", class {
-    constructor(private callback: () => void) {}
-    observe(element: Element) { observed.set(element, this.callback); }
-    disconnect() { disconnected(); }
-  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private callback: () => void) {}
+      observe(element: Element) {
+        observed.set(element, this.callback);
+      }
+      disconnect() {
+        disconnected();
+      }
+    },
+  );
   localStorage.clear();
 });
 
@@ -87,13 +111,20 @@ function transport(): AgentHttpTransport {
 }
 
 describe("DesktopViewer paste", () => {
-
   it("holds a paste in an editable strip until it is sent", async () => {
-    const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-      matches: query === "(hover: none) and (pointer: coarse)",
-      media: query, onchange: null, addEventListener() {}, removeEventListener() {},
-      addListener() {}, removeListener() {}, dispatchEvent: () => false,
-    }) as MediaQueryList);
+    const media = vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === "(hover: none) and (pointer: coarse)",
+          media: query,
+          onchange: null,
+          addEventListener() {},
+          removeEventListener() {},
+          addListener() {},
+          removeListener() {},
+          dispatchEvent: () => false,
+        }) as MediaQueryList,
+    );
     const clipboard = { readText: vi.fn().mockResolvedValue("ls -la") };
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
     try {
@@ -117,7 +148,9 @@ describe("DesktopViewer paste", () => {
       };
 
       // The paste opens a draft instead of going, because there is a keyboard here to edit it.
-      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Paste" })); });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+      });
       const strip = screen.getByRole("textbox", { name: "Pasted text, editable before sending" });
       expect(strip).toHaveTextContent("ls -la");
       expect(tileMock.sent.some((input) => input.type === "text")).toBe(false);
@@ -132,22 +165,25 @@ describe("DesktopViewer paste", () => {
       expect(tileMock.sent.filter((input) => input.type === "key-batch")).toEqual([]);
 
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
-      expect(tileMock.sent.filter((input) => input.type === "text"))
-        .toEqual([{ type: "text", sequence: 1, text: "ls -lr" }]);
+      expect(tileMock.sent.filter((input) => input.type === "text")).toEqual([
+        { type: "text", sequence: 1, text: "ls -lr" },
+      ]);
       // Sent and gone: the strip is back to echoing what goes live.
-      expect(screen.queryByRole("textbox", { name: "Pasted text, editable before sending" }))
-        .toBeNull();
+      expect(screen.queryByRole("textbox", { name: "Pasted text, editable before sending" })).toBeNull();
       typeOnDeck("char-71");
       expect(tileMock.sent.filter((input) => input.type === "key-batch")).toHaveLength(1);
 
       // Return is the other way out, and Cancel is the way out that sends nothing.
-      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Paste" })); });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+      });
       typeOnDeck("return");
       expect(tileMock.sent.filter((input) => input.type === "text")).toHaveLength(2);
-      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Paste" })); });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+      });
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-      expect(screen.queryByRole("textbox", { name: "Pasted text, editable before sending" }))
-        .toBeNull();
+      expect(screen.queryByRole("textbox", { name: "Pasted text, editable before sending" })).toBeNull();
       expect(tileMock.sent.filter((input) => input.type === "text")).toHaveLength(2);
     } finally {
       media.mockRestore();
@@ -166,8 +202,11 @@ describe("DesktopViewer paste", () => {
     // No deck on this surface, so there is nothing to edit a paste with and it goes as it always
     // did, without a draft in the way.
     expect(screen.queryByTestId("keyboard-deck")).toBeNull();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Paste" })); });
-    expect(tileMock.sent.filter((input) => input.type === "text"))
-      .toEqual([{ type: "text", sequence: 1, text: "hello" }]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+    });
+    expect(tileMock.sent.filter((input) => input.type === "text")).toEqual([
+      { type: "text", sequence: 1, text: "hello" },
+    ]);
   });
 });

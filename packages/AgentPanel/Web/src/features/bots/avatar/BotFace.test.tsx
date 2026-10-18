@@ -12,7 +12,13 @@ import { describe, expect, test } from "vitest";
 const HEADS_IN_SET = 25;
 import { render, screen } from "@testing-library/react";
 import {
-  BOT_FACE_DRAWINGS, BOT_FACE_PAIRS, BotFace, botFaceOf, eyePath, pupilPath, shutEyePath,
+  BOT_FACE_DRAWINGS,
+  BOT_FACE_PAIRS,
+  BotFace,
+  botFaceOf,
+  eyePath,
+  pupilPath,
+  shutEyePath,
 } from "@/features/bots/avatar/BotFace";
 import { BOT_SESSION_FACE_BASE, botSessionFaceRank } from "@/features/bots/botSurface";
 
@@ -26,9 +32,10 @@ function pointsOf(path: string): [number, number][] {
   const points: [number, number][] = [];
   for (const [, letter, body] of path.matchAll(/([MLCQAZ])([^MLCQAZ]*)/g)) {
     const numbers = (body!.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-    const pairs = letter === "A"
-      ? numbers.slice(5).reduce<number[]>((all, n, i) => (i % 7 < 2 ? [...all, n] : all), numbers.slice(5, 7))
-      : numbers;
+    const pairs =
+      letter === "A"
+        ? numbers.slice(5).reduce<number[]>((all, n, i) => (i % 7 < 2 ? [...all, n] : all), numbers.slice(5, 7))
+        : numbers;
     if (letter === "A") {
       for (let i = 5; i + 1 < numbers.length; i += 7) points.push([numbers[i]!, numbers[i + 1]!]);
       continue;
@@ -244,8 +251,7 @@ describe("BotFace", () => {
     const eyes = container.querySelector<SVGGElement>(".bot-face-eyes")!;
     expect(eyes.className.baseVal).toContain("bot-face-eyes--open");
     rerender(<BotFace rank={2} shut />);
-    expect(container.querySelector<SVGGElement>(".bot-face-eyes")!.className.baseVal)
-      .toContain("bot-face-eyes--shut");
+    expect(container.querySelector<SVGGElement>(".bot-face-eyes")!.className.baseVal).toContain("bot-face-eyes--shut");
   });
 
   test("a shut face draws the closed lid rather than the open eye", () => {
@@ -259,8 +265,7 @@ describe("BotFace", () => {
     expect(drawn("var(--bot-face-white)")).toContain(eyePath(eye));
     expect(drawn("var(--bot-face-ink)")).toContain(pupilPath(eye));
     rerender(<BotFace rank={2} shut />);
-    expect(drawn("var(--bot-face-ink)"))
-      .toEqual([shutEyePath(eye), shutEyePath(botFaceOf(2).eyes[1]!)]);
+    expect(drawn("var(--bot-face-ink)")).toEqual([shutEyePath(eye), shutEyePath(botFaceOf(2).eyes[1]!)]);
     // No white is left: a shut eye is the lid, with nothing open under it.
     expect(drawn("var(--bot-face-white)")).toEqual([]);
   });
@@ -273,8 +278,9 @@ describe("BotFace", () => {
       </>,
     );
     const [first, second] = [...container.querySelectorAll<SVGGElement>(".bot-face-eyes")];
-    expect(first!.style.getPropertyValue("--bot-face-blink-delay"))
-      .not.toBe(second!.style.getPropertyValue("--bot-face-blink-delay"));
+    expect(first!.style.getPropertyValue("--bot-face-blink-delay")).not.toBe(
+      second!.style.getPropertyValue("--bot-face-blink-delay"),
+    );
   });
 
   test("the face says nothing to a screen reader, because the row already does", () => {

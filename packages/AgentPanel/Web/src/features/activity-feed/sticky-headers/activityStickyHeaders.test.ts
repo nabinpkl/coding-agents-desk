@@ -20,7 +20,8 @@ function rows(...kinds: string[]): StickyRow[] {
   return kinds.map((kind) => {
     if (kind === "user") return { kind, ev: { humanTurn: true } };
     if (kind === "harness") return { kind: "user", ev: {} };
-    if (kind === "command") return { kind: "user", ev: { humanTurn: true, blocks: [{ kind: "text", text: "/compact" }] } };
+    if (kind === "command")
+      return { kind: "user", ev: { humanTurn: true, blocks: [{ kind: "text", text: "/compact" }] } };
     return { kind };
   });
 }
@@ -92,8 +93,15 @@ describe("sticky user bar", () => {
 
   it("passes over a slash command a person typed, but not prose that starts with a path", () => {
     const layout = stack(100, 100, 100, 100);
-    expect(selectUserBar(rows("user", "segment_event", "command", "segment_event"), layout, 360, STICKY_H, 0)).toEqual({ row: 0 });
-    const pathFirst = [said("hi"), { kind: "segment_event" }, said("/Users/dev/x is wrong"), { kind: "segment_event" }];
+    expect(selectUserBar(rows("user", "segment_event", "command", "segment_event"), layout, 360, STICKY_H, 0)).toEqual({
+      row: 0,
+    });
+    const pathFirst = [
+      said("hi"),
+      { kind: "segment_event" },
+      said("/Users/dev/x is wrong"),
+      { kind: "segment_event" },
+    ];
     expect(selectUserBar(pathFirst, layout, 360, STICKY_H, 0)).toEqual({ row: 2 });
     const renamed = [said("hi"), { kind: "segment_event" }, said("/rename New title"), { kind: "segment_event" }];
     expect(selectUserBar(renamed, layout, 360, STICKY_H, 0)).toEqual({ row: 0 });
@@ -105,9 +113,7 @@ describe("sticky user bar", () => {
   });
 
   it("returns null when the thread holds no user row", () => {
-    expect(
-      selectUserBar(rows("segment_event", "compaction"), stack(80, 40), 300, STICKY_H, 0),
-    ).toBeNull();
+    expect(selectUserBar(rows("segment_event", "compaction"), stack(80, 40), 300, STICKY_H, 0)).toBeNull();
   });
 
   it("tolerates measurements the virtualizer has not caught up with", () => {
@@ -130,7 +136,13 @@ describe("sticky user bar across ranges", () => {
 
   it("does not reach across a gap for a message, and asks from the row under it instead", () => {
     // A message held above a gap is not the last one said: the gap may hold a newer one.
-    const list = [said("old"), { kind: "segment_event" }, gap(9_000), { kind: "segment_event" }, { kind: "segment_event" }];
+    const list = [
+      said("old"),
+      { kind: "segment_event" },
+      gap(9_000),
+      { kind: "segment_event" },
+      { kind: "segment_event" },
+    ];
     expect(selectUserBar(list, stack(100, 100, 32, 100, 100), 300, STICKY_H, 0)).toEqual({ before: 9_000 });
     // Above the gap, the held message is the answer as before.
     expect(selectUserBar(list, stack(100, 100, 32, 100, 100), 150, STICKY_H, 0)).toEqual({ row: 0 });
@@ -153,9 +165,7 @@ describe("sticky current bar", () => {
   it("stays off while the straddling row's heading is still visible", () => {
     const layout = stack(100, 100, 100);
     const list = rows("user", "segment_event", "segment_event");
-    expect(
-      selectStickyCurrentIndex(list, layout, 100 + HEADER_OBSCURED_PX - 1, 0, null),
-    ).toBeNull();
+    expect(selectStickyCurrentIndex(list, layout, 100 + HEADER_OBSCURED_PX - 1, 0, null)).toBeNull();
   });
 
   it("does not duplicate the row the user bar already stands for", () => {

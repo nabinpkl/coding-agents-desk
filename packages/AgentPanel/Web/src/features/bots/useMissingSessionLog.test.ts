@@ -73,10 +73,9 @@ describe("a reference being drawn as missing", () => {
   });
 
   it("is not announced again when a new snapshot carries the same one", () => {
-    const { rerender } = renderHook(
-      ({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"),
-      { initialProps: { bot: botWith(REF) } },
-    );
+    const { rerender } = renderHook(({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"), {
+      initialProps: { bot: botWith(REF) },
+    });
     expect(drawn(log)).toHaveLength(1);
     log.mockClear();
     for (let pass = 0; pass < 25; pass += 1) {
@@ -87,10 +86,9 @@ describe("a reference being drawn as missing", () => {
   });
 
   it("says again when a second reference joins it", () => {
-    const { rerender } = renderHook(
-      ({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"),
-      { initialProps: { bot: botWith(REF) } },
-    );
+    const { rerender } = renderHook(({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"), {
+      initialProps: { bot: botWith(REF) },
+    });
     log.mockClear();
     rerender({ bot: botWith(REF, OTHER_REF) });
     const lines = drawn(log);
@@ -99,10 +97,9 @@ describe("a reference being drawn as missing", () => {
   });
 
   it("says again when one reference leaves and another arrives in the same snapshot", () => {
-    const { rerender } = renderHook(
-      ({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"),
-      { initialProps: { bot: botWith(REF) } },
-    );
+    const { rerender } = renderHook(({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"), {
+      initialProps: { bot: botWith(REF) },
+    });
     log.mockClear();
     rerender({ bot: botWith(OTHER_REF) });
     const lines = drawn(log);
@@ -115,10 +112,9 @@ describe("a reference being drawn as missing", () => {
 
 describe("a reference that came back", () => {
   it("is announced as drawn, by session key", () => {
-    const { rerender } = renderHook(
-      ({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"),
-      { initialProps: { bot: botWith(REF) } },
-    );
+    const { rerender } = renderHook(({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"), {
+      initialProps: { bot: botWith(REF) },
+    });
     log.mockClear();
     rerender({ bot: botWith() });
     const line = drawn(log)[0]!;
@@ -127,10 +123,9 @@ describe("a reference that came back", () => {
   });
 
   it("is silent on the snapshots after it", () => {
-    const { rerender } = renderHook(
-      ({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"),
-      { initialProps: { bot: botWith(REF) } },
-    );
+    const { rerender } = renderHook(({ bot }: { bot: BotView }) => useMissingSessionLog(bot, "canvas-card"), {
+      initialProps: { bot: botWith(REF) },
+    });
     rerender({ bot: botWith() });
     log.mockClear();
     for (let pass = 0; pass < 10; pass += 1) {

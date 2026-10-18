@@ -20,11 +20,16 @@ export function tileViewportHarness() {
   const frameObservers = new Map<Element, () => void>();
 
   beforeEach(() => {
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(private callback: () => void) {}
-      observe(element: Element) { frameObservers.set(element, this.callback); }
-      disconnect() {}
-    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private callback: () => void) {}
+        observe(element: Element) {
+          frameObservers.set(element, this.callback);
+        }
+        disconnect() {}
+      },
+    );
   });
 
   afterEach(() => {

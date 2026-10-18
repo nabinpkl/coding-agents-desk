@@ -59,7 +59,16 @@ export function createOpencodeRoutes(resolveBackend: (id: string) => AgentBacken
 export interface OpencodeRoutesBackend {
   listCommands(): Promise<Array<{ name: string; description?: string; aliases?: string[] }>>;
   runCommand(sessionId: string, requestId: string, name: string, text: string): Promise<AgentCommandReceipt>;
-  listModels(): Promise<Array<{ providerID: string; modelID: string; name: string; contextLimit: number | null; inputCost: number | null; outputCost: number | null }>>;
+  listModels(): Promise<
+    Array<{
+      providerID: string;
+      modelID: string;
+      name: string;
+      contextLimit: number | null;
+      inputCost: number | null;
+      outputCost: number | null;
+    }>
+  >;
   switchModel(sessionId: string, requestId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt>;
   /** `/btw`: one answer from the session's own context, changing nothing. */
   askAside(sessionId: string, question: string): Promise<string>;
@@ -83,10 +92,16 @@ async function listCommands(resolveBackend: (id: string) => AgentBackend | undef
   if (backend instanceof Response) return backend;
   try {
     return jsonResponse({ commands: await backend.listCommands() });
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    return routeError(error);
+  }
 }
 
-async function runCommand(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
+async function runCommand(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  sessionId: string,
+): Promise<Response> {
   try {
     const body = await jsonBody(request);
     const requestId = requestIdentifier(body.requestId);
@@ -94,12 +109,15 @@ async function runCommand(request: Request, resolveBackend: (id: string) => Agen
     if (backend instanceof Response) return backend;
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const text = typeof body.text === "string" ? body.text : "";
-    if (!requestId || !name) return errorResponse("invalid-request", "requestId and name are required", 400, requestId ?? undefined);
+    if (!requestId || !name)
+      return errorResponse("invalid-request", "requestId and name are required", 400, requestId ?? undefined);
     if (new TextEncoder().encode(text).byteLength > MAXIMUM_BODY_BYTES) {
       return errorResponse("command-too-large", "command arguments exceed 256 KiB", 413, requestId);
     }
     return jsonResponse(await backend.runCommand(sessionId, requestId, name, text), 202);
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    return routeError(error);
+  }
 }
 
 async function listModels(resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {
@@ -107,10 +125,16 @@ async function listModels(resolveBackend: (id: string) => AgentBackend | undefin
   if (backend instanceof Response) return backend;
   try {
     return jsonResponse({ models: await backend.listModels() });
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    return routeError(error);
+  }
 }
 
-async function switchModel(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
+async function switchModel(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  sessionId: string,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = await jsonBody(request);
@@ -121,13 +145,20 @@ async function switchModel(request: Request, resolveBackend: (id: string) => Age
   const providerID = stringValue(body.providerID);
   const modelID = stringValue(body.modelID);
   if (!requestId || !providerID || !modelID) {
-    return errorResponse("invalid-request", "requestId, providerID and modelID are required", 400, requestId ?? undefined);
+    return errorResponse(
+      "invalid-request",
+      "requestId, providerID and modelID are required",
+      400,
+      requestId ?? undefined,
+    );
   }
   const backend = opencodeBackend(resolveBackend, requestId);
   if (backend instanceof Response) return backend;
   try {
     return jsonResponse(await backend.switchModel(sessionId, requestId, providerID, modelID), 202);
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    return routeError(error);
+  }
 }
 
 /**
@@ -136,7 +167,11 @@ async function switchModel(request: Request, resolveBackend: (id: string) => Age
  * route because the answer is the payload: a receipt exists to be correlated with a turn, and
  * this one starts no turn.
  */
-async function askAside(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
+async function askAside(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  sessionId: string,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = await jsonBody(request);
@@ -149,16 +184,23 @@ async function askAside(request: Request, resolveBackend: (id: string) => AgentB
   if (backend instanceof Response) return backend;
   try {
     return jsonResponse({ text: await backend.askAside(sessionId, question) });
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    return routeError(error);
+  }
 }
 
 /** The whole projected transcript, as the web client's `/export` writes it to a file. */
-async function exportTranscript(resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
+async function exportTranscript(
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  sessionId: string,
+): Promise<Response> {
   const backend = opencodeBackend(resolveBackend);
   if (backend instanceof Response) return backend;
   try {
     return jsonResponse({ transcript: await backend.exportTranscript(sessionId) });
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    return routeError(error);
+  }
 }
 
 /**
@@ -169,7 +211,11 @@ async function exportTranscript(resolveBackend: (id: string) => AgentBackend | u
  * behind. The answer carries the title that was stored rather than the one that was typed, trimmed
  * the way it was sent, so a caller can show what it got without a second read.
  */
-async function renameTitle(request: Request, resolveBackend: (id: string) => AgentBackend | undefined, sessionId: string): Promise<Response> {
+async function renameTitle(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  sessionId: string,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = await jsonBody(request);
@@ -186,5 +232,7 @@ async function renameTitle(request: Request, resolveBackend: (id: string) => Age
   try {
     await backend.renameSession(sessionId, title);
     return jsonResponse({ sessionId, title });
-  } catch (error) { return routeError(error); }
+  } catch (error) {
+    return routeError(error);
+  }
 }

@@ -47,22 +47,19 @@ test("a single word longer than the limit is cut rather than emptied", () => {
 test("an unclaimed name carries no suffix", () => {
   // The common case, and the reason the suffix is conditional: most titles here are unique, and
   // the bare name is what a reader can type.
-  expect(uniqueTmuxSessionName("Canvas session", "b18b005e-46ad", ["claude-usage"]))
-    .toBe("canvas-session");
+  expect(uniqueTmuxSessionName("Canvas session", "b18b005e-46ad", ["claude-usage"])).toBe("canvas-session");
 });
 
 test("the second session of the same title is told apart by its own id", () => {
   // Six sessions were called "Windows canvas" on one night. The id decides rather than arrival
   // order, so a session keeps its name across restarts instead of depending on who started first.
-  expect(uniqueTmuxSessionName("Windows canvas", "b18b005e-46ad", ["windows-canvas"]))
-    .toBe("windows-canvas-b18b00");
+  expect(uniqueTmuxSessionName("Windows canvas", "b18b005e-46ad", ["windows-canvas"])).toBe("windows-canvas-b18b00");
 });
 
 test("ids sharing a prefix still get separate names", () => {
   // Terminates on the full id rather than searching for a longer prefix.
   const taken = ["windows-canvas", "windows-canvas-b18b00"];
-  expect(uniqueTmuxSessionName("Windows canvas", "b18b005e-46ad", taken))
-    .toBe("windows-canvas-b18b005e-46ad");
+  expect(uniqueTmuxSessionName("Windows canvas", "b18b005e-46ad", taken)).toBe("windows-canvas-b18b005e-46ad");
 });
 
 test("two different titles never need a suffix to differ", () => {

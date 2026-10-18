@@ -3,11 +3,7 @@
 // Shared by the view and its composer: the composer decides whether the field or the
 // terminal is the band's input surface, and the view decides how tall the band is.
 
-import type {
-  AgentTerminalContext,
-  AgentTerminalDescriptor,
-  SessionSummary,
-} from "@agentdesk/agent-feed-wire";
+import type { AgentTerminalContext, AgentTerminalDescriptor, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";

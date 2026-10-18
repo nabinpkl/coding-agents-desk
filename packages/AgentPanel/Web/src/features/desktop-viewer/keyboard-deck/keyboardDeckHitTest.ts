@@ -41,10 +41,7 @@ function seam(before: number, after: number): number {
   return (before + after) / 2;
 }
 
-export function deckHitCells(
-  rows: readonly DeckRowBox[],
-  size: DeckSize,
-): DeckCell[][] {
+export function deckHitCells(rows: readonly DeckRowBox[], size: DeckSize): DeckCell[][] {
   return rows.map((row, rowIndex) => {
     const previous = rows[rowIndex - 1];
     const next = rows[rowIndex + 1];
@@ -65,10 +62,7 @@ export function deckHitCells(
   });
 }
 
-export function cellAtPoint(
-  cells: readonly (readonly DeckCell[])[],
-  point: { x: number; y: number },
-): DeckCell | null {
+export function cellAtPoint(cells: readonly (readonly DeckCell[])[], point: { x: number; y: number }): DeckCell | null {
   for (const row of cells) {
     const first = row[0];
     if (!first || point.y < first.top || point.y >= first.bottom) continue;
@@ -91,8 +85,10 @@ export function pointHoldsCell(
   point: { x: number; y: number },
   slop: { x: number; y: number },
 ): boolean {
-  return point.x >= cell.left - slop.x
-    && point.x <= cell.right + slop.x
-    && point.y >= cell.top - slop.y
-    && point.y <= cell.bottom + slop.y;
+  return (
+    point.x >= cell.left - slop.x &&
+    point.x <= cell.right + slop.x &&
+    point.y >= cell.top - slop.y &&
+    point.y <= cell.bottom + slop.y
+  );
 }

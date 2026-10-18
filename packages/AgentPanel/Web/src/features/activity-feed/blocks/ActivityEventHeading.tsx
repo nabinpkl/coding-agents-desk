@@ -61,10 +61,7 @@ export const ROLE_BORDER: Record<DisplayRole, string> = {
  * A person's message is never labelled, in either mode: its card sits on the right in the
  * reader's own tint, which says who wrote it before a word of it is read.
  */
-export function showEventRoleLabel(
-  mode: SessionReference["mode"],
-  role: DisplayRole,
-): boolean {
+export function showEventRoleLabel(mode: SessionReference["mode"], role: DisplayRole): boolean {
   if (role === "user") return false;
   return mode === "raw" || (role !== "assistant" && role !== "reasoning" && role !== "tool");
 }
@@ -254,9 +251,7 @@ export function EventHeading({
       aria-expanded={!isCollapsed}
       // The live state rides the label rather than a visible band, so it is
       // announced without spending a line. The pulse below is its sighted twin.
-      aria-label={
-        (isCollapsed ? "expand event" : "collapse event") + (isLive ? ", streaming" : "")
-      }
+      aria-label={(isCollapsed ? "expand event" : "collapse event") + (isLive ? ", streaming" : "")}
       // The time alone: a transcript row's index is the byte its line starts at, an address rather
       // than a number a reader counts by (ADR-0124). A live row says what it is instead.
       title={isLive ? "streaming" : when || undefined}
@@ -270,8 +265,7 @@ export function EventHeading({
       {showChevron ? (
         <ChevronRight
           className={
-            "size-[1em] shrink-0 text-muted-foreground transition-transform " +
-            (isCollapsed ? "" : "rotate-90")
+            "size-[1em] shrink-0 text-muted-foreground transition-transform " + (isCollapsed ? "" : "rotate-90")
           }
           aria-hidden
         />

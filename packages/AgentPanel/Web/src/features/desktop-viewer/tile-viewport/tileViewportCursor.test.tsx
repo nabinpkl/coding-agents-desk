@@ -7,17 +7,10 @@ import type { DesktopPointerInput, WebrtcCursorEvent } from "@agentdesk/agent-fe
 import { tileViewportHarness } from "@/features/desktop-viewer/tile-viewport/tileViewportHarness";
 
 describe("TileViewport cursor mirror", () => {
-  const {
-    animationFrames,
-    pointer,
-    renderPointerSurface,
-  } = tileViewportHarness();
+  const { animationFrames, pointer, renderPointerSurface } = tileViewportHarness();
 
   it("draws a fixed client cursor overlay at the predicted source point", () => {
-    const surface = renderPointerSurface(
-      () => true,
-      { width: 800, height: 500, cursor: { x: 400, y: 250 } },
-    );
+    const surface = renderPointerSurface(() => true, { width: 800, height: 500, cursor: { x: 400, y: 250 } });
     const overlay = screen.getByTestId("client-cursor-overlay");
 
     act(() => window.dispatchEvent(new Event("resize")));
@@ -35,24 +28,28 @@ describe("TileViewport cursor mirror", () => {
       { width: 800, height: 500, cursor: { x: 100, y: 100 } },
       (next) => {
         listener = next;
-        return () => { listener = undefined; };
+        return () => {
+          listener = undefined;
+        };
       },
     );
     const overlay = screen.getByTestId("client-cursor-overlay");
     const fallback = screen.getByTestId("client-cursor-fallback");
     const image = overlay.querySelector("img")!;
 
-    act(() => listener?.({
-      type: "cursor-image",
-      hash: "ibeam",
-      png: "AQID",
-      hotspotXFrac: 0.5,
-      hotspotYFrac: 0.25,
-      widthPoints: 20,
-      heightPoints: 40,
-      hidden: false,
-      cursorKind: "ibeam",
-    }));
+    act(() =>
+      listener?.({
+        type: "cursor-image",
+        hash: "ibeam",
+        png: "AQID",
+        hotspotXFrac: 0.5,
+        hotspotYFrac: 0.25,
+        widthPoints: 20,
+        heightPoints: 40,
+        hidden: false,
+        cursorKind: "ibeam",
+      }),
+    );
 
     expect(overlay.dataset.cursorKind).toBe("ibeam");
     expect(image).not.toHaveAttribute("hidden");
@@ -65,17 +62,19 @@ describe("TileViewport cursor mirror", () => {
     act(() => listener?.({ type: "cursor-position", x: 600, y: 250 }));
     expect(overlay.style.transform).toBe("translate3d(600px, 250px, 0)");
 
-    act(() => listener?.({
-      type: "cursor-image",
-      hash: "hand",
-      png: "BAUG",
-      hotspotXFrac: 0.25,
-      hotspotYFrac: 0.1,
-      widthPoints: 24,
-      heightPoints: 24,
-      hidden: false,
-      cursorKind: "pointingHand",
-    }));
+    act(() =>
+      listener?.({
+        type: "cursor-image",
+        hash: "hand",
+        png: "BAUG",
+        hotspotXFrac: 0.25,
+        hotspotYFrac: 0.1,
+        widthPoints: 24,
+        heightPoints: 24,
+        hidden: false,
+        cursorKind: "pointingHand",
+      }),
+    );
     expect(overlay.dataset.cursorKind).toBe("pointingHand");
     expect(image).toHaveAttribute("src", "data:image/png;base64,BAUG");
     expect(surface.contains(overlay)).toBe(true);
@@ -92,7 +91,9 @@ describe("TileViewport cursor mirror", () => {
       { width: 800, height: 500, cursor: { x: 100, y: 250 } },
       (next) => {
         listener = next;
-        return () => { listener = undefined; };
+        return () => {
+          listener = undefined;
+        };
       },
     );
     const overlay = screen.getByTestId("client-cursor-overlay");

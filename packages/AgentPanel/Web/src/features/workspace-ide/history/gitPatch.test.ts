@@ -17,8 +17,7 @@ const PATCH = [
 
 it("drops the header and numbers each side from the hunk it is in", () => {
   const rows = parsePatch(PATCH);
-  expect(rows.map((row) => row.kind))
-    .toEqual(["hunk", "context", "removed", "added", "added", "context"]);
+  expect(rows.map((row) => row.kind)).toEqual(["hunk", "context", "removed", "added", "added", "context"]);
   expect(rows.map((row) => [row.oldNumber, row.newNumber])).toEqual([
     [null, null],
     [4, 4],
@@ -33,37 +32,30 @@ it("drops the header and numbers each side from the hunk it is in", () => {
 });
 
 it("cuts the marker off, so a line that begins with a plus survives being context", () => {
-  const rows = parsePatch([
-    "@@ -1,2 +1,2 @@",
-    " +indented by git, typed by nobody",
-    "+++added",
-  ].join("\n"));
+  const rows = parsePatch(["@@ -1,2 +1,2 @@", " +indented by git, typed by nobody", "+++added"].join("\n"));
   expect(rows[1]).toMatchObject({ kind: "context", text: "+indented by git, typed by nobody" });
   expect(rows[2]).toMatchObject({ kind: "added", text: "++added" });
 });
 
 it("keeps the header when there is no hunk, which is all a binary change has", () => {
-  const rows = parsePatch([
-    "diff --git a/logo.png b/logo.png",
-    "index 1234567..89abcde 100644",
-    "Binary files a/logo.png and b/logo.png differ",
-    "",
-  ].join("\n"));
+  const rows = parsePatch(
+    [
+      "diff --git a/logo.png b/logo.png",
+      "index 1234567..89abcde 100644",
+      "Binary files a/logo.png and b/logo.png differ",
+      "",
+    ].join("\n"),
+  );
   expect(rows).toEqual([
     { kind: "meta", text: "Binary files a/logo.png and b/logo.png differ", oldNumber: null, newNumber: null },
   ]);
 });
 
 it("reads a rename with no content change, where git writes only similarity", () => {
-  const rows = parsePatch([
-    "diff --git a/old.ts b/new.ts",
-    "similarity index 100%",
-    "rename from old.ts",
-    "rename to new.ts",
-    "",
-  ].join("\n"));
-  expect(rows.map((row) => row.text))
-    .toEqual(["similarity index 100%", "rename from old.ts", "rename to new.ts"]);
+  const rows = parsePatch(
+    ["diff --git a/old.ts b/new.ts", "similarity index 100%", "rename from old.ts", "rename to new.ts", ""].join("\n"),
+  );
+  expect(rows.map((row) => row.text)).toEqual(["similarity index 100%", "rename from old.ts", "rename to new.ts"]);
 });
 
 it("says the file ended without a newline instead of drawing the backslash", () => {

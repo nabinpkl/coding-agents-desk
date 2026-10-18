@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import { DOUBLE_SHIFT_MS, doubleShiftDetector } from "@/features/workspace-ide/search/useSearchShortcuts";
 import { parseQuickOpenQuery } from "@/features/workspace-ide/search/QuickOpen";
 
-const key = (name: string, timeStamp: number, extra: Partial<KeyboardEvent> = {}) =>
-  ({ key: name, timeStamp, repeat: false, metaKey: false, ctrlKey: false, altKey: false, ...extra });
+const key = (name: string, timeStamp: number, extra: Partial<KeyboardEvent> = {}) => ({
+  key: name,
+  timeStamp,
+  repeat: false,
+  metaKey: false,
+  ctrlKey: false,
+  altKey: false,
+  ...extra,
+});
 
 describe("doubleShiftDetector", () => {
   it("fires on two bare Shift presses in quick succession, once", () => {

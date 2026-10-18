@@ -62,7 +62,8 @@ function rowCallIds(it: RowItem): string[] {
   if (!it) return [];
   const events = it.kind === "tail" ? [it.ev] : itemEvents(it);
   return events.flatMap((event) =>
-    event.blocks.flatMap((block) => (block.kind === "tool_use" && block.callId ? [block.callId] : [])));
+    event.blocks.flatMap((block) => (block.kind === "tool_use" && block.callId ? [block.callId] : [])),
+  );
 }
 
 function sameRow(previous: ActivityFeedRowProps, next: ActivityFeedRowProps): boolean {
@@ -72,7 +73,8 @@ function sameRow(previous: ActivityFeedRowProps, next: ActivityFeedRowProps): bo
   }
   if (previous.pairedToolResults === next.pairedToolResults) return true;
   return rowCallIds(next.it).every(
-    (callId) => previous.pairedToolResults.get(callId) === next.pairedToolResults.get(callId));
+    (callId) => previous.pairedToolResults.get(callId) === next.pairedToolResults.get(callId),
+  );
 }
 
 export const ActivityFeedRow = memo(function ActivityFeedRow({

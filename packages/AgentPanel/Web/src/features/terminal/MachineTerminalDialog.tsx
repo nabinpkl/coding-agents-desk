@@ -48,7 +48,14 @@ type Phase = "open" | "confirming" | "ending";
  * the same either way, and two copies of the Escape reasoning below is how one of them would come
  * to close a vim session.
  */
-export function TerminalShellDialog({ feed, context, title, where, onClose, onEnd }: {
+export function TerminalShellDialog({
+  feed,
+  context,
+  title,
+  where,
+  onClose,
+  onEnd,
+}: {
   feed: SidecarDataSource;
   /** What the shell is pointed at. Stable by identity: the hook re-attaches when this changes. */
   context: AgentTerminalContext;
@@ -178,13 +185,7 @@ export function TerminalShellDialog({ feed, context, title, where, onClose, onEn
           </p>
         ) : null}
         <div className="min-h-0 flex-1">
-          <ShellTerminal
-            feed={feed}
-            context={context}
-            label={title}
-            where={where}
-            onState={onState}
-          />
+          <ShellTerminal feed={feed} context={context} label={title} where={where} onState={onState} />
         </div>
       </div>
     </div>,
@@ -192,40 +193,32 @@ export function TerminalShellDialog({ feed, context, title, where, onClose, onEn
   );
 }
 
-export function MachineTerminalDialog({ machine, onClose }: {
-  machine: MachineTerminalTarget;
-  onClose: () => void;
-}) {
+export function MachineTerminalDialog({ machine, onClose }: { machine: MachineTerminalTarget; onClose: () => void }) {
   const config = useSidecarConfig(machine.feed);
   const via: MachineShellBackend | null = config.data?.machineShell ?? null;
   const problem = config.error
     ? `Could not ask ${machine.label} how to open a shell: ${String(config.error.message ?? config.error)}`
     : null;
 
-  const context = useMemo<AgentTerminalContext | null>(
-    () => (via ? { kind: "machine", via } : null),
-    [via],
-  );
+  const context = useMemo<AgentTerminalContext | null>(() => (via ? { kind: "machine", via } : null), [via]);
 
   // The machine's own end: a tmux shell is killed by its one fixed name, a PTY one by the terminal
   // this dialog opened. The tmux answer closes the dialog; the PTY one waits for the ended state.
   const onEnd = useMemo(
-    () => async (
-      feed: SidecarDataSource,
-      descriptor: AgentTerminalDescriptor | null,
-    ): Promise<boolean> => {
-      if (via === "tmux") {
-        // The owner's own verb for ending a tmux session. The viewer's goodbye never ends one.
-        await feed.killTmuxSession(MACHINE_SHELL_SESSION);
+    () =>
+      async (feed: SidecarDataSource, descriptor: AgentTerminalDescriptor | null): Promise<boolean> => {
+        if (via === "tmux") {
+          // The owner's own verb for ending a tmux session. The viewer's goodbye never ends one.
+          await feed.killTmuxSession(MACHINE_SHELL_SESSION);
+          return true;
+        }
+        if (descriptor) {
+          await feed.closeTerminal(descriptor.terminalId, "kill");
+          return false;
+        }
+        // Nothing opened, so nothing is running to end.
         return true;
-      }
-      if (descriptor) {
-        await feed.closeTerminal(descriptor.terminalId, "kill");
-        return false;
-      }
-      // Nothing opened, so nothing is running to end.
-      return true;
-    },
+      },
     [via],
   );
 
@@ -261,7 +254,9 @@ export function MachineTerminalDialog({ machine, onClose }: {
               <X className="size-4" aria-hidden />
             </button>
           </header>
-          <p role="alert" className="px-3 py-3 text-xs text-destructive">{problem}</p>
+          <p role="alert" className="px-3 py-3 text-xs text-destructive">
+            {problem}
+          </p>
         </div>
       </div>,
       document.body,

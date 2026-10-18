@@ -73,7 +73,9 @@ export async function completeEnd(path: string): Promise<number> {
 export async function isLineStart(path: string, position: number): Promise<boolean> {
   if (position === 0) return true;
   if (position < 0) return false;
-  const before = await Bun.file(path).slice(position - 1, position).bytes();
+  const before = await Bun.file(path)
+    .slice(position - 1, position)
+    .bytes();
   return before.byteLength === 1 && before[0] === NEWLINE;
 }
 
@@ -83,11 +85,7 @@ export async function isLineStart(path: string, position: number): Promise<boole
  * `end` must be a line boundary; the reads that hand one in got it from `completeEnd` or from a
  * line's own position. Blank lines are skipped, as every reader of these files always has.
  */
-export async function linesBefore(
-  path: string,
-  end: number,
-  visit: (line: TranscriptLine) => boolean,
-): Promise<void> {
+export async function linesBefore(path: string, end: number, visit: (line: TranscriptLine) => boolean): Promise<void> {
   let cursor = end;
   // Bytes already read that belong to a line whose start is further back than the last chunk.
   let tail: Uint8Array = new Uint8Array();
@@ -137,7 +135,8 @@ export async function linesFrom(
     for (let newline = buffer.indexOf(NEWLINE); newline !== -1; newline = buffer.indexOf(NEWLINE, lineStart)) {
       if (newline > lineStart) {
         const text = decoder.decode(buffer.subarray(lineStart, newline));
-        if (!visit({ position: carryStart + lineStart, end: carryStart + newline + 1, text })) return carryStart + lineStart;
+        if (!visit({ position: carryStart + lineStart, end: carryStart + newline + 1, text }))
+          return carryStart + lineStart;
       }
       lineStart = newline + 1;
     }

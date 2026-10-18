@@ -21,8 +21,29 @@
 // called: a 200 text/html where JSON was expected is what a wrong family looks
 // like, and it was measured before this comment existed.
 
-import { opencodeClient, resetOpencodeClient, serveRequest, type OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
-import { stageOpencodeAttachments, listOpencodeServeCommands, listOpencodeModels, switchOpencodeModel, compactOpencodeSession, lastOpencodeUserMessage, undoOpencodeSession, redoOpencodeSession, renameOpencodeSession, forkOpencodeSession, askOpencodeAside, exportOpencodeSession, LOCAL_OPENCODE_COMMANDS, type OpencodeSlashCommand, type OpencodeModel } from "@/agents/opencode/serve/opencodeServeCalls";
+import {
+  opencodeClient,
+  resetOpencodeClient,
+  serveRequest,
+  type OpencodeClient,
+} from "@/agents/opencode/serve/opencodeClient";
+import {
+  stageOpencodeAttachments,
+  listOpencodeServeCommands,
+  listOpencodeModels,
+  switchOpencodeModel,
+  compactOpencodeSession,
+  lastOpencodeUserMessage,
+  undoOpencodeSession,
+  redoOpencodeSession,
+  renameOpencodeSession,
+  forkOpencodeSession,
+  askOpencodeAside,
+  exportOpencodeSession,
+  LOCAL_OPENCODE_COMMANDS,
+  type OpencodeSlashCommand,
+  type OpencodeModel,
+} from "@/agents/opencode/serve/opencodeServeCalls";
 import type {
   AgentBackend,
   AgentCommandReceipt,
@@ -42,7 +63,11 @@ import {
 } from "@/agents/agentBackend";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import type { TokenUsage, EventMode } from "@/transcripts/transcriptTypes";
-import { OpencodeSessionPool, type OpencodePoolOptions, type OwnedSession } from "@/agents/opencode/opencodeSessionPool";
+import {
+  OpencodeSessionPool,
+  type OpencodePoolOptions,
+  type OwnedSession,
+} from "@/agents/opencode/opencodeSessionPool";
 import { createOpencodeSession, type OpencodePermissionRule } from "@/agents/opencode/opencodeSessionCreate";
 
 export type { OpencodeSessionLocation } from "@/agents/opencode/opencodeSessionPool";
@@ -134,11 +159,7 @@ export class OpencodeAgentBackend implements AgentBackend {
    * The bytes behind one of the session's image blocks, for the image route's on-demand read.
    * Null where the session holds no picture there; the row draws without it.
    */
-  opencodeImage(
-    sessionId: string,
-    eventIndex: number,
-    blockIndex: number,
-  ): { mediaType: string; data: string } | null {
+  opencodeImage(sessionId: string, eventIndex: number, blockIndex: number): { mediaType: string; data: string } | null {
     if (this.disposed) return null;
     return this.pool.imageFor(sessionId, eventIndex, blockIndex);
   }
@@ -163,9 +184,7 @@ export class OpencodeAgentBackend implements AgentBackend {
     return this.pool.onCompaction(listener);
   }
 
-  onCompactionSummary(
-    listener: (sessionId: string, text: string, replace: boolean) => void,
-  ): () => void {
+  onCompactionSummary(listener: (sessionId: string, text: string, replace: boolean) => void): () => void {
     return this.pool.onCompactionSummary(listener);
   }
 
@@ -196,7 +215,8 @@ export class OpencodeAgentBackend implements AgentBackend {
       // inventions: a steer interrupts the turn with this prompt, a queued
       // prompt waits behind it. Idle sends travel as queued prompts.
       const serveDelivery = delivery === "steer" ? "steer" : "queue";
-      const files = attachments.length > 0 ? await stageOpencodeAttachments(sessionId, requestId, attachments) : undefined;
+      const files =
+        attachments.length > 0 ? await stageOpencodeAttachments(sessionId, requestId, attachments) : undefined;
       const answered = await serveRequest(`/api/session/${sessionId}/prompt`, {
         text,
         delivery: serveDelivery,
@@ -311,7 +331,12 @@ export class OpencodeAgentBackend implements AgentBackend {
    * back off this session's own projection, so it moves on that session's next read rather than on
    * this call.
    */
-  async switchModel(sessionId: string, requestId: string, providerID: string, modelID: string): Promise<AgentCommandReceipt> {
+  async switchModel(
+    sessionId: string,
+    requestId: string,
+    providerID: string,
+    modelID: string,
+  ): Promise<AgentCommandReceipt> {
     const owned = await this.pool.open(sessionId);
     const signature = JSON.stringify({ type: "switch-model", providerID, modelID });
     return this.command(owned, requestId, signature, async () => {
@@ -332,7 +357,12 @@ export class OpencodeAgentBackend implements AgentBackend {
    * change, they start no turn, and what they answer with is the payload, so each is its own
    * route (`askAside`, `exportTranscript`) rather than a receipt nobody can carry a transcript in.
    */
-  async runLocalCommand(sessionId: string, requestId: string, name: string, text: string): Promise<AgentCommandReceipt> {
+  async runLocalCommand(
+    sessionId: string,
+    requestId: string,
+    name: string,
+    text: string,
+  ): Promise<AgentCommandReceipt> {
     const owned = await this.pool.open(sessionId);
     const signature = JSON.stringify({ type: "local-command", name, text });
     return this.command(owned, requestId, signature, async () => {
@@ -428,7 +458,10 @@ export class OpencodeAgentBackend implements AgentBackend {
       return prior.promise;
     }
     const promise = owned.commandTail.then(execute);
-    owned.commandTail = promise.then(() => {}, () => {});
+    owned.commandTail = promise.then(
+      () => {},
+      () => {},
+    );
     owned.commands.set(requestId, { signature, promise });
     while (owned.commands.size > 128) {
       const oldest = owned.commands.keys().next().value;

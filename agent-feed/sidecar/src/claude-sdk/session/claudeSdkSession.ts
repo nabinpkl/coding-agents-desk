@@ -29,7 +29,9 @@ import {
 import type { PromptImage, SessionCommand, SessionReply } from "@/claude-sdk/session/claudeSdkCommands";
 
 /** What the runner is to be sent for a command, or why it is refused without asking. */
-export type CommandPlan = { send: DistributiveOmit<Exclude<SidecarToRunner, { type: "hello" }>, "id"> } | { refuse: SessionReply };
+export type CommandPlan =
+  | { send: DistributiveOmit<Exclude<SidecarToRunner, { type: "hello" }>, "id"> }
+  | { refuse: SessionReply };
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
 /**
@@ -42,13 +44,14 @@ export function sdkPermissionMode(mode: ClaudePermissionMode): "default" | Exclu
 
 export function cliPermissionMode(mode: unknown): ClaudePermissionMode | null {
   if (mode === "default") return "manual";
-  return (CLAUDE_PERMISSION_MODES as readonly unknown[]).includes(mode) ? mode as ClaudePermissionMode : null;
+  return (CLAUDE_PERMISSION_MODES as readonly unknown[]).includes(mode) ? (mode as ClaudePermissionMode) : null;
 }
 
 const isString = (value: unknown): value is string => typeof value === "string";
 type Fields = Record<string, unknown>;
 
-const isEffortLevel = (value: unknown): value is ClaudeEffortLevel => (CLAUDE_EFFORT_LEVELS as readonly unknown[]).includes(value);
+const isEffortLevel = (value: unknown): value is ClaudeEffortLevel =>
+  (CLAUDE_EFFORT_LEVELS as readonly unknown[]).includes(value);
 
 const DENIED_IN_PANEL = "The person denied this from the agent panel.";
 
@@ -60,12 +63,16 @@ const SESSION_STATES: Record<string, ClaudeSdkRunStatus> = {
 
 /** The panel's own words for a turn, as the SDK takes them: images first, then the words. */
 function userMessage(text: string, images: readonly PromptImage[] = []): Fields & { type: "user" } {
-  const content = images.length === 0
-    ? text
-    : [
-      ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
-      { type: "text", text },
-    ];
+  const content =
+    images.length === 0
+      ? text
+      : [
+          ...images.map((image) => ({
+            type: "image",
+            source: { type: "base64", media_type: image.mediaType, data: image.data },
+          })),
+          { type: "text", text },
+        ];
   // `human` because the panel's composer is somebody at a keyboard; an unstamped message is
   // treated as unattributed and fails the CLI's isHuman() gates closed (the SDK's own note).
   return { type: "user", message: { role: "user", content }, parent_tool_use_id: null, origin: { kind: "human" } };
@@ -77,13 +84,15 @@ export function sdkModels(value: unknown): ClaudeSdkModel[] {
   return value.flatMap((entry: Fields) => {
     if (!entry || !isString(entry.value) || !isString(entry.displayName)) return [];
     const levels = Array.isArray(entry.supportedEffortLevels) ? entry.supportedEffortLevels.filter(isEffortLevel) : [];
-    return [{
-      value: entry.value,
-      ...(isString(entry.resolvedModel) ? { resolvedModel: entry.resolvedModel } : {}),
-      displayName: entry.displayName,
-      description: isString(entry.description) ? entry.description : "",
-      ...(entry.supportsEffort === true && levels.length > 0 ? { effortLevels: levels } : {}),
-    }];
+    return [
+      {
+        value: entry.value,
+        ...(isString(entry.resolvedModel) ? { resolvedModel: entry.resolvedModel } : {}),
+        displayName: entry.displayName,
+        description: isString(entry.description) ? entry.description : "",
+        ...(entry.supportsEffort === true && levels.length > 0 ? { effortLevels: levels } : {}),
+      },
+    ];
   });
 }
 
@@ -211,7 +220,8 @@ export class SdkSession {
     const toolUseId = options.toolUseID;
     if (toolName === "AskUserQuestion") {
       const questions = askedQuestions(input);
-      if (!questions) return { behavior: "deny", message: "AskUserQuestion arrived without questions the panel can show." };
+      if (!questions)
+        return { behavior: "deny", message: "AskUserQuestion arrived without questions the panel can show." };
       this.pending.set(callback.id, { kind: "question", toolUseId, questions, openedAt: callback.openedAt });
       return null;
     }
@@ -254,12 +264,15 @@ export class SdkSession {
   plan(command: SessionCommand): CommandPlan {
     switch (command.type) {
       case "prompt":
-        if (this.status === "exited") return { refuse: { ok: false, reason: "failed", message: "the session has ended" } };
+        if (this.status === "exited")
+          return { refuse: { ok: false, reason: "failed", message: "the session has ended" } };
         return { send: { type: "input", message: userMessage(command.text, command.images) } };
       case "answer":
         return this.answer(command.answers);
       case "decide": {
-        const entry = [...this.pending.entries()].find(([, request]) => request.kind === "approval" && request.toolUseId === command.toolUseId);
+        const entry = [...this.pending.entries()].find(
+          ([, request]) => request.kind === "approval" && request.toolUseId === command.toolUseId,
+        );
         if (!entry || entry[1].kind !== "approval") {
           return { refuse: { ok: false, reason: "not-pending", message: "that approval is no longer waiting" } };
         }
@@ -270,7 +283,9 @@ export class SdkSession {
       }
       case "set-mode":
         if (command.mode === "bypassPermissions" && !this.allowBypass) {
-          return { refuse: { ok: false, reason: "invalid", message: "bypass permissions is not allowed for this session" } };
+          return {
+            refuse: { ok: false, reason: "invalid", message: "bypass permissions is not allowed for this session" },
+          };
         }
         return { send: { type: "call", method: "setPermissionMode", args: [sdkPermissionMode(command.mode)] } };
       case "set-model":
@@ -295,7 +310,8 @@ export class SdkSession {
 
   private answer(answers: readonly TmuxQuestionAnswer[]): CommandPlan {
     const questions = [...this.pending.entries()].filter(([, request]) => request.kind === "question");
-    if (questions.length === 0) return { refuse: { ok: false, reason: "no-dialog", message: "no question is waiting" } };
+    if (questions.length === 0)
+      return { refuse: { ok: false, reason: "no-dialog", message: "no question is waiting" } };
     let refusal: Extract<AnswersFit, { ok: false }> | null = null;
     for (const [callback, request] of questions) {
       if (request.kind !== "question") continue;
@@ -305,7 +321,13 @@ export class SdkSession {
         if (!refusal || fit.refused === "wrong-option") refusal = fit;
         continue;
       }
-      return { send: { type: "settle", callback, result: { behavior: "allow", updatedInput: { questions: request.questions, answers: fit.answers } } } };
+      return {
+        send: {
+          type: "settle",
+          callback,
+          result: { behavior: "allow", updatedInput: { questions: request.questions, answers: fit.answers } },
+        },
+      };
     }
     return { refuse: { ok: false, reason: refusal!.refused, message: refusal!.message } };
   }
@@ -342,7 +364,10 @@ export class SdkSession {
       this.becomes("running");
       const event = message.event as Fields | undefined;
       return message.type === "stream_event" && event && isString(event.type)
-        ? { event: event as RunnerStreamFrame["event"], parentToolUseId: isString(message.parent_tool_use_id) ? message.parent_tool_use_id : null }
+        ? {
+            event: event as RunnerStreamFrame["event"],
+            parentToolUseId: isString(message.parent_tool_use_id) ? message.parent_tool_use_id : null,
+          }
         : null;
     }
     if (message.type === "result") {

@@ -43,7 +43,9 @@ export interface SessionArchiveRouteDependencies {
  * one a reader wants to archive. Every other source by its backend's word, which is what already
  * decides the row's live bin.
  */
-export function liveSessionCheck(resolveAgentSession?: AgentSessionDescriptorResolver): (session: Session) => Promise<boolean> {
+export function liveSessionCheck(
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): (session: Session) => Promise<boolean> {
   return async (session) => {
     if (session.source === "claude") {
       return (await sessionOwner(session.sessionId, await currentProcessTable())) !== null;

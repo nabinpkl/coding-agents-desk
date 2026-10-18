@@ -130,7 +130,11 @@ describe("GestureTranslator pointer, what the browser adds", () => {
   it("sums a frame's samples and accelerates by that frame's speed", () => {
     const { translator, outputs, runFrames } = translatorTestKit({ accelerated: true });
     translator.cursorBegin({ x: 0, y: 0 }, 0);
-    translator.cursorSamples([{ x: 3, y: 0 }, { x: 6, y: 0 }, { x: 10, y: 0 }]);
+    translator.cursorSamples([
+      { x: 3, y: 0 },
+      { x: 6, y: 0 },
+      { x: 10, y: 0 },
+    ]);
     runFrames(20);
     // 10px in 20ms is 500 pt/s: gain 1.5 + 2.5 = 4.
     expect(outputs).toEqual([{ type: "cursor-move", dx: 40, dy: 0 }]);

@@ -22,7 +22,11 @@ function screen(lines: string[], { rows = 8, cursorY = 0, history = 0, back = 0 
     },
     onRender: (listener: () => void) => {
       render = listener;
-      return { dispose: () => { render = null; } };
+      return {
+        dispose: () => {
+          render = null;
+        },
+      };
     },
   };
   return { fake, render: () => render?.() };

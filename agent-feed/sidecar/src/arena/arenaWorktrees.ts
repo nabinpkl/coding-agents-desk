@@ -65,13 +65,24 @@ export async function initRunRepository(options: {
   // A git whose init template has no `info/` still reads the exclude file once it is there.
   await mkdir(join(path, ".git", "info"), { recursive: true });
   await appendFile(join(path, ".git", "info", "exclude"), worktreeFolders.map((folder) => `/${folder}/\n`).join(""));
-  const commit = await runGit([
-    "-c", "user.name=Agent Desk Arena",
-    "-c", "user.email=arena@agentdesk.invalid",
-    "-c", "commit.gpgsign=false",
-    "-c", "core.hooksPath=/dev/null",
-    "commit", "-q", "--allow-empty", "-m", message,
-  ], path);
+  const commit = await runGit(
+    [
+      "-c",
+      "user.name=Agent Desk Arena",
+      "-c",
+      "user.email=arena@agentdesk.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      message,
+    ],
+    path,
+  );
   if (commit.code !== 0) {
     throw new ArenaWorktreeError(`the first commit in ${path} failed: ${commit.err || commit.out || commit.code}`);
   }
@@ -93,20 +104,14 @@ async function pathExists(path: string): Promise<boolean> {
  * never read off a request), and it must not exist yet: a worktree appearing in a fresh run's
  * folder can only be a bug in that construction, and reusing whatever is there would hide it.
  */
-export async function addContestantWorktree(options: {
-  repoPath: string;
-  path: string;
-  ref: string;
-}): Promise<void> {
+export async function addContestantWorktree(options: { repoPath: string; path: string; ref: string }): Promise<void> {
   const { repoPath, path, ref } = options;
   if (await pathExists(path)) {
     throw new ArenaWorktreeError(`${path} already exists; a contestant worktree must be made new`);
   }
   const added = await runGit(["worktree", "add", "--detach", path, ref], repoPath);
   if (added.code !== 0) {
-    throw new ArenaWorktreeError(
-      `git worktree add ${path} at ${ref} failed: ${added.err || added.out || added.code}`,
-    );
+    throw new ArenaWorktreeError(`git worktree add ${path} at ${ref} failed: ${added.err || added.out || added.code}`);
   }
 }
 
@@ -119,10 +124,7 @@ export async function addContestantWorktree(options: {
  * make forcing safe: the path must read as a worktree of exactly this run's repository, or the
  * refusal names it and nothing is removed at all.
  */
-export async function removeContestantWorktree(options: {
-  repoPath: string;
-  path: string;
-}): Promise<void> {
+export async function removeContestantWorktree(options: { repoPath: string; path: string }): Promise<void> {
   const { repoPath, path } = options;
   const worktree = await readWorktree(path);
   const owner = await realpath(repoPath).catch(() => null);
@@ -132,9 +134,7 @@ export async function removeContestantWorktree(options: {
   }
   const removed = await runGit(["worktree", "remove", "--force", path], repoPath);
   if (removed.code !== 0) {
-    throw new ArenaWorktreeError(
-      `git worktree remove ${path} failed: ${removed.err || removed.out || removed.code}`,
-    );
+    throw new ArenaWorktreeError(`git worktree remove ${path} failed: ${removed.err || removed.out || removed.code}`);
   }
 }
 
@@ -153,10 +153,7 @@ export async function pruneWorktrees(repoPath: string): Promise<void> {
  * contestant's NEW files are still named where the arena records them, in `filesWritten`.
  * The caller caps the size; this returns the whole diff and refuses nothing.
  */
-export async function captureWorktreeDiff(options: {
-  worktreePath: string;
-  ref: string;
-}): Promise<string> {
+export async function captureWorktreeDiff(options: { worktreePath: string; ref: string }): Promise<string> {
   const { worktreePath, ref } = options;
   const diffed = await runGit(["diff", ref], worktreePath);
   if (diffed.code !== 0) {
@@ -222,8 +219,6 @@ export async function undoWorktrees(
   }
   await steps.prune(repoPath);
   if (refused.length > 0) {
-    console.error(
-      `agent feed arena left worktrees in ${repoPath} (${refused.length}): ${refused.join("; ")}`,
-    );
+    console.error(`agent feed arena left worktrees in ${repoPath} (${refused.length}): ${refused.join("; ")}`);
   }
 }

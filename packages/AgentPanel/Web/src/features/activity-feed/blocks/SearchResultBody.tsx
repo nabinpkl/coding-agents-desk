@@ -39,7 +39,10 @@ export function parseSearchResult(tool: string | undefined, text: string): Searc
   if (typeof tool !== "string" || !isSearchTool(tool)) return null;
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const lines = trimmed.split("\n").map((line) => line.trimEnd()).filter((line) => line.trim());
+  const lines = trimmed
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim());
   if (lines.length === 0) return null;
 
   const matched = lines.flatMap((line) => {
@@ -67,10 +70,7 @@ export function parseSearchResult(tool: string | undefined, text: string): Searc
   }
   // A captionless file list: every line path-shaped, and at least one carrying
   // a `/` or `.` so a bare word never reads as a one-row list.
-  if (
-    lines.every((line) => PATH_LINE.test(line.trim())) &&
-    lines.some((line) => /[/.]/.test(line))
-  ) {
+  if (lines.every((line) => PATH_LINE.test(line.trim())) && lines.some((line) => /[/.]/.test(line))) {
     return { kind: "files", caption: null, paths: lines.map((line) => line.trim()) };
   }
   return null;
@@ -79,13 +79,8 @@ export function parseSearchResult(tool: string | undefined, text: string): Searc
 export function SearchResultBody({ body }: { body: SearchResultBody }) {
   if (body.kind === "files") {
     return (
-      <div
-        className="space-y-[0.3em]"
-        style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-      >
-        {body.caption ? (
-          <div className="text-[0.85em] text-muted-foreground">{body.caption}</div>
-        ) : null}
+      <div className="space-y-[0.3em]" style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}>
+        {body.caption ? <div className="text-[0.85em] text-muted-foreground">{body.caption}</div> : null}
         {body.paths.length > 0 ? (
           <div className="rounded-sm border border-border/50 bg-muted/30 px-2 py-1.5 font-mono text-foreground/80">
             {body.paths.map((path, index) => (
@@ -99,16 +94,10 @@ export function SearchResultBody({ body }: { body: SearchResultBody }) {
     );
   }
   return (
-    <div
-      className="space-y-[0.4em]"
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-    >
+    <div className="space-y-[0.4em]" style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}>
       {body.groups.map((group) => (
         <div key={group.path} className="space-y-[0.2em]">
-          <div
-            className="truncate font-mono text-[0.85em] text-muted-foreground"
-            title={group.path}
-          >
+          <div className="truncate font-mono text-[0.85em] text-muted-foreground" title={group.path}>
             {group.path.split("/").pop() ?? group.path}
           </div>
           <CodeBlock code={group.lines.join("\n")} lang={group.path} />

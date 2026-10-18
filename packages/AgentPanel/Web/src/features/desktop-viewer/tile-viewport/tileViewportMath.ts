@@ -23,18 +23,8 @@ const SCALE_EPSILON = 1e-9;
 
 export const IDENTITY: ViewportTransform = { scale: 1, tx: 0, ty: 0 };
 
-function aspectFitPicture(
-  sourceWidth: number,
-  sourceHeight: number,
-  viewportWidth: number,
-  viewportHeight: number,
-) {
-  if (
-    sourceWidth <= 0
-    || sourceHeight <= 0
-    || viewportWidth <= 0
-    || viewportHeight <= 0
-  ) return null;
+function aspectFitPicture(sourceWidth: number, sourceHeight: number, viewportWidth: number, viewportHeight: number) {
+  if (sourceWidth <= 0 || sourceHeight <= 0 || viewportWidth <= 0 || viewportHeight <= 0) return null;
   const fit = Math.min(viewportWidth / sourceWidth, viewportHeight / sourceHeight);
   const width = sourceWidth * fit;
   const height = sourceHeight * fit;
@@ -55,12 +45,7 @@ export function projectRemoteCursor(
   viewportWidth: number,
   viewportHeight: number,
 ): ViewportPoint | null {
-  const picture = aspectFitPicture(
-    sourceWidth,
-    sourceHeight,
-    viewportWidth,
-    viewportHeight,
-  );
+  const picture = aspectFitPicture(sourceWidth, sourceHeight, viewportWidth, viewportHeight);
   if (!picture) return null;
   return {
     x: (picture.x + cursor.x * (picture.width / sourceWidth)) * transform.scale + transform.tx,
@@ -113,12 +98,7 @@ export function followRemoteCursor(
   edgeMargin = 0.12,
 ): ViewportTransform {
   if (transform.scale <= 1) return transform;
-  const picture = aspectFitPicture(
-    sourceWidth,
-    sourceHeight,
-    viewportWidth,
-    viewportHeight,
-  );
+  const picture = aspectFitPicture(sourceWidth, sourceHeight, viewportWidth, viewportHeight);
   if (!picture) return transform;
 
   const followAxis = (
@@ -149,22 +129,8 @@ export function followRemoteCursor(
 
   return {
     scale: transform.scale,
-    tx: followAxis(
-      cursor.x,
-      sourceWidth,
-      picture.x,
-      picture.width,
-      viewportWidth,
-      transform.tx,
-    ),
-    ty: followAxis(
-      cursor.y,
-      sourceHeight,
-      picture.y,
-      picture.height,
-      viewportHeight,
-      transform.ty,
-    ),
+    tx: followAxis(cursor.x, sourceWidth, picture.x, picture.width, viewportWidth, transform.tx),
+    ty: followAxis(cursor.y, sourceHeight, picture.y, picture.height, viewportHeight, transform.ty),
   };
 }
 
@@ -197,11 +163,7 @@ export function zoomAt(
   // The content point under (cx, cy) stays under (cx, cy).
   const contentX = (cx - transform.tx) / transform.scale;
   const contentY = (cy - transform.ty) / transform.scale;
-  return clampPan(
-    { scale, tx: cx - contentX * scale, ty: cy - contentY * scale },
-    viewportWidth,
-    viewportHeight,
-  );
+  return clampPan({ scale, tx: cx - contentX * scale, ty: cy - contentY * scale }, viewportWidth, viewportHeight);
 }
 
 /**
@@ -224,17 +186,12 @@ export function coverOnRemoteCursor(
   viewportWidth: number,
   viewportHeight: number,
 ): ViewportTransform {
-  const picture = aspectFitPicture(
-    sourceWidth,
-    sourceHeight,
-    viewportWidth,
-    viewportHeight,
-  );
+  const picture = aspectFitPicture(sourceWidth, sourceHeight, viewportWidth, viewportHeight);
   if (!picture) return IDENTITY;
-  const scale = Math.min(MAX_SCALE, Math.max(
-    MIN_SCALE,
-    Math.max(viewportWidth / picture.width, viewportHeight / picture.height),
-  ));
+  const scale = Math.min(
+    MAX_SCALE,
+    Math.max(MIN_SCALE, Math.max(viewportWidth / picture.width, viewportHeight / picture.height)),
+  );
 
   const centreAxis = (
     sourcePosition: number,

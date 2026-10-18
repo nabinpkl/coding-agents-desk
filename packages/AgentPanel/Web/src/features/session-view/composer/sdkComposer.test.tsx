@@ -11,7 +11,12 @@ import { composerActions } from "@/features/session-view/composer/sessionCompose
 import { compactControl, submitComposer } from "@/features/session-view/composer/sessionComposerSubmit";
 import { composerCaption, composerEditor } from "@/features/session-view/composer/sessionComposerEditor";
 import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
-import { currentSdkModel, sdkEffortChoice, sdkModelRows, type SdkSessionHandle } from "@/features/cli-input/useSdkSession";
+import {
+  currentSdkModel,
+  sdkEffortChoice,
+  sdkModelRows,
+  type SdkSessionHandle,
+} from "@/features/cli-input/useSdkSession";
 import { runnerQuestion, sdkQuestionReasonText } from "@/features/session-view/composer/question/useQuestionMirror";
 import { approvalDetail, SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
 
@@ -26,14 +31,23 @@ const LIVE: ClaudeSdkSessionState = {
   model: "claude-opus-5-5",
   models: [
     { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", description: "" },
-    { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "", effortLevels: ["low", "medium", "high", "max"] },
+    {
+      value: "opus",
+      resolvedModel: "claude-opus-5-5",
+      displayName: "Opus",
+      description: "",
+      effortLevels: ["low", "medium", "high", "max"],
+    },
     { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku", description: "" },
   ],
   queued: [],
   effort: null,
 };
 
-function handle(state: Partial<ClaudeSdkSessionState> = {}, overrides: Partial<SdkSessionHandle> = {}): SdkSessionHandle {
+function handle(
+  state: Partial<ClaudeSdkSessionState> = {},
+  overrides: Partial<SdkSessionHandle> = {},
+): SdkSessionHandle {
   return {
     state: { ...LIVE, ...state },
     pending: false,
@@ -81,15 +95,25 @@ function attachments(images: { id: string }[] = []) {
     attach: vi.fn(),
     remove: vi.fn(),
     clear: vi.fn(),
-    toWire: vi.fn(async (held: { id: string }[]) => held.map((image) => ({ data: `b64-${image.id}`, mime: "image/png", name: `${image.id}.png` }))),
+    toWire: vi.fn(async (held: { id: string }[]) =>
+      held.map((image) => ({ data: `b64-${image.id}`, mime: "image/png", name: `${image.id}.png` })),
+    ),
   } as unknown as ComposerModel["sendAttachments"];
 }
 
 describe("which surface owns the composer", () => {
-  const none = { mirrored: false, terminalCandidate: false, windowCandidate: false, windowRefused: false, agentTerminal: null };
+  const none = {
+    mirrored: false,
+    terminalCandidate: false,
+    windowCandidate: false,
+    windowRefused: false,
+    agentTerminal: null,
+  };
 
   it("is the runner for an SDK session, ahead of a pane or a window", () => {
-    expect(composerTransport({ ...none, sdkCandidate: true, mirrored: true, windowCandidate: true }).kind).toBe("sdk-session");
+    expect(composerTransport({ ...none, sdkCandidate: true, mirrored: true, windowCandidate: true }).kind).toBe(
+      "sdk-session",
+    );
   });
 
   it("keeps the old order for everything else", () => {
@@ -113,7 +137,9 @@ describe("the SDK band's actions", () => {
     const held = attachments([{ id: "shot" }]);
     const m = sdkModel(handle(), { sendAttachments: held });
     await submitComposer(m, "next");
-    expect(m.sdkSession.send).toHaveBeenCalledWith("hello", [{ data: "b64-shot", mime: "image/png", name: "shot.png" }]);
+    expect(m.sdkSession.send).toHaveBeenCalledWith("hello", [
+      { data: "b64-shot", mime: "image/png", name: "shot.png" },
+    ]);
     expect(held.clear).toHaveBeenCalled();
     expect(composerEditor(m).onFiles).toBe(held.attach);
   });
@@ -147,8 +173,13 @@ describe("the SDK band's actions", () => {
     const chip = composerActions(m).find((action) => action.key === "permission-mode")!;
     expect(chip.ariaLabel).toBe("Permission mode Plan, choose another");
     expect(chip.menu?.value).toBe("plan");
-    expect(chip.menu?.choices.map((choice) => choice.value))
-      .toEqual(["plan", "manual", "acceptEdits", "auto", "bypassPermissions"]);
+    expect(chip.menu?.choices.map((choice) => choice.value)).toEqual([
+      "plan",
+      "manual",
+      "acceptEdits",
+      "auto",
+      "bypassPermissions",
+    ]);
     chip.menu!.onChoose("acceptEdits");
     expect(m.sdkSession.choosePermissionMode).toHaveBeenCalledWith("acceptEdits");
     const gone = sdkModel(handle({ ...DISCONNECTED_CLAUDE_SDK_STATE }));
@@ -156,8 +187,9 @@ describe("the SDK band's actions", () => {
   });
 
   it("draws the mode's icon always, and its name only where the footer is wide enough", () => {
-    const chip = composerActions(sdkModel(handle({ permissionMode: "bypassPermissions" })))
-      .find((action) => action.key === "permission-mode")!;
+    const chip = composerActions(sdkModel(handle({ permissionMode: "bypassPermissions" }))).find(
+      (action) => action.key === "permission-mode",
+    )!;
     const { container } = render(<>{chip.icon}</>);
     expect(container.querySelector("svg")).toBeTruthy();
     const name = screen.getByText("Bypass");
@@ -180,15 +212,19 @@ describe("the SDK band's actions", () => {
     await compactControl(m)!.run();
     expect(m.sdkSession.send).toHaveBeenCalledWith("/compact", undefined);
     expect(compactControl(sdkModel())!.blocked).toBe("Send or clear the draft in the composer first.");
-    expect(compactControl(sdkModel(handle({ connected: false }), { editorValue: "" }))!.blocked).toBe("This session is not running.");
+    expect(compactControl(sdkModel(handle({ connected: false }), { editorValue: "" }))!.blocked).toBe(
+      "This session is not running.",
+    );
   });
 
   it("says when there is no runner, and says the runner's refusal", () => {
     const gone = sdkModel(handle({ connected: false }));
     expect(composerEditor(gone).placeholder).toBe("This session is not running");
     expect(composerCaption(gone)).toEqual({ caption: "This session is not running.", captionIsError: false });
-    expect(composerCaption(sdkModel(handle({}, { error: "That request is no longer waiting." }))))
-      .toEqual({ caption: "That request is no longer waiting.", captionIsError: true });
+    expect(composerCaption(sdkModel(handle({}, { error: "That request is no longer waiting." })))).toEqual({
+      caption: "That request is no longer waiting.",
+      captionIsError: true,
+    });
   });
 });
 
@@ -206,8 +242,9 @@ describe("moving a session between the terminal and the SDK", () => {
 
   it("shows the SDK toggle on, in the active colour, only while the session runs through the SDK", () => {
     const toggle = (runMode: "sdk" | "terminal") =>
-      composerActions(sdkModel(handle(), { sdkBand: runMode === "sdk", runMode, runModeSwitch: switcher() }))
-        .find((action) => action.key === "switch-run-mode")!;
+      composerActions(sdkModel(handle(), { sdkBand: runMode === "sdk", runMode, runModeSwitch: switcher() })).find(
+        (action) => action.key === "switch-run-mode",
+      )!;
     expect(toggle("sdk").pressed).toBe(true);
     expect(toggle("sdk").className).toContain("text-primary");
     expect(toggle("terminal").pressed).toBe(false);
@@ -215,16 +252,27 @@ describe("moving a session between the terminal and the SDK", () => {
   });
 
   it("offers nothing where neither mode is running", () => {
-    expect(composerActions(sdkModel(handle(), { runMode: null, runModeSwitch: switcher() }))
-      .some((action) => action.key === "switch-run-mode")).toBe(false);
-    expect(composerActions(sdkModel(handle({ connected: false }), { runMode: "sdk", runModeSwitch: switcher() }))
-      .some((action) => action.key === "switch-run-mode")).toBe(false);
+    expect(
+      composerActions(sdkModel(handle(), { runMode: null, runModeSwitch: switcher() })).some(
+        (action) => action.key === "switch-run-mode",
+      ),
+    ).toBe(false);
+    expect(
+      composerActions(sdkModel(handle({ connected: false }), { runMode: "sdk", runModeSwitch: switcher() })).some(
+        (action) => action.key === "switch-run-mode",
+      ),
+    ).toBe(false);
   });
 
   it("puts a refusal in the caption, and two processes above everything", () => {
-    expect(composerCaption(sdkModel(handle(), { runModeSwitch: { ...switcher(), error: "Not switched: a turn is running." } })))
-      .toEqual({ caption: "Not switched: a turn is running.", captionIsError: true });
-    const forked = composerCaption(sdkModel(handle(), { liveProcesses: 2, runModeSwitch: { ...switcher(), error: "x" } }));
+    expect(
+      composerCaption(
+        sdkModel(handle(), { runModeSwitch: { ...switcher(), error: "Not switched: a turn is running." } }),
+      ),
+    ).toEqual({ caption: "Not switched: a turn is running.", captionIsError: true });
+    const forked = composerCaption(
+      sdkModel(handle(), { liveProcesses: 2, runModeSwitch: { ...switcher(), error: "x" } }),
+    );
     expect(forked.captionIsError).toBe(true);
     expect(forked.caption).toMatch(/^2 processes are running this session/);
   });
@@ -241,7 +289,9 @@ describe("the model", () => {
   });
 
   it("offers no switch until the runner has listed what it can switch to", () => {
-    expect(composerActions(sdkModel(handle({ models: [] }))).some((action) => action.key === "switch-model")).toBe(false);
+    expect(composerActions(sdkModel(handle({ models: [] }))).some((action) => action.key === "switch-model")).toBe(
+      false,
+    );
   });
 
   it("matches the current model by its full id without taking the default row for it", () => {
@@ -249,15 +299,23 @@ describe("the model", () => {
     expect(currentSdkModel({ ...LIVE, model: "haiku" })?.value).toBe("haiku");
     expect(currentSdkModel({ ...LIVE, model: null })).toBeNull();
     expect(sdkModelRows({ ...LIVE, models: [] })).toBeNull();
-    expect(sdkModelRows(LIVE)?.[1]).toEqual({ providerID: "claude", modelID: "opus", name: "Opus", contextLimit: null, inputCost: null, outputCost: null });
+    expect(sdkModelRows(LIVE)?.[1]).toEqual({
+      providerID: "claude",
+      modelID: "opus",
+      name: "Opus",
+      contextLimit: null,
+      inputCost: null,
+      outputCost: null,
+    });
   });
 });
 
 describe("the mode menu", () => {
   it("offers bypass only to a runner started allowing it, and says why otherwise", () => {
-    const bypass = (allowBypass: boolean) => composerActions(sdkModel(handle({ allowBypass })))
-      .find((action) => action.key === "permission-mode")!.menu!.choices
-      .find((choice) => choice.value === "bypassPermissions")!;
+    const bypass = (allowBypass: boolean) =>
+      composerActions(sdkModel(handle({ allowBypass })))
+        .find((action) => action.key === "permission-mode")!
+        .menu!.choices.find((choice) => choice.value === "bypassPermissions")!;
     expect(bypass(true).unavailable).toBeUndefined();
     expect(bypass(false).unavailable).toBe("This session was started without bypass.");
   });
@@ -267,12 +325,21 @@ describe("the runner's question", () => {
   it("is drawn from the call the runner holds, by its tool-use id", () => {
     const shown = runnerQuestion({
       ...LIVE,
-      pending: [{
-        kind: "question",
-        toolUseId: "toolu_1",
-        openedAt: 1,
-        questions: [{ question: "Which tree?", header: "Tree", multiSelect: false, options: [{ label: "Oak", description: "" }] }],
-      }],
+      pending: [
+        {
+          kind: "question",
+          toolUseId: "toolu_1",
+          openedAt: 1,
+          questions: [
+            {
+              question: "Which tree?",
+              header: "Tree",
+              multiSelect: false,
+              options: [{ label: "Oak", description: "" }],
+            },
+          ],
+        },
+      ],
     });
     expect(shown).toEqual({
       callId: "toolu_1",
@@ -282,7 +349,15 @@ describe("the runner's question", () => {
   });
 
   it("is refused in words that do not mention a terminal", () => {
-    for (const reason of ["no-pane", "tmux-unavailable", "no-dialog", "wrong-dialog", "wrong-option", "pane-stalled", "still-open"] as const) {
+    for (const reason of [
+      "no-pane",
+      "tmux-unavailable",
+      "no-dialog",
+      "wrong-dialog",
+      "wrong-option",
+      "pane-stalled",
+      "still-open",
+    ] as const) {
       expect(sdkQuestionReasonText(reason)).not.toMatch(/terminal|pane/);
     }
   });

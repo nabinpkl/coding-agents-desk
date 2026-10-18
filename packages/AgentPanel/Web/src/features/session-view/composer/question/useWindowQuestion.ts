@@ -65,60 +65,71 @@ export function useWindowQuestion(
     }
   });
 
-  const reportFailure = useCallback((failure: unknown) => {
-    setError(
-      failure instanceof WindowQuestionError
-        ? composerReasonText(failure.reason)
-        : String((failure as Error).message ?? failure),
-    );
-  }, [setError]);
+  const reportFailure = useCallback(
+    (failure: unknown) => {
+      setError(
+        failure instanceof WindowQuestionError
+          ? composerReasonText(failure.reason)
+          : String((failure as Error).message ?? failure),
+      );
+    },
+    [setError],
+  );
 
   /** Adopts a status update, respecting an in-flight Other edit. */
-  const adoptFromStatus = useCallback((next: QuestionPanelStatus) => {
-    setStatus(next);
-    if (next.present !== true) return;
-    setSelected(next.selected);
-    if (!otherEdited.current) {
-      setOtherText(next.otherText ?? "");
-    }
-  }, [setStatus, setSelected, setOtherText]);
+  const adoptFromStatus = useCallback(
+    (next: QuestionPanelStatus) => {
+      setStatus(next);
+      if (next.present !== true) return;
+      setSelected(next.selected);
+      if (!otherEdited.current) {
+        setOtherText(next.otherText ?? "");
+      }
+    },
+    [setStatus, setSelected, setOtherText],
+  );
 
   /** Adopts our own action's post-action state unconditionally. */
-  const adoptFromResult = useCallback((next: QuestionPanelStatus) => {
-    setStatus(next);
-    if (next.present !== true) return;
-    setSelected(next.selected);
-    otherEdited.current = false;
-    setOtherText(next.otherText ?? "");
-  }, [setStatus, setSelected, setOtherText]);
+  const adoptFromResult = useCallback(
+    (next: QuestionPanelStatus) => {
+      setStatus(next);
+      if (next.present !== true) return;
+      setSelected(next.selected);
+      otherEdited.current = false;
+      setOtherText(next.otherText ?? "");
+    },
+    [setStatus, setSelected, setOtherText],
+  );
 
   const run = useCallback(
     async (operation: () => Promise<QuestionPanelStatus>) => {
       setPending(true);
       setError(null);
-      return runWithFinally(async () => {
-        try {
-          adoptFromResult(await operation());
-        } catch (failure) {
-          reportFailure(failure);
-        }
-      }, () => setPending(false));
+      return runWithFinally(
+        async () => {
+          try {
+            adoptFromResult(await operation());
+          } catch (failure) {
+            reportFailure(failure);
+          }
+        },
+        () => setPending(false),
+      );
     },
     [adoptFromResult, reportFailure, setError],
   );
 
   const adopt = useLatestRef(adoptFromStatus);
   useSubscription(active ? `${sourceKey(host)}:${sessionId}` : null, () =>
-    host.subscribeWindowQuestion(sessionId, (next) => adopt.current(next)));
+    host.subscribeWindowQuestion(sessionId, (next) => adopt.current(next)),
+  );
 
   const selectOption = useCallback(
     (index: number) => {
       if (asked?.multiSelect) {
         const desired = !selectedRef.current.includes(index);
         // Optimistic toggle; the host presses only on mismatch and the result reconciles.
-        setSelected((current) =>
-          desired ? [...current, index] : current.filter((entry) => entry !== index),
-        );
+        setSelected((current) => (desired ? [...current, index] : current.filter((entry) => entry !== index)));
         void run(() => host.selectQuestionOption(sessionId, index, desired));
       } else {
         setSelected([index]);
@@ -160,28 +171,16 @@ export function useWindowQuestion(
     [pushOther, setOtherText],
   );
 
-  const submit = useCallback(
-    () => run(() => host.submitQuestion(sessionId)),
-    [host, run, sessionId],
-  );
-  const skip = useCallback(
-    () => run(() => host.skipQuestion(sessionId)),
-    [host, run, sessionId],
-  );
-  const dismiss = useCallback(
-    () => run(() => host.dismissQuestion(sessionId)),
-    [host, run, sessionId],
-  );
+  const submit = useCallback(() => run(() => host.submitQuestion(sessionId)), [host, run, sessionId]);
+  const skip = useCallback(() => run(() => host.skipQuestion(sessionId)), [host, run, sessionId]);
+  const dismiss = useCallback(() => run(() => host.dismissQuestion(sessionId)), [host, run, sessionId]);
   // `toggleQuestionOptions` is deliberately not called any more. The panel used to mirror the
   // Desktop panel's own expand control; it now draws every description and preview at once, so
   // there is nothing here for that press to keep in step with. The host still offers it.
   // Mirror-composer discipline: only a KNOWN reason disables the controls; before
   // any status they stay usable so the watch (and its forced read) can start.
   const enabled = status?.enabled !== false;
-  const canSubmit =
-    asked != null &&
-    enabled &&
-    (selected.length > 0 || otherText.trim().length > 0);
+  const canSubmit = asked != null && enabled && (selected.length > 0 || otherText.trim().length > 0);
   const notice = status?.enabled === false ? composerReasonText(status.reason) : null;
 
   return {

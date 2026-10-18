@@ -20,9 +20,7 @@ export interface CursorPoint {
   y: number;
 }
 
-export type CursorOperation =
-  | { kind: "set"; to: CursorPoint }
-  | { kind: "move"; dx: number; dy: number };
+export type CursorOperation = { kind: "set"; to: CursorPoint } | { kind: "move"; dx: number; dy: number };
 
 export const DEFAULT_PENDING_OPERATION_LIMIT = 4_096;
 /**

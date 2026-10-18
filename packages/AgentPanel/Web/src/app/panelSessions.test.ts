@@ -27,14 +27,15 @@ describe("parseSessionIndex", () => {
   });
 
   it("drops what it could not render or address", () => {
-    expect(parseSessionIndex([{ label: "" }, { id: "a/b", label: "Bad" }, { label: "ok" }])).toEqual([
-      { label: "ok" },
-    ]);
+    expect(parseSessionIndex([{ label: "" }, { id: "a/b", label: "Bad" }, { label: "ok" }])).toEqual([{ label: "ok" }]);
   });
 
   it("keeps the first of a repeated id, so a duplicate cannot shadow a session", () => {
-    expect(parseSessionIndex([{ id: "a", label: "First" }, { id: "a", label: "Second" }])).toEqual([
-      { id: "a", label: "First" },
-    ]);
+    expect(
+      parseSessionIndex([
+        { id: "a", label: "First" },
+        { id: "a", label: "Second" },
+      ]),
+    ).toEqual([{ id: "a", label: "First" }]);
   });
 });

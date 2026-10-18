@@ -45,9 +45,7 @@ it("expands a directory by asking the sidecar, not by guessing", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Expand src" }));
 
   await waitFor(() => {
-    const posted = transport.requests.find(
-      (request) => request.path === "/api/workspaces/w-1/state",
-    );
+    const posted = transport.requests.find((request) => request.path === "/api/workspaces/w-1/state");
     expect(posted).toBeDefined();
     expect(posted!.body).toMatchObject({
       baseRevision: 0,
@@ -137,8 +135,7 @@ it("keeps the branch on the status bar, where hiding the sidebar cannot take it 
   await mounted();
   const status = await screen.findByLabelText("Workspace status");
   // The count rides the name because the pill drawing it is invisible to a screen reader.
-  expect(within(status).getByRole("button", { name: "main, 1 changed file. Show Source Control" }))
-    .toBeInTheDocument();
+  expect(within(status).getByRole("button", { name: "main, 1 changed file. Show Source Control" })).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
 
@@ -162,8 +159,7 @@ it("takes the branch's click to the changes it is counting, sidebar and all", as
 it("counts the changed files on the source-control tab, readable from the explorer", async () => {
   await mounted();
   expect(await screen.findByRole("tree")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Show Source Control, 1 changed file" }))
-    .toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Show Source Control, 1 changed file" })).toBeInTheDocument();
   // The explorer is not a count of anything, so it keeps the bare name.
   expect(screen.getByRole("button", { name: "Show Explorer" })).toBeInTheDocument();
 });
@@ -186,10 +182,11 @@ it("hides the sidebar when the toggle asks, and remembers that across a remount"
  * file would read as `srcM` and an order test would fail on a change rather than on an order.
  */
 function rowNames(tree: HTMLElement): string[] {
-  return within(tree).getAllByRole("treeitem").map(
-    (row) => (row.querySelector("button")?.getAttribute("aria-label") ?? "")
-      .replace(/^(Expand|Collapse|Open) /, ""),
-  );
+  return within(tree)
+    .getAllByRole("treeitem")
+    .map((row) =>
+      (row.querySelector("button")?.getAttribute("aria-label") ?? "").replace(/^(Expand|Collapse|Open) /, ""),
+    );
 }
 
 it("orders the tree by when each thing changed, putting the newest first", async () => {
@@ -200,8 +197,24 @@ it("orders the tree by when each thing changed, putting the newest first", async
   // where it disagrees with the order the rows arrive in: a directory and a file beside it sort the
   // same way in both orders, since folders stay above files.
   const byName: WorkspaceTreeNode[] = [
-    { name: "alpha.ts", path: "alpha.ts", isDirectory: false, expanded: false, gitStatus: null, modifiedAt: 1_700_000_000_000, children: [] },
-    { name: "beta.ts", path: "beta.ts", isDirectory: false, expanded: false, gitStatus: null, modifiedAt: 1_900_000_000_000, children: [] },
+    {
+      name: "alpha.ts",
+      path: "alpha.ts",
+      isDirectory: false,
+      expanded: false,
+      gitStatus: null,
+      modifiedAt: 1_700_000_000_000,
+      children: [],
+    },
+    {
+      name: "beta.ts",
+      path: "beta.ts",
+      isDirectory: false,
+      expanded: false,
+      gitStatus: null,
+      modifiedAt: 1_900_000_000_000,
+      children: [],
+    },
   ];
   act(() => transport.deliver("/api/workspaces/w-1/stream", { type: "tree", workspaceId: "w-1", tree: byName }));
   expect(rowNames(tree)).toEqual(["alpha.ts", "beta.ts"]);
@@ -209,10 +222,8 @@ it("orders the tree by when each thing changed, putting the newest first", async
   fireEvent.click(screen.getByRole("button", { name: "Sort by modified date" }));
 
   expect(rowNames(tree)).toEqual(["beta.ts", "alpha.ts"]);
-  expect(screen.getByRole("button", { name: "Sort by modified date" }))
-    .toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("button", { name: "Sort by name" }))
-    .toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("button", { name: "Sort by modified date" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Sort by name" })).toHaveAttribute("aria-pressed", "false");
 });
 
 it("remembers the order across a remount, because it is how this reader arranged it", async () => {
@@ -221,13 +232,13 @@ it("remembers the order across a remount, because it is how this reader arranged
 
   fireEvent.click(screen.getByRole("button", { name: "Sort by modified date" }));
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Sort by modified date" }))
-      .toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: "Sort by modified date" })).toHaveAttribute("aria-pressed", "true"),
+  );
 
   render(<WorkspaceIdeSurface transport={transport} feed={feed} />);
   await waitFor(() =>
-    expect(screen.getAllByRole("button", { name: "Sort by modified date" })[0])
-      .toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getAllByRole("button", { name: "Sort by modified date" })[0]).toHaveAttribute("aria-pressed", "true"),
+  );
 });
 
 /**
@@ -247,8 +258,7 @@ it("takes the order control away in the sections that have no tree to reorder", 
 
   fireEvent.click(within(sections()).getByRole("button", { name: /Show Source Control/ }));
   await screen.findByRole("button", { name: "Show Explorer" });
-  expect(within(sections()).queryByRole("button", { name: "Sort by modified date" }))
-    .not.toBeInTheDocument();
+  expect(within(sections()).queryByRole("button", { name: "Sort by modified date" })).not.toBeInTheDocument();
 });
 
 it("surfaces a stream failure instead of sitting blank", async () => {

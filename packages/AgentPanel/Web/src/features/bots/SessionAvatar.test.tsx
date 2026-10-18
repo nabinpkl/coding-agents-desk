@@ -55,16 +55,12 @@ describe("SessionAvatar fold", () => {
   });
 
   it("shuts the face's eyes when its card is folded", () => {
-    const { container } = render(
-      <SessionAvatar title="First session" activity="cold" shaded rank={0} shut />,
-    );
+    const { container } = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} shut />);
     expect(container.querySelector(".bot-face-eyes--shut")).not.toBeNull();
   });
 
   it("leaves them open when it is not", () => {
-    const { container } = render(
-      <SessionAvatar title="First session" activity="cold" shaded rank={0} />,
-    );
+    const { container } = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} />);
     expect(container.querySelector(".bot-face-eyes--open")).not.toBeNull();
   });
 
@@ -72,7 +68,9 @@ describe("SessionAvatar fold", () => {
   it("draws a cold session's sleeping Zs only where asked, and only while it is cold", () => {
     const asked = render(<SessionAvatar title="First session" activity="cold" shaded rank={0} sleeping />);
     expect(asked.container.querySelector("svg[data-sleeping]")).not.toBeNull();
-    const live = render(<SessionAvatar title="First session" activity="live" shaded rank={0} sleeping className="mt-0.5" />);
+    const live = render(
+      <SessionAvatar title="First session" activity="live" shaded rank={0} sleeping className="mt-0.5" />,
+    );
     expect(live.container.querySelector("svg[data-sleeping]")).toBeNull();
     // Its classes still land on the mark when there are no Zs to wrap it in.
     expect(live.container.firstElementChild?.getAttribute("class")).toContain("mt-0.5");

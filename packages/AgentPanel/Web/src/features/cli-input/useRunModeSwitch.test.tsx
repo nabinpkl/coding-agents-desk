@@ -24,7 +24,11 @@ describe("switching how a session runs", () => {
     vi.useFakeTimers();
     const refresh = vi.fn();
     const feed = {
-      switchClaudeRunMode: vi.fn(async () => ({ ok: false as const, reason: "busy" as const, message: "not switched: a turn is running" })),
+      switchClaudeRunMode: vi.fn(async () => ({
+        ok: false as const,
+        reason: "busy" as const,
+        message: "not switched: a turn is running",
+      })),
     };
     const { result } = renderHook(() => useRunModeSwitch(feed, SESSION, refresh));
     await act(async () => result.current.switchTo("terminal"));

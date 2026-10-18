@@ -96,11 +96,7 @@ describe("feed layout", () => {
         index: 11,
         ts: 2,
         type: "user",
-        blocks: [
-          { kind: "tool_result", preview: "result", callId: "call-1" },
-          CWD,
-          { kind: "raw" },
-        ],
+        blocks: [{ kind: "tool_result", preview: "result", callId: "call-1" }, CWD, { kind: "raw" }],
       },
     ];
 
@@ -189,10 +185,7 @@ describe("feed layout", () => {
     index: 80,
     ts: 1,
     type: "assistant",
-    blocks: [
-      { kind: "tool_use", tool: "Skill", callId: "call-1", summary: "Skill artifact-design" },
-      { kind: "raw" },
-    ],
+    blocks: [{ kind: "tool_use", tool: "Skill", callId: "call-1", summary: "Skill artifact-design" }, { kind: "raw" }],
   };
   const launching: ActivityEvent = {
     index: 81,
@@ -350,11 +343,7 @@ describe("event block partition", () => {
     });
 
     expect(layout.inline.map(({ block }) => block.kind)).toEqual(["tool_use"]);
-    expect(layout.folded.map((block) => block.label)).toEqual([
-      "Token Usage",
-      "Stop Reason",
-      "Working Directory",
-    ]);
+    expect(layout.folded.map((block) => block.label)).toEqual(["Token Usage", "Stop Reason", "Working Directory"]);
     expect(layout.hasRawJson).toBe(true);
   });
 
@@ -363,10 +352,7 @@ describe("event block partition", () => {
       index: 13,
       ts: 1,
       type: "system",
-      blocks: [
-        { kind: "metadata", label: "Agent Message", text: "finished indexing" },
-        { kind: "raw" },
-      ],
+      blocks: [{ kind: "metadata", label: "Agent Message", text: "finished indexing" }, { kind: "raw" }],
     });
 
     expect(layout.inline.map(({ block }) => block.label)).toEqual(["Agent Message"]);
@@ -393,17 +379,38 @@ describe("event block partition", () => {
 
 describe("gaps between the ranges held", () => {
   // Transcript rows, named by byte position and joined by `previous`.
-  const prose = (index: number, previous: number | null): ActivityEvent =>
-    ({ index, previous, ts: index, type: "assistant", blocks: [{ kind: "text", text: `at ${index}` }] });
-  const tool = (index: number, previous: number | null): ActivityEvent =>
-    ({ index, previous, ts: index, type: "assistant", blocks: [{ kind: "tool_use", tool: "Bash", summary: "ls" }] });
-  const system = (index: number, previous: number | null): ActivityEvent =>
-    ({ index, previous, ts: index, type: "system", blocks: [{ kind: "metadata", label: "init", text: "x" }] });
+  const prose = (index: number, previous: number | null): ActivityEvent => ({
+    index,
+    previous,
+    ts: index,
+    type: "assistant",
+    blocks: [{ kind: "text", text: `at ${index}` }],
+  });
+  const tool = (index: number, previous: number | null): ActivityEvent => ({
+    index,
+    previous,
+    ts: index,
+    type: "assistant",
+    blocks: [{ kind: "tool_use", tool: "Bash", summary: "ls" }],
+  });
+  const system = (index: number, previous: number | null): ActivityEvent => ({
+    index,
+    previous,
+    ts: index,
+    type: "system",
+    blocks: [{ kind: "metadata", label: "init", text: "x" }],
+  });
 
   it("draws a gap row where a held row's previous row is not held, and ends the segment there", () => {
     const layout = buildFeedLayout([prose(0, null), prose(10, 0), prose(50, 40), prose(60, 50)]);
 
-    expect(layout.items.map((item) => item.kind)).toEqual(["segment_event", "segment_event", "gap", "segment_event", "segment_event"]);
+    expect(layout.items.map((item) => item.kind)).toEqual([
+      "segment_event",
+      "segment_event",
+      "gap",
+      "segment_event",
+      "segment_event",
+    ]);
     expect(layout.items[2]).toEqual({ kind: "gap", above: 10, below: 50 });
     const [, before, , after] = layout.items as { isFirst?: boolean; isLast?: boolean }[];
     expect(before!.isLast).toBe(true);
@@ -411,10 +418,10 @@ describe("gaps between the ranges held", () => {
   });
 
   it("does not fold a run of tool calls across a gap", () => {
-    const layout = buildFeedLayout(
-      [tool(0, null), tool(10, 0), tool(50, 40), tool(60, 50)],
-      { cluster: true, foldedClusters: new Set([0, 50]) },
-    );
+    const layout = buildFeedLayout([tool(0, null), tool(10, 0), tool(50, 40), tool(60, 50)], {
+      cluster: true,
+      foldedClusters: new Set([0, 50]),
+    });
     expect(layout.items.map((item) => item.kind)).toEqual(["cluster", "gap", "cluster"]);
   });
 

@@ -9,12 +9,14 @@ describe("naming a fork", () => {
   it("counts from the forks that already exist rather than from zero", () => {
     // The point of the whole module: without this, every fork of one session is "(fork 1)" and the
     // rows are as indistinguishable as they were with no suffix at all.
-    expect(nextForkTitle("Windows canvas", [
-      "Windows canvas",
-      "Windows canvas (fork 1)",
-      "Windows canvas (fork 2)",
-      "Something else (fork 9)",
-    ])).toBe("Windows canvas (fork 3)");
+    expect(
+      nextForkTitle("Windows canvas", [
+        "Windows canvas",
+        "Windows canvas (fork 1)",
+        "Windows canvas (fork 2)",
+        "Something else (fork 9)",
+      ]),
+    ).toBe("Windows canvas (fork 3)");
   });
 
   it("takes the highest number rather than the count, so a deleted fork does not collide", () => {
@@ -26,8 +28,7 @@ describe("naming a fork", () => {
   });
 
   it("ignores a suffix belonging to a different session", () => {
-    expect(nextForkTitle("Thing", ["Other thing (fork 7)", "Thing extra (fork 3)"]))
-      .toBe("Thing (fork 1)");
+    expect(nextForkTitle("Thing", ["Other thing (fork 7)", "Thing extra (fork 3)"])).toBe("Thing (fork 1)");
   });
 
   it("reads a base off a title that carries no suffix", () => {

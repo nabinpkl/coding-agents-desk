@@ -73,7 +73,7 @@ export interface Subscription {
  * into the type.
  */
 export function asReason(reason: string): WindowInputReason {
-  return KNOWN_REASONS.has(reason) ? reason as WindowInputReason : "helper-unavailable";
+  return KNOWN_REASONS.has(reason) ? (reason as WindowInputReason) : "helper-unavailable";
 }
 
 export function unavailableQuestion(sessionId: string, reason: WindowInputReason): QuestionStatus {
@@ -108,20 +108,24 @@ const KNOWN_REASONS = new Set<string>([
 ]);
 
 export function sameComposer(a: ComposerStatus | null, b: ComposerStatus): boolean {
-  return a !== null
-    && a.enabled === b.enabled
-    && a.reason === b.reason
-    && a.onActiveDesktop === b.onActiveDesktop
-    && a.composerText === b.composerText;
+  return (
+    a !== null &&
+    a.enabled === b.enabled &&
+    a.reason === b.reason &&
+    a.onActiveDesktop === b.onActiveDesktop &&
+    a.composerText === b.composerText
+  );
 }
 
 export function sameQuestion(a: QuestionStatus | null, b: QuestionStatus): boolean {
-  return a !== null
-    && a.enabled === b.enabled
-    && a.reason === b.reason
-    && a.present === b.present
-    && a.otherText === b.otherText
-    && a.submitEnabled === b.submitEnabled
-    && a.selectedIndices.length === b.selectedIndices.length
-    && a.selectedIndices.every((value, index) => value === b.selectedIndices[index]);
+  return (
+    a !== null &&
+    a.enabled === b.enabled &&
+    a.reason === b.reason &&
+    a.present === b.present &&
+    a.otherText === b.otherText &&
+    a.submitEnabled === b.submitEnabled &&
+    a.selectedIndices.length === b.selectedIndices.length &&
+    a.selectedIndices.every((value, index) => value === b.selectedIndices[index])
+  );
 }

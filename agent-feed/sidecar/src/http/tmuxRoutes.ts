@@ -22,22 +22,14 @@
 // this writes the bytes where the pane's machine can read them and pastes the absolute path,
 // which is also exactly what a Finder drag into a normal terminal does.
 
-import type {
-  ComposerImageMediaType,
-  TmuxSessionSummary,
-} from "@agentdesk/agent-feed-wire";
+import type { ComposerImageMediaType, TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
 import { MAXIMUM_COMPOSER_IMAGE_BYTES } from "@agentdesk/agent-feed-wire";
 import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 import { imageMediaType, writeComposerImage } from "@/input/composer/composerImages";
 import { paste } from "@/input/composer/composerKeystrokes";
 import { hexKeyArguments } from "@/terminal/tmux/tmuxAttachment";
-import {
-  killTmuxSession,
-  listTmuxSessions,
-  sendTmuxBytes,
-  TmuxUnavailable,
-} from "@/terminal/tmux/tmuxSessions";
+import { killTmuxSession, listTmuxSessions, sendTmuxBytes, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 
 const TMUX_SESSIONS_ROUTE = "/api/tmux/sessions";
 const TMUX_SESSION_ROUTE_PATTERN = /^\/api\/tmux\/sessions\/([^/]+)$/;
@@ -46,24 +38,25 @@ const TMUX_SESSION_IMAGE_ROUTE_PATTERN = /^\/api\/tmux\/sessions\/([^/]+)\/image
 export function createTmuxRoutes(
   list: () => Promise<TmuxSessionSummary[]> = listTmuxSessions,
   kill: (session: string) => Promise<void> = killTmuxSession,
-  drop: (
-    session: string,
-    image: Uint8Array,
-    mediaType: ComposerImageMediaType,
-  ) => Promise<void> = dropTmuxSessionImage,
+  drop: (session: string, image: Uint8Array, mediaType: ComposerImageMediaType) => Promise<void> = dropTmuxSessionImage,
 ): RouteHandler {
   return (request, url) => {
     if (request.method === "GET" && url.pathname === TMUX_SESSIONS_ROUTE) {
       return list()
         .then((sessions) => jsonResponse({ sessions }))
-        .catch((error: unknown) => jsonResponse({
-          error: {
-            code: "tmux-unavailable",
-            message: error instanceof TmuxUnavailable ? error.message : String(error),
-            // Installing tmux, or starting its server, changes the answer without a restart.
-            retryable: true,
-          },
-        }, 503));
+        .catch((error: unknown) =>
+          jsonResponse(
+            {
+              error: {
+                code: "tmux-unavailable",
+                message: error instanceof TmuxUnavailable ? error.message : String(error),
+                // Installing tmux, or starting its server, changes the answer without a restart.
+                retryable: true,
+              },
+            },
+            503,
+          ),
+        );
     }
     if (request.method === "POST") {
       const image = TMUX_SESSION_IMAGE_ROUTE_PATTERN.exec(url.pathname);
@@ -75,23 +68,31 @@ export function createTmuxRoutes(
       if (!match) return undefined;
       const session = safeSessionName(match[1]!);
       if (!session) {
-        return jsonResponse({
-          error: {
-            code: "invalid-tmux-session",
-            message: "tmux session name is not a plain identifier",
-            retryable: false,
+        return jsonResponse(
+          {
+            error: {
+              code: "invalid-tmux-session",
+              message: "tmux session name is not a plain identifier",
+              retryable: false,
+            },
           },
-        }, 400);
+          400,
+        );
       }
       return kill(session)
         .then(() => new Response(null, { status: 204 }))
-        .catch((error: unknown) => jsonResponse({
-          error: {
-            code: "tmux-unavailable",
-            message: error instanceof TmuxUnavailable ? error.message : String(error),
-            retryable: true,
-          },
-        }, 503));
+        .catch((error: unknown) =>
+          jsonResponse(
+            {
+              error: {
+                code: "tmux-unavailable",
+                message: error instanceof TmuxUnavailable ? error.message : String(error),
+                retryable: true,
+              },
+            },
+            503,
+          ),
+        );
     }
     return undefined;
   };
@@ -127,25 +128,24 @@ function safeSessionName(raw: string): string | null {
 async function dropImage(
   request: Request,
   raw: string,
-  drop: (
-    session: string,
-    image: Uint8Array,
-    mediaType: ComposerImageMediaType,
-  ) => Promise<void>,
+  drop: (session: string, image: Uint8Array, mediaType: ComposerImageMediaType) => Promise<void>,
 ): Promise<Response> {
   const session = safeSessionName(raw);
   if (!session) {
-    return jsonResponse({
-      error: {
-        code: "invalid-tmux-session",
-        message: "tmux session name is not a plain identifier",
-        retryable: false,
+    return jsonResponse(
+      {
+        error: {
+          code: "invalid-tmux-session",
+          message: "tmux session name is not a plain identifier",
+          retryable: false,
+        },
       },
-    }, 400);
+      400,
+    );
   }
   let body: { data?: unknown };
   try {
-    body = await request.json() as typeof body;
+    body = (await request.json()) as typeof body;
   } catch {
     return errorResponse("invalid-body", "the request body was not JSON", 400);
   }
@@ -159,22 +159,25 @@ async function dropImage(
   }
   const mediaType = imageMediaType(bytes);
   if (mediaType === null) {
-    return errorResponse(
-      "image-unsupported",
-      "a terminal pane takes png, jpeg, gif and webp",
-      415,
-    );
+    return errorResponse("image-unsupported", "a terminal pane takes png, jpeg, gif and webp", 415);
   }
-  return drop(session, bytes, mediaType)
-    // No composer state to report: a bare pane has no box, so the answer is the act.
-    .then(() => new Response(null, { status: 204 }))
-    .catch((error: unknown) => jsonResponse({
-      error: {
-        code: "tmux-unavailable",
-        message: error instanceof TmuxUnavailable ? error.message : String(error),
-        retryable: true,
-      },
-    }, 503));
+  return (
+    drop(session, bytes, mediaType)
+      // No composer state to report: a bare pane has no box, so the answer is the act.
+      .then(() => new Response(null, { status: 204 }))
+      .catch((error: unknown) =>
+        jsonResponse(
+          {
+            error: {
+              code: "tmux-unavailable",
+              message: error instanceof TmuxUnavailable ? error.message : String(error),
+              retryable: true,
+            },
+          },
+          503,
+        ),
+      )
+  );
 }
 
 /**

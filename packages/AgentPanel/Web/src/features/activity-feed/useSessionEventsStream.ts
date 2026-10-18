@@ -2,12 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
-import {
-  PAGE_SIZE,
-  windowStartOf,
-  withNewer,
-  type Gap,
-} from "@/features/activity-feed/data-source/eventPaging";
+import { PAGE_SIZE, windowStartOf, withNewer, type Gap } from "@/features/activity-feed/data-source/eventPaging";
 import { lastUsageFromEvents, newerUsage } from "@/features/activity-feed/usageFromEvents";
 import { retireLiveRows, splitLiveTails, visibleTails, liveRowKey } from "@/features/activity-feed/rows/liveTailBlocks";
 import type { AgentSource, EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
@@ -18,16 +13,7 @@ import { sourceKey } from "@/query/panelQuery";
 import { runWithFinally } from "@/hooks/state/runWithFinally";
 
 export interface ActivityBlock {
-  kind:
-    | "text"
-    | "tool_use"
-    | "tool_result"
-    | "reasoning"
-    | "compaction"
-    | "metadata"
-    | "plain"
-    | "raw"
-    | "image";
+  kind: "text" | "tool_use" | "tool_result" | "reasoning" | "compaction" | "metadata" | "plain" | "raw" | "image";
   /** On an image block, and all it carries: the picture is fetched by address, not sent inline. */
   mediaType?: string;
   label?: string;
@@ -138,16 +124,9 @@ interface State {
   snapshotCount: number;
 }
 
-export function useSessionEventsStream(
-  source: AgentSource,
-  sessionId: string,
-  mode: EventMode,
-) {
+export function useSessionEventsStream(source: AgentSource, sessionId: string, mode: EventMode) {
   const ds = useDataSource();
-  const session = useMemo(
-    () => ({ source, sessionId, mode }),
-    [source, sessionId, mode],
-  );
+  const session = useMemo(() => ({ source, sessionId, mode }), [source, sessionId, mode]);
 
   const [state, setState] = useState<State>({
     events: new Map(),
@@ -189,7 +168,7 @@ export function useSessionEventsStream(
     let cancelled = false;
     let seeded = false;
     const unsubscribe = ds.subscribeSessionEvents(session, 0, {
-onEvent: (event) => {
+      onEvent: (event) => {
         // The sidecar sends the snapshot first on every open, so a row ahead of it is one the
         // snapshot carries.
         if (!seeded) return;
@@ -209,11 +188,12 @@ onEvent: (event) => {
         setState((current) => {
           // A live tail can arrive before the first snapshot, so an empty durable map with no
           // identity yet is still the same projection; the snapshot must not throw that row away.
-          const sameProjection = current.events.size === 0 && current.projectionId === null
-            ? true
-            : snapshot.projectionId === undefined
-              ? current.projectionId === null
-              : current.projectionId === snapshot.projectionId;
+          const sameProjection =
+            current.events.size === 0 && current.projectionId === null
+              ? true
+              : snapshot.projectionId === undefined
+                ? current.projectionId === null
+                : current.projectionId === snapshot.projectionId;
           // A reconnect snapshot is authoritative: every live row whose message it already
           // carries is owned by the durable rows now.
           const liveRows = sameProjection ? retireLiveRows(current.liveRows, snapshot.events) : new Map();
@@ -233,11 +213,10 @@ onEvent: (event) => {
           // runtime projection, and the new projection can renumber the same session.
           // Its id is the boundary: an ordinary reconnect keeps the id and the paged
           // rows; a rebuilt projection replaces them.
-          const retained = snapshot.stableIndices && sameProjection
-            ? Array.from(current.events.values()).filter(
-                (event) => event.index < snapshot.windowStart,
-              )
-            : [];
+          const retained =
+            snapshot.stableIndices && sameProjection
+              ? Array.from(current.events.values()).filter((event) => event.index < snapshot.windowStart)
+              : [];
           const events = new Map(retained.map((event) => [event.index, event]));
           for (const event of snapshot.events) events.set(event.index, event);
           return {
@@ -246,9 +225,7 @@ onEvent: (event) => {
             // not deliver it -- the transcript's own last reading, which the
             // events already carry. Live readings still win later: `updatedAt`
             // on those is newer, so `newerUsage` replaces the fallback.
-            usage:
-              newerUsage(current.usage, snapshot.usage) ??
-              lastUsageFromEvents(snapshot.events),
+            usage: newerUsage(current.usage, snapshot.usage) ?? lastUsageFromEvents(snapshot.events),
             // The model is authoritative per message rather than merged: the sidecar names it on
             // every envelope, so the newest naming wins and a gap that blanks usage never blanks
             // this. Null only where the sender never names one.
@@ -266,11 +243,7 @@ onEvent: (event) => {
         });
       },
       onState: (sessionState) =>
-        setState((current) =>
-          sessionState.sequence < current.sequence
-            ? current
-            : { ...current, ...sessionState },
-        ),
+        setState((current) => (sessionState.sequence < current.sequence ? current : { ...current, ...sessionState })),
       // Occupancy is session state, so it arrives on the chunk rather than on an
       // event, and it must land even while the seed is still in flight: on a
       // live thread the newest usage-bearing line is often the one that arrives
@@ -291,9 +264,7 @@ onEvent: (event) => {
       onLiveTail: (event) =>
         setState((current) => {
           if (!event) {
-            return current.liveRows.size === 0
-              ? current
-              : { ...current, liveRows: new Map() };
+            return current.liveRows.size === 0 ? current : { ...current, liveRows: new Map() };
           }
           // Retired here as well as on a durable row, because the live row can be the late one: a
           // message that finishes after its line landed, or a tail replayed after the snapshot. A
@@ -302,12 +273,12 @@ onEvent: (event) => {
           // one, so a message pays for the scan once, not on every token.
           const added = new Map(current.liveRows).set(liveRowKey(event), event);
           const firstSight = event.messageId !== undefined && !current.mirroredMessages.has(event.messageId);
-          const liveRows = event.phase === "complete" || firstSight
-            ? retireLiveRows(added, current.events.values())
-            : added;
-          const mirroredMessages = event.messageId === undefined
-            ? current.mirroredMessages
-            : new Set(current.mirroredMessages).add(event.messageId);
+          const liveRows =
+            event.phase === "complete" || firstSight ? retireLiveRows(added, current.events.values()) : added;
+          const mirroredMessages =
+            event.messageId === undefined
+              ? current.mirroredMessages
+              : new Set(current.mirroredMessages).add(event.messageId);
           return { ...current, liveRows, mirroredMessages };
         }),
       onCompacting: setCompactionSummary,
@@ -342,13 +313,16 @@ onEvent: (event) => {
    * about a session that is gone. Resolves to whether the page was kept, and rejects on a failed
    * read, for the caller to say so where it asked.
    */
-  const readInto = useCallback(async (at: EventsPageAt): Promise<boolean> => {
-    const requestEpoch = timelineEpochRef.current;
-    const page = await ds.fetchEventsPage(session, at, PAGE_SIZE);
-    if (requestEpoch !== timelineEpochRef.current) return false;
-    setState((current) => ({ ...current, events: withNewer(current.events, page.events) }));
-    return true;
-  }, [session, ds]);
+  const readInto = useCallback(
+    async (at: EventsPageAt): Promise<boolean> => {
+      const requestEpoch = timelineEpochRef.current;
+      const page = await ds.fetchEventsPage(session, at, PAGE_SIZE);
+      if (requestEpoch !== timelineEpochRef.current) return false;
+      setState((current) => ({ ...current, events: withNewer(current.events, page.events) }));
+      return true;
+    },
+    [session, ds],
+  );
 
   /** The page above the oldest row held, while older rows exist. */
   const loadOlder = useCallback(async () => {
@@ -356,11 +330,14 @@ onEvent: (event) => {
     const before = windowStartRef.current;
     if (before <= 0) return;
     loadingOlderRef.current = true;
-    return runWithFinally(async () => {
-      await readInto({ before });
-    }, () => {
-      loadingOlderRef.current = false;
-    });
+    return runWithFinally(
+      async () => {
+        await readInto({ before });
+      },
+      () => {
+        loadingOlderRef.current = false;
+      },
+    );
   }, [readInto, windowStartRef]);
 
   /**
@@ -374,7 +351,12 @@ onEvent: (event) => {
   );
 
   /** A range opened around `position`, for landing on a row that is not held. One read. */
-  const loadAround = useCallback(async (position: number) => { await readInto({ around: position }); }, [readInto]);
+  const loadAround = useCallback(
+    async (position: number) => {
+      await readInto({ around: position });
+    },
+    [readInto],
+  );
 
   // Derived rather than cleared on arrival, so the rule holds whatever order the two
   // sources land in. The clear inside `onEvent` still runs, to let a finished message

@@ -31,7 +31,10 @@ describe("a rebuilt layout keeps what a new line did not change", () => {
   it("takes the new item where the row's event changed or its place in the segment did", () => {
     const first = prose(0, "first");
     const before = buildFeedLayout([first, prose(1, "draft")], { cluster: true, hideSystem: true }).items;
-    const rebuilt = buildFeedLayout([first, prose(1, "final"), prose(2, "more")], { cluster: true, hideSystem: true }).items;
+    const rebuilt = buildFeedLayout([first, prose(1, "final"), prose(2, "more")], {
+      cluster: true,
+      hideSystem: true,
+    }).items;
     const after = keepUnchangedItems(before, rebuilt);
 
     expect(after[1]).toBe(rebuilt[1]);

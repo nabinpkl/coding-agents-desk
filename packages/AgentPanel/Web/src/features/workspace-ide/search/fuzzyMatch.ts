@@ -31,8 +31,7 @@ const GAP = 1;
 const NONE = Number.NEGATIVE_INFINITY;
 
 function isSeparator(character: string): boolean {
-  return character === "/" || character === "-" || character === "_" || character === "."
-    || character === " ";
+  return character === "/" || character === "-" || character === "_" || character === "." || character === " ";
 }
 
 /** ASCII capitals only: a camel hump in a path is an ASCII one, and this runs per character. */
@@ -122,8 +121,7 @@ function scorePiece(path: string, lowered: string, query: string): { score: numb
       }
       // A run takes the larger of its own bonus and the boundary's rather than both: summing them
       // let `AgentSay` outscore `AGENTS` for "agents", the S of "Say" being a run AND a camel hump.
-      if (j >= 1 && previous[j - 1]! !== NONE
-        && previous[j - 1]! + Math.max(CONSECUTIVE - boundary, 0) >= best) {
+      if (j >= 1 && previous[j - 1]! !== NONE && previous[j - 1]! + Math.max(CONSECUTIVE - boundary, 0) >= best) {
         best = previous[j - 1]! + Math.max(CONSECUTIVE - boundary, 0);
         bestAt = j - 1;
       }

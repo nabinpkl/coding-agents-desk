@@ -12,11 +12,7 @@
 import { bytesForRailKey } from "@agentdesk/agent-feed-wire";
 import type { TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 import { saysTheSame } from "@/input/rewindPicker";
-import {
-  otherRowIndex,
-  questionDialog,
-  type QuestionDialog,
-} from "@/input/question/questionDialog";
+import { otherRowIndex, questionDialog, type QuestionDialog } from "@/input/question/questionDialog";
 
 /**
  * All these walks need of a call: the text of each question, in the dialog's own order.
@@ -100,8 +96,7 @@ export async function goTo(
     // A cursor parked in the free-text row eats Left and Right as text-cursor moves, so it has to
     // come off that row before any tab step means anything. Only on a question screen: the review
     // screen's last row is `Cancel`, which is an ordinary row and not somewhere text goes.
-    const typing = !dialog.review
-      && dialog.rows.findIndex((row) => row.cursor) === otherRowIndex(dialog);
+    const typing = !dialog.review && dialog.rows.findIndex((row) => row.cursor) === otherRowIndex(dialog);
     if (!(await press(pane, typing ? TAB : at < wanted ? RIGHT : LEFT, runtime))) return null;
   }
   return null;

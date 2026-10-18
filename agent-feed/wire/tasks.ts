@@ -163,13 +163,13 @@ export interface RunningBackgroundTask extends BackgroundTask {
  */
 export type TaskOutputMessage =
   | {
-    kind: "snapshot";
-    label: string;
-    text: string;
-    /** Byte offset the next append continues from. */
-    offset: number;
-    progress: BackgroundTaskProgress;
-  }
+      kind: "snapshot";
+      label: string;
+      text: string;
+      /** Byte offset the next append continues from. */
+      offset: number;
+      progress: BackgroundTaskProgress;
+    }
   | { kind: "append"; text: string; offset: number; progress: BackgroundTaskProgress }
   /** The task ended while being watched. Carries how, so the row settles without a re-poll. */
   | { kind: "ended"; state: BackgroundTaskState }

@@ -15,11 +15,7 @@ export interface FlowContext {
   ended: boolean;
 }
 
-export function isCodexStream(flow: {
-  authority?: unknown;
-  path?: unknown;
-  protocol?: unknown;
-}): boolean {
+export function isCodexStream(flow: { authority?: unknown; path?: unknown; protocol?: unknown }): boolean {
   if (flow.protocol !== "OBSERVED_PROTOCOL_WEBSOCKET") return false;
   if (typeof flow.authority !== "string" || flow.authority !== CODECX_RESPONSES_AUTHORITY) {
     return false;

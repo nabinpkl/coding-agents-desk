@@ -20,11 +20,7 @@ afterEach(() => vi.restoreAllMocks());
  */
 function refuseWrites(quotaFailures: number) {
   const real = Storage.prototype.setItem;
-  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
-    this: Storage,
-    key: string,
-    value: string,
-  ) {
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
     if (quotaFailures > 0) {
       quotaFailures -= 1;
       throw new DOMException("full", "QuotaExceededError");
@@ -104,13 +100,17 @@ it("drops a draft that says what the file already says", () => {
 });
 
 it("restores a draft as unsaved while the file has not moved under it", () => {
-  expect(reconcileDraft(draft({ text: "typed", baselineRevision: "rev-1" }), "on disk", "rev-1"))
-    .toEqual({ state: "unsaved", text: "typed" });
+  expect(reconcileDraft(draft({ text: "typed", baselineRevision: "rev-1" }), "on disk", "rev-1")).toEqual({
+    state: "unsaved",
+    text: "typed",
+  });
 });
 
 it("restores a draft as a conflict once the file has moved under it", () => {
   // The baseline is why the record exists. Without it a restore could only offer the text back,
   // having lost the fact that there was ever a divergence to resolve.
-  expect(reconcileDraft(draft({ text: "typed", baselineRevision: "rev-1" }), "theirs", "rev-2"))
-    .toEqual({ state: "conflict", text: "typed" });
+  expect(reconcileDraft(draft({ text: "typed", baselineRevision: "rev-1" }), "theirs", "rev-2")).toEqual({
+    state: "conflict",
+    text: "typed",
+  });
 });

@@ -6,13 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const ended = vi.fn();
 vi.mock("@sentry/react", () => ({ startInactiveSpan: vi.fn(() => ({ end: ended })) }));
 
-const {
-  awaitMilestones,
-  expectMilestone,
-  measureStreamFirstMessage,
-  reachMilestone,
-  resetMilestones,
-} = await import("@/features/telemetry/pageMilestones");
+const { awaitMilestones, expectMilestone, measureStreamFirstMessage, reachMilestone, resetMilestones } =
+  await import("@/features/telemetry/pageMilestones");
 
 const measures = () => performance.getEntriesByType("measure").map((entry) => entry.name);
 

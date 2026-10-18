@@ -26,19 +26,21 @@ const call: ActivityEvent = {
   index: 7,
   ts: 1,
   type: "assistant",
-  blocks: [{
-    kind: "tool_use",
-    tool: "SendUserFile",
-    summary: "SendUserFile cull-ad-1-fit.png, cull-lc-1-fit.png",
-    callId: "call-1",
-    input: {
+  blocks: [
+    {
+      kind: "tool_use",
+      tool: "SendUserFile",
+      summary: "SendUserFile cull-ad-1-fit.png, cull-lc-1-fit.png",
+      callId: "call-1",
+      input: {
+        files: [`${ROOT}/cull-ad-1-fit.png`, `${ROOT}/cull-lc-1-fit.png`],
+        caption: CAPTION,
+        status: "normal",
+      },
+      // Resolved by the sidecar, which is what the panel addresses a picture by.
       files: [`${ROOT}/cull-ad-1-fit.png`, `${ROOT}/cull-lc-1-fit.png`],
-      caption: CAPTION,
-      status: "normal",
     },
-    // Resolved by the sidecar, which is what the panel addresses a picture by.
-    files: [`${ROOT}/cull-ad-1-fit.png`, `${ROOT}/cull-lc-1-fit.png`],
-  }],
+  ],
 };
 
 const delivered: PairedToolResult = {
@@ -58,10 +60,11 @@ const delivered: PairedToolResult = {
   images: [],
 };
 
-function renderCall(
-  { expanded = true, source = stubDataSource({}), ev = call }:
-    { expanded?: boolean; source?: AgentDataSource; ev?: ActivityEvent } = {},
-) {
+function renderCall({
+  expanded = true,
+  source = stubDataSource({}),
+  ev = call,
+}: { expanded?: boolean; source?: AgentDataSource; ev?: ActivityEvent } = {}) {
   const ctx: EventRowContext = {
     session: { source: "claude", sessionId: "session-1", mode: "nice" },
     rawSource: "addressable",
@@ -72,15 +75,7 @@ function renderCall(
   };
   return render(
     <DataSourceProvider source={source}>
-      <SegmentEventRow
-        ev={ev}
-        ctx={ctx}
-        isFirst
-        isLast
-        isCollapsed={false}
-        onToggle={() => {}}
-        isHighlighted={false}
-      />
+      <SegmentEventRow ev={ev} ctx={ctx} isFirst isLast isCollapsed={false} onToggle={() => {}} isHighlighted={false} />
     </DataSourceProvider>,
   );
 }
@@ -91,8 +86,9 @@ describe("a call that hands files to the reader", () => {
     expect(screen.getByText("cull-ad-1-fit.png")).toBeDefined();
     expect(screen.getByText("cull-lc-1-fit.png")).toBeDefined();
     // The path is still reachable, on the item that carries it.
-    expect(screen.getByText("cull-ad-1-fit.png").closest("li")?.getAttribute("title"))
-      .toBe(`${ROOT}/cull-ad-1-fit.png`);
+    expect(screen.getByText("cull-ad-1-fit.png").closest("li")?.getAttribute("title")).toBe(
+      `${ROOT}/cull-ad-1-fit.png`,
+    );
     expect(container.textContent).not.toContain("file_uuid");
     // The delivery itself still reports, since a failure would report here too.
     expect(container.textContent).toContain("2 files delivered to user.");
@@ -113,17 +109,16 @@ describe("a call that hands files to the reader", () => {
   });
 
   it("draws the pictures themselves, addressed by their place in the call", () => {
-    const eventFileUrl = vi.fn(
-      (_s, event: number, block: number, file: number) => `/file/${event}-${block}-${file}`,
-    );
+    const eventFileUrl = vi.fn((_s, event: number, block: number, file: number) => `/file/${event}-${block}-${file}`);
     renderCall({ source: stubDataSource({ eventFileUrl }) });
 
     const opened = screen.getAllByRole("button", { name: /^Open .+ larger$/ });
     expect(opened).toHaveLength(2);
     // The call's own event and block, and one index per file: no path travels in the request,
     // whichever part of the row is doing the asking.
-    expect(new Set(eventFileUrl.mock.calls.map((args) => args.slice(1).join(","))))
-      .toEqual(new Set(["7,0,0", "7,0,1"]));
+    expect(new Set(eventFileUrl.mock.calls.map((args) => args.slice(1).join(",")))).toEqual(
+      new Set(["7,0,0", "7,0,1"]),
+    );
   });
 
   it("links a file it cannot draw, rather than asking for it as a picture", () => {
@@ -133,11 +128,13 @@ describe("a call that hands files to the reader", () => {
       source: stubDataSource({ eventFileUrl }),
       ev: {
         ...call,
-        blocks: [{
-          ...call.blocks[0]!,
-          input: { files: [report], caption: CAPTION, status: "normal" },
-          files: [report],
-        }],
+        blocks: [
+          {
+            ...call.blocks[0]!,
+            input: { files: [report], caption: CAPTION, status: "normal" },
+            files: [report],
+          },
+        ],
       },
     });
 
@@ -217,8 +214,9 @@ describe("a call that hands files to the reader", () => {
 
   it("keeps a result that says something other than which handles it minted", () => {
     expect(withoutFileHandles("Could not read /tmp/gone.png")).toBe("Could not read /tmp/gone.png");
-    expect(withoutFileHandles("1 file delivered to user.\n  /a/b.png → file_uuid: x"))
-      .toBe("1 file delivered to user.");
+    expect(withoutFileHandles("1 file delivered to user.\n  /a/b.png → file_uuid: x")).toBe(
+      "1 file delivered to user.",
+    );
     expect(withoutFileHandles(undefined)).toBe("");
   });
 });

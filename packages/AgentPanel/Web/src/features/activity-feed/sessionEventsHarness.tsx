@@ -30,10 +30,8 @@ export function pageOf(rows: readonly ActivityEvent[], at: EventsPageAt, limit: 
     return { events, windowStart: older ? events[0]!.index : 0, usage: null };
   }
   const position = "after" in at ? at.after : at.around;
-  const from = rows.findIndex((row) => "after" in at ? row.index > position : row.index >= position);
-  const start = from < 0
-    ? rows.length
-    : "after" in at ? from : Math.max(0, from - Math.floor(limit / 2));
+  const from = rows.findIndex((row) => ("after" in at ? row.index > position : row.index >= position));
+  const start = from < 0 ? rows.length : "after" in at ? from : Math.max(0, from - Math.floor(limit / 2));
   const events = rows.slice(start, start + limit);
   return { events, windowStart: start === 0 ? 0 : (events[0]?.index ?? position), usage: null };
 }
@@ -71,11 +69,13 @@ export function thread(
       handlers = next;
       if (opening !== null) {
         const page = pageOf(rows, { before: null }, 100);
-        queueMicrotask(() => next.onSnapshot({
-          ...page,
-          state: { sequence: 1, runState: "idle", queue: { steer: 0, followUp: 0 } },
-          ...opening,
-        }));
+        queueMicrotask(() =>
+          next.onSnapshot({
+            ...page,
+            state: { sequence: 1, runState: "idle", queue: { steer: 0, followUp: 0 } },
+            ...opening,
+          }),
+        );
       }
       return () => {};
     },
@@ -88,16 +88,14 @@ export function thread(
       return handlers;
     },
     pages,
-    answerWith: (next) => { answer = next; },
+    answerWith: (next) => {
+      answer = next;
+    },
   };
 }
 
 /** Renders the hook against `source`. */
-export function renderThread(
-  source: AgentDataSource,
-  sessionSource: AgentSource = "claude",
-  mode: EventMode = "nice",
-) {
+export function renderThread(source: AgentDataSource, sessionSource: AgentSource = "claude", mode: EventMode = "nice") {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <DataSourceProvider source={source}>{children}</DataSourceProvider>
   );

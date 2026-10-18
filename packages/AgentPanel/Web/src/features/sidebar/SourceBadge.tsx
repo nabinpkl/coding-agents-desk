@@ -2,7 +2,16 @@
 const SHORT_LABELS: Record<string, string> = { claude: "C", opencode: "O", codex: "Cx", pi: "Pi" };
 
 export function SourceBadge({ source, short = false }: { source: string; short?: boolean }) {
-  const label = source === "claude" ? "Claude" : source === "codex" ? "Codex" : source === "pi" ? "Pi" : source === "opencode" ? "OpenCode" : source;
+  const label =
+    source === "claude"
+      ? "Claude"
+      : source === "codex"
+        ? "Codex"
+        : source === "pi"
+          ? "Pi"
+          : source === "opencode"
+            ? "OpenCode"
+            : source;
   const shown = short ? (SHORT_LABELS[source] ?? label) : label;
   const cls =
     source === "claude"

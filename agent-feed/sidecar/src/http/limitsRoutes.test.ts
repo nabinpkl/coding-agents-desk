@@ -90,8 +90,7 @@ function follow(route: ReturnType<typeof createLimitsRoutes>) {
 /** The percentages one report carries for a vendor, which is what every test here is about. */
 function percents(message: LimitsStreamMessage, vendor = "claude"): number[] {
   if (message.type !== "report") throw new Error(`expected a report, got ${message.type}`);
-  return message.report.vendors.find((each) => each.vendor === vendor)!.quotas
-    .map((quota) => quota.usedPercent);
+  return message.report.vendors.find((each) => each.vendor === vendor)!.quotas.map((quota) => quota.usedPercent);
 }
 
 test("the meters are answered from the observed headers without sweeping anything", async () => {
@@ -137,12 +136,16 @@ test("a live reading beats the CLI's older config cache", async () => {
   // Newest wins whole. The config is written only occasionally and can be days old, while the
   // headers are from the last response.
   const configPath = join(await mkdtemp(join(tmpdir(), "limits-route-")), "claude.json");
-  await writeFile(configPath, JSON.stringify({
-    cachedUsageUtilization: {
-      fetchedAtMs: 1_000,
-      utilization: { five_hour: { utilization: 0.99, resets_at: 1_789_000_000 } },
-    },
-  }), "utf8");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      cachedUsageUtilization: {
+        fetchedAtMs: 1_000,
+        utilization: { five_hour: { utilization: 0.99, resets_at: 1_789_000_000 } },
+      },
+    }),
+    "utf8",
+  );
   noteRateLimitHeaders(rateLimitHeaders(0.05, 0.1), 2_000);
 
   const stream = follow(createLimitsRoutes(unswept(), nowhere(configPath)));
@@ -152,12 +155,16 @@ test("a live reading beats the CLI's older config cache", async () => {
 
 test("with nothing observed yet the config cache still answers", async () => {
   const configPath = join(await mkdtemp(join(tmpdir(), "limits-route-")), "claude.json");
-  await writeFile(configPath, JSON.stringify({
-    cachedUsageUtilization: {
-      fetchedAtMs: 1_000,
-      utilization: { five_hour: { utilization: 0.77, resets_at: 1_789_000_000 } },
-    },
-  }), "utf8");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      cachedUsageUtilization: {
+        fetchedAtMs: 1_000,
+        utilization: { five_hour: { utilization: 0.77, resets_at: 1_789_000_000 } },
+      },
+    }),
+    "utf8",
+  );
 
   const stream = follow(createLimitsRoutes(unswept(), nowhere(configPath)));
   expect(percents((await stream.take(1))[0]!)).toEqual([77]);
@@ -177,23 +184,27 @@ test("a machine with no reading answers with empty lists rather than a 404", asy
 
 test("Codex's meter rides on the last sweep, because it is stamped on rollout records", async () => {
   const swept = {
-    vendors: [{
-      vendor: "codex" as const,
-      displayName: "Codex",
-      installed: true,
-      days: [],
-      quotas: [{
-        label: "Weekly limit",
-        usedPercent: 22,
-        windowMinutes: 10_080,
-        resetsAt: 1_789_500_000_000,
-        scope: null,
-        planType: "prolite",
-        sampledAt: 1_789_000_000_000,
-      }],
-      coverage: { from: null, to: null, sessions: 0, unreadable: 0 },
-      scannedAt: 1_789_000_000_000,
-    }],
+    vendors: [
+      {
+        vendor: "codex" as const,
+        displayName: "Codex",
+        installed: true,
+        days: [],
+        quotas: [
+          {
+            label: "Weekly limit",
+            usedPercent: 22,
+            windowMinutes: 10_080,
+            resetsAt: 1_789_500_000_000,
+            scope: null,
+            planType: "prolite",
+            sampledAt: 1_789_000_000_000,
+          },
+        ],
+        coverage: { from: null, to: null, sessions: 0, unreadable: 0 },
+        scannedAt: 1_789_000_000_000,
+      },
+    ],
   };
 
   const stream = follow(createLimitsRoutes(unswept(swept), nowhere()));

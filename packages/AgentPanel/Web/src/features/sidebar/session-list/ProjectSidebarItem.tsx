@@ -21,7 +21,6 @@ import { ActivityDot, SessionMeta } from "@/features/sidebar/session-list/Sessio
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { InlineStatus, SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
-
 export type { SessionArchiving };
 
 const INITIAL_SESSION_COUNT = 3;
@@ -73,9 +72,13 @@ export function ProjectSidebarItem({
   const displayName = projectDisplayName(project);
   const projectMenu: RowMenuItem[] = projectArchive
     ? [
-      { label: "Archive all sessions", icon: Archive, onSelect: () => projectArchive.run(project, "archive-sessions") },
-      { label: "Archive folder", icon: FolderArchive, onSelect: () => projectArchive.run(project, "archive") },
-    ]
+        {
+          label: "Archive all sessions",
+          icon: Archive,
+          onSelect: () => projectArchive.run(project, "archive-sessions"),
+        },
+        { label: "Archive folder", icon: FolderArchive, onSelect: () => projectArchive.run(project, "archive") },
+      ]
     : [];
   return (
     <li className="border-b border-border/80">
@@ -97,10 +100,14 @@ export function ProjectSidebarItem({
                 {displayName}
               </span>
               <span className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-                <span>{project.sessionCount} {project.sessionCount === 1 ? "session" : "sessions"}</span>
+                <span>
+                  {project.sessionCount} {project.sessionCount === 1 ? "session" : "sessions"}
+                </span>
                 {Object.entries(project.sourceCounts)
                   .filter(([, count]) => count > 0)
-                  .map(([source]) => <SourceBadge key={source} source={source} />)}
+                  .map(([source]) => (
+                    <SourceBadge key={source} source={source} />
+                  ))}
               </span>
             </span>
           </button>
@@ -113,7 +120,11 @@ export function ProjectSidebarItem({
               title="New Pi session"
               className="flex min-w-11 shrink-0 items-center justify-center gap-1 px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
             >
-              {creating ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}
+              {creating ? (
+                <LoaderCircle className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Plus className="size-4" aria-hidden />
+              )}
               <span>Pi</span>
             </button>
           ) : null}
@@ -298,14 +309,20 @@ export function SessionRow({
         </span>
       </button>
       {archive?.isPending(session) ? (
-        <LoaderCircle className="mr-2 size-3.5 shrink-0 text-muted-foreground motion-safe:animate-spin" role="img" aria-label="Archiving" />
+        <LoaderCircle
+          className="mr-2 size-3.5 shrink-0 text-muted-foreground motion-safe:animate-spin"
+          role="img"
+          aria-label="Archiving"
+        />
       ) : null}
       {menu.length > 0 ? (
         <span className="pr-1">
           <RowMenu label={session.title || session.sessionId} items={menu} />
         </span>
       ) : null}
-      {failure ? <ArchiveFailure message={failure} className={`w-full pb-2 ${project === undefined ? "px-8" : "px-3"}`} /> : null}
+      {failure ? (
+        <ArchiveFailure message={failure} className={`w-full pb-2 ${project === undefined ? "px-8" : "px-3"}`} />
+      ) : null}
     </li>
   );
 }
@@ -343,9 +360,9 @@ export function ProjectSessionList(props: {
   if (props.error) {
     return <SidebarError message={`Projects unavailable: ${props.error}`} retrying={props.retrying} />;
   }
-  const archivedFold = projectArchiving
-    ? <ArchivedProjects archiving={projectArchiving} command={projectArchive} />
-    : null;
+  const archivedFold = projectArchiving ? (
+    <ArchivedProjects archiving={projectArchiving} command={projectArchive} />
+  ) : null;
   if (props.projects.length === 0) {
     return (
       <>
@@ -364,9 +381,7 @@ export function ProjectSessionList(props: {
             sessions={props.sessionsByProject.get(project.projectPath)}
             expanded={props.expandedProjectPaths.has(project.projectPath)}
             active={props.selectedProjectPath === project.projectPath}
-            selectedSessionKey={
-              props.selectedProjectPath === project.projectPath ? props.selectedSessionKey : null
-            }
+            selectedSessionKey={props.selectedProjectPath === project.projectPath ? props.selectedSessionKey : null}
             creating={props.pi?.creatingProjectPath === project.projectPath}
             creationError={props.pi?.creationErrors.get(project.projectPath) ?? null}
             onToggle={() => props.onToggleProject(project.projectPath)}

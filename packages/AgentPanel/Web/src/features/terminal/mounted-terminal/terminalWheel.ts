@@ -124,7 +124,11 @@ export function wheelCell(
  */
 export function attachTerminalWheel(
   terminal: XtermTerminal,
-  { scrollLines, mouseReporting, send }: {
+  {
+    scrollLines,
+    mouseReporting,
+    send,
+  }: {
     /** Rows this viewer's own buffer moves per notch, on the normal screen. */
     scrollLines: number;
     mouseReporting: () => boolean;

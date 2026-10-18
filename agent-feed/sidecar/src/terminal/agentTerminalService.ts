@@ -62,11 +62,7 @@ import {
 } from "@/terminal/agentTerminalIdentity";
 import { claudeSessionRunning, liveTmuxSession } from "@/terminal/session-panes/tmuxSessionOwner";
 import { streamMessage } from "@/terminal/pty/terminalStreamMessages";
-import {
-  connectPtyTerminal,
-  connectTmuxTerminal,
-  type AgentTerminalPtyClient,
-} from "@/terminal/agentTerminalBackends";
+import { connectPtyTerminal, connectTmuxTerminal, type AgentTerminalPtyClient } from "@/terminal/agentTerminalBackends";
 
 // Re-exported because this file is the terminal's entry point: the routes want the errors, the
 // composer wants the pane lookup, and neither should have to know which sibling holds them.
@@ -80,7 +76,6 @@ export {
 export type { AgentTerminalPtyClient, ResolvedAgentTerminalSession };
 
 const MAXIMUM_INPUT_BYTES = 64 * 1024;
-
 
 /**
  * The two backends a terminal can be attached through, which share exactly this surface.
@@ -185,8 +180,7 @@ export class AgentTerminalService {
     private readonly claudeRunning = claudeSessionRunning,
     /** What says which sessions are behind the launch; injected for the same reason. */
     private readonly staleSources: StaleSessionSources = liveStaleSessionSources,
-  ) {
-  }
+  ) {}
 
   /** Every Claude session in a pane this sidecar launched that is behind its flags or CLI version. */
   staleSessions(): Promise<StaleClaudeSessions> {
@@ -270,10 +264,7 @@ export class AgentTerminalService {
    * connection" is identical and a divergence here is the kind that shows up as one backend's
    * terminals never reporting an exit.
    */
-  private register(
-    identity: TerminalIdentity,
-    connection: TerminalConnection,
-  ): AgentTerminalDescriptor {
+  private register(identity: TerminalIdentity, connection: TerminalConnection): AgentTerminalDescriptor {
     const terminalId = crypto.randomUUID();
     const attachment = connection.attachment;
     const descriptor: AgentTerminalDescriptor = {
@@ -373,9 +364,7 @@ export class AgentTerminalService {
   }
 
   sendInput(terminalId: string, data: string, encoding: "utf8" | "base64"): void {
-    const byteLength = encoding === "utf8"
-      ? Buffer.byteLength(data, "utf8")
-      : decodedBase64Length(data);
+    const byteLength = encoding === "utf8" ? Buffer.byteLength(data, "utf8") : decodedBase64Length(data);
     if (byteLength > MAXIMUM_INPUT_BYTES) {
       throw new AgentTerminalInvalidError("terminal input exceeds 64 KiB");
     }
@@ -442,12 +431,15 @@ export class AgentTerminalService {
    * expect.
    */
   private identify(context: AgentTerminalContext): Promise<TerminalIdentity> {
-    return identifyTerminal({
-      userHomeDirectory: this.userHomeDirectory,
-      resolveSession: this.resolveSession,
-      tmuxOwner: (source, sessionId) => this.sessionTmux.owner(source, sessionId),
-      claudeRunning: (sessionId) => this.claudeRunning(sessionId),
-    }, context);
+    return identifyTerminal(
+      {
+        userHomeDirectory: this.userHomeDirectory,
+        resolveSession: this.resolveSession,
+        tmuxOwner: (source, sessionId) => this.sessionTmux.owner(source, sessionId),
+        claudeRunning: (sessionId) => this.claudeRunning(sessionId),
+      },
+      context,
+    );
   }
 
   private receive(active: ActiveTerminal, envelope: PtyEnvelope): void {
@@ -481,6 +473,3 @@ export class AgentTerminalService {
     return active;
   }
 }
-
-
-

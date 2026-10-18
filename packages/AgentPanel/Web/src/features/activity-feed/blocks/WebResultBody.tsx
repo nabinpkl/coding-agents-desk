@@ -80,7 +80,10 @@ export function parseWebResult(tool: string | undefined, text: string): WebResul
     kind: "search",
     links,
     // The frame lines leave their blank lines behind; one paragraph break is all they meant.
-    markdown: prose.join("\n").replace(/\n{3,}/g, "\n\n").trim(),
+    markdown: prose
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
   };
 }
 

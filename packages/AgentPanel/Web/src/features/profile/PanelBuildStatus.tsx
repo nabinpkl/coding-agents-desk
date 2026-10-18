@@ -84,11 +84,8 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
       {build.sidecars.map((sidecar) => (
         <div key={sidecar.machine} className="space-y-0.5">
           <span className="text-amber-500">
-            {sidecar.machine} sidecar {!sidecar.held
-              ? "behind"
-              : sidecar.blocked === null && sidecar.mode === "manual"
-                ? "waiting"
-                : "held back"}
+            {sidecar.machine} sidecar{" "}
+            {!sidecar.held ? "behind" : sidecar.blocked === null && sidecar.mode === "manual" ? "waiting" : "held back"}
           </span>
           <Reason
             text={sidecar.blocked}
@@ -106,9 +103,11 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
         <button
           type="button"
           onClick={build.restartSidecars}
-          title={`Restart the ${restartable.map((sidecar) => sidecar.machine).join(" and ")} `
-            + `${restartable.length === 1 ? "sidecar" : "sidecars"} onto the tree as it is now.`
-            + " Every stream from them reconnects; the panel does not reload."}
+          title={
+            `Restart the ${restartable.map((sidecar) => sidecar.machine).join(" and ")} ` +
+            `${restartable.length === 1 ? "sidecar" : "sidecars"} onto the tree as it is now.` +
+            " Every stream from them reconnects; the panel does not reload."
+          }
           className={ROW_BUTTON}
         >
           Restart sidecars
@@ -119,20 +118,18 @@ export function PanelBuildStatus({ build }: { build: PanelBuild }) {
 }
 
 /** The row's one control, sized for a line of 11px text. */
-const ROW_BUTTON = "shrink-0 cursor-pointer rounded border border-border px-1.5 py-0.5 text-[10px]"
-  + " font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-  + " active:bg-accent/80 focus-visible:outline-2 focus-visible:-outline-offset-2"
-  + " focus-visible:outline-primary disabled:cursor-not-allowed disabled:border-border/50"
-  + " disabled:text-muted-foreground disabled:hover:bg-transparent";
+const ROW_BUTTON =
+  "shrink-0 cursor-pointer rounded border border-border px-1.5 py-0.5 text-[10px]" +
+  " font-medium transition-colors hover:bg-accent hover:text-accent-foreground" +
+  " active:bg-accent/80 focus-visible:outline-2 focus-visible:-outline-offset-2" +
+  " focus-visible:outline-primary disabled:cursor-not-allowed disabled:border-border/50" +
+  " disabled:text-muted-foreground disabled:hover:bg-transparent";
 
 /** One line of why, in the colour the reason earns. */
 function Reason({ text, fallback }: { text: string | null; fallback: string }) {
   const shown = text ?? fallback;
   return (
-    <p
-      className={`truncate font-mono ${text ? "text-amber-500/80" : "text-muted-foreground/70"}`}
-      title={shown}
-    >
+    <p className={`truncate font-mono ${text ? "text-amber-500/80" : "text-muted-foreground/70"}`} title={shown}>
       {shown}
     </p>
   );

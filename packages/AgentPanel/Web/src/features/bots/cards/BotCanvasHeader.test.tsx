@@ -57,10 +57,12 @@ const NOT_A_REPO: BotGitStatus = { botId: "bot-1", repository: false, branch: nu
 
 function feedFor(git: BotGitStatus | Error) {
   return {
-    subscribeBotGit: vi.fn((_botId: string, onStatus: (status: BotGitStatus) => void, onError: (reason: string) => void) => {
-      queueMicrotask(() => (git instanceof Error ? onError(git.message) : onStatus(git)));
-      return () => {};
-    }),
+    subscribeBotGit: vi.fn(
+      (_botId: string, onStatus: (status: BotGitStatus) => void, onError: (reason: string) => void) => {
+        queueMicrotask(() => (git instanceof Error ? onError(git.message) : onStatus(git)));
+        return () => {};
+      },
+    ),
     killTmuxSession: vi.fn(),
   } as unknown as SidecarDataSource;
 }
@@ -87,14 +89,7 @@ let headerWidth = 0;
 const observers: (() => void)[] = [];
 
 function renderHeader(over: Partial<typeof PROPS> & { bot?: BotView; feed?: SidecarDataSource } = {}) {
-  return render(
-    <BotCanvasHeader
-      bot={over.bot ?? bot}
-      feed={over.feed ?? feedFor(CHANGED)}
-      {...PROPS}
-      {...over}
-    />,
-  );
+  return render(<BotCanvasHeader bot={over.bot ?? bot} feed={over.feed ?? feedFor(CHANGED)} {...PROPS} {...over} />);
 }
 
 /**
@@ -123,7 +118,17 @@ beforeEach(() => {
   Object.defineProperty(Element.prototype, "getBoundingClientRect", {
     configurable: true,
     value(this: Element) {
-      return { width: headerWidth, height: 0, top: 0, left: 0, right: headerWidth, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+      return {
+        width: headerWidth,
+        height: 0,
+        top: 0,
+        left: 0,
+        right: headerWidth,
+        bottom: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      };
     },
   });
   Object.defineProperty(globalThis, "ResizeObserver", {

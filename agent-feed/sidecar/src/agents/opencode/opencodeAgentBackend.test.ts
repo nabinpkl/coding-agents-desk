@@ -1,13 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
 import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
-import {
-  AgentModeUnsupportedError,
-  AgentSessionNotFoundError,
-} from "@/agents/agentBackend";
+import { AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/agentBackend";
 
 interface Recorded {
-  prompts: Array<{ sessionID: string; text: string; delivery: string; files?: Array<{ uri: string; mime: string; name: string }> }>;
+  prompts: Array<{
+    sessionID: string;
+    text: string;
+    delivery: string;
+    files?: Array<{ uri: string; mime: string; name: string }>;
+  }>;
   ran: Array<{ sessionID: string; name: string; text: string }>;
   switched: Array<{ sessionID: string; model: unknown }>;
   localOps: string[];
@@ -46,13 +48,14 @@ function fakeServe(recorded: Recorded, session = sessionInfo()) {
       },
     },
     event: {
-      subscribe: (options?: { signal?: AbortSignal }) => (async function* () {
-        const next = await new Promise<unknown>((resolve, reject) => {
-          options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-          pushToStream = resolve;
-        });
-        yield next;
-      })(),
+      subscribe: (options?: { signal?: AbortSignal }) =>
+        (async function* () {
+          const next = await new Promise<unknown>((resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+            pushToStream = resolve;
+          });
+          yield next;
+        })(),
     },
   };
 }
@@ -77,10 +80,18 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
       return Response.json({ data: [{ name: "review", description: "review changes" }, { name: "lonely" }] });
     }
     if (parsed.pathname === "/api/model") {
-      return Response.json({ data: [
-        { providerID: "opencode-go", modelID: "muse-spark", name: "Muse Spark", limit: { context: 1000 }, cost: [{ input: 1, output: 2 }] },
-        { providerID: "opencode", modelID: "plain", name: "", limit: {}, cost: [] },
-      ] });
+      return Response.json({
+        data: [
+          {
+            providerID: "opencode-go",
+            modelID: "muse-spark",
+            name: "Muse Spark",
+            limit: { context: 1000 },
+            cost: [{ input: 1, output: 2 }],
+          },
+          { providerID: "opencode", modelID: "plain", name: "", limit: {}, cost: [] },
+        ],
+      });
     }
     if (parsed.pathname.endsWith("/model")) {
       const body = JSON.parse(String(init?.body)) as { model?: { providerID?: string; id?: string } };
@@ -96,8 +107,14 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
       });
       return Response.json({ data: {} });
     }
-    if (parsed.pathname.endsWith("/compact") || parsed.pathname.endsWith("/revert/stage") || parsed.pathname.endsWith("/revert/commit")) {
-      recorded.localOps.push(`${init?.method ?? "POST"} ${parsed.pathname.split("/").slice(-2).join("/")} ${String(init?.body)}`);
+    if (
+      parsed.pathname.endsWith("/compact") ||
+      parsed.pathname.endsWith("/revert/stage") ||
+      parsed.pathname.endsWith("/revert/commit")
+    ) {
+      recorded.localOps.push(
+        `${init?.method ?? "POST"} ${parsed.pathname.split("/").slice(-2).join("/")} ${String(init?.body)}`,
+      );
       return Response.json({ data: {} });
     }
     if (parsed.pathname.endsWith("/revert") && init?.method === "DELETE") {
@@ -113,7 +130,11 @@ function installFetch(recorded: Recorded, items: FakeItem[]): void {
       return new Response(null, { status: 204 });
     }
     if (parsed.pathname.endsWith("/prompt")) {
-      const body = JSON.parse(String(init?.body)) as { text?: string; delivery?: string; files?: Array<{ uri: string; mime: string; name: string }> };
+      const body = JSON.parse(String(init?.body)) as {
+        text?: string;
+        delivery?: string;
+        files?: Array<{ uri: string; mime: string; name: string }>;
+      };
       recorded.prompts.push({
         sessionID: parsed.pathname.split("/").at(-2) ?? "",
         text: body.text ?? "",
@@ -151,16 +172,24 @@ let pushToStream: ((value: unknown) => void) | null = null;
 
 function fixture() {
   pushToStream = null;
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
+  const recorded: Recorded = {
+    prompts: [],
+    ran: [],
+    switched: [],
+    localOps: [],
+    interrupts: [],
+    permissionReplies: [],
+  };
   installFetch(recorded, [userItem("msg-u", "hello")]);
   const registered: string[] = [];
   const backend = new OpencodeAgentBackend({
-    resolveSession: (sessionId) =>
-      sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    resolveSession: (sessionId) => (sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined),
     // What a command made rather than drove, in the order it was made: a fork registers the same
     // way a create does, and a test that cannot see it is a test that cannot tell the two apart.
     onSessionCreated: (location) => registered.push(`${location.sessionId}@${location.projectPath}`),
-    onCatalogChanged: () => { recorded.localOps.push("catalog re-read"); },
+    onCatalogChanged: () => {
+      recorded.localOps.push("catalog re-read");
+    },
     client: () => fakeServe(recorded) as unknown as OpencodeClient,
     now: () => 1000,
   });
@@ -182,14 +211,20 @@ test("the session model survives the post-compaction gap that blanks usage", asy
   // A landed compaction with no turn reporting tokens after it: the meter blanks rather than
   // holding a pre-compaction number, but the switcher must keep naming the model -- a
   // compaction rewrites context, never the model.
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
+  const recorded: Recorded = {
+    prompts: [],
+    ran: [],
+    switched: [],
+    localOps: [],
+    interrupts: [],
+    permissionReplies: [],
+  };
   installFetch(recorded, [
     { id: "msg-c", time: { created: 200 }, type: "compaction", status: "completed" },
     userItem("msg-u", "hello"),
   ] as unknown as FakeItem[]);
   const backend = new OpencodeAgentBackend({
-    resolveSession: (sessionId) =>
-      sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    resolveSession: (sessionId) => (sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined),
     onSessionCreated() {},
     onCatalogChanged() {},
     client: () => fakeServe(recorded) as unknown as OpencodeClient,
@@ -204,12 +239,18 @@ test("the session model survives the post-compaction gap that blanks usage", asy
 test("the session model is named even when the serve reports no token totals", async () => {
   // A fresh session the serve names a model for but reports no tokens on yet: there is no
   // occupancy to derive anything from, but the switcher must still name the model.
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
+  const recorded: Recorded = {
+    prompts: [],
+    ran: [],
+    switched: [],
+    localOps: [],
+    interrupts: [],
+    permissionReplies: [],
+  };
   const { model, ...withoutTokens } = sessionInfo();
   installFetch(recorded, [userItem("msg-u", "hello")]);
   const backend = new OpencodeAgentBackend({
-    resolveSession: (sessionId) =>
-      sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    resolveSession: (sessionId) => (sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined),
     onSessionCreated() {},
     onCatalogChanged() {},
     client: () => fakeServe(recorded, { ...withoutTokens, model }) as unknown as OpencodeClient,
@@ -258,7 +299,10 @@ test("a serve permission becomes a broker select and the answer becomes its repl
   const seen: Array<{ type: string; request?: { requestId: string; kind: string; options?: string[] } }> = [];
   const offUi = await backend.subscribeUi("s1", (event) => {
     if (event.type === "request") {
-      seen.push({ type: "request", request: { requestId: event.request.requestId, kind: event.request.kind, options: event.request.options } });
+      seen.push({
+        type: "request",
+        request: { requestId: event.request.requestId, kind: event.request.kind, options: event.request.options },
+      });
     }
   });
   const offTimeline = await backend.subscribe("s1", 0, () => {});
@@ -288,12 +332,19 @@ test("a serve permission becomes a broker select and the answer becomes its repl
 
 test("opening a stale projection re-reads the serve", async () => {
   let now = 1000;
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
+  const recorded: Recorded = {
+    prompts: [],
+    ran: [],
+    switched: [],
+    localOps: [],
+    interrupts: [],
+    permissionReplies: [],
+  };
   // Newest-first, the way the serve lists; the tail read picks up the push.
   const messages = [userItem("msg-u", "hello")];
   installFetch(recorded, messages);
   const backend = new OpencodeAgentBackend({
-    resolveSession: (sessionId) => sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    resolveSession: (sessionId) => (sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined),
     onSessionCreated() {},
     onCatalogChanged() {},
     client: () => fakeServe(recorded) as unknown as OpencodeClient,
@@ -314,7 +365,14 @@ test("opening a stale projection re-reads the serve", async () => {
 });
 
 test("a long history walks every page and lands chronological", async () => {
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
+  const recorded: Recorded = {
+    prompts: [],
+    ran: [],
+    switched: [],
+    localOps: [],
+    interrupts: [],
+    permissionReplies: [],
+  };
   // Newest-first, the way the serve lists: msg-249 first, msg-0 last.
   const all = Array.from({ length: 250 }, (_, i) => ({
     id: `msg-${249 - i}`,
@@ -323,7 +381,7 @@ test("a long history walks every page and lands chronological", async () => {
     type: "user" as const,
   }));
   const backend = new OpencodeAgentBackend({
-    resolveSession: (sessionId) => sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    resolveSession: (sessionId) => (sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined),
     onSessionCreated() {},
     onCatalogChanged() {},
     client: () => fakeServe(recorded) as unknown as OpencodeClient,
@@ -342,7 +400,14 @@ test("a picture a call returned is served back by its event and block address", 
   // The pool stores what the mapper collected at sync time; the image route reads it back by
   // the same address the panel was given. Event 0 is the prompt, event 1 the turn whose third
   // block is the picture.
-  const recorded: Recorded = { prompts: [], ran: [], switched: [], localOps: [], interrupts: [], permissionReplies: [] };
+  const recorded: Recorded = {
+    prompts: [],
+    ran: [],
+    switched: [],
+    localOps: [],
+    interrupts: [],
+    permissionReplies: [],
+  };
   const data = Buffer.from("fake-png-bytes").toString("base64");
   installFetch(recorded, [
     {
@@ -351,26 +416,27 @@ test("a picture a call returned is served back by its event and block address", 
       type: "assistant",
       agent: "build",
       model: { id: "m", providerID: "p" },
-      content: [{
-        type: "tool",
-        id: "c1",
-        name: "read",
-        state: {
-          status: "completed",
-          input: { path: "/tmp/shot.png" },
-          content: [
-            { type: "text", text: "Image read successfully" },
-            { type: "file", uri: `data:image/png;base64,${data}`, mime: "image/png" },
-          ],
-          structured: {},
+      content: [
+        {
+          type: "tool",
+          id: "c1",
+          name: "read",
+          state: {
+            status: "completed",
+            input: { path: "/tmp/shot.png" },
+            content: [
+              { type: "text", text: "Image read successfully" },
+              { type: "file", uri: `data:image/png;base64,${data}`, mime: "image/png" },
+            ],
+            structured: {},
+          },
         },
-      }],
+      ],
     },
     userItem("msg-u", "hi"),
   ] as unknown as FakeItem[]);
   const backend = new OpencodeAgentBackend({
-    resolveSession: (sessionId) =>
-      sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined,
+    resolveSession: (sessionId) => (sessionId === "s1" ? { sessionId, projectPath: "/repo" } : undefined),
     onSessionCreated() {},
     onCatalogChanged() {},
     client: () => fakeServe(recorded) as unknown as OpencodeClient,

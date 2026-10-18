@@ -37,10 +37,7 @@ afterEach(() => {
 
 test("a supervisor that has just published reads back as it published", () => {
   const dir = board();
-  writeSupervisorDescriptor(
-    { held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual" },
-    dir,
-  );
+  writeSupervisorDescriptor({ held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "manual" }, dir);
   expect(readSupervisorDescriptor(dir)).toEqual({
     held: true,
     blocked: "sessionRoutes.ts: Syntax Error",

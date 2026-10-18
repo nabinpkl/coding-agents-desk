@@ -41,21 +41,22 @@ export async function buildTree(
     } catch {
       return [];
     }
-    return Promise.all(entries.map(async (entry): Promise<WorkspaceTreeNode> => {
-      const isExpanded = entry.isDirectory && expanded.has(entry.path)
-        && depth + 1 < MAXIMUM_TREE_DEPTH;
-      return {
-        name: entry.name,
-        path: entry.path,
-        isDirectory: entry.isDirectory,
-        expanded: isExpanded,
-        gitStatus: statusForPath(gitEntries, entry.path),
-        // Carried rather than re-derived: the listing already paid for it, and a second stat here
-        // would ask the filesystem the same question twice in one projection.
-        modifiedAt: entry.modifiedAt,
-        children: isExpanded ? await level(entry.path, depth + 1) : [],
-      };
-    }));
+    return Promise.all(
+      entries.map(async (entry): Promise<WorkspaceTreeNode> => {
+        const isExpanded = entry.isDirectory && expanded.has(entry.path) && depth + 1 < MAXIMUM_TREE_DEPTH;
+        return {
+          name: entry.name,
+          path: entry.path,
+          isDirectory: entry.isDirectory,
+          expanded: isExpanded,
+          gitStatus: statusForPath(gitEntries, entry.path),
+          // Carried rather than re-derived: the listing already paid for it, and a second stat here
+          // would ask the filesystem the same question twice in one projection.
+          modifiedAt: entry.modifiedAt,
+          children: isExpanded ? await level(entry.path, depth + 1) : [],
+        };
+      }),
+    );
   }
 
   return level("", 0);

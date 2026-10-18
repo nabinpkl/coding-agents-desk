@@ -33,10 +33,7 @@ export function useSessionComposerPane(
   sessionId: string,
   pane: string | null,
 ): ComponentProps<typeof SessionComposer>["terminalComposer"] {
-  const arrangement = useMemo(
-    () => ({ source, sessionId, shownByDefault: pane !== null }),
-    [source, sessionId, pane],
-  );
+  const arrangement = useMemo(() => ({ source, sessionId, shownByDefault: pane !== null }), [source, sessionId, pane]);
   const context = useMemo<ComposerPaneContext | null>(() => {
     if (pane !== null) return { kind: "tmux", session: pane };
     if (source !== "claude" && source !== "codex" && source !== "opencode") return null;

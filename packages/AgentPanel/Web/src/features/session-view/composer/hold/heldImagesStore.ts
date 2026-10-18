@@ -138,10 +138,14 @@ function usableImages(value: unknown): HeldImage[] {
     if (!entry || typeof entry !== "object") continue;
     const record = entry as Partial<HeldImage>;
     if (
-      typeof record.id !== "number" || !Number.isSafeInteger(record.id) ||
-      typeof record.name !== "string" || !record.name ||
-      typeof record.mime !== "string" || !record.mime.startsWith("image/") ||
-      typeof record.addedAt !== "number" || !Number.isFinite(record.addedAt) ||
+      typeof record.id !== "number" ||
+      !Number.isSafeInteger(record.id) ||
+      typeof record.name !== "string" ||
+      !record.name ||
+      typeof record.mime !== "string" ||
+      !record.mime.startsWith("image/") ||
+      typeof record.addedAt !== "number" ||
+      !Number.isFinite(record.addedAt) ||
       !(record.blob instanceof Blob)
     ) {
       console.warn("held images: dropping one stored image that is not the shape this expects");

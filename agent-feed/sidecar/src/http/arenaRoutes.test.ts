@@ -200,7 +200,7 @@ test("the stream opens with the whole run list as its first frame", async () => 
   const reader = response.body!.getReader();
   const { value } = await reader.read();
   const first = new TextDecoder().decode(value ?? new Uint8Array());
-  expect(first).toContain("\"type\":\"runs\"");
+  expect(first).toContain('"type":"runs"');
   controller.abort();
 });
 
@@ -216,7 +216,11 @@ test("new-run answers what a run with nothing filled in would get here, and only
   const response = await at("/api/arena/new-run");
   expect(response.status).toBe(200);
   // The route test's service is wired with no terminal drivers: a machine without tmux.
-  expect(await response.json()).toEqual({ modes: ["headless"], arenaHome: join(root, "home"), nextName: "arena run 1" });
+  expect(await response.json()).toEqual({
+    modes: ["headless"],
+    arenaHome: join(root, "home"),
+    nextName: "arena run 1",
+  });
   expect((await at("/api/arena/new-run", { method: "POST" })).status).toBe(405);
 });
 
@@ -238,8 +242,9 @@ test("a settled run takes its next prompt; one still on its last is a 409; an un
   });
   const created = (await (await at("/api/arena/runs", body())).json()) as { runId: string };
   const statuses = async () =>
-    ((await (await at(`/api/arena/runs/${created.runId}`)).json()) as { contestants: { status: string }[] })
-      .contestants.map((one) => one.status);
+    (
+      (await (await at(`/api/arena/runs/${created.runId}`)).json()) as { contestants: { status: string }[] }
+    ).contestants.map((one) => one.status);
   const deadline = Date.now() + 2000;
   while (!(await statuses()).every((status) => status === "closed") && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -249,7 +254,7 @@ test("a settled run takes its next prompt; one still on its last is a 409; an un
     body: JSON.stringify({ prompt: "again" }),
   });
   expect(next.status).toBe(200);
-  expect(((await next.json()) as { prompt: string; round: number })).toMatchObject({ prompt: "again", round: 2 });
+  expect((await next.json()) as { prompt: string; round: number }).toMatchObject({ prompt: "again", round: 2 });
   const busy = await at(`/api/arena/runs/${created.runId}/prompt`, {
     method: "POST",
     body: JSON.stringify({ prompt: "and again" }),

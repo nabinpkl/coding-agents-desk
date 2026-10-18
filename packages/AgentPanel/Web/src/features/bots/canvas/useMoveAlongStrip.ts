@@ -108,10 +108,12 @@ export function useMoveAlongStrip({
     if (!strip) return;
     scale.current = effectiveScale(strip);
     const origin = strip.getBoundingClientRect().left;
-    laidOut.current = [...strip.children].filter((child) => !child.hasAttribute(STRIP_FIXED)).map((child) => {
-      const box = child.getBoundingClientRect();
-      return { left: (box.left - origin) / scale.current, width: box.width / scale.current };
-    });
+    laidOut.current = [...strip.children]
+      .filter((child) => !child.hasAttribute(STRIP_FIXED))
+      .map((child) => {
+        const box = child.getBoundingClientRect();
+        return { left: (box.left - origin) / scale.current, width: box.width / scale.current };
+      });
     from.current = index;
     pointer.current = clientX;
     setCarried({ from: index, to: index, dx: 0 });

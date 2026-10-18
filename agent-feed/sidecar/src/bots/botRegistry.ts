@@ -136,7 +136,7 @@ export class BotRegistry {
       let createdBy: BotCreatedBy = { kind: "user" };
       if (actor.kind === "agent") {
         const caller = snapshot.bots.find((bot) =>
-          bot.sessionRefs.some((ref) => sessionKey(ref) === sessionKey(actor.session))
+          bot.sessionRefs.some((ref) => sessionKey(ref) === sessionKey(actor.session)),
         );
         if (!caller?.grants.includes("add_bot")) {
           throw new BotForbiddenError("invoking session is not attached to a Bot permitted to add Bots");
@@ -147,7 +147,9 @@ export class BotRegistry {
         createdBy = { kind: "bot", botId: caller.botId };
       }
 
-      if (snapshot.bots.some((bot) => bot.name.normalize("NFKC").toLocaleLowerCase("en-US") === normalized.normalizedName)) {
+      if (
+        snapshot.bots.some((bot) => bot.name.normalize("NFKC").toLocaleLowerCase("en-US") === normalized.normalizedName)
+      ) {
         throw new BotConflictError(`a Bot named "${normalized.name}" already exists`);
       }
       if (snapshot.bots.some((bot) => bot.environment.path === project.projectPath)) {
@@ -209,11 +211,7 @@ export class BotRegistry {
    * the Bot's own sessions, so a command that attaches a session and then forks it in the same
    * breath has to see its own attach.
    */
-  async addSessions(
-    botId: string,
-    command: AddBotSessionsCommand,
-    actor: BotActor,
-  ): Promise<BotSessionsAdded> {
+  async addSessions(botId: string, command: AddBotSessionsCommand, actor: BotActor): Promise<BotSessionsAdded> {
     if (actor.kind !== "user") {
       throw new BotForbiddenError("only the authenticated user may add sessions to a Bot");
     }
@@ -224,9 +222,12 @@ export class BotRegistry {
       throw new BotInvalidError("sessionRefs or launch is required");
     }
     // A fork stands beside its source unless the caller named somewhere else.
-    const after = command.after === undefined
-      ? launch?.from === undefined ? undefined : { source: "claude" as const, sessionId: launch.from.sessionId }
-      : normalizeSessionRef(command.after);
+    const after =
+      command.after === undefined
+        ? launch?.from === undefined
+          ? undefined
+          : { source: "claude" as const, sessionId: launch.from.sessionId }
+        : normalizeSessionRef(command.after);
     const resolved = normalized.sessionRefs.map((ref) => {
       const session = this.catalog.resolveSession(ref);
       if (!session) throw new BotNotFoundError(`session ${sessionKey(ref)} is not in the current catalog`);
@@ -240,8 +241,7 @@ export class BotRegistry {
     // its directory, so the two readings cannot disagree about the thing this is asking; a Bot
     // that has been deleted in between fails inside the mutation with its own error, which is the
     // one worth reporting.
-    const directory = (await this.store.snapshot()).bots
-      .find((bot) => bot.botId === botId)?.environment.path;
+    const directory = (await this.store.snapshot()).bots.find((bot) => bot.botId === botId)?.environment.path;
     // Index-aligned with `normalized.sessionRefs`, which `resolved` was mapped from.
     let outsideIndex = -1;
     if (directory !== undefined) {
@@ -263,7 +263,7 @@ export class BotRegistry {
         idempotencyKey,
         signature,
         after,
-      )
+      ),
     );
 
     if (!launch) return { bot: await this.viewer.viewRecord(record.bot) };
@@ -306,7 +306,11 @@ export class BotRegistry {
 
     const home = await placementBot(bots, session.projectPath);
     if (home) {
-      const attached = await this.addSessions(home.botId, { requestId: `${requestId}:attach`, sessionRefs: [sessionRef] }, actor);
+      const attached = await this.addSessions(
+        home.botId,
+        { requestId: `${requestId}:attach`, sessionRefs: [sessionRef] },
+        actor,
+      );
       return { bot: attached.bot, created: false };
     }
     const directory = await placementDirectory(session.projectPath);
@@ -315,7 +319,11 @@ export class BotRegistry {
       actor,
     );
     try {
-      const attached = await this.addSessions(bot.botId, { requestId: `${requestId}:attach`, sessionRefs: [sessionRef] }, actor);
+      const attached = await this.addSessions(
+        bot.botId,
+        { requestId: `${requestId}:attach`, sessionRefs: [sessionRef] },
+        actor,
+      );
       return { bot: attached.bot, created: true };
     } catch (error) {
       // The Bot is written and holds nothing, the same half-done state a failed first launch
@@ -328,11 +336,7 @@ export class BotRegistry {
     }
   }
 
-  async detachSessions(
-    botId: string,
-    command: DetachBotSessionsCommand,
-    actor: BotActor,
-  ): Promise<BotView> {
+  async detachSessions(botId: string, command: DetachBotSessionsCommand, actor: BotActor): Promise<BotView> {
     if (actor.kind !== "user") {
       throw new BotForbiddenError("only the authenticated user may detach sessions from a Bot");
     }
@@ -345,17 +349,13 @@ export class BotRegistry {
     const idempotencyKey = `detach:${actorKey(actor)}:${normalized.requestId}`;
 
     const record = await this.store.mutate((snapshot) =>
-      detachRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
+      detachRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature),
     );
     return this.viewer.viewRecord(record);
   }
 
   /** One session's bracket task: the completion path every `set_task` door forwards to. */
-  async renameBracket(
-    ref: BotSessionRef,
-    task: string,
-    renamer: BotSessionRenamer,
-  ): Promise<RenamedBracket> {
+  async renameBracket(ref: BotSessionRef, task: string, renamer: BotSessionRenamer): Promise<RenamedBracket> {
     return renameBracketTitle(this.store, this.catalog, ref, task, renamer);
   }
 
@@ -372,11 +372,7 @@ export class BotRegistry {
    * sessions than a single command may carry cannot be reordered, which is far past any roster
    * this surface has been asked to draw.
    */
-  async reorderSessions(
-    botId: string,
-    command: ReorderBotSessionsCommand,
-    actor: BotActor,
-  ): Promise<BotView> {
+  async reorderSessions(botId: string, command: ReorderBotSessionsCommand, actor: BotActor): Promise<BotView> {
     if (actor.kind !== "user") {
       throw new BotForbiddenError("only the authenticated user may reorder a Bot's sessions");
     }
@@ -389,7 +385,7 @@ export class BotRegistry {
     const idempotencyKey = `reorder:${actorKey(actor)}:${normalized.requestId}`;
 
     const record = await this.store.mutate((snapshot) =>
-      reorderRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature)
+      reorderRefs(snapshot, botId, normalized.sessionRefs, idempotencyKey, signature),
     );
     return this.viewer.viewRecord(record);
   }
@@ -432,11 +428,7 @@ export class BotRegistry {
    * because it is one act with one ordering, and doing it as five calls is how a worktree gets
    * removed while its pane is still live in it.
    */
-  async retireSessions(
-    botId: string,
-    command: RetireBotSessionsCommand,
-    actor: BotActor,
-  ): Promise<BotSessionsRetired> {
+  async retireSessions(botId: string, command: RetireBotSessionsCommand, actor: BotActor): Promise<BotSessionsRetired> {
     if (actor.kind !== "user") {
       throw new BotForbiddenError("only the authenticated user may retire a Bot's sessions");
     }
@@ -461,9 +453,8 @@ export class BotRegistry {
 
   async botAllowedToAdd(session: BotSessionRef): Promise<boolean> {
     const snapshot = await this.store.snapshot();
-    return snapshot.bots.some((bot) =>
-      bot.grants.includes("add_bot")
-      && bot.sessionRefs.some((ref) => sessionKey(ref) === sessionKey(session))
+    return snapshot.bots.some(
+      (bot) => bot.grants.includes("add_bot") && bot.sessionRefs.some((ref) => sessionKey(ref) === sessionKey(session)),
     );
   }
 

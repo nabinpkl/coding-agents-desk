@@ -36,8 +36,14 @@ class FakeTerminal {
   scrollLines() {}
   clear() {}
   reset() {}
-  resize(columns: number, rows: number) { this.cols = columns; this.rows = rows; }
-  focus() { this.focuses++; this.textarea?.focus(); }
+  resize(columns: number, rows: number) {
+    this.cols = columns;
+    this.rows = rows;
+  }
+  focus() {
+    this.focuses++;
+    this.textarea?.focus();
+  }
   dispose() {}
   write(bytes: Uint8Array, done: () => void) {
     this.writes.push([...bytes]);
@@ -45,16 +51,30 @@ class FakeTerminal {
   }
   onData(listener: (data: string) => void) {
     this.dataListener = listener;
-    return { dispose: () => { this.dataListener = null; } };
+    return {
+      dispose: () => {
+        this.dataListener = null;
+      },
+    };
   }
   // Nothing renders in jsdom; the pane's watch on the last drawn row only needs the hook.
-  onRender() { return { dispose: () => {} }; }
+  onRender() {
+    return { dispose: () => {} };
+  }
   onBinary(listener: (data: string) => void) {
     this.binaryListener = listener;
-    return { dispose: () => { this.binaryListener = null; } };
+    return {
+      dispose: () => {
+        this.binaryListener = null;
+      },
+    };
   }
-  emitData(data: string) { this.dataListener?.(data); }
-  emitBinary(data: string) { this.binaryListener?.(data); }
+  emitData(data: string) {
+    this.dataListener?.(data);
+  }
+  emitBinary(data: string) {
+    this.binaryListener?.(data);
+  }
 }
 
 vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
@@ -80,12 +100,17 @@ it("renders the PTY stream, sends xterm input, and detaches through Agent Feed",
       columns: 80,
       rows: 24,
     })),
-    subscribeTerminal: vi.fn((_terminalId: string, handlers: {
-      onMessage: (message: AgentTerminalStreamMessage) => void;
-    }) => {
-      stream = handlers.onMessage;
-      return unsubscribe;
-    }),
+    subscribeTerminal: vi.fn(
+      (
+        _terminalId: string,
+        handlers: {
+          onMessage: (message: AgentTerminalStreamMessage) => void;
+        },
+      ) => {
+        stream = handlers.onMessage;
+        return unsubscribe;
+      },
+    ),
     sendTerminalInput: vi.fn(async () => {}),
     updateTerminalViewport: vi.fn(async () => {}),
     closeTerminal: vi.fn(async () => {}),
@@ -100,10 +125,7 @@ it("renders the PTY stream, sends xterm input, and detaches through Agent Feed",
 
   const view = render(<AgentTerminalPane feed={feed} context={context} onState={onState} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalledWith(context, 80, 24));
-  await waitFor(() => expect(onState).toHaveBeenCalledWith(
-    context,
-    expect.objectContaining({ kind: "ready" }),
-  ));
+  await waitFor(() => expect(onState).toHaveBeenCalledWith(context, expect.objectContaining({ kind: "ready" })));
 
   act(() => {
     stream?.({ type: "output", revision: "1", data: "aGk=" });
@@ -134,12 +156,17 @@ it("closes the stream without detaching a PTY that already exited", async () => 
       columns: 80,
       rows: 24,
     })),
-    subscribeTerminal: vi.fn((_terminalId: string, handlers: {
-      onMessage: (message: AgentTerminalStreamMessage) => void;
-    }) => {
-      stream = handlers.onMessage;
-      return unsubscribe;
-    }),
+    subscribeTerminal: vi.fn(
+      (
+        _terminalId: string,
+        handlers: {
+          onMessage: (message: AgentTerminalStreamMessage) => void;
+        },
+      ) => {
+        stream = handlers.onMessage;
+        return unsubscribe;
+      },
+    ),
     sendTerminalInput: vi.fn(async () => {}),
     updateTerminalViewport: vi.fn(async () => {}),
     closeTerminal: vi.fn(async () => {}),
@@ -295,8 +322,7 @@ it("zooms the type per pane, without re-attaching to the session", async () => {
     fireEvent.click(screen.getByRole("button", { name: "Larger type" }));
   });
   const first = terminal.options.fontSize as number;
-  expect(screen.getByRole("button", { name: "Size the type to the pane" }))
-    .toHaveTextContent(`${first}pt`);
+  expect(screen.getByRole("button", { name: "Size the type to the pane" })).toHaveTextContent(`${first}pt`);
 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Larger type" }));
@@ -413,7 +439,7 @@ it("grows with the finger even when the page moves under it mid-drag", async () 
   render(<AgentTerminalPane feed={railFeed()} context={{ kind: "tmux", session: "composerprobe" }} layout="band" />);
   const pane = screen.getByRole("region", { name: "composerprobe terminal" });
   expect(pane).toHaveStyle({ height: "420px" });
-  pane.getBoundingClientRect = () => ({ height: 420 } as DOMRect);
+  pane.getBoundingClientRect = () => ({ height: 420 }) as DOMRect;
   const separator = screen.getByRole("separator", { name: "Resize terminal" });
   separator.setPointerCapture = () => {};
   const pointer = (type: string, screenY: number, clientY: number) =>

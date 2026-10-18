@@ -6,7 +6,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentBackend, AgentSessionDescriptor } from "@/agents/agentBackend";
-import { createHandoverRoutes, LIVE_HANDOVER_ACTIONS, type HandoverRouteActions } from "@/http/agent-routes/handoverRoutes";
+import {
+  createHandoverRoutes,
+  LIVE_HANDOVER_ACTIONS,
+  type HandoverRouteActions,
+} from "@/http/agent-routes/handoverRoutes";
 import type { SessionLauncher } from "@/transcripts/session-ops/forkSession";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
@@ -17,21 +21,46 @@ function fakeBackend(): AgentBackend {
   return {
     id: "pi",
     capabilities: {
-      modes: ["nice"], canSend: true, canSteer: true, canAbort: true,
-      canFetchRaw: false, canOpenTerminal: false, supportsExtensionUi: true, canStreamLive: false,
+      modes: ["nice"],
+      canSend: true,
+      canSteer: true,
+      canAbort: true,
+      canFetchRaw: false,
+      canOpenTerminal: false,
+      supportsExtensionUi: true,
+      canStreamLive: false,
     },
-    describeSession() { return undefined; },
-    async createSession() { throw new Error("not used"); },
+    describeSession() {
+      return undefined;
+    },
+    async createSession() {
+      throw new Error("not used");
+    },
     async page() {
-      return { events: [], total: 0, mode: "nice" as const, sequence: 0, runState: "idle" as const, queue: { steer: 0, followUp: 0 } };
+      return {
+        events: [],
+        total: 0,
+        mode: "nice" as const,
+        sequence: 0,
+        runState: "idle" as const,
+        queue: { steer: 0, followUp: 0 },
+      };
     },
-    async subscribe() { return () => {}; },
+    async subscribe() {
+      return () => {};
+    },
     async send(_sessionId, requestId, _text, delivery) {
-      return { requestId, delivery: delivery === "steer" ? "steer" as const : "immediate" as const };
+      return { requestId, delivery: delivery === "steer" ? ("steer" as const) : ("immediate" as const) };
     },
-    async abort(_sessionId, requestId) { return { requestId, delivery: "abort" as const }; },
-    async subscribeUi() { return () => {}; },
-    async respondToUi() { return "already-resolved" as const; },
+    async abort(_sessionId, requestId) {
+      return { requestId, delivery: "abort" as const };
+    },
+    async subscribeUi() {
+      return () => {};
+    },
+    async respondToUi() {
+      return "already-resolved" as const;
+    },
     async dispose() {},
   };
 }
@@ -46,7 +75,12 @@ const HANDOVER_ID = "44444444-4444-4444-8444-444444444444";
 const HANDOVER_PLAIN_ID = "55555555-5555-4555-8555-555555555555";
 
 function handoverLine(record: Record<string, unknown>): string {
-  return JSON.stringify({ cwd: "/tmp/project", timestamp: "2026-09-09T05:00:00.000Z", uuid: crypto.randomUUID(), ...record });
+  return JSON.stringify({
+    cwd: "/tmp/project",
+    timestamp: "2026-09-09T05:00:00.000Z",
+    uuid: crypto.randomUUID(),
+    ...record,
+  });
 }
 
 /** `empty` has records but no turn in any of them: the one session left with nothing to hand over. */
@@ -57,7 +91,11 @@ async function handoverTranscript(id: string, shape: "compacted" | "plain" | "em
     compacted: [
       handoverLine({ type: "user", message: { role: "user", content: "before" } }),
       handoverLine({ type: "system", subtype: "compact_boundary", content: "Conversation compacted" }),
-      handoverLine({ type: "user", isCompactSummary: true, message: { role: "user", content: "Primary request: fix it." } }),
+      handoverLine({
+        type: "user",
+        isCompactSummary: true,
+        message: { role: "user", content: "Primary request: fix it." },
+      }),
       handoverLine({ type: "user", message: { role: "user", content: "did it land?" } }),
     ],
     plain: [handoverLine({ type: "user", message: { role: "user", content: "never summarized" } })],
@@ -82,14 +120,25 @@ function unseedHandoverSession(id: string, root: string): Promise<void> {
   return rm(root, { recursive: true, force: true });
 }
 
-function handoverBackend(calls: { created: { requestId: string; project: string }[]; sent: { sessionId: string; text: string }[] }): AgentBackend {
+function handoverBackend(calls: {
+  created: { requestId: string; project: string }[];
+  sent: { sessionId: string; text: string }[];
+}): AgentBackend {
   const base = fakeBackend();
   const backend: AgentBackend = {
     ...base,
     id: "opencode",
     createSession: async (requestId: string, projectPath: string): Promise<AgentSessionDescriptor> => {
       calls.created.push({ requestId, project: projectPath });
-      return { sessionId: "opencode-new", source: "opencode", projectPath, title: "new", lastEventAt: Date.now(), activity: "ready", capabilities: base.capabilities };
+      return {
+        sessionId: "opencode-new",
+        source: "opencode",
+        projectPath,
+        title: "new",
+        lastEventAt: Date.now(),
+        activity: "ready",
+        capabilities: base.capabilities,
+      };
     },
     send: async (sessionId: string, requestId: string, text: string, _delivery: "next" | "steer") => {
       calls.sent.push({ sessionId, text });
@@ -125,11 +174,19 @@ function unseedOpencodeSession(id: string): void {
 function recordingLauncher(started: { cwd: string; title: string; prompt?: string }[]): SessionLauncher {
   return {
     async start(options) {
-      started.push({ cwd: options.cwd, title: options.title, ...(options.prompt === undefined ? {} : { prompt: options.prompt }) });
+      started.push({
+        cwd: options.cwd,
+        title: options.title,
+        ...(options.prompt === undefined ? {} : { prompt: options.prompt }),
+      });
       return { tmuxSession: `agentdesk-${options.sessionId}` };
     },
-    async fork() { throw new Error("a handover never forks"); },
-    async end() { return null; },
+    async fork() {
+      throw new Error("a handover never forks");
+    },
+    async end() {
+      return null;
+    },
   };
 }
 
@@ -157,15 +214,23 @@ test("reads a Claude session's summary and the turns since it, and starts nothin
   seedHandoverSession(HANDOVER_ID, join(root, `${HANDOVER_ID}.jsonl`));
   const started: { cwd: string; title: string; prompt?: string }[] = [];
   try {
-    const route = createHandoverRoutes(() => undefined, claudeActions(started, async () => {
-      throw new Error("the opencode reader is not this session's");
-    }));
+    const route = createHandoverRoutes(
+      () => undefined,
+      claudeActions(started, async () => {
+        throw new Error("the opencode reader is not this session's");
+      }),
+    );
     const request = readRequest("claude", HANDOVER_ID);
     const response = await route(request, new URL(request.url), server);
     expect(response?.status).toBe(200);
-    const body = await response?.json() as {
-      source: string; sessionId: string; project: string;
-      summary: string; turns: string; turnCount: number; lossy: boolean;
+    const body = (await response?.json()) as {
+      source: string;
+      sessionId: string;
+      project: string;
+      summary: string;
+      turns: string;
+      turnCount: number;
+      lossy: boolean;
     };
     expect(body).toMatchObject({
       source: "claude",
@@ -187,12 +252,15 @@ test("reads an opencode session's summary through the serve", async () => {
   seedOpencodeSession(OPENCODE_ID, "Wire contract");
   const started: { cwd: string; title: string; prompt?: string }[] = [];
   try {
-    const route = createHandoverRoutes(() => undefined, claudeActions(started, async () => ({
-      summary: "Primary request: fix the wire.",
-      turns: "human: did it land?",
-      turnCount: 1,
-      lossy: true,
-    })));
+    const route = createHandoverRoutes(
+      () => undefined,
+      claudeActions(started, async () => ({
+        summary: "Primary request: fix the wire.",
+        turns: "human: did it land?",
+        turnCount: 1,
+        lossy: true,
+      })),
+    );
     const request = readRequest("opencode", OPENCODE_ID);
     const response = await route(request, new URL(request.url), server);
     expect(response?.status).toBe(200);
@@ -226,9 +294,9 @@ test("the read and the start refuse the same session for the same reason", async
   const root = await handoverTranscript(HANDOVER_PLAIN_ID, "empty");
   seedHandoverSession(HANDOVER_PLAIN_ID, join(root, `${HANDOVER_PLAIN_ID}.jsonl`));
   try {
-    const route = createHandoverRoutes((id) => id === "opencode"
-      ? handoverBackend({ created: [], sent: [] })
-      : undefined);
+    const route = createHandoverRoutes((id) =>
+      id === "opencode" ? handoverBackend({ created: [], sent: [] }) : undefined,
+    );
 
     const read = readRequest("claude", HANDOVER_PLAIN_ID);
     const readAnswer = await route(read, new URL(read.url), server);

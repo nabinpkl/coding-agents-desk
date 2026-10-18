@@ -164,8 +164,9 @@ test("reads an event id the way a transcript page writes one", () => {
 test("refuses an event that belongs to another session", () => {
   // A panel that sent the row it was looking at while the reader had moved on would otherwise
   // anchor into a transcript nobody asked about, and the count would be valid nonsense.
-  expect(() => positionFromEventId("claude:11111111-1111-4111-8111-111111111111:at:3", SESSION))
-    .toThrow(MessageAnchorError);
+  expect(() => positionFromEventId("claude:11111111-1111-4111-8111-111111111111:at:3", SESSION)).toThrow(
+    MessageAnchorError,
+  );
 });
 
 test("refuses an id that is not one, and a source that cannot be forked", () => {

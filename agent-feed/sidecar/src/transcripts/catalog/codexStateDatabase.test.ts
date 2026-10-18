@@ -9,9 +9,7 @@ import { reconcileSource, readCodexThreadRows } from "@/transcripts/catalog/tran
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((path) =>
-    rm(path, { recursive: true, force: true })
-  ));
+  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
 /**
@@ -19,9 +17,7 @@ afterEach(async () => {
  * Codex leaves it when it exits: everything checkpointed into the main file and
  * the -wal/-shm sidecars gone.
  */
-async function makeCodexStateDatabase(
-  { leaveRunning }: { leaveRunning: boolean },
-): Promise<string> {
+async function makeCodexStateDatabase({ leaveRunning }: { leaveRunning: boolean }): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "codex-state-"));
   temporaryDirectories.push(root);
   const path = join(root, "state_5.sqlite");

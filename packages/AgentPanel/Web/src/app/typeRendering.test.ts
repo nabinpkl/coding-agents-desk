@@ -4,16 +4,15 @@ import { describe, expect, it } from "vitest";
 import { TYPE_FAMILIES } from "@/features/appearance/typePreferences";
 
 const appStyles = readFileSync(resolve("src/app/styles.css"), "utf8");
-const markdownStyles = readFileSync(
-  resolve("src/features/activity-feed/markdown/markdown.css"),
-  "utf8",
-);
+const markdownStyles = readFileSync(resolve("src/features/activity-feed/markdown/markdown.css"), "utf8");
 // Both files: the text wrappers moved into `ActivityBlockViews.tsx` when the rows were
 // split, and the rule is about all of them wherever they live.
 const eventRows = [
   "src/features/activity-feed/blocks/ActivityEventRows.tsx",
   "src/features/activity-feed/blocks/ActivityBlockViews.tsx",
-].map((path) => readFileSync(resolve(path), "utf8")).join("\n");
+]
+  .map((path) => readFileSync(resolve(path), "utf8"))
+  .join("\n");
 
 /**
  * Every failure this pins is SILENT at runtime. The browser drops an
@@ -47,9 +46,7 @@ describe("Agent Panel type rendering", () => {
     // `font-sans` utility. That is a self-reference until :root defines the
     // real stack; drop the :root line and the property is invalid at computed
     // value time, taking `body`'s font-family down with it.
-    expect(appStyles).toMatch(
-      /^\s*--font-sans:\s*"Inter Variable",\s*system-ui,\s*-apple-system,\s*sans-serif;/m,
-    );
+    expect(appStyles).toMatch(/^\s*--font-sans:\s*"Inter Variable",\s*system-ui,\s*-apple-system,\s*sans-serif;/m);
     expect(appStyles).toContain("font-family: var(--font-sans);");
   });
 

@@ -22,27 +22,13 @@
  * Serialised through `inTurn` like every other writer to a pane, so this and a reader committing
  * their answers cannot be pressing into one terminal at the same moment.
  */
-import type {
-  TmuxQuestionPoint,
-  TmuxQuestionPointOutcome,
-  TmuxQuestionRefusal,
-} from "@agentdesk/agent-feed-wire";
+import type { TmuxQuestionPoint, TmuxQuestionPointOutcome, TmuxQuestionRefusal } from "@agentdesk/agent-feed-wire";
 import { captureTmuxQuestionView, hexSend, TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { inTurn } from "@/input/tmuxComposerPanes";
 import { saysTheSame } from "@/input/rewindPicker";
-import {
-  otherRowIndex,
-  questionDialog,
-  type QuestionDialog,
-  type QuestionRow,
-} from "@/input/question/questionDialog";
-import {
-  goTo,
-  moveCursor,
-  type QuestionAsked,
-  type QuestionRuntime,
-} from "@/input/question/questionKeys";
+import { otherRowIndex, questionDialog, type QuestionDialog, type QuestionRow } from "@/input/question/questionDialog";
+import { goTo, moveCursor, type QuestionAsked, type QuestionRuntime } from "@/input/question/questionKeys";
 
 const LIVE: QuestionRuntime = {
   pane: (sessionId) => liveTmuxSession("claude", sessionId),

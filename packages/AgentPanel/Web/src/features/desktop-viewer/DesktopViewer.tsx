@@ -1,8 +1,13 @@
 "use client";
 
 import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { desktopDisplayId, desktopNavigationEvent, type DesktopControlEvent, type DesktopNavigationState,
-  type WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
+import {
+  desktopDisplayId,
+  desktopNavigationEvent,
+  type DesktopControlEvent,
+  type DesktopNavigationState,
+  type WebrtcTileSourceMetadata,
+} from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import { DesktopViewerSurface } from "@/features/desktop-viewer/DesktopViewerSurface";
 import { DesktopNavigationChrome } from "@/features/desktop-viewer/navigation/DesktopNavigationChrome";
@@ -45,10 +50,18 @@ interface ViewerSlotState {
   ready?: boolean;
   error?: string;
 }
-interface ViewerState { active: number; pending: number | null; slots: ViewerSlotState[]; notice: string | null }
+interface ViewerState {
+  active: number;
+  pending: number | null;
+  slots: ViewerSlotState[];
+  notice: string | null;
+}
 
 /** A monitor handover replaces one source, never the identity of an in-flight source. */
-export function DesktopViewer({ transport, scope = "default" }: {
+export function DesktopViewer({
+  transport,
+  scope = "default",
+}: {
   transport: AgentHttpTransport;
   /** Names the login session, so a remembered monitor is restored into the session it belongs to. */
   scope?: string;
@@ -72,66 +85,90 @@ export function DesktopViewer({ transport, scope = "default" }: {
   // Seeded rather than switched into after connecting: opening straight onto the remembered
   // monitor is one negotiation, where selecting it afterwards would be a visible handover.
   const [viewer, setViewer] = useState<ViewerState>(() => ({
-    active: 1, pending: null, slots: [{ id: 1, displayId: rememberedDisplay(scope) }], notice: null,
+    active: 1,
+    pending: null,
+    slots: [{ id: 1, displayId: rememberedDisplay(scope) }],
+    notice: null,
   }));
   const viewerRef = useLatestRef(viewer);
   const sequence = useRef(1);
   const [chromeHeight, setChromeHeight] = useState(0);
   const active = viewer.slots.find((slot) => slot.id === viewer.active)!;
   const activeDisplayId = active.source?.displayId;
-  const report = useCallback((phase: string, detail: Record<string, unknown>) => {
-    postTileTelemetry("display", { phase, attempt: crypto.randomUUID(),
-      elapsedMs: 0, detail: JSON.stringify(detail) }, transport);
-  }, [transport]);
+  const report = useCallback(
+    (phase: string, detail: Record<string, unknown>) => {
+      postTileTelemetry(
+        "display",
+        { phase, attempt: crypto.randomUUID(), elapsedMs: 0, detail: JSON.stringify(detail) },
+        transport,
+      );
+    },
+    [transport],
+  );
   const navigation = useDesktopNavigation({
-    transport: viewer.pending === null && active.source?.desktopNavigationVersion === 1 ? active.control ?? null : null,
-    displayId: activeDisplayId, report,
+    transport:
+      viewer.pending === null && active.source?.desktopNavigationVersion === 1 ? (active.control ?? null) : null,
+    displayId: activeDisplayId,
+    report,
   });
   const navigationRef = useLatestRef(navigation);
   const patchSlot = useCallback((id: number, patch: Partial<ViewerSlotState>) => {
     setViewer((current) => {
       if (!current.slots.some((slot) => slot.id === id)) return current;
-      const slots = current.slots.map((slot) => slot.id === id ? { ...slot, ...patch } : slot);
+      const slots = current.slots.map((slot) => (slot.id === id ? { ...slot, ...patch } : slot));
       if (patch.ready && current.pending === id) {
         return { active: id, pending: null, slots: slots.filter((slot) => slot.id === id), notice: current.notice };
       }
       return { ...current, slots };
     });
   }, []);
-  const event = useCallback((id: number, value: DesktopControlEvent) => {
-    const current = viewerRef.current;
-    if (!current.slots.some((slot) => slot.id === id)) return;
-    if (id === current.active) navigationRef.current.handleEvent(value);
-    const decoded = desktopNavigationEvent(value);
-    if (decoded?.type === "desktop-state") patchSlot(id, { snapshot: decoded });
-  }, [patchSlot, viewerRef, navigationRef]);
-  const selectDisplay = useCallback((displayId?: string, notice: string | null = null) => {
-    const current = viewerRef.current;
-    const old = current.slots.find((slot) => slot.id === current.active);
-    if (displayId && old?.source?.displayId === displayId && current.pending === null && old.ready) return;
-    navigationRef.current.cancel();
-    old?.control?.send({ type: "release-control" });
-    try {
-      if (displayId) localStorage.setItem(displayStorageKey(scope), displayId);
-      else localStorage.removeItem(displayStorageKey(scope));
-    } catch {
-      // a private window still gets the choice for this session
-    }
-    const id = ++sequence.current;
-    report("navigation-display", { phase: "requested", displayId: displayId ?? "main", generation: id });
-    setViewer({ active: current.active, pending: id,
-      slots: [...current.slots.filter((slot) => slot.id === current.active), { id, displayId }], notice });
-  }, [report, scope, viewerRef, navigationRef]);
+  const event = useCallback(
+    (id: number, value: DesktopControlEvent) => {
+      const current = viewerRef.current;
+      if (!current.slots.some((slot) => slot.id === id)) return;
+      if (id === current.active) navigationRef.current.handleEvent(value);
+      const decoded = desktopNavigationEvent(value);
+      if (decoded?.type === "desktop-state") patchSlot(id, { snapshot: decoded });
+    },
+    [patchSlot, viewerRef, navigationRef],
+  );
+  const selectDisplay = useCallback(
+    (displayId?: string, notice: string | null = null) => {
+      const current = viewerRef.current;
+      const old = current.slots.find((slot) => slot.id === current.active);
+      if (displayId && old?.source?.displayId === displayId && current.pending === null && old.ready) return;
+      navigationRef.current.cancel();
+      old?.control?.send({ type: "release-control" });
+      try {
+        if (displayId) localStorage.setItem(displayStorageKey(scope), displayId);
+        else localStorage.removeItem(displayStorageKey(scope));
+      } catch {
+        // a private window still gets the choice for this session
+      }
+      const id = ++sequence.current;
+      report("navigation-display", { phase: "requested", displayId: displayId ?? "main", generation: id });
+      setViewer({
+        active: current.active,
+        pending: id,
+        slots: [...current.slots.filter((slot) => slot.id === current.active), { id, displayId }],
+        notice,
+      });
+    },
+    [report, scope, viewerRef, navigationRef],
+  );
   const displaySnapshot = active.snapshot ?? navigation.model.snapshot;
   const displays = displaySnapshot?.displays ?? [];
-  const missingDisplay = !!activeDisplayId && !!displaySnapshot
-    && !displays.some((display) => display.id === activeDisplayId);
+  const missingDisplay =
+    !!activeDisplayId && !!displaySnapshot && !displays.some((display) => display.id === activeDisplayId);
   const canInteract = viewer.pending === null && !missingDisplay;
-  const displayUnavailable = useCallback((id: number, replacement: string) => {
-    const current = viewerRef.current;
-    if (id !== (current.pending ?? current.active)) return;
-    selectDisplay(replacement, "Monitor disconnected. Now viewing the remaining main monitor.");
-  }, [selectDisplay, viewerRef]);
+  const displayUnavailable = useCallback(
+    (id: number, replacement: string) => {
+      const current = viewerRef.current;
+      if (id !== (current.pending ?? current.active)) return;
+      selectDisplay(replacement, "Monitor disconnected. Now viewing the remaining main monitor.");
+    },
+    [selectDisplay, viewerRef],
+  );
   // A monitor that disconnects under the viewer hands it to the main one, once per disconnection.
   const lostDisplay = missingDisplay && viewer.pending === null ? activeDisplayId : null;
   useNotify(lostDisplay, (lost) => {
@@ -161,52 +198,112 @@ export function DesktopViewer({ transport, scope = "default" }: {
     });
   }, []);
   // A handover that has not painted in fifteen seconds is abandoned, each one on its own clock.
-  useTimeout(() => {
-    if (viewer.pending !== null) abandonHandover(viewer.pending, "Could not switch monitor. Still showing the previous one.");
-  }, viewer.pending === null ? null : 15_000, viewer.pending);
+  useTimeout(
+    () => {
+      if (viewer.pending !== null)
+        abandonHandover(viewer.pending, "Could not switch monitor. Still showing the previous one.");
+    },
+    viewer.pending === null ? null : 15_000,
+    viewer.pending,
+  );
   const pending = viewer.slots.find((slot) => slot.id === viewer.pending);
-  const error = pending?.error ?? active.error
-    ?? (missingDisplay && displays.length === 0 ? "No monitor is available" : undefined)
-    ?? (active.source && active.source.desktopNavigationVersion !== 1
-      ? "Desktop navigation unavailable. Update the standalone helper." : undefined);
+  const error =
+    pending?.error ??
+    active.error ??
+    (missingDisplay && displays.length === 0 ? "No monitor is available" : undefined) ??
+    (active.source && active.source.desktopNavigationVersion !== 1
+      ? "Desktop navigation unavailable. Update the standalone helper."
+      : undefined);
   const onDisplay = useCallback((id: string) => selectDisplay(id), [selectDisplay]);
-  const navigationChrome = active.source?.desktopNavigationVersion === 1 ? (
-    <DesktopNavigationChrome model={navigation.model} displays={displays} displayId={activeDisplayId}
-      disabled={!active.control || !canInteract || displays.length === 0}
-      switching={viewer.pending !== null} hidden={!!active.keyboard}
-      onDisplay={onDisplay} onSelect={navigation.select} onBegin={navigation.begin}
-      onMove={navigation.move} onEnd={navigation.end} onCancel={navigation.cancel}
-      onRefresh={navigation.refresh} />
-  ) : null;
+  const navigationChrome =
+    active.source?.desktopNavigationVersion === 1 ? (
+      <DesktopNavigationChrome
+        model={navigation.model}
+        displays={displays}
+        displayId={activeDisplayId}
+        disabled={!active.control || !canInteract || displays.length === 0}
+        switching={viewer.pending !== null}
+        hidden={!!active.keyboard}
+        onDisplay={onDisplay}
+        onSelect={navigation.select}
+        onBegin={navigation.begin}
+        onMove={navigation.move}
+        onEnd={navigation.end}
+        onCancel={navigation.cancel}
+        onRefresh={navigation.refresh}
+      />
+    ) : null;
   return (
-    <main className="relative size-full overflow-hidden bg-black text-white"
-      style={{ "--desktop-chrome-clearance": `${chromeHeight + 8}px` } as CSSProperties}>
+    <main
+      className="relative size-full overflow-hidden bg-black text-white"
+      style={{ "--desktop-chrome-clearance": `${chromeHeight + 8}px` } as CSSProperties}
+    >
       {viewer.slots.map((slot) => (
-        <div key={slot.id} className="absolute inset-0"
+        <div
+          key={slot.id}
+          className="absolute inset-0"
           aria-hidden={slot.id !== viewer.active}
-          style={{ opacity: slot.id === viewer.active ? 1 : 0,
-            pointerEvents: slot.id === viewer.active && canInteract ? "auto" : "none" }}>
-          <ViewerSlot slot={slot} transport={transport} interactive={slot.id === viewer.active && canInteract}
+          style={{
+            opacity: slot.id === viewer.active ? 1 : 0,
+            pointerEvents: slot.id === viewer.active && canInteract ? "auto" : "none",
+          }}
+        >
+          <ViewerSlot
+            slot={slot}
+            transport={transport}
+            interactive={slot.id === viewer.active && canInteract}
             navigation={slot.id === viewer.active ? navigationChrome : null}
             onChromeHeight={slot.id === viewer.active ? setChromeHeight : undefined}
-            patch={patchSlot} event={event} displayUnavailable={displayUnavailable} />
+            patch={patchSlot}
+            event={event}
+            displayUnavailable={displayUnavailable}
+          />
         </div>
       ))}
       {viewer.pending !== null || viewer.notice || error ? (
-        <div role="status" className="pointer-events-auto absolute inset-x-3 top-3 rounded-md bg-black/85 px-3 py-2 text-xs">
+        <div
+          role="status"
+          className="pointer-events-auto absolute inset-x-3 top-3 rounded-md bg-black/85 px-3 py-2 text-xs"
+        >
           {error || (viewer.pending !== null ? "Switching display…" : viewer.notice)}
-          {error ? <button type="button" className="ml-3 underline focus-visible:outline-2"
-            onClick={() => selectDisplay(pending?.displayId ?? active.displayId)}>Retry</button> : null}
-          {viewer.pending === null && viewer.notice ? <button type="button" aria-label="Dismiss display notice"
-            className="ml-3 underline" onClick={() => setViewer((state) => ({ ...state, notice: null }))}>Dismiss</button> : null}
+          {error ? (
+            <button
+              type="button"
+              className="ml-3 underline focus-visible:outline-2"
+              onClick={() => selectDisplay(pending?.displayId ?? active.displayId)}
+            >
+              Retry
+            </button>
+          ) : null}
+          {viewer.pending === null && viewer.notice ? (
+            <button
+              type="button"
+              aria-label="Dismiss display notice"
+              className="ml-3 underline"
+              onClick={() => setViewer((state) => ({ ...state, notice: null }))}
+            >
+              Dismiss
+            </button>
+          ) : null}
         </div>
       ) : null}
     </main>
   );
 }
 
-function ViewerSlot({ slot, transport, interactive, navigation, onChromeHeight, patch, event, displayUnavailable }: {
-  slot: ViewerSlotState; transport: AgentHttpTransport; interactive: boolean;
+function ViewerSlot({
+  slot,
+  transport,
+  interactive,
+  navigation,
+  onChromeHeight,
+  patch,
+  event,
+  displayUnavailable,
+}: {
+  slot: ViewerSlotState;
+  transport: AgentHttpTransport;
+  interactive: boolean;
   navigation: ReactNode;
   onChromeHeight?: (height: number) => void;
   patch: (id: number, patch: Partial<ViewerSlotState>) => void;
@@ -214,16 +311,37 @@ function ViewerSlot({ slot, transport, interactive, navigation, onChromeHeight, 
   displayUnavailable: (id: number, replacement: string) => void;
 }) {
   const source = useCallback((value: WebrtcTileSourceMetadata) => patch(slot.id, { source: value }), [slot.id, patch]);
-  const control = useCallback((value: DesktopControlTransport | null) => patch(slot.id, { control: value }), [slot.id, patch]);
+  const control = useCallback(
+    (value: DesktopControlTransport | null) => patch(slot.id, { control: value }),
+    [slot.id, patch],
+  );
   const onEvent = useCallback((value: DesktopControlEvent) => event(slot.id, value), [slot.id, event]);
   const ready = useCallback(() => patch(slot.id, { ready: true, error: undefined }), [slot.id, patch]);
   const keyboard = useCallback((shown: boolean) => patch(slot.id, { keyboard: shown }), [slot.id, patch]);
-  const unavailable = useCallback((replacement: string) => displayUnavailable(slot.id, replacement), [slot.id, displayUnavailable]);
-  const state = useCallback((value: DesktopStreamState) => {
-    if (value.kind === "error" || value.kind === "unsupported") patch(slot.id, { error: value.message });
-  }, [slot.id, patch]);
-  return <DesktopViewerSurface transport={transport} displayId={slot.displayId} interactive={interactive}
-    navigation={navigation} onChromeHeight={onChromeHeight}
-    onSource={source} onTransport={control} onEvent={onEvent} onFirstFrame={ready} onKeyboard={keyboard}
-    onState={state} onDisplayUnavailable={unavailable} />;
+  const unavailable = useCallback(
+    (replacement: string) => displayUnavailable(slot.id, replacement),
+    [slot.id, displayUnavailable],
+  );
+  const state = useCallback(
+    (value: DesktopStreamState) => {
+      if (value.kind === "error" || value.kind === "unsupported") patch(slot.id, { error: value.message });
+    },
+    [slot.id, patch],
+  );
+  return (
+    <DesktopViewerSurface
+      transport={transport}
+      displayId={slot.displayId}
+      interactive={interactive}
+      navigation={navigation}
+      onChromeHeight={onChromeHeight}
+      onSource={source}
+      onTransport={control}
+      onEvent={onEvent}
+      onFirstFrame={ready}
+      onKeyboard={keyboard}
+      onState={state}
+      onDisplayUnavailable={unavailable}
+    />
+  );
 }

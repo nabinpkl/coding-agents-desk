@@ -164,9 +164,7 @@ function TaskOutput({
         {view.text || "waiting for output…"}
       </pre>
       {view.ended ? (
-        <p className="px-3 py-1 text-[11px] text-muted-foreground">
-          finished — {describeState(view.ended)}
-        </p>
+        <p className="px-3 py-1 text-[11px] text-muted-foreground">finished — {describeState(view.ended)}</p>
       ) : null}
     </div>
   );
@@ -227,9 +225,7 @@ function TaskRow({
           />
         </span>
         <span className="min-w-0 flex-1">
-          <span
-            className={`block truncate text-[13px] ${running ? "text-foreground" : "text-muted-foreground"}`}
-          >
+          <span className={`block truncate text-[13px] ${running ? "text-foreground" : "text-muted-foreground"}`}>
             {task.description}
           </span>
           <span className="block text-[11px] text-muted-foreground tabular-nums">{meta}</span>
@@ -253,9 +249,11 @@ function TaskRow({
           {activity ? <Activity activity={activity} /> : null}
           {/* The agent id and the task id are the same string, which is what lets one row open
               either view without correlating anything. */}
-          {task.kind === "agent"
-            ? <SubagentTranscript source={source} session={session} agentId={task.taskId} />
-            : <TaskOutput source={source} session={session} taskId={task.taskId} />}
+          {task.kind === "agent" ? (
+            <SubagentTranscript source={source} session={session} agentId={task.taskId} />
+          ) : (
+            <TaskOutput source={source} session={session} taskId={task.taskId} />
+          )}
         </div>
       ) : null}
     </li>
@@ -282,9 +280,7 @@ export function BackgroundTasksContent({
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       <header className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
-        <h2 className="min-w-0 flex-1 truncate px-1 text-[13px] font-semibold text-foreground">
-          Background tasks
-        </h2>
+        <h2 className="min-w-0 flex-1 truncate px-1 text-[13px] font-semibold text-foreground">Background tasks</h2>
         <button
           type="button"
           onClick={onClose}
@@ -311,10 +307,7 @@ export function BackgroundTasksContent({
                 // Prefer the clock the client keeps over the one that shipped, so the number moves
                 // between server messages instead of freezing for as long as nothing else changed.
                 //
-                meta={runningMeta(
-                  task,
-                  task.startedAt === null ? task.elapsedMs : Math.max(0, now - task.startedAt),
-                )}
+                meta={runningMeta(task, task.startedAt === null ? task.elapsedMs : Math.max(0, now - task.startedAt))}
                 activity={task.activity}
                 expanded={expanded === task.taskId}
                 onToggle={() => setExpanded((current) => (current === task.taskId ? null : task.taskId))}
@@ -336,25 +329,22 @@ export function BackgroundTasksContent({
               <Chevron open={showFinished} />
               Finished {snapshot.finished.length}
             </button>
-            {showFinished
-              ? (
-                <ul>
-                  {snapshot.finished.map((task) => (
-                    <TaskRow
-                      key={task.taskId}
-                      task={task}
-                      running={false}
-                      meta={describeState(task.state)}
-                      expanded={expanded === task.taskId}
-                      onToggle={() =>
-                        setExpanded((current) => (current === task.taskId ? null : task.taskId))}
-                      source={source}
-                      session={session}
-                    />
-                  ))}
-                </ul>
-              )
-              : null}
+            {showFinished ? (
+              <ul>
+                {snapshot.finished.map((task) => (
+                  <TaskRow
+                    key={task.taskId}
+                    task={task}
+                    running={false}
+                    meta={describeState(task.state)}
+                    expanded={expanded === task.taskId}
+                    onToggle={() => setExpanded((current) => (current === task.taskId ? null : task.taskId))}
+                    source={source}
+                    session={session}
+                  />
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -394,12 +384,7 @@ export function BackgroundTasksPanel({
           className="absolute inset-0 bg-black/40"
         />
         <div className="relative max-h-[70dvh] min-h-0 overflow-hidden rounded-t-2xl border-t border-border bg-card pb-[env(safe-area-inset-bottom)] shadow-2xl">
-          <BackgroundTasksContent
-            snapshot={snapshot}
-            source={source}
-            session={session}
-            onClose={onClose}
-          />
+          <BackgroundTasksContent snapshot={snapshot} source={source} session={session} onClose={onClose} />
         </div>
       </div>
     );
@@ -413,12 +398,7 @@ export function BackgroundTasksPanel({
       data-testid="tasks-column"
       className="absolute inset-y-0 right-0 z-40 flex w-80 max-w-[85%] flex-col border-l border-border bg-card shadow-[-12px_0_32px_-8px_rgba(0,0,0,0.35)]"
     >
-      <BackgroundTasksContent
-        snapshot={snapshot}
-        source={source}
-        session={session}
-        onClose={onClose}
-      />
+      <BackgroundTasksContent snapshot={snapshot} source={source} session={session} onClose={onClose} />
     </aside>
   );
 }

@@ -49,11 +49,12 @@ async function call(routes: RouteHandler, path: string): Promise<Response> {
 
 test.skipIf(!rg)("answers the file list and the matching lines", async () => {
   const { routes, workspaceId } = await harness(rg);
-  const list = await (await call(routes, `/api/workspaces/${workspaceId}/files`)).json() as WorkspaceFileList;
+  const list = (await (await call(routes, `/api/workspaces/${workspaceId}/files`)).json()) as WorkspaceFileList;
   expect(list).toEqual({ workspaceId, files: ["main.ts"], truncated: false });
 
-  const found = await (await call(routes, `/api/workspaces/${workspaceId}/search?q=alder`))
-    .json() as WorkspaceSearchResult;
+  const found = (await (
+    await call(routes, `/api/workspaces/${workspaceId}/search?q=alder`)
+  ).json()) as WorkspaceSearchResult;
   expect(found.matchCount).toBe(1);
   expect(found.files[0]).toEqual({
     path: "main.ts",
@@ -85,6 +86,11 @@ test("an unknown workspace is unavailable, and other actions fall through", asyn
 });
 
 test("options read as flags and comma-separated globs", () => {
-  expect(parseSearchOptions(new URLSearchParams("case=1&regex=1&include=*.ts, src/**&exclude=")))
-    .toEqual({ matchCase: true, wholeWord: false, regex: true, include: ["*.ts", "src/**"], exclude: [] });
+  expect(parseSearchOptions(new URLSearchParams("case=1&regex=1&include=*.ts, src/**&exclude="))).toEqual({
+    matchCase: true,
+    wholeWord: false,
+    regex: true,
+    include: ["*.ts", "src/**"],
+    exclude: [],
+  });
 });

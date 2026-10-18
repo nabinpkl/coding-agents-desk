@@ -47,7 +47,4 @@ export interface WebrtcCursorApplied {
   y: number;
 }
 
-export type WebrtcCursorEvent =
-  | WebrtcCursorApplied
-  | WebrtcCursorImage
-  | WebrtcCursorPosition;
+export type WebrtcCursorEvent = WebrtcCursorApplied | WebrtcCursorImage | WebrtcCursorPosition;

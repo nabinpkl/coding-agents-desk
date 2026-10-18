@@ -5,7 +5,17 @@ import { keepLastDrawnRowInView } from "@/features/terminal/lastDrawnRowInView";
  * A mount holding a screen of `rows` rows, `rowHeight` each, starting `screenTop` below the mount's
  * top, with jsdom's missing layout supplied by hand.
  */
-function setUp({ mountHeight, rows, rowHeight, screenTop }: { mountHeight: number; rows: number; rowHeight: number; screenTop: number }) {
+function setUp({
+  mountHeight,
+  rows,
+  rowHeight,
+  screenTop,
+}: {
+  mountHeight: number;
+  rows: number;
+  rowHeight: number;
+  screenTop: number;
+}) {
   const mount = document.createElement("div");
   const screen = document.createElement("div");
   screen.className = "xterm";
@@ -15,7 +25,7 @@ function setUp({ mountHeight, rows, rowHeight, screenTop }: { mountHeight: numbe
   mount.append(screen);
   Object.defineProperty(mount, "clientHeight", { value: mountHeight });
   Object.defineProperty(mount, "scrollHeight", { get: () => screenTop + rows * rowHeight });
-  mount.getBoundingClientRect = () => ({ top: 0, bottom: mountHeight } as DOMRect);
+  mount.getBoundingClientRect = () => ({ top: 0, bottom: mountHeight }) as DOMRect;
   for (let index = 0; index < rows; index++) {
     const row = document.createElement("div");
     row.getBoundingClientRect = () => {

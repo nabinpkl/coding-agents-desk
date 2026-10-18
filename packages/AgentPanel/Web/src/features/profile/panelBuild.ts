@@ -77,9 +77,7 @@ export interface DevServerHooks {
 export function devServerHooks(candidate: unknown): DevServerHooks | undefined {
   if (!candidate || typeof candidate !== "object") return undefined;
   const { on, off } = candidate as Partial<DevServerHooks>;
-  return typeof on === "function" && typeof off === "function"
-    ? (candidate as DevServerHooks)
-    : undefined;
+  return typeof on === "function" && typeof off === "function" ? (candidate as DevServerHooks) : undefined;
 }
 
 /** Everything the dev server says about the tree this tab is running. */

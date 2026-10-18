@@ -43,8 +43,10 @@ function taskOutputPath(session: SessionReference, taskId: string): string {
 // Under the session rather than beside it, because a subagent belongs to the session that
 // launched it: its transcript is only addressable through that pair, never by agent id alone.
 function subagentTranscriptPath(session: SessionReference, agentId: string): string {
-  return `/api/sessions/${encodeURIComponent(session.source)}/` +
-    `${encodeURIComponent(session.sessionId)}/agents/${encodeURIComponent(agentId)}/transcript`;
+  return (
+    `/api/sessions/${encodeURIComponent(session.source)}/` +
+    `${encodeURIComponent(session.sessionId)}/agents/${encodeURIComponent(agentId)}/transcript`
+  );
 }
 
 function eventsPath(session: SessionReference, at: EventsPageAt, limit: number): string {
@@ -78,14 +80,8 @@ export class SidecarTranscript extends SidecarRoutes {
   // Transcript
   // ---------------------------------------------------------------------
 
-  async fetchEventsPage(
-    session: SessionReference,
-    at: EventsPageAt,
-    limit: number,
-  ): Promise<EventsPage> {
-    const page = parse<WireEventsPage>(
-      await this.transport.request("GET", eventsPath(session, at, limit)),
-    );
+  async fetchEventsPage(session: SessionReference, at: EventsPageAt, limit: number): Promise<EventsPage> {
+    const page = parse<WireEventsPage>(await this.transport.request("GET", eventsPath(session, at, limit)));
     return {
       events: page.events,
       windowStart: page.windowStart,
@@ -103,11 +99,7 @@ export class SidecarTranscript extends SidecarRoutes {
    * tail and extension UI only for a session whose capabilities warrant them. All of that used to
    * be orchestrated by whoever held the connection, from a capability table it kept a copy of.
    */
-  subscribeSessionEvents(
-    session: SessionReference,
-    _after: number,
-    handlers: SessionEventsHandlers,
-  ): () => void {
+  subscribeSessionEvents(session: SessionReference, _after: number, handlers: SessionEventsHandlers): () => void {
     const path = timelinePath(session);
     let heardAt = Date.now();
     let compaction: string | null = null;
@@ -308,21 +300,20 @@ export class SidecarTranscript extends SidecarRoutes {
    * transport's responses are text. The browser loads it, and caches it by that address.
    */
   eventImageUrl(session: SessionReference, eventIndex: number, blockIndex: number): string | null {
-    return this.transport.resourceUrl?.(
-      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/image`,
-    ) ?? null;
+    return (
+      this.transport.resourceUrl?.(
+        `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/image`,
+      ) ?? null
+    );
   }
 
   /** The same address for a file the call handed over, named by its place in that call's list. */
-  eventFileUrl(
-    session: SessionReference,
-    eventIndex: number,
-    blockIndex: number,
-    fileIndex: number,
-  ): string | null {
-    return this.transport.resourceUrl?.(
-      `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/files/${fileIndex}`,
-    ) ?? null;
+  eventFileUrl(session: SessionReference, eventIndex: number, blockIndex: number, fileIndex: number): string | null {
+    return (
+      this.transport.resourceUrl?.(
+        `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/events/${eventIndex}/blocks/${blockIndex}/files/${fileIndex}`,
+      ) ?? null
+    );
   }
 
   // ---------------------------------------------------------------------

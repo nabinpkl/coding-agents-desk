@@ -90,9 +90,7 @@ function load(): Remembered {
         continue;
       }
       if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
-      const height = typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0
-        ? entry[1]
-        : null;
+      const height = typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0 ? entry[1] : null;
       // A hidden pane with no height is stored only for a session shown by default, where the hide
       // is the choice; for any other it would be the default, and is never written.
       read.set(entry[0], { shown: entry[2] !== HIDDEN, height });
@@ -166,10 +164,7 @@ export function terminalComposerHeight(session: TerminalComposerSession): number
  * the page sixty times a second would be work in exchange for no repaint. The height is read when
  * a pane mounts, which is the only moment it is wanted.
  */
-export function setTerminalComposerHeight(
-  session: TerminalComposerSession,
-  height: number,
-): void {
+export function setTerminalComposerHeight(session: TerminalComposerSession, height: number): void {
   if (!Number.isFinite(height) || height <= 0) return;
   const key = sessionKey(session);
   const next = load();

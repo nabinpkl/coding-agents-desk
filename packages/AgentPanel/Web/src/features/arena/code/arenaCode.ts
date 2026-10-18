@@ -29,8 +29,18 @@ export function arenaFolderSource(transport: AgentHttpTransport, place: ArenaPla
   return {
     key: `arena:${place.runId ?? "home"}/${place.contestantId ?? ""}`,
     tree: async (expanded) =>
-      parse<FolderTree>(await transport.request("GET", codePath("tree", place, expanded.map((path) => ["expanded", path])))),
-    file: async (path) => parse<FolderFileRead>(await transport.request("GET", codePath("file", place, [["path", path]]))),
+      parse<FolderTree>(
+        await transport.request(
+          "GET",
+          codePath(
+            "tree",
+            place,
+            expanded.map((path) => ["expanded", path]),
+          ),
+        ),
+      ),
+    file: async (path) =>
+      parse<FolderFileRead>(await transport.request("GET", codePath("file", place, [["path", path]]))),
     contentUrl: (path) => transport.resourceUrl?.(codePath("content", place, [["path", path]])) ?? null,
     gitDiff: async (path) =>
       parse<FolderGitDiff>(await transport.request("GET", codePath("git/diff", place, [["path", path]]))),
@@ -38,7 +48,10 @@ export function arenaFolderSource(transport: AgentHttpTransport, place: ArenaPla
 }
 
 /** Follows what is uncommitted in the place's folder, now and whenever the sidecar sees it move. */
-export function subscribeArenaGit(transport: AgentHttpTransport, place: ArenaPlace): FolderGitSubscribe<FolderGitStatus> {
+export function subscribeArenaGit(
+  transport: AgentHttpTransport,
+  place: ArenaPlace,
+): FolderGitSubscribe<FolderGitStatus> {
   return (onStatus, onError) =>
     transport.subscribe(codePath("git/stream", place), {
       onMessage: (payload) => {

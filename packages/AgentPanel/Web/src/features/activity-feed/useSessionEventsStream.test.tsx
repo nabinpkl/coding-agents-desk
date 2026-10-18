@@ -2,12 +2,7 @@ import { act, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EventsPage } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
-import {
-  event,
-  renderThread,
-  snapshotOf,
-  thread,
-} from "@/features/activity-feed/sessionEventsHarness";
+import { event, renderThread, snapshotOf, thread } from "@/features/activity-feed/sessionEventsHarness";
 
 function rows(count: number): ActivityEvent[] {
   return Array.from({ length: count }, (_, index) => event(index, `row-${index}`, "assistant"));
@@ -70,13 +65,17 @@ describe("useSessionEventsStream", () => {
     const view = renderThread(session.source);
     await waitFor(() => expect(view.result.current.loading).toBe(false));
 
-    await act(async () => { await view.result.current.loadOlder(); });
+    await act(async () => {
+      await view.result.current.loadOlder();
+    });
     expect(session.pages).toEqual([[{ before: 50 }, 100]]);
     expect(view.result.current.events).toHaveLength(150);
     expect(view.result.current.windowStart).toBe(0);
 
     // Nothing older: no request at all.
-    await act(async () => { await view.result.current.loadOlder(); });
+    await act(async () => {
+      await view.result.current.loadOlder();
+    });
     expect(session.pages).toHaveLength(1);
   });
 
@@ -89,7 +88,9 @@ describe("useSessionEventsStream", () => {
     expect(view.result.current.windowStart).toBe(150);
 
     // The reader scrolls up, so a window of older rows is paged in below the opening one.
-    await act(async () => { await view.result.current.loadOlder(); });
+    await act(async () => {
+      await view.result.current.loadOlder();
+    });
     expect(view.result.current.windowStart).toBe(50);
     expect(view.result.current.events).toHaveLength(200);
 
@@ -111,22 +112,32 @@ describe("useSessionEventsStream", () => {
     const view = renderThread(session.source, "opencode");
 
     await waitFor(() => expect(view.result.current.loading).toBe(false));
-    await act(async () => { await view.result.current.loadOlder(); });
+    await act(async () => {
+      await view.result.current.loadOlder();
+    });
     expect(view.result.current.events).toHaveLength(200);
 
-    act(() => session.handlers().onSnapshot(snapshotOf(all.slice(150), {
-      windowStart: 150,
-      stableIndices: true,
-      projectionId: "projection-one",
-    })));
+    act(() =>
+      session.handlers().onSnapshot(
+        snapshotOf(all.slice(150), {
+          windowStart: 150,
+          stableIndices: true,
+          projectionId: "projection-one",
+        }),
+      ),
+    );
     expect(view.result.current.events).toHaveLength(200);
 
-    act(() => session.handlers().onSnapshot(snapshotOf(all.slice(150), {
-      sequence: 3,
-      windowStart: 150,
-      stableIndices: true,
-      projectionId: "projection-two",
-    })));
+    act(() =>
+      session.handlers().onSnapshot(
+        snapshotOf(all.slice(150), {
+          sequence: 3,
+          windowStart: 150,
+          stableIndices: true,
+          projectionId: "projection-two",
+        }),
+      ),
+    );
     expect(view.result.current.events).toHaveLength(100);
     expect(view.result.current.events[0]?.id).toBe("row-150");
     expect(view.result.current.windowStart).toBe(150);
@@ -140,7 +151,9 @@ describe("useSessionEventsStream", () => {
     const view = renderThread(session.source);
 
     await waitFor(() => expect(view.result.current.loading).toBe(false));
-    await act(async () => { await view.result.current.loadOlder(); });
+    await act(async () => {
+      await view.result.current.loadOlder();
+    });
     expect(view.result.current.events).toHaveLength(200);
 
     act(() => session.handlers().onSnapshot(snapshotOf(all.slice(150), { windowStart: 150 })));
@@ -156,16 +169,25 @@ describe("useSessionEventsStream", () => {
     await waitFor(() => expect(view.result.current.loading).toBe(false));
 
     let resolveOlder: ((page: EventsPage) => void) | undefined;
-    session.answerWith(() => new Promise<EventsPage>((resolve) => { resolveOlder = resolve; }));
-    act(() => { void view.result.current.loadOlder(); });
+    session.answerWith(
+      () =>
+        new Promise<EventsPage>((resolve) => {
+          resolveOlder = resolve;
+        }),
+    );
+    act(() => {
+      void view.result.current.loadOlder();
+    });
     await waitFor(() => expect(resolveOlder).toBeDefined());
 
     act(() => session.handlers().onSnapshot(snapshotOf([event(0, "fresh-message", "assistant")], { sequence: 1 })));
-    await act(async () => resolveOlder?.({
-      events: [event(0, "stale-older-page", "system")],
-      windowStart: 0,
-      usage: null,
-    }));
+    await act(async () =>
+      resolveOlder?.({
+        events: [event(0, "stale-older-page", "system")],
+        windowStart: 0,
+        usage: null,
+      }),
+    );
 
     expect(view.result.current.events.map((value) => value.id)).toEqual(["fresh-message"]);
     expect(view.result.current.windowStart).toBe(0);

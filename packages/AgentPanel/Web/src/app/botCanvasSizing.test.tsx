@@ -4,11 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, act, within } from "@testing-library/react";
-import {
-  DEFAULT_CARD_WIDTH,
-  MAX_CARD_HEIGHT,
-  MIN_CARD_HEIGHT,
-} from "@/features/bots/canvas/botCanvasPreferences";
+import { DEFAULT_CARD_WIDTH, MAX_CARD_HEIGHT, MIN_CARD_HEIGHT } from "@/features/bots/canvas/botCanvasPreferences";
 import {
   BOT_WITH_ONE_SESSION,
   FIXTURE_PROJECT_A,
@@ -17,9 +13,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -67,19 +61,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -129,19 +125,21 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { labels: [], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]!],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -266,14 +264,16 @@ describe("App shell", () => {
         transport.deliver("/api/bots/stream", {
           version: 2,
           revision: 1,
-          bots: [{
-            ...BOT_WITH_ONE_SESSION,
-            sessionRefs: [
-              { source: "claude", sessionId: "sid-claude-01" },
-              { source: "codex", sessionId: "sid-codex-01" },
-            ],
-            sessions: FIXTURE_SESSIONS,
-          }],
+          bots: [
+            {
+              ...BOT_WITH_ONE_SESSION,
+              sessionRefs: [
+                { source: "claude", sessionId: "sid-claude-01" },
+                { source: "codex", sessionId: "sid-codex-01" },
+              ],
+              sessions: FIXTURE_SESSIONS,
+            },
+          ],
         });
       });
       // Both sessions stand on the canvas.
@@ -319,10 +319,7 @@ describe("App shell", () => {
       expect(within(row).getByLabelText("Off the canvas")).toBeInTheDocument();
       expect(row.closest("li")!.className).toContain("opacity-55");
       fireEvent.click(row);
-      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      );
+      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute("aria-expanded", "true");
       // Back on the canvas beside its sibling.
       expect(canvas().getByRole("button", { name: /^Session Codex 01/ })).toBeInTheDocument();
       unmount();
@@ -330,7 +327,6 @@ describe("App shell", () => {
       scrollIntoView.mockRestore();
     }
   });
-
 
   it("adds nothing to the canvas until the zoom mode is asked for, and remembers being asked", () => {
     // The guarantee the whole mode rests on. Off is not `scale(1)` and not a neutral wrapper: the
@@ -347,11 +343,13 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          ...BOT_WITH_ONE_SESSION,
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          sessions: [FIXTURE_SESSIONS[0]!],
-        }],
+        bots: [
+          {
+            ...BOT_WITH_ONE_SESSION,
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            sessions: [FIXTURE_SESSIONS[0]!],
+          },
+        ],
       });
     });
 
@@ -373,8 +371,7 @@ describe("App shell", () => {
     const fit = screen.getByRole("button", { name: "Fit the whole canvas" });
     expect(fit).toHaveAttribute("aria-pressed", "false");
     act(() => fireEvent.click(fit));
-    expect(screen.getByRole("button", { name: "Fit the whole canvas" }))
-      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Fit the whole canvas" })).toHaveAttribute("aria-pressed", "true");
     // Stored, because this panel is edited while it is read and a reload happens many times an
     // hour. A mode that forgot would be one the reader re-enters all day.
     expect(localStorage.getItem("agent-panel.bot-canvas.zoom-mode")).toBe("on");
@@ -383,5 +380,4 @@ describe("App shell", () => {
     expect(localStorage.getItem("agent-panel.bot-canvas.zoom-mode")).toBeNull();
     unmount();
   });
-
 });

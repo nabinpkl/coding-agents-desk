@@ -115,7 +115,10 @@ export function workspaceRecord(pathname: string): string | null {
 
 /** A refusal raised by a route itself, for a request that never reached the workspace layer. */
 export class RequestFailure extends Error {
-  constructor(readonly code: WorkspaceErrorCode, message: string) {
+  constructor(
+    readonly code: WorkspaceErrorCode,
+    message: string,
+  ) {
     super(message);
     this.name = "RequestFailure";
   }

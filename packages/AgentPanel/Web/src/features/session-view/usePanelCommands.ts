@@ -89,7 +89,12 @@ export function usePanelCommands(input: {
       } catch (failure) {
         // In the dialog rather than the caption: the caption is under the composer, which this
         // command just covered with the thing the reader is looking at.
-        setAside({ question: asked, answer: null, error: String((failure as Error).message ?? failure), pending: false });
+        setAside({
+          question: asked,
+          answer: null,
+          error: String((failure as Error).message ?? failure),
+          pending: false,
+        });
       }
     },
     [feed, sessionId],
@@ -133,9 +138,10 @@ export function usePanelCommands(input: {
   return {
     run,
     surfaces: {
-      models: modelsFilter === null
-        ? null
-        : { filter: modelsFilter, onClose: () => setModelsFilter(null), onSwitch: switchModel },
+      models:
+        modelsFilter === null
+          ? null
+          : { filter: modelsFilter, onClose: () => setModelsFilter(null), onSwitch: switchModel },
       aside,
       onAskAside: (question: string) => void askAside(question),
       onCloseAside: () => setAside(null),

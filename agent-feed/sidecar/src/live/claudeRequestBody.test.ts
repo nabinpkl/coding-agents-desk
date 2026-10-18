@@ -1,7 +1,7 @@
 // What a captured request body says, and the two ways of being wrong about it that cost real time:
 // reading an identity that is not there, and reading one that is there but belongs to somebody else.
 
-import { expect, test } from 'bun:test';
+import { expect, test } from "bun:test";
 import {
   extractSessionId,
   extractToolResults,
@@ -79,11 +79,14 @@ test("extractToolResults handles structured content and ignores non-tool turns",
 test("isSubagentRequest reads the harness billing token out of the system prompt", () => {
   // The header exactly as measured on the wire, including the `; ` separators around it.
   const body = JSON.stringify({
-    system: [{
-      type: "text",
-      text: "x-anthropic-billing-header: cc_version=2.1.268.58f; cc_entrypoint=cli; cch=eeb8b;"
-        + " cc_is_subagent=true; cc_prompt_id=2a5f44c0-0db0-4745-a365-df4dadab823b;",
-    }],
+    system: [
+      {
+        type: "text",
+        text:
+          "x-anthropic-billing-header: cc_version=2.1.268.58f; cc_entrypoint=cli; cch=eeb8b;" +
+          " cc_is_subagent=true; cc_prompt_id=2a5f44c0-0db0-4745-a365-df4dadab823b;",
+      },
+    ],
     user_id: JSON.stringify({ session_id: "sess-parent" }),
   });
   expect(isSubagentRequest(body)).toBe(true);
@@ -99,10 +102,12 @@ test("isSubagentRequest ignores the token when it is only in the conversation", 
   // cost of believing it is a live mirror that goes silent for exactly the reader investigating.
   const body = JSON.stringify({
     system: [{ type: "text", text: "x-anthropic-billing-header: cc_version=2.1.268.2c0; cch=af4dd;" }],
-    messages: [{
-      role: "user",
-      content: [{ type: "tool_result", content: "the detector matches cc_is_subagent=true in the body" }],
-    }],
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "tool_result", content: "the detector matches cc_is_subagent=true in the body" }],
+      },
+    ],
     user_id: JSON.stringify({ session_id: "sess-parent" }),
   });
   expect(isSubagentRequest(body)).toBe(false);
@@ -128,7 +133,10 @@ test("isSubagentRequest is false for an ordinary turn", () => {
 function billed(tail: string): string {
   return JSON.stringify({
     system: [
-      { type: "text", text: `x-anthropic-billing-header: cc_version=2.1.270.119; cc_entrypoint=cli; cch=53b3d;${tail}` },
+      {
+        type: "text",
+        text: `x-anthropic-billing-header: cc_version=2.1.270.119; cc_entrypoint=cli; cch=53b3d;${tail}`,
+      },
       { type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." },
     ],
     user_id: JSON.stringify({ session_id: "sess-one" }),
@@ -146,9 +154,11 @@ test("isConversationTurn rejects the harness's own errands, which name no prompt
   // because it lands on the compaction banner and buries it under half a summary nobody wrote.
   expect(isConversationTurn(billed(" cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6;"))).toBe(false);
   // `cc_prev_req` rides on ordinary turns too, so it is the prompt id that decides and not this.
-  expect(isConversationTurn(
-    billed(" cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6; cc_prompt_id=711e45f5-7a05-4be5-a922-cd31437e1707;"),
-  )).toBe(true);
+  expect(
+    isConversationTurn(
+      billed(" cc_prev_req=req_011Cf2s9jyovKWXfRAHetSU6; cc_prompt_id=711e45f5-7a05-4be5-a922-cd31437e1707;"),
+    ),
+  ).toBe(true);
 });
 
 test("isConversationTurn reads a body with no billing header at all as a turn", () => {
@@ -164,10 +174,12 @@ test("isConversationTurn ignores a prompt id that is only in the conversation", 
   // next request, and a whole-body search would then call every summariser it runs a turn.
   const body = JSON.stringify({
     system: [{ type: "text", text: "x-anthropic-billing-header: cc_version=2.1.270.119; cc_prev_req=req_01;" }],
-    messages: [{
-      role: "user",
-      content: [{ type: "tool_result", content: "the rule matches cc_prompt_id=abc in the body" }],
-    }],
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "tool_result", content: "the rule matches cc_prompt_id=abc in the body" }],
+      },
+    ],
   });
   expect(isConversationTurn(body)).toBe(false);
 });
@@ -185,16 +197,19 @@ function summariser(instruction: string, tail = " cc_prev_req=req_011Cf2s9jyovKW
   });
 }
 
-const SUMMARISE = "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\n"
-  + "Your task is to create a detailed summary of the conversation so far, paying close attention"
-  + " to the user's explicit requests and your previous actions.";
+const SUMMARISE =
+  "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\n" +
+  "Your task is to create a detailed summary of the conversation so far, paying close attention" +
+  " to the user's explicit requests and your previous actions.";
 
 test("isCompactionRequest picks the summariser out of the harness's other errands", () => {
   expect(isCompactionRequest(summariser(SUMMARISE))).toBe(true);
   // The composer's suggestion call is the other errand measured on the wire, and it is not this.
-  expect(isCompactionRequest(summariser(
-    "[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]",
-  ))).toBe(false);
+  expect(
+    isCompactionRequest(
+      summariser("[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]"),
+    ),
+  ).toBe(false);
 });
 
 test("isCompactionRequest finds the instruction behind the context-window message a 1M model gets", () => {

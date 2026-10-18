@@ -16,28 +16,20 @@ describe("proc start parsing", () => {
   });
 
   test("ps lstart really is local time", () => {
-    expect(parseProcessLstart("Fri Aug 14 13:10:48 2026")).toBe(
-      new Date(2026, 7, 14, 13, 10, 48).getTime(),
-    );
+    expect(parseProcessLstart("Fri Aug 14 13:10:48 2026")).toBe(new Date(2026, 7, 14, 13, 10, 48).getTime());
   });
 
   test("a day-before-month locale still parses", () => {
     // The Mac host inherits LANG=en_CA.UTF-8, under which `ps -o lstart=` prints
     // `Fri 14 Aug 13:10:48 2026`. Reading position 2 as the month yielded null for every process,
     // so every session looked like a pid mismatch and the panel reported no background work.
-    expect(parseProcessLstart("Fri 14 Aug 13:10:48 2026")).toBe(
-      new Date(2026, 7, 14, 13, 10, 48).getTime(),
-    );
-    expect(parseProcessLstart("Fri Aug 14 13:10:48 2026")).toBe(
-      parseProcessLstart("Fri 14 Aug 13:10:48 2026"),
-    );
+    expect(parseProcessLstart("Fri 14 Aug 13:10:48 2026")).toBe(new Date(2026, 7, 14, 13, 10, 48).getTime());
+    expect(parseProcessLstart("Fri Aug 14 13:10:48 2026")).toBe(parseProcessLstart("Fri 14 Aug 13:10:48 2026"));
   });
 
   test("a single-digit day padded by ps still parses", () => {
     // `Mon Aug  3 16:42:02 2026` -- two spaces, seen on a real record.
-    expect(parseProcessLstart("Mon Aug  3 16:42:02 2026")).toBe(
-      new Date(2026, 7, 3, 16, 42, 2).getTime(),
-    );
+    expect(parseProcessLstart("Mon Aug  3 16:42:02 2026")).toBe(new Date(2026, 7, 3, 16, 42, 2).getTime());
   });
 
   test("garbage is null rather than an Invalid Date that compares false everywhere", () => {
@@ -64,11 +56,14 @@ describe("proc start parsing", () => {
 
   test("boot time comes off /proc/stat, and its absence is an answer", () => {
     resetBootTimeCache();
-    expect(linuxBootTimeMs(() => "cpu  1 2 3\nbtime 1786789416\nprocesses 99\n"))
-      .toBe(1786789416 * 1000);
+    expect(linuxBootTimeMs(() => "cpu  1 2 3\nbtime 1786789416\nprocesses 99\n")).toBe(1786789416 * 1000);
     resetBootTimeCache();
     // A Mac has no such file, and the throw is the ordinary case rather than a fault.
-    expect(linuxBootTimeMs(() => { throw new Error("ENOENT"); })).toBeNull();
+    expect(
+      linuxBootTimeMs(() => {
+        throw new Error("ENOENT");
+      }),
+    ).toBeNull();
     resetBootTimeCache();
     expect(linuxBootTimeMs(() => "cpu  1 2 3\nprocesses 99\n")).toBeNull();
     resetBootTimeCache();

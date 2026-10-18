@@ -67,13 +67,7 @@ export function DesktopParkModal({
  * Splitting the shell from the body lets the body be tested for what it actually
  * does rather than through a wrapper the test environment cannot open.
  */
-export function DesktopParkPanel({
-  park,
-  onClose,
-}: {
-  park: DesktopParkHandle;
-  onClose: () => void;
-}) {
+export function DesktopParkPanel({ park, onClose }: { park: DesktopParkHandle; onClose: () => void }) {
   const { view, action, busy } = park;
   const ready = view.kind === "ready" ? view : null;
   const movesById = useMemo(() => {
@@ -97,7 +91,7 @@ export function DesktopParkPanel({
   const [pointerMode, setPointerMode] = useStateFor(watching, () => false);
   const [pointerTransport, setPointerTransport] = useStateFor<DesktopControlTransport | null>(watching, () => null);
   const watchedWindow =
-    typeof watching === "number" ? ready?.state.windows.find((w) => w.id === watching) ?? null : null;
+    typeof watching === "number" ? (ready?.state.windows.find((w) => w.id === watching) ?? null) : null;
   const displayFrame = ready?.plan.display.frame ?? null;
   const watched =
     watching === "display" && displayFrame
@@ -120,8 +114,8 @@ export function DesktopParkPanel({
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">Desktop park</h2>
         {ready ? (
           <p className="hidden shrink-0 font-mono text-xs text-muted-foreground sm:block">
-            {ready.state.counts.parkable} windows · {ready.state.counts.elsewhere} elsewhere ·
-            {" "}Desktop {ready.state.activeSpace.index}
+            {ready.state.counts.parkable} windows · {ready.state.counts.elsewhere} elsewhere · Desktop{" "}
+            {ready.state.activeSpace.index}
           </p>
         ) : null}
         <button
@@ -178,10 +172,12 @@ export function DesktopParkPanel({
       </div>
 
       {unsound ? (
-        <p className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-xs
-          text-destructive">
-          This plan would leave {ready?.plan.starved.length} window(s) fully covered, and a fully
-          covered window stops rendering. Parking is disabled until the plan is sound.
+        <p
+          className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-xs
+          text-destructive"
+        >
+          This plan would leave {ready?.plan.starved.length} window(s) fully covered, and a fully covered window stops
+          rendering. Parking is disabled until the plan is sound.
         </p>
       ) : null}
 
@@ -189,21 +185,14 @@ export function DesktopParkPanel({
 
       {watched ? (
         <section
-          className={
-            expanded
-              ? "fixed inset-0 z-50 flex flex-col bg-background"
-              : "shrink-0 border-b border-border"
-          }
+          className={expanded ? "fixed inset-0 z-50 flex flex-col bg-background" : "shrink-0 border-b border-border"}
         >
           <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
             <span className="min-w-0 flex-1 truncate">
-              <span className="text-muted-foreground">{watched.app}</span>{" "}
-              {watched.title || "untitled"}
+              <span className="text-muted-foreground">{watched.app}</span> {watched.title || "untitled"}
             </span>
             <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-              {tile.kind === "playing"
-                ? `${tile.codec} · first frame ${tile.firstFrameMs}ms`
-                : tile.kind}
+              {tile.kind === "playing" ? `${tile.codec} · first frame ${tile.firstFrameMs}ms` : tile.kind}
             </span>
             <button
               type="button"
@@ -222,9 +211,11 @@ export function DesktopParkPanel({
                 text-[10px] transition-colors focus-visible:outline-2
                 focus-visible:-outline-offset-2 focus-visible:outline-primary
                 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent
-                ${pointerMode
-                  ? "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/70"}`}
+                ${
+                  pointerMode
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/70"
+                }`}
             >
               <MousePointer2 className="size-3" aria-hidden />
               pointer
@@ -254,28 +245,22 @@ export function DesktopParkPanel({
             </button>
           </div>
           <div
-            className={
-              expanded
-                ? "min-h-0 flex-1"
-                : "mx-3 mb-2 max-h-64 overflow-hidden rounded border border-border"
-            }
+            className={expanded ? "min-h-0 flex-1" : "mx-3 mb-2 max-h-64 overflow-hidden rounded border border-border"}
           >
             <TileViewport
               className={expanded ? "h-full" : ""}
               pointerMode={pointerMode}
-              sendPointerInput={pointerTransport
-                ? (input) => pointerTransport.send(input) === "sent"
-                : undefined}
+              sendPointerInput={pointerTransport ? (input) => pointerTransport.send(input) === "sent" : undefined}
             >
-            <TileStreamRtc
-              key={watched.id}
-              windowID={watched.id}
-              width={watched.frame.w}
-              height={watched.frame.h}
-              fill={expanded}
-              onState={setTile}
-              onControlTransport={setPointerTransport}
-            />
+              <TileStreamRtc
+                key={watched.id}
+                windowID={watched.id}
+                width={watched.frame.w}
+                height={watched.frame.h}
+                fill={expanded}
+                onState={setTile}
+                onControlTransport={setPointerTransport}
+              />
             </TileViewport>
           </div>
         </section>
@@ -291,9 +276,7 @@ export function DesktopParkPanel({
           <p className="px-3 py-6 text-center text-sm text-destructive">{view.message}</p>
         ) : null}
         {ready && groups.length === 0 ? (
-          <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-            No parkable windows.
-          </p>
+          <p className="px-3 py-6 text-center text-sm text-muted-foreground">No parkable windows.</p>
         ) : null}
         {groups.map((group) => (
           <section key={group.space}>
@@ -305,14 +288,14 @@ export function DesktopParkPanel({
             >
               <span>Desktop {group.space}</span>
               {group.active ? (
-                <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px]
-                  uppercase tracking-wide text-primary">
+                <span
+                  className="rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px]
+                  uppercase tracking-wide text-primary"
+                >
                   active
                 </span>
               ) : null}
-              <span className="ml-auto font-mono text-muted-foreground">
-                {group.windows.length}
-              </span>
+              <span className="ml-auto font-mono text-muted-foreground">{group.windows.length}</span>
             </h3>
             <ul>
               {group.windows.map((w) => (
@@ -330,13 +313,13 @@ export function DesktopParkPanel({
       </div>
 
       {ready ? (
-        <footer className="shrink-0 border-t border-border px-3 py-2 font-mono text-[11px]
-          text-muted-foreground">
-          strip {ready.plan.options.strip}pt · step {ready.plan.options.step}pt · display{" "}
-          {ready.plan.display.frame.w}×{ready.plan.display.frame.h}
-          {ready.plan.overflow.length > 0
-            ? ` · ${ready.plan.overflow.length} will not fit and stay put`
-            : ""}
+        <footer
+          className="shrink-0 border-t border-border px-3 py-2 font-mono text-[11px]
+          text-muted-foreground"
+        >
+          strip {ready.plan.options.strip}pt · step {ready.plan.options.step}pt · display {ready.plan.display.frame.w}×
+          {ready.plan.display.frame.h}
+          {ready.plan.overflow.length > 0 ? ` · ${ready.plan.overflow.length} will not fit and stay put` : ""}
         </footer>
       ) : null}
     </div>

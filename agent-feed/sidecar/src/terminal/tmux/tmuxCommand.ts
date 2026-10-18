@@ -48,8 +48,7 @@ export async function tmux(args: string[]): Promise<{ out: string; err: string; 
  * in front of it threw before anything got that far.
  */
 export function noServerRunning(output: string): boolean {
-  return /no server running|no sessions|error connecting to .+ \(No such file or directory\)/i
-    .test(output);
+  return /no server running|no sessions|error connecting to .+ \(No such file or directory\)/i.test(output);
 }
 
 /**

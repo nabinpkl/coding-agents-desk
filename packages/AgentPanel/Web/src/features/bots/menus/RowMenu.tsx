@@ -72,7 +72,6 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
     if (restoreFocus) globalThis.requestAnimationFrame?.(() => trigger.current?.focus());
   };
 
-
   return (
     <span className="shrink-0">
       <button
@@ -88,55 +87,57 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
       >
         <EllipsisVertical className="size-4" aria-hidden />
       </button>
-      {open ? createPortal(
-        <div
-          ref={menu}
-          role="menu"
-          aria-label={`Actions for ${label}`}
-          // For anything that asks "is the focus still inside me" with a DOM containment test. The
-          // React tree still has this menu inside its row, so React's own bubbling and its
-          // enter/leave pairing are unaffected by the portal; a raw `node.contains(relatedTarget)`
-          // is not, and the hover-preview sidebar dismisses itself on exactly that question.
-          data-portal-menu=""
-          style={{
-            top: placement?.top ?? 0,
-            left: placement?.left ?? 0,
-            // Measured at its natural size on the first pass, then shown. Without this the menu
-            // paints once in the corner of the window before it is placed.
-            visibility: placement ? undefined : "hidden",
-          }}
-          className="fixed z-50 min-w-44 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl"
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            close();
-          }}
-        >
-          {items.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              role="menuitem"
-              // Focus goes back to the trigger, not nowhere. An action is a request, not a fact: if
-              // it fails the row is still here and the keyboard is where it left off, and if it
-              // succeeds the trigger has gone with the row and the focus call is a no-op.
-              onClick={() => {
-                close();
-                item.onSelect();
+      {open
+        ? createPortal(
+            <div
+              ref={menu}
+              role="menu"
+              aria-label={`Actions for ${label}`}
+              // For anything that asks "is the focus still inside me" with a DOM containment test. The
+              // React tree still has this menu inside its row, so React's own bubbling and its
+              // enter/leave pairing are unaffected by the portal; a raw `node.contains(relatedTarget)`
+              // is not, and the hover-preview sidebar dismisses itself on exactly that question.
+              data-portal-menu=""
+              style={{
+                top: placement?.top ?? 0,
+                left: placement?.left ?? 0,
+                // Measured at its natural size on the first pass, then shown. Without this the menu
+                // paints once in the corner of the window before it is placed.
+                visibility: placement ? undefined : "hidden",
               }}
-              // Sized from the same token as the rows this menu acts on, rather than a hardcoded
-              // `text-sm`. At 14px it was a point larger than every title it offers to rename,
-              // fork or detach, which puts the menu above its own subject; it also sat outside
-              // the reader's font settings, so resizing the roster left the menus behind.
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary active:bg-accent/80"
+              className="fixed z-50 min-w-44 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                close();
+              }}
             >
-              <item.icon className="size-4 shrink-0" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            </button>
-          ))}
-        </div>,
-        document.body,
-      ) : null}
+              {items.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  role="menuitem"
+                  // Focus goes back to the trigger, not nowhere. An action is a request, not a fact: if
+                  // it fails the row is still here and the keyboard is where it left off, and if it
+                  // succeeds the trigger has gone with the row and the focus call is a no-op.
+                  onClick={() => {
+                    close();
+                    item.onSelect();
+                  }}
+                  // Sized from the same token as the rows this menu acts on, rather than a hardcoded
+                  // `text-sm`. At 14px it was a point larger than every title it offers to rename,
+                  // fork or detach, which puts the menu above its own subject; it also sat outside
+                  // the reader's font settings, so resizing the roster left the menus behind.
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary active:bg-accent/80"
+                >
+                  <item.icon className="size-4 shrink-0" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </span>
   );
 }

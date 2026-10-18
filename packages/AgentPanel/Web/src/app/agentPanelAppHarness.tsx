@@ -77,42 +77,37 @@ export const FIXTURE_SESSIONS = [
 
 /** One Bot holding the fixture's first session, which is what a fork branches from. */
 export const BOT_WITH_ONE_SESSION = {
-          botId: "bot-1",
-          name: "Release Captain",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          sessionAnchors: { "claude:sid-claude-01": "Aaron" },
-          metadata: { labels: [], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]!],
-          missingSessionRefs: [],
-          nextAnchor: "Adam",
-        };
+  botId: "bot-1",
+  name: "Release Captain",
+  environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+  sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+  sessionAnchors: { "claude:sid-claude-01": "Aaron" },
+  metadata: { labels: [], custom: {} },
+  grants: [],
+  createdAt: 1,
+  createdBy: { kind: "user" },
+  environmentAvailability: "available",
+  sessions: [FIXTURE_SESSIONS[0]!],
+  missingSessionRefs: [],
+  nextAnchor: "Adam",
+};
 
 export const originalMatchMedia = globalThis.matchMedia;
 
-export function installViewport({
-  compact,
-  hoverCapable,
-}: {
-  compact: boolean;
-  hoverCapable: boolean;
-}) {
+export function installViewport({ compact, hoverCapable }: { compact: boolean; hoverCapable: boolean }) {
   Object.defineProperty(globalThis, "matchMedia", {
     configurable: true,
-    value: (queryText: string) => ({
-      matches: queryText.includes("max-width") ? compact : hoverCapable,
-      media: queryText,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => true,
-    }) as MediaQueryList,
+    value: (queryText: string) =>
+      ({
+        matches: queryText.includes("max-width") ? compact : hoverCapable,
+        media: queryText,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => true,
+      }) as MediaQueryList,
   });
 }
 
@@ -149,9 +144,7 @@ export function setup(terminalIds: string[] = []) {
   let sequence = 0;
   const host = new HostActionsClient(fake, {
     requestIDFactory: (prefix) =>
-      prefix === "terminal"
-        ? pending.shift() ?? "request-1"
-        : `${prefix}-${++sequence}`,
+      prefix === "terminal" ? (pending.shift() ?? "request-1") : `${prefix}-${++sequence}`,
   });
   const bots = holdBotCanvas(transport);
   const { unmount } = render(<App feed={new SidecarDataSource(transport)} host={host} />);
@@ -182,7 +175,7 @@ function holdBotCanvas(transport: FakeHttpTransport): { latest: () => BotSnapsho
     if (method !== "PATCH" || !canvas || !latest) return request(method, path, options);
     const botId = decodeURIComponent(canvas[1]!);
     const command = options.body as SetBotCanvasCommand;
-    const bots = latest.bots.map((bot) => bot.botId === botId ? applyCanvas(bot, command) : bot);
+    const bots = latest.bots.map((bot) => (bot.botId === botId ? applyCanvas(bot, command) : bot));
     transport.deliver("/api/bots/stream", { ...latest, revision: latest.revision + 1, bots });
     const answered = request(method, path, options);
     return answered.then(() => ({
@@ -216,9 +209,7 @@ function applyCanvas(bot: BotView, command: SetBotCanvasCommand): BotView {
 export const COMPOSER_STREAM = "/api/window/composer/stream";
 
 export function latestSubscription(fake: FakeHostBridge, type: string): string {
-  const message = [...fake.posted]
-    .reverse()
-    .find((candidate) => (candidate as { t?: string }).t === type) as
+  const message = [...fake.posted].reverse().find((candidate) => (candidate as { t?: string }).t === type) as
     | { sub?: string }
     | undefined;
   if (!message?.sub) throw new Error(`missing ${type}`);
@@ -335,18 +326,20 @@ export function deliverRunningTask(transport: FakeHttpTransport, sessionId: stri
       ownerAlive: true,
       ownerWaiting: false,
       finished: [],
-      running: [{
-        taskId: `task-${sessionId}`,
-        kind: "bash",
-        description: "Run the full test suite",
-        command: "just check",
-        startedAt: Date.now() - 1000,
-        state: { status: "running" },
-        elapsedMs: 1000,
-        hasOutput: false,
-        corroborated: true,
-        activity: null,
-      }],
+      running: [
+        {
+          taskId: `task-${sessionId}`,
+          kind: "bash",
+          description: "Run the full test suite",
+          command: "just check",
+          startedAt: Date.now() - 1000,
+          state: { status: "running" },
+          elapsedMs: 1000,
+          hasOutput: false,
+          corroborated: true,
+          activity: null,
+        },
+      ],
     });
   });
 }

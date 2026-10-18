@@ -13,7 +13,9 @@ import { useMediaQuery } from "@/hooks/dom/useMediaQuery";
 // the row header already names the basename, so a full path here repeats it.
 // filePath stays a prop because the grammar comes from the extension.
 export function DiffBlock({
-  filePath, oldString, newString,
+  filePath,
+  oldString,
+  newString,
 }: {
   filePath: string;
   oldString: string;
@@ -66,16 +68,44 @@ export function DiffBlock({
 }
 
 const EXT_LANG: Record<string, string> = {
-  ts: "typescript", tsx: "typescript",
-  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-  py: "python", rb: "ruby", rs: "rust", go: "go",
-  java: "java", kt: "kotlin", swift: "swift", c: "c", cpp: "cpp", cc: "cpp", h: "c", hpp: "cpp",
-  cs: "csharp", php: "php", scala: "scala",
-  json: "json", yml: "yaml", yaml: "yaml", toml: "toml", xml: "xml",
-  html: "html", css: "css", scss: "scss",
-  md: "markdown", mdx: "markdown",
-  sh: "bash", bash: "bash", zsh: "bash", fish: "bash",
-  sql: "sql", graphql: "graphql", gql: "graphql",
+  ts: "typescript",
+  tsx: "typescript",
+  js: "javascript",
+  jsx: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  go: "go",
+  java: "java",
+  kt: "kotlin",
+  swift: "swift",
+  c: "c",
+  cpp: "cpp",
+  cc: "cpp",
+  h: "c",
+  hpp: "cpp",
+  cs: "csharp",
+  php: "php",
+  scala: "scala",
+  json: "json",
+  yml: "yaml",
+  yaml: "yaml",
+  toml: "toml",
+  xml: "xml",
+  html: "html",
+  css: "css",
+  scss: "scss",
+  md: "markdown",
+  mdx: "markdown",
+  sh: "bash",
+  bash: "bash",
+  zsh: "bash",
+  fish: "bash",
+  sql: "sql",
+  graphql: "graphql",
+  gql: "graphql",
   dockerfile: "dockerfile",
 };
 

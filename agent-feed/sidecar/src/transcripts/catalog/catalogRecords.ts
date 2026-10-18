@@ -35,8 +35,7 @@ export function isClaudeSessionCandidate(
 ): boolean {
   if (!CLAUDE_SESSION_PATTERN.test(basename(filePath))) return false;
   const components = relative(projectsDirectory, filePath).split(/[\\/]/);
-  return components.length === 2 &&
-    components.every((component) => component.length > 0 && component !== "..");
+  return components.length === 2 && components.every((component) => component.length > 0 && component !== "..");
 }
 
 export function makeSession(

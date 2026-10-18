@@ -6,11 +6,7 @@
  * open. A move that names a path not in the list returns the list unchanged rather than inventing
  * an order.
  */
-export function orderedPathsAfterMove(
-  paths: readonly string[],
-  sourcePath: string,
-  targetPath: string,
-): string[] {
+export function orderedPathsAfterMove(paths: readonly string[], sourcePath: string, targetPath: string): string[] {
   const source = paths.indexOf(sourcePath);
   const target = paths.indexOf(targetPath);
   if (source < 0 || target < 0 || source === target) return [...paths];

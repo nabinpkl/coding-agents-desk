@@ -23,9 +23,11 @@ async function listen(server: Server): Promise<number> {
 }
 
 function proxyTo(upstreamPort: number): Promise<number> {
-  return listen(createServer((incoming, outgoing) => {
-    proxyToSidecar("127.0.0.1", upstreamPort, incoming.url ?? "/", incoming, outgoing);
-  }));
+  return listen(
+    createServer((incoming, outgoing) => {
+      proxyToSidecar("127.0.0.1", upstreamPort, incoming.url ?? "/", incoming, outgoing);
+    }),
+  );
 }
 
 /** Reads a whole response through the proxy, and says whether it arrived complete. */
@@ -51,11 +53,13 @@ function read(port: number, path: string): Promise<{ status: number; body: strin
 // nothing, and an `EventSource` only reconnects on an error or an end, so a panel tab sat silent
 // until it was reloaded: measured at fifty minutes through the dev server.
 test("a stream the sidecar drops mid-body is dropped for the client too", async () => {
-  const upstreamPort = await listen(createServer((_incoming, outgoing) => {
-    outgoing.writeHead(200, { "content-type": "text/event-stream" });
-    outgoing.write("data: one\n\n");
-    setTimeout(() => outgoing.socket?.destroy(), 20);
-  }));
+  const upstreamPort = await listen(
+    createServer((_incoming, outgoing) => {
+      outgoing.writeHead(200, { "content-type": "text/event-stream" });
+      outgoing.write("data: one\n\n");
+      setTimeout(() => outgoing.socket?.destroy(), 20);
+    }),
+  );
   const received = await read(await proxyTo(upstreamPort), "/api/stream");
   expect(received.status).toBe(200);
   expect(received.body).toBe("data: one\n\n");
@@ -63,10 +67,12 @@ test("a stream the sidecar drops mid-body is dropped for the client too", async 
 });
 
 test("a response the sidecar finishes arrives whole", async () => {
-  const upstreamPort = await listen(createServer((_incoming, outgoing) => {
-    outgoing.writeHead(200, { "content-type": "application/json" });
-    outgoing.end('{"ok":true}');
-  }));
+  const upstreamPort = await listen(
+    createServer((_incoming, outgoing) => {
+      outgoing.writeHead(200, { "content-type": "application/json" });
+      outgoing.end('{"ok":true}');
+    }),
+  );
   const received = await read(await proxyTo(upstreamPort), "/api/config");
   expect(received).toEqual({ status: 200, body: '{"ok":true}', complete: true });
 });
@@ -76,11 +82,13 @@ test("a client that leaves a stream takes the sidecar's end of it down", async (
   const closed = new Promise<void>((resolve) => {
     upstreamClosed = resolve;
   });
-  const upstreamPort = await listen(createServer((_incoming, outgoing) => {
-    outgoing.on("close", upstreamClosed);
-    outgoing.writeHead(200, { "content-type": "text/event-stream" });
-    outgoing.write("data: one\n\n");
-  }));
+  const upstreamPort = await listen(
+    createServer((_incoming, outgoing) => {
+      outgoing.on("close", upstreamClosed);
+      outgoing.writeHead(200, { "content-type": "text/event-stream" });
+      outgoing.write("data: one\n\n");
+    }),
+  );
   const proxyPort = await proxyTo(upstreamPort);
   const outgoing = request({ host: "127.0.0.1", port: proxyPort, path: "/api/stream" }, (response) => {
     response.on("error", () => {});

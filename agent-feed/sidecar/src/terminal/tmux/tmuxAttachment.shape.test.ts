@@ -18,37 +18,51 @@ interface Recorded {
   emit: (chunk: Uint8Array) => void;
 }
 
-function runtime(
-  overrides: Partial<TmuxPaneRuntime> = {},
-): {
+function runtime(overrides: Partial<TmuxPaneRuntime> = {}): {
   runtime: TmuxPaneRuntime;
   log: Recorded;
   pane: { pid: number; columns: number; rows: number; mouseReporting: boolean };
 } {
   const log: Recorded = {
-    pipes: 0, stops: 0, sent: [], captures: 0, resizes: [], clientChecks: 0, releases: 0,
+    pipes: 0,
+    stops: 0,
+    sent: [],
+    captures: 0,
+    resizes: [],
+    clientChecks: 0,
+    releases: 0,
     emit: () => {},
   };
   // The pane's real shape, so `describe` answers what `resize` did rather than a constant.
   const pane = { pid: 4242, columns: 80, rows: 24, mouseReporting: false };
   const base: TmuxPaneRuntime = {
     describe: async () => ({ ...pane }),
-    capture: async () => { log.captures += 1; return "screen bytes"; },
+    capture: async () => {
+      log.captures += 1;
+      return "screen bytes";
+    },
     pipe: async (_session, onData) => {
       log.pipes += 1;
       log.emit = onData;
-      return async () => { log.stops += 1; };
+      return async () => {
+        log.stops += 1;
+      };
     },
     send: async (_session, bytes) => {
       log.sent.push(hexKeyArguments(bytes));
     },
-    clients: async () => { log.clientChecks += 1; return 0; },
+    clients: async () => {
+      log.clientChecks += 1;
+      return 0;
+    },
     resize: async (_session, columns, rows) => {
       log.resizes.push({ columns, rows });
       pane.columns = columns;
       pane.rows = rows;
     },
-    releaseSize: async () => { log.releases += 1; },
+    releaseSize: async () => {
+      log.releases += 1;
+    },
   };
   return { runtime: { ...base, ...overrides }, log, pane };
 }
@@ -175,7 +189,11 @@ test("one move sends one checkpoint per viewer, however many reports queued behi
   // all ask for the SAME shape, so between them they are one move.
   for (let report = 0; report < 20; report += 1) {
     connection.updateViewerState({
-      sequence: String(report), active: true, claim: true, columns: 120, rows: 40,
+      sequence: String(report),
+      active: true,
+      claim: true,
+      columns: 120,
+      rows: 40,
     });
   }
   await settle();
@@ -224,7 +242,9 @@ test("a client count that cannot be read is not treated as nobody", async () => 
   // An unreadable answer and "zero clients" are the same value if a failure returns 0, and one of
   // them is the case where resizing reflows somebody's live session.
   const { runtime: tmux, log } = runtime({
-    clients: async () => { throw new Error("tmux list-clients exited 1"); },
+    clients: async () => {
+      throw new Error("tmux list-clients exited 1");
+    },
   });
   const attachments = new TmuxAttachments(tmux);
   const connection = await attachments.open("rags", { columns: 200, rows: 50 });
@@ -265,7 +285,10 @@ test("a burst of viewport reports costs the tmux calls for the last size, not al
   await settle();
   // The first ask is in flight when the rest arrive, so it lands; the three behind it collapse to
   // the last one. A drag reporting twenty sizes must not be twenty resizes.
-  expect(log.resizes).toEqual([{ columns: 90, rows: 40 }, { columns: 120, rows: 40 }]);
+  expect(log.resizes).toEqual([
+    { columns: 90, rows: 40 },
+    { columns: 120, rows: 40 },
+  ]);
 });
 
 test("every resize hands the size straight back to tmux's own negotiation", async () => {

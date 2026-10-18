@@ -70,28 +70,34 @@ export async function pageLinks(page: PDFPageProxy): Promise<PdfLink[]> {
  * The page and height a destination names. A named destination is looked up first; an explicit
  * one is `[pageRef, {name}, ...args]`, where the args that carry a top edge depend on the name.
  */
-export async function resolveDestination(
-  document: PDFDocumentProxy,
-  destination: unknown,
-): Promise<PdfPlace | null> {
+export async function resolveDestination(document: PDFDocumentProxy, destination: unknown): Promise<PdfPlace | null> {
   const explicit = typeof destination === "string" ? await document.getDestination(destination) : destination;
   if (!Array.isArray(explicit) || explicit.length === 0) return null;
   const [reference, kind, ...args] = explicit as [unknown, { name?: string } | undefined, ...unknown[]];
-  const index = typeof reference === "number"
-    ? reference
-    : reference && typeof reference === "object"
-      ? await document.getPageIndex(reference as { num: number; gen: number })
-      : null;
+  const index =
+    typeof reference === "number"
+      ? reference
+      : reference && typeof reference === "object"
+        ? await document.getPageIndex(reference as { num: number; gen: number })
+        : null;
   if (index === null || index < 0 || index >= document.numPages) return null;
-  const top = kind?.name === "XYZ" ? args[1] : kind?.name === "FitH" || kind?.name === "FitBH" ? args[0] : kind?.name === "FitR" ? args[3] : null;
+  const top =
+    kind?.name === "XYZ"
+      ? args[1]
+      : kind?.name === "FitH" || kind?.name === "FitBH"
+        ? args[0]
+        : kind?.name === "FitR"
+          ? args[3]
+          : null;
   if (typeof top !== "number") return { page: index + 1, fraction: 0 };
   const viewport = (await document.getPage(index + 1)).getViewport({ scale: 1 });
   const [, y] = viewport.convertToViewportPoint(0, top) as number[];
   return { page: index + 1, fraction: Math.min(1, Math.max(0, y! / viewport.height)) };
 }
 
-const LINK_CLASS = "pointer-events-auto absolute rounded-[2px] outline-none transition-colors"
-  + " hover:bg-sky-500/15 focus-visible:ring-2 focus-visible:ring-primary";
+const LINK_CLASS =
+  "pointer-events-auto absolute rounded-[2px] outline-none transition-colors" +
+  " hover:bg-sky-500/15 focus-visible:ring-2 focus-visible:ring-primary";
 
 export function PdfLinks({
   links,
@@ -114,33 +120,31 @@ export function PdfLinks({
           width: `${link.box.width}%`,
           height: `${link.box.height}%`,
         };
-        return link.kind === "outside"
-          ? (
-            <a
-              key={link.key}
-              href={link.href}
-              target={OUTSIDE_LINK.target}
-              rel={OUTSIDE_LINK.rel}
-              title={link.href}
-              aria-label={`Open ${link.href}`}
-              className={LINK_CLASS}
-              style={style}
-            />
-          )
-          : (
-            <button
-              key={link.key}
-              type="button"
-              aria-label="Go to the linked place in this document"
-              className={LINK_CLASS}
-              style={style}
-              onClick={() => {
-                void resolveDestination(document, link.destination).then((place) => {
-                  if (place) onNavigate(place);
-                });
-              }}
-            />
-          );
+        return link.kind === "outside" ? (
+          <a
+            key={link.key}
+            href={link.href}
+            target={OUTSIDE_LINK.target}
+            rel={OUTSIDE_LINK.rel}
+            title={link.href}
+            aria-label={`Open ${link.href}`}
+            className={LINK_CLASS}
+            style={style}
+          />
+        ) : (
+          <button
+            key={link.key}
+            type="button"
+            aria-label="Go to the linked place in this document"
+            className={LINK_CLASS}
+            style={style}
+            onClick={() => {
+              void resolveDestination(document, link.destination).then((place) => {
+                if (place) onNavigate(place);
+              });
+            }}
+          />
+        );
       })}
     </div>
   );

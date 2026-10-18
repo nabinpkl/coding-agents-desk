@@ -165,10 +165,13 @@ export function useRememberedCanvasScroll(
   }, [scrollerRef, zoom.scale, zoom.pad.left, zoom.pad.top, holding]);
 
   // Leaving the canvas is the one scroll that never settles, because the component goes with it.
-  useEffect(() => () => {
-    if (timer.current !== null) clearTimeout(timer.current);
-    if (latest.current) storeCanvasScroll(latest.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+      if (latest.current) storeCanvasScroll(latest.current);
+    },
+    [],
+  );
 
   return remember;
 }

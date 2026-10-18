@@ -16,9 +16,7 @@ import {
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
-import {
-  terminalPaneMock,
-} from "@/app/agentPanelAppMocks";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -64,20 +62,22 @@ describe("App shell", () => {
       transport.deliver("/api/bots/stream", {
         version: 2,
         revision: 1,
-        bots: [{
-          botId: "bot-1",
-          name: "Release Captain",
-          iconUrl: "https://example.com/captain.png",
-          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
-          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
-          metadata: { role: "Coordinates releases", labels: ["release"], custom: {} },
-          grants: [],
-          createdAt: 1,
-          createdBy: { kind: "user" },
-          environmentAvailability: "available",
-          sessions: [FIXTURE_SESSIONS[0]],
-          missingSessionRefs: [],
-        }],
+        bots: [
+          {
+            botId: "bot-1",
+            name: "Release Captain",
+            iconUrl: "https://example.com/captain.png",
+            environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+            metadata: { role: "Coordinates releases", labels: ["release"], custom: {} },
+            grants: [],
+            createdAt: 1,
+            createdBy: { kind: "user" },
+            environmentAvailability: "available",
+            sessions: [FIXTURE_SESSIONS[0]],
+            missingSessionRefs: [],
+          },
+        ],
       });
     });
 
@@ -104,10 +104,7 @@ describe("App shell", () => {
     // cards restored open scrolled themselves into view, so where a reader landed was decided by
     // whichever of them mounted last.
     localStorage.setItem("agent-panel.bot-canvas.scroll", JSON.stringify({ left: 640, top: 0 }));
-    localStorage.setItem(
-      "agent-panel.bot-canvas.open-session",
-      JSON.stringify(["claude:sid-claude-01"]),
-    );
+    localStorage.setItem("agent-panel.bot-canvas.open-session", JSON.stringify(["claude:sid-claude-01"]));
     // jsdom lays nothing out, so the strip has no width to scroll along and the restore would
     // rightly decline to write an offset into a scroller with no overflow.
     Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, value: 4000 });
@@ -128,22 +125,28 @@ describe("App shell", () => {
       // The scrolling ancestor rather than the immediate parent: the zoom mode keeps a wrapper
       // between the two, permanently, so that turning the mode on cannot move the strip in the
       // tree and remount every open session inside it.
-      const scroller = screen
-        .getByRole("list", { name: "Bot canvas" })
-        .closest(".overflow-auto") as HTMLElement;
+      const scroller = screen.getByRole("list", { name: "Bot canvas" }).closest(".overflow-auto") as HTMLElement;
       expect(scroller.scrollLeft).toBe(640);
       // The card holding the restored session is open, and did not drag the strip to itself.
-      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      );
+      expect(canvas().getByRole("button", { name: /^Session Claude 01/ })).toHaveAttribute("aria-expanded", "true");
       expect(scrollIntoView).not.toHaveBeenCalled();
       // A sidecar restart: its catalog answers partially while it reconciles, so the session reads
       // missing and then comes back. The reader closed nothing, so nothing opened either.
-      for (const [revision, missing] of [[2, true], [3, false]] as const) {
-        act(() => transport.deliver("/api/bots/stream", { version: 2, revision, bots: [missing
-          ? { ...BOT_WITH_ONE_SESSION, sessions: [], missingSessionRefs: BOT_WITH_ONE_SESSION.sessionRefs }
-          : BOT_WITH_ONE_SESSION] }));
+      for (const [revision, missing] of [
+        [2, true],
+        [3, false],
+      ] as const) {
+        act(() =>
+          transport.deliver("/api/bots/stream", {
+            version: 2,
+            revision,
+            bots: [
+              missing
+                ? { ...BOT_WITH_ONE_SESSION, sessions: [], missingSessionRefs: BOT_WITH_ONE_SESSION.sessionRefs }
+                : BOT_WITH_ONE_SESSION,
+            ],
+          }),
+        );
       }
       expect(scrollIntoView).not.toHaveBeenCalled();
 
@@ -151,8 +154,7 @@ describe("App shell", () => {
       // which is the case the scroll was written for.
       fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
       fireEvent.click(
-        within(screen.getByRole("list", { name: "Bots" }))
-          .getByRole("button", { name: /^Session Claude 01/ }),
+        within(screen.getByRole("list", { name: "Bots" })).getByRole("button", { name: /^Session Claude 01/ }),
       );
       expect(scrollIntoView).toHaveBeenCalled();
       unmount();
@@ -175,16 +177,17 @@ describe("App shell", () => {
       // The scrolling ancestor rather than the immediate parent: the zoom mode keeps a wrapper
       // between the two, permanently, so that turning the mode on cannot move the strip in the
       // tree and remount every open session inside it.
-      const scroller = screen
-        .getByRole("list", { name: "Bot canvas" })
-        .closest(".overflow-auto") as HTMLElement;
+      const scroller = screen.getByRole("list", { name: "Bot canvas" }).closest(".overflow-auto") as HTMLElement;
       scroller.scrollLeft = 320;
       fireEvent.scroll(scroller);
       // On a delay, so a flick is one storage write rather than one per frame.
       expect(localStorage.getItem("agent-panel.bot-canvas.scroll")).toBeNull();
       await waitFor(
-        () => expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.scroll") ?? "null"))
-          .toEqual({ left: 320, top: 0 }),
+        () =>
+          expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.scroll") ?? "null")).toEqual({
+            left: 320,
+            top: 0,
+          }),
         { timeout: 2000 },
       );
       unmount();
@@ -208,7 +211,9 @@ describe("App shell", () => {
     Object.defineProperty(HTMLElement.prototype, "scrollLeft", {
       configurable: true,
       get: () => at,
-      set(value: number) { at = Math.min(value, extent); },
+      set(value: number) {
+        at = Math.min(value, extent);
+      },
     });
     try {
       const { transport, unmount } = setup();
@@ -217,9 +222,7 @@ describe("App shell", () => {
       act(() => {
         transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
       });
-      const scroller = screen
-        .getByRole("list", { name: "Bot canvas" })
-        .closest(".overflow-auto") as HTMLElement;
+      const scroller = screen.getByRole("list", { name: "Bot canvas" }).closest(".overflow-auto") as HTMLElement;
       expect(scroller.scrollLeft).toBe(1000);
       // The scroll a browser raises for that clamped landing, which is the event that used to be
       // taken for the reader having chosen to be there and written down as the new place.
@@ -230,8 +233,10 @@ describe("App shell", () => {
       extent = 3000;
       await waitFor(() => expect(scroller.scrollLeft).toBe(1800), { timeout: 2000 });
       // And the place it was asked for is still the remembered one, rather than where it got to.
-      expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.scroll") ?? "null"))
-        .toEqual({ left: 1800, top: 0 });
+      expect(JSON.parse(localStorage.getItem("agent-panel.bot-canvas.scroll") ?? "null")).toEqual({
+        left: 1800,
+        top: 0,
+      });
       unmount();
     } finally {
       Reflect.deleteProperty(HTMLElement.prototype, "scrollWidth");
@@ -365,9 +370,10 @@ describe("App shell", () => {
     // which is what a canvas is for. The budget that used to force one at a time is Chrome's
     // hundred streams per origin, about thirty cards away.
     fireEvent.click(canvas().getByRole("button", { name: /^Session Claude 01/ }));
-    expect(
-      screen.getAllByTestId("activity-feed").map((feed) => feed.getAttribute("data-session-id")),
-    ).toEqual(["sid-claude-01", "sid-codex-01"]);
+    expect(screen.getAllByTestId("activity-feed").map((feed) => feed.getAttribute("data-session-id"))).toEqual([
+      "sid-claude-01",
+      "sid-codex-01",
+    ]);
 
     // And each row closes only itself, rather than the click being the only way to swap which one
     // is up.
@@ -400,14 +406,11 @@ describe("App shell", () => {
     // shared host put both in the same place instead, which is the bug this pins.
     // The session's whole card, which is what the panel is positioned against and what has to
     // contain it: one shared host put both panels outside either card, on the app itself.
-    const card = (name: RegExp) =>
-      screen.getByRole("region", { name }).closest("li") as HTMLElement;
+    const card = (name: RegExp) => screen.getByRole("region", { name }).closest("li") as HTMLElement;
     const panels = screen.getAllByTestId("tasks-column");
     expect(panels).toHaveLength(2);
-    expect(panels.filter((panel) => card(/^Session Claude 01 session/).contains(panel)))
-      .toHaveLength(1);
-    expect(panels.filter((panel) => card(/^Session Codex 01 session/).contains(panel)))
-      .toHaveLength(1);
+    expect(panels.filter((panel) => card(/^Session Claude 01 session/).contains(panel))).toHaveLength(1);
+    expect(panels.filter((panel) => card(/^Session Codex 01 session/).contains(panel))).toHaveLength(1);
     unmount();
   });
 
@@ -429,9 +432,7 @@ describe("App shell", () => {
       }),
     });
     await act(async () => {
-      fireEvent.click(
-        canvas().getByRole("button", { name: "Actions for Session Claude 01" }),
-      );
+      fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
@@ -439,10 +440,8 @@ describe("App shell", () => {
 
     // On the card whose session the detach was about, and on no other. One string handed to
     // every open session said it as many times as the reader had sessions open, and named none.
-    const card = (name: RegExp) =>
-      screen.getByRole("region", { name }).closest("li") as HTMLElement;
-    expect(within(card(/^Session Claude 01 session/)).getByRole("alert"))
-      .toHaveTextContent("would not let go");
+    const card = (name: RegExp) => screen.getByRole("region", { name }).closest("li") as HTMLElement;
+    expect(within(card(/^Session Claude 01 session/)).getByRole("alert")).toHaveTextContent("would not let go");
     expect(within(card(/^Session Codex 01 session/)).queryByRole("alert")).toBeNull();
     unmount();
   });
@@ -495,5 +494,4 @@ describe("App shell", () => {
     expect(screen.queryByTestId("activity-feed")).toBeNull();
     third.unmount();
   });
-
 });

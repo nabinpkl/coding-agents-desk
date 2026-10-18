@@ -28,16 +28,7 @@ import {
   readManifest,
   writeManifest,
 } from "@/park/manifest";
-import {
-  activeSpace,
-  displays,
-  moveTo,
-  moveToSpace,
-  parkable,
-  spaces,
-  windows,
-  type YabaiWindow,
-} from "@/park/yabai";
+import { activeSpace, displays, moveTo, moveToSpace, parkable, spaces, windows, type YabaiWindow } from "@/park/yabai";
 
 export interface ParkOptions {
   /** Substring match on the application name. Absent means every parkable window. */
@@ -75,12 +66,7 @@ function rectOf(w: YabaiWindow): Rect {
 const settle = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export async function park(options: ParkOptions = {}): Promise<ParkReport> {
-  const [all, space, screens, spaceList] = await Promise.all([
-    windows(),
-    activeSpace(),
-    displays(),
-    spaces(),
-  ]);
+  const [all, space, screens, spaceList] = await Promise.all([windows(), activeSpace(), displays(), spaces()]);
   const target = spaceList.find((s) => s.index === space.index);
   if (!target) throw new Error(`yabai does not report the active space ${space.index}`);
   const screen = screens.find((d) => d.index === space.display) ?? screens[0];

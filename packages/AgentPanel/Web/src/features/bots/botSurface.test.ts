@@ -309,7 +309,8 @@ describe("botSessionStyle", () => {
 
   test("a Bot's sessions are spread over the whole circle, not clustered on its own hue", () => {
     const spread = Array.from({ length: BOT_SESSION_SHADES }, (_, step) =>
-      Number(botSessionStyle(180, step)!["--bot-session-hue" as keyof CSSProperties]));
+      Number(botSessionStyle(180, step)!["--bot-session-hue" as keyof CSSProperties]),
+    );
     // The first session takes the palette entry nearest its Bot, and the rest walk on from there.
     // That is the point rather than a side effect: a narrow arc around the Bot was measured first
     // and moved a card 0.0054 dEok, because rotating a low-chroma colour barely moves it.

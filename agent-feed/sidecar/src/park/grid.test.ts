@@ -38,10 +38,8 @@ describe("packFromTopLeft", () => {
       for (let b = a + 1; b < placed.length; b += 1) {
         const one = placed[a]!;
         const two = placed[b]!;
-        const disjoint = one.x + one.w <= two.x
-          || two.x + two.w <= one.x
-          || one.y + one.h <= two.y
-          || two.y + two.h <= one.y;
+        const disjoint =
+          one.x + one.w <= two.x || two.x + two.w <= one.x || one.y + one.h <= two.y || two.y + two.h <= one.y;
         expect(disjoint).toBe(true);
       }
     }
@@ -71,7 +69,6 @@ describe("packFromTopLeft", () => {
 
 describe("usableArea", () => {
   test("takes the menu bar off the top and nothing off the bottom", () => {
-    expect(usableArea({ x: 1800, y: 0, w: 7680, h: 4320 }, 40))
-      .toEqual({ x: 1800, y: 40, w: 7680, h: 4280 });
+    expect(usableArea({ x: 1800, y: 0, w: 7680, h: 4320 }, 40)).toEqual({ x: 1800, y: 40, w: 7680, h: 4280 });
   });
 });

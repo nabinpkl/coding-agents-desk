@@ -194,18 +194,19 @@ export function grammarWanted(nameOrLang: string): string {
  * have -- which throws. Every consumer goes through this rather than reading the two apart,
  * because getting that pairing wrong is invisible until the one file that needs a rare grammar.
  */
-export function useCodeHighlighting(
-  nameOrLang: string,
-): { highlighter: HighlighterCore | null; lang: string } {
+export function useCodeHighlighting(nameOrLang: string): { highlighter: HighlighterCore | null; lang: string } {
   const wanted = grammarWanted(nameOrLang);
   // Subscribing is also what asks for the grammar, so a block that wants a new one asks once.
-  const subscribe = useCallback((onChange: () => void) => {
-    listeners.add(onChange);
-    void ensureHighlighter().then(() => ensureLanguage(wanted));
-    return () => {
-      listeners.delete(onChange);
-    };
-  }, [wanted]);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      listeners.add(onChange);
+      void ensureHighlighter().then(() => ensureLanguage(wanted));
+      return () => {
+        listeners.delete(onChange);
+      };
+    },
+    [wanted],
+  );
   const current = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
   return { highlighter: current.highlighter, lang: current.loaded.has(wanted) ? wanted : PLAIN };
 }

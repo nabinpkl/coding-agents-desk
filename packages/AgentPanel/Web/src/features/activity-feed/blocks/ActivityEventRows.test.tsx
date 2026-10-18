@@ -22,7 +22,9 @@ import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStr
 
 // @git-diff-view and next-themes do not run under jsdom. Markdown stays REAL:
 // whether reasoning renders its markup is the whole point of one test below.
-vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({
+  DiffBlock: () => <div data-testid="diff-block" />,
+}));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], windowStart: 0, usage: null }),
@@ -217,13 +219,7 @@ describe("event heading", () => {
 
   it("puts what the user said on the right, in a card narrower than the row", () => {
     const { container } = renderRow(
-      <UserRow
-        ev={event({ type: "user" })}
-        ctx={CTX}
-        isCollapsed={false}
-        onToggle={() => {}}
-        isHighlighted={false}
-      />,
+      <UserRow ev={event({ type: "user" })} ctx={CTX} isCollapsed={false} onToggle={() => {}} isHighlighted={false} />,
     );
     const row = container.firstElementChild!;
     expect(row.className).toContain("justify-end");
@@ -359,7 +355,15 @@ describe("prompt cache badge", () => {
 describe("collapsed row", () => {
   it("leaves a model's prose open, with no toggle, even when told to collapse", () => {
     const { container } = renderRow(
-      <SegmentEventRow ev={event({ blocks: [{ kind: "text", text: "first line\nsecond line" }] })} ctx={NICE_CTX} isFirst isLast isCollapsed onToggle={() => {}} isHighlighted={false} />,
+      <SegmentEventRow
+        ev={event({ blocks: [{ kind: "text", text: "first line\nsecond line" }] })}
+        ctx={NICE_CTX}
+        isFirst
+        isLast
+        isCollapsed
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
     );
     expect(screen.getByText(/second line/)).toBeTruthy();
     expect(container.querySelector("button[aria-expanded]")).toBeNull();
@@ -431,9 +435,7 @@ describe("reasoning", () => {
         isHighlighted={false}
       />,
     );
-    expect(container.querySelector("strong")?.textContent).toBe(
-      "Adjusting skip parameter handling",
-    );
+    expect(container.querySelector("strong")?.textContent).toBe("Adjusting skip parameter handling");
     expect(screen.queryByText(/\*\*/)).toBeNull();
   });
 
@@ -490,4 +492,3 @@ describe("block flow", () => {
     expect(container.querySelectorAll(".clear-left").length).toBeGreaterThan(0);
   });
 });
-

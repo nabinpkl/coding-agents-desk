@@ -22,29 +22,29 @@ function processLine(line: string): LineResult | null {
 }
 
 function snippetFor(parsed: ParsedLine): string {
-  if (parsed.type === 'assistant') {
+  if (parsed.type === "assistant") {
     for (const b of parsed.blocks) {
-      if (b.kind === 'text' && b.text && b.text.trim()) return truncate(b.text, 800);
+      if (b.kind === "text" && b.text && b.text.trim()) return truncate(b.text, 800);
     }
     for (const b of parsed.blocks) {
-      if (b.kind === 'tool_use' && b.tool) {
+      if (b.kind === "tool_use" && b.tool) {
         const label = b.summary && b.summary.trim() ? b.summary : b.tool;
         return truncate(`→ ${label}`, 200);
       }
     }
-    return '';
+    return "";
   }
-  if (parsed.type === 'user') {
+  if (parsed.type === "user") {
     for (const b of parsed.blocks) {
-      if (b.kind === 'text' && b.text && b.text.trim()) {
+      if (b.kind === "text" && b.text && b.text.trim()) {
         // Codex injects the project's AGENTS.md ahead of the first real prompt, so without this
         // a session's rail snippet is the repository's instructions rather than what was asked.
-        if (isHarnessUserText(b.text)) return '';
+        if (isHarnessUserText(b.text)) return "";
         return truncate(`→ ${b.text}`, 800);
       }
     }
   }
-  return '';
+  return "";
 }
 
 // Resolve block expansion from the same normalized line used by processLine,
@@ -57,7 +57,7 @@ async function extractBlockRaw(line: string, blockIndex: number): Promise<string
 // Claude's `readHeader` does: metadata reads stay off that interface on purpose,
 // so nothing that only has a `SourceAdapter` can reach for the disk.
 export const codexAdapter = {
-  id: 'codex',
+  id: "codex",
   processLine,
   snippetFor,
   extractBlockRaw,

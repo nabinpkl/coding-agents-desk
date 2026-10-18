@@ -68,7 +68,9 @@ function controllableDriver(name: string) {
   };
 }
 
-async function arena(options: { terminalDrivers?: ContestantDrivers | null; killed?: string[]; onKill?: () => void } = {}) {
+async function arena(
+  options: { terminalDrivers?: ContestantDrivers | null; killed?: string[]; onKill?: () => void } = {},
+) {
   const created = await mkdtemp(join(tmpdir(), "arena-terminals-"));
   roots.push(created);
   const root = await realpath(created);
@@ -304,11 +306,13 @@ describe("a restart", () => {
   }
 
   /** A driver that reaches the start line and then holds its turn open, as a slow harness would. */
-  const holdsItsTurn = (name: string): ContestantDriver => async (plan) => {
-    plan.terminal!.onPane(`pane-${name}`, `session-${name}`);
-    await plan.terminal!.ready();
-    return new Promise(() => {});
-  };
+  const holdsItsTurn =
+    (name: string): ContestantDriver =>
+    async (plan) => {
+      plan.terminal!.onPane(`pane-${name}`, `session-${name}`);
+      await plan.terminal!.ready();
+      return new Promise(() => {});
+    };
 
   /** The driver the restarted sidecar has: it writes down what it was handed to pick up. */
   function pickingUp() {

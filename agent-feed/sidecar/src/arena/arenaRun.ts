@@ -86,10 +86,7 @@ export function contestantSummary(record: ArenaContestantRecord): ArenaContestan
     status: record.status,
     startedAt: record.startedAt,
     closedAt: record.closedAt,
-    durationMs:
-      record.startedAt !== null && record.closedAt !== null
-        ? record.closedAt - record.startedAt
-        : null,
+    durationMs: record.startedAt !== null && record.closedAt !== null ? record.closedAt - record.startedAt : null,
     error: record.error,
   };
 }
@@ -118,7 +115,10 @@ export function runSummary(run: ArenaRunRecord): ArenaRunSummary {
  * the run is the one answering, and falls back to the store for a run reloaded from disk --
  * which is the one case where the store has a diff the record does not.
  */
-export function runDetail(run: ArenaRunRecord, storedDiff: (c: ArenaContestantRecord) => string | null): ArenaRunDetail {
+export function runDetail(
+  run: ArenaRunRecord,
+  storedDiff: (c: ArenaContestantRecord) => string | null,
+): ArenaRunDetail {
   return {
     ...runSummary(run),
     contestants: run.contestants.map((record) => {

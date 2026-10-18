@@ -24,11 +24,7 @@ import type { AgentHttpTransport } from "@/features/activity-feed/transport/Agen
 import { WorkspaceIdeClient, WorkspaceRequestError } from "@/features/workspace-ide/workspaceIdeClient";
 import { defaultFileView, hasSource } from "@/features/workspace-ide/editor/FileBody";
 import { useWorkspaceIdeWriting } from "@/features/workspace-ide/useWorkspaceIdeWriting";
-import {
-  loadDraft,
-  reconcileDraft,
-  removeDraft,
-} from "@/features/workspace-ide/workspaceIdeDrafts";
+import { loadDraft, reconcileDraft, removeDraft } from "@/features/workspace-ide/workspaceIdeDrafts";
 import {
   DEFAULT_WORKSPACE_IDE_PREFERENCES,
   loadWorkspaceIdePreferences,
@@ -137,13 +133,16 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
   );
   // A failed roster read shows in the banner like every other failure, until it is dismissed.
   const [dismissedListError, setDismissedListError] = useState<unknown>(null);
-  const shownError = error ?? (listed.error && listed.error !== dismissedListError
-    ? describe(listed.error, "Could not load workspaces.")
-    : null);
+  const shownError =
+    error ??
+    (listed.error && listed.error !== dismissedListError ? describe(listed.error, "Could not load workspaces.") : null);
 
-  const update = useCallback((change: Partial<WorkspaceIdePreferences>) => {
-    setPreferences((current) => ({ ...current, ...change }));
-  }, [setPreferences]);
+  const update = useCallback(
+    (change: Partial<WorkspaceIdePreferences>) => {
+      setPreferences((current) => ({ ...current, ...change }));
+    },
+    [setPreferences],
+  );
 
   /**
    * The workspace this reader is in.
@@ -184,36 +183,35 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
   const generationRef = useLatestRef(scope);
 
   // Above the subscription, which reloads a file that changed on disk while it was clean.
-  const reload = useCallback(async (path: string) => {
-    if (!workspaceId) return;
-    const generation = generationRef.current;
-    try {
-      const { file } = await client.readFile(workspaceId, path);
-      if (generation !== generationRef.current) return;
-      const disk = file.text ?? "";
-      // Text this tab had typed and not written down comes back with the file, along with whether
-      // the file moved underneath it while it was gone.
-      const kept = reconcileDraft(loadDraft(workspaceId, path), disk, file.revision);
-      if (kept.state === "identical") removeDraft(workspaceId, path);
-      setOpenFiles((current) => ({
-        ...current,
-        [path]: {
-          path,
-          kind: file.kind,
-          text: kept.state === "unsaved" || kept.state === "conflict" ? kept.text : disk,
-          revision: file.revision,
-          saveState: kept.state === "unsaved"
-            ? "dirty"
-            : kept.state === "conflict"
-              ? "conflict"
-              : "clean",
-        },
-      }));
-    } catch (cause) {
-      if (generation !== generationRef.current) return;
-      setError(describe(cause, `Could not open ${path.split("/").pop() ?? path}.`));
-    }
-  }, [client, workspaceId, generationRef, setOpenFiles]);
+  const reload = useCallback(
+    async (path: string) => {
+      if (!workspaceId) return;
+      const generation = generationRef.current;
+      try {
+        const { file } = await client.readFile(workspaceId, path);
+        if (generation !== generationRef.current) return;
+        const disk = file.text ?? "";
+        // Text this tab had typed and not written down comes back with the file, along with whether
+        // the file moved underneath it while it was gone.
+        const kept = reconcileDraft(loadDraft(workspaceId, path), disk, file.revision);
+        if (kept.state === "identical") removeDraft(workspaceId, path);
+        setOpenFiles((current) => ({
+          ...current,
+          [path]: {
+            path,
+            kind: file.kind,
+            text: kept.state === "unsaved" || kept.state === "conflict" ? kept.text : disk,
+            revision: file.revision,
+            saveState: kept.state === "unsaved" ? "dirty" : kept.state === "conflict" ? "conflict" : "clean",
+          },
+        }));
+      } catch (cause) {
+        if (generation !== generationRef.current) return;
+        setError(describe(cause, `Could not open ${path.split("/").pop() ?? path}.`));
+      }
+    },
+    [client, workspaceId, generationRef, setOpenFiles],
+  );
 
   // Follow the workspace. Its state above has already started empty for it.
   useSubscription(workspaceId ? scope : null, () => {
@@ -252,9 +250,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
             // Decided from the ref and not inside the state updater: React may run an updater
             // twice, and a reload started in there would be two requests for one event.
             const held = openFilesRef.current;
-            const conflicted = event.changedPaths.filter(
-              (path) => held[path] && held[path].saveState !== "clean",
-            );
+            const conflicted = event.changedPaths.filter((path) => held[path] && held[path].saveState !== "clean");
             for (const path of event.changedPaths) {
               if (held[path]?.saveState === "clean") void reload(path);
             }
@@ -309,35 +305,41 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
    * fix is to take their state and let the reader try again, not to show them an error about a
    * revision number.
    */
-  const applyOperation = useCallback(async (operation: WorkspaceOperation) => {
-    const current = sharedRef.current;
-    if (!workspaceId || !current) return;
-    try {
-      const { state } = await client.applyOperation(workspaceId, current.revision, operation);
-      setShared(state);
-    } catch (cause) {
-      if (cause instanceof WorkspaceRequestError && cause.code === "revisionConflict") {
-        try {
-          const { tree: refreshed } = await client.tree(workspaceId);
-          setTree(refreshed);
-        } catch {
-          // The stream will deliver it; this is only to shorten the wait.
+  const applyOperation = useCallback(
+    async (operation: WorkspaceOperation) => {
+      const current = sharedRef.current;
+      if (!workspaceId || !current) return;
+      try {
+        const { state } = await client.applyOperation(workspaceId, current.revision, operation);
+        setShared(state);
+      } catch (cause) {
+        if (cause instanceof WorkspaceRequestError && cause.code === "revisionConflict") {
+          try {
+            const { tree: refreshed } = await client.tree(workspaceId);
+            setTree(refreshed);
+          } catch {
+            // The stream will deliver it; this is only to shorten the wait.
+          }
+          return;
         }
-        return;
+        setError(describe(cause, "That change could not be applied."));
       }
-      setError(describe(cause, "That change could not be applied."));
-    }
-  }, [client, workspaceId, sharedRef, setShared, setTree]);
+    },
+    [client, workspaceId, sharedRef, setShared, setTree],
+  );
 
-  const setActivePath = useCallback((path: string) => {
-    if (!workspaceId) return;
-    // Through the functional setter, not by re-reading storage: an update still queued is in the
-    // updater's `current` and not yet in storage, so reading it back here would drop it.
-    setPreferences((current) => ({
-      ...current,
-      activePathByWorkspace: { ...current.activePathByWorkspace, [workspaceId]: path },
-    }));
-  }, [workspaceId, setPreferences]);
+  const setActivePath = useCallback(
+    (path: string) => {
+      if (!workspaceId) return;
+      // Through the functional setter, not by re-reading storage: an update still queued is in the
+      // updater's `current` and not yet in storage, so reading it back here would drop it.
+      setPreferences((current) => ({
+        ...current,
+        activePathByWorkspace: { ...current.activePathByWorkspace, [workspaceId]: path },
+      }));
+    },
+    [workspaceId, setPreferences],
+  );
 
   // Everything between a keystroke and the bytes landing on disk. Its own file because that is
   // what it was in the Swift too (`WorkspaceIDEControllerEditing`), and because it is the half with
@@ -353,46 +355,61 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
     reload,
   });
 
-  const revealLine = useCallback((path: string, line: number, start: number, end: number) => {
-    setReveal((current) => ({ path, line, start, end, nonce: (current?.nonce ?? 0) + 1 }));
-  }, [setReveal]);
+  const revealLine = useCallback(
+    (path: string, line: number, start: number, end: number) => {
+      setReveal((current) => ({ path, line, start, end, nonce: (current?.nonce ?? 0) + 1 }));
+    },
+    [setReveal],
+  );
 
-  const openPath = useCallback((path: string, line?: number) => {
-    setActivePath(path);
-    if (line !== undefined) revealLine(path, line, 0, 0);
-    void applyOperation({ type: "open", path });
-  }, [applyOperation, setActivePath, revealLine]);
+  const openPath = useCallback(
+    (path: string, line?: number) => {
+      setActivePath(path);
+      if (line !== undefined) revealLine(path, line, 0, 0);
+      void applyOperation({ type: "open", path });
+    },
+    [applyOperation, setActivePath, revealLine],
+  );
 
-  const previewPath = useCallback((path: string, line: number, start: number, end: number) => {
-    if (!workspaceId) return;
-    setActivePath(path);
-    revealLine(path, line, start, end);
-    // Source, as a choice the reader can see and undo with the toggle, rather than a preview that
-    // quietly will not render: a markdown result lands on its line instead of on the top of a
-    // rendered page with the line nowhere in it.
-    setPreferences((current) => {
-      const held = current.fileViewByWorkspace[workspaceId] ?? {};
-      if (held[path] === "source") return current;
-      return {
-        ...current,
-        fileViewByWorkspace: { ...current.fileViewByWorkspace, [workspaceId]: { ...held, [path]: "source" } },
-      };
-    });
-    void applyOperation({ type: "preview", path });
-  }, [applyOperation, setActivePath, revealLine, workspaceId, setPreferences]);
+  const previewPath = useCallback(
+    (path: string, line: number, start: number, end: number) => {
+      if (!workspaceId) return;
+      setActivePath(path);
+      revealLine(path, line, start, end);
+      // Source, as a choice the reader can see and undo with the toggle, rather than a preview that
+      // quietly will not render: a markdown result lands on its line instead of on the top of a
+      // rendered page with the line nowhere in it.
+      setPreferences((current) => {
+        const held = current.fileViewByWorkspace[workspaceId] ?? {};
+        if (held[path] === "source") return current;
+        return {
+          ...current,
+          fileViewByWorkspace: { ...current.fileViewByWorkspace, [workspaceId]: { ...held, [path]: "source" } },
+        };
+      });
+      void applyOperation({ type: "preview", path });
+    },
+    [applyOperation, setActivePath, revealLine, workspaceId, setPreferences],
+  );
 
   /** Typing into the preview keeps it, the way VS Code does: an edited file is not a glance. */
   const writingEdit = writing.edit;
-  const edit = useCallback((path: string, text: string) => {
-    if (sharedRef.current?.previewPath === path) void applyOperation({ type: "open", path });
-    writingEdit(path, text);
-  }, [applyOperation, writingEdit, sharedRef]);
+  const edit = useCallback(
+    (path: string, text: string) => {
+      if (sharedRef.current?.previewPath === path) void applyOperation({ type: "open", path });
+      writingEdit(path, text);
+    },
+    [applyOperation, writingEdit, sharedRef],
+  );
 
-  const isPreview = useCallback((path: string) => {
-    if (!workspaceId) return false;
-    const chosen = preferences.fileViewByWorkspace[workspaceId]?.[path];
-    return (chosen ?? defaultFileView(openFiles[path]?.kind)) === "preview";
-  }, [preferences.fileViewByWorkspace, workspaceId, openFiles]);
+  const isPreview = useCallback(
+    (path: string) => {
+      if (!workspaceId) return false;
+      const chosen = preferences.fileViewByWorkspace[workspaceId]?.[path];
+      return (chosen ?? defaultFileView(openFiles[path]?.kind)) === "preview";
+    },
+    [preferences.fileViewByWorkspace, workspaceId, openFiles],
+  );
 
   /**
    * Swap one file between its editor and its rendered preview.
@@ -401,25 +418,28 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
    * parsed model, and the sidecar refuses a write to either -- so the toggle is not offered for
    * them rather than offered and then refused. The guard is the Swift's `toggleMode`.
    */
-  const togglePreview = useCallback((path: string) => {
-    if (!workspaceId) return;
-    const kind = openFilesRef.current[path]?.kind;
-    if (!hasSource(kind)) return;
-    setPreferences((current) => {
-      const held = current.fileViewByWorkspace[workspaceId] ?? {};
-      // Against what is on screen, which is the choice if there is one and the kind's default
-      // otherwise. Flipping the stored value alone would make the first press on a markdown file
-      // a no-op: nothing is stored, so it would write "preview" over a file already previewed.
-      const showing = held[path] ?? defaultFileView(kind);
-      return {
-        ...current,
-        fileViewByWorkspace: {
-          ...current.fileViewByWorkspace,
-          [workspaceId]: { ...held, [path]: showing === "preview" ? "source" : "preview" },
-        },
-      };
-    });
-  }, [workspaceId, openFilesRef, setPreferences]);
+  const togglePreview = useCallback(
+    (path: string) => {
+      if (!workspaceId) return;
+      const kind = openFilesRef.current[path]?.kind;
+      if (!hasSource(kind)) return;
+      setPreferences((current) => {
+        const held = current.fileViewByWorkspace[workspaceId] ?? {};
+        // Against what is on screen, which is the choice if there is one and the kind's default
+        // otherwise. Flipping the stored value alone would make the first press on a markdown file
+        // a no-op: nothing is stored, so it would write "preview" over a file already previewed.
+        const showing = held[path] ?? defaultFileView(kind);
+        return {
+          ...current,
+          fileViewByWorkspace: {
+            ...current.fileViewByWorkspace,
+            [workspaceId]: { ...held, [path]: showing === "preview" ? "source" : "preview" },
+          },
+        };
+      });
+    },
+    [workspaceId, openFilesRef, setPreferences],
+  );
 
   return {
     client,
@@ -449,8 +469,7 @@ export function useWorkspaceIde(transport: AgentHttpTransport): WorkspaceIde {
       [applyOperation],
     ),
     setDirectoryExpanded: useCallback(
-      (path: string, expanded: boolean) =>
-        void applyOperation({ type: expanded ? "expand" : "collapse", path }),
+      (path: string, expanded: boolean) => void applyOperation({ type: expanded ? "expand" : "collapse", path }),
       [applyOperation],
     ),
     edit,

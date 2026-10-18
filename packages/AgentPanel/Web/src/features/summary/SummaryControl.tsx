@@ -31,17 +31,19 @@ export function SummaryControl({
       aria-busy={pending}
       title={label}
       className={
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors "
-        + "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary "
-        + "disabled:cursor-progress disabled:opacity-60 "
-        + (state.kind === "ready"
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors " +
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary " +
+        "disabled:cursor-progress disabled:opacity-60 " +
+        (state.kind === "ready"
           ? "bg-primary/20 text-primary hover:bg-primary/30"
           : "session-muted-ink hover:bg-muted hover:text-foreground active:bg-muted/80")
       }
     >
-      {pending
-        ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
-        : <ScrollText className="h-4 w-4" aria-hidden />}
+      {pending ? (
+        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
+      ) : (
+        <ScrollText className="h-4 w-4" aria-hidden />
+      )}
     </button>
   );
 }

@@ -16,8 +16,12 @@ export function stubDeckLayout(
   const content = width - inset * 2;
   const unit = (content - 9 * metrics.horizontalKeyGap) / 10;
   stubRect(deck, {
-    left: 0, top: 0, right: width, bottom: metrics.deckHeight,
-    width, height: metrics.deckHeight,
+    left: 0,
+    top: 0,
+    right: width,
+    bottom: metrics.deckHeight,
+    width,
+    height: metrics.deckHeight,
   });
   const rows = [...deck.querySelectorAll<HTMLElement>("[data-deck-row]")];
   rows.forEach((row, rowIndex) => {
@@ -25,8 +29,12 @@ export function stubDeckLayout(
     const top = metrics.topDeckPadding + rowIndex * (metrics.keycapHeight + metrics.verticalRowGap);
     const bottom = top + metrics.keycapHeight;
     stubRect(row, {
-      left: inset, right: width - inset, top, bottom,
-      width: content, height: metrics.keycapHeight,
+      left: inset,
+      right: width - inset,
+      top,
+      bottom,
+      width: content,
+      height: metrics.keycapHeight,
     });
     const gaps = buttons.map((_, index) => {
       if (index === 0) return 0;
@@ -46,8 +54,12 @@ export function stubDeckLayout(
     buttons.forEach((button, index) => {
       x += gaps[index]!;
       stubRect(button, {
-        left: x, right: x + widths[index]!, top, bottom,
-        width: widths[index]!, height: metrics.keycapHeight,
+        left: x,
+        right: x + widths[index]!,
+        top,
+        bottom,
+        width: widths[index]!,
+        height: metrics.keycapHeight,
       });
       x += widths[index]!;
     });
@@ -56,7 +68,15 @@ export function stubDeckLayout(
 
 function stubRect(element: Element, rect: Partial<DOMRect>): void {
   element.getBoundingClientRect = () => ({
-    left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0,
-    toJSON: () => ({}), ...rect,
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+    ...rect,
   });
 }

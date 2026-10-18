@@ -185,7 +185,10 @@ test("the oldest session out takes its height with it", () => {
 test("a mode pair is a shown pane with no remembered height", async () => {
   localStorage.setItem(
     "agent-panel.terminal-composer",
-    JSON.stringify([["claude:one", "echo"], ["claude:two", 240]]),
+    JSON.stringify([
+      ["claude:one", "echo"],
+      ["claude:two", 240],
+    ]),
   );
   vi.resetModules();
   const reloaded = await import("@/features/terminal/terminalComposerPreference");

@@ -15,7 +15,13 @@ import { parseArgs } from "node:util";
 import { query, type PermissionMode, type SpawnedProcess, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeSdkRunner, type RunnerPlan, type RunnerQuery } from "@/claude-sdk/claudeSdkRunner";
 import { privateSocketDirectory, serveRunner } from "@/claude-sdk/claudeSdkRunnerServer";
-import { EFFORT_LEVELS, isEffortLevel, isModelName, runnerBuild, runnerSocketPath } from "@/claude-sdk/claudeSdkProtocol";
+import {
+  EFFORT_LEVELS,
+  isEffortLevel,
+  isModelName,
+  runnerBuild,
+  runnerSocketPath,
+} from "@/claude-sdk/claudeSdkProtocol";
 
 /** How long a stop waits for `claude` to write its exit records before the runner leaves anyway. */
 const STOP_GRACE_MS = 15_000;
@@ -55,7 +61,14 @@ function spawnProcessGroup(options: SpawnOptions): SpawnedProcess {
 }
 
 /** The SDK's names for the modes, which the launch passes: the CLI's `manual` is `default` here. */
-const SDK_PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
+const SDK_PERMISSION_MODES: readonly PermissionMode[] = [
+  "default",
+  "acceptEdits",
+  "bypassPermissions",
+  "plan",
+  "dontAsk",
+  "auto",
+];
 
 function permissionMode(value: string | undefined): PermissionMode {
   if (!(SDK_PERMISSION_MODES as readonly (string | undefined)[]).includes(value)) {
@@ -101,7 +114,8 @@ export async function planFromArguments(argv: string[]): Promise<{ plan: RunnerP
   const model = values.model;
   const effort = values.effort;
   if (model !== undefined && !isModelName(model)) throw new Error("--model must be a model alias or id");
-  if (effort !== undefined && !isEffortLevel(effort)) throw new Error(`--effort must be one of ${EFFORT_LEVELS.join(", ")}`);
+  if (effort !== undefined && !isEffortLevel(effort))
+    throw new Error(`--effort must be one of ${EFFORT_LEVELS.join(", ")}`);
   const start = values.start;
   if (start !== "new" && start !== "resume" && start !== "fork") throw new Error("--start must be new, resume or fork");
   if (start === "fork" && !values["fork-from"]) throw new Error("--start fork needs --fork-from");
@@ -130,8 +144,11 @@ async function main(): Promise<number> {
   // Read before anything else, so it names the code this process loaded rather than a later save.
   const build = runnerBuild();
   await using stack = new AsyncDisposableStack();
-  const runner = new ClaudeSdkRunner(plan, ({ prompt, options }) =>
-    query({ prompt, options: { ...options, spawnClaudeCodeProcess: spawnProcessGroup } }) as RunnerQuery);
+  const runner = new ClaudeSdkRunner(
+    plan,
+    ({ prompt, options }) =>
+      query({ prompt, options: { ...options, spawnClaudeCodeProcess: spawnProcessGroup } }) as RunnerQuery,
+  );
 
   await privateSocketDirectory(socketDirectory);
   const socketPath = runnerSocketPath(socketDirectory, plan.sessionId);
@@ -154,8 +171,12 @@ async function main(): Promise<number> {
   for (const signal of ["SIGHUP", "SIGTERM", "SIGINT"] as const) process.on(signal, () => stop(signal));
 
   log(`${plan.start === "new" ? "starting" : "resuming"} ${plan.sessionId} "${plan.name}" in ${plan.cwd}`);
-  const chosen = [plan.choices.model, plan.choices.effort && `${plan.choices.effort} effort`].filter(Boolean).join(", ");
-  log(`claude ${plan.claudePath}, ${plan.permissionMode} mode${chosen ? `, ${chosen}` : ""}, build ${build}, listening at ${socketPath}`);
+  const chosen = [plan.choices.model, plan.choices.effort && `${plan.choices.effort} effort`]
+    .filter(Boolean)
+    .join(", ");
+  log(
+    `claude ${plan.claudePath}, ${plan.permissionMode} mode${chosen ? `, ${chosen}` : ""}, build ${build}, listening at ${socketPath}`,
+  );
   await runner.run(log);
   log(`session ${plan.sessionId} has ended`);
   return 0;
@@ -163,7 +184,7 @@ async function main(): Promise<number> {
 
 if (import.meta.main) {
   process.on("unhandledRejection", (reason) => {
-    log(`unhandled rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+    log(`unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`);
     process.exit(1);
   });
   main().then(

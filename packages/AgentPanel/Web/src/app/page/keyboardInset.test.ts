@@ -4,41 +4,49 @@ import { KEEP_IN_SIGHT_ATTRIBUTE, keepTypingInSight, keyboardInset, typesText } 
 describe("keyboardInset", () => {
   it("gives back the strip a keyboard covers", () => {
     // The layout viewport does not shrink for a keyboard; the visual one does.
-    expect(keyboardInset({
-      layoutHeight: 844,
-      viewportHeight: 508,
-      viewportOffsetTop: 0,
-      typing: true,
-    })).toBe(336);
+    expect(
+      keyboardInset({
+        layoutHeight: 844,
+        viewportHeight: 508,
+        viewportOffsetTop: 0,
+        typing: true,
+      }),
+    ).toBe(336);
   });
 
   it("counts a panned viewport as covered too", () => {
     // iOS pans to keep the caret in sight, which moves the covered strip without resizing it.
-    expect(keyboardInset({
-      layoutHeight: 844,
-      viewportHeight: 508,
-      viewportOffsetTop: 40,
-      typing: true,
-    })).toBe(296);
+    expect(
+      keyboardInset({
+        layoutHeight: 844,
+        viewportHeight: 508,
+        viewportOffsetTop: 40,
+        typing: true,
+      }),
+    ).toBe(296);
   });
 
   it("ignores a shrunken viewport with nothing typing into it", () => {
     // A pinch-zoom looks identical and means the opposite: the reader panned away on purpose.
-    expect(keyboardInset({
-      layoutHeight: 844,
-      viewportHeight: 508,
-      viewportOffsetTop: 0,
-      typing: false,
-    })).toBe(0);
+    expect(
+      keyboardInset({
+        layoutHeight: 844,
+        viewportHeight: 508,
+        viewportOffsetTop: 0,
+        typing: false,
+      }),
+    ).toBe(0);
   });
 
   it("ignores a difference too small to be a keyboard", () => {
-    expect(keyboardInset({
-      layoutHeight: 844,
-      viewportHeight: 820,
-      viewportOffsetTop: 0,
-      typing: true,
-    })).toBe(0);
+    expect(
+      keyboardInset({
+        layoutHeight: 844,
+        viewportHeight: 820,
+        viewportOffsetTop: 0,
+        typing: true,
+      }),
+    ).toBe(0);
   });
 });
 
@@ -61,11 +69,18 @@ describe("keepTypingInSight", () => {
   /** A scroller with a field in it, and a hand on the observer the helper installs. */
   function setUp() {
     let resized = (): void => {};
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(callback: () => void) { resized = callback; }
-      observe() {}
-      disconnect() { resized = () => {}; }
-    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          resized = callback;
+        }
+        observe() {}
+        disconnect() {
+          resized = () => {};
+        }
+      },
+    );
     const scroller = document.createElement("main");
     const field = document.createElement("textarea");
     scroller.append(field);

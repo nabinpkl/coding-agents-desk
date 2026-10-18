@@ -23,7 +23,13 @@ function bot(botId: string, fatherSessionId?: string): BotView {
 
 function setup(bots: BotView[], machineOf: Record<string, BotMachine>, all: BotMachine[]) {
   const setError = vi.fn();
-  const feeds = botFeeds(all[0]!.feed, all, (id) => machineOf[id], () => undefined, () => bots);
+  const feeds = botFeeds(
+    all[0]!.feed,
+    all,
+    (id) => machineOf[id],
+    () => undefined,
+    () => bots,
+  );
   const { result } = renderHook(() => useBotRecordCommands(feeds, setError));
   return { result, setError };
 }
@@ -52,7 +58,12 @@ describe("setFatherBotSession", () => {
   });
 
   it("clears nothing elsewhere when the naming fails, and says which one did", async () => {
-    const mac = machine("mac", vi.fn(async () => { throw new Error("not attached"); }));
+    const mac = machine(
+      "mac",
+      vi.fn(async () => {
+        throw new Error("not attached");
+      }),
+    );
     const oracle = machine("oracle");
     const named = bot("mac-bot");
     const { result, setError } = setup(
@@ -63,10 +74,12 @@ describe("setFatherBotSession", () => {
 
     act(() => result.current.setFatherBotSession(named, { source: "claude", sessionId: "s1" }));
 
-    await waitFor(() => expect(setError).toHaveBeenLastCalledWith({
-      session: "claude:s1",
-      message: "Could not name s1 the Father of mac-bot: not attached",
-    }));
+    await waitFor(() =>
+      expect(setError).toHaveBeenLastCalledWith({
+        session: "claude:s1",
+        message: "Could not name s1 the Father of mac-bot: not attached",
+      }),
+    );
     expect(oracle.feed.updateBot).not.toHaveBeenCalled();
   });
 
@@ -74,11 +87,10 @@ describe("setFatherBotSession", () => {
     const mac = machine("mac");
     const oracle = machine("oracle");
     const named = bot("mac-bot", "s1");
-    const { result } = setup(
-      [named, bot("oracle-bot", "old-peer")],
-      { "mac-bot": mac, "oracle-bot": oracle },
-      [mac, oracle],
-    );
+    const { result } = setup([named, bot("oracle-bot", "old-peer")], { "mac-bot": mac, "oracle-bot": oracle }, [
+      mac,
+      oracle,
+    ]);
 
     act(() => result.current.setFatherBotSession(named, null));
 

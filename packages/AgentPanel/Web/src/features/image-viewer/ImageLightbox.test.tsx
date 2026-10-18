@@ -3,9 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ImageLightbox } from "@/features/image-viewer/ImageLightbox";
 
 function open(url = "/api/image/1") {
-  return render(
-    <ImageLightbox title="Image" url={url} alt="A picture" onClose={() => {}} />,
-  );
+  return render(<ImageLightbox title="Image" url={url} alt="A picture" onClose={() => {}} />);
 }
 
 /** The scale the picture is actually drawn at, read off the transform it carries. */
@@ -28,9 +26,7 @@ describe("ImageLightbox zoom", () => {
     open();
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(scale()).toBeGreaterThan(1);
-    expect(screen.getByRole("button", { name: "Reset zoom" }).textContent).toBe(
-      `${Math.round(scale() * 100)}%`,
-    );
+    expect(screen.getByRole("button", { name: "Reset zoom" }).textContent).toBe(`${Math.round(scale() * 100)}%`);
     fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
     expect(scale()).toBeCloseTo(1, 5);
   });
@@ -73,9 +69,7 @@ describe("ImageLightbox zoom", () => {
     const { rerender } = open();
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(scale()).toBeGreaterThan(1);
-    rerender(
-      <ImageLightbox title="Image" url="/api/image/2" alt="A picture" onClose={() => {}} />,
-    );
+    rerender(<ImageLightbox title="Image" url="/api/image/2" alt="A picture" onClose={() => {}} />);
     expect(scale()).toBe(1);
   });
 });

@@ -1,8 +1,5 @@
 import type { SubagentForkOrigin } from "@agentdesk/agent-feed-wire";
-import type {
-  AgentDataSource,
-  SessionReference,
-} from "@/features/activity-feed/data-source/AgentDataSource";
+import type { AgentDataSource, SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useSubscription } from "@/hooks/useSubscription";

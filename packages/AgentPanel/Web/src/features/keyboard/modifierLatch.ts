@@ -33,9 +33,7 @@ export function cycleModifier(state: ModifierState): ModifierState {
 }
 
 /** After a key has been sent: an armed modifier has been spent, a locked one stays. */
-export function releaseArmed<Key extends string>(
-  states: Record<Key, ModifierState>,
-): Record<Key, ModifierState> {
+export function releaseArmed<Key extends string>(states: Record<Key, ModifierState>): Record<Key, ModifierState> {
   const released = { ...states };
   for (const key of Object.keys(released) as Key[]) {
     if (released[key] === "armed") released[key] = "off";

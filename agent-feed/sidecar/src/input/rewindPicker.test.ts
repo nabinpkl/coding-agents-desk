@@ -144,18 +144,19 @@ function pane(options: {
 
   /** The message the selection is on, or null on `(current)`. */
   const chosen = (): string | null =>
-    selected === 0 ? null : options.messages[options.messages.length - selected] ?? null;
+    selected === 0 ? null : (options.messages[options.messages.length - selected] ?? null);
 
   return {
     sent,
     pane: async () => PANE,
-    screen: async () => view(
-      state === "picker"
-        ? picker(options.messages, selected, options.shape ?? {})
-        : state === "confirm"
-        ? confirm(confirmOptions, option)
-        : composer(box),
-    ),
+    screen: async () =>
+      view(
+        state === "picker"
+          ? picker(options.messages, selected, options.shape ?? {})
+          : state === "confirm"
+            ? confirm(confirmOptions, option)
+            : composer(box),
+      ),
     send: async (_pane: string, bytes: Uint8Array) => {
       const keys = new TextDecoder().decode(bytes);
       sent.push(keys);
@@ -217,10 +218,6 @@ test("the status row under an entry is skipped rather than read as a message", (
   expect(screen.entries.map((entry) => entry.text)).not.toContain("⚠ No code restore");
 });
 
-
-
-
-
 test("reads every shape captured off a real pane", () => {
   // One test over four captures rather than four tests: they differ only in which shape produced
   // them, and the name rides in the assertion so a failure still says which one.
@@ -233,11 +230,13 @@ test("reads every shape captured off a real pane", () => {
     };
   });
 
-  expect(read).toEqual(CAPTURES.map((capture) => ({
-    name: capture.name,
-    entries: [...capture.entries],
-    currentSelected: true,
-  })));
+  expect(read).toEqual(
+    CAPTURES.map((capture) => ({
+      name: capture.name,
+      entries: [...capture.entries],
+      currentSelected: true,
+    })),
+  );
 });
 
 test("finds which row the marker is on", () => {
@@ -250,10 +249,9 @@ test("finds which row the marker is on", () => {
 test("reads the confirm menu by label, because its numbers move", () => {
   // With code available the menu grows and `Restore conversation` is no longer first, which is the
   // whole reason nothing here presses a number.
-  const withCode = rewindScreen(view(confirm(
-    ["Restore code", "Restore code and conversation", "Restore conversation", "Never mind"],
-    0,
-  )));
+  const withCode = rewindScreen(
+    view(confirm(["Restore code", "Restore code and conversation", "Restore conversation", "Never mind"], 0)),
+  );
 
   expect(withCode?.kind).toBe("confirm");
   if (withCode?.kind !== "confirm") throw new Error("not a confirm menu");
@@ -281,11 +279,7 @@ test("a truncated entry still matches the message it stands for", () => {
 test("walks back the asked-for number of messages and takes conversation only", async () => {
   const driven = pane({ messages: THREE });
 
-  const outcome = await rewindTmuxSession(
-    SESSION,
-    { fromEnd: 2, text: "BRAVO two. Reply with just OK." },
-    driven,
-  );
+  const outcome = await rewindTmuxSession(SESSION, { fromEnd: 2, text: "BRAVO two. Reply with just OK." }, driven);
 
   expect(outcome).toEqual({ rewound: true, composer: "BRAVO two. Reply with just OK." });
   // Two Ups for two messages back, and no number pressed at the confirm menu.
@@ -307,11 +301,7 @@ test("reports what the rewind left in the composer, rather than clearing it", as
 test("walks back through a list whose entries carry no status row", async () => {
   const driven = pane({ messages: THREE, shape: { codeRestore: false } });
 
-  const outcome = await rewindTmuxSession(
-    SESSION,
-    { fromEnd: 2, text: "BRAVO two. Reply with just OK." },
-    driven,
-  );
+  const outcome = await rewindTmuxSession(SESSION, { fromEnd: 2, text: "BRAVO two. Reply with just OK." }, driven);
 
   expect(outcome).toEqual({ rewound: true, composer: "BRAVO two. Reply with just OK." });
   expect(driven.sent.filter((keys) => keys === UP).length).toBe(2);
@@ -328,11 +318,7 @@ test("reaches the oldest message in a list that opens with a previous-session ro
     shape: { previousSession: "/resume 77777777 (previous session)" },
   });
 
-  const outcome = await rewindTmuxSession(
-    SESSION,
-    { fromEnd: 3, text: "ALPHA one. Reply with just OK." },
-    driven,
-  );
+  const outcome = await rewindTmuxSession(SESSION, { fromEnd: 3, text: "ALPHA one. Reply with just OK." }, driven);
 
   expect(outcome).toEqual({ rewound: true, composer: "ALPHA one. Reply with just OK." });
 });
@@ -448,8 +434,10 @@ test("refuses a session with no pane, without asking tmux anything else", async 
 test("refuses a target it would have to walk further than it is willing to", async () => {
   const driven = pane({ messages: THREE });
   for (const fromEnd of [0, -1, MAX_REWIND_STEPS + 1]) {
-    expect(await rewindTmuxSession(SESSION, { fromEnd, text: "x" }, driven))
-      .toEqual({ rewound: false, reason: "wrong-message" });
+    expect(await rewindTmuxSession(SESSION, { fromEnd, text: "x" }, driven)).toEqual({
+      rewound: false,
+      reason: "wrong-message",
+    });
   }
   expect(driven.sent).toEqual([]);
 });

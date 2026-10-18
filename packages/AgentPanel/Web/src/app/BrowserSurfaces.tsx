@@ -9,10 +9,7 @@ import { FatherButton } from "@/features/bots/canvas/FatherOverlay";
 import { loadFatherOpen, storeFatherOpen } from "@/features/bots/canvas/fatherPreferences";
 import { ScreenViewer } from "@/features/screen-viewer/ScreenViewer";
 import { TerminalCanvasShell } from "@/features/terminal/canvas/TerminalCanvasShell";
-import {
-  MachineTerminalDialog,
-  type MachineTerminalTarget,
-} from "@/features/terminal/MachineTerminalDialog";
+import { MachineTerminalDialog, type MachineTerminalTarget } from "@/features/terminal/MachineTerminalDialog";
 import { WorkspaceIdeSurface } from "@/features/workspace-ide/WorkspaceIdeSurface";
 import { ArenaSurface } from "@/features/arena/ArenaSurface";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
@@ -170,18 +167,17 @@ export function BrowserSurfaces({
    * once and there is never a card for a peer the picker says is gone.
    */
   const machines = useMemo(
-    () => sessions.map((session) => ({
-      ...(session.id === undefined ? {} : { id: session.id }),
-      label: session.label,
-      feed: sourceFor(session.id),
-    })),
+    () =>
+      sessions.map((session) => ({
+        ...(session.id === undefined ? {} : { id: session.id }),
+        label: session.label,
+        feed: sourceFor(session.id),
+      })),
     [sessions, sourceFor],
   );
   const desktopAvailable = useDesktopAvailable(sessionFeed);
   // A peer with no desktop must not leave the page sitting on a surface it cannot serve.
-  const visible = SURFACES.filter(
-    ({ name }) => desktopAvailable || (name !== "desktop" && name !== "screen"),
-  );
+  const visible = SURFACES.filter(({ name }) => desktopAvailable || (name !== "desktop" && name !== "screen"));
   if (!desktopAvailable && (surface === "desktop" || surface === "screen")) {
     rememberSurface("feed");
     setSurface("feed");
@@ -348,11 +344,7 @@ export function BrowserSurfaces({
             // survive a move to another one. The canvas reads every machine at once the way the Bot
             // canvas does -- a tmux session is a directory and those are not all on one machine --
             // so this moves the picker-scoped feed and the whole index beside it.
-            <TerminalCanvasShell
-              key={sessionId ?? "default"}
-              feed={sessionFeed}
-              machines={machines}
-            />
+            <TerminalCanvasShell key={sessionId ?? "default"} feed={sessionFeed} machines={machines} />
           ) : surface === "arena" ? (
             // Keyed by session for the same reason the others are: the runs, and the sessions each
             // contestant is, belong to the sidecar that answered -- a run started on one machine is
@@ -364,14 +356,7 @@ export function BrowserSurfaces({
               host={host}
             />
           ) : (
-            <App
-              key={sessionId ?? "default"}
-              feed={sessionFeed}
-              host={host}
-              machines={machines}
-              fill
-              fatherExternal
-            />
+            <App key={sessionId ?? "default"} feed={sessionFeed} host={host} machines={machines} fill fatherExternal />
           )}
         </PanelErrorBoundary>
       </div>

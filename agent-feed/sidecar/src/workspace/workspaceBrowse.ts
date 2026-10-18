@@ -18,7 +18,6 @@ import { dirname, join, resolve } from "node:path";
 import type { WorkspaceBrowseListing } from "@agentdesk/agent-feed-wire";
 import { WorkspaceFailure } from "@/workspace/workspacePaths";
 
-
 function withinRoot(candidate: string, root: string): boolean {
   return candidate === root || candidate.startsWith(`${root}/`);
 }

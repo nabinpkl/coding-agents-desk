@@ -16,7 +16,9 @@ test("waits until a pane stops changing, then attaches", async () => {
     pollMs: 100,
     timeoutMs: 5_000,
     now: () => clock,
-    sleep: async (ms) => { clock += ms; },
+    sleep: async (ms) => {
+      clock += ms;
+    },
     sample: async () => samples[Math.min(index++, samples.length - 1)]!,
   });
 
@@ -31,9 +33,18 @@ test("does not mistake a pane that has not started yet for one that has finished
   // second, so a wait that accepts quiet immediately returns before the startup it is waiting for
   // has begun, and the viewer receives the whole dump live anyway.
   const samples = [
-    "0 0 0", "0 0 0", "0 0 0", "0 0 0", "0 0 0", "0 0 0",  // 600ms of silence while it loads
-    "40 3 1", "80 6 2",                                     // then it writes
-    "80 6 2", "80 6 2", "80 6 2", "80 6 2",                 // then it is done
+    "0 0 0",
+    "0 0 0",
+    "0 0 0",
+    "0 0 0",
+    "0 0 0",
+    "0 0 0", // 600ms of silence while it loads
+    "40 3 1",
+    "80 6 2", // then it writes
+    "80 6 2",
+    "80 6 2",
+    "80 6 2",
+    "80 6 2", // then it is done
   ];
   let index = 0;
   let clock = 0;
@@ -43,7 +54,9 @@ test("does not mistake a pane that has not started yet for one that has finished
     startupMs: 3_000,
     timeoutMs: 5_000,
     now: () => clock,
-    sleep: async (ms) => { clock += ms; },
+    sleep: async (ms) => {
+      clock += ms;
+    },
     sample: async () => samples[Math.min(index++, samples.length - 1)]!,
   });
 
@@ -60,7 +73,9 @@ test("stops waiting on a pane that never writes at all", async () => {
     startupMs: 500,
     timeoutMs: 10_000,
     now: () => clock,
-    sleep: async (ms) => { clock += ms; },
+    sleep: async (ms) => {
+      clock += ms;
+    },
     sample: async () => "0 0 0",
   });
 
@@ -78,7 +93,9 @@ test("gives up on a pane that never stops writing rather than never attaching", 
     pollMs: 100,
     timeoutMs: 1_000,
     now: () => clock,
-    sleep: async (ms) => { clock += ms; },
+    sleep: async (ms) => {
+      clock += ms;
+    },
     sample: async () => `${index++} 0 0`,
   });
 
@@ -91,8 +108,12 @@ test("stops waiting when the pane cannot be described at all", async () => {
   let clock = 0;
   const result = await waitForPaneToSettle("pane", {
     now: () => clock,
-    sleep: async (ms) => { clock += ms; },
-    sample: async () => { throw new Error("no such pane"); },
+    sleep: async (ms) => {
+      clock += ms;
+    },
+    sample: async () => {
+      throw new Error("no such pane");
+    },
   });
 
   // The attach that follows reports the real failure; waiting on it would only delay that.

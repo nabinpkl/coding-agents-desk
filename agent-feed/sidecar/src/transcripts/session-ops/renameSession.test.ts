@@ -6,7 +6,10 @@ import {
   type RenameSteps,
 } from "@/transcripts/session-ops/renameSession";
 
-function steps(serving: boolean, reply: { ok: true } | { ok: false; reason: "failed"; message: string } = { ok: true }) {
+function steps(
+  serving: boolean,
+  reply: { ok: true } | { ok: false; reason: "failed"; message: string } = { ok: true },
+) {
   const done: string[] = [];
   const fake: RenameSteps = {
     sdk: {
@@ -46,6 +49,8 @@ describe("renaming a session", () => {
   });
 
   test("refuses a session the catalog does not hold", async () => {
-    await expect(renameClaudeSession("gone", "Garden notes", steps(true).steps)).rejects.toBeInstanceOf(SessionRenameNotFoundError);
+    await expect(renameClaudeSession("gone", "Garden notes", steps(true).steps)).rejects.toBeInstanceOf(
+      SessionRenameNotFoundError,
+    );
   });
 });

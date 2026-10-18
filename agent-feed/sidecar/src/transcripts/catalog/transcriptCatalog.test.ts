@@ -28,9 +28,7 @@ afterEach(async () => {
   // started the catalog would otherwise leave running into the next one.
   await stopCatalog();
   state.sessions.clear();
-  await Promise.all(temporaryDirectories.splice(0).map((path) =>
-    rm(path, { recursive: true, force: true })
-  ));
+  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
 function session(
@@ -64,13 +62,15 @@ describe("transcript catalog identity", () => {
       session("claude", "11111111-1111-1111-1111-111111111111", "/repo", 10),
       session("codex", "22222222-2222-2222-2222-222222222222", "/repo", 20),
     ]);
-    expect(projects).toEqual([{
-      projectPath: "/repo",
-      displayName: "repo",
-      sourceCounts: { claude: 1, codex: 1, opencode: 0 },
-      sessionCount: 2,
-      lastEventAt: 20,
-    }]);
+    expect(projects).toEqual([
+      {
+        projectPath: "/repo",
+        displayName: "repo",
+        sourceCounts: { claude: 1, codex: 1, opencode: 0 },
+        sessionCount: 2,
+        lastEventAt: 20,
+      },
+    ]);
   });
 
   test("keeps worktrees separate and never groups by Git origin", () => {
@@ -78,10 +78,7 @@ describe("transcript catalog identity", () => {
       session("codex", "11111111-1111-1111-1111-111111111111", "/repo", 10),
       session("codex", "22222222-2222-2222-2222-222222222222", "/repo-worktree", 20),
     ]);
-    expect(projects.map((project) => project.projectPath)).toEqual([
-      "/repo-worktree",
-      "/repo",
-    ]);
+    expect(projects.map((project) => project.projectPath)).toEqual(["/repo-worktree", "/repo"]);
   });
 
   test("source is part of session identity", () => {
@@ -91,18 +88,11 @@ describe("transcript catalog identity", () => {
 
   test("accepts only top-level UUID Claude sessions", () => {
     const root = "/claude/projects";
-    expect(isClaudeSessionCandidate(
-      `${root}/slug/11111111-1111-1111-1111-111111111111.jsonl`,
-      root,
-    )).toBeTrue();
-    expect(isClaudeSessionCandidate(
-      `${root}/slug/subagents/11111111-1111-1111-1111-111111111111.jsonl`,
-      root,
-    )).toBeFalse();
-    expect(isClaudeSessionCandidate(
-      `${root}/slug/queue-operation.jsonl`,
-      root,
-    )).toBeFalse();
+    expect(isClaudeSessionCandidate(`${root}/slug/11111111-1111-1111-1111-111111111111.jsonl`, root)).toBeTrue();
+    expect(
+      isClaudeSessionCandidate(`${root}/slug/subagents/11111111-1111-1111-1111-111111111111.jsonl`, root),
+    ).toBeFalse();
+    expect(isClaudeSessionCandidate(`${root}/slug/queue-operation.jsonl`, root)).toBeFalse();
   });
 
   test("realpath deduplicates aliases and rejects missing directories", async () => {
@@ -125,23 +115,24 @@ describe("transcript catalog identity", () => {
     temporaryDirectories.push(root);
     const project = join(root, "project");
     await mkdir(project);
-    const titled = observe(session("claude", "11111111-1111-1111-1111-111111111111", project, 2_000, {
-      title: "Refactor the catalog",
-      lastTurnClosed: false,
-    }));
-    observe(session("codex", "22222222-2222-2222-2222-222222222222", project, 1_000, {
-      firstPrompt: "fix the flaky test",
-    }));
+    const titled = observe(
+      session("claude", "11111111-1111-1111-1111-111111111111", project, 2_000, {
+        title: "Refactor the catalog",
+        lastTurnClosed: false,
+      }),
+    );
+    observe(
+      session("codex", "22222222-2222-2222-2222-222222222222", project, 1_000, {
+        firstPrompt: "fix the flaky test",
+      }),
+    );
     const transcriptPath = titled.transcriptPath;
     if (!transcriptPath) throw new Error("test session lost its transcript path");
     expect(await Bun.file(transcriptPath).exists()).toBeFalse();
 
     const summaries = sessionSummaries(project);
 
-    expect(summaries.map((summary) => summary.title)).toEqual([
-      "Refactor the catalog",
-      "fix the flaky test",
-    ]);
+    expect(summaries.map((summary) => summary.title)).toEqual(["Refactor the catalog", "fix the flaky test"]);
   });
 
   test("a session with neither a title nor a prompt renders as its id", () => {
@@ -180,9 +171,11 @@ describe("transcript catalog identity", () => {
 
   test("an open turn shows live only while the session is recent", () => {
     const project = "/repo";
-    const recent = observe(session("claude", "11111111-1111-1111-1111-111111111111", project, Date.now(), {
-      lastTurnClosed: false,
-    }));
+    const recent = observe(
+      session("claude", "11111111-1111-1111-1111-111111111111", project, Date.now(), {
+        lastTurnClosed: false,
+      }),
+    );
     expect(sessionSummaries(project)[0]?.activity).toBe("live");
 
     // The same record, unchanged, an hour later. Age is re-checked at read time, so
@@ -302,8 +295,9 @@ describe("transcript catalog identity", () => {
       );
       await utimes(transcript, new Date(), new Date());
       await refreshClaudeSession(transcript);
-      expect(state.sessions.get(sessionKey("claude", sessionId))?.lastEventAt)
-        .toBe(Date.parse("2026-10-03T21:58:56.111Z"));
+      expect(state.sessions.get(sessionKey("claude", sessionId))?.lastEventAt).toBe(
+        Date.parse("2026-10-03T21:58:56.111Z"),
+      );
     } finally {
       mutableConfig.claudeProjectsDirectory = previousProjects;
     }
@@ -375,8 +369,10 @@ describe("transcript catalog identity", () => {
       title: "pi thread",
       lastEventAt: 3_000,
     });
-    expect(sessionSummaries(project).map((summary) => summary.title))
-      .toEqual(["pi thread", "11111111-1111-1111-1111-111111111111"]);
+    expect(sessionSummaries(project).map((summary) => summary.title)).toEqual([
+      "pi thread",
+      "11111111-1111-1111-1111-111111111111",
+    ]);
   });
 });
 

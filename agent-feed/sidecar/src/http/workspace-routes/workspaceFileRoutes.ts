@@ -38,10 +38,7 @@ export interface WorkspaceFileLimits {
  * Synchronous matching, promise-returning answers, for the reason spelled out in
  * `workspaceRoutes.ts`: an `async` handler cannot decline a request.
  */
-export function createWorkspaceFileRoutes(
-  service: WorkspaceService,
-  limits: WorkspaceFileLimits,
-): RouteHandler {
+export function createWorkspaceFileRoutes(service: WorkspaceService, limits: WorkspaceFileLimits): RouteHandler {
   return (request, url) => {
     const route = workspaceRoute(url.pathname);
     if (!route) return undefined;
@@ -74,17 +71,10 @@ export function createWorkspaceFileRoutes(
  * Sending them base64 inside this JSON would double a document's size on the wire and put it in the
  * same response as the tab's title.
  */
-async function readOne(
-  root: string,
-  id: string,
-  path: string,
-  limits: WorkspaceFileLimits,
-): Promise<Response> {
+async function readOne(root: string, id: string, path: string, limits: WorkspaceFileLimits): Promise<Response> {
   try {
     const kind = fileKind(path);
-    const revision = isBinaryKind(kind)
-      ? (await readDocumentFile(root, path, limits.maxDocumentBytes)).revision
-      : null;
+    const revision = isBinaryKind(kind) ? (await readDocumentFile(root, path, limits.maxDocumentBytes)).revision : null;
     if (revision !== null) {
       const file: WorkspaceFileRead = { workspaceId: id, path, kind, revision, text: null };
       return jsonResponse({ file });
@@ -103,12 +93,7 @@ async function readOne(
   }
 }
 
-async function readBytes(
-  root: string,
-  id: string,
-  path: string,
-  limits: WorkspaceFileLimits,
-): Promise<Response> {
+async function readBytes(root: string, id: string, path: string, limits: WorkspaceFileLimits): Promise<Response> {
   try {
     return documentResponse(await readDocumentFile(root, path, limits.maxDocumentBytes));
   } catch (error) {
@@ -134,12 +119,7 @@ export function documentResponse(document: WorkspaceDocumentFile): Response {
   });
 }
 
-async function write(
-  root: string,
-  id: string,
-  request: Request,
-  limits: WorkspaceFileLimits,
-): Promise<Response> {
+async function write(root: string, id: string, request: Request, limits: WorkspaceFileLimits): Promise<Response> {
   let path = "";
   try {
     const body = await readJsonBody(request);
@@ -155,10 +135,7 @@ async function write(
       limits.maxTextBytes,
     );
     if (outcome.status === "conflict") {
-      return jsonResponse(
-        { conflict: { workspaceId: id, path, currentRevision: outcome.currentRevision } },
-        409,
-      );
+      return jsonResponse({ conflict: { workspaceId: id, path, currentRevision: outcome.currentRevision } }, 409);
     }
     return jsonResponse({ written: { workspaceId: id, path, revision: outcome.revision } });
   } catch (error) {

@@ -20,19 +20,23 @@ const config: SidecarConfig = {
 
 function report(inputTokens: number): UsageReport {
   return {
-    vendors: [{
-      vendor: "codex",
-      displayName: "Codex",
-      installed: true,
-      days: [{
-        date: "2026-08-13",
-        totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
-        byModel: [],
-      }],
-      quotas: [],
-      coverage: { from: "2026-08-13", to: "2026-08-13", sessions: 1, unreadable: 0 },
-      scannedAt: 1,
-    }],
+    vendors: [
+      {
+        vendor: "codex",
+        displayName: "Codex",
+        installed: true,
+        days: [
+          {
+            date: "2026-08-13",
+            totals: { inputTokens, cachedInputTokens: 60, outputTokens: 5, reasoningTokens: 1, requests: 2 },
+            byModel: [],
+          },
+        ],
+        quotas: [],
+        coverage: { from: "2026-08-13", to: "2026-08-13", sessions: 1, unreadable: 0 },
+        scannedAt: 1,
+      },
+    ],
   };
 }
 

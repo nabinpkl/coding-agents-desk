@@ -334,40 +334,50 @@ export function useCanvasZoom({
       setContent((was) =>
         unchanged(was, strand.offsetWidth, strand.offsetHeight)
           ? was
-          : { width: strand.offsetWidth, height: strand.offsetHeight });
+          : { width: strand.offsetWidth, height: strand.offsetHeight },
+      );
       setViewport((was) =>
-        unchanged(was, box.clientWidth, box.clientHeight)
-          ? was
-          : { width: box.clientWidth, height: box.clientHeight });
+        unchanged(was, box.clientWidth, box.clientHeight) ? was : { width: box.clientWidth, height: box.clientHeight },
+      );
     }
   };
   useDomSync(measure, [on, scrollerRef, strip]);
   useResizeObserver(on ? strip : null, measure);
   useResizeObserver(on ? scrollerRef : null, measure);
 
-  const zoomTo = useCallback((next: number, clientX?: number, clientY?: number) => {
-    const box = scrollerRef.current;
-    if (!box) return;
-    const from = drawnRef.current;
-    const to = clampZoom(next, floor.current);
-    if (to === from) return;
-    const rect = box.getBoundingClientRect();
-    landing.current = focalScroll({
-      scrollLeft: box.scrollLeft,
-      scrollTop: box.scrollTop,
-      pointerX: (clientX ?? rect.left + rect.width / 2) - rect.left,
-      pointerY: (clientY ?? rect.top + rect.height / 2) - rect.top,
-      padLeft: gap.current.left,
-      padTop: gap.current.top,
-    }, from, to);
-    setWanted(to);
-  }, [scrollerRef, drawnRef, floor, gap, setWanted]);
+  const zoomTo = useCallback(
+    (next: number, clientX?: number, clientY?: number) => {
+      const box = scrollerRef.current;
+      if (!box) return;
+      const from = drawnRef.current;
+      const to = clampZoom(next, floor.current);
+      if (to === from) return;
+      const rect = box.getBoundingClientRect();
+      landing.current = focalScroll(
+        {
+          scrollLeft: box.scrollLeft,
+          scrollTop: box.scrollTop,
+          pointerX: (clientX ?? rect.left + rect.width / 2) - rect.left,
+          pointerY: (clientY ?? rect.top + rect.height / 2) - rect.top,
+          padLeft: gap.current.left,
+          padTop: gap.current.top,
+        },
+        from,
+        to,
+      );
+      setWanted(to);
+    },
+    [scrollerRef, drawnRef, floor, gap, setWanted],
+  );
 
   // A trackpad pinch arrives as a wheel with ctrlKey set, and that is the only wheel this takes. A
   // plain wheel goes on scrolling the canvas, because panning is what a scroller's wheel means and
   // panning is most of what this mode is for.
   const surface = on ? scrollerRef : null;
-  useEventListener<WheelEvent>(surface, "wheel", (event) => {
+  useEventListener<WheelEvent>(
+    surface,
+    "wheel",
+    (event) => {
       const box = scrollerRef.current;
       if (!box || !event.ctrlKey) return;
       event.preventDefault();
@@ -375,16 +385,26 @@ export function useCanvasZoom({
       // about 1, and reading either as pixels makes the gesture do nothing at all.
       const lines = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? box.clientHeight : 1;
       zoomTo(drawnRef.current * Math.exp(-event.deltaY * lines * TRACKPAD_RATE), event.clientX, event.clientY);
-  }, { passive: false });
+    },
+    { passive: false },
+  );
 
   // Two fingers are the pinch, and the gesture is taken from the browser only while two are down.
   // One finger stays native scrolling, which is what keeps the strip's momentum and its overscroll
   // rather than reimplementing both badly.
   const pinch = useRef({ began: 0, from: 1 });
-  useEventListener<TouchEvent>(surface, "touchstart", (event) => {
-    pinch.current = { began: event.touches.length === 2 ? spread(event.touches) : 0, from: drawnRef.current };
-  }, { passive: true });
-  useEventListener<TouchEvent>(surface, "touchmove", (event) => {
+  useEventListener<TouchEvent>(
+    surface,
+    "touchstart",
+    (event) => {
+      pinch.current = { began: event.touches.length === 2 ? spread(event.touches) : 0, from: drawnRef.current };
+    },
+    { passive: true },
+  );
+  useEventListener<TouchEvent>(
+    surface,
+    "touchmove",
+    (event) => {
       const { began, from } = pinch.current;
       if (event.touches.length !== 2 || began <= 0) return;
       // Non-passive, so this can stop the browser scrolling the canvas out from under the pinch.
@@ -396,47 +416,53 @@ export function useCanvasZoom({
         (first.clientX + second.clientX) / 2,
         (first.clientY + second.clientY) / 2,
       );
-  }, { passive: false });
+    },
+    { passive: false },
+  );
   const endPinch = (event: TouchEvent) => {
     if (event.touches.length < 2) pinch.current = { ...pinch.current, began: 0 };
   };
   useEventListener<TouchEvent>(surface, "touchend", endPinch, { passive: true });
   useEventListener<TouchEvent>(surface, "touchcancel", endPinch, { passive: true });
 
-    // A press that reaches the scroller rather than a card, which is the empty canvas AROUND the
-    // strip: beside it, and below it, where a canvas drawn small leaves most of the panel empty.
-    //
-    // The strip itself is a hit-test target at every scale, so a press on a card belongs to the
-    // card and never to the canvas. That is deliberate -- the cards are the reader's at any size
-    // -- and it leaves this the whole of the way in and out on a surface carrying no chrome.
+  // A press that reaches the scroller rather than a card, which is the empty canvas AROUND the
+  // strip: beside it, and below it, where a canvas drawn small leaves most of the panel empty.
+  //
+  // The strip itself is a hit-test target at every scale, so a press on a card belongs to the
+  // card and never to the canvas. That is deliberate -- the cards are the reader's at any size
+  // -- and it leaves this the whole of the way in and out on a surface carrying no chrome.
   useEventListener<MouseEvent>(surface, "click", (event) => {
-      const box = scrollerRef.current;
-      const strand = strip.current;
-      if (!box || !strand || pressedOnStrip(event, strand)) return;
-      const rect = box.getBoundingClientRect();
-      // Already at its own size, so there is nothing left to zoom into and the press means the
-      // other direction. This is the way back out on a surface that carries no chrome of its own.
-      if (drawnRef.current >= 1) {
-        zoomTo(floor.current, event.clientX, event.clientY);
-        return;
-      }
-      const boxes = [...strand.children].map((child) => child.getBoundingClientRect());
-      const index = cardUnder(boxes, event.clientX);
-      const card = boxes[index];
-      if (!card) {
-        zoomTo(1, event.clientX, event.clientY);
-        return;
-      }
-      // Straight to the card that was aimed at, rather than to whatever happened to be under the
-      // middle of the screen. The target scale is 1, so a content coordinate is a scroll offset
-      // once the room around the canvas is added back to it.
-      landing.current = {
-        left: Math.max(0, (box.scrollLeft + card.left - rect.left - gap.current.left) / drawnRef.current
-          + gap.current.left - CARD_INSET),
-        top: Math.max(0, (box.scrollTop + card.top - rect.top - gap.current.top) / drawnRef.current
-          + gap.current.top - CARD_INSET),
-      };
-      setWanted(1);
+    const box = scrollerRef.current;
+    const strand = strip.current;
+    if (!box || !strand || pressedOnStrip(event, strand)) return;
+    const rect = box.getBoundingClientRect();
+    // Already at its own size, so there is nothing left to zoom into and the press means the
+    // other direction. This is the way back out on a surface that carries no chrome of its own.
+    if (drawnRef.current >= 1) {
+      zoomTo(floor.current, event.clientX, event.clientY);
+      return;
+    }
+    const boxes = [...strand.children].map((child) => child.getBoundingClientRect());
+    const index = cardUnder(boxes, event.clientX);
+    const card = boxes[index];
+    if (!card) {
+      zoomTo(1, event.clientX, event.clientY);
+      return;
+    }
+    // Straight to the card that was aimed at, rather than to whatever happened to be under the
+    // middle of the screen. The target scale is 1, so a content coordinate is a scroll offset
+    // once the room around the canvas is added back to it.
+    landing.current = {
+      left: Math.max(
+        0,
+        (box.scrollLeft + card.left - rect.left - gap.current.left) / drawnRef.current + gap.current.left - CARD_INSET,
+      ),
+      top: Math.max(
+        0,
+        (box.scrollTop + card.top - rect.top - gap.current.top) / drawnRef.current + gap.current.top - CARD_INSET,
+      ),
+    };
+    setWanted(1);
   });
 
   return {
@@ -448,21 +474,20 @@ export function useCanvasZoom({
     // rule below true: while the canvas is drawn at its own size there is no transform in the
     // tree at all, and so no containing block stolen from anything `position: fixed` inside a
     // card. `border-box`, so the width quoted here is the whole box including that padding.
-    sizerStyle: on && measured
-      ? {
-        width: content.width * scale + gutter.left * 2,
-        height: content.height * scale + gutter.top * 2,
-        paddingLeft: gutter.left,
-        paddingTop: gutter.top,
-        boxSizing: "border-box",
-      }
-      : { display: "contents" },
+    sizerStyle:
+      on && measured
+        ? {
+            width: content.width * scale + gutter.left * 2,
+            height: content.height * scale + gutter.top * 2,
+            paddingLeft: gutter.left,
+            paddingTop: gutter.top,
+            boxSizing: "border-box",
+          }
+        : { display: "contents" },
     // No transform at exactly 1:1, where the mode has nothing to draw differently. Not tidiness:
     // a `scale(1)` is still a transform, and a transform is still a containing block for every
     // `position: fixed` under it, so emitting one there would move things for no gain.
-    stripStyle: on && scale !== 1
-      ? { transform: `scale(${scale})`, transformOrigin: "0 0" }
-      : undefined,
+    stripStyle: on && scale !== 1 ? { transform: `scale(${scale})`, transformOrigin: "0 0" } : undefined,
     // `pan-x pan-y` keeps one-finger scrolling native while telling the browser this page handles
     // its own pinch, which is what lets both touches go on reaching the listeners above.
     scrollerStyle: on ? { touchAction: "pan-x pan-y" } : undefined,

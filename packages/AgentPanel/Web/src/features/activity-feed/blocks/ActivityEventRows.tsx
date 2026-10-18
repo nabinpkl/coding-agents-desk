@@ -2,17 +2,8 @@
 
 import { ChevronDown, ChevronRight, GitBranch } from "lucide-react";
 import { RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
-import {
-  type DisplayRole,
-  clusterLabel,
-  displayRole,
-} from "@/features/activity-feed/rows/activityDisplayItems";
-import {
-  eventPreview,
-  isFlowBlock,
-  messageText,
-  toolIntent,
-} from "@/features/activity-feed/rows/activityEventText";
+import { type DisplayRole, clusterLabel, displayRole } from "@/features/activity-feed/rows/activityDisplayItems";
+import { eventPreview, isFlowBlock, messageText, toolIntent } from "@/features/activity-feed/rows/activityEventText";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import {
   pairSameEventToolResults,
@@ -84,11 +75,7 @@ export interface EventRowContext {
  */
 function CollapsedPreview({ ev }: { ev: ActivityEvent }) {
   const preview = eventPreview(ev);
-  return (
-    <div className="truncate py-[0.1em] leading-snug text-muted-foreground">
-      {preview || "(no content)"}
-    </div>
-  );
+  return <div className="truncate py-[0.1em] leading-snug text-muted-foreground">{preview || "(no content)"}</div>;
 }
 
 /**
@@ -131,9 +118,7 @@ function EventBody({
         <div
           key={`${index}-${block.kind}`}
           className={
-            besideHeading && isFlowBlock(block)
-              ? undefined
-              : bareHeading && position === 0 ? "flow-root" : "clear-left"
+            besideHeading && isFlowBlock(block) ? undefined : bareHeading && position === 0 ? "flow-root" : "clear-left"
           }
         >
           <Block
@@ -200,22 +185,21 @@ function EventRowShell({
         isLive={isLive}
         showRole={showRole}
       />
-      {collapsed
-        ? <CollapsedPreview ev={ev} />
-        : (
-          <EventBody
-            ev={ev}
-            ctx={ctx}
-            besideHeading={role !== "tool" || bareHeading}
-            bareHeading={bareHeading}
-          />
-        )}
+      {collapsed ? (
+        <CollapsedPreview ev={ev} />
+      ) : (
+        <EventBody ev={ev} ctx={ctx} besideHeading={role !== "tool" || bareHeading} bareHeading={bareHeading} />
+      )}
     </div>
   );
 }
 
 export function UserRow({
-  ev, ctx, isCollapsed, onToggle, isHighlighted,
+  ev,
+  ctx,
+  isCollapsed,
+  onToggle,
+  isHighlighted,
 }: {
   ev: ActivityEvent;
   ctx: EventRowContext;
@@ -227,9 +211,7 @@ export function UserRow({
   // command's echo and a `<system-reminder>` "user" as well, and offering to fork from one of
   // those would be offering a point the rewind picker does not have.
   const eventId = ev.id;
-  const forkable = ctx.onForkFromMessage !== undefined
-    && ev.humanTurn === true
-    && eventId !== undefined;
+  const forkable = ctx.onForkFromMessage !== undefined && ev.humanTurn === true && eventId !== undefined;
   return (
     // Right-aligned, which is the one thing that separates what you said from what the session
     // said without reading either. The card shrinks to its text and stops at 85% of the row, so
@@ -249,14 +231,16 @@ export function UserRow({
           // whole transcript, and a screen reader reading two hundred characters of prose to name
           // one of them is worse than no name at all.
           label={eventPreview(ev).slice(0, 60) || "this message"}
-          items={[{
-            label: "Fork from here",
-            icon: GitBranch,
-            onSelect: () => {
-              if (eventId === undefined) return;
-              ctx.onForkFromMessage?.({ eventId, text: messageText(ev) });
+          items={[
+            {
+              label: "Fork from here",
+              icon: GitBranch,
+              onSelect: () => {
+                if (eventId === undefined) return;
+                ctx.onForkFromMessage?.({ eventId, text: messageText(ev) });
+              },
             },
-          }]}
+          ]}
         />
       ) : null}
       <div
@@ -286,7 +270,10 @@ export function UserRow({
  * characters, because six one-word lines are as tall as a paragraph.
  */
 function isFoldableUserMessage(ev: ActivityEvent): boolean {
-  const text = ev.blocks.map((block) => (block.kind === "text" ? block.text ?? "" : "")).join("\n").trim();
+  const text = ev.blocks
+    .map((block) => (block.kind === "text" ? (block.text ?? "") : ""))
+    .join("\n")
+    .trim();
   return text.length > 280 || text.split("\n").length > 6;
 }
 
@@ -297,7 +284,10 @@ function isFoldableUserMessage(ev: ActivityEvent): boolean {
  * where the reader stops reading rather than ahead of the first word.
  */
 function UserMessageBody({
-  ev, ctx, isCollapsed, onToggle,
+  ev,
+  ctx,
+  isCollapsed,
+  onToggle,
 }: {
   ev: ActivityEvent;
   ctx: EventRowContext;
@@ -324,7 +314,9 @@ function UserMessageBody({
         title={when}
         className="flex w-full min-w-0 items-center gap-[0.3em] rounded-sm text-left outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary"
       >
-        <span className="min-w-0 flex-1"><CollapsedPreview ev={ev} /></span>
+        <span className="min-w-0 flex-1">
+          <CollapsedPreview ev={ev} />
+        </span>
         {chevron}
       </button>
     );
@@ -349,7 +341,14 @@ function UserMessageBody({
 }
 
 export function SegmentEventRow({
-  ev, ctx, isFirst, isLast, isCollapsed, onToggle, isHighlighted, isLive = false,
+  ev,
+  ctx,
+  isFirst,
+  isLast,
+  isCollapsed,
+  onToggle,
+  isHighlighted,
+  isLive = false,
 }: {
   ev: ActivityEvent;
   ctx: EventRowContext;
@@ -366,9 +365,7 @@ export function SegmentEventRow({
   const niceCardKind = role === "tool" || role === "result" ? "tool" : "text";
   const wrapperClass = isNice
     ? "rounded-md border px-[0.6em] py-[0.3em] transition-shadow duration-300 " +
-      (niceCardKind === "tool"
-        ? "border-border session-view-row-tool "
-        : "border-border/60 session-view-row ") +
+      (niceCardKind === "tool" ? "border-border session-view-row-tool " : "border-border/60 session-view-row ") +
       // Not taken in yet: the same card, its edge drawn dashed until the transcript holds it.
       (ev.pending === "queued" ? "border-dashed " : "") +
       (isHighlighted ? "ring-2 ring-primary ring-inset " : "")
@@ -381,19 +378,9 @@ export function SegmentEventRow({
     ? `${COLUMN_GUTTER_CLASS} py-[0.1em]`
     : COLUMN_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "");
   return (
-    <div
-      className={rowSpacing}
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-    >
+    <div className={rowSpacing} style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}>
       <div className={wrapperClass} data-feed-card={isNice ? niceCardKind : undefined}>
-        <EventRowShell
-          ev={ev}
-          role={role}
-          isCollapsed={isCollapsed}
-          onToggle={onToggle}
-          ctx={ctx}
-          isLive={isLive}
-        />
+        <EventRowShell ev={ev} role={role} isCollapsed={isCollapsed} onToggle={onToggle} ctx={ctx} isLive={isLive} />
       </div>
     </div>
   );
@@ -417,7 +404,10 @@ export function SegmentEventRow({
  * which is a layout shift bought to avoid a border radius.
  */
 export function LiveTailRow({
-  ev, ctx, isCollapsed, onToggle,
+  ev,
+  ctx,
+  isCollapsed,
+  onToggle,
 }: {
   ev: ActivityEvent;
   ctx: EventRowContext;
@@ -426,12 +416,13 @@ export function LiveTailRow({
 }) {
   const sameEventResults = pairSameEventToolResults(ev);
   const liveEvent = withoutPairedToolResults(ev, sameEventResults);
-  const liveContext = sameEventResults.size === 0
-    ? ctx
-    : {
-      ...ctx,
-      pairedToolResults: new Map([...ctx.pairedToolResults, ...sameEventResults]),
-    };
+  const liveContext =
+    sameEventResults.size === 0
+      ? ctx
+      : {
+          ...ctx,
+          pairedToolResults: new Map([...ctx.pairedToolResults, ...sameEventResults]),
+        };
   return (
     <SegmentEventRow
       ev={liveEvent}
@@ -458,7 +449,10 @@ export function LiveTailRow({
  * hide the line that explains the next twenty.
  */
 export function ClusterRow({
-  events, isFirst, isLast, onExpand,
+  events,
+  isFirst,
+  isLast,
+  onExpand,
 }: {
   events: ActivityEvent[];
   isFirst: boolean;
@@ -483,13 +477,8 @@ export function ClusterRow({
           title={`Expand ${events.length} folded steps`}
           className="flex w-full items-center gap-[0.4em] text-left transition-colors hover:bg-foreground/5"
         >
-          <ChevronRight
-            className="size-[1.1em] shrink-0 text-muted-foreground"
-            aria-hidden
-          />
-          <span className="min-w-0 flex-1 truncate text-muted-foreground">
-            {clusterLabel(events)}
-          </span>
+          <ChevronRight className="size-[1.1em] shrink-0 text-muted-foreground" aria-hidden />
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">{clusterLabel(events)}</span>
         </button>
       </div>
     </div>

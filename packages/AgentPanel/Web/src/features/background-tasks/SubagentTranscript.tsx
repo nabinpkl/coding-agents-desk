@@ -6,10 +6,7 @@ import {
   SegmentEventRow,
   UserRow,
 } from "@/features/activity-feed/blocks/ActivityEventRows";
-import type {
-  AgentDataSource,
-  SessionReference,
-} from "@/features/activity-feed/data-source/AgentDataSource";
+import type { AgentDataSource, SessionReference } from "@/features/activity-feed/data-source/AgentDataSource";
 import { useFeedRows } from "@/features/activity-feed/rows/useFeedRows";
 import { isEventItem, itemKey } from "@/features/activity-feed/rows/activityDisplayItems";
 import { useSubagentTranscript } from "@/features/background-tasks/useSubagentTranscript";
@@ -107,12 +104,7 @@ export function SubagentTranscript({
         {items.filter(isEventItem).map((item) => (
           <div key={itemKey(item)}>
             {item.kind === "cluster" ? (
-              <ClusterRow
-                events={item.events}
-                isFirst
-                isLast
-                onExpand={() => expandCluster(item.events[0]!.index)}
-              />
+              <ClusterRow events={item.events} isFirst isLast onExpand={() => expandCluster(item.events[0]!.index)} />
             ) : item.kind === "user" ? (
               <UserRow
                 ev={item.ev}

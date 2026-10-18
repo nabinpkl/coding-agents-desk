@@ -113,8 +113,7 @@ describe("row menu placement", () => {
 
   it("right-aligns to the row, and clamps so an edge row still gets a whole menu", () => {
     const inset = box({ top: 178, left: 300, width: 32, height: 32 });
-    expect(open({ card: SHORT_CARD, trigger: inset }).style.left)
-      .toBe(`${inset.right - MENU.width}px`);
+    expect(open({ card: SHORT_CARD, trigger: inset }).style.left).toBe(`${inset.right - MENU.width}px`);
     cleanup();
     restore?.();
 
@@ -122,8 +121,7 @@ describe("row menu placement", () => {
     // right edge past the window, so it stops one margin short instead.
     const wide = box({ top: 100, left: 0, width: VIEWPORT.width, height: 120 });
     const edge = box({ top: 178, left: VIEWPORT.width - 32, width: 32, height: 32 });
-    expect(open({ card: wide, trigger: edge }).style.left)
-      .toBe(`${VIEWPORT.width - 8 - MENU.width}px`);
+    expect(open({ card: wide, trigger: edge }).style.left).toBe(`${VIEWPORT.width - 8 - MENU.width}px`);
   });
 
   it("closes when the row it names is scrolled out of the card", () => {

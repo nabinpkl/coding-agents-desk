@@ -21,13 +21,21 @@ describe("ClaudeLiveBackend ingest", () => {
     backend = new ClaudeLiveBackend(fixture.url, true, 8);
     // Feed the full lifecycle of one message.
     backend.acceptObserverEvent(flowEvent("f1", "/v1/messages", "api.anthropic.com", "b1"));
-    backend.acceptObserverEvent(delta("f1", {
-      type: "message_start",
-      message: { id: "msg_123", model: "claude-haiku-4-5", usage: { input_tokens: 10, output_tokens: 0 } },
-    }));
-    backend.acceptObserverEvent(delta("f1", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
-    backend.acceptObserverEvent(delta("f1", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello " } }));
-    backend.acceptObserverEvent(delta("f1", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "world" } }));
+    backend.acceptObserverEvent(
+      delta("f1", {
+        type: "message_start",
+        message: { id: "msg_123", model: "claude-haiku-4-5", usage: { input_tokens: 10, output_tokens: 0 } },
+      }),
+    );
+    backend.acceptObserverEvent(
+      delta("f1", { type: "content_block_start", index: 0, content_block: { type: "text" } }),
+    );
+    backend.acceptObserverEvent(
+      delta("f1", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello " } }),
+    );
+    backend.acceptObserverEvent(
+      delta("f1", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "world" } }),
+    );
     backend.acceptObserverEvent(delta("f1", { type: "message_stop" }));
     backend.acceptObserverEvent(ended("f1"));
     await flush(160);
@@ -70,21 +78,27 @@ describe("ClaudeLiveBackend ingest", () => {
     const probe = new ClaudeLiveBackend(fixture.url, true, 8);
     const probeSession = "sess-cache";
     probe.acceptObserverEvent(flowEvent("fc", "/v1/messages", "api.anthropic.com", "cache"));
-    probe.acceptObserverEvent(delta("fc", {
-      type: "message_start",
-      message: { id: "msg_cache", model: "claude-haiku-4-5", usage: { input_tokens: 0, output_tokens: 0 } },
-    }));
+    probe.acceptObserverEvent(
+      delta("fc", {
+        type: "message_start",
+        message: { id: "msg_cache", model: "claude-haiku-4-5", usage: { input_tokens: 0, output_tokens: 0 } },
+      }),
+    );
     probe.acceptObserverEvent(delta("fc", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
-    probe.acceptObserverEvent(delta("fc", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "cached turn" } }));
-    probe.acceptObserverEvent(delta("fc", {
-      type: "message_delta",
-      usage: {
-        input_tokens: 100,
-        cache_creation_input_tokens: 200,
-        cache_read_input_tokens: 400,
-        output_tokens: 50,
-      },
-    }));
+    probe.acceptObserverEvent(
+      delta("fc", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "cached turn" } }),
+    );
+    probe.acceptObserverEvent(
+      delta("fc", {
+        type: "message_delta",
+        usage: {
+          input_tokens: 100,
+          cache_creation_input_tokens: 200,
+          cache_read_input_tokens: 400,
+          output_tokens: 50,
+        },
+      }),
+    );
     probe.acceptObserverEvent(delta("fc", { type: "message_stop" }));
     probe.acceptObserverEvent(ended("fc"));
     await flush(160);
@@ -105,12 +119,22 @@ describe("ClaudeLiveBackend ingest", () => {
     // the fixture above is still there and is still the only one.
     const before = await backend.page(sessionId, 0, 10, "nice");
     backend.acceptObserverEvent(flowEvent("sub1", "/v1/messages", "api.anthropic.com", "subagent1"));
-    backend.acceptObserverEvent(delta("sub1", {
-      type: "message_start",
-      message: { id: "msg_sub", model: "claude-haiku-4-5", usage: { input_tokens: 4, output_tokens: 0 } },
-    }));
-    backend.acceptObserverEvent(delta("sub1", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
-    backend.acceptObserverEvent(delta("sub1", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "from the subagent" } }));
+    backend.acceptObserverEvent(
+      delta("sub1", {
+        type: "message_start",
+        message: { id: "msg_sub", model: "claude-haiku-4-5", usage: { input_tokens: 4, output_tokens: 0 } },
+      }),
+    );
+    backend.acceptObserverEvent(
+      delta("sub1", { type: "content_block_start", index: 0, content_block: { type: "text" } }),
+    );
+    backend.acceptObserverEvent(
+      delta("sub1", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "from the subagent" },
+      }),
+    );
     backend.acceptObserverEvent(delta("sub1", { type: "message_stop" }));
     backend.acceptObserverEvent(ended("sub1"));
     await flush(160);
@@ -126,16 +150,22 @@ describe("ClaudeLiveBackend ingest", () => {
     // row that says the context was reset.
     const before = await backend.page(sessionId, 0, 10, "nice");
     backend.acceptObserverEvent(flowEvent("sum1", "/v1/messages", "api.anthropic.com", "summariser1"));
-    backend.acceptObserverEvent(delta("sum1", {
-      type: "message_start",
-      message: { id: "msg_sum", model: "claude-haiku-4-5", usage: { input_tokens: 9, output_tokens: 0 } },
-    }));
-    backend.acceptObserverEvent(delta("sum1", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
-    backend.acceptObserverEvent(delta("sum1", {
-      type: "content_block_delta",
-      index: 0,
-      delta: { type: "text_delta", text: "This session is being continued from a previous conversation" },
-    }));
+    backend.acceptObserverEvent(
+      delta("sum1", {
+        type: "message_start",
+        message: { id: "msg_sum", model: "claude-haiku-4-5", usage: { input_tokens: 9, output_tokens: 0 } },
+      }),
+    );
+    backend.acceptObserverEvent(
+      delta("sum1", { type: "content_block_start", index: 0, content_block: { type: "text" } }),
+    );
+    backend.acceptObserverEvent(
+      delta("sum1", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "This session is being continued from a previous conversation" },
+      }),
+    );
     backend.acceptObserverEvent(delta("sum1", { type: "message_stop" }));
     backend.acceptObserverEvent(ended("sum1"));
     await flush(160);
@@ -160,7 +190,10 @@ describe("ClaudeLiveBackend ingest", () => {
     backend.acceptObserverEvent(ended("sum2"));
     await flush(40);
     expect(backend.compactionSummary(sessionId)).toBeNull();
-    expect(seen).toEqual([[sessionId, true], [sessionId, false]]);
+    expect(seen).toEqual([
+      [sessionId, true],
+      [sessionId, false],
+    ]);
 
     // The observer announces every flow twice, and the second announcement arrives with the end.
     // A compaction's context is dropped seconds after it is recognised while the compaction runs
@@ -169,7 +202,10 @@ describe("ClaudeLiveBackend ingest", () => {
     backend.acceptObserverEvent(flowEvent("sum2", "/v1/messages", "api.anthropic.com", "summariser1"));
     await flush(160);
     expect(backend.compactionSummary(sessionId)).toBeNull();
-    expect(seen).toEqual([[sessionId, true], [sessionId, false]]);
+    expect(seen).toEqual([
+      [sessionId, true],
+      [sessionId, false],
+    ]);
     stop();
   });
 
@@ -182,15 +218,21 @@ describe("ClaudeLiveBackend ingest", () => {
     const stop = backend.onCompaction((id, active) => seen.push([id, active]));
     backend.acceptObserverEvent(flowEvent("sum3", "/v1/messages", "api.anthropic.com", "summariser1"));
     for (let i = 0; i < 400; i++) {
-      backend.acceptObserverEvent(delta("sum3", {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: `chunk ${i}` },
-      }));
+      backend.acceptObserverEvent(
+        delta("sum3", {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: `chunk ${i}` },
+        }),
+      );
     }
     await flush(160);
-    backend.acceptObserverEvent(delta("sum3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "!" } }));
-    expect(backend.compactionSummary(sessionId)).toBe(Array.from({ length: 400 }, (_, i) => `chunk ${i}`).join("") + "!");
+    backend.acceptObserverEvent(
+      delta("sum3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "!" } }),
+    );
+    expect(backend.compactionSummary(sessionId)).toBe(
+      Array.from({ length: 400 }, (_, i) => `chunk ${i}`).join("") + "!",
+    );
     expect(seen).toEqual([[sessionId, true]]);
     backend.acceptObserverEvent(ended("sum3"));
     await flush(40);
@@ -204,8 +246,23 @@ describe("ClaudeLiveBackend ingest", () => {
 
   test("non-message and non-anthropic flows are ignored", async () => {
     const probe = new ClaudeLiveBackend(fixture.url, true, 8);
-    probe.acceptObserverEvent({ observedAt: new Date().toISOString(), flowUpserted: { flow: { flowId: "p", protocol: "OBSERVED_PROTOCOL_SSE", path: "/v1/environments/x/poll", authority: "api.anthropic.com" } } });
-    probe.acceptObserverEvent({ observedAt: new Date().toISOString(), flowUpserted: { flow: { flowId: "q", protocol: "OBSERVED_PROTOCOL_SSE", path: "/v1/messages", authority: "example.com" } } });
+    probe.acceptObserverEvent({
+      observedAt: new Date().toISOString(),
+      flowUpserted: {
+        flow: {
+          flowId: "p",
+          protocol: "OBSERVED_PROTOCOL_SSE",
+          path: "/v1/environments/x/poll",
+          authority: "api.anthropic.com",
+        },
+      },
+    });
+    probe.acceptObserverEvent({
+      observedAt: new Date().toISOString(),
+      flowUpserted: {
+        flow: { flowId: "q", protocol: "OBSERVED_PROTOCOL_SSE", path: "/v1/messages", authority: "example.com" },
+      },
+    });
     await expect(probe.page("sess-p", 0, 10, "nice")).rejects.toThrow();
     await probe.dispose();
   });
@@ -215,13 +272,27 @@ describe("ClaudeLiveBackend ingest", () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("fb", "/v1/messages", "api.anthropic.com", "bash1"));
     local.acceptObserverEvent(delta("fb", { type: "message_start", message: { id: "msg_bash" } }));
-    local.acceptObserverEvent(delta("fb", {
-      type: "content_block_start",
-      index: 0,
-      content_block: { type: "tool_use", id: "toolu_bash", name: "Bash" },
-    }));
-    local.acceptObserverEvent(delta("fb", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"command":"git sta' } }));
-    local.acceptObserverEvent(delta("fb", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: 'tus --short"}' } }));
+    local.acceptObserverEvent(
+      delta("fb", {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", id: "toolu_bash", name: "Bash" },
+      }),
+    );
+    local.acceptObserverEvent(
+      delta("fb", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: '{"command":"git sta' },
+      }),
+    );
+    local.acceptObserverEvent(
+      delta("fb", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: 'tus --short"}' },
+      }),
+    );
     local.acceptObserverEvent(delta("fb", { type: "content_block_stop", index: 0 }));
     local.acceptObserverEvent(delta("fb", { type: "message_stop" }));
     await flush(160);
@@ -256,9 +327,7 @@ describe("ClaudeLiveBackend ingest", () => {
     // whichever is newer, so the wrong one would win.
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     const startedAt = "2026-09-16T01:06:31.873Z";
-    local.acceptObserverEvent(
-      flowEvent("t2", "/v1/messages", "api.anthropic.com", "tool1", undefined, startedAt),
-    );
+    local.acceptObserverEvent(flowEvent("t2", "/v1/messages", "api.anthropic.com", "tool1", undefined, startedAt));
     await flush(80);
 
     const page = await local.page("sess-tool1", 0, 10, "nice");
@@ -295,8 +364,12 @@ describe("ClaudeLiveBackend ingest", () => {
     });
     local.acceptObserverEvent(delta("f3", { type: "message_start", message: { id: "msg_300" } }));
     local.acceptObserverEvent(delta("f3", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
-    local.acceptObserverEvent(delta("f3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "a" } }));
-    local.acceptObserverEvent(delta("f3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "b" } }));
+    local.acceptObserverEvent(
+      delta("f3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "a" } }),
+    );
+    local.acceptObserverEvent(
+      delta("f3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "b" } }),
+    );
     local.acceptObserverEvent(delta("f3", { type: "message_stop" }));
     await flush(40);
     const last = envelopes.at(-1);
@@ -316,10 +389,12 @@ describe("the context tier a live request asked for", () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent(flowId, "/v1/messages", "api.anthropic.com", bodyRef, headers));
     await flush(80);
-    local.acceptObserverEvent(delta(flowId, {
-      type: "message_start",
-      message: { id: `msg_${flowId}`, model: "claude-opus-5", usage: { input_tokens: 500_000 } },
-    }));
+    local.acceptObserverEvent(
+      delta(flowId, {
+        type: "message_start",
+        message: { id: `msg_${flowId}`, model: "claude-opus-5", usage: { input_tokens: 500_000 } },
+      }),
+    );
     local.acceptObserverEvent(delta(flowId, { type: "message_stop" }));
     await flush(40);
     const usage = local.sessionUsage(`sess-${bodyRef}`);
@@ -352,10 +427,12 @@ describe("the context tier a live request asked for", () => {
     await flush(80);
     local.acceptObserverEvent(flowEvent("ftier4", "/v1/messages", "api.anthropic.com", "tier3"));
     await flush(80);
-    local.acceptObserverEvent(delta("ftier4", {
-      type: "message_start",
-      message: { id: "msg_tier4", model: "claude-opus-5", usage: { input_tokens: 500_000 } },
-    }));
+    local.acceptObserverEvent(
+      delta("ftier4", {
+        type: "message_start",
+        message: { id: "msg_tier4", model: "claude-opus-5", usage: { input_tokens: 500_000 } },
+      }),
+    );
     local.acceptObserverEvent(delta("ftier4", { type: "message_stop" }));
     await flush(40);
 

@@ -316,7 +316,12 @@ export class OpencodeServeEvents {
           const chosen = field.options?.find((option) => (option.label ?? option.value) === answer)?.value ?? answer;
           return field.type === "multiselect" ? [chosen] : chosen;
         }
-        const answer = await ui.request({ kind: "input", title, placeholder: "placeholder" in field ? field.placeholder : undefined, key });
+        const answer = await ui.request({
+          kind: "input",
+          title,
+          placeholder: "placeholder" in field ? field.placeholder : undefined,
+          key,
+        });
         return typeof answer === "string" ? answer : undefined;
       }
       case "number":

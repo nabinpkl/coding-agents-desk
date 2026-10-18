@@ -63,28 +63,29 @@ const forked: { cwd: string; sessionId: string; forkId: string; title: string; b
 let forkFailure: Error | null = null;
 
 /** The real fork, with only the two things that would touch a machine stood in for. */
-const forkAction: typeof forkClaudeSession = (sessionId, command) => forkClaudeSession(
-  sessionId,
-  command,
-  {
-    start: async () => {
-      throw new Error("a fork must never start a session with no history");
+const forkAction: typeof forkClaudeSession = (sessionId, command) =>
+  forkClaudeSession(
+    sessionId,
+    command,
+    {
+      start: async () => {
+        throw new Error("a fork must never start a session with no history");
+      },
+      end: async () => {
+        throw new Error("a fork must never end a session");
+      },
+      fork: async (options) => {
+        forked.push(options);
+        if (forkFailure) throw forkFailure;
+        return { tmuxSession: `fork-pane-${options.forkId}` };
+      },
     },
-    end: async () => {
-      throw new Error("a fork must never end a session");
+    () => FORK_ID,
+    async ({ sessionId: forkId, anchor }) => {
+      rewound.push({ sessionId: forkId, ...anchor });
+      return rewindOutcome;
     },
-    fork: async (options) => {
-      forked.push(options);
-      if (forkFailure) throw forkFailure;
-      return { tmuxSession: `fork-pane-${options.forkId}` };
-    },
-  },
-  () => FORK_ID,
-  async ({ sessionId: forkId, anchor }) => {
-    rewound.push({ sessionId: forkId, ...anchor });
-    return rewindOutcome;
-  },
-);
+  );
 
 const route = createSessionRoutes(undefined, { rename: renameAction, fork: forkAction });
 
@@ -112,9 +113,7 @@ function said(root: string, text: string): string {
 }
 
 /** A transcript the catalog knows about, holding whatever `lines` writes into it. */
-async function transcriptHolding(
-  lines: (root: string) => readonly string[],
-): Promise<void> {
+async function transcriptHolding(lines: (root: string) => readonly string[]): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "agent-feed-rename-"));
   roots.push(root);
   const transcript = join(root, `${SESSION_ID}.jsonl`);
@@ -140,7 +139,7 @@ async function sessionTranscript(): Promise<void> {
 
 /** The reason a refusal gave, which is the half of it a reader can act on. */
 async function errorMessage(response: Response): Promise<string> {
-  const payload = await response.json() as { error?: { message?: string } };
+  const payload = (await response.json()) as { error?: { message?: string } };
   return payload.error?.message ?? "";
 }
 
@@ -210,10 +209,10 @@ test("answers 404 for a session the catalog does not hold", async () => {
 
 test("declines a Codex rename rather than answering for a name it cannot change", async () => {
   state.watcherState = "live";
-  const request = new Request(
-    `http://localhost/api/sessions/codex/${SESSION_ID}/title`,
-    { method: "POST", body: JSON.stringify({ title: "Anything" }) },
-  );
+  const request = new Request(`http://localhost/api/sessions/codex/${SESSION_ID}/title`, {
+    method: "POST",
+    body: JSON.stringify({ title: "Anything" }),
+  });
   expect(route(request, new URL(request.url), server)).toBeUndefined();
 });
 
@@ -233,17 +232,19 @@ test("forking answers with the session it started and the pane to watch it in", 
   const response = await fork(SESSION_ID, { title: "A sibling", prompt: "the other half" });
 
   expect(response.status).toBe(201);
-  const started = await response.json() as { sessionId: string; title: string; tmuxSession: string };
+  const started = (await response.json()) as { sessionId: string; title: string; tmuxSession: string };
   expect(started.title).toBe("A sibling");
   expect(started.tmuxSession).toBe(`fork-pane-${started.sessionId}`);
   expect(started.sessionId).not.toBe(SESSION_ID);
-  expect(forked).toEqual([{
-    cwd: expect.any(String),
-    sessionId: SESSION_ID,
-    forkId: started.sessionId,
-    title: "A sibling",
-    brief: "the other half",
-  }]);
+  expect(forked).toEqual([
+    {
+      cwd: expect.any(String),
+      sessionId: SESSION_ID,
+      forkId: started.sessionId,
+      title: "A sibling",
+      brief: "the other half",
+    },
+  ]);
 });
 
 test("a fork is named by the session in the path, not by anything in the body", async () => {
@@ -301,10 +302,10 @@ test("waits for the catalog rather than reporting a session it has not read yet"
 
 test("declines a Codex fork rather than resuming the transcript it cannot branch", async () => {
   state.watcherState = "live";
-  const request = new Request(
-    `http://localhost/api/sessions/codex/${SESSION_ID}/fork`,
-    { method: "POST", body: JSON.stringify({ title: "Anything" }) },
-  );
+  const request = new Request(`http://localhost/api/sessions/codex/${SESSION_ID}/fork`, {
+    method: "POST",
+    body: JSON.stringify({ title: "Anything" }),
+  });
   expect(route(request, new URL(request.url), server)).toBeUndefined();
 });
 
@@ -318,7 +319,7 @@ test("forking from a message asks the driver to walk back to it", async () => {
   });
 
   expect(response.status).toBe(201);
-  const started = await response.json() as { sessionId: string; rewindFailed?: string };
+  const started = (await response.json()) as { sessionId: string; rewindFailed?: string };
   expect(started.rewindFailed).toBeUndefined();
   // One back from the end is BRAVO, so ALPHA is two, and the text travels with the count because
   // the count alone is not evidence the picker landed anywhere in particular.
@@ -340,7 +341,7 @@ test("answers 201 with a reason when the fork started but could not be moved", a
   });
 
   expect(response.status).toBe(201);
-  const started = await response.json() as { sessionId: string; rewindFailed?: string };
+  const started = (await response.json()) as { sessionId: string; rewindFailed?: string };
   expect(started.sessionId).toBeTruthy();
   expect(started.rewindFailed).toMatch(/wrong-message/);
 });

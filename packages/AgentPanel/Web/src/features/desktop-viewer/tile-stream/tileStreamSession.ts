@@ -6,11 +6,7 @@
 
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { desktopDisplayId } from "@agentdesk/agent-feed-wire";
-import type {
-  DesktopControlEvent,
-  WebrtcTileAnswer,
-  WebrtcTileSourceMetadata,
-} from "@agentdesk/agent-feed-wire";
+import type { DesktopControlEvent, WebrtcTileAnswer, WebrtcTileSourceMetadata } from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "@/features/desktop-viewer/DesktopStreamState";
 import type { CapturePlan } from "@/features/desktop-viewer/zoom/tileCapturePlan";
@@ -90,12 +86,16 @@ export const runTileSession = (
     // Named here so a document teardown can report this peer gone; see `onPageHide`.
     live.activeAttempt = attempt;
     const report = (phase: string, detail?: string) => {
-      postTileTelemetry(deps.windowID, {
-        attempt,
-        phase,
-        detail,
-        elapsedMs: Math.round(performance.now() - started),
-      }, deps.httpTransport);
+      postTileTelemetry(
+        deps.windowID,
+        {
+          attempt,
+          phase,
+          detail,
+          elapsedMs: Math.round(performance.now() - started),
+        },
+        deps.httpTransport,
+      );
     };
     const { clearControlTransport, inputChannel } = createControlChannel({
       control: deps.control,
@@ -188,9 +188,9 @@ export const runTileSession = (
     const attach = (stream: MediaStream) => {
       const previousOwner = deps.presentation.owner;
       if (
-        previousOwner
-        && previousOwner.frameRequest !== null
-        && typeof deps.element.cancelVideoFrameCallback === "function"
+        previousOwner &&
+        previousOwner.frameRequest !== null &&
+        typeof deps.element.cancelVideoFrameCallback === "function"
       ) {
         deps.element.cancelVideoFrameCallback(previousOwner.frameRequest);
       }
@@ -249,10 +249,7 @@ export const runTileSession = (
         }
         clearSetupTimer();
         if (statsTimer === 0) {
-          statsTimer = window.setInterval(
-            () => void sampleReceiverStats(),
-            RECEIVER_STATS_INTERVAL_MS,
-          );
+          statsTimer = window.setInterval(() => void sampleReceiverStats(), RECEIVER_STATS_INTERVAL_MS);
         }
         if (!sawFrames) {
           setupTimer = window.setTimeout(() => {
@@ -310,7 +307,10 @@ export const runTileSession = (
           bitrate: capture.bitrate,
         };
         const response = deps.httpTransport
-          ? await deps.httpTransport.request("POST", `/api/park/tile/${deps.windowID}/webrtc`, { body, signal: offerAbort.signal })
+          ? await deps.httpTransport.request("POST", `/api/park/tile/${deps.windowID}/webrtc`, {
+              body,
+              signal: offerAbort.signal,
+            })
           : await fetch(`/api/park/tile/${deps.windowID}/webrtc`, {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -320,19 +320,22 @@ export const runTileSession = (
         if (response.status < 200 || response.status >= 300) {
           if (!live.cancelled && response.status === 409 && deps.onDisplayUnavailableRef.current) {
             let failure: Record<string, unknown> | null = null;
-            try { failure = JSON.parse(response.body); } catch { /* Report the HTTP failure below. */ }
-            if (failure?.code === "display-unavailable" && desktopDisplayId(failure.replacementDisplayId)
-                && failure.replacementDisplayId !== live.resolvedDisplayId) {
+            try {
+              failure = JSON.parse(response.body);
+            } catch {
+              /* Report the HTTP failure below. */
+            }
+            if (
+              failure?.code === "display-unavailable" &&
+              desktopDisplayId(failure.replacementDisplayId) &&
+              failure.replacementDisplayId !== live.resolvedDisplayId
+            ) {
               deps.onDisplayUnavailableRef.current(failure.replacementDisplayId);
               finish("cancelled");
               return;
             }
           }
-          finish(
-            live.cancelled
-              ? "cancelled"
-              : response.body.slice(0, 200) || `HTTP ${response.status}`,
-          );
+          finish(live.cancelled ? "cancelled" : response.body.slice(0, 200) || `HTTP ${response.status}`);
           return;
         }
         if (live.cancelled) {
@@ -347,10 +350,7 @@ export const runTileSession = (
         negotiatedCodec = answer.codec;
         controlCompatible = answer.source.desktopControlVersion === 2;
         if (!controlCompatible) {
-          report(
-            "control-channel-state",
-            `protocol-mismatch host=${answer.source.desktopControlVersion} client=2`,
-          );
+          report("control-channel-state", `protocol-mismatch host=${answer.source.desktopControlVersion} client=2`);
         }
         report("answer-received");
         deps.onSourceMetadataRef.current?.(answer.source);

@@ -134,16 +134,21 @@ function cssZoomView(display: DisplaySize): ZoomView {
     kind: "css",
     zoomAt: (factor, cx, cy, w, h) => changed(zoomAt(transform, factor, cx, cy, w, h)),
     panBy: (dx, dy, w, h) => changed(panBy(transform, dx, dy, w, h)),
-    reset: () => { transform = IDENTITY; },
+    reset: () => {
+      transform = IDENTITY;
+    },
     isZoomed: () => transform.scale > 1,
-    follow: (cursor, w, h) =>
-      changed(followRemoteCursor(transform, cursor, display.width, display.height, w, h)),
+    follow: (cursor, w, h) => changed(followRemoteCursor(transform, cursor, display.width, display.height, w, h)),
     cover: (cursor, w, h) => {
       transform = coverOnRemoteCursor(cursor, display.width, display.height, w, h);
     },
     snapshot: () => transform,
-    restore: (snapshot, w, h) => { transform = clampPan(snapshot as ViewportTransform, w, h); },
-    reclamp: (w, h) => { transform = clampPan(transform, w, h); },
+    restore: (snapshot, w, h) => {
+      transform = clampPan(snapshot as ViewportTransform, w, h);
+    },
+    reclamp: (w, h) => {
+      transform = clampPan(transform, w, h);
+    },
     project: (cursor, w, h) => projectRemoteCursor(transform, cursor, display.width, display.height, w, h),
     unproject: (point, w, h) => unprojectRemoteCursor(transform, point, display.width, display.height, w, h),
     paint: ({ content, underlay }) => {
@@ -216,7 +221,10 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
     return moved;
   };
   const anchorAt = (cx: number, cy: number, w: number, h: number) =>
-    unprojectPoint({ x: cx, y: cy }, visible, box(w, h), display) ?? { x: visible.x + visible.width / 2, y: visible.y + visible.height / 2 };
+    unprojectPoint({ x: cx, y: cy }, visible, box(w, h), display) ?? {
+      x: visible.x + visible.width / 2,
+      y: visible.y + visible.height / 2,
+    };
   const pointsPerPixel = (w: number, h: number) => {
     const content = box(w, h);
     return content.width > 0 ? visible.width / content.width : 0;
@@ -231,7 +239,9 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
       const k = pointsPerPixel(w, h);
       return moved(panVisible(visible, display, -dx * k, -dy * k));
     },
-    reset: () => { visible = wholeDisplay(display); },
+    reset: () => {
+      visible = wholeDisplay(display);
+    },
     isZoomed: () => !isWholeDisplay(visible, display),
     follow: (cursor) => moved(followVisible(visible, display, cursor, FOLLOW_MARGIN)),
     cover: (cursor, w, h) => {
@@ -272,14 +282,25 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
       // can show, a sharp one would only add something to swap to and from while panning.
       const overviewDetail = Math.min(MAX_PIXELS_PER_POINT, viewportPixels / display.width);
       const facts = {
-        visible: { x: Math.round(visible.x), y: Math.round(visible.y), w: Math.round(visible.width), h: Math.round(visible.height) },
+        visible: {
+          x: Math.round(visible.x),
+          y: Math.round(visible.y),
+          w: Math.round(visible.width),
+          h: Math.round(visible.height),
+        },
         viewportPixels: Math.round(viewportPixels),
         wanted: Number(wanted.toFixed(3)),
         overviewDetail: Number(overviewDetail.toFixed(3)),
       };
       const done = (outcome: SettleOutcome["outcome"]): SettleOutcome => {
         const plan = getCaptureCrop();
-        return { outcome, ...facts, plan: plan ? `${Math.round(plan.region.x)},${Math.round(plan.region.y)},${Math.round(plan.region.width)},${Math.round(plan.region.height)}@${plan.pixelWidth}x${plan.pixelHeight}` : null };
+        return {
+          outcome,
+          ...facts,
+          plan: plan
+            ? `${Math.round(plan.region.x)},${Math.round(plan.region.y)},${Math.round(plan.region.width)},${Math.round(plan.region.height)}@${plan.pixelWidth}x${plan.pixelHeight}`
+            : null,
+        };
       };
       // A re-aim in flight blocks the next one, but only for as long as one can plausibly take.
       // A sharp stream that never delivers a frame used to hold the view for its full connection
@@ -300,10 +321,11 @@ function cropZoomView(display: DisplaySize, overview: boolean): ZoomView {
         outcome = "planned";
         // Lean the padding the way the view was last going, while that is still recent enough
         // to mean anything; a still view gets it evenly.
-        const padding = lastPan && performance.now() - lastPan.at < PAN_LEAD_WINDOW_MS
-          ? leadPadding(lastPan)
-          : CAPTURE_PADDING;
-        setCaptureCrop(capturePlanFor(visible, display.width, display.height, viewportPixels, MAX_PIXELS_PER_POINT, padding));
+        const padding =
+          lastPan && performance.now() - lastPan.at < PAN_LEAD_WINDOW_MS ? leadPadding(lastPan) : CAPTURE_PADDING;
+        setCaptureCrop(
+          capturePlanFor(visible, display.width, display.height, viewportPixels, MAX_PIXELS_PER_POINT, padding),
+        );
       }
       // Only a change is in flight; an equal plan never left the store and nothing will answer it.
       // And under an overview, no plan is answered by no stream: the overview is the picture, so

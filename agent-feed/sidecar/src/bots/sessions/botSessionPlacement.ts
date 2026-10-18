@@ -21,10 +21,7 @@ export async function placementDirectory(projectPath: string): Promise<string> {
  * An exact match first, which is free and is the ordinary case; the worktree question reads the
  * disk, so it is asked only when no Bot names the directory itself.
  */
-export async function placementBot(
-  bots: readonly BotRecord[],
-  projectPath: string,
-): Promise<BotRecord | undefined> {
+export async function placementBot(bots: readonly BotRecord[], projectPath: string): Promise<BotRecord | undefined> {
   const exact = bots.find((bot) => bot.environment.path === projectPath);
   if (exact) return exact;
   for (const bot of bots) {

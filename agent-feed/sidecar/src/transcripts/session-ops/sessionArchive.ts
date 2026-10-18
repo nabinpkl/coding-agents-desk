@@ -52,29 +52,33 @@ function archiveKey(source: string, sessionId: string): string {
 function isArchivedSession(value: unknown): value is ArchivedSession {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const entry = value as Record<string, unknown>;
-  return SOURCES.includes(entry.source as SourceId)
-    && typeof entry.sessionId === "string"
-    && entry.sessionId.length > 0
-    && typeof entry.archivedAt === "number"
-    && Number.isFinite(entry.archivedAt);
+  return (
+    SOURCES.includes(entry.source as SourceId) &&
+    typeof entry.sessionId === "string" &&
+    entry.sessionId.length > 0 &&
+    typeof entry.archivedAt === "number" &&
+    Number.isFinite(entry.archivedAt)
+  );
 }
 
 function isArchivedProject(value: unknown): value is ArchivedProject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const entry = value as Record<string, unknown>;
-  return typeof entry.projectPath === "string"
-    && entry.projectPath.length > 0
-    && typeof entry.archivedAt === "number"
-    && Number.isFinite(entry.archivedAt);
+  return (
+    typeof entry.projectPath === "string" &&
+    entry.projectPath.length > 0 &&
+    typeof entry.archivedAt === "number" &&
+    Number.isFinite(entry.archivedAt)
+  );
 }
 
 function validateArchive(value: unknown, path: string): StoredSessionArchive {
   const stored = value as { version?: unknown; sessions?: unknown; projects?: unknown } | null;
   if (
-    !stored
-    || stored.version !== SESSION_ARCHIVE_VERSION
-    || !Array.isArray(stored.sessions)
-    || !Array.isArray(stored.projects)
+    !stored ||
+    stored.version !== SESSION_ARCHIVE_VERSION ||
+    !Array.isArray(stored.sessions) ||
+    !Array.isArray(stored.projects)
   ) {
     throw new Error(
       `session-archive.json at ${path} must have version ${SESSION_ARCHIVE_VERSION}, a sessions list and a projects list`,
@@ -183,7 +187,10 @@ export class SessionArchiveStore {
         await release();
       }
     });
-    this.mutationTail = run.then(() => {}, () => {});
+    this.mutationTail = run.then(
+      () => {},
+      () => {},
+    );
     return run;
   }
 
@@ -228,9 +235,12 @@ export function installSessionArchive(store: SessionArchiveStore | null): void {
  * When a session reads as archived: its own entry, or else its project folder's, unless it has
  * been written to since the folder was archived (the header says why).
  */
-export function sessionArchivedAt(
-  session: { source: string; sessionId: string; project: string; lastEventAt: number },
-): number | undefined {
+export function sessionArchivedAt(session: {
+  source: string;
+  sessionId: string;
+  project: string;
+  lastEventAt: number;
+}): number | undefined {
   const own = installed?.archivedAt(session.source, session.sessionId);
   if (own !== undefined) return own;
   const folder = installed?.projectArchivedAt(session.project);

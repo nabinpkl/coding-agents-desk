@@ -52,7 +52,10 @@ describe("where each session was left", () => {
     // What another tab on this origin did between this tab's last read and its next write.
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify([["claude:sid-a", 412], ["codex:sid-b", 900]]),
+      JSON.stringify([
+        ["claude:sid-a", 412],
+        ["codex:sid-b", 900],
+      ]),
     );
     rememberTranscriptAnchor(CLAUDE, 500);
     expect(loadTranscriptAnchor(CODEX)).toEqual({ index: 900 });
@@ -62,7 +65,12 @@ describe("where each session was left", () => {
   it("drops an entry it cannot read rather than scrolling to a place no event has", () => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify([["claude:sid-a", "412"], ["nocolon", 3], ["codex:sid-b", 12.5], ["claude:sid-c", 8]]),
+      JSON.stringify([
+        ["claude:sid-a", "412"],
+        ["nocolon", 3],
+        ["codex:sid-b", 12.5],
+        ["claude:sid-c", 8],
+      ]),
     );
     expect(loadTranscriptAnchor(CLAUDE)).toBeNull();
     expect(loadTranscriptAnchor(CODEX)).toBeNull();
@@ -76,9 +84,7 @@ describe("where each session was left", () => {
       index: 412,
       eventId: "opencode:msg-a",
     });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual([
-      ["opencode:ses-a", 412, "opencode:msg-a"],
-    ]);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual([["opencode:ses-a", 412, "opencode:msg-a"]]);
   });
 
   it("keeps how far into the row the reader was, for one event taller than the viewport", () => {
@@ -103,7 +109,11 @@ describe("where each session was left", () => {
 
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify([["claude:sid-a", 3, "claude:at:3", -5], ["codex:sid-b", 4, null, 2.5], ["claude:sid-c", 5, null, 40]]),
+      JSON.stringify([
+        ["claude:sid-a", 3, "claude:at:3", -5],
+        ["codex:sid-b", 4, null, 2.5],
+        ["claude:sid-c", 5, null, 40],
+      ]),
     );
     expect(loadTranscriptAnchor(CLAUDE)).toBeNull();
     expect(loadTranscriptAnchor(CODEX)).toBeNull();

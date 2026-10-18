@@ -29,22 +29,24 @@ interface DeckHeightStore {
   resetDeckShare: () => void;
 }
 
-export const useDeckHeight = create<DeckHeightStore>()(persist(
-  (set) => ({
-    deckShare: DEFAULT_DECK_SHARE,
-    setDeckShare: (share) => set({ deckShare: validDeckShare(share) }),
-    resetDeckShare: () => set({ deckShare: DEFAULT_DECK_SHARE }),
-  }),
-  {
-    name: DECK_HEIGHT_STORAGE_KEY,
-    version: 1,
-    // A private window and a container without storage both throw; the share then lives for the
-    // session only.
-    storage: createJSONStorage(() => window.localStorage),
-    partialize: ({ deckShare }) => ({ deckShare }),
-    merge: (persisted, current) => ({
-      ...current,
-      deckShare: validDeckShare((persisted as { deckShare?: unknown } | undefined)?.deckShare),
+export const useDeckHeight = create<DeckHeightStore>()(
+  persist(
+    (set) => ({
+      deckShare: DEFAULT_DECK_SHARE,
+      setDeckShare: (share) => set({ deckShare: validDeckShare(share) }),
+      resetDeckShare: () => set({ deckShare: DEFAULT_DECK_SHARE }),
     }),
-  },
-));
+    {
+      name: DECK_HEIGHT_STORAGE_KEY,
+      version: 1,
+      // A private window and a container without storage both throw; the share then lives for the
+      // session only.
+      storage: createJSONStorage(() => window.localStorage),
+      partialize: ({ deckShare }) => ({ deckShare }),
+      merge: (persisted, current) => ({
+        ...current,
+        deckShare: validDeckShare((persisted as { deckShare?: unknown } | undefined)?.deckShare),
+      }),
+    },
+  ),
+);

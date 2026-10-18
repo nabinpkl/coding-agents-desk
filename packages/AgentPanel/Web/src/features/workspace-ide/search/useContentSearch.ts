@@ -31,7 +31,10 @@ export interface ContentSearch {
 }
 
 function globs(value: string): string[] {
-  return value.split(",").map((glob) => glob.trim()).filter(Boolean);
+  return value
+    .split(",")
+    .map((glob) => glob.trim())
+    .filter(Boolean);
 }
 
 export function useContentSearch(client: WorkspaceIdeClient, workspaceId: string | null): ContentSearch {
@@ -58,7 +61,8 @@ export function useContentSearch(client: WorkspaceIdeClient, workspaceId: string
   const runNow = () => setSettled((current) => ({ key, run: current.run + 1, workspaceId, query, options }));
 
   // An empty field or another workspace shows nothing at once, without waiting for the pause.
-  const active = workspaceId !== null && workspaceId !== "" && query.trim() !== "" && settled.workspaceId === workspaceId;
+  const active =
+    workspaceId !== null && workspaceId !== "" && query.trim() !== "" && settled.workspaceId === workspaceId;
   const search = usePanelQuery({
     queryKey: ["workspace-search", sourceKey(client), settled.key, settled.run],
     // The sidecar hands the request's signal to `rg`, and a query whose key moves on aborts the
@@ -75,9 +79,12 @@ export function useContentSearch(client: WorkspaceIdeClient, workspaceId: string
     exclude,
     result: active ? (search.data ?? null) : null,
     searching: active && search.isFetching,
-    error: active && search.error
-      ? search.error instanceof WorkspaceRequestError ? search.error.message : "The search could not run."
-      : null,
+    error:
+      active && search.error
+        ? search.error instanceof WorkspaceRequestError
+          ? search.error.message
+          : "The search could not run."
+        : null,
     setQuery,
     toggle: useCallback((option) => setFlags((current) => ({ ...current, [option]: !current[option] })), []),
     setInclude,

@@ -24,14 +24,25 @@ class FakeTerminal {
   scrollLines() {}
   clear() {}
   reset() {}
-  resize(columns: number, rows: number) { this.cols = columns; this.rows = rows; }
+  resize(columns: number, rows: number) {
+    this.cols = columns;
+    this.rows = rows;
+  }
   focus() {}
   dispose() {}
-  write(_data: unknown, done?: () => void) { done?.(); }
-  onData() { return { dispose: () => {} }; }
+  write(_data: unknown, done?: () => void) {
+    done?.();
+  }
+  onData() {
+    return { dispose: () => {} };
+  }
   // Nothing renders in jsdom; the pane's watch on the last drawn row only needs the hook.
-  onRender() { return { dispose: () => {} }; }
-  onBinary() { return { dispose: () => {} }; }
+  onRender() {
+    return { dispose: () => {} };
+  }
+  onBinary() {
+    return { dispose: () => {} };
+  }
 }
 
 vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
@@ -66,20 +77,12 @@ function tileBoxOf(container: HTMLElement): { width: number; height: number } | 
 
 it("opens at the remembered grid and grows its own box from the handle", async () => {
   const feed = feedDouble();
-  localStorage.setItem(
-    "agent-panel.terminal.tile-grid",
-    JSON.stringify({ ":tile-1": { columns: 100, rows: 30 } }),
+  localStorage.setItem("agent-panel.terminal.tile-grid", JSON.stringify({ ":tile-1": { columns: 100, rows: 30 } }));
+  localStorage.setItem("agent-panel.terminal.tile-box", JSON.stringify({ ":tile-1": { width: 400, height: 300 } }));
+  const view = render(
+    <TerminalTile feed={feed} session={{ name: "tile-1" }} storageKey=":tile-1" onAttachImage={() => {}} />,
   );
-  localStorage.setItem(
-    "agent-panel.terminal.tile-box",
-    JSON.stringify({ ":tile-1": { width: 400, height: 300 } }),
-  );
-  const view = render(<TerminalTile feed={feed} session={{ name: "tile-1" }} storageKey=":tile-1" onAttachImage={() => {}} />);
-  await waitFor(() => expect(feed.openTerminal).toHaveBeenCalledWith(
-    { kind: "tmux", session: "tile-1" },
-    100,
-    30,
-  ));
+  await waitFor(() => expect(feed.openTerminal).toHaveBeenCalledWith({ kind: "tmux", session: "tile-1" }, 100, 30));
 
   // The keyboard path: one press right widens the box by one cell and remembers it --
   // locally. The wall follows the pane and never claims its shape.
@@ -91,11 +94,10 @@ it("opens at the remembered grid and grows its own box from the handle", async (
 it("drags the corner into a new box and remembers it on release", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  localStorage.setItem(
-    "agent-panel.terminal.tile-box",
-    JSON.stringify({ ":tile-2": { width: 400, height: 300 } }),
+  localStorage.setItem("agent-panel.terminal.tile-box", JSON.stringify({ ":tile-2": { width: 400, height: 300 } }));
+  const view = render(
+    <TerminalTile feed={feed} session={{ name: "tile-2" }} storageKey=":tile-2" onAttachImage={() => {}} />,
   );
-  const view = render(<TerminalTile feed={feed} session={{ name: "tile-2" }} storageKey=":tile-2" onAttachImage={() => {}} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalled());
 
   const handle = screen.getByRole("button", { name: "Resize tile-2 terminal" });
@@ -128,11 +130,10 @@ it("ignores a drag without a matching axis and a press without a cell", async ()
 it("drags the right edge into width alone and remembers it", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  localStorage.setItem(
-    "agent-panel.terminal.tile-box",
-    JSON.stringify({ ":tile-4": { width: 400, height: 300 } }),
+  localStorage.setItem("agent-panel.terminal.tile-box", JSON.stringify({ ":tile-4": { width: 400, height: 300 } }));
+  const view = render(
+    <TerminalTile feed={feed} session={{ name: "tile-4" }} storageKey=":tile-4" onAttachImage={() => {}} />,
   );
-  const view = render(<TerminalTile feed={feed} session={{ name: "tile-4" }} storageKey=":tile-4" onAttachImage={() => {}} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalled());
 
   const handle = screen.getByRole("button", { name: "Resize tile-4 terminal width" });
@@ -148,11 +149,10 @@ it("drags the right edge into width alone and remembers it", async () => {
 it("drags the bottom edge into height alone and remembers it", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  localStorage.setItem(
-    "agent-panel.terminal.tile-box",
-    JSON.stringify({ ":tile-5": { width: 400, height: 300 } }),
+  localStorage.setItem("agent-panel.terminal.tile-box", JSON.stringify({ ":tile-5": { width: 400, height: 300 } }));
+  const view = render(
+    <TerminalTile feed={feed} session={{ name: "tile-5" }} storageKey=":tile-5" onAttachImage={() => {}} />,
   );
-  const view = render(<TerminalTile feed={feed} session={{ name: "tile-5" }} storageKey=":tile-5" onAttachImage={() => {}} />);
   await waitFor(() => expect(feed.openTerminal).toHaveBeenCalled());
 
   const handle = screen.getByRole("button", { name: "Resize tile-5 terminal height" });
@@ -168,10 +168,7 @@ it("drags the bottom edge into height alone and remembers it", async () => {
 it("shows the pane's shape in the footer, live through a drag", async () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  localStorage.setItem(
-    "agent-panel.terminal.tile-box",
-    JSON.stringify({ ":tile-size": { width: 400, height: 300 } }),
-  );
+  localStorage.setItem("agent-panel.terminal.tile-box", JSON.stringify({ ":tile-size": { width: 400, height: 300 } }));
   render(<TerminalTile feed={feed} session={{ name: "tile-size" }} storageKey=":tile-size" onAttachImage={() => {}} />);
   // Before the attach answers, the opening grid stands in.
   expect(screen.getByLabelText("Terminal size")).toHaveTextContent("60×30");
@@ -211,7 +208,9 @@ it("attaches through the footer picker", async () => {
 it("keeps an oversized grid reachable by scrolling instead of clipping it", () => {
   const feed = feedDouble();
   localStorage.removeItem("agent-panel.terminal.tile-grid");
-  const view = render(<TerminalTile feed={feed} session={{ name: "tile-scroll" }} storageKey=":tile-scroll" onAttachImage={() => {}} />);
+  const view = render(
+    <TerminalTile feed={feed} session={{ name: "tile-scroll" }} storageKey=":tile-scroll" onAttachImage={() => {}} />,
+  );
   // The mount scrolls on both axes with a screen that never shrink-wraps away: a tile
   // dragged past its card clips without this, and the cut-off columns are unreachable.
   const mount = view.container.querySelector("section > div");

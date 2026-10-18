@@ -104,9 +104,9 @@ export function ProfileRow({
             }
             if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
             event.preventDefault();
-            const items = Array.from(
-              menu.current?.querySelectorAll<HTMLElement>(MENU_ITEMS) ?? [],
-            ).filter((item) => item.getAttribute("aria-disabled") !== "true");
+            const items = Array.from(menu.current?.querySelectorAll<HTMLElement>(MENU_ITEMS) ?? []).filter(
+              (item) => item.getAttribute("aria-disabled") !== "true",
+            );
             if (items.length === 0) return;
             const index = items.indexOf(document.activeElement as HTMLElement);
             const next = event.key === "ArrowDown" ? index + 1 : index - 1;
@@ -131,9 +131,7 @@ export function ProfileRow({
           >
             <Gauge className="size-4 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1 truncate">Usage</span>
-            {!available ? (
-              <span className="shrink-0 text-xs text-muted-foreground">no records</span>
-            ) : null}
+            {!available ? <span className="shrink-0 text-xs text-muted-foreground">no records</span> : null}
           </button>
           {/* Gathering every window onto one Desktop is a machine-level action, not a
               thread-level one, so it belongs beside Usage rather than in the thread header.
@@ -157,9 +155,7 @@ export function ProfileRow({
           >
             <LayoutGrid className="size-4 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1 truncate">Desktop park</span>
-            {!park.available ? (
-              <span className="shrink-0 text-xs text-muted-foreground">no yabai</span>
-            ) : null}
+            {!park.available ? <span className="shrink-0 text-xs text-muted-foreground">no yabai</span> : null}
           </button>
           {/* Every session behind the launch flags or the installed CLI, on every machine. A list
               before a restart, because which sessions that is changes every time it is asked. */}
@@ -195,10 +191,10 @@ export function ProfileRow({
               onClick={() => build.setMode(build.mode === "auto" ? "manual" : "auto")}
               title={
                 build.mode === "auto"
-                  ? "Edits reach this page, and restart each machine's sidecar, as they are saved."
-                    + " Switch to hold them until you ask."
-                  : "Edits are held, here and on every machine, until you apply them. Switch back to"
-                    + " take each one as it lands."
+                  ? "Edits reach this page, and restart each machine's sidecar, as they are saved." +
+                    " Switch to hold them until you ask."
+                  : "Edits are held, here and on every machine, until you apply them. Switch back to" +
+                    " take each one as it lands."
               }
               className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm
                 transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80
@@ -245,8 +241,7 @@ export function ProfileRow({
             >
               <span className={canReceiveFragmentedVideo(media) ? "text-foreground" : "text-destructive"}>
                 video {canReceiveFragmentedVideo(media) ? "ok" : "no"}
-              </span>
-              {" "}
+              </span>{" "}
               {summarizeMediaCapabilities(media)}
             </p>
           </div>
@@ -274,28 +269,21 @@ export function ProfileRow({
         <span
           title={
             build.connected
-              ? `Panel build ${build.id}, re-read from the dev server. Edits reach this tab as`
-                + " they are saved."
-              : `Panel build ${build.id}. This tab has lost the dev server, so it may be`
-                + " running older code than the tree. Reload it."
+              ? `Panel build ${build.id}, re-read from the dev server. Edits reach this tab as` + " they are saved."
+              : `Panel build ${build.id}. This tab has lost the dev server, so it may be` +
+                " running older code than the tree. Reload it."
           }
           aria-label={
-            build.connected
-              ? `Panel build ${build.id}`
-              : `Panel build ${build.id}, disconnected from the dev server`
+            build.connected ? `Panel build ${build.id}` : `Panel build ${build.id}, disconnected from the dev server`
           }
           className={
-            "shrink-0 font-mono text-[10px] leading-none "
-            + (build.connected ? "text-muted-foreground/60" : "text-amber-500")
+            "shrink-0 font-mono text-[10px] leading-none " +
+            (build.connected ? "text-muted-foreground/60" : "text-amber-500")
           }
         >
           {build.id}
         </span>
-        {quota ? (
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
-            {quota.usedPercent}%
-          </span>
-        ) : null}
+        {quota ? <span className="shrink-0 font-mono text-xs text-muted-foreground">{quota.usedPercent}%</span> : null}
         {/* Points the way the menu will go. Closed it is an up-chevron because pressing it opens
             upward; open it flips to point back down at the row it came from. */}
         <ChevronUp
@@ -326,9 +314,10 @@ export function ProfileRow({
 const MENU_ITEMS = "[role='menuitem'],[role='menuitemcheckbox']";
 
 function vendorNames(usage: UsageHandle): string {
-  const named = usage.state.kind === "ready"
-    ? usage.state.report.vendors.filter((vendor) => vendor.installed).map((vendor) => vendor.displayName)
-    : [];
+  const named =
+    usage.state.kind === "ready"
+      ? usage.state.report.vendors.filter((vendor) => vendor.installed).map((vendor) => vendor.displayName)
+      : [];
   return named.length > 0 ? named.join(", ") : usage.vendors.join(", ");
 }
 
@@ -357,13 +346,7 @@ export type ProfileFeed = UsageFeed & ParkDataSource;
  * boundary, rather than handed down from `App`, where a broken edit to any of them cost the whole
  * Feed tab. `ProfileRow` itself takes the handles, so its tests stand them up directly.
  */
-export function LiveProfileRow({
-  feed,
-  machines,
-}: {
-  feed: ProfileFeed;
-  machines: readonly StaleSessionsMachine[];
-}) {
+export function LiveProfileRow({ feed, machines }: { feed: ProfileFeed; machines: readonly StaleSessionsMachine[] }) {
   const usage = useUsage(feed);
   const park = useDesktopPark(feed);
   const restarts = useStaleSessions(machines);

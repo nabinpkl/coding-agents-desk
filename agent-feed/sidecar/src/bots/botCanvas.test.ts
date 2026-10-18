@@ -44,13 +44,27 @@ test("takes sessions off in the Bot's own order, and a repeat changes nothing", 
   const { registry, botId, ref, secondRef } = await botWithTwo();
   const off = { onCanvas: false };
 
-  await registry.setCanvas(botId, { sessions: [{ ...secondRef, ...off }, { ...ref, ...off }] }, { kind: "user" });
+  await registry.setCanvas(
+    botId,
+    {
+      sessions: [
+        { ...secondRef, ...off },
+        { ...ref, ...off },
+      ],
+    },
+    { kind: "user" },
+  );
   const again = await registry.setCanvas(botId, { sessions: [{ ...ref, ...off }] }, { kind: "user" });
   expect(again.offCanvasSessionRefs?.map((each) => each.sessionId)).toEqual(["session-1", "session-2"]);
 
   const back = await registry.setCanvas(
     botId,
-    { sessions: [{ ...ref, onCanvas: true }, { ...secondRef, onCanvas: true }] },
+    {
+      sessions: [
+        { ...ref, onCanvas: true },
+        { ...secondRef, onCanvas: true },
+      ],
+    },
     { kind: "user" },
   );
   expect("offCanvasSessionRefs" in back).toBe(false);
@@ -61,7 +75,12 @@ test("forgets a session's place off the canvas when the Bot lets it go", async (
   const { registry, botId, ref, secondRef } = await botWithTwo();
   await registry.setCanvas(
     botId,
-    { sessions: [{ ...ref, onCanvas: false }, { ...secondRef, onCanvas: false }] },
+    {
+      sessions: [
+        { ...ref, onCanvas: false },
+        { ...secondRef, onCanvas: false },
+      ],
+    },
     { kind: "user" },
   );
   const detached = await registry.detachSessions(botId, { requestId: "r3", sessionRefs: [ref] }, { kind: "user" });
@@ -92,7 +111,6 @@ test("stands a Bot at a position on the strip, and refuses one that is not a pla
   expect(placed.canvasPosition).toBe(3);
   expect((await registry.snapshot()).bots[0]!.canvasPosition).toBe(3);
   for (const position of [-1, 1.5, "2" as unknown as number]) {
-    await expect(registry.setCanvas(botId, { position }, { kind: "user" }))
-      .rejects.toBeInstanceOf(BotInvalidError);
+    await expect(registry.setCanvas(botId, { position }, { kind: "user" })).rejects.toBeInstanceOf(BotInvalidError);
   }
 });

@@ -66,10 +66,7 @@ export function withOffCanvasLast(
   if (!offCanvas) return bots;
   const gone = (bot: BotView) =>
     offCanvas.detachedBotIds.has(bot.botId) || offCanvas.machineHiddenBotIds.has(bot.botId);
-  return [
-    ...bots.filter((bot) => !gone(bot)),
-    ...bots.filter(gone).sort((a, b) => lastActiveAt(b) - lastActiveAt(a)),
-  ];
+  return [...bots.filter((bot) => !gone(bot)), ...bots.filter(gone).sort((a, b) => lastActiveAt(b) - lastActiveAt(a))];
 }
 
 /**

@@ -73,9 +73,7 @@ export function standingAfter<T>(
   const shown = new Set(laidOut.map(sessionKey));
   const position = new Map(refs.map((ref, index) => [sessionKey(ref), index]));
   const groups = new Map<string | null, T[]>();
-  const ranked = [...items].sort(
-    (a, b) => (position.get(keyOf(a)) ?? Infinity) - (position.get(keyOf(b)) ?? Infinity),
-  );
+  const ranked = [...items].sort((a, b) => (position.get(keyOf(a)) ?? Infinity) - (position.get(keyOf(b)) ?? Infinity));
   for (const item of ranked) {
     const at = position.get(keyOf(item));
     let after: string | null = null;

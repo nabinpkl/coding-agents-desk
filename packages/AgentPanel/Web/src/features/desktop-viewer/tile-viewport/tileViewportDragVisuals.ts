@@ -23,13 +23,11 @@ export function createDragVisuals(ctx: ViewportRuntime) {
       ring.hidden = !priming;
       if (!priming) return;
       const elapsed = DRAG_PRIMING_DELAY_MS / TOUCH_DRAG_HOLD_MS;
-      ctx.touchPrimingArc = ctx.dragPrimingArc.current?.animate?.(
-        [
-          { strokeDashoffset: DRAG_PRIMING_CIRCUMFERENCE * (1 - elapsed) },
-          { strokeDashoffset: 0 },
-        ],
-        { duration: TOUCH_DRAG_HOLD_MS - DRAG_PRIMING_DELAY_MS, easing: "linear", fill: "forwards" },
-      ) ?? null;
+      ctx.touchPrimingArc =
+        ctx.dragPrimingArc.current?.animate?.(
+          [{ strokeDashoffset: DRAG_PRIMING_CIRCUMFERENCE * (1 - elapsed) }, { strokeDashoffset: 0 }],
+          { duration: TOUCH_DRAG_HOLD_MS - DRAG_PRIMING_DELAY_MS, easing: "linear", fill: "forwards" },
+        ) ?? null;
     },
     cancelTouchHold: () => {
       // Ahead of the timer check: the ring outlives the timer by the moment the hold fires in, and

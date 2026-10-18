@@ -141,9 +141,11 @@ export type ObserverEvent = {
 export function describeRecordsDropped(dropped: ObserverRecordsDropped): string {
   const count = Number(dropped.droppedRecordCount);
   const records = Number.isFinite(count) && count > 0 ? count : 1;
-  return `agent-feed-claude-live-observer-records-dropped: records=${records}`
-    + ` sequences=${String(dropped.firstMissingSequence ?? "?")}`
-    + `..${String(dropped.lastMissingSequence ?? "?")}`;
+  return (
+    `agent-feed-claude-live-observer-records-dropped: records=${records}` +
+    ` sequences=${String(dropped.firstMissingSequence ?? "?")}` +
+    `..${String(dropped.lastMissingSequence ?? "?")}`
+  );
 }
 
 /** The observer filter: only Anthropic message streams, so we never parse anything else. */
@@ -338,7 +340,7 @@ function sniffAndDecompress(bytes: Uint8Array): Uint8Array {
       return bytes;
     }
   }
-  if (bytes.length >= 2 && (first & 0x0f) === 0x08 && (first >> 4) <= 7) {
+  if (bytes.length >= 2 && (first & 0x0f) === 0x08 && first >> 4 <= 7) {
     try {
       return Bun.inflateSync(new Uint8Array(bytes));
     } catch {
@@ -379,9 +381,7 @@ export type AnthropicStreamEvent =
   | { kind: "error" };
 
 function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function asIndex(value: unknown): number {

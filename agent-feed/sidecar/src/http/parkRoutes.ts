@@ -17,11 +17,7 @@
 // comes from one `yabai` subprocess, and the geometry is pure TypeScript. No
 // native code is reached until something wants pixels.
 
-import type {
-  ParkMove,
-  ParkPlanResponse,
-  ParkStateResponse,
-} from "@agentdesk/agent-feed-wire";
+import type { ParkMove, ParkPlanResponse, ParkStateResponse } from "@agentdesk/agent-feed-wire";
 import { config } from "@/config/config";
 import { packFromTopLeft, usableArea } from "@/park/grid";
 import { plan as planLadder } from "@/park/ladder";
@@ -76,7 +72,7 @@ interface ParkRequestBody {
 async function body(request: Request): Promise<ParkRequestBody> {
   try {
     const parsed = await request.json();
-    return parsed && typeof parsed === "object" ? (parsed) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
     return {};
   }
@@ -142,9 +138,7 @@ async function planResponse(url: URL): Promise<Response> {
   // `?app=` narrows the park to one application, which is how this gets tried on
   // two codex windows before it is tried on a whole workspace.
   const appFilter = url.searchParams.get("app")?.toLowerCase() ?? null;
-  const candidates = parkable(all).filter(
-    (w) => !appFilter || w.app.toLowerCase().includes(appFilter),
-  );
+  const candidates = parkable(all).filter((w) => !appFilter || w.app.toLowerCase().includes(appFilter));
 
   const laid = planLadder(
     candidates.map((w) => ({ id: w.id, frame: w.frame })),
@@ -223,14 +217,12 @@ async function gridResponse(request: Request): Promise<Response> {
   // this exists for is a big panel beside a small one and an index moves when a
   // display is unplugged.
   const requested = typeof input.display === "number" ? input.display : null;
-  const screen = requested !== null
-    ? screens.find((d) => d.index === requested)
-    : [...screens].sort((a, b) => b.frame.w * b.frame.h - a.frame.w * a.frame.h)[0];
+  const screen =
+    requested !== null
+      ? screens.find((d) => d.index === requested)
+      : [...screens].sort((a, b) => b.frame.w * b.frame.h - a.frame.w * a.frame.h)[0];
   if (!screen) {
-    return jsonResponse(
-      { code: "park-no-such-display", message: `no display ${requested}`, displays: screens },
-      400,
-    );
+    return jsonResponse({ code: "park-no-such-display", message: `no display ${requested}`, displays: screens }, 400);
   }
 
   const target = allSpaces.find((s) => s.display === screen.index);
@@ -243,9 +235,8 @@ async function gridResponse(request: Request): Promise<Response> {
 
   const ids = Array.isArray(input.ids) ? input.ids.filter((id) => typeof id === "number") : [];
   const limit = typeof input.count === "number" ? input.count : candidates.length;
-  const chosen = ids.length > 0
-    ? ids.flatMap((id) => candidates.filter((w) => w.id === id))
-    : candidates.slice(0, limit);
+  const chosen =
+    ids.length > 0 ? ids.flatMap((id) => candidates.filter((w) => w.id === id)) : candidates.slice(0, limit);
   if (chosen.length === 0) {
     return jsonResponse(
       {
@@ -270,15 +261,16 @@ async function gridResponse(request: Request): Promise<Response> {
     // Packed at the windows' own sizes, so the space between two of them is the
     // gap. Dividing the display evenly instead put an 860pt terminal at the
     // top-left of a 2528pt cell and left 1600pt of desk between neighbours.
-    slots = packFromTopLeft(area, chosen.map((w) => ({
-      w: Math.min(w.frame.w, DEFAULT_MAX_WIDTH),
-      h: Math.min(w.frame.h, DEFAULT_MAX_HEIGHT),
-    })), gap);
-  } catch (error) {
-    return jsonResponse(
-      { code: "park-grid-impossible", message: (error as Error).message },
-      400,
+    slots = packFromTopLeft(
+      area,
+      chosen.map((w) => ({
+        w: Math.min(w.frame.w, DEFAULT_MAX_WIDTH),
+        h: Math.min(w.frame.h, DEFAULT_MAX_HEIGHT),
+      })),
+      gap,
     );
+  } catch (error) {
+    return jsonResponse({ code: "park-grid-impossible", message: (error as Error).message }, 400);
   }
 
   // Serially, because every step re-queries the window to see where it actually
@@ -331,11 +323,10 @@ export function createParkRoutes(): RouteHandler {
   // and must be returned synchronously, so only the matched paths become a
   // promise.
   return (request, url) => {
-    const isGet = request.method === "GET"
-      && (url.pathname === STATE_ROUTE || url.pathname === PLAN_ROUTE);
-    const isPost = request.method === "POST"
-      && (url.pathname === PARK_ROUTE || url.pathname === RESTORE_ROUTE
-        || url.pathname === GRID_ROUTE);
+    const isGet = request.method === "GET" && (url.pathname === STATE_ROUTE || url.pathname === PLAN_ROUTE);
+    const isPost =
+      request.method === "POST" &&
+      (url.pathname === PARK_ROUTE || url.pathname === RESTORE_ROUTE || url.pathname === GRID_ROUTE);
     if (!isGet && !isPost) return undefined;
     if (!config.yabaiPath) {
       return unavailable(new YabaiUnavailable("no yabai binary found on this machine"));

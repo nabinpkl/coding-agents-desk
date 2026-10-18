@@ -84,4 +84,5 @@ export function FolderWideDialog({
 }
 
 /** The narrow-screen way back from the reading pane to the list, hidden where both fit. */
-export const BACK_TO_LIST = "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 md:hidden";
+export const BACK_TO_LIST =
+  "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 md:hidden";

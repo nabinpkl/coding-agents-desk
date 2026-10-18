@@ -47,7 +47,14 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
   const createdAt = typeof record.createdAt === "number" ? record.createdAt : null;
   // An empty prompt is a terminals run whose lanes were opened and never given one.
   if (
-    !runId || !name || !folder || prompt === null || !repoPath || repoCreated === null || !baseRef || !mode ||
+    !runId ||
+    !name ||
+    !folder ||
+    prompt === null ||
+    !repoPath ||
+    repoCreated === null ||
+    !baseRef ||
+    !mode ||
     createdAt === null
   ) {
     throw new ArenaStoreError(`runs.json entry ${at} is missing a field the arena cannot invent`);

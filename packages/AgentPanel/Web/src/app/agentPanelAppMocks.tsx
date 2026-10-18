@@ -48,11 +48,11 @@ export async function activityFeedModule() {
       // rendered without opening it would leave the App listening to a stream nobody asked for.
       const dataSource = useDataSource();
       useEffect(
-        () => dataSource.subscribeSessionEvents(
-          { source, sessionId, mode: "nice" },
-          0,
-          { onEvent: () => {}, onSnapshot: () => {} },
-        ),
+        () =>
+          dataSource.subscribeSessionEvents({ source, sessionId, mode: "nice" }, 0, {
+            onEvent: () => {},
+            onSnapshot: () => {},
+          }),
         [dataSource, sessionId, source],
       );
       useEffect(() => {
@@ -87,28 +87,28 @@ export async function activityFeedModule() {
 // fake xterm, so jsdom does not need a canvas merely because one shell test opens the pane.
 export function terminalPaneModule() {
   return {
-  AgentTerminalPane: ({ context, onState, heightBasis }: {
-    context: Record<string, unknown>;
-    onState: (context: Record<string, unknown>, state: Record<string, unknown>) => void;
-    heightBasis?: HTMLElement | null;
-  }) => {
-    // Two panes can be mounted at once -- the thread's own terminal in the composer and a resumed
-    // CLI on the Terminals surface -- so they are recorded apart. A single slot took whichever
-    // rendered last, which is a render-order dependency rather than a fact about the shell.
-    if (context.kind === "session-tmux") {
-      terminalPaneMock.composerContext = context;
-      terminalPaneMock.composerHasBasis = heightBasis instanceof HTMLElement;
-    } else {
-      terminalPaneMock.context = context;
-      terminalPaneMock.onState = onState;
-    }
-    const provider = context.source === "claude" ? "Claude" : context.source === "codex" ? "Codex" : "Opencode";
-    return (
-      <section
-        aria-label={`${provider}${context.kind === "session-tmux" ? " session" : ""} terminal`}
-      />
-    );
-  },
+    AgentTerminalPane: ({
+      context,
+      onState,
+      heightBasis,
+    }: {
+      context: Record<string, unknown>;
+      onState: (context: Record<string, unknown>, state: Record<string, unknown>) => void;
+      heightBasis?: HTMLElement | null;
+    }) => {
+      // Two panes can be mounted at once -- the thread's own terminal in the composer and a resumed
+      // CLI on the Terminals surface -- so they are recorded apart. A single slot took whichever
+      // rendered last, which is a render-order dependency rather than a fact about the shell.
+      if (context.kind === "session-tmux") {
+        terminalPaneMock.composerContext = context;
+        terminalPaneMock.composerHasBasis = heightBasis instanceof HTMLElement;
+      } else {
+        terminalPaneMock.context = context;
+        terminalPaneMock.onState = onState;
+      }
+      const provider = context.source === "claude" ? "Claude" : context.source === "codex" ? "Codex" : "Opencode";
+      return <section aria-label={`${provider}${context.kind === "session-tmux" ? " session" : ""} terminal`} />;
+    },
   };
 }
 
@@ -116,15 +116,13 @@ export function terminalPaneModule() {
 // marked/shiki/katex deps never load under jsdom if pulled in transitively).
 export function markdownModule() {
   return {
-  Markdown: ({ content }: { content: string }) => (
-    <div data-testid="markdown-view">{content}</div>
-  ),
+    Markdown: ({ content }: { content: string }) => <div data-testid="markdown-view">{content}</div>,
   };
 }
 
 // Mock DiffBlock (uses next-themes and @git-diff-view which don't run in jsdom).
 export function diffBlockModule() {
   return {
-  DiffBlock: () => <div data-testid="diff-block" />,
+    DiffBlock: () => <div data-testid="diff-block" />,
   };
 }

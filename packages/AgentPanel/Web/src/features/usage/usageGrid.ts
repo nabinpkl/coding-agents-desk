@@ -75,8 +75,7 @@ function startOfWeek(date: Date): Date {
 export function quartileThresholds(values: number[]): number[] {
   const sorted = values.filter((value) => value > 0).sort((left, right) => left - right);
   if (sorted.length === 0) return [0, 0, 0];
-  const at = (fraction: number) =>
-    sorted[Math.min(sorted.length - 1, Math.floor(fraction * sorted.length))]!;
+  const at = (fraction: number) => sorted[Math.min(sorted.length - 1, Math.floor(fraction * sorted.length))]!;
   return [at(0.25), at(0.5), at(0.75)];
 }
 
@@ -120,16 +119,18 @@ export function buildUsageGrid(
   }
 
   const thresholds = quartileThresholds(visible);
-  const weeks = dates.map((column) => column.map((date): UsageCell => {
-    const day = byDate.get(date) ?? null;
-    return {
-      date,
-      day,
-      covered: options.coverageFrom !== null && date >= options.coverageFrom && date <= todayKey,
-      level: day ? levelFor(cellValue(day.totals), thresholds) : 0,
-      future: date > todayKey,
-    };
-  }));
+  const weeks = dates.map((column) =>
+    column.map((date): UsageCell => {
+      const day = byDate.get(date) ?? null;
+      return {
+        date,
+        day,
+        covered: options.coverageFrom !== null && date >= options.coverageFrom && date <= todayKey,
+        level: day ? levelFor(cellValue(day.totals), thresholds) : 0,
+        future: date > todayKey,
+      };
+    }),
+  );
 
   return { weeks, thresholds };
 }
@@ -180,7 +181,10 @@ export function weekBounds(date: string): { start: string; end: string } {
 }
 
 /** Shifts a week's bounds back by `count` weeks, for week-over-week reading. */
-export function previousWeek(bounds: { start: string; end: string }, count = 1): {
+export function previousWeek(
+  bounds: { start: string; end: string },
+  count = 1,
+): {
   start: string;
   end: string;
 } {

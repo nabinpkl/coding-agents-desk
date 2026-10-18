@@ -8,11 +8,12 @@ import { Highlighted } from "@/features/workspace-ide/search/Highlighted";
 import type { ContentSearch } from "@/features/workspace-ide/search/useContentSearch";
 
 const FIELD = "min-w-0 flex-1 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground";
-const BOX = "flex items-center rounded-md border border-border bg-background focus-within:ring-2"
-  + " focus-within:ring-primary";
-const TOGGLE = "grid h-6 min-w-6 place-items-center rounded px-1 font-mono text-[11px] outline-none"
-  + " transition-colors focus-visible:ring-2 focus-visible:ring-primary"
-  + " aria-pressed:bg-primary/15 aria-pressed:text-foreground text-muted-foreground hover:bg-muted/60";
+const BOX =
+  "flex items-center rounded-md border border-border bg-background focus-within:ring-2" + " focus-within:ring-primary";
+const TOGGLE =
+  "grid h-6 min-w-6 place-items-center rounded px-1 font-mono text-[11px] outline-none" +
+  " transition-colors focus-visible:ring-2 focus-visible:ring-primary" +
+  " aria-pressed:bg-primary/15 aria-pressed:text-foreground text-muted-foreground hover:bg-muted/60";
 
 const OPTIONS = [
   { option: "matchCase", glyph: "Aa", label: "Match case" },
@@ -20,11 +21,14 @@ const OPTIONS = [
   { option: "regex", glyph: ".*", label: "Use regular expression" },
 ] as const;
 
-export const SearchPanel = forwardRef<HTMLInputElement, {
-  search: ContentSearch;
-  /** Opens one result: the file in the preview tab, at the line. */
-  onOpen: (path: string, line: number, start: number, end: number) => void;
-}>(function SearchPanel({ search, onOpen }, queryField) {
+export const SearchPanel = forwardRef<
+  HTMLInputElement,
+  {
+    search: ContentSearch;
+    /** Opens one result: the file in the preview tab, at the line. */
+    onOpen: (path: string, line: number, start: number, end: number) => void;
+  }
+>(function SearchPanel({ search, onOpen }, queryField) {
   const [globsShown, setGlobsShown] = useState(search.include !== "" || search.exclude !== "");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const { result } = search;
@@ -77,44 +81,42 @@ export const SearchPanel = forwardRef<HTMLInputElement, {
             <Ellipsis className="size-3.5" />
           </button>
         </div>
-        {globsShown
-          ? (
-            <>
-              <label className="grid gap-0.5 text-[11px] text-muted-foreground">
-                Files to include
-                <input
-                  id="workspace-search-include"
-                  value={search.include}
-                  onChange={(event) => search.setInclude(event.target.value)}
-                  placeholder="e.g. *.ts, src/**"
-                  spellCheck={false}
-                  className={`${BOX} ${FIELD} text-foreground`}
-                />
-              </label>
-              <label className="grid gap-0.5 text-[11px] text-muted-foreground">
-                Files to exclude
-                <input
-                  id="workspace-search-exclude"
-                  value={search.exclude}
-                  onChange={(event) => search.setExclude(event.target.value)}
-                  placeholder="e.g. *.test.ts, dist"
-                  spellCheck={false}
-                  className={`${BOX} ${FIELD} text-foreground`}
-                />
-              </label>
-            </>
-          )
-          : null}
+        {globsShown ? (
+          <>
+            <label className="grid gap-0.5 text-[11px] text-muted-foreground">
+              Files to include
+              <input
+                id="workspace-search-include"
+                value={search.include}
+                onChange={(event) => search.setInclude(event.target.value)}
+                placeholder="e.g. *.ts, src/**"
+                spellCheck={false}
+                className={`${BOX} ${FIELD} text-foreground`}
+              />
+            </label>
+            <label className="grid gap-0.5 text-[11px] text-muted-foreground">
+              Files to exclude
+              <input
+                id="workspace-search-exclude"
+                value={search.exclude}
+                onChange={(event) => search.setExclude(event.target.value)}
+                placeholder="e.g. *.test.ts, dist"
+                spellCheck={false}
+                className={`${BOX} ${FIELD} text-foreground`}
+              />
+            </label>
+          </>
+        ) : null}
       </div>
 
       <div role="status" className="shrink-0 px-2.5 pb-1 text-[11px] text-muted-foreground">
-        {search.error
-          ? <span className="text-destructive">{search.error}</span>
-          : search.searching && !result
-          ? "Searching…"
-          : result
-          ? summary(result.matchCount, result.files.length, result.truncated)
-          : null}
+        {search.error ? (
+          <span className="text-destructive">{search.error}</span>
+        ) : search.searching && !result ? (
+          "Searching…"
+        ) : result ? (
+          summary(result.matchCount, result.files.length, result.truncated)
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-1 pb-4">
@@ -135,7 +137,8 @@ export const SearchPanel = forwardRef<HTMLInputElement, {
                     const next = new Set(current);
                     if (!next.delete(file.path)) next.add(file.path);
                     return next;
-                  })}
+                  })
+                }
                 className="sticky top-0 z-10 flex w-full items-center gap-1.5 rounded bg-background
                   px-1 py-1 text-left outline-none hover:bg-muted/60 focus-visible:ring-2
                   focus-visible:ring-primary focus-visible:ring-inset"
@@ -156,41 +159,33 @@ export const SearchPanel = forwardRef<HTMLInputElement, {
                   {file.matches.length}
                 </span>
               </button>
-              {closed
-                ? null
-                : (
-                  <ul aria-label={`Matches in ${file.path}`} className="m-0 list-none p-0">
-                    {file.matches.map((match) => (
-                      <li key={match.line}>
-                        <button
-                          type="button"
-                          aria-label={`Open ${file.path} at line ${match.line}`}
-                          onClick={() => {
-                            const [start, end] = match.ranges[0] ?? [0, 0];
-                            onOpen(
-                              file.path,
-                              match.line,
-                              start + match.previewOffset,
-                              end + match.previewOffset,
-                            );
-                          }}
-                          className="flex w-full items-baseline gap-2 rounded py-0.5 pl-7 pr-1.5
+              {closed ? null : (
+                <ul aria-label={`Matches in ${file.path}`} className="m-0 list-none p-0">
+                  {file.matches.map((match) => (
+                    <li key={match.line}>
+                      <button
+                        type="button"
+                        aria-label={`Open ${file.path} at line ${match.line}`}
+                        onClick={() => {
+                          const [start, end] = match.ranges[0] ?? [0, 0];
+                          onOpen(file.path, match.line, start + match.previewOffset, end + match.previewOffset);
+                        }}
+                        className="flex w-full items-baseline gap-2 rounded py-0.5 pl-7 pr-1.5
                             text-left outline-none hover:bg-muted/60 focus-visible:ring-2
                             focus-visible:ring-primary focus-visible:ring-inset active:bg-muted"
-                        >
-                          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-pre
+                      >
+                        <span
+                          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-pre
                             font-mono text-xs"
-                          >
-                            <Highlighted text={match.preview.trimEnd()} ranges={match.ranges} />
-                          </span>
-                          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                            {match.line}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                        >
+                          <Highlighted text={match.preview.trimEnd()} ranges={match.ranges} />
+                        </span>
+                        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{match.line}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           );
         })}

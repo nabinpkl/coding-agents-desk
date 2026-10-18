@@ -19,10 +19,7 @@
 import { errorResponse } from "@/http/protocol/httpResponses";
 
 /** The refusal for a request that must not reach a route, or null to let it through. */
-export function refuseForeignRequest(
-  request: Request,
-  allowedHosts: ReadonlySet<string>,
-): Response | null {
+export function refuseForeignRequest(request: Request, allowedHosts: ReadonlySet<string>): Response | null {
   const host = new URL(request.url).hostname;
   if (!allowedHosts.has(host)) {
     return errorResponse("host-not-allowed", `host not allowed: ${host}`, 400);

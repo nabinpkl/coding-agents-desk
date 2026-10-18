@@ -83,10 +83,7 @@ export function createSourceStore<Source extends object, State>({
  * counted in by the subscription itself, so what the entry holds open follows exactly the
  * subscriptions React keeps, with no effect of its own.
  */
-export function useSourceStore<Source extends object, State>(
-  store: SourceStore<Source, State>,
-  source: Source,
-): State {
+export function useSourceStore<Source extends object, State>(store: SourceStore<Source, State>, source: Source): State {
   const subscribe = useCallback(
     (onChange: () => void) => {
       const unlisten = store.subscribe(source, onChange);

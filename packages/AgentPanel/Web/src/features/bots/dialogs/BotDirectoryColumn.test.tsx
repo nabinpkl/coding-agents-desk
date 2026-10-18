@@ -31,10 +31,10 @@ const MAC = { label: "mac", feed: {} } as unknown as BotMachine;
 
 function column(overrides: Partial<Parameters<typeof BotDirectoryColumn>[0]> = {}) {
   const onSelect = vi.fn();
-  const browse = vi.fn((path: string | null) =>
-    Promise.resolve(path === null ? HOME : BROWSED));
+  const browse = vi.fn((path: string | null) => Promise.resolve(path === null ? HOME : BROWSED));
   const createFolder = vi.fn((path: string, name: string) =>
-    Promise.resolve({ path: `${path}/${name}`, parent: path, entries: [] }));
+    Promise.resolve({ path: `${path}/${name}`, parent: path, entries: [] }),
+  );
   render(
     <BotDirectoryColumn
       machines={[MAC]}
@@ -64,8 +64,8 @@ it("binds a folder the catalog has never heard of", async () => {
   // The picker's header is a field now, so "where am I" is the value in it rather than a line of
   // text beside a title.
   await waitFor(() =>
-    expect((screen.getByLabelText("Folder path") as HTMLInputElement).value)
-      .toBe("/Users/dev/brand-new"));
+    expect((screen.getByLabelText("Folder path") as HTMLInputElement).value).toBe("/Users/dev/brand-new"),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
 
   expect(onSelect).toHaveBeenCalledWith("/Users/dev/brand-new");
@@ -83,8 +83,8 @@ it("refuses a browsed folder another Bot already holds, before the round trip", 
   // The picker's header is a field now, so "where am I" is the value in it rather than a line of
   // text beside a title.
   await waitFor(() =>
-    expect((screen.getByLabelText("Folder path") as HTMLInputElement).value)
-      .toBe("/Users/dev/brand-new"));
+    expect((screen.getByLabelText("Folder path") as HTMLInputElement).value).toBe("/Users/dev/brand-new"),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
 
   expect(onSelect).not.toHaveBeenCalled();

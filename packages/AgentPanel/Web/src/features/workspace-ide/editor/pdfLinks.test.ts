@@ -17,17 +17,24 @@ function page(annotations: object[]): PDFPageProxy {
 }
 
 it("keeps the links a document may open, in percent of the page, and drops the rest", async () => {
-  const links = await pageLinks(page([
-    { id: "a", annotationType: 2, rect: [60, 700, 180, 720], url: "https://example.com/paper" },
-    { id: "b", annotationType: 2, rect: [0, 0, 10, 10], url: "javascript:alert(1)" },
-    { id: "c", annotationType: 2, rect: [0, 0, 10, 10], url: "file:///etc/passwd" },
-    { id: "d", annotationType: 2, rect: [0, 400, 600, 420], dest: "chapter-2" },
-    { id: "e", annotationType: 1, rect: [0, 0, 10, 10] },
-    { id: "f", annotationType: 2, rect: [0, 0, 10, 10] },
-  ]));
+  const links = await pageLinks(
+    page([
+      { id: "a", annotationType: 2, rect: [60, 700, 180, 720], url: "https://example.com/paper" },
+      { id: "b", annotationType: 2, rect: [0, 0, 10, 10], url: "javascript:alert(1)" },
+      { id: "c", annotationType: 2, rect: [0, 0, 10, 10], url: "file:///etc/passwd" },
+      { id: "d", annotationType: 2, rect: [0, 400, 600, 420], dest: "chapter-2" },
+      { id: "e", annotationType: 1, rect: [0, 0, 10, 10] },
+      { id: "f", annotationType: 2, rect: [0, 0, 10, 10] },
+    ]),
+  );
 
   expect(links).toEqual([
-    { key: "a", kind: "outside", href: "https://example.com/paper", box: { left: 10, top: 10, width: 20, height: 2.5 } },
+    {
+      key: "a",
+      kind: "outside",
+      href: "https://example.com/paper",
+      box: { left: 10, top: 10, width: 20, height: 2.5 },
+    },
     { key: "d", kind: "within", destination: "chapter-2", box: { left: 0, top: 47.5, width: 100, height: 2.5 } },
   ]);
 });

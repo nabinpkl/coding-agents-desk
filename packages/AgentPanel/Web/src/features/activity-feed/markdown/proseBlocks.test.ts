@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  createStreamingBlocks,
-  FENCE_SLOT_ATTRIBUTE,
-  toBlocks,
-} from "@/features/activity-feed/markdown/proseBlocks";
+import { createStreamingBlocks, FENCE_SLOT_ATTRIBUTE, toBlocks } from "@/features/activity-feed/markdown/proseBlocks";
 
 // The whole point of the incremental reader is that it is not a different renderer.
 // So the test is not "does it produce something reasonable" but "is it the same
@@ -47,31 +43,29 @@ describe("createStreamingBlocks", () => {
     expectMatchesWholeDocumentAtEveryTick(LONG_PROSE);
   }, 30_000);
 
-  for (
-    const [name, text] of [
-      ["a fenced block mid-document", "para one\n\npara two\n\n```js\nx = 1\n```\n\nafter"],
-      ["a mermaid fence", "a\n\n```mermaid\ngraph TD; A-->B\n```\n\nb"],
-      ["a reference link defined after its use", "See [ref][a].\n\npara\n\n[a]: http://x.test\n"],
-      ["a table", "| a | b |\n|---|---|\n| 1 | 2 |\n\ntail"],
-      ["a loose list", "- one\n- two\n\n- three\n\nend"],
-      // The underline arrives after the paragraph is already on screen, so a reader
-      // that had settled the paragraph would render a heading as body text.
-      ["a setext heading", "head\n===\n\nbody"],
-      ["an unclosed fence", "intro\n\n```js\nconst x = 1\nconst y = 2"],
-      // A nested fence is peeled out of the prose it was written in, so the slot's number has to
-      // mean the same thing whether the run was parsed in one pass or grown over many.
-      ["a fence nested in a list item", "- item:\n\n  ```js\n  x = 1\n  ```\n\nafter"],
-      [
-        "a nested fence far behind the live window",
-        `${"filler paragraph.\n\n".repeat(60)}- one:\n\n  \`\`\`js\n  x = 1\n  \`\`\`\n\n- two\n`,
-      ],
-      // marked rewrites a half-typed bullet's own `raw` (`"- "` comes back `"-\n"`),
-      // so a reader that demanded the tail tile itself exactly would bail out on
-      // every list the model types. The tokens it SETTLES still tile; the last one
-      // is allowed not to.
-      ["a bullet caught mid-keystroke", `${"body paragraph.\n\n".repeat(50)}- item one\n- `],
-    ] as const
-  ) {
+  for (const [name, text] of [
+    ["a fenced block mid-document", "para one\n\npara two\n\n```js\nx = 1\n```\n\nafter"],
+    ["a mermaid fence", "a\n\n```mermaid\ngraph TD; A-->B\n```\n\nb"],
+    ["a reference link defined after its use", "See [ref][a].\n\npara\n\n[a]: http://x.test\n"],
+    ["a table", "| a | b |\n|---|---|\n| 1 | 2 |\n\ntail"],
+    ["a loose list", "- one\n- two\n\n- three\n\nend"],
+    // The underline arrives after the paragraph is already on screen, so a reader
+    // that had settled the paragraph would render a heading as body text.
+    ["a setext heading", "head\n===\n\nbody"],
+    ["an unclosed fence", "intro\n\n```js\nconst x = 1\nconst y = 2"],
+    // A nested fence is peeled out of the prose it was written in, so the slot's number has to
+    // mean the same thing whether the run was parsed in one pass or grown over many.
+    ["a fence nested in a list item", "- item:\n\n  ```js\n  x = 1\n  ```\n\nafter"],
+    [
+      "a nested fence far behind the live window",
+      `${"filler paragraph.\n\n".repeat(60)}- one:\n\n  \`\`\`js\n  x = 1\n  \`\`\`\n\n- two\n`,
+    ],
+    // marked rewrites a half-typed bullet's own `raw` (`"- "` comes back `"-\n"`),
+    // so a reader that demanded the tail tile itself exactly would bail out on
+    // every list the model types. The tokens it SETTLES still tile; the last one
+    // is allowed not to.
+    ["a bullet caught mid-keystroke", `${"body paragraph.\n\n".repeat(50)}- item one\n- `],
+  ] as const) {
     it(`matches the whole-document reader across ${name}`, () => {
       expectMatchesWholeDocumentAtEveryTick(text);
     });

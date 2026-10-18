@@ -27,7 +27,9 @@ function openArchive(): TelemetryArchive | null {
   // archive is overridden into its own data root.
   try {
     archive = new TelemetryArchive(directory, config.telemetryArchiveBytes);
-    console.log(`telemetry: archiving to ${directory} (cap ${config.telemetryArchiveBytes} bytes, ${archive.size} held)`);
+    console.log(
+      `telemetry: archiving to ${directory} (cap ${config.telemetryArchiveBytes} bytes, ${archive.size} held)`,
+    );
   } catch (error) {
     // A machine without /Users/Shared and no override, or a disk that refuses: still forward to
     // Spotlight.
@@ -67,7 +69,9 @@ function forwardToSpotlight(envelope: string): void {
 function noteSpotlight(answering: boolean, detail: string): void {
   if (answering === spotlightAnswering) return;
   spotlightAnswering = answering;
-  console.log(answering
-    ? `telemetry: Spotlight answering at ${config.spotlightUrl}`
-    : `telemetry: Spotlight not answering at ${config.spotlightUrl} (${detail}); archive only`);
+  console.log(
+    answering
+      ? `telemetry: Spotlight answering at ${config.spotlightUrl}`
+      : `telemetry: Spotlight not answering at ${config.spotlightUrl} (${detail}); archive only`,
+  );
 }

@@ -36,7 +36,6 @@ export function ImageLightbox({
   // The two ref callbacks apart: what render reads off `zoom` must not sit beside them.
   const { frameRef, imageRef, ...zoom } = useImageZoom(url);
 
-
   return (
     <dialog
       ref={modalWhileMounted}
@@ -96,12 +95,7 @@ export function ImageLightbox({
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className={CONTROL_CLASS}
-            >
+            <button type="button" onClick={onClose} aria-label="Close" className={CONTROL_CLASS}>
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>

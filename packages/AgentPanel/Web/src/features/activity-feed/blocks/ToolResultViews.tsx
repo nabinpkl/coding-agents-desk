@@ -36,9 +36,7 @@ function ToolResultBlock({
           <Markdown content={stripReadLineNumbers(showing)} />
         </div>
       ) : (
-        <pre className="whitespace-pre-wrap wrap-break-word px-2 py-1.5 font-mono text-foreground/70">
-          {showing}
-        </pre>
+        <pre className="whitespace-pre-wrap wrap-break-word px-2 py-1.5 font-mono text-foreground/70">{showing}</pre>
       )}
     </div>
   );
@@ -73,9 +71,7 @@ export function ToolResultContent({
   const content = showing ? (
     <ToolResultBlock block={result.block} text={showing} />
   ) : hasImages || text !== undefined ? null : (
-    <LabeledTextBlock
-      block={{ ...result.block, kind: "plain", label: "Tool Result", text: "(empty result)" }}
-    />
+    <LabeledTextBlock block={{ ...result.block, kind: "plain", label: "Tool Result", text: "(empty result)" }} />
   );
 
   return (

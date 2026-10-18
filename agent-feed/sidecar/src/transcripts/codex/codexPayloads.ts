@@ -4,7 +4,7 @@
 // `response_item` (what the model produced) or an `event_msg` (what the harness did).
 // Everything here is about reading one of those, not about turning it into blocks.
 
-import { basename } from 'node:path';
+import { basename } from "node:path";
 import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type LineResult } from "@/transcripts/transcriptTypes";
 import { metadataBlock, metadataText } from "@/transcripts/plainActivity";
 import { joinTextContent } from "@/transcripts/codex/codexReasoning";
@@ -18,29 +18,29 @@ import {
 
 export function tsMs(line: { timestamp?: string } | undefined): number {
   const t = line?.timestamp;
-  if (typeof t !== 'string') return 0;
+  if (typeof t !== "string") return 0;
   const parsed = Date.parse(t);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function truncate(s: string, n: number): string {
   const flat = s
-    .replace(/[\t ]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[\t ]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return flat.length > n ? flat.slice(0, n) + '…' : flat;
+  return flat.length > n ? flat.slice(0, n) + "…" : flat;
 }
 
 // Build a tool_result block with truncation metadata so the Agent Panel can
 // render a "+N lines / +M chars" footer when the sidecar had to cap output.
 export function makeToolResultBlock(raw: string): ActivityBlock {
   if (raw.length <= TOOL_RESULT_PREVIEW_CAP) {
-    return { kind: 'tool_result', preview: raw };
+    return { kind: "tool_result", preview: raw };
   }
   const kept = raw.slice(0, TOOL_RESULT_PREVIEW_CAP);
   const dropped = raw.slice(TOOL_RESULT_PREVIEW_CAP);
   return {
-    kind: 'tool_result',
+    kind: "tool_result",
     preview: kept,
     hiddenChars: dropped.length,
     hiddenLines: (dropped.match(/\n/g) || []).length,
@@ -58,34 +58,36 @@ export function makeToolResultBlock(raw: string): ActivityBlock {
 // and no words -- so skipping them silently dropped those rows entirely. The
 // count goes in; the URI stays out.
 export function outputToString(out: unknown): string {
-  if (typeof out === 'string') return out;
-  if (!Array.isArray(out)) return '';
+  if (typeof out === "string") return out;
+  if (!Array.isArray(out)) return "";
   const text = joinTextContent(out);
-  const images = out.filter((block) => (block as { type?: unknown } | null)?.type === 'input_image').length;
+  const images = out.filter((block) => (block as { type?: unknown } | null)?.type === "input_image").length;
   if (images === 0) return text;
-  const note = `[${images} image${images === 1 ? '' : 's'}]`;
+  const note = `[${images} image${images === 1 ? "" : "s"}]`;
   return text.trim() ? `${text}\n\n${note}` : note;
 }
 
 export function parseArgs(raw: unknown): { input: Record<string, unknown>; raw: string } {
-  if (typeof raw !== 'string') return { input: {}, raw: '' };
+  if (typeof raw !== "string") return { input: {}, raw: "" };
   try {
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return { input: parsed as Record<string, unknown>, raw };
     }
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   return { input: {}, raw };
 }
 
 export function summarizeToolUse(name: string, input: Record<string, unknown>, raw: string): string {
-  if (name === 'apply_patch' && typeof input.file_path === 'string') {
+  if (name === "apply_patch" && typeof input.file_path === "string") {
     return `apply_patch ${basename(input.file_path)}`;
   }
-  if (name === 'read_file' && typeof input.path === 'string') {
+  if (name === "read_file" && typeof input.path === "string") {
     return `read_file ${basename(input.path)}`;
   }
-  if (name === 'shell' && typeof input.command === 'string') {
+  if (name === "shell" && typeof input.command === "string") {
     return commandSummary(input.command);
   }
   // `input` is empty for a `custom_tool_call`, whose arguments are a script or a
@@ -93,10 +95,7 @@ export function summarizeToolUse(name: string, input: Record<string, unknown>, r
   // calls whose arguments do not lead with a string. Both fell to the tool name
   // below: 38,737 custom tool calls sharing two summaries between them, plus
   // 11,951 function calls with their arguments sitting right there unread.
-  return summarizeJsonCall(input, name)
-    || summarizeScriptCall(raw, name)
-    || name
-    || raw.slice(0, 120);
+  return summarizeJsonCall(input, name) || summarizeScriptCall(raw, name) || name || raw.slice(0, 120);
 }
 
 export interface ResponseItemPayload {
@@ -160,18 +159,18 @@ export interface EventMsgPayload {
 
 /** `4 files · M FileTab.swift, A FileTabTests.swift, D Old.swift` */
 export function patchFileSummary(changes: unknown): string {
-  if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return '';
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) return "";
   const entries = changes as Record<string, PatchChange | undefined>;
   const paths = Object.keys(entries);
-  if (paths.length === 0) return '';
+  if (paths.length === 0) return "";
   const named = paths.slice(0, ITEMS_NAMED).map((path) => {
     const type = entries[path]?.type;
-    const mark = (typeof type === 'string' && PATCH_CHANGE_MARKS[type]) || '?';
+    const mark = (typeof type === "string" && PATCH_CHANGE_MARKS[type]) || "?";
     return `${mark} ${basename(path)}`;
   });
   const rest = paths.length - named.length;
-  const head = `${paths.length} ${paths.length === 1 ? 'file' : 'files'}`;
-  return `${head} · ${named.join(', ')}${rest > 0 ? `, +${rest} more` : ''}`;
+  const head = `${paths.length} ${paths.length === 1 ? "file" : "files"}`;
+  return `${head} · ${named.join(", ")}${rest > 0 ? `, +${rest} more` : ""}`;
 }
 
 /**
@@ -202,13 +201,13 @@ export function patchFileSummary(changes: unknown): string {
  * not apply is exactly the row a viewer must not have to go looking for.
  */
 export function patchAppliedBlock(pe: EventMsgPayload, label: string): ActivityBlock {
-  const stdout = typeof pe.stdout === 'string' ? pe.stdout.trim() : '';
-  const stderr = typeof pe.stderr === 'string' ? pe.stderr.trim() : '';
+  const stdout = typeof pe.stdout === "string" ? pe.stdout.trim() : "";
+  const stderr = typeof pe.stderr === "string" ? pe.stderr.trim() : "";
   const files = patchFileSummary(pe.changes);
   if (pe.success === false) {
     // A failed patch changed nothing, so the file list would describe an edit that
     // did not happen; what it left behind is in `stderr`.
-    return metadataBlock('Patch Failed', metadataText(stderr || stdout || pe));
+    return metadataBlock("Patch Failed", metadataText(stderr || stdout || pe));
   }
   return metadataBlock(label, files || metadataText(stdout || pe));
 }
@@ -224,28 +223,28 @@ export interface NormalizedCodexLine {
 }
 
 export const CODEX_EVENT_LABELS: Readonly<Record<string, string>> = {
-  task_started: 'Task Started',
-  task_complete: 'Task Completed',
-  turn_aborted: 'Task Aborted',
-  token_count: 'Token Usage',
-  agent_reasoning: 'Agent Reasoning',
-  agent_message: 'Agent Message',
-  patch_apply_end: 'Patch Applied',
-  user_message: 'User Message',
-  thread_settings_applied: 'Thread Settings',
-  web_search_end: 'Web Search',
-  sub_agent_activity: 'Sub-agent Activity',
-  context_compacted: 'Context Compacted',
-  item_completed: 'Item Completed',
-  image_generation_end: 'Image Generation',
-  mcp_tool_call_end: 'MCP Tool Call',
+  task_started: "Task Started",
+  task_complete: "Task Completed",
+  turn_aborted: "Task Aborted",
+  token_count: "Token Usage",
+  agent_reasoning: "Agent Reasoning",
+  agent_message: "Agent Message",
+  patch_apply_end: "Patch Applied",
+  user_message: "User Message",
+  thread_settings_applied: "Thread Settings",
+  web_search_end: "Web Search",
+  sub_agent_activity: "Sub-agent Activity",
+  context_compacted: "Context Compacted",
+  item_completed: "Item Completed",
+  image_generation_end: "Image Generation",
+  mcp_tool_call_end: "MCP Tool Call",
 };
 
 export const CODEX_TOP_LEVEL_LABELS: Readonly<Record<string, string>> = {
-  session_meta: 'Session Metadata',
-  turn_context: 'Turn Context',
-  world_state: 'World State',
-  inter_agent_communication_metadata: 'Inter-agent Communication',
+  session_meta: "Session Metadata",
+  turn_context: "Turn Context",
+  world_state: "World State",
+  inter_agent_communication_metadata: "Inter-agent Communication",
 };
 
 /**
@@ -259,12 +258,10 @@ export const CODEX_TOP_LEVEL_LABELS: Readonly<Record<string, string>> = {
  * Every one of these three types is in CODEX_EVENT_LABELS, so the unlabeled
  * early-return in `normalizedRecord` cannot swallow a boundary this reports.
  */
-export function turnClosedFor(
-  ev: { type?: string; payload?: Record<string, unknown> },
-): boolean | undefined {
-  if (ev.type !== 'event_msg') return undefined;
+export function turnClosedFor(ev: { type?: string; payload?: Record<string, unknown> }): boolean | undefined {
+  if (ev.type !== "event_msg") return undefined;
   const eventType = ev.payload?.type;
-  if (eventType === 'task_started') return false;
-  if (eventType === 'task_complete' || eventType === 'turn_aborted') return true;
+  if (eventType === "task_started") return false;
+  if (eventType === "task_complete" || eventType === "turn_aborted") return true;
   return undefined;
 }

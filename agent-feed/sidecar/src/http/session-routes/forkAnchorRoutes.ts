@@ -66,11 +66,7 @@ export async function lastCompactionResponse(sessionId: string): Promise<Respons
   if (!session || !session.transcriptPath) return errorResponse("session-not-found", "no such session", 404);
   const message = await lastCompactionMessage(sessionId, session.transcriptPath);
   if (!message) {
-    return errorResponse(
-      "no-compaction-point",
-      "this session has nothing said after a compaction to start from",
-      404,
-    );
+    return errorResponse("no-compaction-point", "this session has nothing said after a compaction to start from", 404);
   }
   return jsonResponse(message);
 }

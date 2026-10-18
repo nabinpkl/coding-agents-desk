@@ -1,8 +1,15 @@
 import type { DesktopDisplay, DesktopNavigationState } from "@agentdesk/agent-feed-wire";
 
 export const NAVIGATION_TUNING = {
-  collapsedHeight: 26, pillWidth: 40, pillHeight: 30, gap: 10, padding: 3,
-  commitDistance: 0.5, commitVelocity: 800, slop: 6, timeoutMs: 2000,
+  collapsedHeight: 26,
+  pillWidth: 40,
+  pillHeight: 30,
+  gap: 10,
+  padding: 3,
+  commitDistance: 0.5,
+  commitVelocity: 800,
+  slop: 6,
+  timeoutMs: 2000,
 };
 export type NavigationMotion =
   | { kind: "idle" }
@@ -24,28 +31,47 @@ export const initialNavigationModel: NavigationModel = { snapshot: null, motion:
 
 export function navigationReducer(state: NavigationModel, action: NavigationAction): NavigationModel {
   switch (action.type) {
-    case "reset": return initialNavigationModel;
-    case "cancel": return { ...state, motion: { kind: "idle" } };
-    case "drag": return { ...state, motion: { kind: "dragging", id: action.id, translation: action.translation }, error: null };
-    case "pending": return { ...state, error: null, motion: { kind: "pending", id: action.id,
-      target: action.target, durationMs: Math.min(500, 180 + Math.max(0, action.steps - 1) * 100) } };
+    case "reset":
+      return initialNavigationModel;
+    case "cancel":
+      return { ...state, motion: { kind: "idle" } };
+    case "drag":
+      return { ...state, motion: { kind: "dragging", id: action.id, translation: action.translation }, error: null };
+    case "pending":
+      return {
+        ...state,
+        error: null,
+        motion: {
+          kind: "pending",
+          id: action.id,
+          target: action.target,
+          durationMs: Math.min(500, 180 + Math.max(0, action.steps - 1) * 100),
+        },
+      };
     case "failure":
       if (action.id && (state.motion.kind === "idle" || action.id !== state.motion.id)) return state;
       return { ...state, motion: { kind: "idle" }, error: action.reason };
     case "snapshot": {
       const previous = state.snapshot;
-      if (previous?.captureDisplayId === action.snapshot.captureDisplayId
-          && previous.revision >= action.snapshot.revision) return state;
+      if (
+        previous?.captureDisplayId === action.snapshot.captureDisplayId &&
+        previous.revision >= action.snapshot.revision
+      )
+        return state;
       const nextDisplay = selectedNavigationDisplay(action.snapshot);
       const oldDisplay = selectedNavigationDisplay(previous);
-      const topologyChanged = oldDisplay?.id !== nextDisplay?.id
-        || oldDisplay?.spaces.map((space) => `${space.id}:${space.type}`).join(",")
-        !== nextDisplay?.spaces.map((space) => `${space.id}:${space.type}`).join(",");
-      const externallyMoved = state.motion.kind === "dragging"
-        && oldDisplay?.activeSpaceId !== nextDisplay?.activeSpaceId;
+      const topologyChanged =
+        oldDisplay?.id !== nextDisplay?.id ||
+        oldDisplay?.spaces.map((space) => `${space.id}:${space.type}`).join(",") !==
+          nextDisplay?.spaces.map((space) => `${space.id}:${space.type}`).join(",");
+      const externallyMoved =
+        state.motion.kind === "dragging" && oldDisplay?.activeSpaceId !== nextDisplay?.activeSpaceId;
       const reached = state.motion.kind === "pending" && nextDisplay?.activeSpaceId === state.motion.target;
-      return { snapshot: action.snapshot, error: state.error,
-        motion: topologyChanged || externallyMoved || reached ? { kind: "idle" } : state.motion };
+      return {
+        snapshot: action.snapshot,
+        error: state.error,
+        motion: topologyChanged || externallyMoved || reached ? { kind: "idle" } : state.motion,
+      };
     }
   }
 }

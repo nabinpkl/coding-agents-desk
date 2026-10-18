@@ -26,9 +26,14 @@ export class WorkspaceStoreError extends Error {
 function isSummary(value: unknown): value is WorkspaceSummary {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
-  return typeof record.id === "string" && record.id !== ""
-    && typeof record.name === "string" && record.name !== ""
-    && typeof record.root === "string" && record.root.startsWith("/");
+  return (
+    typeof record.id === "string" &&
+    record.id !== "" &&
+    typeof record.name === "string" &&
+    record.name !== "" &&
+    typeof record.root === "string" &&
+    record.root.startsWith("/")
+  );
 }
 
 /**
@@ -157,9 +162,7 @@ export class WorkspaceStore {
     if (trimmed === "") throw new WorkspaceStoreError("a workspace name cannot be empty");
     if (!this.get(id)) throw new WorkspaceStoreError(`no such workspace: ${id}`);
     await this.commit(
-      this.workspaces.map((workspace) =>
-        workspace.id === id ? { ...workspace, name: trimmed } : workspace
-      ),
+      this.workspaces.map((workspace) => (workspace.id === id ? { ...workspace, name: trimmed } : workspace)),
     );
   }
 
@@ -171,8 +174,7 @@ export class WorkspaceStore {
    */
   async reorder(ids: string[]): Promise<void> {
     const known = new Set(this.workspaces.map((workspace) => workspace.id));
-    if (ids.length !== known.size || new Set(ids).size !== ids.length
-      || !ids.every((id) => known.has(id))) {
+    if (ids.length !== known.size || new Set(ids).size !== ids.length || !ids.every((id) => known.has(id))) {
       throw new WorkspaceStoreError("a reorder must be a permutation of the current roster");
     }
     await this.commit(ids.map((id) => this.get(id)!));

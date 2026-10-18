@@ -44,15 +44,9 @@ const HASH = /^[0-9a-f]{7,40}$/;
  */
 const AGAINST_FIRST_PARENT = ["show", "--format=", "-m", "--first-parent"];
 
-async function git(
-  args: string[],
-  cwd: string,
-): Promise<{ code: number; out: string }> {
+async function git(args: string[], cwd: string): Promise<{ code: number; out: string }> {
   const process = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
-  const [out, code] = await Promise.all([
-    new Response(process.stdout).text(),
-    process.exited,
-  ]);
+  const [out, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
   return { code, out };
 }
 
@@ -89,9 +83,7 @@ export function parseCommits(output: string): WorkspaceCommit[] {
     if (record === "") continue;
     const fields = record.split(FIELD);
     if (fields.length < 6) continue;
-    const [hash, shortHash, author, committed, parents] = fields as [
-      string, string, string, string, string,
-    ];
+    const [hash, shortHash, author, committed, parents] = fields as [string, string, string, string, string];
     commits.push({
       hash,
       shortHash,
@@ -176,12 +168,10 @@ export function parseNumstat(output: string): Map<string, { additions: number | 
  */
 export async function listCommits(root: string, limit: number): Promise<WorkspaceCommit[]> {
   const count = Math.min(Math.max(Math.trunc(limit) || 1, 1), MAX_COMMITS);
-  const { code, out } = await git([
-    "log",
-    "-z",
-    `--max-count=${count}`,
-    `--format=%H${FIELD}%h${FIELD}%an${FIELD}%ct${FIELD}%P${FIELD}%s`,
-  ], root);
+  const { code, out } = await git(
+    ["log", "-z", `--max-count=${count}`, `--format=%H${FIELD}%h${FIELD}%an${FIELD}%ct${FIELD}%P${FIELD}%s`],
+    root,
+  );
   if (code !== 0) return [];
   return parseCommits(out);
 }
@@ -198,11 +188,7 @@ export async function listCommits(root: string, limit: number): Promise<Workspac
  * The message is read with `-s` and no `-m`: a merge has one message however many parents it has,
  * and `-m` would print the header once per parent.
  */
-export async function commitDetail(
-  root: string,
-  workspaceId: string,
-  hash: string,
-): Promise<WorkspaceCommitDetail> {
+export async function commitDetail(root: string, workspaceId: string, hash: string): Promise<WorkspaceCommitDetail> {
   const commit = requireHash(hash);
   const [message, names, numbers] = await Promise.all([
     git(["show", "-s", "--format=%b", commit], root),
@@ -238,14 +224,10 @@ export async function commitFileDiff(
   path: string,
 ): Promise<WorkspaceCommitDiff> {
   const commit = requireHash(hash);
-  const { code, out } = await git([
-    ...AGAINST_FIRST_PARENT,
-    "--no-color",
-    "--no-ext-diff",
-    commit,
-    "--",
-    literalPathspec(path),
-  ], root);
+  const { code, out } = await git(
+    [...AGAINST_FIRST_PARENT, "--no-color", "--no-ext-diff", commit, "--", literalPathspec(path)],
+    root,
+  );
   if (code !== 0) throw new WorkspaceFailure("notFound");
   const truncated = Buffer.byteLength(out, "utf8") > MAX_PATCH_BYTES;
   return {

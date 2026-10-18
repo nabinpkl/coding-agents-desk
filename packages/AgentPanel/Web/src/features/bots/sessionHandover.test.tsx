@@ -37,18 +37,26 @@ const BOT = {
 function commands(feed: SidecarDataSource, openKeys: Set<string> = new Set()) {
   const machine = { label: "this machine", feed };
   return {
-    result: renderHook(() => useBotCommands(
-      botFeeds(feed, [machine], () => machine, () => machine, () => []),
-      {
-        putBotOnCanvas: () => {},
-        setCanvasOpenKeys: (update: React.SetStateAction<ReadonlySet<string>>) => {
-          const next = typeof update === "function" ? update(openKeys) : update;
-          openKeys.clear();
-          for (const key of next) openKeys.add(key);
+    result: renderHook(() =>
+      useBotCommands(
+        botFeeds(
+          feed,
+          [machine],
+          () => machine,
+          () => machine,
+          () => [],
+        ),
+        {
+          putBotOnCanvas: () => {},
+          setCanvasOpenKeys: (update: React.SetStateAction<ReadonlySet<string>>) => {
+            const next = typeof update === "function" ? update(openKeys) : update;
+            openKeys.clear();
+            for (const key of next) openKeys.add(key);
+          },
         },
-      },
-      () => {},
-    )).result,
+        () => {},
+      ),
+    ).result,
     openKeys,
   };
 }
@@ -83,9 +91,7 @@ describe("the item on the session menu", () => {
     expect(screen.getByRole("menuitem", { name: "Hand over to opencode" })).toBeTruthy();
     unmount();
 
-    render(
-      <SessionRowMenu label="oc-1" handover={{ to: "claude", onSelect: () => {} }} onDetach={() => {}} />,
-    );
+    render(<SessionRowMenu label="oc-1" handover={{ to: "claude", onSelect: () => {} }} onDetach={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /Actions for/ }));
     expect(screen.getByRole("menuitem", { name: "Hand over to Claude" })).toBeTruthy();
   });
@@ -104,7 +110,15 @@ describe("what the data source asks for", () => {
     transport.responses.set("POST /api/agent-sessions/opencode/handover", {
       status: 201,
       body: JSON.stringify({
-        session: { sessionId: "op-1", source: "opencode", projectPath: "/repo", title: "op-1", lastEventAt: 0, activity: "ready", capabilities: { modes: ["nice"] } },
+        session: {
+          sessionId: "op-1",
+          source: "opencode",
+          projectPath: "/repo",
+          title: "op-1",
+          lastEventAt: 0,
+          activity: "ready",
+          capabilities: { modes: ["nice"] },
+        },
         handover: { turnCount: 4, chars: 100, lossy: false },
       }),
     });
@@ -138,13 +152,19 @@ describe("what the command does with it", () => {
   it("opens the dialog for either harness and ignores a Codex one", async () => {
     const { result } = commands(new SidecarDataSource(new FakeHttpTransport()));
 
-    await act(async () => { result.current.handoverSession(BOT, CLAUDE); });
+    await act(async () => {
+      result.current.handoverSession(BOT, CLAUDE);
+    });
     expect(result.current.handoverRequest).toEqual({ botId: "bot-1", session: CLAUDE, projectPath: "/repo" });
 
-    await act(async () => { result.current.handoverSession(BOT, OPENCODE); });
+    await act(async () => {
+      result.current.handoverSession(BOT, OPENCODE);
+    });
     expect(result.current.handoverRequest).toEqual({ botId: "bot-1", session: OPENCODE, projectPath: "/repo" });
 
-    await act(async () => { result.current.handoverSession(BOT, CODEX); });
+    await act(async () => {
+      result.current.handoverSession(BOT, CODEX);
+    });
     expect(result.current.handoverRequest).toEqual({ botId: "bot-1", session: OPENCODE, projectPath: "/repo" });
   });
 
@@ -158,7 +178,16 @@ describe("what the command does with it", () => {
       transport.responses.set(`POST ${path}`, {
         status: 201,
         body: JSON.stringify({
-          session: { sessionId: startedId, source: destination, projectPath: "/repo", title: startedId, lastEventAt: 0, activity: "ready", capabilities: { modes: ["nice"] }, tmuxSession: `agentdesk-${startedId}` },
+          session: {
+            sessionId: startedId,
+            source: destination,
+            projectPath: "/repo",
+            title: startedId,
+            lastEventAt: 0,
+            activity: "ready",
+            capabilities: { modes: ["nice"] },
+            tmuxSession: `agentdesk-${startedId}`,
+          },
           handover: { turnCount: 4, chars: 100, lossy: false },
         }),
       });
@@ -199,7 +228,13 @@ describe("what the command does with it", () => {
     expect(transport.requests.map((request) => request.path)).toEqual(["/api/agent-sessions/claude/handover"]);
     expect(transport.requests[0]!.body).toMatchObject({ botId: "bot-1" });
     expect(result.current.newSessions).toEqual([
-      { botId: "bot-1", sessionId: "cl-1", title: "op-1 (handover)", projectPath: "/repo", tmuxSession: "agentdesk-cl-1" },
+      {
+        botId: "bot-1",
+        sessionId: "cl-1",
+        title: "op-1 (handover)",
+        projectPath: "/repo",
+        tmuxSession: "agentdesk-cl-1",
+      },
     ]);
     expect(openKeys.has("claude:cl-1")).toBe(true);
     expect(result.current.botCommandError).toBeNull();
@@ -207,7 +242,10 @@ describe("what the command does with it", () => {
 
   it("names the source session when the handover fails", async () => {
     const transport = new FakeHttpTransport();
-    transport.defaultResponse = { status: 404, body: JSON.stringify({ error: { code: "nothing-to-hand-over", message: "has no conversation to hand over" } }) };
+    transport.defaultResponse = {
+      status: 404,
+      body: JSON.stringify({ error: { code: "nothing-to-hand-over", message: "has no conversation to hand over" } }),
+    };
     const { result } = commands(new SidecarDataSource(transport));
 
     await act(async () => {

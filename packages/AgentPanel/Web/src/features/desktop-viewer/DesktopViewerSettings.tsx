@@ -97,8 +97,14 @@ export function DesktopViewerSettings({
           className="pointer-events-auto absolute right-0 bottom-full z-50 mb-2 flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-xl
             border border-white/15 bg-neutral-950/95 p-3 text-[11px] text-white shadow-lg"
         >
-          <p aria-label="Desktop stream status" className="truncate font-mono text-[10px] text-white/70">{status}</p>
-          {attention ? <p role="status" className="text-amber-300">{attention}</p> : null}
+          <p aria-label="Desktop stream status" className="truncate font-mono text-[10px] text-white/70">
+            {status}
+          </p>
+          {attention ? (
+            <p role="status" className="text-amber-300">
+              {attention}
+            </p>
+          ) : null}
           <ResolutionSlider sourceWidth={sourceWidth} sourceHeight={sourceHeight} />
           {/* The two zoom models side by side, so they can be compared on the same desk: CSS
               magnifies the whole-display picture, Crop re-aims the capture at what is being looked at. */}
@@ -143,7 +149,15 @@ export function DesktopViewerSettings({
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: ReactNode; checked: boolean; onChange: (checked: boolean) => void }) {
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
   const id = useId();
   return (
     <label htmlFor={id} className="flex min-h-8 cursor-pointer items-center gap-2 px-2">

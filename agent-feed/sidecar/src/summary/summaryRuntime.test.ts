@@ -77,21 +77,25 @@ function fakeSession(overrides: Partial<SummarySession> & { reply?: string | nul
     session,
     prompts,
     emit: (event: SummarySessionEvent | string) =>
-      listeners.forEach((listener) =>
-        listener(typeof event === "string" ? { type: event } : event)),
+      listeners.forEach((listener) => listener(typeof event === "string" ? { type: event } : event)),
     abortCount: () => aborted,
   };
 }
 
 test("a finished turn is final, a running one is running", async () => {
-  const runner = createSummaryRunner(async () => fakeSession().session, () => 1_750_000_000_000);
+  const runner = createSummaryRunner(
+    async () => fakeSession().session,
+    () => 1_750_000_000_000,
+  );
   expect((await runner.run({ project: "/p", window, runState: "idle" })).phase).toBe("final");
   expect((await runner.run({ project: "/p", window, runState: "running" })).phase).toBe("running");
 });
 
 test("filesTouched and coverage come from the window, never from the model", async () => {
   const runner = createSummaryRunner(
-    async () => fakeSession({ reply: '{"headline":"h","narrative":"n","risks":[],"filesTouched":[{"path":"invented.ts"}]}' }).session,
+    async () =>
+      fakeSession({ reply: '{"headline":"h","narrative":"n","risks":[],"filesTouched":[{"path":"invented.ts"}]}' })
+        .session,
     () => 1_750_000_000_000,
   );
   const result = await runner.run({ project: "/p", window, runState: "idle" });
@@ -107,8 +111,7 @@ test("no credential raises before any session is created", async () => {
     created = true;
     return fakeSession().session;
   });
-  await expect(runner.run({ project: "/p", window, runState: "idle" }))
-    .rejects.toThrow(SummaryUnconfiguredError);
+  await expect(runner.run({ project: "/p", window, runState: "idle" })).rejects.toThrow(SummaryUnconfiguredError);
   expect(created).toBe(false);
 });
 
@@ -127,8 +130,7 @@ test("a session that never answers times out and aborts", async () => {
   const fake = fakeSession();
   fake.session.prompt = () => new Promise<void>(() => {});
   const runner = createSummaryRunner(async () => fake.session);
-  await expect(runner.run({ project: "/p", window, runState: "idle" }))
-    .rejects.toThrow(/did not answer within/);
+  await expect(runner.run({ project: "/p", window, runState: "idle" })).rejects.toThrow(/did not answer within/);
   expect(fake.abortCount()).toBe(1);
 }, 20_000);
 

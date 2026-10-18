@@ -9,10 +9,7 @@
 // channel, the owner symbol, the encoder input goes to, and the two message counters -- and the
 // answer that builds the peer has no other reason to hold any of them.
 
-import type {
-  DesktopControlEvent,
-  DesktopControlInput,
-} from "@agentdesk/agent-feed-wire";
+import type { DesktopControlEvent, DesktopControlInput } from "@agentdesk/agent-feed-wire";
 import type { RTCDataChannel, RTCPeerConnection } from "werift";
 import {
   desktopControlInput,
@@ -83,9 +80,7 @@ export function createTileControl({
     cursorChannel.send(JSON.stringify(event));
   };
   const currentControlChannel = () => cursorChannel;
-  const rejectControl = (
-    reason: "helper-unavailable" | "malformed" | "not-owner" | "oversized",
-  ) => {
+  const rejectControl = (reason: "helper-unavailable" | "malformed" | "not-owner" | "oversized") => {
     sendControl({ type: "input-rejected", reason });
   };
   const acquireInputOwner = (encoder: SharedEncoder) => {
@@ -97,12 +92,15 @@ export function createTileControl({
       previousOwner.revoke(acquired.epoch);
     }
     encoderStdin(encoder, desktopControlLine({ type: "release-control" }));
-    controlOwners.set(inputOwner, { encoder, revoke: (epoch) => {
-      for (const [revision, pending] of encoder.pendingCursorAcks) {
-        if (pending.inputOwner === inputOwner) encoder.pendingCursorAcks.delete(revision);
-      }
-      sendControl({ type: "control-revoked", epoch });
-    } });
+    controlOwners.set(inputOwner, {
+      encoder,
+      revoke: (epoch) => {
+        for (const [revision, pending] of encoder.pendingCursorAcks) {
+          if (pending.inputOwner === inputOwner) encoder.pendingCursorAcks.delete(revision);
+        }
+        sendControl({ type: "control-revoked", epoch });
+      },
+    });
     sendControl({ type: "control-granted", epoch: acquired.epoch });
     diag(`c${connection} control acquired encoder=${encoder.key} epoch=${acquired.epoch}`);
   };
@@ -132,13 +130,21 @@ export function createTileControl({
       }
       if (input.type === "space-select" || input.type === "space-gesture") {
         if (input.displayId !== captureDisplayId || inputEncoder.sourceMetadata?.desktopNavigationVersion !== 1) {
-          sendControl({ type: "space-result", requestId: input.type === "space-select" ? input.requestId : input.gestureId,
-            status: "rejected", reason: "display-unavailable" });
+          sendControl({
+            type: "space-result",
+            requestId: input.type === "space-select" ? input.requestId : input.gestureId,
+            status: "rejected",
+            reason: "display-unavailable",
+          });
           return;
         }
       }
-      if (captureDisplayId && input.type !== "desktop-refresh" && input.type !== "release-control"
-          && inputEncoder.controlEvents.captureDisplayMissing(captureDisplayId)) {
+      if (
+        captureDisplayId &&
+        input.type !== "desktop-refresh" &&
+        input.type !== "release-control" &&
+        inputEncoder.controlEvents.captureDisplayMissing(captureDisplayId)
+      ) {
         sendControl({ type: "desktop-unavailable", reason: "display-unavailable" });
         return;
       }
@@ -158,8 +164,7 @@ export function createTileControl({
         releaseInputOwner();
         return;
       }
-      if (input.type === "space-gesture" && input.phase !== "began"
-          && controlOwnership.owner !== inputOwner) {
+      if (input.type === "space-gesture" && input.phase !== "began" && controlOwnership.owner !== inputOwner) {
         sendControl({ type: "space-result", requestId: input.gestureId, status: "rejected", reason: "not-owner" });
         return;
       }
@@ -186,8 +191,12 @@ export function createTileControl({
     });
   });
   return {
-    get encoder() { return inputEncoder; },
-    set encoder(value: SharedEncoder | null) { inputEncoder = value; },
+    get encoder() {
+      return inputEncoder;
+    },
+    set encoder(value: SharedEncoder | null) {
+      inputEncoder = value;
+    },
     inputOwner,
     send: sendControl,
     release: releaseInputOwner,

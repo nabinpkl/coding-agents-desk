@@ -37,19 +37,14 @@ export function TerminalCanvasShell({
   // The same sets the strip reads, so the count and the cards cannot disagree.
   const everyParent = [...shell.grouping.parents, ...shell.grouping.residue];
   const drawnCount = everyParent.filter(
-    (parent) => !shell.hiddenMachines.has(parent.machineId ?? "")
-      && !shell.hiddenParents.has(parent.key),
+    (parent) => !shell.hiddenMachines.has(parent.machineId ?? "") && !shell.hiddenParents.has(parent.key),
   ).length;
   return (
     <div className="relative flex h-full min-h-0">
       {listOpen ? (
         // Pointer-only: the panel's own close button is the keyboard path, this only dismisses
         // the overlay where it exists.
-        <div
-          aria-hidden
-          onClick={() => setListOpen(false)}
-          className="absolute inset-0 z-10 bg-black/40 sm:hidden"
-        />
+        <div aria-hidden onClick={() => setListOpen(false)} className="absolute inset-0 z-10 bg-black/40 sm:hidden" />
       ) : null}
       {listOpen ? (
         <aside

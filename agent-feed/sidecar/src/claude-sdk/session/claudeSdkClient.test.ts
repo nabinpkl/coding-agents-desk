@@ -58,12 +58,17 @@ function stateWhere(client: ClaudeSdkClient, sessionId: string, test: (state: Cl
 }
 
 const ask = {
-  questions: [{
-    question: "Which tree?",
-    header: "Tree",
-    multiSelect: false,
-    options: [{ label: "Oak", description: "" }, { label: "Birch", description: "" }],
-  }],
+  questions: [
+    {
+      question: "Which tree?",
+      header: "Tree",
+      multiSelect: false,
+      options: [
+        { label: "Oak", description: "" },
+        { label: "Birch", description: "" },
+      ],
+    },
+  ],
 };
 
 describe("a sidecar that restarts while a question waits", () => {
@@ -120,18 +125,29 @@ describe("following a session", () => {
   test("a mode change and a decision come back as the runner's own replies", async () => {
     const session = await runnerFor();
     const client = new ClaudeSdkClient(work, quiet);
-    const approval = session.fake().canUseTool("Bash", { command: "ls" }, {
-      signal: new AbortController().signal,
-      toolUseID: "toolu_b",
-      requestId: "r2",
-    }) as Promise<PermissionResult>;
+    const approval = session.fake().canUseTool(
+      "Bash",
+      { command: "ls" },
+      {
+        signal: new AbortController().signal,
+        toolUseID: "toolu_b",
+        requestId: "r2",
+      },
+    ) as Promise<PermissionResult>;
     expect(await client.command(session.sessionId, { type: "set-mode", mode: "plan" })).toEqual({ ok: true });
     expect(session.fake().modes).toEqual(["plan"]);
-    expect(await client.command(session.sessionId, { type: "decide", toolUseId: "toolu_b", allow: false, message: "not now" }))
-      .toEqual({ ok: true });
+    expect(
+      await client.command(session.sessionId, {
+        type: "decide",
+        toolUseId: "toolu_b",
+        allow: false,
+        message: "not now",
+      }),
+    ).toEqual({ ok: true });
     expect(await approval).toEqual({ behavior: "deny", message: "not now" });
-    expect(await client.command(session.sessionId, { type: "decide", toolUseId: "toolu_b", allow: true }))
-      .toMatchObject({ ok: false, reason: "not-pending" });
+    expect(
+      await client.command(session.sessionId, { type: "decide", toolUseId: "toolu_b", allow: true }),
+    ).toMatchObject({ ok: false, reason: "not-pending" });
     await session.stop();
   });
 });
@@ -163,7 +179,8 @@ describe("the choices a runner was launched with", () => {
     expect(followed.state).toMatchObject({ model: "haiku", effort: "max", permissionMode: "auto" });
     expect(await client.choices(session.sessionId)).toEqual({ model: "haiku", effort: "max" });
     expect(await client.command(session.sessionId, { type: "set-model", model: "opus" })).toEqual({ ok: true });
-    for (let tries = 0; (await client.choices(session.sessionId)).model !== "opus" && tries < 50; tries += 1) await Bun.sleep(10);
+    for (let tries = 0; (await client.choices(session.sessionId)).model !== "opus" && tries < 50; tries += 1)
+      await Bun.sleep(10);
     expect(await client.choices(session.sessionId)).toEqual({ model: "opus", effort: "max" });
     followed.stop();
     await session.stop();
@@ -193,7 +210,8 @@ describe("the effort a session runs at", () => {
     // Idle too: the CLI answering is what says it is up, where its `init` waits for a first turn.
     expect(followed.state).toMatchObject({ effort: "high", model: "claude-opus-5-5", status: "idle" });
     expect(await client.command(session.sessionId, { type: "set-effort", effort: "max" })).toEqual({ ok: true });
-    for (let tries = 0; (await client.state(session.sessionId)).effort !== "max" && tries < 50; tries += 1) await Bun.sleep(10);
+    for (let tries = 0; (await client.state(session.sessionId)).effort !== "max" && tries < 50; tries += 1)
+      await Bun.sleep(10);
     expect((await client.state(session.sessionId)).effort).toBe("max");
     followed.stop();
     await session.stop();
@@ -204,7 +222,12 @@ describe("a runner on older code", () => {
   test("is said to be stale on every state, and is read as usual meanwhile", async () => {
     const session = await runnerFor("0.0.1+older");
     const stale: boolean[] = [];
-    const client = new ClaudeSdkClient(work, quiet, null, (_client, _sessionId, state) => void stale.push(state.connected));
+    const client = new ClaudeSdkClient(
+      work,
+      quiet,
+      null,
+      (_client, _sessionId, state) => void stale.push(state.connected),
+    );
     const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
     session.fake().send({ type: "system", subtype: "init", permissionMode: "auto" });
     for (let tries = 0; stale.length < 2 && tries < 50; tries += 1) await Bun.sleep(10);
@@ -229,7 +252,12 @@ describe("a runner on older code", () => {
     });
     try {
       const stale: string[] = [];
-      const client = new ClaudeSdkClient(work, quiet, null, (_client, id, state) => void stale.push(`${id} ${state.connected}`));
+      const client = new ClaudeSdkClient(
+        work,
+        quiet,
+        null,
+        (_client, id, state) => void stale.push(`${id} ${state.connected}`),
+      );
       expect(await client.isServing(sessionId)).toBe(false);
       expect(stale).toEqual([`${sessionId} false`]);
     } finally {
@@ -243,11 +271,28 @@ describe("one runner per session", () => {
   test("a second runner for the same session refuses to start", async () => {
     const session = await runnerFor();
     const second = new ClaudeSdkRunner(
-      { sessionId: session.sessionId, cwd: work, name: "x", start: "resume", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false", choices: {} },
-      () => { throw new Error("must not start"); },
+      {
+        sessionId: session.sessionId,
+        cwd: work,
+        name: "x",
+        start: "resume",
+        permissionMode: "auto",
+        allowBypass: false,
+        pluginDirectories: [],
+        claudePath: "/bin/false",
+        choices: {},
+      },
+      () => {
+        throw new Error("must not start");
+      },
     );
-    expect(serveRunner(second, { sessionId: session.sessionId, socketPath: runnerSocketPath(work, session.sessionId), build: BUILD }, quiet))
-      .rejects.toThrow("already serving");
+    expect(
+      serveRunner(
+        second,
+        { sessionId: session.sessionId, socketPath: runnerSocketPath(work, session.sessionId), build: BUILD },
+        quiet,
+      ),
+    ).rejects.toThrow("already serving");
     await session.stop();
   });
 });
@@ -259,10 +304,26 @@ describe("who the client will believe", () => {
     try {
       const sessionId = "aaaaaaaa-bbbb-4ccc-8ddd-777777777777";
       const runner = new ClaudeSdkRunner(
-        { sessionId, cwd: open, name: "x", start: "new", permissionMode: "auto", allowBypass: false, pluginDirectories: [], claudePath: "/bin/false", choices: {} },
-        () => { throw new Error("unused"); },
+        {
+          sessionId,
+          cwd: open,
+          name: "x",
+          start: "new",
+          permissionMode: "auto",
+          allowBypass: false,
+          pluginDirectories: [],
+          claudePath: "/bin/false",
+          choices: {},
+        },
+        () => {
+          throw new Error("unused");
+        },
       );
-      const server = await serveRunner(runner, { sessionId, socketPath: runnerSocketPath(open, sessionId), build: BUILD }, quiet);
+      const server = await serveRunner(
+        runner,
+        { sessionId, socketPath: runnerSocketPath(open, sessionId), build: BUILD },
+        quiet,
+      );
       expect(await new ClaudeSdkClient(open, quiet).isServing(sessionId)).toBe(false);
       await server.close();
     } finally {
@@ -277,7 +338,9 @@ describe("who the client will believe", () => {
       unix: path,
       socket: {
         open(socket) {
-          socket.write(`${JSON.stringify({ type: "state", state: { status: "idle", permissionMode: null, allowBypass: true, pending: [], backgroundTasks: 0, claudeCodeVersion: null } })}\n`);
+          socket.write(
+            `${JSON.stringify({ type: "state", state: { status: "idle", permissionMode: null, allowBypass: true, pending: [], backgroundTasks: 0, claudeCodeVersion: null } })}\n`,
+          );
         },
         data() {},
       },
@@ -306,8 +369,9 @@ describe("what the panel is told", () => {
   });
 
   test("a refused answer keeps the reader's words and says which way it was wrong", () => {
-    expect(answerOutcome([{ question: "Q", chosen: [], other: "" }], { ok: false, reason: "wrong-dialog", message: "" }))
-      .toEqual({ answered: false, reason: "wrong-dialog", keptText: [], sent: false });
+    expect(
+      answerOutcome([{ question: "Q", chosen: [], other: "" }], { ok: false, reason: "wrong-dialog", message: "" }),
+    ).toEqual({ answered: false, reason: "wrong-dialog", keptText: [], sent: false });
     expect(answerOutcome([], { ok: false, reason: "not-pending", message: "" })).toMatchObject({ reason: "no-dialog" });
     expect(answerOutcome([], { ok: false, reason: "failed", message: "" })).toMatchObject({ reason: "pane-stalled" });
   });

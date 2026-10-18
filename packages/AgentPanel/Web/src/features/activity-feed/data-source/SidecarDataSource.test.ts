@@ -64,23 +64,15 @@ describe("SidecarDataSource", () => {
     const source = new SidecarDataSource(transport);
 
     await source.fetchEventsPage(SESSION, { before: 40 }, 20);
-    expect(transport.requests.at(-1)?.path).toBe(
-      "/api/sessions/claude/sid-1/events?before=40&limit=20&mode=nice",
-    );
+    expect(transport.requests.at(-1)?.path).toBe("/api/sessions/claude/sid-1/events?before=40&limit=20&mode=nice");
     await source.fetchEventsPage(SESSION, { after: 40 }, 20);
-    expect(transport.requests.at(-1)?.path).toBe(
-      "/api/sessions/claude/sid-1/events?after=40&limit=20&mode=nice",
-    );
+    expect(transport.requests.at(-1)?.path).toBe("/api/sessions/claude/sid-1/events?after=40&limit=20&mode=nice");
     await source.fetchEventsPage(SESSION, { around: 40 }, 20);
-    expect(transport.requests.at(-1)?.path).toBe(
-      "/api/sessions/claude/sid-1/events?around=40&limit=20&mode=nice",
-    );
+    expect(transport.requests.at(-1)?.path).toBe("/api/sessions/claude/sid-1/events?around=40&limit=20&mode=nice");
 
     // The newest page names no position at all.
     await source.fetchEventsPage(SESSION, { before: null }, 20);
-    expect(transport.requests.at(-1)?.path).toBe(
-      "/api/sessions/claude/sid-1/events?limit=20&mode=nice",
-    );
+    expect(transport.requests.at(-1)?.path).toBe("/api/sessions/claude/sid-1/events?limit=20&mode=nice");
   });
 
   it("uses the backend-owned event route for opencode pages", async () => {
@@ -91,11 +83,7 @@ describe("SidecarDataSource", () => {
     };
     const source = new SidecarDataSource(transport);
 
-    await source.fetchEventsPage(
-      { source: "opencode", sessionId: "ses_abc", mode: "nice" },
-      { before: 2400 },
-      100,
-    );
+    await source.fetchEventsPage({ source: "opencode", sessionId: "ses_abc", mode: "nice" }, { before: 2400 }, 100);
 
     expect(transport.requests.at(-1)?.path).toBe(
       "/api/agent-sessions/opencode/ses_abc/events?before=2400&limit=100&mode=nice",
@@ -108,9 +96,7 @@ describe("SidecarDataSource", () => {
 
     source.subscribeSessionEvents(SESSION, 0, handlers());
 
-    expect(transport.subscriptions.map((open) => open.path)).toEqual([
-      "/api/sessions/claude/sid-1/timeline?mode=nice",
-    ]);
+    expect(transport.subscriptions.map((open) => open.path)).toEqual(["/api/sessions/claude/sid-1/timeline?mode=nice"]);
   });
 
   it("routes a snapshot envelope to onSnapshot and a later one to onEvent", () => {
@@ -343,9 +329,7 @@ describe("SidecarDataSource", () => {
     const line = await source.fetchRawEvent(SESSION, 4);
 
     expect(line).toBe('{"type":"assistant"}');
-    expect(transport.requests.at(-1)?.path).toBe(
-      "/api/sessions/claude/sid-1/events/4/raw",
-    );
+    expect(transport.requests.at(-1)?.path).toBe("/api/sessions/claude/sid-1/events/4/raw");
   });
 
   it("sends a message to the session's own route with its delivery", async () => {

@@ -74,9 +74,9 @@ export function useCardResize({
   // one, so under a scaled canvas a drag of forty pixels would grow the card by forty divided by
   // nothing and the edge would run away from the finger. Read once, with the rest of the start
   // state, rather than per event.
-  const drag = useRef<
-    { pointerId: number; startX: number; startY: number; from: BotCardSize; scale: number } | null
-  >(null);
+  const drag = useRef<{ pointerId: number; startX: number; startY: number; from: BotCardSize; scale: number } | null>(
+    null,
+  );
 
   // The room each edge has to move in, which the window and the panel are no part of: a card bigger
   // than the screen is a card you asked to see more of at once, and the canvas scrolls. Asked with a
@@ -99,10 +99,7 @@ export function useCardResize({
       height: heightWithin(next.height ?? height),
     });
 
-  const resizeFromKeyboard = (
-    event: KeyboardEvent<HTMLDivElement>,
-    axis: "width" | "height",
-  ): void => {
+  const resizeFromKeyboard = (event: KeyboardEvent<HTMLDivElement>, axis: "width" | "height"): void => {
     const along =
       axis === "width"
         ? { less: "ArrowLeft", more: "ArrowRight", at: width, floor: MIN_CARD_WIDTH, ceiling: widest() }
@@ -129,10 +126,7 @@ export function useCardResize({
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
-  const dragTo = (
-    event: PointerEvent<HTMLDivElement>,
-    axes: { width?: boolean; height?: boolean },
-  ): void => {
+  const dragTo = (event: PointerEvent<HTMLDivElement>, axes: { width?: boolean; height?: boolean }): void => {
     const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
     // Right and down grow the card, which is the direction the edge under the pointer is moving.

@@ -42,19 +42,12 @@ export function createVideoPresentationWatch(
     }
     try {
       pixelContext.drawImage(element, 0, 0, pixelCanvas.width, pixelCanvas.height);
-      const pixels = pixelContext.getImageData(
-        0,
-        0,
-        pixelCanvas.width,
-        pixelCanvas.height,
-      ).data;
+      const pixels = pixelContext.getImageData(0, 0, pixelCanvas.width, pixelCanvas.height).data;
       let total = 0;
       let minimum = 255;
       let maximum = 0;
       for (let index = 0; index < pixels.length; index += 4) {
-        const luma = Math.round(
-          (pixels[index]! * 54 + pixels[index + 1]! * 183 + pixels[index + 2]! * 19) / 256,
-        );
+        const luma = Math.round((pixels[index]! * 54 + pixels[index + 1]! * 183 + pixels[index + 2]! * 19) / 256);
         total += luma;
         minimum = Math.min(minimum, luma);
         maximum = Math.max(maximum, luma);
@@ -75,9 +68,7 @@ export function createVideoPresentationWatch(
     if (!owner) return;
     const stream = element.srcObject instanceof MediaStream ? element.srcObject : null;
     const track = stream?.getVideoTracks()[0];
-    const quality = typeof element.getVideoPlaybackQuality === "function"
-      ? element.getVideoPlaybackQuality()
-      : null;
+    const quality = typeof element.getVideoPlaybackQuality === "function" ? element.getVideoPlaybackQuality() : null;
     const style = getComputedStyle(element);
     const elementRect = element.getBoundingClientRect();
     const hit = document.elementFromPoint(
@@ -93,52 +84,53 @@ export function createVideoPresentationWatch(
       ancestorSizes.push(`${ancestor.tagName}:${ancestor.clientWidth}x${ancestor.clientHeight}`);
       ancestor = ancestor.parentElement;
     }
-    owner.report("video-presentation", JSON.stringify({
-      event,
-      owner: owner.attempt.slice(0, 8),
-      document: document.visibilityState,
-      currentTime: Math.round(element.currentTime * 1_000) / 1_000,
-      presentedSamples: owner.presentedSamples,
-      lastPresentedAgeMs: owner.lastPresentedAt === null
-        ? -1
-        : Math.round(performance.now() - owner.lastPresentedAt),
-      mediaTime: owner.mediaTime,
-      presentation: "video",
-      contentTransform: contentStyle?.transform ?? "none",
-      contentWillChange: contentStyle?.willChange ?? "none",
-      centerHit: hit
-        ? `${hit.tagName}.${typeof hit.className === "string" ? hit.className.slice(0, 80) : ""}`
-        : "none",
-      ...decodedPixelSample(),
-      readyState: element.readyState,
-      networkState: element.networkState,
-      paused: element.paused,
-      ended: element.ended,
-      trackState: track?.readyState ?? "none",
-      trackMuted: track?.muted,
-      trackEnabled: track?.enabled,
-      video: `${element.videoWidth}x${element.videoHeight}`,
-      client: `${element.clientWidth}x${element.clientHeight}`,
-      ancestors: ancestorSizes.join("|"),
-      viewport: `${window.innerWidth}x${window.innerHeight}`,
-      outer: `${window.outerWidth}x${window.outerHeight}@${window.screenX},${window.screenY}`,
-      screen: `${window.screen.width}x${window.screen.height}`,
-      available: `${window.screen.availWidth}x${window.screen.availHeight}`,
-      visualViewport: window.visualViewport
-        ? `${Math.round(window.visualViewport.width)}x${Math.round(window.visualViewport.height)}`
-        : "none",
-      cssSize: `${style.width}x${style.height}`,
-      opacity: style.opacity,
-      visibility: style.visibility,
-      display: style.display,
-      ...(quality && (quality.totalVideoFrames > 0 || quality.droppedVideoFrames > 0)
-        ? {
-            totalFrames: quality.totalVideoFrames,
-            droppedFrames: quality.droppedVideoFrames,
-          }
-        : {}),
-      ...extra,
-    }));
+    owner.report(
+      "video-presentation",
+      JSON.stringify({
+        event,
+        owner: owner.attempt.slice(0, 8),
+        document: document.visibilityState,
+        currentTime: Math.round(element.currentTime * 1_000) / 1_000,
+        presentedSamples: owner.presentedSamples,
+        lastPresentedAgeMs: owner.lastPresentedAt === null ? -1 : Math.round(performance.now() - owner.lastPresentedAt),
+        mediaTime: owner.mediaTime,
+        presentation: "video",
+        contentTransform: contentStyle?.transform ?? "none",
+        contentWillChange: contentStyle?.willChange ?? "none",
+        centerHit: hit
+          ? `${hit.tagName}.${typeof hit.className === "string" ? hit.className.slice(0, 80) : ""}`
+          : "none",
+        ...decodedPixelSample(),
+        readyState: element.readyState,
+        networkState: element.networkState,
+        paused: element.paused,
+        ended: element.ended,
+        trackState: track?.readyState ?? "none",
+        trackMuted: track?.muted,
+        trackEnabled: track?.enabled,
+        video: `${element.videoWidth}x${element.videoHeight}`,
+        client: `${element.clientWidth}x${element.clientHeight}`,
+        ancestors: ancestorSizes.join("|"),
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        outer: `${window.outerWidth}x${window.outerHeight}@${window.screenX},${window.screenY}`,
+        screen: `${window.screen.width}x${window.screen.height}`,
+        available: `${window.screen.availWidth}x${window.screen.availHeight}`,
+        visualViewport: window.visualViewport
+          ? `${Math.round(window.visualViewport.width)}x${Math.round(window.visualViewport.height)}`
+          : "none",
+        cssSize: `${style.width}x${style.height}`,
+        opacity: style.opacity,
+        visibility: style.visibility,
+        display: style.display,
+        ...(quality && (quality.totalVideoFrames > 0 || quality.droppedVideoFrames > 0)
+          ? {
+              totalFrames: quality.totalVideoFrames,
+              droppedFrames: quality.droppedVideoFrames,
+            }
+          : {}),
+        ...extra,
+      }),
+    );
   };
 
   const armVideoPresentationSample = (owner: VideoPresentationOwner): void => {
@@ -146,9 +138,7 @@ export function createVideoPresentationWatch(
     if (typeof element.requestVideoFrameCallback !== "function") return;
     owner.frameRequest = element.requestVideoFrameCallback((_now, metadata) => {
       if (videoOwner !== owner) return;
-      const recoveredGapMs = owner.gapStartedAt === null
-        ? null
-        : Math.round(performance.now() - owner.gapStartedAt);
+      const recoveredGapMs = owner.gapStartedAt === null ? null : Math.round(performance.now() - owner.gapStartedAt);
       owner.frameRequest = null;
       owner.presentedSamples += 1;
       if (owner.presentedSamples === 1) onFirstFrame();
@@ -183,12 +173,13 @@ export function createVideoPresentationWatch(
   const presentationWatchdogTimer = window.setInterval(() => {
     const owner = videoOwner;
     if (
-      !owner
-      || owner.lastPresentedAt === null
-      || document.visibilityState !== "visible"
-      || element.paused
-      || element.ended
-    ) return;
+      !owner ||
+      owner.lastPresentedAt === null ||
+      document.visibilityState !== "visible" ||
+      element.paused ||
+      element.ended
+    )
+      return;
     const stream = element.srcObject instanceof MediaStream ? element.srcObject : null;
     const track = stream?.getVideoTracks()[0];
     if (!track || track.readyState !== "live" || track.muted) return;
@@ -196,18 +187,19 @@ export function createVideoPresentationWatch(
     const gapMs = now - owner.lastPresentedAt;
     if (gapMs < PRESENTATION_GAP_THRESHOLD_MS) return;
     if (owner.gapStartedAt === null) owner.gapStartedAt = owner.lastPresentedAt;
-    if (
-      owner.lastGapReportAt !== null
-      && now - owner.lastGapReportAt < PRESENTATION_GAP_REPORT_INTERVAL_MS
-    ) return;
+    if (owner.lastGapReportAt !== null && now - owner.lastGapReportAt < PRESENTATION_GAP_REPORT_INTERVAL_MS) return;
     const reason = owner.lastGapReportAt === null ? "detected" : "progress";
     owner.lastGapReportAt = now;
     owner.sampleHealth(reason, Math.round(gapMs));
   }, PRESENTATION_WATCHDOG_INTERVAL_MS);
 
   return {
-    get owner(): VideoPresentationOwner | null { return videoOwner; },
-    set owner(next: VideoPresentationOwner | null) { videoOwner = next; },
+    get owner(): VideoPresentationOwner | null {
+      return videoOwner;
+    },
+    set owner(next: VideoPresentationOwner | null) {
+      videoOwner = next;
+    },
     detail: videoPresentationDetail,
     arm: armVideoPresentationSample,
     /** Ends every listener, timer and frame callback this watch holds. */
@@ -215,11 +207,7 @@ export function createVideoPresentationWatch(
       window.clearInterval(presentationTimer);
       window.clearInterval(presentationWatchdogTimer);
       for (const event of videoEvents) element.removeEventListener(event, onVideoEvent);
-      if (
-        videoOwner
-        && videoOwner.frameRequest !== null
-        && typeof element.cancelVideoFrameCallback === "function"
-      ) {
+      if (videoOwner && videoOwner.frameRequest !== null && typeof element.cancelVideoFrameCallback === "function") {
         element.cancelVideoFrameCallback(videoOwner.frameRequest);
       }
     },

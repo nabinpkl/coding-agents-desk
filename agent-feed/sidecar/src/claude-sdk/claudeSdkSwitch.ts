@@ -62,7 +62,10 @@ export interface SwitchSteps {
   /** The model and effort an SDK session has chosen, read from its runner while it still answers. */
   runnerChoices(sessionId: string): Promise<RunnerChoices>;
   /** The command that resumes the session in a mode, with the choices a runner should keep. */
-  resumeCommand(mode: ClaudeRunMode, options: { sessionId: string; cwd: string; title: string; choices?: RunnerChoices }): string[];
+  resumeCommand(
+    mode: ClaudeRunMode,
+    options: { sessionId: string; cwd: string; title: string; choices?: RunnerChoices },
+  ): string[];
   sleep(ms: number): Promise<void>;
 }
 
@@ -105,17 +108,34 @@ export async function switchRunMode(
   const { sessionId } = session;
   const live = await steps.processes(sessionId);
   if (live.length === 0) {
-    return { ok: false, reason: "not-running", message: "this session is not running; opening it starts it the way it last ran" };
+    return {
+      ok: false,
+      reason: "not-running",
+      message: "this session is not running; opening it starts it the way it last ran",
+    };
   }
   if (live.length > 1) {
-    return { ok: false, reason: "several-processes", message: `${live.length} processes are running this session; close all but one first` };
+    return {
+      ok: false,
+      reason: "several-processes",
+      message: `${live.length} processes are running this session; close all but one first`,
+    };
   }
   const process = live[0]!;
   const current = modeOf(process);
   if (current === null) {
-    return { ok: false, reason: "not-ours", message: "this session is running outside the terminal and the SDK runner, so it can't be switched from here" };
+    return {
+      ok: false,
+      reason: "not-ours",
+      message: "this session is running outside the terminal and the SDK runner, so it can't be switched from here",
+    };
   }
-  if (current === mode) return { ok: false, reason: "already", message: `this session already runs ${mode === "sdk" ? "through the SDK" : "in the terminal"}` };
+  if (current === mode)
+    return {
+      ok: false,
+      reason: "already",
+      message: `this session already runs ${mode === "sdk" ? "through the SDK" : "in the terminal"}`,
+    };
   return moveInPane(session, process, current, mode, steps);
 }
 
@@ -134,7 +154,8 @@ export async function restartRunner(
       : { ok: false, reason: "several-processes", message: `${live.length} processes are running this session` };
   }
   const process = live[0]!;
-  if (modeOf(process) !== "sdk") return { ok: false, reason: "not-ours", message: "this session is not running through the SDK" };
+  if (modeOf(process) !== "sdk")
+    return { ok: false, reason: "not-ours", message: "this session is not running through the SDK" };
   return moveInPane(session, process, "sdk", "sdk", steps);
 }
 
@@ -150,18 +171,24 @@ async function moveInPane(
   // Idle is the registry row's to say, in either mode: the CLI keeps it whoever holds the session,
   // and it reads `idle` the moment a turn ends. An SDK runner that answers can only add reasons.
   const state = current === "sdk" ? await steps.runnerState(sessionId) : null;
-  const busy = (state?.connected ? runnerNotIdle(state) : null)
-    ?? (process.activity === "idle" ? null : NOT_IDLE[process.activity ?? ""] ?? "it is not known to be idle");
+  const busy =
+    (state?.connected ? runnerNotIdle(state) : null) ??
+    (process.activity === "idle" ? null : (NOT_IDLE[process.activity ?? ""] ?? "it is not known to be idle"));
   if (busy) return { ok: false, reason: "busy", message: `not switched: ${busy}` };
 
   // Only a pane this sidecar started for this session, in the mode it is running now.
   const tmuxSession = await steps.stamped(sessionId);
   const pane = tmuxSession
-    ? (await steps.paneStarts(tmuxSession)).find(({ command }) =>
-      command.includes(sessionId) && (current === "sdk") === isClaudeSdkRunnerCommand(command))
+    ? (await steps.paneStarts(tmuxSession)).find(
+        ({ command }) => command.includes(sessionId) && (current === "sdk") === isClaudeSdkRunnerCommand(command),
+      )
     : undefined;
   if (!pane) {
-    return { ok: false, reason: "not-ours", message: "this session's pane was not started by this panel, so switching would end someone's shell" };
+    return {
+      ok: false,
+      reason: "not-ours",
+      message: "this session's pane was not started by this panel, so switching would end someone's shell",
+    };
   }
 
   // Read before the runner stops, and only for a runner relaunched as one: what a session chose for
@@ -178,7 +205,7 @@ async function moveInPane(
   // Polled, and bounded: the old process is not this sidecar's child, so its exit raises no event
   // here, and the wait is a few seconds of a process writing its exit records.
   for (let waited = 0; ; waited += STOP_POLL_MS) {
-    const gone = (await steps.processes(sessionId)).length === 0 && await steps.exited(pane.pane);
+    const gone = (await steps.processes(sessionId)).length === 0 && (await steps.exited(pane.pane));
     if (gone) break;
     if (waited >= STOP_TIMEOUT_MS) {
       return { ok: false, reason: "failed", message: "the old process did not leave in time; nothing new was started" };
@@ -189,7 +216,11 @@ async function moveInPane(
     await steps.respawn(pane.pane, session.cwd, steps.resumeCommand(mode, { ...session, choices }));
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
-    return { ok: false, reason: "failed", message: `the session stopped, but starting it again failed (${why}); open it to resume it` };
+    return {
+      ok: false,
+      reason: "failed",
+      message: `the session stopped, but starting it again failed (${why}); open it to resume it`,
+    };
   }
   return { ok: true };
 }

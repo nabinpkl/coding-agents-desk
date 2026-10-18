@@ -64,7 +64,10 @@ export const EMPTY_DRAFT: ArenaDraft = {
   name: "",
   prompt: "",
   repoPath: "",
-  lineup: [{ source: "opencode", model: "" }, { source: "claude", model: "" }],
+  lineup: [
+    { source: "opencode", model: "" },
+    { source: "claude", model: "" },
+  ],
   mode: "terminals",
   manager: "claude",
 };
@@ -129,7 +132,9 @@ export function ArenaNewRun({
     ? null
     : !managed
       ? "Add a lane, or choose a manager to plan them"
-      : opensLanes ? null : "The manager adds the lanes before the prompt: leave the prompt empty";
+      : opensLanes
+        ? null
+        : "The manager adds the lanes before the prompt: leave the prompt empty";
   const canStart = !starting && lanesProblem === null && (opensLanes || draft.prompt.trim().length > 0);
   const setLineup = (lineup: ArenaLaneDraft[]) => onDraft({ ...draft, lineup });
   const setLane = (index: number, lane: Partial<ArenaLaneDraft>) =>
@@ -198,12 +203,13 @@ export function ArenaNewRun({
 
       <fieldset className="flex flex-col gap-2">
         <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Lanes</legend>
-        <div role="group" aria-label="Contestants" className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-2">
+        <div
+          role="group"
+          aria-label="Contestants"
+          className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-2"
+        >
           {draft.lineup.map(({ source, model }, index) => (
-            <div
-              key={index}
-              className="flex flex-col gap-2 rounded-lg border border-border bg-card p-2.5"
-            >
+            <div key={index} className="flex flex-col gap-2 rounded-lg border border-border bg-card p-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className={`font-mono ${TEXT.meta} text-muted-foreground`}>c{index + 1}</span>
                 {draft.lineup.length > 1 || managed ? (
@@ -252,7 +258,9 @@ export function ArenaNewRun({
               type="button"
               aria-label="Add a contestant"
               title="Add a contestant"
-              onClick={() => setLineup([...draft.lineup, draft.lineup[draft.lineup.length - 1] ?? { source: "opencode", model: "" }])}
+              onClick={() =>
+                setLineup([...draft.lineup, draft.lineup[draft.lineup.length - 1] ?? { source: "opencode", model: "" }])
+              }
               className={`flex min-h-[5.5rem] items-center justify-center gap-1.5 rounded-lg border border-dashed border-border ${TEXT.meta} text-muted-foreground transition-colors duration-150 hover:border-ring hover:bg-muted hover:text-foreground active:bg-accent ${FOCUS}`}
             >
               <Plus aria-hidden className="size-4" />
@@ -340,8 +348,7 @@ export function ArenaNewRun({
 }
 
 /** The lane model control's look. */
-const MODEL_CONTROL =
-  `min-h-8 w-full rounded-md border border-input bg-background px-2 py-1 font-mono ${TEXT.meta} text-foreground transition-colors ${FOCUS}`;
+const MODEL_CONTROL = `min-h-8 w-full rounded-md border border-input bg-background px-2 py-1 font-mono ${TEXT.meta} text-foreground transition-colors ${FOCUS}`;
 
 /**
  * What a Claude lane offers: the CLI's own aliases, which follow each family's latest model, so
@@ -354,14 +361,27 @@ const CLAUDE_MODELS: readonly OpencodeModel[] = [
   ["sonnet", "Sonnet"],
   ["haiku", "Haiku"],
   ["opusplan", "Opus to plan, Sonnet to build"],
-].map(([modelID, name]) => ({ providerID: "claude", modelID: modelID!, name: name!, contextLimit: null, inputCost: null, outputCost: null }));
+].map(([modelID, name]) => ({
+  providerID: "claude",
+  modelID: modelID!,
+  name: name!,
+  contextLimit: null,
+  inputCost: null,
+  outputCost: null,
+}));
 
 /**
  * A lane's model: a button naming it, which opens the model menu under it, and a clear that puts
  * the lane back on its harness's default. An opencode lane's menu is the serve's own list, read when
  * it opens; a Claude lane's is the CLI's aliases, and takes a full id typed into its filter.
  */
-function LaneModel({ feed, source, lane, model, onModel }: {
+function LaneModel({
+  feed,
+  source,
+  lane,
+  model,
+  onModel,
+}: {
   feed: SidecarDataSource;
   source: ArenaContestantSource;
   lane: number;
@@ -385,7 +405,9 @@ function LaneModel({ feed, source, lane, model, onModel }: {
         // "Default model" under 4.5:1.
         className={`${MODEL_CONTROL} flex min-w-0 items-center gap-1 text-left hover:border-ring aria-expanded:border-ring`}
       >
-        <span className={`min-w-0 flex-1 truncate ${model ? "" : "text-muted-foreground"}`}>{model || "Default model"}</span>
+        <span className={`min-w-0 flex-1 truncate ${model ? "" : "text-muted-foreground"}`}>
+          {model || "Default model"}
+        </span>
         <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       </button>
       {model ? (

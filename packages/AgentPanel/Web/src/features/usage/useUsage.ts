@@ -77,29 +77,33 @@ function close(feed: UsageFeed): void {
 function load(feed: UsageFeed): void {
   if (streams.has(feed)) return;
   setState(feed, (current) => (current.kind === "ready" ? { ...current, settled: false } : { kind: "loading" }));
-  streams.set(feed, feed.subscribeUsage({
-    onMessage: (message) => {
-      switch (message.type) {
-        case "report":
-          setState(feed, () => ({ kind: "ready", report: message.report, settled: false }));
-          return;
-        case "settled":
-          close(feed);
-          setState(feed, (current) => (current.kind === "ready" ? { ...current, settled: true } : { kind: "idle" }));
-          return;
-        case "error":
-          close(feed);
-          setState(feed, () => ({ kind: "error", message: message.error.message }));
-      }
-    },
-    // The stream never opened, or dropped before it settled. A report already on screen stays --
-    // it was real when it arrived -- and stops claiming a sweep is still running.
-    onError: (reason) => {
-      close(feed);
-      setState(feed, (current) =>
-        current.kind === "ready" ? { ...current, settled: true } : { kind: "error", message: reason });
-    },
-  }));
+  streams.set(
+    feed,
+    feed.subscribeUsage({
+      onMessage: (message) => {
+        switch (message.type) {
+          case "report":
+            setState(feed, () => ({ kind: "ready", report: message.report, settled: false }));
+            return;
+          case "settled":
+            close(feed);
+            setState(feed, (current) => (current.kind === "ready" ? { ...current, settled: true } : { kind: "idle" }));
+            return;
+          case "error":
+            close(feed);
+            setState(feed, () => ({ kind: "error", message: message.error.message }));
+        }
+      },
+      // The stream never opened, or dropped before it settled. A report already on screen stays --
+      // it was real when it arrived -- and stops claiming a sweep is still running.
+      onError: (reason) => {
+        close(feed);
+        setState(feed, (current) =>
+          current.kind === "ready" ? { ...current, settled: true } : { kind: "error", message: reason },
+        );
+      },
+    }),
+  );
 }
 
 /**

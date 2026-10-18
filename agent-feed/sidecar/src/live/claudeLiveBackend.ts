@@ -17,10 +17,7 @@ import type {
   AgentTimelinePage,
   AgentUiResponseResult,
 } from "@/agents/agentBackend";
-import {
-  AgentBackendDisposedError,
-  AgentModeUnsupportedError,
-} from "@/agents/agentBackend";
+import { AgentBackendDisposedError, AgentModeUnsupportedError } from "@/agents/agentBackend";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { LiveSessionRegistry, livePage } from "@/live/liveSessionRegistry";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
@@ -104,8 +101,12 @@ export class ClaudeLiveBackend implements AgentBackend {
       signal: this.abortController?.signal,
       disposed: () => this.disposed,
       onEvent: (event) => this.acceptObserverEvent(event),
-      onError: (error) => { this.lastError = error; },
-      onSubscription: (subscription) => { this.subscription = subscription; },
+      onError: (error) => {
+        this.lastError = error;
+      },
+      onSubscription: (subscription) => {
+        this.subscription = subscription;
+      },
       reconnectDelay: claudeLiveReconnectDelay,
       // The observer does not resume a flow it was streaming when the connection dropped, so each
       // open flow ends here or its message stays streaming for good. Measured 2026-10-08: the
@@ -264,7 +265,11 @@ export class ClaudeLiveBackend implements AgentBackend {
         // a flow whose end has already been seen, and the end is recorded whether or not the flow
         // was ever recognised.
         if (sessionId && !conversationTurn && compaction) {
-          this.compactions.begin(flowId, sessionId, context.pending.map((item) => item.payload));
+          this.compactions.begin(
+            flowId,
+            sessionId,
+            context.pending.map((item) => item.payload),
+          );
         }
         if (!this.flowContexts.has(flowId)) return;
         // A subagent's request carries its PARENT's session id, so binding it would mirror the
@@ -345,7 +350,13 @@ export class ClaudeLiveBackend implements AgentBackend {
   }
 
   /** `startedMs` is when the request was sent, not when its flow was announced. */
-  private bindFlow(flowId: string, sessionId: string, toolResults: ToolResultItem[], startedMs: number, created?: FlowContext): void {
+  private bindFlow(
+    flowId: string,
+    sessionId: string,
+    toolResults: ToolResultItem[],
+    startedMs: number,
+    created?: FlowContext,
+  ): void {
     if (created) this.flowContexts.set(flowId, created);
     const context = this.flowContexts.get(flowId);
     if (!context) return;
@@ -374,12 +385,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     }
   }
 
-  private publishToolResults(
-    sessionId: string,
-    flowId: string,
-    results: ToolResultItem[],
-    ts: number,
-  ): void {
+  private publishToolResults(sessionId: string, flowId: string, results: ToolResultItem[], ts: number): void {
     const projection = this.sessions.ensure(sessionId);
     const blocks = toolResultBlocks(results);
     projection.upsert({
@@ -458,9 +464,7 @@ export class ClaudeLiveBackend implements AgentBackend {
     return this.compactions.summary(sessionId);
   }
 
-  onCompactionSummary(
-    listener: (sessionId: string, text: string, replace: boolean) => void,
-  ): () => void {
+  onCompactionSummary(listener: (sessionId: string, text: string, replace: boolean) => void): () => void {
     return this.compactions.onSummary(listener);
   }
 

@@ -10,14 +10,7 @@ import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ArenaContestantSummary, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import { basename, formatAgo } from "@/features/arena/run/arenaFacts";
-import {
-  BUTTON,
-  FOCUS,
-  isLive,
-  SOURCE_INITIAL,
-  SOURCE_LABEL,
-  TEXT,
-} from "@/features/arena/arenaVocabulary";
+import { BUTTON, FOCUS, isLive, SOURCE_INITIAL, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 
 const CHIP_INK: Record<ArenaContestantSummary["status"], string> = {
   preparing: "border-border text-muted-foreground",
@@ -80,7 +73,9 @@ export function ArenaRunRail({
                   {selected ? (
                     <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-foreground" />
                   ) : null}
-                  <span className={`line-clamp-2 ${TEXT.body} leading-snug ${run.prompt ? "text-foreground" : "text-muted-foreground"}`}>
+                  <span
+                    className={`line-clamp-2 ${TEXT.body} leading-snug ${run.prompt ? "text-foreground" : "text-muted-foreground"}`}
+                  >
                     {run.prompt || "Waiting for a prompt"}
                   </span>
                   <span className="flex min-w-0 items-center gap-2">

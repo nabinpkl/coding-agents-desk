@@ -1,22 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type {
-  ActivityBlock,
-  ActivityEvent,
-  ParsedLine,
-} from "@/transcripts/transcriptTypes";
-import type {
-  AgentQueueState,
-  AgentRunState,
-  TimelineEnvelope,
-} from "@agentdesk/agent-feed-wire";
+import type { ActivityBlock, ActivityEvent, ParsedLine } from "@/transcripts/transcriptTypes";
+import type { AgentQueueState, AgentRunState, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 
 // The projection produces these, the HTTP layer publishes them verbatim, and the
 // Agent Panel parses them from the same declaration. See agent-feed/wire.
-export type {
-  AgentQueueState,
-  AgentRunState,
-  TimelineEnvelope,
-} from "@agentdesk/agent-feed-wire";
+export type { AgentQueueState, AgentRunState, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 
 type ProjectionEvent = ParsedLine & {
   id: string;
@@ -125,7 +113,8 @@ export class LiveAgentProjection {
       runState === this.currentRunState &&
       queue.steer === this.currentQueue.steer &&
       queue.followUp === this.currentQueue.followUp
-    ) return;
+    )
+      return;
     this.currentRunState = runState;
     this.currentQueue = { ...queue };
     this.publish("state", []);
@@ -202,13 +191,15 @@ export class LiveAgentProjection {
 }
 
 function sameEventContent(left: ActivityEvent, right: ActivityEvent): boolean {
-  return left.ts === right.ts &&
+  return (
+    left.ts === right.ts &&
     left.type === right.type &&
     left.phase === right.phase &&
     JSON.stringify(left.blocks) === JSON.stringify(right.blocks) &&
     // A late cache badge (Codex `response.completed` re-stamp) must count as a
     // content change or the upsert would be skipped and the badge never shown.
-    JSON.stringify(left.cacheHit) === JSON.stringify(right.cacheHit);
+    JSON.stringify(left.cacheHit) === JSON.stringify(right.cacheHit)
+  );
 }
 
 export interface AgentValueLimits {
@@ -224,10 +215,7 @@ const DEFAULT_VALUE_LIMITS: AgentValueLimits = {
 };
 const BLOCKED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-export function sanitizeAgentValue(
-  value: unknown,
-  limits: Partial<AgentValueLimits> = {},
-): unknown {
+export function sanitizeAgentValue(value: unknown, limits: Partial<AgentValueLimits> = {}): unknown {
   const resolved = { ...DEFAULT_VALUE_LIMITS, ...limits };
   const seen = new WeakSet<object>();
   let properties = 0;

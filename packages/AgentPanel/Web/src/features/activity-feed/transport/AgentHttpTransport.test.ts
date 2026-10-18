@@ -13,9 +13,7 @@ import { RelayHttpTransport } from "@/features/activity-feed/transport/AgentHttp
 import { FakeHostBridge } from "@/features/activity-feed/data-source/HostBridge";
 
 function lastRequest(bridge: FakeHostBridge) {
-  return [...bridge.posted]
-    .reverse()
-    .find((message) => (message as { t?: string }).t === "agent-http-req") as {
+  return [...bridge.posted].reverse().find((message) => (message as { t?: string }).t === "agent-http-req") as {
     rid: string;
     method: string;
     path: string;

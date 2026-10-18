@@ -55,15 +55,23 @@ export function PdfPreview({
   const width = useSettledWidth(scroller);
 
   // A link to another place in the document scrolls this pane, not the page around it.
-  const navigate = useCallback((place: PdfPlace) => {
-    const target = scroller?.querySelector<HTMLElement>(`[data-pdf-page="${place.page}"]`);
-    if (!scroller || !target) return;
-    const top = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-    scroller.scrollTo({ top: top + place.fraction * target.offsetHeight - PAGE_GAP });
-  }, [scroller]);
+  const navigate = useCallback(
+    (place: PdfPlace) => {
+      const target = scroller?.querySelector<HTMLElement>(`[data-pdf-page="${place.page}"]`);
+      if (!scroller || !target) return;
+      const top = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+      scroller.scrollTo({ top: top + place.fraction * target.offsetHeight - PAGE_GAP });
+    },
+    [scroller],
+  );
 
   if (url === null) {
-    return <DocumentNotice title="PDF preview is not available" detail={`${name} has no address this panel can load it from.`} />;
+    return (
+      <DocumentNotice
+        title="PDF preview is not available"
+        detail={`${name} has no address this panel can load it from.`}
+      />
+    );
   }
   if (loaded.status === "failed") {
     return <DocumentNotice title={`Could not open ${name}`} detail={loaded.reason} />;
@@ -122,10 +130,13 @@ function PdfPage({
     queryKey: ["pdf-links", sourceKey(document), number],
     // A page whose links cannot be read is still a page: a line in the console, and no links.
     queryFn: () =>
-      document.getPage(number).then(pageLinks).catch((cause: unknown) => {
-        console.warn(`pdf: page ${number}'s links could not be read`, cause);
-        return null;
-      }),
+      document
+        .getPage(number)
+        .then(pageLinks)
+        .catch((cause: unknown) => {
+          console.warn(`pdf: page ${number}'s links could not be read`, cause);
+          return null;
+        }),
     enabled: near,
     staleTime: Infinity,
   });
@@ -143,13 +154,11 @@ function PdfPage({
       <canvas ref={canvas} aria-hidden="true" className="block h-full w-full" />
       <div ref={text} className="textLayer" />
       {links ? <PdfLinks links={links} document={document} onNavigate={onNavigate} /> : null}
-      {failure
-        ? (
-          <p className="absolute inset-0 m-0 grid place-items-center p-4 text-center text-sm text-neutral-600">
-            Page {number} could not be drawn: {failure}
-          </p>
-        )
-        : null}
+      {failure ? (
+        <p className="absolute inset-0 m-0 grid place-items-center p-4 text-center text-sm text-neutral-600">
+          Page {number} could not be drawn: {failure}
+        </p>
+      ) : null}
     </div>
   );
 }

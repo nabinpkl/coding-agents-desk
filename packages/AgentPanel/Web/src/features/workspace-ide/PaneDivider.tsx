@@ -65,9 +65,7 @@ export function PaneDivider({
         onGrow(event.key === forward ? STEP : -STEP);
       }}
       className={`shrink-0 bg-border outline-none transition-colors hover:bg-primary/60
-        focus-visible:bg-primary ${vertical
-          ? "w-1 cursor-col-resize"
-          : "h-1 cursor-row-resize"}`}
+        focus-visible:bg-primary ${vertical ? "w-1 cursor-col-resize" : "h-1 cursor-row-resize"}`}
     />
   );
 }

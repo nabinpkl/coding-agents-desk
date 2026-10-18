@@ -94,8 +94,8 @@ function composerStream(request: Request, url: URL, server: Parameters<RouteHand
   const source = windowSource(url.searchParams.get("source"));
   if (!sessionId || !source) return badRequest("sessionId and a known source are required");
   return startServerSentEventStream(request, server, (write) =>
-    composerCoordinator.watch({ source, sessionId }, (envelope) =>
-      write(encodeServerSentEvent(envelope))));
+    composerCoordinator.watch({ source, sessionId }, (envelope) => write(encodeServerSentEvent(envelope))),
+  );
 }
 
 /**
@@ -122,9 +122,8 @@ async function composerText(request: Request, kind: "sync" | "submit"): Promise<
   const text = typeof body?.text === "string" ? body.text : null;
   if (!key || text === null) return badRequest("sessionId, source, and text are required");
   try {
-    const written = kind === "sync"
-      ? await composerCoordinator.sync(key, text)
-      : await composerCoordinator.submit(key, text);
+    const written =
+      kind === "sync" ? await composerCoordinator.sync(key, text) : await composerCoordinator.submit(key, text);
     return jsonResponse({ text: written });
   } catch (error) {
     return failure(error);
@@ -268,7 +267,7 @@ async function readJson(request: Request): Promise<Record<string, unknown> | nul
   if (raw.length > MAXIMUM_BODY_BYTES) return null;
   try {
     const decoded = JSON.parse(raw) as unknown;
-    return typeof decoded === "object" && decoded !== null ? decoded as Record<string, unknown> : null;
+    return typeof decoded === "object" && decoded !== null ? (decoded as Record<string, unknown>) : null;
   } catch {
     return null;
   }

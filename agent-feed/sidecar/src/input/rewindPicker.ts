@@ -70,12 +70,7 @@
  *   one is a refusal rather than a fallback to whatever else is on the menu.
  */
 import { bytesForRailKey } from "@agentdesk/agent-feed-wire";
-import {
-  captureTmuxPaneView,
-  hexSend,
-  TmuxUnavailable,
-  type TmuxPaneView,
-} from "@/terminal/tmux/tmuxSessions";
+import { captureTmuxPaneView, hexSend, TmuxUnavailable, type TmuxPaneView } from "@/terminal/tmux/tmuxSessions";
 import { liveTmuxSession } from "@/terminal/agentTerminalService";
 import { keystrokesFor } from "@/input/composer/composerKeystrokes";
 import { inTurn } from "@/input/tmuxComposerPanes";
@@ -146,17 +141,17 @@ export type RewindRefusal =
 
 export type RewindOutcome =
   | {
-    rewound: true;
-    /**
-     * What the composer holds now.
-     *
-     * Rewinding puts the rewound-to message back in the box to be edited, which is the point of
-     * the feature for a person and a surprise for a caller that did not ask for it. Reported
-     * rather than cleared here: whether to type over it is the caller's decision, and
-     * `keystrokesFor` replaces box contents properly when it does.
-     */
-    composer: string;
-  }
+      rewound: true;
+      /**
+       * What the composer holds now.
+       *
+       * Rewinding puts the rewound-to message back in the box to be edited, which is the point of
+       * the feature for a person and a surprise for a caller that did not ask for it. Reported
+       * rather than cleared here: whether to type over it is the caller's decision, and
+       * `keystrokesFor` replaces box contents properly when it does.
+       */
+      composer: string;
+    }
   | { rewound: false; reason: RewindRefusal };
 
 /** Where in the conversation to land, and what proves it. */
@@ -242,9 +237,7 @@ function messageList(lines: readonly string[]): RewindMessages | null {
     }
     entries.push(row);
   }
-  return entries.length > 0 || currentSelected
-    ? { kind: "messages", entries, currentSelected }
-    : null;
+  return entries.length > 0 || currentSelected ? { kind: "messages", entries, currentSelected } : null;
 }
 
 const ENTRY = /^ {2}(\u276f[ \u00a0]| {2})(.*)$/;
@@ -278,7 +271,9 @@ function confirmMenu(lines: readonly string[]): RewindConfirm | null {
  * written over several lines arrives on the screen as one row.
  */
 export function saysTheSame(entry: string, target: string): boolean {
-  const shown = collapse(entry).replace(/[.…]+$/, "").trim();
+  const shown = collapse(entry)
+    .replace(/[.…]+$/, "")
+    .trim();
   const wanted = collapse(target);
   return shown.length > 0 && (wanted === collapse(entry) || wanted.startsWith(shown));
 }
@@ -313,11 +308,7 @@ export async function rewindTmuxSession(
   });
 }
 
-async function drive(
-  pane: string,
-  target: RewindTarget,
-  runtime: RewindRuntime,
-): Promise<RewindOutcome> {
+async function drive(pane: string, target: RewindTarget, runtime: RewindRuntime): Promise<RewindOutcome> {
   if (target.fromEnd < 1 || target.fromEnd > MAX_REWIND_STEPS) return refused("wrong-message");
 
   const box = composerBox(await runtime.screen(pane));
@@ -384,11 +375,7 @@ async function drive(
 }
 
 /** Walks the confirm menu's highlight onto `wanted`, one key at a time, reading between each. */
-async function selectOption(
-  pane: string,
-  runtime: RewindRuntime,
-  wanted: number,
-): Promise<boolean> {
+async function selectOption(pane: string, runtime: RewindRuntime, wanted: number): Promise<boolean> {
   for (let step = 0; step <= MAX_REWIND_STEPS; step += 1) {
     const screen = await settle(pane, runtime, (view) => view?.kind === "confirm");
     if (screen?.kind !== "confirm") return false;
@@ -402,11 +389,7 @@ async function selectOption(
   return false;
 }
 
-async function abort(
-  pane: string,
-  runtime: RewindRuntime,
-  reason: RewindRefusal,
-): Promise<RewindOutcome> {
+async function abort(pane: string, runtime: RewindRuntime, reason: RewindRefusal): Promise<RewindOutcome> {
   await escape(pane, runtime).catch(() => {});
   return refused(reason);
 }

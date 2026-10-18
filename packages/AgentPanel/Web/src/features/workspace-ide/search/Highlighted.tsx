@@ -15,13 +15,14 @@ export function Highlighted({ text, ranges }: { text: string; ranges: ReadonlyAr
   return (
     <>
       {parts.map((part, index) =>
-        part.marked
-          ? (
-            <mark key={index} className="rounded-[2px] bg-amber-300/50 text-inherit dark:bg-amber-400/30">
-              {part.text}
-            </mark>
-          )
-          : <span key={index}>{part.text}</span>)}
+        part.marked ? (
+          <mark key={index} className="rounded-[2px] bg-amber-300/50 text-inherit dark:bg-amber-400/30">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={index}>{part.text}</span>
+        ),
+      )}
     </>
   );
 }

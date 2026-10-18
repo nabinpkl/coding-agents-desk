@@ -41,9 +41,12 @@ export class FakeHttpTransport implements AgentHttpTransport {
    */
   hold(key: string): () => void {
     let release!: () => void;
-    this.held.set(key, new Promise<void>((resolve) => {
-      release = resolve;
-    }));
+    this.held.set(
+      key,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
     return () => {
       this.held.delete(key);
       release();
@@ -79,9 +82,7 @@ export class FakeHttpTransport implements AgentHttpTransport {
   /** Delivers one message to the newest subscription whose path contains `match`. */
   deliver(match: string, payload: unknown): void {
     const subscription = this.find(match);
-    subscription.handlers.onMessage(
-      typeof payload === "string" ? payload : JSON.stringify(payload),
-    );
+    subscription.handlers.onMessage(typeof payload === "string" ? payload : JSON.stringify(payload));
   }
 
   /** Opens the newest subscription whose path contains `match`. */
@@ -95,9 +96,7 @@ export class FakeHttpTransport implements AgentHttpTransport {
   }
 
   private find(match: string): OpenSubscription {
-    const subscription = [...this.subscriptions]
-      .reverse()
-      .find((open: OpenSubscription) => open.path.includes(match));
+    const subscription = [...this.subscriptions].reverse().find((open: OpenSubscription) => open.path.includes(match));
     if (!subscription) {
       throw new Error(
         `no open subscription matching "${match}" (open: ${this.subscriptions.map((s) => s.path).join(", ") || "none"})`,

@@ -4,12 +4,7 @@
 // content lines, and each reports its index in the other. Kept apart from the routes
 // so a reader changing what the fixture SHOWS never has to read the framing.
 
-import type {
-  ActivityEvent,
-  EventMode,
-  ProjectSummary,
-  SessionSummary,
-} from "@agentdesk/agent-feed-wire";
+import type { ActivityEvent, EventMode, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 
 export const PROJECT_PATH = "/Users/dev/projects/agent-desk";
 
@@ -87,9 +82,7 @@ const FIXTURE_LINES: FixtureLine[] = [
   {
     age: 200_000,
     type: "user",
-    blocks: [
-      { kind: "text", text: "Please implement the webview Vite bundle for the iPhone surface." },
-    ],
+    blocks: [{ kind: "text", text: "Please implement the webview Vite bundle for the iPhone surface." }],
   },
   {
     age: 195_000,
@@ -106,10 +99,7 @@ const FIXTURE_LINES: FixtureLine[] = [
     machinery: true,
     age: 194_000,
     type: "system",
-    blocks: [
-      { kind: "metadata", label: "Token Usage", text: "41,220 / 200,000 tokens" },
-      { kind: "raw" },
-    ],
+    blocks: [{ kind: "metadata", label: "Token Usage", text: "41,220 / 200,000 tokens" }, { kind: "raw" }],
   },
   {
     machinery: true,
@@ -137,7 +127,8 @@ const FIXTURE_LINES: FixtureLine[] = [
         kind: "tool_use",
         tool: "Bash",
         callId: "call-002",
-        summary: 'ls && echo "---TASKS---" && ls tasks 2>/dev/null | head -30 && git log --oneline --decorate | head -40',
+        summary:
+          'ls && echo "---TASKS---" && ls tasks 2>/dev/null | head -30 && git log --oneline --decorate | head -40',
       },
       { kind: "metadata", label: "Token Usage", text: "68,272 tokens" },
       { kind: "metadata", label: "Stop Reason", text: "tool_use" },
@@ -209,10 +200,7 @@ const FIXTURE_LINES: FixtureLine[] = [
     machinery: true,
     age: 150_000,
     type: "system",
-    blocks: [
-      { kind: "metadata", label: "Mode", text: '{"mode":"acceptEdits"}' },
-      { kind: "raw" },
-    ],
+    blocks: [{ kind: "metadata", label: "Mode", text: '{"mode":"acceptEdits"}' }, { kind: "raw" }],
   },
   // Context compaction, carrying the same appended metadata.
   {

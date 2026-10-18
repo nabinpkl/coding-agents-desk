@@ -18,14 +18,11 @@ describe("parseSearchResult", () => {
       "Grep",
       "host/Provider.swift:38:    func manifest() throws -> Manifest {\n" +
         "host/Provider.swift:40:            return Manifest(assets: [])\n" +
-        "packages/Wire.swift:561:    try roundTrip(Request.fetch(path: \"x\"))",
+        'packages/Wire.swift:561:    try roundTrip(Request.fetch(path: "x"))',
     );
     expect(body?.kind).toBe("matches");
     if (body?.kind !== "matches") return;
-    expect(body.groups.map((group) => group.path)).toEqual([
-      "host/Provider.swift",
-      "packages/Wire.swift",
-    ]);
+    expect(body.groups.map((group) => group.path)).toEqual(["host/Provider.swift", "packages/Wire.swift"]);
     expect(body.groups[0]?.lines).toEqual([
       "38:    func manifest() throws -> Manifest {",
       "40:            return Manifest(assets: [])",
@@ -43,9 +40,7 @@ describe("parseSearchResult", () => {
   });
 
   it("leaves a paragraph with one stray match-shaped line alone", () => {
-    expect(
-      parseSearchResult("Grep", "first line\nsecond line\nsrc/a.ts:1: x\nfourth line"),
-    ).toBeNull();
+    expect(parseSearchResult("Grep", "first line\nsecond line\nsrc/a.ts:1: x\nfourth line")).toBeNull();
   });
 
   it("lifts the count line off a file list into a caption", () => {

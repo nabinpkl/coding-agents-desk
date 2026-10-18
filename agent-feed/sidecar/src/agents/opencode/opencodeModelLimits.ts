@@ -16,14 +16,16 @@ export class OpencodeModelLimits {
     const known = this.limits.get(modelKey);
     if (known !== undefined) return known;
     if (!this.loading) {
-      this.loading = fetchOpencodeModelLimits().then(
-        (limits) => {
-          for (const [key, limit] of limits) this.limits.set(key, limit);
-        },
-        () => {},
-      ).finally(() => {
-        this.loading = null;
-      });
+      this.loading = fetchOpencodeModelLimits()
+        .then(
+          (limits) => {
+            for (const [key, limit] of limits) this.limits.set(key, limit);
+          },
+          () => {},
+        )
+        .finally(() => {
+          this.loading = null;
+        });
     }
     await this.loading;
     return this.limits.get(modelKey) ?? null;

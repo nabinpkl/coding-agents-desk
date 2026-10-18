@@ -18,36 +18,42 @@ export function usePiSessionCreation(
   const [creatingProjectPath, setCreatingProjectPath] = useState<string | null>(null);
   const [creationErrors, setCreationErrors] = useState<Map<string, string>>(new Map());
 
-  const createPiSession = useCallback(async (project: ProjectSummary) => {
-    if (creatingProjectPath) return;
-    setCreatingProjectPath(project.projectPath);
-    setCreationErrors((current) => {
-      const next = new Map(current);
-      next.delete(project.projectPath);
-      return next;
-    });
-    return runWithFinally(async () => {
-      try {
-        const created = await feed.createSession(project.projectPath, "pi");
-        // Everything but the source comes from the descriptor, because the sidecar decides the
-        // title, timestamps, and capabilities. The source is the one we asked for: the descriptor
-        // widens it to a bare string so a backend can register an identifier neither side's build
-        // knows, and this call site is not that case.
-        setSelectedBotId(null);
-        openSession(project, {
-          sessionId: created.sessionId,
-          source: "pi",
-          title: created.title,
-          lastEventAt: created.lastEventAt,
-          activity: created.activity,
-          capabilities: created.capabilities,
-        });
-      } catch (error) {
-        const message = String((error as Error).message ?? error);
-        setCreationErrors((current) => new Map(current).set(project.projectPath, message));
-      }
-    }, () => setCreatingProjectPath(null));
-  }, [feed, creatingProjectPath, openSession, setSelectedBotId]);
+  const createPiSession = useCallback(
+    async (project: ProjectSummary) => {
+      if (creatingProjectPath) return;
+      setCreatingProjectPath(project.projectPath);
+      setCreationErrors((current) => {
+        const next = new Map(current);
+        next.delete(project.projectPath);
+        return next;
+      });
+      return runWithFinally(
+        async () => {
+          try {
+            const created = await feed.createSession(project.projectPath, "pi");
+            // Everything but the source comes from the descriptor, because the sidecar decides the
+            // title, timestamps, and capabilities. The source is the one we asked for: the descriptor
+            // widens it to a bare string so a backend can register an identifier neither side's build
+            // knows, and this call site is not that case.
+            setSelectedBotId(null);
+            openSession(project, {
+              sessionId: created.sessionId,
+              source: "pi",
+              title: created.title,
+              lastEventAt: created.lastEventAt,
+              activity: created.activity,
+              capabilities: created.capabilities,
+            });
+          } catch (error) {
+            const message = String((error as Error).message ?? error);
+            setCreationErrors((current) => new Map(current).set(project.projectPath, message));
+          }
+        },
+        () => setCreatingProjectPath(null),
+      );
+    },
+    [feed, creatingProjectPath, openSession, setSelectedBotId],
+  );
 
   return { creatingProjectPath, creationErrors, createPiSession };
 }

@@ -19,12 +19,7 @@
 
 import type { LimitsStreamMessage } from "@agentdesk/agent-feed-wire";
 import { onLiveQuotaChange } from "@/usage/claudeLiveQuota";
-import {
-  createUsageScanner,
-  readVendorQuotas,
-  type UsageScanner,
-  type UsageVendorPaths,
-} from "@/usage/usageReport";
+import { createUsageScanner, readVendorQuotas, type UsageScanner, type UsageVendorPaths } from "@/usage/usageReport";
 import { encodeServerSentEvent, startServerSentEventStream } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 
@@ -65,10 +60,7 @@ export function createLimitsRoutes(
   };
 }
 
-async function report(
-  scanner: UsageScanner,
-  paths: Partial<UsageVendorPaths>,
-): Promise<LimitsStreamMessage> {
+async function report(scanner: UsageScanner, paths: Partial<UsageVendorPaths>): Promise<LimitsStreamMessage> {
   try {
     // The scanner's LAST completed report, never a new sweep: Codex's meter comes from there, and
     // a machine whose modal has not been opened reports no Codex meter rather than paying for a

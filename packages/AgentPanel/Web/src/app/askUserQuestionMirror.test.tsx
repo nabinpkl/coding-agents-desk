@@ -5,15 +5,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, act } from "@testing-library/react";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
-import {
-  COMPOSER_STREAM,
-  openClaudeThread,
-  restoreViewport,
-  setup,
-} from "@/app/agentPanelAppHarness";
-import {
-  feedMock,
-} from "@/app/agentPanelAppMocks";
+import { COMPOSER_STREAM, openClaudeThread, restoreViewport, setup } from "@/app/agentPanelAppHarness";
+import { feedMock } from "@/app/agentPanelAppMocks";
 
 vi.mock("@/features/activity-feed/ActivityFeed", async () => {
   const { activityFeedModule } = await import("@/app/agentPanelAppMocks");
@@ -37,38 +30,42 @@ describe("AskUserQuestion mirror", () => {
   // single-select options, Other, Skip, Submit, and the header controls.
   const QUESTION = {
     callId: "toolu_01RiU9jjyzyX3HTCbLG1dGAh",
-    questions: [{
-    question: "Which release identity should the manual deploy of current main use?",
-    header: "Release id",
-    multiSelect: false,
-    options: [
+    questions: [
       {
-        label: "Mint 2026-08-08.1 (Recommended)",
-        description: "Add a ledger entry for a new application release.",
-      },
-      {
-        label: "Reuse 2026-08-03.1",
-        description: "Deploy immediately, no code change.",
-      },
-      {
-        label: "Don't deploy app code yet",
-        description: "Leave the running release alone.",
+        question: "Which release identity should the manual deploy of current main use?",
+        header: "Release id",
+        multiSelect: false,
+        options: [
+          {
+            label: "Mint 2026-08-08.1 (Recommended)",
+            description: "Add a ledger entry for a new application release.",
+          },
+          {
+            label: "Reuse 2026-08-03.1",
+            description: "Deploy immediately, no code change.",
+          },
+          {
+            label: "Don't deploy app code yet",
+            description: "Leave the running release alone.",
+          },
+        ],
       },
     ],
-    }],
   };
 
   const MULTI_QUESTION = {
     callId: "toolu_02",
-    questions: [{
-      question: "Which features do you want to enable?",
-      multiSelect: true,
-      options: [
-        { label: "Dark mode", description: "Enable dark theme for the interface" },
-        { label: "Notifications", description: "Receive real-time alerts and updates" },
-        { label: "Analytics", description: "Track usage and performance metrics" },
-      ],
-    }],
+    questions: [
+      {
+        question: "Which features do you want to enable?",
+        multiSelect: true,
+        options: [
+          { label: "Dark mode", description: "Enable dark theme for the interface" },
+          { label: "Notifications", description: "Receive real-time alerts and updates" },
+          { label: "Analytics", description: "Track usage and performance metrics" },
+        ],
+      },
+    ],
   };
 
   /** A call carrying more than one question, which is what the Desktop panel cannot finish. */
@@ -104,10 +101,7 @@ describe("AskUserQuestion mirror", () => {
     return transport.subscriptions.some((open) => open.path.includes(COMPOSER_STREAM));
   }
 
-  function deliverQuestionStatus(
-    transport: FakeHttpTransport,
-    overrides: Record<string, unknown> = {},
-  ) {
+  function deliverQuestionStatus(transport: FakeHttpTransport, overrides: Record<string, unknown> = {}) {
     const { en = true, pr = true, sel = [], ot = null, sb = null, r = null } = overrides;
     act(() => {
       transport.deliver(COMPOSER_STREAM, {
@@ -151,8 +145,7 @@ describe("AskUserQuestion mirror", () => {
   }
 
   /** The free-text row's label, which names its question so several of them stay distinct. */
-  const OTHER =
-    "Your own answer to: Which release identity should the manual deploy of current main use?";
+  const OTHER = "Your own answer to: Which release identity should the manual deploy of current main use?";
 
   function openQuestion(question: unknown) {
     act(() => feedMock.emitQuestion?.(question));
@@ -181,12 +174,8 @@ describe("AskUserQuestion mirror", () => {
     // Single-select questions render radio rows, and the free-text row is one of them: on this
     // shape an option and your own words are alternatives, so they belong to one group.
     expect(screen.getAllByRole("radio")).toHaveLength(4);
-    expect(
-      screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("radio", { name: "Don't deploy app code yet" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Don't deploy app code yet" })).toBeInTheDocument();
     // Descriptions are drawn with their options rather than behind an expand control: the panel
     // has the room the terminal dialog does not, and this is the surface with the whole JSON.
     expect(screen.getByText("Add a ledger entry for a new application release.")).toBeInTheDocument();
@@ -281,9 +270,7 @@ describe("AskUserQuestion mirror", () => {
     answerQuestion(transport, { sel: [0], sb: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
-    expect(
-      lastQuestionCall(transport),
-    ).toMatchObject({ kind: "submit" });
+    expect(lastQuestionCall(transport)).toMatchObject({ kind: "submit" });
     // Each explicit action holds the controls until its result lands; resolve
     // between clicks so the next control is enabled again.
     await act(async () => {
@@ -291,9 +278,7 @@ describe("AskUserQuestion mirror", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expect(
-      lastQuestionCall(transport),
-    ).toMatchObject({ kind: "skip" });
+    expect(lastQuestionCall(transport)).toMatchObject({ kind: "skip" });
     // Skip keeps the panel up in the window until Claude records it; only Dismiss
     // ends the test, so the mirror stays mounted.
     await act(async () => {
@@ -301,9 +286,7 @@ describe("AskUserQuestion mirror", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss question" }));
-    expect(
-      lastQuestionCall(transport),
-    ).toMatchObject({ kind: "dismiss" });
+    expect(lastQuestionCall(transport)).toMatchObject({ kind: "dismiss" });
     unmount();
   });
 
@@ -379,7 +362,8 @@ describe("AskUserQuestion mirror", () => {
   it("leaves the pane alone for a thread being read, and attaches for an open question", () => {
     const { transport, unmount } = setup();
     const paneStream = () =>
-      transport.subscriptions.filter((open) => open.path.includes("/composer/stream"))
+      transport.subscriptions
+        .filter((open) => open.path.includes("/composer/stream"))
         .filter((open) => !open.path.includes("/window/"));
 
     // Opening the stream puts a `tmux pipe-pane` on the session's pane, so reading a thread must
@@ -432,9 +416,7 @@ describe("AskUserQuestion mirror", () => {
 
     // A question nobody has seen yet is not one anybody asked to hide.
     openQuestion(QUESTION);
-    expect(
-      screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" })).toBeInTheDocument();
     unmount();
   });
 

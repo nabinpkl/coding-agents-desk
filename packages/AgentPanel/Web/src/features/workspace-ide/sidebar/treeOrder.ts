@@ -27,10 +27,7 @@ export function isTreeOrder(value: unknown): value is TreeOrder {
  * two files written in the same second stay alphabetical without a second comparison to say so.
  * `Array.prototype.sort` is stable, which is the whole mechanism.
  */
-export function sortSiblings(
-  nodes: readonly WorkspaceTreeNode[],
-  order: TreeOrder,
-): WorkspaceTreeNode[] {
+export function sortSiblings(nodes: readonly WorkspaceTreeNode[], order: TreeOrder): WorkspaceTreeNode[] {
   if (order === "name") return [...nodes];
   return [...nodes].sort(mostRecentlyChanged);
 }

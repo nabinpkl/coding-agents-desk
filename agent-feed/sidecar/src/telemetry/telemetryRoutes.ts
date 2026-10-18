@@ -19,7 +19,8 @@ export function envelopeRefusal(body: string): string | null {
   const newline = body.indexOf("\n");
   try {
     const header: unknown = JSON.parse(newline === -1 ? body : body.slice(0, newline));
-    if (header === null || typeof header !== "object" || Array.isArray(header)) return "envelope header is not an object";
+    if (header === null || typeof header !== "object" || Array.isArray(header))
+      return "envelope header is not an object";
   } catch {
     return "envelope header is not JSON";
   }

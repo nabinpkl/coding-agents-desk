@@ -94,12 +94,7 @@ import {
   AgentModeUnsupportedError,
   AgentSessionNotFoundError,
 } from "@/agents/agentBackend";
-export {
-  AgentBackendDisposedError,
-  AgentCommandConflictError,
-  AgentModeUnsupportedError,
-  AgentSessionNotFoundError,
-};
+export { AgentBackendDisposedError, AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError };
 
 export const PI_AGENT_CAPABILITIES: AgentSessionCapabilities = {
   modes: ["nice"],
@@ -127,8 +122,10 @@ export class PiAgentBackend implements AgentBackend {
   private disposed = false;
 
   constructor(private readonly options: PiBackendOptions) {
-    this.runtimeFactory = options.runtimeFactory ?? ((projectPath, transcriptPath) =>
-      createOfficialPiRuntime(projectPath, transcriptPath, options.customToolsForSession));
+    this.runtimeFactory =
+      options.runtimeFactory ??
+      ((projectPath, transcriptPath) =>
+        createOfficialPiRuntime(projectPath, transcriptPath, options.customToolsForSession));
     this.idleRuntimeMs = options.idleRuntimeMs ?? config.piIdleRuntimeMs;
     this.toolCallBudget = options.toolCallBudget ?? config.piToolCallBudget;
     this.now = options.now ?? Date.now;
@@ -359,7 +356,10 @@ export class PiAgentBackend implements AgentBackend {
       return prior.promise;
     }
     const promise = owned.commandTail.then(execute);
-    owned.commandTail = promise.then(() => {}, () => {});
+    owned.commandTail = promise.then(
+      () => {},
+      () => {},
+    );
     owned.commands.set(requestId, { signature, promise });
     while (owned.commands.size > 128) {
       const oldest = owned.commands.keys().next().value;
@@ -388,7 +388,9 @@ export class PiAgentBackend implements AgentBackend {
       ts: this.now(),
       type: "system",
       phase: "complete",
-      blocks: [{ kind: "metadata", label: "Agent error", text: error instanceof Error ? error.message : String(error) }],
+      blocks: [
+        { kind: "metadata", label: "Agent error", text: error instanceof Error ? error.message : String(error) },
+      ],
     });
     owned.projection.setState("error");
   }
@@ -455,10 +457,7 @@ export function createPersistentPiSessionManager(
   projectPath: string,
   sessionsDirectory = config.piSessionsDirectory,
 ): SessionManager {
-  const sessionManager = SessionManager.create(
-    projectPath,
-    piProjectSessionDirectory(projectPath, sessionsDirectory),
-  );
+  const sessionManager = SessionManager.create(projectPath, piProjectSessionDirectory(projectPath, sessionsDirectory));
   const sessionFile = sessionManager.getSessionFile();
   const header = sessionManager.getHeader();
   if (!sessionFile || !header) throw new Error("Pi created a session without persistent JSONL identity");
@@ -470,10 +469,9 @@ export function createPersistentPiSessionManager(
 // Pi 0.83.0 does not export its project-directory helper from the package root.
 // Keep this byte-for-byte equivalent to the pinned SDK convention so AgentDesk's
 // configurable root can still be used by both SessionManager and the catalog.
-export function piProjectSessionDirectory(
-  projectPath: string,
-  sessionsDirectory = config.piSessionsDirectory,
-): string {
-  const safePath = `--${resolve(projectPath).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+export function piProjectSessionDirectory(projectPath: string, sessionsDirectory = config.piSessionsDirectory): string {
+  const safePath = `--${resolve(projectPath)
+    .replace(/^[/\\]/, "")
+    .replace(/[/\\:]/g, "-")}--`;
   return join(resolve(sessionsDirectory), safePath);
 }

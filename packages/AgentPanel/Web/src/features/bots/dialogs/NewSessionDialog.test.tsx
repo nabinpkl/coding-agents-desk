@@ -15,14 +15,7 @@ const MAC = { label: "mac", feed: {} } as unknown as BotMachine;
 
 function dialog(onStart: (command: unknown) => Promise<void>) {
   render(
-    <NewSessionDialog
-      open
-      machine={MAC}
-      projects={[GARDEN]}
-      loading={false}
-      onClose={vi.fn()}
-      onStart={onStart}
-    />,
+    <NewSessionDialog open machine={MAC} projects={[GARDEN]} loading={false} onClose={vi.fn()} onStart={onStart} />,
   );
   return screen.getByRole("button", { name: "Start session" });
 }
@@ -37,12 +30,14 @@ it("starts only once it has a directory and a name, in the harness picked", asyn
   fireEvent.click(screen.getByRole("radio", { name: /opencode/ }));
   fireEvent.change(screen.getByLabelText("First message"), { target: { value: "Sort the beds\n" } });
   fireEvent.click(start);
-  await waitFor(() => expect(onStart).toHaveBeenCalledWith({
-    source: "opencode",
-    projectPath: GARDEN.projectPath,
-    title: "Garden notes",
-    prompt: "Sort the beds\n",
-  }));
+  await waitFor(() =>
+    expect(onStart).toHaveBeenCalledWith({
+      source: "opencode",
+      projectPath: GARDEN.projectPath,
+      title: "Garden notes",
+      prompt: "Sort the beds\n",
+    }),
+  );
 });
 
 it("sends no first message when none was written", async () => {
@@ -52,11 +47,13 @@ it("sends no first message when none was written", async () => {
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Garden notes" } });
   fireEvent.change(screen.getByLabelText("First message"), { target: { value: "   " } });
   fireEvent.click(start);
-  await waitFor(() => expect(onStart).toHaveBeenCalledWith({
-    source: "claude",
-    projectPath: GARDEN.projectPath,
-    title: "Garden notes",
-  }));
+  await waitFor(() =>
+    expect(onStart).toHaveBeenCalledWith({
+      source: "claude",
+      projectPath: GARDEN.projectPath,
+      title: "Garden notes",
+    }),
+  );
 });
 
 it("starts a Claude session through the SDK when that is the harness picked", async () => {
@@ -66,15 +63,21 @@ it("starts a Claude session through the SDK when that is the harness picked", as
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Garden notes" } });
   fireEvent.click(screen.getByRole("radio", { name: /Claude SDK/ }));
   fireEvent.click(start);
-  await waitFor(() => expect(onStart).toHaveBeenCalledWith(expect.objectContaining({
-    source: "claude",
-    claudeMode: "sdk",
-    title: "Garden notes",
-  })));
+  await waitFor(() =>
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "claude",
+        claudeMode: "sdk",
+        title: "Garden notes",
+      }),
+    ),
+  );
 });
 
 it("keeps everything typed when the start is refused", async () => {
-  const start = dialog(async () => { throw new Error("opencode is not installed on this machine"); });
+  const start = dialog(async () => {
+    throw new Error("opencode is not installed on this machine");
+  });
   fireEvent.click(screen.getByRole("radio", { name: /garden/ }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Garden notes" } });
   fireEvent.change(screen.getByLabelText("First message"), { target: { value: "Sort the beds" } });

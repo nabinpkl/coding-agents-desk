@@ -172,10 +172,7 @@ async function readSessionHandover(
 }
 
 /** Turns the one refusal a render can make into the union, and lets every other failure out. */
-async function rendered(
-  session: Session,
-  render: () => Promise<RenderedHandover>,
-): Promise<HandoverRead> {
+async function rendered(session: Session, render: () => Promise<RenderedHandover>): Promise<HandoverRead> {
   try {
     return { ok: true, session, handover: await render() };
   } catch (error) {
@@ -193,11 +190,7 @@ async function rendered(
  * Read-only and starts nothing, which is the whole point of it being separate from the two POSTs:
  * asking what a session's context amounts to should not commit anyone to continuing it somewhere.
  */
-async function readHandover(
-  source: string,
-  sessionId: string,
-  actions: HandoverRouteActions,
-): Promise<Response> {
+async function readHandover(source: string, sessionId: string, actions: HandoverRouteActions): Promise<Response> {
   try {
     const read = await readSessionHandover(source, sessionId, actions);
     if (!read.ok) return errorResponse(read.code, read.message, read.status);
@@ -254,10 +247,13 @@ export async function handoverToOpencode(
     const prompt = buildHandoverPrompt({ source: "claude", sessionId, handover, message });
     const created = await backend.createSession(`${requestId}-create`, source.project);
     await backend.send(created.sessionId, `${requestId}-send`, prompt, "next");
-    return jsonResponse({
-      session: created,
-      handover: { turnCount: handover.turnCount, chars: prompt.length, lossy: handover.lossy },
-    }, 201);
+    return jsonResponse(
+      {
+        session: created,
+        handover: { turnCount: handover.turnCount, chars: prompt.length, lossy: handover.lossy },
+      },
+      201,
+    );
   } catch (error) {
     return routeError(error);
   }
@@ -294,7 +290,7 @@ export async function handoverToClaude(
     const refusal = sessionTitleRefusal(title);
     if (refusal) return errorResponse("invalid-request", `title: ${refusal}`, 400, requestId);
     const botId = typeof body.botId === "string" && body.botId ? body.botId : null;
-    if (botId !== null && !await actions.bots?.exists(botId)) {
+    if (botId !== null && !(await actions.bots?.exists(botId))) {
       return errorResponse("unknown-bot", `Bot "${botId}" was not found`, 404, requestId);
     }
 
@@ -310,10 +306,13 @@ export async function handoverToClaude(
     }
     const started = await launchSession({ checkout: source.project, title, prompt }, actions.launch);
     if (botId !== null) await actions.bots!.attach(botId, { source: "claude", sessionId: started.sessionId });
-    return jsonResponse({
-      session: started,
-      handover: { turnCount: handover.turnCount, chars: prompt.length, lossy: handover.lossy },
-    }, 201);
+    return jsonResponse(
+      {
+        session: started,
+        handover: { turnCount: handover.turnCount, chars: prompt.length, lossy: handover.lossy },
+      },
+      201,
+    );
   } catch (error) {
     return routeError(error);
   }

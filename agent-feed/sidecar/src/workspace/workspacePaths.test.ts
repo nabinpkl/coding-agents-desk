@@ -48,8 +48,7 @@ async function asyncRefusal(run: () => Promise<unknown>): Promise<WorkspaceFailu
 }
 
 test("splits an ordinary relative path", () => {
-  expect(pathComponents("src/app/main.tsx", { allowRoot: false }))
-    .toEqual(["src", "app", "main.tsx"]);
+  expect(pathComponents("src/app/main.tsx", { allowRoot: false })).toEqual(["src", "app", "main.tsx"]);
 });
 
 test("the empty path is the root, and only where a root is allowed", () => {
@@ -73,8 +72,7 @@ test("refuses an empty component, so one file has one path", () => {
 });
 
 test("refuses an embedded NUL, which the syscall boundary would truncate at", () => {
-  expect(refusal(() => pathComponents("src/main.ts\0.png", { allowRoot: true })).code)
-    .toBe("invalidPath");
+  expect(refusal(() => pathComponents("src/main.ts\0.png", { allowRoot: true })).code).toBe("invalidPath");
 });
 
 test("refuses a path longer than the state store will hold", () => {

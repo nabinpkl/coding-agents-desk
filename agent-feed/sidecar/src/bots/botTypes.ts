@@ -7,9 +7,7 @@
 import type { BotSessionRef, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionLauncher } from "@/transcripts/session-ops/forkSession";
 
-export type BotActor =
-  | { kind: "user" }
-  | { kind: "agent"; session: BotSessionRef };
+export type BotActor = { kind: "user" } | { kind: "agent"; session: BotSessionRef };
 
 export interface ResolvedBotSession {
   projectPath: string;

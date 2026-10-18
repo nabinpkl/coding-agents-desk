@@ -8,13 +8,7 @@ import { TileViewport } from "@/features/desktop-viewer/tile-viewport/TileViewpo
 import { tileViewportHarness } from "@/features/desktop-viewer/tile-viewport/tileViewportHarness";
 
 describe("TileViewport scroll clutch", () => {
-  const {
-    activatePuckWithKeyboard,
-    animationFrames,
-    pointer,
-    renderPointerSurface,
-    scaleOf,
-  } = tileViewportHarness();
+  const { activatePuckWithKeyboard, animationFrames, pointer, renderPointerSurface, scaleOf } = tileViewportHarness();
 
   it("uses the puck to clutch one finger into free-axis scroll without moving the cursor", () => {
     const inputs: DesktopPointerInput[] = [];
@@ -39,8 +33,7 @@ describe("TileViewport scroll clutch", () => {
 
     expect(inputs.some((input) => input.type === "pointer-move")).toBe(false);
     expect(inputs.some((input) => input.type === "click")).toBe(false);
-    expect(inputs.filter((input) => input.type === "scroll").map((input) => input.phase))
-      .toEqual(["began", "ended"]);
+    expect(inputs.filter((input) => input.type === "scroll").map((input) => input.phase)).toEqual(["began", "ended"]);
     const began = inputs.find((input) => input.type === "scroll" && input.phase === "began");
     expect(began).toMatchObject({ type: "scroll" });
     if (began?.type === "scroll") {
@@ -86,11 +79,13 @@ describe("TileViewport scroll clutch", () => {
     pointer(surface, "pointerup", 1, 90, 20);
     act(() => animationFrames.shift()?.(performance.now() + 48));
 
-    expect(inputs.some((input) => input.type === "scroll" && input.phase === "momentumBegan"))
-      .toBe(true);
+    expect(inputs.some((input) => input.type === "scroll" && input.phase === "momentumBegan")).toBe(true);
     pointer(surface, "pointerdown", 2, 100, 20);
     expect(inputs.at(-1)).toEqual({
-      type: "scroll", dx: 0, dy: 0, phase: "momentumEnded",
+      type: "scroll",
+      dx: 0,
+      dy: 0,
+      phase: "momentumEnded",
     });
     pointer(surface, "pointercancel", 2, 100, 20);
   });
@@ -139,10 +134,7 @@ describe("TileViewport scroll clutch", () => {
 
   it("delays a physical puck tap for double-tap zoom arbitration", () => {
     vi.useFakeTimers();
-    const surface = renderPointerSurface(
-      () => true,
-      { width: 800, height: 500, cursor: { x: 400, y: 250 } },
-    );
+    const surface = renderPointerSurface(() => true, { width: 800, height: 500, cursor: { x: 400, y: 250 } });
     const puck = screen.getByTestId("pointer-scroll-puck");
     const transformed = screen.getByTestId("content").parentElement!;
 
@@ -186,7 +178,10 @@ describe("TileViewport scroll clutch", () => {
         pointerMode
         keyboardPresented={presented}
         onBeforeRemoteClick={beforeRemoteClick}
-        sendPointerInput={(input) => { inputs.push(input); return true; }}
+        sendPointerInput={(input) => {
+          inputs.push(input);
+          return true;
+        }}
       >
         <div data-testid="content" />
       </TileViewport>

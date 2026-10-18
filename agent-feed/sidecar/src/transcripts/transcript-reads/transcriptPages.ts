@@ -113,7 +113,7 @@ export async function readPageBefore(
   if (before !== null && !(await isLineStart(path, before))) {
     throw new NotALineStartError(`${before} is not where a line starts`);
   }
-  const end = before ?? await completeEnd(path);
+  const end = before ?? (await completeEnd(path));
   const adapter = adapterFor(source);
   const collected: ParsedTranscriptLine[] = [];
   let visible = 0;
@@ -240,14 +240,11 @@ export async function readPageAround(
   const half = Math.floor(limit / 2);
   const before = half > 0 ? await readPageBefore(source, sessionId, path, around, half, mode) : null;
   // A page before that came back empty is a position with nothing before it in this view.
-  const previous = before === null
-    ? await rowBefore(source, path, around, mode)
-    : (before.events.at(-1)?.index ?? null);
+  const previous =
+    before === null ? await rowBefore(source, path, around, mode) : (before.events.at(-1)?.index ?? null);
   const from = await readRowsFrom(source, sessionId, path, around, end, limit - half, mode, previous);
   const events = [...(before?.events ?? []), ...from];
-  const windowStart = before !== null
-    ? before.windowStart
-    : previous === null ? 0 : (events[0]?.index ?? around);
+  const windowStart = before !== null ? before.windowStart : previous === null ? 0 : (events[0]?.index ?? around);
   return { events, windowStart, end };
 }
 
@@ -346,11 +343,7 @@ const HEAD_SCAN_BYTES = 256 * 1024;
  * for any session whose last such pair is within the scan; the top of the file covers the
  * declaration of one that has not compacted since it started.
  */
-export async function readSessionMeter(
-  source: TranscriptSourceId,
-  path: string,
-  end: number,
-): Promise<SessionMeter> {
+export async function readSessionMeter(source: TranscriptSourceId, path: string, end: number): Promise<SessionMeter> {
   const adapter = adapterFor(source);
   const tail: LineResult[] = [];
   let scanned = 0;
@@ -364,8 +357,7 @@ export async function readSessionMeter(
       if (namedUsage && result.declaredModel) declaredBeforeIt = true;
       if (result.usage?.model !== undefined) namedUsage = true;
     }
-    return scanned < METER_SCAN_BYTES
-      && !(namedUsage && (declaredBeforeIt || scanned >= DECLARATION_SCAN_BYTES));
+    return scanned < METER_SCAN_BYTES && !(namedUsage && (declaredBeforeIt || scanned >= DECLARATION_SCAN_BYTES));
   });
   tail.reverse();
   const tailStart = tail.length > 0 ? end - scanned : end;

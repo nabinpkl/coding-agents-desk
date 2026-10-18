@@ -10,31 +10,30 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import type { AgentCommandReceipt, AgentSessionDescriptor, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { runWithFinally } from "@/hooks/state/runWithFinally";
 
-export function useSessionCommands(
-  feed: SidecarDataSource,
-  session: SessionSummary,
-) {
+export function useSessionCommands(feed: SidecarDataSource, session: SessionSummary) {
   const [commandPending, setCommandPending] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
 
-  const sendPrompt = useCallback(async (
-    text: string,
-    delivery: "next" | "steer",
-    files?: { data: string; mime: string; name: string }[],
-  ) => {
-    if (commandPending || !text.trim()) return;
-    setCommandPending(true);
-    setCommandError(null);
-    return runWithFinally(async () => {
-      try {
-        await feed.sendMessage(session, text.trim(), delivery, files);
-      } catch (error) {
-        setCommandError(String((error as Error).message ?? error));
-        // Rethrow so the composer that owns the draft only clears it on success.
-        throw error;
-      }
-    }, () => setCommandPending(false));
-  }, [commandPending, feed, session]);
+  const sendPrompt = useCallback(
+    async (text: string, delivery: "next" | "steer", files?: { data: string; mime: string; name: string }[]) => {
+      if (commandPending || !text.trim()) return;
+      setCommandPending(true);
+      setCommandError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            await feed.sendMessage(session, text.trim(), delivery, files);
+          } catch (error) {
+            setCommandError(String((error as Error).message ?? error));
+            // Rethrow so the composer that owns the draft only clears it on success.
+            throw error;
+          }
+        },
+        () => setCommandPending(false),
+      );
+    },
+    [commandPending, feed, session],
+  );
 
   /**
    * Runs a slash command natively on an opencode session, with the draft's remainder as its
@@ -44,19 +43,25 @@ export function useSessionCommands(
    * Answers with the receipt rather than nothing, because one command makes a session: `/fork`
    * names it there, and the card that asked has to open it.
    */
-  const runSlashCommand = useCallback(async (name: string, args: string): Promise<AgentCommandReceipt> => {
-    if (commandPending) throw new Error("another command is still running");
-    setCommandPending(true);
-    setCommandError(null);
-    return runWithFinally(async () => {
-      try {
-        return await feed.runOpencodeCommand(session.sessionId, name, args);
-      } catch (error) {
-        setCommandError(String((error as Error).message ?? error));
-        throw error;
-      }
-    }, () => setCommandPending(false));
-  }, [commandPending, feed, session]);
+  const runSlashCommand = useCallback(
+    async (name: string, args: string): Promise<AgentCommandReceipt> => {
+      if (commandPending) throw new Error("another command is still running");
+      setCommandPending(true);
+      setCommandError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            return await feed.runOpencodeCommand(session.sessionId, name, args);
+          } catch (error) {
+            setCommandError(String((error as Error).message ?? error));
+            throw error;
+          }
+        },
+        () => setCommandPending(false),
+      );
+    },
+    [commandPending, feed, session],
+  );
 
   /**
    * Creates another session in this one's directory, which is what the web client's `/new` does.
@@ -66,19 +71,25 @@ export function useSessionCommands(
    * it, not this hook -- a surface with a canvas behind the session and one without answer
    * differently, and neither of them is a transport concern.
    */
-  const createOpencodeSession = useCallback(async (projectPath: string): Promise<AgentSessionDescriptor> => {
-    if (commandPending) throw new Error("another command is still running");
-    setCommandPending(true);
-    setCommandError(null);
-    return runWithFinally(async () => {
-      try {
-        return await feed.createSession(projectPath, "opencode");
-      } catch (error) {
-        setCommandError(String((error as Error).message ?? error));
-        throw error;
-      }
-    }, () => setCommandPending(false));
-  }, [commandPending, feed]);
+  const createOpencodeSession = useCallback(
+    async (projectPath: string): Promise<AgentSessionDescriptor> => {
+      if (commandPending) throw new Error("another command is still running");
+      setCommandPending(true);
+      setCommandError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            return await feed.createSession(projectPath, "opencode");
+          } catch (error) {
+            setCommandError(String((error as Error).message ?? error));
+            throw error;
+          }
+        },
+        () => setCommandPending(false),
+      );
+    },
+    [commandPending, feed],
+  );
 
   /** Puts a reason in the caption from outside this hook, for the panel-run commands' own reads. */
   const reportCommandError = useCallback((message: string) => {
@@ -89,13 +100,16 @@ export function useSessionCommands(
     if (commandPending) return;
     setCommandPending(true);
     setCommandError(null);
-    return runWithFinally(async () => {
-      try {
-        await feed.abortSession(session);
-      } catch (error) {
-        setCommandError(String((error as Error).message ?? error));
-      }
-    }, () => setCommandPending(false));
+    return runWithFinally(
+      async () => {
+        try {
+          await feed.abortSession(session);
+        } catch (error) {
+          setCommandError(String((error as Error).message ?? error));
+        }
+      },
+      () => setCommandPending(false),
+    );
   }, [commandPending, feed, session]);
 
   /**
@@ -104,33 +118,42 @@ export function useSessionCommands(
    * The error still lands in the same caption, because from the reader's side it is the same
    * composer failing. Draft-safe like the rest: the failure is rethrown.
    */
-  const respondToExtensionUI = useCallback(async (requestId: string, value: unknown) => {
-    setCommandError(null);
-    try {
-      await feed.respondToExtensionUI(session, requestId, value);
-    } catch (error) {
-      setCommandError(String((error as Error).message ?? error));
-      throw error;
-    }
-  }, [feed, session]);
+  const respondToExtensionUI = useCallback(
+    async (requestId: string, value: unknown) => {
+      setCommandError(null);
+      try {
+        await feed.respondToExtensionUI(session, requestId, value);
+      } catch (error) {
+        setCommandError(String((error as Error).message ?? error));
+        throw error;
+      }
+    },
+    [feed, session],
+  );
 
   /**
    * Switches an opencode session's model. Same pending and error contract as a send: the
    * change lands on the session event, which is what moves the meter without a second read.
    */
-  const switchModel = useCallback(async (providerID: string, modelID: string) => {
-    if (commandPending) return;
-    setCommandPending(true);
-    setCommandError(null);
-    return runWithFinally(async () => {
-      try {
-        await feed.switchOpencodeModel(session.sessionId, providerID, modelID);
-      } catch (error) {
-        setCommandError(String((error as Error).message ?? error));
-        throw error;
-      }
-    }, () => setCommandPending(false));
-  }, [commandPending, feed, session]);
+  const switchModel = useCallback(
+    async (providerID: string, modelID: string) => {
+      if (commandPending) return;
+      setCommandPending(true);
+      setCommandError(null);
+      return runWithFinally(
+        async () => {
+          try {
+            await feed.switchOpencodeModel(session.sessionId, providerID, modelID);
+          } catch (error) {
+            setCommandError(String((error as Error).message ?? error));
+            throw error;
+          }
+        },
+        () => setCommandPending(false),
+      );
+    },
+    [commandPending, feed, session],
+  );
 
   return {
     commandPending,

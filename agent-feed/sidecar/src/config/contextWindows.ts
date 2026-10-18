@@ -73,10 +73,7 @@ export function longContextModelId(model: string): string {
  * Null is a real answer, not a failure: the panel then shows the occupancy count
  * with no fill bar, rather than a fraction of a number we guessed.
  */
-export function contextWindowIn(
-  table: Readonly<Record<string, number>>,
-  model: string | undefined,
-): number | null {
+export function contextWindowIn(table: Readonly<Record<string, number>>, model: string | undefined): number | null {
   if (!model) return null;
   const id = model.toLowerCase();
   let best: { prefix: string; tokens: number } | null = null;

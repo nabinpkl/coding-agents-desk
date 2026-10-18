@@ -28,10 +28,7 @@ async function git(args: string[], cwd: string): Promise<{ code: number; out: st
     stderr: "ignore",
     env: { ...Bun.env, GIT_OPTIONAL_LOCKS: "0" },
   });
-  const [out, code] = await Promise.all([
-    new Response(process.stdout).text(),
-    process.exited,
-  ]);
+  const [out, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
   return { code, out };
 }
 
@@ -194,10 +191,7 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
  * Porcelain paths are relative to the repository's top, which may be above `root`, so the tracked
  * case uses the `:(top,literal)` pathspec and the untracked one joins onto the top itself.
  */
-export async function workingTreeFileDiff(
-  root: string,
-  path: string,
-): Promise<{ patch: string; truncated: boolean }> {
+export async function workingTreeFileDiff(root: string, path: string): Promise<{ patch: string; truncated: boolean }> {
   const pathspec = literalPathspec(path);
   const status = await readGitStatus(root);
   const entry = status?.entries.find((candidate) => candidate.relativePath === path);
@@ -207,18 +201,12 @@ export async function workingTreeFileDiff(
   if (entry.indexStatus === "?") {
     const top = await git(["rev-parse", "--show-toplevel"], root);
     if (top.code !== 0) throw new WorkspaceFailure("notFound");
-    answer = await git(
-      ["diff", "--no-index", ...plain, "--", "/dev/null", join(top.out.trim(), path)],
-      root,
-    );
+    answer = await git(["diff", "--no-index", ...plain, "--", "/dev/null", join(top.out.trim(), path)], root);
     // `--no-index` exits 1 when the two sides differ, which against nothing they always do.
     if (answer.code === 1) answer = { ...answer, code: 0 };
   } else {
     const head = await git(["rev-parse", "--verify", "--quiet", "HEAD"], root);
-    answer = await git(
-      ["diff", ...plain, head.code === 0 ? "HEAD" : EMPTY_TREE, "--", pathspec],
-      root,
-    );
+    answer = await git(["diff", ...plain, head.code === 0 ? "HEAD" : EMPTY_TREE, "--", pathspec], root);
   }
   if (answer.code !== 0) throw new WorkspaceFailure("notFound");
   const truncated = Buffer.byteLength(answer.out, "utf8") > MAX_PATCH_BYTES;
@@ -232,10 +220,7 @@ export async function workingTreeFileDiff(
  * collapsed tree is still visible from the root. Matching on the `path + "/"` prefix rather than
  * on `startsWith(path)` so `src` does not claim `src-generated/`.
  */
-export function statusForPath(
-  entries: readonly WorkspaceGitEntry[],
-  path: string,
-): string | null {
+export function statusForPath(entries: readonly WorkspaceGitEntry[], path: string): string | null {
   const prefix = `${path}/`;
   const entry = entries.find(
     (candidate) => candidate.relativePath === path || candidate.relativePath.startsWith(prefix),

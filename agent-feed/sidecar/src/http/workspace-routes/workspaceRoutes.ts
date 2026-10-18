@@ -45,8 +45,7 @@ function parseOperation(value: unknown): WorkspaceOperation {
       }
       return { type: record.type, path: record.path };
     case "reorder":
-      if (!Array.isArray(record.orderedPaths)
-        || !record.orderedPaths.every((path) => typeof path === "string")) {
+      if (!Array.isArray(record.orderedPaths) || !record.orderedPaths.every((path) => typeof path === "string")) {
         throw new RequestFailure("invalidOperation", '"reorder" needs an array of paths.');
       }
       return { type: "reorder", orderedPaths: record.orderedPaths };
@@ -197,11 +196,7 @@ async function reorder(service: WorkspaceService, request: Request): Promise<Res
   }
 }
 
-async function applyOperation(
-  service: WorkspaceService,
-  request: Request,
-  id: string,
-): Promise<Response> {
+async function applyOperation(service: WorkspaceService, request: Request, id: string): Promise<Response> {
   try {
     const body = await readJsonBody(request);
     if (typeof body.baseRevision !== "number" || !Number.isInteger(body.baseRevision)) {

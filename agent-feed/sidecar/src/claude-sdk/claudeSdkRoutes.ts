@@ -36,7 +36,8 @@ import {
 } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
 
-const SDK_ROUTE = /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/sdk\/(stream|prompt|answer|decide|mode|model|effort|interrupt|switch)$/i;
+const SDK_ROUTE =
+  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/sdk\/(stream|prompt|answer|decide|mode|model|effort|interrupt|switch)$/i;
 
 /** How long `EventSource` waits before asking again once a stream ends. */
 const RETRY = new TextEncoder().encode("retry: 5000\n\n");
@@ -78,7 +79,9 @@ async function body(request: Request, limit = MAXIMUM_BODY_BYTES): Promise<Recor
   if (!text.trim()) return {};
   try {
     const value: unknown = JSON.parse(text);
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
@@ -92,7 +95,12 @@ function sessionCommand(action: string, fields: Record<string, unknown>): Sessio
   return parseSessionCommand({ ...fields, type });
 }
 
-async function command(client: ClaudeSdkClient, request: Request, sessionId: string, action: string): Promise<Response> {
+async function command(
+  client: ClaudeSdkClient,
+  request: Request,
+  sessionId: string,
+  action: string,
+): Promise<Response> {
   const fields = await body(request, action === "prompt" ? MAXIMUM_PROMPT_BODY_BYTES : MAXIMUM_BODY_BYTES);
   if (fields && action === "prompt" && fields.files !== undefined) {
     // The panel sends images the way it sends them to opencode; the runner takes them as the API does.
@@ -103,13 +111,15 @@ async function command(client: ClaudeSdkClient, request: Request, sessionId: str
       return errorResponse("invalid-request", error instanceof Error ? error.message : String(error), 400);
     }
     const unsupported = files.find((file) => !isPromptImageType(file.mime));
-    if (unsupported) return errorResponse("invalid-request", `"${unsupported.name}" is not a PNG, JPEG, GIF or WebP image`, 400);
+    if (unsupported)
+      return errorResponse("invalid-request", `"${unsupported.name}" is not a PNG, JPEG, GIF or WebP image`, 400);
     fields.images = files.map((file) => ({ mediaType: file.mime, data: file.data.replace(/\s+/g, "") }));
     delete fields.files;
   }
   const parsed = fields ? sessionCommand(action, fields) : null;
   if (action === "answer") {
-    if (!parsed || parsed.type !== "answer") return errorResponse("invalid-request", "answers must describe every question", 400);
+    if (!parsed || parsed.type !== "answer")
+      return errorResponse("invalid-request", "answers must describe every question", 400);
     return jsonResponse(answerOutcome(parsed.answers, await client.command(sessionId, parsed)));
   }
   if (!parsed) return errorResponse("invalid-request", `the body does not describe a ${action} command`, 400);
@@ -121,7 +131,7 @@ const COMMAND_REFUSALS: ReadonlySet<string> = new Set<ClaudeSdkRefusal>(["not-pe
 export function commandOutcome(reply: SessionReply): ClaudeSdkCommandOutcome {
   if (reply.ok) return { ok: true };
   if (reply === NO_RUNNER) return { ok: false, reason: "no-runner", message: reply.message };
-  const reason = COMMAND_REFUSALS.has(reply.reason) ? reply.reason as ClaudeSdkRefusal : "failed";
+  const reason = COMMAND_REFUSALS.has(reply.reason) ? (reply.reason as ClaudeSdkRefusal) : "failed";
   return { ok: false, reason, message: reply.message };
 }
 
@@ -134,14 +144,17 @@ export function commandOutcome(reply: SessionReply): ClaudeSdkCommandOutcome {
  */
 export function answerOutcome(answers: readonly TmuxQuestionAnswer[], reply: SessionReply): TmuxQuestionOutcome {
   if (reply.ok) return { answered: true };
-  const keptText = answers.filter((answer) => answer.other.trim()).map((answer) => ({ question: answer.question, text: answer.other }));
-  const reason: TmuxQuestionRefusal = reply === NO_RUNNER
-    ? "no-pane"
-    : reply.reason === "no-dialog" || reply.reason === "wrong-dialog" || reply.reason === "wrong-option"
-      ? reply.reason
-      : reply.reason === "not-pending"
-        ? "no-dialog"
-        : "pane-stalled";
+  const keptText = answers
+    .filter((answer) => answer.other.trim())
+    .map((answer) => ({ question: answer.question, text: answer.other }));
+  const reason: TmuxQuestionRefusal =
+    reply === NO_RUNNER
+      ? "no-pane"
+      : reply.reason === "no-dialog" || reply.reason === "wrong-dialog" || reply.reason === "wrong-option"
+        ? reply.reason
+        : reply.reason === "not-pending"
+          ? "no-dialog"
+          : "pane-stalled";
   return { answered: false, reason, keptText, sent: false };
 }
 
@@ -158,11 +171,21 @@ export async function switchMode(
   const fields = await body(request);
   const mode = fields?.mode;
   if (mode !== "terminal" && mode !== "sdk") {
-    return jsonResponse({ ok: false, reason: "invalid", message: "mode must be terminal or sdk" } satisfies ClaudeSdkSwitchOutcome, 400);
+    return jsonResponse(
+      { ok: false, reason: "invalid", message: "mode must be terminal or sdk" } satisfies ClaudeSdkSwitchOutcome,
+      400,
+    );
   }
   const session = findSession("claude", sessionId);
   if (!session) {
-    return jsonResponse({ ok: false, reason: "not-running", message: "this session is not in the catalog" } satisfies ClaudeSdkSwitchOutcome, 404);
+    return jsonResponse(
+      {
+        ok: false,
+        reason: "not-running",
+        message: "this session is not in the catalog",
+      } satisfies ClaudeSdkSwitchOutcome,
+      404,
+    );
   }
   const outcome = await switchRunMode(
     { sessionId, cwd: session.project, title: session.title ?? sessionId },

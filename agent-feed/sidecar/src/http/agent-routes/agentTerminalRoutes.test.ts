@@ -1,12 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
-import type {
-  AgentTerminalDescriptor,
-} from "@agentdesk/agent-feed-wire";
+import type { AgentTerminalDescriptor } from "@agentdesk/agent-feed-wire";
 import { AgentTerminalConflictError } from "@/terminal/agentTerminalService";
-import {
-  createAgentTerminalRoutes,
-  type AgentTerminalRoutesService,
-} from "@/http/agent-routes/agentTerminalRoutes";
+import { createAgentTerminalRoutes, type AgentTerminalRoutesService } from "@/http/agent-routes/agentTerminalRoutes";
 
 const TERMINAL_ID = "2adc3708-fadb-4e2f-a744-322df224faf4";
 const SESSION_ID = "48fc14ac-0c09-4d3b-85d1-9c57c990db32";
@@ -73,10 +68,14 @@ async function call(
   body?: unknown,
 ): Promise<Response | undefined> {
   const url = new URL(`http://127.0.0.1${path}`);
-  return await route(new Request(url.toString(), {
-    method,
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  }), url, server);
+  return await route(
+    new Request(url.toString(), {
+      method,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+    url,
+    server,
+  );
 }
 
 test("opens the selected provider session through the sidecar PTY service", async () => {
@@ -94,15 +93,19 @@ test("opens the selected provider session through the sidecar PTY service", asyn
 
   expect(response?.status).toBe(201);
   expect(await response?.json()).toEqual(descriptor);
-  expect(calls).toEqual([{ open: {
-    context: {
-      kind: "agent-session",
-      projectPath: "/projects/agent-desk",
-      source: "codex",
-      sessionId: SESSION_ID,
+  expect(calls).toEqual([
+    {
+      open: {
+        context: {
+          kind: "agent-session",
+          projectPath: "/projects/agent-desk",
+          source: "codex",
+          sessionId: SESSION_ID,
+        },
+        dimensions: { columns: 90, rows: 28 },
+      },
     },
-    dimensions: { columns: 90, rows: 28 },
-  } }]);
+  ]);
 });
 
 test("carries every terminal's output on one stream, addressed by id", async () => {
@@ -133,24 +136,33 @@ test("asks the PTY to replay a screen for a viewer that just arrived", async () 
 
 test("posts xterm input and viewport state without a native bridge", async () => {
   const { calls, route } = fakeService();
-  expect((await call(route, "POST", `/api/terminals/${TERMINAL_ID}/input`, {
-    data: "pwd\r",
-    encoding: "utf8",
-  }))?.status)
-    .toBe(204);
-  expect((await call(route, "POST", `/api/terminals/${TERMINAL_ID}/viewport`, {
-    sequence: "3",
-    active: true,
-    claim: true,
-    columns: 100,
-    rows: 32,
-  }))?.status).toBe(204);
+  expect(
+    (
+      await call(route, "POST", `/api/terminals/${TERMINAL_ID}/input`, {
+        data: "pwd\r",
+        encoding: "utf8",
+      })
+    )?.status,
+  ).toBe(204);
+  expect(
+    (
+      await call(route, "POST", `/api/terminals/${TERMINAL_ID}/viewport`, {
+        sequence: "3",
+        active: true,
+        claim: true,
+        columns: 100,
+        rows: 32,
+      })
+    )?.status,
+  ).toBe(204);
   expect(calls).toEqual([
     { input: { terminalId: TERMINAL_ID, data: "pwd\r", encoding: "utf8" } },
-    { viewport: {
-      terminalId: TERMINAL_ID,
-      viewport: { sequence: "3", active: true, claim: true, columns: 100, rows: 32 },
-    } },
+    {
+      viewport: {
+        terminalId: TERMINAL_ID,
+        viewport: { sequence: "3", active: true, claim: true, columns: 100, rows: 32 },
+      },
+    },
   ]);
 });
 
@@ -163,10 +175,14 @@ test("opens a tmux target with only the session it names", async () => {
   });
 
   expect(response?.status).toBe(201);
-  expect(calls).toEqual([{ open: {
-    context: { kind: "tmux", session: "canvas-fork" },
-    dimensions: { columns: 120, rows: 40 },
-  } }]);
+  expect(calls).toEqual([
+    {
+      open: {
+        context: { kind: "tmux", session: "canvas-fork" },
+        dimensions: { columns: 120, rows: 40 },
+      },
+    },
+  ]);
 });
 
 test("opens a tmux-new target with the session and the directory it names", async () => {
@@ -178,10 +194,14 @@ test("opens a tmux-new target with the session and the directory it names", asyn
   });
 
   expect(response?.status).toBe(201);
-  expect(calls).toEqual([{ open: {
-    context: { kind: "tmux-new", session: "agentterm-1a2b3c4d", directory: "/projects/agent-desk" },
-    dimensions: { columns: 100, rows: 30 },
-  } }]);
+  expect(calls).toEqual([
+    {
+      open: {
+        context: { kind: "tmux-new", session: "agentterm-1a2b3c4d", directory: "/projects/agent-desk" },
+        dimensions: { columns: 100, rows: 30 },
+      },
+    },
+  ]);
 });
 
 test("opens a session-backed target with no project path of its own", async () => {
@@ -195,10 +215,14 @@ test("opens a session-backed target with no project path of its own", async () =
   });
 
   expect(response?.status).toBe(201);
-  expect(calls).toEqual([{ open: {
-    context: { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
-    dimensions: { columns: 100, rows: 30 },
-  } }]);
+  expect(calls).toEqual([
+    {
+      open: {
+        context: { kind: "session-tmux", source: "claude", sessionId: SESSION_ID },
+        dimensions: { columns: 100, rows: 30 },
+      },
+    },
+  ]);
 });
 
 test("a context without a known kind is refused before the service sees it", async () => {

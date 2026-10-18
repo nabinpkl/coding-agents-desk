@@ -2,12 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { UsageDay } from "@agentdesk/agent-feed-wire";
-import {
-  buildUsageGrid,
-  monthLabels,
-  type UsageCell,
-  type UsageLevel,
-} from "@/features/usage/usageGrid";
+import { buildUsageGrid, monthLabels, type UsageCell, type UsageLevel } from "@/features/usage/usageGrid";
 import { useDomSync } from "@/hooks/dom/useDomSync";
 
 /**
@@ -50,10 +45,7 @@ export function UsageCalendar({
   onActivate,
   describeCell,
 }: UsageCalendarProps) {
-  const grid = useMemo(
-    () => buildUsageGrid(days, { weeks, today, coverageFrom }),
-    [coverageFrom, days, today, weeks],
-  );
+  const grid = useMemo(() => buildUsageGrid(days, { weeks, today, coverageFrom }), [coverageFrom, days, today, weeks]);
   const months = useMemo(() => monthLabels(grid.weeks), [grid.weeks]);
   const container = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -65,9 +57,7 @@ export function UsageCalendar({
   }));
 
   const focusCell = useCallback((week: number, weekday: number) => {
-    const next = container.current?.querySelector<HTMLElement>(
-      `[data-week="${week}"][data-weekday="${weekday}"]`,
-    );
+    const next = container.current?.querySelector<HTMLElement>(`[data-week="${week}"][data-weekday="${weekday}"]`);
     next?.focus();
   }, []);
 
@@ -76,13 +66,26 @@ export function UsageCalendar({
       let nextWeek = week;
       let nextWeekday = weekday;
       switch (event.key) {
-        case "ArrowLeft": nextWeek = week - 1; break;
-        case "ArrowRight": nextWeek = week + 1; break;
-        case "ArrowUp": nextWeekday = weekday - 1; break;
-        case "ArrowDown": nextWeekday = weekday + 1; break;
-        case "Home": nextWeek = 0; break;
-        case "End": nextWeek = grid.weeks.length - 1; break;
-        default: return;
+        case "ArrowLeft":
+          nextWeek = week - 1;
+          break;
+        case "ArrowRight":
+          nextWeek = week + 1;
+          break;
+        case "ArrowUp":
+          nextWeekday = weekday - 1;
+          break;
+        case "ArrowDown":
+          nextWeekday = weekday + 1;
+          break;
+        case "Home":
+          nextWeek = 0;
+          break;
+        case "End":
+          nextWeek = grid.weeks.length - 1;
+          break;
+        default:
+          return;
       }
       event.preventDefault();
       if (nextWeekday < 0) {
@@ -115,10 +118,7 @@ export function UsageCalendar({
     <div ref={container} className="flex gap-1.5">
       <div className="flex shrink-0 flex-col gap-[3px] pt-3.5" aria-hidden>
         {WEEKDAY_LABELS.map((label, index) => (
-          <div
-            key={index}
-            className="flex h-3 w-7 items-center text-[9px] leading-none text-muted-foreground"
-          >
+          <div key={index} className="flex h-3 w-7 items-center text-[9px] leading-none text-muted-foreground">
             {label}
           </div>
         ))}
@@ -134,9 +134,7 @@ export function UsageCalendar({
         >
           {grid.weeks.map((week, weekIndex) => (
             <div key={week[0]!.date} role="row" className="flex flex-col gap-[3px]">
-              <div className="h-3.5 text-[9px] leading-none text-muted-foreground">
-                {months[weekIndex] ?? ""}
-              </div>
+              <div className="h-3.5 text-[9px] leading-none text-muted-foreground">{months[weekIndex] ?? ""}</div>
               {week.map((cell, weekday) => (
                 <div
                   key={cell.date}
@@ -167,8 +165,9 @@ export function UsageCalendar({
 }
 
 function cellClass(cell: UsageCell, active: boolean): string {
-  const base = "size-3 rounded-[2px] outline-none transition-[box-shadow,background-color] "
-    + "duration-150 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-primary";
+  const base =
+    "size-3 rounded-[2px] outline-none transition-[box-shadow,background-color] " +
+    "duration-150 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-primary";
   // A future date is a hole, and a date the scan does not reach is an outline. Neither is an
   // empty day, which is a real observation and gets the flat fill.
   if (cell.future) return `${base} bg-transparent`;

@@ -15,24 +15,21 @@ export function gridEncoderSourceMetadata(value: unknown): WebrtcTileSourceMetad
 
   const inputBounds = meta.inputBounds;
   const cursor = meta.cursor;
-  if (
-    typeof inputBounds !== "object"
-    || inputBounds === null
-    || typeof cursor !== "object"
-    || cursor === null
-  ) return null;
+  if (typeof inputBounds !== "object" || inputBounds === null || typeof cursor !== "object" || cursor === null)
+    return null;
 
   const bounds = inputBounds as Record<string, unknown>;
   const position = cursor as Record<string, unknown>;
   if (
-    !finite(bounds.w, 1, MAX_SOURCE_EXTENT)
-    || !finite(bounds.h, 1, MAX_SOURCE_EXTENT)
-    || !finite(position.x, 0, bounds.w)
-    || !finite(position.y, 0, bounds.h)
-    || position.x >= bounds.w
-    || position.y >= bounds.h
-    || meta.desktopControlVersion !== 2
-  ) return null;
+    !finite(bounds.w, 1, MAX_SOURCE_EXTENT) ||
+    !finite(bounds.h, 1, MAX_SOURCE_EXTENT) ||
+    !finite(position.x, 0, bounds.w) ||
+    !finite(position.y, 0, bounds.h) ||
+    position.x >= bounds.w ||
+    position.y >= bounds.h ||
+    meta.desktopControlVersion !== 2
+  )
+    return null;
 
   return {
     width: bounds.w,

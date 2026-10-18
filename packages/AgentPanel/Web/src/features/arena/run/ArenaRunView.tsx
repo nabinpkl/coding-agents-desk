@@ -90,12 +90,19 @@ export function ArenaRunView({
   const changed = contestants.filter((c) => diffStat(c.gitDiff).files > 0).length;
   const long = run.prompt.length > 160 || run.prompt.split("\n").length > 2;
   const slowestMs = Math.max(1, ...contestants.map((c) => elapsedMs(c, now) ?? 0));
-  const directories = [run.repoPath, ...run.contestants.map((c) => c.worktreePath), ...(run.manager ? [run.manager.folder] : [])];
+  const directories = [
+    run.repoPath,
+    ...run.contestants.map((c) => c.worktreePath),
+    ...(run.manager ? [run.manager.folder] : []),
+  ];
   const { sessions, error: catalogError } = useRunSessions(feed, directories);
   const controlsHosts = useControlsHosts();
   // Where the run works is worth a word only when the reader chose it: a repository the arena
   // made, at its HEAD, is every run's default and says nothing.
-  const where = run.repoCreated && run.baseRef === "HEAD" ? null : `${run.repoCreated ? "own repository" : basename(run.repoPath)} @ ${run.baseRef}`;
+  const where =
+    run.repoCreated && run.baseRef === "HEAD"
+      ? null
+      : `${run.repoCreated ? "own repository" : basename(run.repoPath)} @ ${run.baseRef}`;
 
   const views: { name: ArenaView; label: string; count: number | null }[] = [
     { name: "sessions", label: "Sessions", count: null },
@@ -124,7 +131,11 @@ export function ArenaRunView({
             title={railOpen ? "Hide the runs" : "Show the runs"}
             className={`${ICON_BUTTON} -ml-1.5`}
           >
-            {railOpen ? <PanelLeftClose aria-hidden className="size-4" /> : <PanelLeftOpen aria-hidden className="size-4" />}
+            {railOpen ? (
+              <PanelLeftClose aria-hidden className="size-4" />
+            ) : (
+              <PanelLeftOpen aria-hidden className="size-4" />
+            )}
           </button>
           <div className="min-w-[min(100%,16rem)] flex-1 pt-1.5">
             {awaitingPrompt ? (
@@ -160,7 +171,9 @@ export function ArenaRunView({
               {where ? (
                 <>
                   <span aria-hidden>·</span>
-                  <span className="font-mono" title={run.repoPath}>{where}</span>
+                  <span className="font-mono" title={run.repoPath}>
+                    {where}
+                  </span>
                 </>
               ) : null}
               <span aria-hidden>·</span>
@@ -169,7 +182,9 @@ export function ArenaRunView({
               <span className={live ? "text-arena-running" : ""}>
                 {awaitingPrompt
                   ? `${ready} of ${run.contestants.length} ready`
-                  : live ? `${settled} of ${run.contestants.length} settled` : "ready for the next prompt"}
+                  : live
+                    ? `${settled} of ${run.contestants.length} settled`
+                    : "ready for the next prompt"}
               </span>
             </p>
           </div>
@@ -199,14 +214,22 @@ export function ArenaRunView({
                 title={run.name}
                 path={run.folder}
               />
-              {run.manager ? <ManagerSwitch manager={run.manager} open={managerOpen} onToggle={() => setManagerOpen((open) => !open)} /> : null}
+              {run.manager ? (
+                <ManagerSwitch
+                  manager={run.manager}
+                  open={managerOpen}
+                  onToggle={() => setManagerOpen((open) => !open)}
+                />
+              ) : null}
               <button
                 type="button"
                 aria-label="Remove run"
                 title={
                   awaitingPrompt
                     ? "Close the lanes and remove the run"
-                    : live ? "A run cannot be removed while it is dueling" : "Remove run and its worktrees"
+                    : live
+                      ? "A run cannot be removed while it is dueling"
+                      : "Remove run and its worktrees"
                 }
                 onClick={onDelete}
                 disabled={deleting || (live && !awaitingPrompt)}
@@ -221,11 +244,17 @@ export function ArenaRunView({
             the session each already has. */}
         <LanesPrompt onSend={onSendPrompt} next={!awaitingPrompt} busy={live && !awaitingPrompt} />
         {problem ? (
-          <p role="alert" className={`${TEXT.meta} text-destructive`}>{problem}</p>
+          <p role="alert" className={`${TEXT.meta} text-destructive`}>
+            {problem}
+          </p>
         ) : null}
       </header>
 
-      <div role="tabpanel" aria-label={views.find((one) => one.name === view)?.label} className="flex min-h-0 flex-1 flex-col">
+      <div
+        role="tabpanel"
+        aria-label={views.find((one) => one.name === view)?.label}
+        className="flex min-h-0 flex-1 flex-col"
+      >
         {!detail ? (
           <p className={`px-4 py-6 ${TEXT.meta} text-muted-foreground`}>Reading the facts.</p>
         ) : (
@@ -243,7 +272,7 @@ export function ArenaRunView({
                   slowestMs={slowestMs}
                   now={now}
                   controlsRef={view === "sessions" ? controlsHosts.refFor(contestant.contestantId) : undefined}
-                  browse={(
+                  browse={
                     <ArenaCodeButton
                       transport={transport}
                       place={{ runId: run.runId, contestantId: contestant.contestantId }}
@@ -252,7 +281,7 @@ export function ArenaRunView({
                       path={contestant.worktreePath}
                       className="size-8"
                     />
-                  )}
+                  }
                 />
               ))}
               {view === "sessions"
@@ -260,7 +289,7 @@ export function ArenaRunView({
                     <SessionLane
                       key={`session-${contestant.contestantId}`}
                       contestant={contestant}
-                      listed={contestant.sessionId ? sessions.get(contestant.sessionId) ?? null : null}
+                      listed={contestant.sessionId ? (sessions.get(contestant.sessionId) ?? null) : null}
                       context={context}
                       controlsHost={controlsHosts.hosts[contestant.contestantId] ?? null}
                     />
@@ -278,7 +307,7 @@ export function ArenaRunView({
       {run.manager && managerOpen ? (
         <ArenaManagerWindow
           manager={run.manager}
-          listed={run.manager.sessionId ? sessions.get(run.manager.sessionId) ?? null : null}
+          listed={run.manager.sessionId ? (sessions.get(run.manager.sessionId) ?? null) : null}
           context={context}
           onClose={() => setManagerOpen(false)}
         />
@@ -301,7 +330,8 @@ function useControlsHosts(): {
   const refFor = (contestantId: string) => {
     let ref = refs.current.get(contestantId);
     if (!ref) {
-      ref = (host) => setHosts((previous) => (previous[contestantId] === host ? previous : { ...previous, [contestantId]: host }));
+      ref = (host) =>
+        setHosts((previous) => (previous[contestantId] === host ? previous : { ...previous, [contestantId]: host }));
       refs.current.set(contestantId, ref);
     }
     return ref;
@@ -343,10 +373,16 @@ function LaneGrid({ lanes, tall, children }: { lanes: number; tall: boolean; chi
         </div>
       </div>
       {edges.left ? (
-        <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent" />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent"
+        />
       ) : null}
       {edges.right ? (
-        <span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent" />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent"
+        />
       ) : null}
     </div>
   );

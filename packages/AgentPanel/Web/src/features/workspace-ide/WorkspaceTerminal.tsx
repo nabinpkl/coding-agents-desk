@@ -12,23 +12,17 @@ import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { ShellTerminal } from "@/features/terminal/ShellTerminal";
 
-export function WorkspaceTerminal({ feed, workspaceName, workspacePath }: {
+export function WorkspaceTerminal({
+  feed,
+  workspaceName,
+  workspacePath,
+}: {
   feed: SidecarDataSource;
   /** What the roster calls this workspace, which is what a reader recognises the pane by. */
   workspaceName: string;
   /** The workspace root. The shell's cwd, and what its PTY session is named after. */
   workspacePath: string;
 }) {
-  const context = useMemo<AgentTerminalContext>(
-    () => ({ kind: "workspace", workspacePath }),
-    [workspacePath],
-  );
-  return (
-    <ShellTerminal
-      feed={feed}
-      context={context}
-      label={`${workspaceName} terminal`}
-      where={workspacePath}
-    />
-  );
+  const context = useMemo<AgentTerminalContext>(() => ({ kind: "workspace", workspacePath }), [workspacePath]);
+  return <ShellTerminal feed={feed} context={context} label={`${workspaceName} terminal`} where={workspacePath} />;
 }

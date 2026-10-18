@@ -36,13 +36,7 @@ export function BotCodeButton({
         <CodeXml className="size-4" aria-hidden />
       </button>
       {open ? (
-        <BotCodeDialog
-          bot={bot}
-          feed={feed}
-          git={git}
-          initialSection="explorer"
-          onClose={() => setOpen(false)}
-        />
+        <BotCodeDialog bot={bot} feed={feed} git={git} initialSection="explorer" onClose={() => setOpen(false)} />
       ) : null}
     </>
   );

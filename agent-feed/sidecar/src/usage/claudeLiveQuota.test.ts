@@ -66,10 +66,13 @@ test("the headers are read in their own units: a fraction, and epoch seconds", a
 
 test("a window with no utilization is not a row, and a missing reset is not a dropped row", async () => {
   // "How full" is the number being asked for; "when it clears" is the decoration.
-  const samples = parseRateLimitHeaders([
-    header("anthropic-ratelimit-unified-5h-utilization", "0.4"),
-    header("anthropic-ratelimit-unified-7d-reset", "1789920000"),
-  ], 5);
+  const samples = parseRateLimitHeaders(
+    [
+      header("anthropic-ratelimit-unified-5h-utilization", "0.4"),
+      header("anthropic-ratelimit-unified-7d-reset", "1789920000"),
+    ],
+    5,
+  );
 
   expect(samples).toHaveLength(1);
   expect(samples[0]).toMatchObject({ windowMinutes: 300, usedPercent: 40, resetsAtMs: 0 });
@@ -79,9 +82,7 @@ test("a redacted value is not read as a number", async () => {
   // The proxy redacts by replacing the value with `[REDACTED]` and flagging it. Number("[REDACTED]")
   // is NaN, so this is belt and braces -- but a future redaction that substituted a zero would
   // otherwise render as a window with everything left.
-  expect(parseRateLimitHeaders([
-    header("anthropic-ratelimit-unified-5h-utilization", "0", true),
-  ], 5)).toEqual([]);
+  expect(parseRateLimitHeaders([header("anthropic-ratelimit-unified-5h-utilization", "0", true)], 5)).toEqual([]);
 });
 
 test("anything that is not a header list is no reading, never a throw", async () => {
@@ -101,10 +102,13 @@ test("a flow carrying no rate-limit headers leaves the last reading standing", a
 
 test("the newest response wins, and an older one arriving late does not overwrite it", async () => {
   noteRateLimitHeaders(observed(), 2_000);
-  noteRateLimitHeaders([
-    header("anthropic-ratelimit-unified-5h-utilization", "0.99"),
-    header("anthropic-ratelimit-unified-5h-reset", "1789528800"),
-  ], 1_000);
+  noteRateLimitHeaders(
+    [
+      header("anthropic-ratelimit-unified-5h-utilization", "0.99"),
+      header("anthropic-ratelimit-unified-5h-reset", "1789528800"),
+    ],
+    1_000,
+  );
 
   expect(currentLiveQuotas().map((quota) => quota.usedPercent)).toEqual([21, 51]);
 });

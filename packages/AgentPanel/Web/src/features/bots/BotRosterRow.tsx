@@ -96,8 +96,7 @@ export function BotRosterRow({
   const slots = botSessionSlots(bot.sessionRefs, bot.sessionSlots);
   const split = splitSessionsByCanvas(
     bot.sessions,
-    (session) => (canvas?.detachedSessionKeys.has(attachedSessionKey(session)) ?? false)
-      || onStrip === false,
+    (session) => (canvas?.detachedSessionKeys.has(attachedSessionKey(session)) ?? false) || onStrip === false,
   );
   const sessionRow = (session: SessionSummary) => {
     const key = attachedSessionKey(session);
@@ -107,16 +106,13 @@ export function BotRosterRow({
     // a row that looks identical to the ones with cards would make the canvas
     // read as having lost one, and from here a reader cannot act on which of
     // the two reasons it is.
-    const noCard = (canvas?.detachedSessionKeys.has(key) ?? false)
-      || onStrip === false;
+    const noCard = (canvas?.detachedSessionKeys.has(key) ?? false) || onStrip === false;
     const step = slots.get(key);
     const shaded = botSessionStyle(hue, step);
     // Its own face rather than its Bot's, so siblings never share one; either
     // half missing leaves the mark on its disc.
     const botRank = rank;
-    const faceRank = botRank !== undefined && step !== undefined
-      ? botSessionFaceRank(botRank, step)
-      : undefined;
+    const faceRank = botRank !== undefined && step !== undefined ? botSessionFaceRank(botRank, step) : undefined;
     return (
       // The row was one button until it grew a second action. A button cannot
       // contain a button, so opening the session and opening its menu are now
@@ -195,9 +191,7 @@ export function BotRosterRow({
         </button>
         <SessionRowMenu
           label={session.title || session.sessionId}
-          onRename={
-            canRenameSession(session) ? () => onRenameSession(session) : undefined
-          }
+          onRename={canRenameSession(session) ? () => onRenameSession(session) : undefined}
           onDetach={() => onDetachSession(bot, session)}
           isFather={isFatherSession(bot, session)}
           onSetFather={() => onSetFatherSession(bot, session)}
@@ -258,12 +252,20 @@ export function BotRosterRow({
             // is the worst of the three options.
             disabled={machineHidden}
             aria-pressed={onStrip}
-            aria-label={machineHidden
-              ? `${bot.name} is on ${machineLabel ?? "a machine"}, which is hidden from the canvas`
-              : onCanvas ? `Take ${bot.name} off the canvas` : `Put ${bot.name} on the canvas`}
-            title={machineHidden
-              ? `${machineLabel ?? "This machine"} is hidden from the canvas. Show it above to bring ${bot.name} back.`
-              : onCanvas ? "On the canvas" : "Off the canvas"}
+            aria-label={
+              machineHidden
+                ? `${bot.name} is on ${machineLabel ?? "a machine"}, which is hidden from the canvas`
+                : onCanvas
+                  ? `Take ${bot.name} off the canvas`
+                  : `Put ${bot.name} on the canvas`
+            }
+            title={
+              machineHidden
+                ? `${machineLabel ?? "This machine"} is hidden from the canvas. Show it above to bring ${bot.name} back.`
+                : onCanvas
+                  ? "On the canvas"
+                  : "Off the canvas"
+            }
             // The ring on hover is what says this face is a control. Without it nothing
             // else on the row admits that clicking here does anything.
             className="shrink-0 cursor-pointer rounded-full outline-none ring-primary/60 ring-offset-2 ring-offset-card transition-shadow hover:ring-2 focus-visible:ring-2 focus-visible:ring-primary active:ring-primary disabled:cursor-default disabled:hover:ring-0"
@@ -289,17 +291,15 @@ export function BotRosterRow({
             </span>
           ) : null}
           <span className="mt-0.5 block truncate font-mono text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-            {machineLabel
-              ? (
-                <span className="not-italic font-sans font-medium">
-                  {machineLabel}
-                  {/* Said in text as well as in the tooltip, because the tooltip needs a
+            {machineLabel ? (
+              <span className="not-italic font-sans font-medium">
+                {machineLabel}
+                {/* Said in text as well as in the tooltip, because the tooltip needs a
                       pointer and half the readers of this panel are on a phone. */}
-                  {machineHidden ? " hidden" : ""}
-                  {" · "}
-                </span>
-              )
-              : null}
+                {machineHidden ? " hidden" : ""}
+                {" · "}
+              </span>
+            ) : null}
             {projectName}
             {bot.environmentAvailability === "missing" ? " · missing directory" : ""}
           </span>
@@ -372,20 +372,22 @@ export function BotRosterRow({
             // Tokenised rather than `text-xs`, which is a size the reader's font settings
             // cannot reach: the control would move every row in this list except the
             // broken one. Chip tier, the same as the canvas draws a missing reference.
-            <li key={attachedSessionKey(ref)} className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-12 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
+            <li
+              key={attachedSessionKey(ref)}
+              className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-12 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground"
+            >
               <span className="min-w-0 flex-1 truncate">{ref.sessionId}</span>
               <SourceBadge source={ref.source} />
               <span>missing</span>
-              <SessionRowMenu
-                label={ref.sessionId}
-                onDetach={() => onDetachSession(bot, ref)}
-              />
+              <SessionRowMenu label={ref.sessionId} onDetach={() => onDetachSession(bot, ref)} />
             </li>
           ))}
         </ul>
       ) : (
         // Same size the canvas card says this in, and reachable from the font settings.
-        <p className="pb-2 pr-3 pl-12 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">No sessions attached</p>
+        <p className="pb-2 pr-3 pl-12 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+          No sessions attached
+        </p>
       )}
     </li>
   );

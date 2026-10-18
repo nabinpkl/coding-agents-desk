@@ -40,10 +40,7 @@ export function createScrolling(ctx: ViewportRuntime) {
         ctx.input.translator.scroll.begin({ x: at.x - start.x, y: at.y - start.y }, "free");
       }
       if (!ctx.scrollBegun) return;
-      ctx.input.translator.scroll.change(
-        { x: last.x - start.x, y: last.y - start.y },
-        ctx.scrollVelocity.velocity(),
-      );
+      ctx.input.translator.scroll.change({ x: last.x - start.x, y: last.y - start.y }, ctx.scrollVelocity.velocity());
     },
     endFingerScroll: (allowMomentum: boolean) => {
       if (!ctx.scrollBegun) return;

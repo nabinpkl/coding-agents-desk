@@ -30,9 +30,10 @@ const ORDERS: { id: TreeOrder; label: string; Icon: typeof FolderTree }[] = [
   { id: "modified", label: "Sort by modified date", Icon: ClockArrowDown },
 ];
 
-const CONTROL = "relative grid h-7 w-8 place-items-center rounded-md outline-none transition-colors"
-  + " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-  + " disabled:cursor-not-allowed disabled:opacity-40";
+const CONTROL =
+  "relative grid h-7 w-8 place-items-center rounded-md outline-none transition-colors" +
+  " focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset" +
+  " disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * The count rides the tab, so the number of changed files is readable from the Explorer.
@@ -40,8 +41,9 @@ const CONTROL = "relative grid h-7 w-8 place-items-center rounded-md outline-non
  * Filled rather than tinted, unlike the per-section counts inside Source Control: those label a
  * group the reader is already looking at, and this one has to be seen from the other section.
  */
-const BADGE = "pointer-events-none absolute -bottom-0.5 -right-0.5 min-w-[14px] rounded-full"
-  + " bg-primary px-1 text-center font-mono text-[9px] leading-[14px] text-primary-foreground";
+const BADGE =
+  "pointer-events-none absolute -bottom-0.5 -right-0.5 min-w-[14px] rounded-full" +
+  " bg-primary px-1 text-center font-mono text-[9px] leading-[14px] text-primary-foreground";
 
 export function SidebarSections({
   label,
@@ -74,10 +76,7 @@ export function SidebarSections({
   onSelect: (section: SidebarSection) => void;
 }) {
   return (
-    <nav
-      aria-label={label}
-      className="flex shrink-0 items-center gap-1 border-b border-border px-1.5 py-1"
-    >
+    <nav aria-label={label} className="flex shrink-0 items-center gap-1 border-b border-border px-1.5 py-1">
       {SECTIONS.filter(({ id }) => searchable || id !== "search").map(({ id, label: name, shortcut, Icon }) => {
         const selected = id === section;
         const count = id === "sourceControl" ? changed : 0;
@@ -91,51 +90,55 @@ export function SidebarSections({
             // because the badge that carries it is a glyph to everything but the eye.
             aria-label={count > 0 ? `Show ${name}, ${changedLabel(count)}` : `Show ${name}`}
             aria-pressed={selected}
-            title={unavailable
-              ?? (count > 0 ? `${name} (${changedLabel(count)})` : shortcut ? `${name} (${shortcut})` : name)}
+            title={
+              unavailable ??
+              (count > 0 ? `${name} (${changedLabel(count)})` : shortcut ? `${name} (${shortcut})` : name)
+            }
             disabled={unavailable !== undefined}
             onClick={() => onSelect(id)}
-            className={`${CONTROL} ${selected
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+            className={`${CONTROL} ${
+              selected ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            }`}
           >
             <Icon className="size-4" />
             {/* Capped, because the badge sits on a 32px button and a four-digit count would
                 cover the glyph it is annotating. */}
-            {count > 0
-              ? <span aria-hidden className={BADGE}>{count > 99 ? "99+" : count}</span>
-              : null}
+            {count > 0 ? (
+              <span aria-hidden className={BADGE}>
+                {count > 99 ? "99+" : count}
+              </span>
+            ) : null}
           </button>
         );
       })}
 
       {/* Its own group at the far end, divided from the section tabs: these two do not switch
           what is on screen, they change how the thing already on screen is listed. */}
-      {onOrderChange && order
-        ? (
-          <div
-            role="group"
-            aria-label="Row order"
-            className="ml-auto flex items-center gap-0.5 border-l border-border pl-1.5"
-          >
-            {ORDERS.map(({ id, label: name, Icon }) => (
-              <button
-                key={id}
-                type="button"
-                aria-label={name}
-                aria-pressed={order === id}
-                title={name}
-                onClick={() => onOrderChange(id)}
-                className={`${CONTROL} ${order === id
+      {onOrderChange && order ? (
+        <div
+          role="group"
+          aria-label="Row order"
+          className="ml-auto flex items-center gap-0.5 border-l border-border pl-1.5"
+        >
+          {ORDERS.map(({ id, label: name, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              aria-label={name}
+              aria-pressed={order === id}
+              title={name}
+              onClick={() => onOrderChange(id)}
+              className={`${CONTROL} ${
+                order === id
                   ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
-              >
-                <Icon className="size-4" />
-              </button>
-            ))}
-          </div>
-        )
-        : null}
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              <Icon className="size-4" />
+            </button>
+          ))}
+        </div>
+      ) : null}
     </nav>
   );
 }

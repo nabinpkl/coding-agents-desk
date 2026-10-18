@@ -20,10 +20,7 @@ import type {
   AgentTimelinePage,
   AgentUiResponseResult,
 } from "@/agents/agentBackend";
-import {
-  AgentBackendDisposedError,
-  AgentModeUnsupportedError,
-} from "@/agents/agentBackend";
+import { AgentBackendDisposedError, AgentModeUnsupportedError } from "@/agents/agentBackend";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
 import { LiveSessionRegistry } from "@/live/liveSessionRegistry";
 import { findSession } from "@/transcripts/catalog/transcriptCatalog";
@@ -99,8 +96,12 @@ export class CodexLiveBackend implements AgentBackend {
       signal: this.abortController?.signal,
       disposed: () => this.disposed,
       onEvent: (event) => this.acceptObserverEvent(event),
-      onError: (error) => { this.lastError = error; },
-      onSubscription: (subscription) => { this.subscription = subscription; },
+      onError: (error) => {
+        this.lastError = error;
+      },
+      onSubscription: (subscription) => {
+        this.subscription = subscription;
+      },
       reconnectDelay: codexLiveReconnectDelay,
     });
   }
@@ -133,12 +134,7 @@ export class CodexLiveBackend implements AgentBackend {
     throw new AgentModeUnsupportedError("codex live sessions are read-only");
   }
 
-  async page(
-    sessionId: string,
-    offset: number,
-    limit: number,
-    mode: EventMode,
-  ): Promise<AgentTimelinePage> {
+  async page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage> {
     this.assertActive();
     if (mode !== "nice" && mode !== "raw") {
       throw new AgentModeUnsupportedError("codex live supports raw and nice only");
@@ -252,10 +248,7 @@ export class CodexLiveBackend implements AgentBackend {
     this.flowContexts.set(flowId, { sessionId, streaming: new Set(), ended: false });
   }
 
-  private acceptMessage(
-    message: { flowId?: unknown; data?: unknown },
-    ts: number,
-  ): void {
+  private acceptMessage(message: { flowId?: unknown; data?: unknown }, ts: number): void {
     if (typeof message.flowId !== "string" || typeof message.data !== "string") return;
     const sessionId = this.binds.get(message.flowId);
     if (sessionId === undefined) return;
@@ -287,21 +280,8 @@ export class CodexLiveBackend implements AgentBackend {
     this.applyEvent(sessionId, context, event, ts);
   }
 
-  private applyEvent(
-    sessionId: string,
-    context: FlowContext,
-    event: CodexMessageEvent,
-    ts: number,
-  ): void {
-    applyCodexEvent(
-      this.sessions.ensure(sessionId),
-      this.items,
-      this.sessions.usage,
-      sessionId,
-      context,
-      event,
-      ts,
-    );
+  private applyEvent(sessionId: string, context: FlowContext, event: CodexMessageEvent, ts: number): void {
+    applyCodexEvent(this.sessions.ensure(sessionId), this.items, this.sessions.usage, sessionId, context, event, ts);
   }
 
   /** See `LiveSessionRegistry.onSessionLive`. */

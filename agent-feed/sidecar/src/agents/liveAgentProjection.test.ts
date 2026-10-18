@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  LiveAgentProjection,
-  sanitizeAgentValue,
-  type TimelineEnvelope,
-} from "@/agents/liveAgentProjection";
+import { LiveAgentProjection, sanitizeAgentValue, type TimelineEnvelope } from "@/agents/liveAgentProjection";
 
 describe("LiveAgentProjection", () => {
   test("replaces one stable item with increasing revisions", () => {
@@ -106,11 +102,7 @@ describe("LiveAgentProjection", () => {
     projection.subscribe(0, (envelope) => snapshot.push(envelope))();
     expect(snapshot).toHaveLength(1);
     expect(snapshot[0]).toMatchObject({ kind: "snapshot", sequence: 3, windowStart: 0 });
-    expect(snapshot[0]?.events.map((event) => event.id)).toEqual([
-      "event:0",
-      "event:1",
-      "event:2",
-    ]);
+    expect(snapshot[0]?.events.map((event) => event.id)).toEqual(["event:0", "event:1", "event:2"]);
   });
 
   test("recovers an expired gap from the newest bounded window", () => {

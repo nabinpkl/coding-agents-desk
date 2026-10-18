@@ -80,9 +80,7 @@ export interface PtySessionSummary {
   revision?: string;
 }
 
-const envelopeType = parse(ptyProtocolSource, { keepCase: false }).root.lookupType(
-  "pty.v1.Envelope",
-);
+const envelopeType = parse(ptyProtocolSource, { keepCase: false }).root.lookupType("pty.v1.Envelope");
 
 export function encodePtyEnvelope(envelope: PtyEnvelope): Uint8Array {
   const message = envelopeType.fromObject(envelope);

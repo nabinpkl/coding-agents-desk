@@ -179,10 +179,11 @@ describe("runClaudeTerminalContestant", () => {
     const log: string[] = [];
     const { steps } = fakeSteps(log, { composer: false });
     await expect(
-      runClaudeTerminalContestant(
-        planWith(log, { turnTimeoutMs: 0 }),
-        { binary: "/bin/claude", newSessionId: () => SESSION, steps },
-      ),
+      runClaudeTerminalContestant(planWith(log, { turnTimeoutMs: 0 }), {
+        binary: "/bin/claude",
+        newSessionId: () => SESSION,
+        steps,
+      }),
     ).rejects.toThrow(ClaudeContestantError);
     expect(log).not.toContain("ready");
     expect(log.some((line) => line.startsWith("type:"))).toBe(false);
@@ -213,7 +214,12 @@ describe("runOpencodeTerminalContestant", () => {
       async subscribe(_sessionId, _after, listener) {
         log.push("subscribe");
         const idle: TimelineEnvelope = {
-          kind: "state", sequence: 1, mode: "nice", events: [], windowStart: 0, runState: "idle",
+          kind: "state",
+          sequence: 1,
+          mode: "nice",
+          events: [],
+          windowStart: 0,
+          runState: "idle",
           queue: { steer: 0, followUp: 0 },
         };
         queueMicrotask(() => listener(idle));
@@ -260,9 +266,9 @@ describe("runOpencodeTerminalContestant", () => {
         return { requestId: "r", delivery: "immediate" as const };
       },
     };
-    await expect(
-      runOpencodeTerminalContestant(backend, planWith(log), { steps }),
-    ).rejects.toThrow(/TUI exited before the prompt: zsh:1: command not found/);
+    await expect(runOpencodeTerminalContestant(backend, planWith(log), { steps })).rejects.toThrow(
+      /TUI exited before the prompt: zsh:1: command not found/,
+    );
     expect(log).not.toContain("ready");
     expect(log).not.toContain("send");
   });
@@ -287,7 +293,12 @@ function idleBackend(log: string[]): OpencodeContestantBackend {
     async subscribe(_sessionId, _after, listener) {
       log.push("subscribe");
       const idle: TimelineEnvelope = {
-        kind: "state", sequence: 1, mode: "nice", events: [], windowStart: 0, runState: "idle",
+        kind: "state",
+        sequence: 1,
+        mode: "nice",
+        events: [],
+        windowStart: 0,
+        runState: "idle",
         queue: { steer: 0, followUp: 0 },
       };
       queueMicrotask(() => listener(idle));
@@ -304,7 +315,10 @@ describe("a contestant picked back up after a restart", () => {
   test("Claude, not yet let go: no new pane, back to its composer and the start line", async () => {
     const log: string[] = [];
     const { steps } = fakeSteps(log);
-    await runClaudeTerminalContestant(resumedPlan(log, "arena-c1-old", SESSION, false), { binary: "/bin/claude", steps });
+    await runClaudeTerminalContestant(resumedPlan(log, "arena-c1-old", SESSION, false), {
+      binary: "/bin/claude",
+      steps,
+    });
     expect(log).toEqual(["awaitComposer", "ready", "watch", "type:say one word"]);
   });
 
@@ -345,7 +359,10 @@ describe("a contestant picked back up after a restart", () => {
   });
 
   test("opencode, let go: watched without a send when the serve holds the prompt, sent when not", async () => {
-    for (const [held, expected] of [[true, ["subscribe"]], [false, ["subscribe", "send:say one word"]]] as const) {
+    for (const [held, expected] of [
+      [true, ["subscribe"]],
+      [false, ["subscribe", "send:say one word"]],
+    ] as const) {
       const log: string[] = [];
       const { steps } = fakeSteps(log);
       await runOpencodeTerminalContestant(idleBackend(log), resumedPlan(log, "arena-c2-old", "ses_old", true), {

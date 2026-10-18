@@ -6,8 +6,14 @@ import { COMPOSER_IMAGE_MEDIA_TYPES } from "@agentdesk/agent-feed-wire";
 import { contextWindowFor } from "@/config/config";
 import { cacheTtlFromUsage } from "@/cacheTtl";
 import { toolFilePaths } from "@/transcripts/claude/claudeFiles";
-import { TOOL_RESULT_PREVIEW_CAP, type ActivityBlock, type DeclaredModel, type EventCacheHit, type TokenUsage } from "@/transcripts/transcriptTypes";
-import { basename } from 'node:path';
+import {
+  TOOL_RESULT_PREVIEW_CAP,
+  type ActivityBlock,
+  type DeclaredModel,
+  type EventCacheHit,
+  type TokenUsage,
+} from "@/transcripts/transcriptTypes";
+import { basename } from "node:path";
 import { plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
 
 /**
@@ -23,20 +29,21 @@ import { plainBlock, stringifyForDisplay } from "@/transcripts/plainActivity";
  * on the question, which is why the absent case is undefined and not `true`.
  */
 export function turnClosedFor(ev: Record<string, unknown>): boolean | undefined {
-  if (ev.type === 'user') return false;
-  if (ev.type !== 'assistant') return undefined;
-  const message = ev.message && typeof ev.message === 'object' && !Array.isArray(ev.message)
-    ? ev.message as Record<string, unknown>
-    : {};
-  return message.stop_reason === 'end_turn';
+  if (ev.type === "user") return false;
+  if (ev.type !== "assistant") return undefined;
+  const message =
+    ev.message && typeof ev.message === "object" && !Array.isArray(ev.message)
+      ? (ev.message as Record<string, unknown>)
+      : {};
+  return message.stop_reason === "end_turn";
 }
 
 export function truncate(s: string, n: number): string {
   const flat = s
-    .replace(/[\t ]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[\t ]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return flat.length > n ? flat.slice(0, n) + '…' : flat;
+  return flat.length > n ? flat.slice(0, n) + "…" : flat;
 }
 
 // Input keys worth putting in a row label, most specific first. Consulted for any
@@ -45,44 +52,44 @@ export function truncate(s: string, n: number): string {
 // label, because there was no fallback at all. The Codex adapter has always had one,
 // which is why only Claude went blank.
 const CLAUDE_SUMMARY_KEYS = [
-  'skill',
-  'description',
-  'query',
-  'url',
-  'pattern',
-  'command',
-  'subject',
-  'title',
-  'path',
-  'file_path',
-  'prompt',
+  "skill",
+  "description",
+  "query",
+  "url",
+  "pattern",
+  "command",
+  "subject",
+  "title",
+  "path",
+  "file_path",
+  "prompt",
 ] as const;
 
 // Per-tool summary string used as the row's chip label in the activity feed.
 export function summarizeToolUse(name: string, input?: Record<string, unknown>): string {
   const i = input ?? {};
-  const path = typeof i.file_path === 'string' ? i.file_path.split('/').pop() : null;
-  if ((name === 'Read' || name === 'Edit' || name === 'Write') && path) return `${name} ${path}`;
-  if (name === 'Bash' && typeof i.command === 'string') return i.command.slice(0, 200);
-  if (name === 'Grep' && typeof i.pattern === 'string') return `pattern "${i.pattern}"`;
-  if (name === 'Glob' && typeof i.pattern === 'string') return i.pattern;
+  const path = typeof i.file_path === "string" ? i.file_path.split("/").pop() : null;
+  if ((name === "Read" || name === "Edit" || name === "Write") && path) return `${name} ${path}`;
+  if (name === "Bash" && typeof i.command === "string") return i.command.slice(0, 200);
+  if (name === "Grep" && typeof i.pattern === "string") return `pattern "${i.pattern}"`;
+  if (name === "Glob" && typeof i.pattern === "string") return i.pattern;
   for (const key of CLAUDE_SUMMARY_KEYS) {
     const value = i[key];
-    if (typeof value === 'string' && value.trim()) return `${name} ${value.trim().slice(0, 200)}`;
+    if (typeof value === "string" && value.trim()) return `${name} ${value.trim().slice(0, 200)}`;
   }
   // A tool handed a LIST of files is about those files. `SendUserFile` is the one here, and the
   // only bare string it carries is `status`, so the fallback below labelled every one of them
   // `SendUserFile normal` -- a row that names the delivery mode and not what was delivered.
   if (Array.isArray(i.files)) {
     const names = (i.files as unknown[])
-      .filter((file): file is string => typeof file === 'string' && file.trim().length > 0)
+      .filter((file): file is string => typeof file === "string" && file.trim().length > 0)
       .map((file) => basename(file));
-    if (names.length) return `${name} ${names.join(', ')}`.slice(0, 200);
+    if (names.length) return `${name} ${names.join(", ")}`.slice(0, 200);
   }
   // Any string input at all beats a blank chip. Keys are read off the transcript, so
   // this walks the object's OWN entries rather than indexing by a name from it.
   for (const [key, value] of Object.entries(i)) {
-    if (key && typeof value === 'string' && value.trim()) {
+    if (key && typeof value === "string" && value.trim()) {
       return `${name} ${value.trim().slice(0, 200)}`;
     }
   }
@@ -92,14 +99,14 @@ export function summarizeToolUse(name: string, input?: Record<string, unknown>):
 // Arrow-prefixed snippet for the rail summary.
 export function arrowToolUse(name: string, input?: Record<string, unknown>): string {
   const i = input ?? {};
-  const path = typeof i.file_path === 'string' ? basename(i.file_path) : null;
-  if (name === 'Read' && path) return `→ Read ${path}`;
-  if (name === 'Edit' && path) return `→ Edit ${path}`;
-  if (name === 'Write' && path) return `→ Write ${path}`;
-  if (name === 'Bash' && typeof i.command === 'string') return `→ Bash ${i.command}`;
-  if (name === 'Grep' && typeof i.pattern === 'string') return `→ Grep "${i.pattern}"`;
-  if (name === 'Glob' && typeof i.pattern === 'string') return `→ Glob ${i.pattern}`;
-  if (name === 'TodoWrite') return '→ TodoWrite';
+  const path = typeof i.file_path === "string" ? basename(i.file_path) : null;
+  if (name === "Read" && path) return `→ Read ${path}`;
+  if (name === "Edit" && path) return `→ Edit ${path}`;
+  if (name === "Write" && path) return `→ Write ${path}`;
+  if (name === "Bash" && typeof i.command === "string") return `→ Bash ${i.command}`;
+  if (name === "Grep" && typeof i.pattern === "string") return `→ Grep "${i.pattern}"`;
+  if (name === "Glob" && typeof i.pattern === "string") return `→ Glob ${i.pattern}`;
+  if (name === "TodoWrite") return "→ TodoWrite";
   return `→ ${name}`;
 }
 
@@ -118,16 +125,12 @@ export interface NormalizedClaudeBlock {
  * the Raw drawer either way -- this is the folded line, not the evidence.
  */
 function nonTextResultPreview(content: unknown): string {
-  if (!Array.isArray(content)) return '';
+  if (!Array.isArray(content)) return "";
   return (content as Array<Record<string, unknown>>)
     .map((item) =>
-      typeof item?.tool_name === 'string'
-        ? (item.tool_name)
-        : typeof item?.type === 'string'
-          ? (item.type)
-          : 'item',
+      typeof item?.tool_name === "string" ? item.tool_name : typeof item?.type === "string" ? item.type : "item",
     )
-    .join('\n');
+    .join("\n");
 }
 
 /**
@@ -140,18 +143,18 @@ function nonTextResultPreview(content: unknown): string {
  */
 function pastedImage(b: Record<string, unknown>): { mediaType: string; data: string } | null {
   const source = b.source;
-  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
   const { type, media_type: mediaType, data } = source as Record<string, unknown>;
-  if (type !== 'base64' || typeof data !== 'string' || data.length === 0) return null;
-  if (typeof mediaType !== 'string') return null;
+  if (type !== "base64" || typeof data !== "string" || data.length === 0) return null;
+  if (typeof mediaType !== "string") return null;
   if (!(COMPOSER_IMAGE_MEDIA_TYPES as readonly string[]).includes(mediaType)) return null;
   return { mediaType, data };
 }
 
 export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
-  if (typeof content === 'string') {
+  if (typeof content === "string") {
     return content.trim()
-      ? [{ block: { kind: 'text', text: content }, raw: content }]
+      ? [{ block: { kind: "text", text: content }, raw: content }]
       : [{ block: plainBlock(content), raw: content }];
   }
   if (!Array.isArray(content)) {
@@ -160,25 +163,25 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
   const out: NormalizedClaudeBlock[] = [];
   for (const b of content as Array<Record<string, unknown>>) {
     const t = b?.type;
-    const image = t === 'image' ? pastedImage(b) : null;
-    if (t === 'text' && typeof b.text === 'string' && b.text.trim()) {
-      out.push({ block: { kind: 'text', text: b.text }, raw: b.text });
-    } else if (t === 'thinking') {
+    const image = t === "image" ? pastedImage(b) : null;
+    if (t === "text" && typeof b.text === "string" && b.text.trim()) {
+      out.push({ block: { kind: "text", text: b.text }, raw: b.text });
+    } else if (t === "thinking") {
       // Any `thinking` block is reasoning, even when its `thinking` text is
       // empty (an opaque encrypted `signature` trace). Classify by TYPE, not by
       // non-empty text: reading text here would dump the signature as a Plain
       // JSON card instead of an emittable collapsed reasoning block.
-      const thinking = typeof b.thinking === 'string' ? (b.thinking) : '';
-      out.push({ block: { kind: 'reasoning', text: thinking }, raw: thinking });
-    } else if (t === 'tool_use' && typeof b.name === 'string') {
+      const thinking = typeof b.thinking === "string" ? b.thinking : "";
+      out.push({ block: { kind: "reasoning", text: thinking }, raw: thinking });
+    } else if (t === "tool_use" && typeof b.name === "string") {
       const input = (b.input as Record<string, unknown> | undefined) ?? {};
-      const id = typeof b.id === 'string' ? (b.id) : undefined;
+      const id = typeof b.id === "string" ? b.id : undefined;
       // Resolved here rather than left to the reader, because the panel addresses one of these by
       // its POSITION and the route resolves that position from the same rule. See claudeFiles.ts.
       const files = toolFilePaths(input);
       out.push({
         block: {
-          kind: 'tool_use',
+          kind: "tool_use",
           tool: b.name,
           summary: summarizeToolUse(b.name, input),
           input,
@@ -187,23 +190,23 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
         },
         raw: null,
       });
-    } else if (t === 'tool_result') {
-      let preview = '';
+    } else if (t === "tool_result") {
+      let preview = "";
       const c = b.content;
-      const useId = typeof b.tool_use_id === 'string' ? (b.tool_use_id) : undefined;
+      const useId = typeof b.tool_use_id === "string" ? b.tool_use_id : undefined;
       const idPart = useId ? { callId: useId } : {};
-      const items = Array.isArray(c) ? c as Array<Record<string, unknown>> : [];
+      const items = Array.isArray(c) ? (c as Array<Record<string, unknown>>) : [];
       // A screenshot a tool took, or a picture Read opened. Each becomes an image block right after
       // its result, named by the same call, for the reason a pasted one does: the bytes stay in the
       // line and the event carries only what kind of image is there.
       const returnedImages = items.flatMap((sub) => {
-        const returned = sub?.type === 'image' ? pastedImage(sub) : null;
+        const returned = sub?.type === "image" ? pastedImage(sub) : null;
         return returned ? [returned] : [];
       });
-      if (typeof c === 'string') preview = c;
+      if (typeof c === "string") preview = c;
       else if (Array.isArray(c)) {
         for (const sub of c as Array<Record<string, unknown>>) {
-          if (sub?.type === 'text' && typeof sub.text === 'string') {
+          if (sub?.type === "text" && typeof sub.text === "string") {
             preview = sub.text;
             break;
           }
@@ -219,7 +222,7 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
           const sidecarPath = persistedOutputPath(preview);
           out.push({
             block: {
-              kind: 'tool_result',
+              kind: "tool_result",
               preview: preview.slice(0, TOOL_RESULT_PREVIEW_CAP),
               hiddenChars: persistedSize - preview.length,
               hiddenLines: 0,
@@ -233,7 +236,7 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
           const dropped = preview.slice(TOOL_RESULT_PREVIEW_CAP);
           out.push({
             block: {
-              kind: 'tool_result',
+              kind: "tool_result",
               preview: kept,
               hiddenChars: dropped.length,
               hiddenLines: (dropped.match(/\n/g) || []).length,
@@ -242,7 +245,7 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
             raw: preview,
           });
         } else {
-          out.push({ block: { kind: 'tool_result', preview, ...idPart }, raw: preview });
+          out.push({ block: { kind: "tool_result", preview, ...idPart }, raw: preview });
         }
       } else {
         // A result whose content carries no text at all: an MCP answer made of
@@ -256,12 +259,10 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
         // "(no text)" instead of what they had actually written.
         // Images it returned are not named here: they are drawn, so a line reading "image" above
         // the picture would only repeat it.
-        const unshown = Array.isArray(c)
-          ? items.filter((sub) => !(sub?.type === 'image' && pastedImage(sub)))
-          : c;
+        const unshown = Array.isArray(c) ? items.filter((sub) => !(sub?.type === "image" && pastedImage(sub))) : c;
         out.push({
           block: {
-            kind: 'tool_result',
+            kind: "tool_result",
             preview: nonTextResultPreview(unshown),
             ...idPart,
           },
@@ -269,31 +270,29 @@ export function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
         });
       }
       for (const returned of returnedImages) {
-        out.push({ block: { kind: 'image', mediaType: returned.mediaType, ...idPart }, raw: returned.data });
+        out.push({ block: { kind: "image", mediaType: returned.mediaType, ...idPart }, raw: returned.data });
       }
     } else if (image) {
       // A picture pasted into the prompt. Its bytes are the raw half, so `extractBlockRaw` hands
       // them to the image route and the event itself carries the media type alone. Before this it
       // fell through to Plain: sixty-odd kilobytes of base64 JSON on every page, drawn as a card.
-      out.push({ block: { kind: 'image', mediaType: image.mediaType }, raw: image.data });
+      out.push({ block: { kind: "image", mediaType: image.mediaType }, raw: image.data });
     } else {
       const serialized = stringifyForDisplay(b);
       out.push({ block: plainBlock(b), raw: serialized });
     }
   }
-  return out.length > 0
-    ? out
-    : [{ block: plainBlock(content), raw: stringifyForDisplay(content) }];
+  return out.length > 0 ? out : [{ block: plainBlock(content), raw: stringifyForDisplay(content) }];
 }
 
 // The harness stamps `<synthetic>` as the model on lines it injected itself.
 // That is not a model switch and not an unknown model, so it must not resolve to
 // a null window: the meter's merge carries the last real model and
 // limit forward for any line that names no model.
-const SYNTHETIC_MODEL = '<synthetic>';
+const SYNTHETIC_MODEL = "<synthetic>";
 
 export function assistantModel(message: Record<string, unknown>): string | undefined {
-  const model = typeof message.model === 'string' ? message.model.trim() : '';
+  const model = typeof message.model === "string" ? message.model.trim() : "";
   if (!model || model === SYNTHETIC_MODEL) return undefined;
   return model;
 }
@@ -310,17 +309,13 @@ export function assistantModel(message: Record<string, unknown>): string | undef
 // resolved HERE from the config table rather than left null for the panel to
 // guess at. The model changes mid-session (13 of 129 sessions in this project),
 // so it is read per line, not once per session.
-export function extractClaudeUsage(
-  usage: unknown,
-  model: string | undefined,
-  ts: number,
-): TokenUsage | null {
-  if (!usage || typeof usage !== 'object') return null;
+export function extractClaudeUsage(usage: unknown, model: string | undefined, ts: number): TokenUsage | null {
+  if (!usage || typeof usage !== "object") return null;
   const u = usage as Record<string, unknown>;
-  const input = typeof u.input_tokens === 'number' ? u.input_tokens : 0;
-  const cacheCreate = typeof u.cache_creation_input_tokens === 'number' ? u.cache_creation_input_tokens : 0;
-  const cacheRead = typeof u.cache_read_input_tokens === 'number' ? u.cache_read_input_tokens : 0;
-  const output = typeof u.output_tokens === 'number' ? u.output_tokens : 0;
+  const input = typeof u.input_tokens === "number" ? u.input_tokens : 0;
+  const cacheCreate = typeof u.cache_creation_input_tokens === "number" ? u.cache_creation_input_tokens : 0;
+  const cacheRead = typeof u.cache_read_input_tokens === "number" ? u.cache_read_input_tokens : 0;
+  const output = typeof u.output_tokens === "number" ? u.output_tokens : 0;
   const current = input + cacheCreate + cacheRead + output;
   if (current <= 0) return null;
   const cacheTtlMs = cacheTtlFromUsage(u);
@@ -353,13 +348,13 @@ export function extractClaudeUsage(
  */
 export function declaredModelIn(record: Record<string, unknown>): DeclaredModel | null {
   const attachment = record.attachment;
-  if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) return null;
+  if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) return null;
   const inner = attachment as Record<string, unknown>;
-  if (inner.type !== 'model') return null;
+  if (inner.type !== "model") return null;
   const identity = inner.identity;
-  if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return null;
+  if (!identity || typeof identity !== "object" || Array.isArray(identity)) return null;
   const model = (identity as Record<string, unknown>).modelId;
-  if (typeof model !== 'string' || !model.trim()) return null;
+  if (typeof model !== "string" || !model.trim()) return null;
   const id = model.trim();
   return { model: id, limit: contextWindowFor(id) };
 }
@@ -390,9 +385,9 @@ export function declaredModelIn(record: Record<string, unknown>): DeclaredModel 
  */
 export function extractCompactionUsage(record: Record<string, unknown>, ts: number): TokenUsage | null {
   const metadata = record.compactMetadata;
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const post = (metadata as Record<string, unknown>).postTokens;
-  if (typeof post !== 'number' || !Number.isFinite(post) || post <= 0) return null;
+  if (typeof post !== "number" || !Number.isFinite(post) || post <= 0) return null;
   return { current: post, limit: null, updatedAt: ts || Date.now() };
 }
 
@@ -402,18 +397,18 @@ export function extractCompactionUsage(record: Record<string, unknown>, ts: numb
 // turn (`cache_creation_input_tokens`), so the fraction reads as
 // cache_read / (input + cache_read + cache_creation).
 export function extractClaudeCacheHit(usage: unknown): EventCacheHit | undefined {
-  if (!usage || typeof usage !== 'object') return undefined;
+  if (!usage || typeof usage !== "object") return undefined;
   const u = usage as Record<string, unknown>;
-  const input = typeof u.input_tokens === 'number' ? u.input_tokens : 0;
-  const cacheCreate = typeof u.cache_creation_input_tokens === 'number' ? u.cache_creation_input_tokens : 0;
-  const cacheRead = typeof u.cache_read_input_tokens === 'number' ? u.cache_read_input_tokens : 0;
+  const input = typeof u.input_tokens === "number" ? u.input_tokens : 0;
+  const cacheCreate = typeof u.cache_creation_input_tokens === "number" ? u.cache_creation_input_tokens : 0;
+  const cacheRead = typeof u.cache_read_input_tokens === "number" ? u.cache_read_input_tokens : 0;
   const total = input + cacheCreate + cacheRead;
   if (total <= 0) return undefined;
   return { cached: cacheRead, input: total };
 }
 
 export function timestampMs(value: unknown): number {
-  if (typeof value !== 'string') return 0;
+  if (typeof value !== "string") return 0;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -423,16 +418,13 @@ export function timestampMs(value: unknown): number {
 // sidecar can stamp hiddenChars on the block. Returns null when the
 // envelope is missing or the size is unparseable.
 export function parsePersistedSize(raw: string): number | null {
-  if (!raw.startsWith('<persisted-output>')) return null;
+  if (!raw.startsWith("<persisted-output>")) return null;
   const m = /Output too large \(([\d.]+)\s*([KMG]?B)\)/i.exec(raw);
   if (!m) return null;
   const n = parseFloat(m[1]!);
   if (!Number.isFinite(n)) return null;
-  const unit = (m[2] || 'B').toUpperCase();
-  const mult = unit === 'GB' ? 1024 ** 3
-    : unit === 'MB' ? 1024 ** 2
-    : unit === 'KB' ? 1024
-    : 1;
+  const unit = (m[2] || "B").toUpperCase();
+  const mult = unit === "GB" ? 1024 ** 3 : unit === "MB" ? 1024 ** 2 : unit === "KB" ? 1024 : 1;
   return Math.round(n * mult);
 }
 
@@ -445,10 +437,10 @@ export function parsePersistedSize(raw: string): number | null {
 //   ...
 // Returns the absolute path if the envelope matches, else null.
 export function persistedOutputPath(raw: string): string | null {
-  if (!raw.startsWith('<persisted-output>')) return null;
+  if (!raw.startsWith("<persisted-output>")) return null;
   const m = /Full output saved to:\s*(\S[^\n]*?)\s*(?:\n|$)/.exec(raw);
   const p = m?.[1]?.trim();
-  return p && p.startsWith('/') ? p : null;
+  return p && p.startsWith("/") ? p : null;
 }
 
 // Read the sidecar file, but only if it's under ~/.claude/projects. A

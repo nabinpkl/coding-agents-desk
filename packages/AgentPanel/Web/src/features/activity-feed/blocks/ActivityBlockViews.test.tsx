@@ -12,17 +12,13 @@ import { render, screen } from "@testing-library/react";
 import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
-import {
-  pairSameEventToolResults,
-  withoutPairedToolResults,
-} from "@/features/activity-feed/rows/activityFeedLayout";
-import {
-  SegmentEventRow,
-  type EventRowContext,
-} from "@/features/activity-feed/blocks/ActivityEventRows";
+import { pairSameEventToolResults, withoutPairedToolResults } from "@/features/activity-feed/rows/activityFeedLayout";
+import { SegmentEventRow, type EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
-vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
+vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({
+  DiffBlock: () => <div data-testid="diff-block" />,
+}));
 
 const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], windowStart: 0, usage: null }),
@@ -73,10 +69,11 @@ describe("opencode file shapes", () => {
   // `newString`); the row draws them through the same diff, preview and shell bodies as
   // Claude's snake_case calls rather than as generic tool cards.
   it("draws an opencode edit through the diff body with the basename header", () => {
-    const { container, unmount } = fileRow(
-      "edit",
-      { path: "/repo/src/a.ts", oldString: "const x = 1;", newString: "const x = 2;" },
-    );
+    const { container, unmount } = fileRow("edit", {
+      path: "/repo/src/a.ts",
+      oldString: "const x = 1;",
+      newString: "const x = 2;",
+    });
     expect(container.querySelector('[data-testid="diff-block"]')).not.toBeNull();
     expect(screen.getByRole("button", { name: /a\.ts/ })).toBeInTheDocument();
     unmount();
@@ -102,23 +99,17 @@ describe("opencode file shapes", () => {
   });
 
   it("keeps drawing Claude's snake_case edit beside it", () => {
-    const { container, unmount } = fileRow(
-      "Edit",
-      { file_path: "/repo/src/a.ts", old_string: "a", new_string: "b" },
-    );
+    const { container, unmount } = fileRow("Edit", { file_path: "/repo/src/a.ts", old_string: "a", new_string: "b" });
     expect(container.querySelector('[data-testid="diff-block"]')).not.toBeNull();
     unmount();
   });
 
   it("names an edit's change on its own row under the filename header", () => {
-    const { unmount } = fileRow(
-      "edit",
-      {
-        path: "/repo/src/a.ts",
-        oldString: "export function old() {\n  return 1;\n}",
-        newString: "export function old() {\n  return 1;\n}\nexport function next() {\n  return 2;\n}",
-      },
-    );
+    const { unmount } = fileRow("edit", {
+      path: "/repo/src/a.ts",
+      oldString: "export function old() {\n  return 1;\n}",
+      newString: "export function old() {\n  return 1;\n}\nexport function next() {\n  return 2;\n}",
+    });
     // Header keeps the file; the detail line names the change, not inline.
     expect(screen.getByRole("button", { name: /a\.ts/ })).toBeInTheDocument();
     expect(screen.getByText("adds next(), +3/-0")).toBeInTheDocument();
@@ -255,7 +246,7 @@ describe("search bodies", () => {
     const { container, unmount } = searchRow(
       "Grep",
       { pattern: "manifest", output_mode: "content" },
-      "Grep pattern \"manifest\"",
+      'Grep pattern "manifest"',
       "host/Provider.swift:38:    func manifest() {",
     );
     expect(screen.getByText("Provider.swift")).toBeInTheDocument();

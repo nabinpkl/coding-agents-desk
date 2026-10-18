@@ -68,7 +68,12 @@ export function traceRequest<T extends Response | undefined>(
   handle: () => T | Promise<T>,
 ): T | Promise<T> {
   const sentryTrace = request.headers.get("sentry-trace");
-  if (!sentryTrace || !SAMPLED.test(sentryTrace) || url.pathname === TELEMETRY_ROUTE || request.headers.has("upgrade")) {
+  if (
+    !sentryTrace ||
+    !SAMPLED.test(sentryTrace) ||
+    url.pathname === TELEMETRY_ROUTE ||
+    request.headers.has("upgrade")
+  ) {
     return handle();
   }
   const baggage = request.headers.get("baggage") ?? undefined;

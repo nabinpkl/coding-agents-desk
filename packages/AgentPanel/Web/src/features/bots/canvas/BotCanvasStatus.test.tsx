@@ -24,7 +24,16 @@ afterEach(cleanup);
 describe("BotCanvasStatus", () => {
   it("says the canvas total and breaks it down by machine", () => {
     render(
-      <BotCanvasStatus total={8} shown={8} machines={MACHINES} hidden={new Set()} countOf={COUNTS} onToggle={() => undefined} zoom={ZOOM} room={ROOM} />,
+      <BotCanvasStatus
+        total={8}
+        shown={8}
+        machines={MACHINES}
+        hidden={new Set()}
+        countOf={COUNTS}
+        onToggle={() => undefined}
+        zoom={ZOOM}
+        room={ROOM}
+      />,
     );
     // Plain "8", not "8 of 8": a ratio where both halves agree is a question raised for nothing.
     expect(screen.getByRole("status")).toHaveTextContent("8 bots on the canvas");
@@ -36,7 +45,16 @@ describe("BotCanvasStatus", () => {
 
   it("says how many cards a hidden machine is holding back", () => {
     render(
-      <BotCanvasStatus total={8} shown={7} machines={MACHINES} hidden={new Set(["oracle"])} countOf={COUNTS} onToggle={() => undefined} zoom={ZOOM} room={ROOM} />,
+      <BotCanvasStatus
+        total={8}
+        shown={7}
+        machines={MACHINES}
+        hidden={new Set(["oracle"])}
+        countOf={COUNTS}
+        onToggle={() => undefined}
+        zoom={ZOOM}
+        room={ROOM}
+      />,
     );
     // The whole point of the line: a reader who does not remember pressing a chip sees a strip one
     // card short, and this is the only thing that says why. `total` still counts what is ON the
@@ -71,7 +89,16 @@ describe("BotCanvasStatus", () => {
     // Which is every panel until a peer is declared. A lone chip could only tell a reader what they
     // already know, and could only turn everything off; the count is a fact about the canvas.
     render(
-      <BotCanvasStatus total={1} shown={1} machines={[]} hidden={new Set()} countOf={() => 0} onToggle={() => undefined} zoom={ZOOM} room={ROOM} />,
+      <BotCanvasStatus
+        total={1}
+        shown={1}
+        machines={[]}
+        hidden={new Set()}
+        countOf={() => 0}
+        onToggle={() => undefined}
+        zoom={ZOOM}
+        room={ROOM}
+      />,
     );
     expect(screen.getByRole("status")).toHaveTextContent("1 bot on the canvas");
     expect(screen.queryByRole("group", { name: "Machines on the canvas" })).toBeNull();
@@ -95,8 +122,10 @@ describe("BotCanvasStatus", () => {
     );
     const group = screen.getByRole("group", { name: "Room to move the canvas" });
     expect(within(group).getByRole("button", { name: "256" })).toBeDisabled();
-    expect(within(group).getByRole("button", { name: "None" }))
-      .toHaveAttribute("title", "Fit the whole canvas first: the room is around what that draws.");
+    expect(within(group).getByRole("button", { name: "None" })).toHaveAttribute(
+      "title",
+      "Fit the whole canvas first: the room is around what that draws.",
+    );
 
     rerender(
       <BotCanvasStatus
@@ -154,9 +183,10 @@ describe("BotCanvasStatus", () => {
       />,
     );
     // Pressed, and the title says what pressing it again does rather than repeating its label.
-    expect(screen.getByRole("button", { name: "Fit the whole canvas" }))
-      .toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Fit the whole canvas" }))
-      .toHaveAttribute("title", "Draw the canvas at its own size again");
+    expect(screen.getByRole("button", { name: "Fit the whole canvas" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Fit the whole canvas" })).toHaveAttribute(
+      "title",
+      "Draw the canvas at its own size again",
+    );
   });
 });

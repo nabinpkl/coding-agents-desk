@@ -76,10 +76,7 @@ export async function readClaudeQuotas(configPath: string): Promise<QuotaSample[
   return orderQuotas(collect(cached.utilization, stamp(cached.fetchedAtMs)));
 }
 
-function collect(
-  windows: Record<string, WindowReading | null | undefined>,
-  fetchedAtMs: number,
-): QuotaSample[] {
+function collect(windows: Record<string, WindowReading | null | undefined>, fetchedAtMs: number): QuotaSample[] {
   const samples: QuotaSample[] = [];
   for (const window of WINDOWS) {
     const reading = windows[window.key];

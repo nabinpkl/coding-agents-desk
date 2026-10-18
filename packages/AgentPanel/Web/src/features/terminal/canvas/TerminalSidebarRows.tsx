@@ -10,12 +10,7 @@ import type { TmuxSessionSummary } from "@agentdesk/agent-feed-wire";
 import { BotFace } from "@/features/bots/avatar/BotFace";
 import { useBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
-import {
-  botSessionFaceRank,
-  botSessionStyle,
-  botSurfaceStyle,
-  sessionInitials,
-} from "@/features/bots/botSurface";
+import { botSessionFaceRank, botSessionStyle, botSurfaceStyle, sessionInitials } from "@/features/bots/botSurface";
 import {
   terminalChildKey,
   terminalSessionNameError,
@@ -75,9 +70,7 @@ export function TerminalSidebarParent({
   const leaf = parent.path.split("/").filter(Boolean).at(-1) ?? "Other sessions";
   // Ranked over the parent's FULL roster, the way the card ranks its own: the rows on screen
   // are a subset, and ranking the subset would repaint the rest every time one left it.
-  const steps = terminalChildSteps(
-    parent.children.map((child) => terminalChildKey(parent.machineId, child.name)),
-  );
+  const steps = terminalChildSteps(parent.children.map((child) => terminalChildKey(parent.machineId, child.name)));
   const live = parent.children.filter((child) => child.attachedClients > 0).length;
   // Off the strip by either route reads as one fact here: no card either way, and the row
   // states the one a reader can act on from here.
@@ -128,9 +121,7 @@ export function TerminalSidebarParent({
           <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
             {machineLabel ? <span className="font-medium">{machineLabel}</span> : null}
             {machineLabel ? " · " : ""}
-            {parent.path
-              ? <span className="font-mono">{parent.path}</span>
-              : "sessions with no directory"}
+            {parent.path ? <span className="font-mono">{parent.path}</span> : "sessions with no directory"}
             {live > 0 ? ` · ${live} watched` : ""}
           </span>
         </span>
@@ -151,12 +142,20 @@ export function TerminalSidebarParent({
           onClick={onToggleParent}
           disabled={machineHidden}
           aria-pressed={!off}
-          aria-label={machineHidden
-            ? `${leaf} is on ${machineLabel ?? "a machine"}, which is hidden from the strip`
-            : offStrip ? `Put ${leaf} on the strip` : `Take ${leaf} off the strip`}
-          title={machineHidden
-            ? `${machineLabel ?? "This machine"} is hidden from the strip. Show it above to bring ${leaf} back.`
-            : offStrip ? "Off the strip" : "On the strip"}
+          aria-label={
+            machineHidden
+              ? `${leaf} is on ${machineLabel ?? "a machine"}, which is hidden from the strip`
+              : offStrip
+                ? `Put ${leaf} on the strip`
+                : `Take ${leaf} off the strip`
+          }
+          title={
+            machineHidden
+              ? `${machineLabel ?? "This machine"} is hidden from the strip. Show it above to bring ${leaf} back.`
+              : offStrip
+                ? "Off the strip"
+                : "On the strip"
+          }
           className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-background/70 disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
         >
           {off ? <Eye className="size-4" aria-hidden /> : <EyeOff className="size-4" aria-hidden />}
@@ -260,9 +259,7 @@ export function TerminalSidebarParent({
                 hue={hue}
                 step={step}
                 // Its own face rather than its parent's, so siblings never share one.
-                faceRank={rank !== undefined && step !== undefined
-                  ? botSessionFaceRank(rank, step)
-                  : undefined}
+                faceRank={rank !== undefined && step !== undefined ? botSessionFaceRank(rank, step) : undefined}
                 // One fact, two routes: the reader took the child off, or the whole parent --
                 // or the parent's machine. Either way there is no card, so the row dims and
                 // the click is the way back.
@@ -353,9 +350,7 @@ function TerminalSidebarChild({
       : { label: "Take off strip", icon: EyeOff, onSelect: onHide },
     { label: "Kill session", icon: Skull, onSelect: () => setConfirming(true) },
   ];
-  const watched = session.attachedClients > 0
-    ? `${session.attachedClients} watching`
-    : "unattached";
+  const watched = session.attachedClients > 0 ? `${session.attachedClients} watching` : "unattached";
   // A face of its own while faces are on, one size under the parent's: the same containment
   // the card already draws, said where the eye starts. Unshaded keeps its disc whatever the
   // switch says -- a face with no hue in scope has no colour to take.
@@ -415,12 +410,7 @@ function TerminalSidebarChild({
             </span>
           ) : null}
         </button>
-        <TerminalWindowRows
-          machineId={machineId}
-          session={session}
-          openKeys={openKeys}
-          onToggleKey={onSelectKey}
-        />
+        <TerminalWindowRows machineId={machineId} session={session} openKeys={openKeys} onToggleKey={onSelectKey} />
         {confirming ? (
           <div
             role="alertdialog"

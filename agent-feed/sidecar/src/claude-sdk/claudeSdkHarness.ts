@@ -12,7 +12,10 @@ export class FakeQuery implements RunnerQuery {
   private wake: (() => void) | null = null;
   private ended = false;
 
-  constructor(readonly options: Options, prompt: AsyncIterable<SDKUserMessage>) {
+  constructor(
+    readonly options: Options,
+    prompt: AsyncIterable<SDKUserMessage>,
+  ) {
     void (async () => {
       for await (const message of prompt) this.received.push(message);
       this.end();

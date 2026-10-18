@@ -36,24 +36,28 @@ test("persists a revisioned snapshot atomically with private permissions", async
 
 test("serializes concurrent mutations against the latest revision", async () => {
   const { store } = await fixture();
-  await Promise.all(Array.from({ length: 8 }, (_, index) =>
-    store.mutate((snapshot) => ({
-      snapshot: { ...snapshot, revision: snapshot.revision + 1 },
-      value: index,
-    }))
-  ));
+  await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      store.mutate((snapshot) => ({
+        snapshot: { ...snapshot, revision: snapshot.revision + 1 },
+        value: index,
+      })),
+    ),
+  );
   expect((await store.snapshot()).revision).toBe(8);
 });
 
 test("serializes mutations from independent sidecar stores through bots.json", async () => {
   const { path, store } = await fixture();
   const secondStore = new BotStore(path);
-  await Promise.all(Array.from({ length: 8 }, (_, index) =>
-    (index % 2 === 0 ? store : secondStore).mutate((snapshot) => ({
-      snapshot: { ...snapshot, revision: snapshot.revision + 1 },
-      value: index,
-    }))
-  ));
+  await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      (index % 2 === 0 ? store : secondStore).mutate((snapshot) => ({
+        snapshot: { ...snapshot, revision: snapshot.revision + 1 },
+        value: index,
+      })),
+    ),
+  );
 
   expect((await store.snapshot()).revision).toBe(8);
   expect((await secondStore.snapshot()).revision).toBe(8);
@@ -73,21 +77,27 @@ test("migrates a version 2 file by dealing slots in the order its sessions wear"
   const { path } = await fixture();
   await mkdir(dirname(path), { recursive: true });
   const ref = (sessionId: string) => ({ source: "claude", sessionId });
-  await writeFile(path, JSON.stringify({
-    version: 2,
-    revision: 1,
-    bots: [{
-      botId: "bot-1",
-      name: "Captain",
-      environment: { kind: "directory", path: "/repo" },
-      sessionRefs: [ref("b"), ref("a")],
-      metadata: { labels: [], custom: {} },
-      grants: [],
-      createdAt: 1,
-      createdBy: { kind: "user" },
-    }],
-    idempotency: {},
-  }), "utf8");
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 2,
+      revision: 1,
+      bots: [
+        {
+          botId: "bot-1",
+          name: "Captain",
+          environment: { kind: "directory", path: "/repo" },
+          sessionRefs: [ref("b"), ref("a")],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+        },
+      ],
+      idempotency: {},
+    }),
+    "utf8",
+  );
 
   const snapshot = await new BotStore(path).snapshot();
   expect(snapshot.version).toBe(3);
@@ -98,12 +108,16 @@ test("migrates a version 2 file by dealing slots in the order its sessions wear"
 test("rejects structurally invalid Bot records before the registry can consume them", async () => {
   const { path } = await fixture();
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify({
-    version: 2,
-    revision: 1,
-    bots: [{ botId: "bot-1", name: "Incomplete" }],
-    idempotency: {},
-  }), "utf8");
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 2,
+      revision: 1,
+      bots: [{ botId: "bot-1", name: "Incomplete" }],
+      idempotency: {},
+    }),
+    "utf8",
+  );
 
   await expect(new BotStore(path).snapshot()).rejects.toThrow("contains an invalid Bot record");
 });
@@ -130,20 +144,28 @@ test("keeps a Bot's Father declaration, and rejects one that names no session or
     sessionId: "s1",
   });
 
-  await writeFile(path, JSON.stringify({
-    version: 3,
-    revision: 2,
-    bots: [{ ...record, fatherSession: { source: "opencode" } }],
-    idempotency: {},
-  }), "utf8");
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 3,
+      revision: 2,
+      bots: [{ ...record, fatherSession: { source: "opencode" } }],
+      idempotency: {},
+    }),
+    "utf8",
+  );
   await expect(new BotStore(path).snapshot()).rejects.toThrow("contains an invalid Bot record");
 
-  await writeFile(path, JSON.stringify({
-    version: 3,
-    revision: 3,
-    bots: [record, { ...record, botId: "bot-2", environment: { kind: "directory", path: "/other" } }],
-    idempotency: {},
-  }), "utf8");
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 3,
+      revision: 3,
+      bots: [record, { ...record, botId: "bot-2", environment: { kind: "directory", path: "/other" } }],
+      idempotency: {},
+    }),
+    "utf8",
+  );
   await expect(new BotStore(path).snapshot()).rejects.toThrow("names more than one Father");
 });
 

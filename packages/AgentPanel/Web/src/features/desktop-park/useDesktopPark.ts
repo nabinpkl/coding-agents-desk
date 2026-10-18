@@ -1,12 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import type {
-  ParkPlanResponse,
-  ParkReport,
-  ParkRestoreReport,
-  ParkStateResponse,
-} from "@agentdesk/agent-feed-wire";
+import type { ParkPlanResponse, ParkReport, ParkRestoreReport, ParkStateResponse } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { createSourceStore, useSourceStore } from "@/features/activity-feed/data-source/sourceStore";
 
@@ -100,9 +95,10 @@ function run(feed: ParkDataSource, what: "park" | "restore"): void {
     (report) => {
       patch(feed, {
         busy: false,
-        action: what === "park"
-          ? { kind: "parked", report: report as ParkReport }
-          : { kind: "restored", report: report as ParkRestoreReport },
+        action:
+          what === "park"
+            ? { kind: "parked", report: report as ParkReport }
+            : { kind: "restored", report: report as ParkRestoreReport },
       });
       // The layout it was showing is now wrong by construction, so re-read rather than leaving a
       // stale plan under a fresh result.

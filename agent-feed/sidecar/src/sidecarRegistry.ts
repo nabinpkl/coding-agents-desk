@@ -1,11 +1,7 @@
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type {
-  SupervisorCommand,
-  SupervisorMode,
-  SupervisorStatus,
-} from "@agentdesk/agent-feed-wire";
+import type { SupervisorCommand, SupervisorMode, SupervisorStatus } from "@agentdesk/agent-feed-wire";
 import { runtimePaths } from "@repo/tools/runtime-paths.mjs";
 import { ensureCrossSessionDirectory } from "@/crossSessionDirectory";
 import { supervisorDescriptorPath as boardSupervisorPath } from "@/supervisor/supervisorBoard";
@@ -80,7 +76,13 @@ export function announceSidecar(
 
   const write = () => {
     const descriptor: SidecarDescriptor = {
-      user, label, host, port, pid: process.pid, startedAt, heartbeat: Date.now(),
+      user,
+      label,
+      host,
+      port,
+      pid: process.pid,
+      startedAt,
+      heartbeat: Date.now(),
     };
     const temporary = `${file}.${process.pid}.tmp`;
     writeFileSync(temporary, JSON.stringify(descriptor));
@@ -206,9 +208,8 @@ export function supervisorRequestPath(dir = runtimePaths().sidecarRegistry): str
  */
 export function requestSupervisor(command: SupervisorCommand, dir?: string): SupervisorRequest {
   const current = readSupervisorRequest(dir);
-  const next: SupervisorRequest = command === "apply"
-    ? { ...current, apply: Date.now() }
-    : { ...current, mode: command };
+  const next: SupervisorRequest =
+    command === "apply" ? { ...current, apply: Date.now() } : { ...current, mode: command };
   const file = supervisorRequestPath(dir);
   ensureCrossSessionDirectory(dirname(file));
   const temporary = `${file}.${process.pid}.tmp`;

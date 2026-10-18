@@ -16,8 +16,10 @@ test("a single-select answer is reported by its trailing tick, not by the cursor
 
   // The cursor sits back on row one while row two holds the answer. A panel that followed the
   // cursor would show the reader's own choice moving to whatever row they last walked past.
-  expect(state.options.map((option) => `${option.label}:${option.marked}:${option.cursor}`))
-    .toEqual(["AAA:false:true", "BBB:true:false"]);
+  expect(state.options.map((option) => `${option.label}:${option.marked}:${option.cursor}`)).toEqual([
+    "AAA:false:true",
+    "BBB:true:false",
+  ]);
   expect(state.multiSelect).toBe(false);
   // The Submit entry is a control rather than a question, so it is not one of these.
   expect(state.tabs).toEqual([
@@ -31,8 +33,7 @@ test("a multi-select reports each row's own box, and the words in the free-text 
   const state = questionStateFrom(dialogFor("multi-select with typed free text"));
 
   expect(state.multiSelect).toBe(true);
-  expect(state.options.map((option) => `${option.label}:${option.marked}`))
-    .toEqual(["KKK:true", "LLL:false"]);
+  expect(state.options.map((option) => `${option.label}:${option.marked}`)).toEqual(["KKK:true", "LLL:false"]);
   // The free-text row is not an option, and what it holds is what somebody typed there.
   expect(state.other).toBe("typed on the multi other");
   expect(state.question).toBe("Pick many?");
@@ -58,8 +59,10 @@ test("the review screen says so, and carries which questions are still unanswere
 test("a two-column question's Notes field is what a panel reads as its free text", () => {
   const state = questionStateFrom(dialogFor("a two-column question answered, with a note"));
 
-  expect(state.options.map((option) => `${option.label}:${option.marked}`))
-    .toEqual(["A short one:false", "A deliberately very:true"]);
+  expect(state.options.map((option) => `${option.label}:${option.marked}`)).toEqual([
+    "A short one:false",
+    "A deliberately very:true",
+  ]);
   // There is no free-text ROW on this shape. A panel that kept looking for one would read the last
   // option as the field, showing one option fewer than the question has and the wrong text beside.
   expect(state.other).toBe("combo note");

@@ -11,12 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { BACKSPACE, CLOSE, END, held, KILL, OPEN, runtime, screenWith } from "@/input/tmuxComposerHarness";
-import {
-  composerPastes,
-  dropTmuxComposerImage,
-  keystrokesFor,
-  syncTmuxComposer,
-} from "@/input/tmuxComposer";
+import { composerPastes, dropTmuxComposerImage, keystrokesFor, syncTmuxComposer } from "@/input/tmuxComposer";
 import { insertedText } from "@/input/composer/composerKeystrokes";
 
 // A real file: the store will not re-drop a path whose file has been swept.
@@ -27,7 +22,12 @@ const known = (token: string) => (token === "[Image #1]" || token === "[Image #2
 
 test("a clear and retype drops a known image again instead of typing its name", () => {
   const box = held(["[Image #1] Leave that next we need to be able to", "click the relative path"]);
-  const keys = keystrokesFor(box, "[Image #1] Leave that next we need to be able to click the relative pat", undefined, known);
+  const keys = keystrokesFor(
+    box,
+    "[Image #1] Leave that next we need to be able to click the relative pat",
+    undefined,
+    known,
+  );
   expect(keys.startsWith(END + KILL)).toBe(true);
   expect(keys).toContain(`${OPEN}${PNG}${CLOSE}`);
   expect(keys).toContain(`${OPEN} Leave that next`);
@@ -37,8 +37,9 @@ test("a clear and retype drops a known image again instead of typing its name", 
 test("an image renumbered by a re-drop is the same image, so nothing is sent", () => {
   // Diffed by number, `#2` in the box against `#1` in the draft would re-drop on every push.
   expect(keystrokesFor(held(["[Image #2] hi"]), "[Image #1] hi", undefined, known)).toBe("");
-  expect(keystrokesFor(held(["[Image #2] hi"]), "[Image #1] hi there", undefined, known))
-    .toBe(`${END}${OPEN} there${CLOSE}`);
+  expect(keystrokesFor(held(["[Image #2] hi"]), "[Image #1] hi there", undefined, known)).toBe(
+    `${END}${OPEN} there${CLOSE}`,
+  );
 });
 
 test("a single-row correction that reaches past an image re-drops it", () => {
@@ -50,8 +51,9 @@ test("a single-row correction that reaches past an image re-drops it", () => {
 });
 
 test("an image this side never dropped is still left as the text the box holds", () => {
-  expect(keystrokesFor(held(["alpha [Image #2] omega"]), "alpha omega"))
-    .toBe(`${END}${BACKSPACE.repeat(7)}${OPEN}omega${CLOSE}`);
+  expect(keystrokesFor(held(["alpha [Image #2] omega"]), "alpha omega")).toBe(
+    `${END}${BACKSPACE.repeat(7)}${OPEN}omega${CLOSE}`,
+  );
 });
 
 /**
@@ -134,7 +136,11 @@ test("a clear and retype pastes a known paste's words, not its handle", () => {
   store.bind("pane-1", "[Pasted text #1]", words);
   const pasted = (token: string) => store.textFor("pane-1", token);
   const box = held(["[Pasted text #1] and then a sentence long enough that", "it wraps onto a second row"]);
-  const keys = keystrokesFor(box, "[Pasted text #1] and then a sentence long enough that it wraps onto a second ro", pasted);
+  const keys = keystrokesFor(
+    box,
+    "[Pasted text #1] and then a sentence long enough that it wraps onto a second ro",
+    pasted,
+  );
   expect(keys.startsWith(END + KILL)).toBe(true);
   expect(keys).toContain(`${OPEN}${words} and then a sentence`);
   expect(keys).not.toContain("[Pasted text #1]");

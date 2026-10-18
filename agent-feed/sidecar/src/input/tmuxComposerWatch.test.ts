@@ -6,22 +6,8 @@
 
 import { expect, test } from "bun:test";
 import type { TmuxComposerEnvelope } from "@agentdesk/agent-feed-wire";
-import {
-  CLOSE,
-  END,
-  OPEN,
-  runtime,
-  screenWith,
-  settle,
-  typed,
-  watchable,
-} from "@/input/tmuxComposerHarness";
-import {
-  composerPanes,
-  observeTmuxComposer,
-  submitTmuxComposer,
-  syncTmuxComposer,
-} from "@/input/tmuxComposer";
+import { CLOSE, END, OPEN, runtime, screenWith, settle, typed, watchable } from "@/input/tmuxComposerHarness";
+import { composerPanes, observeTmuxComposer, submitTmuxComposer, syncTmuxComposer } from "@/input/tmuxComposer";
 import { TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
 
 test("reports what the composer holds without waiting for the pane to write", async () => {
@@ -29,19 +15,35 @@ test("reports what the composer holds without waiting for the pane to write", as
   // nothing until somebody typed -- and the field would sit empty beside a box that was not.
   const { tmux, state } = watchable(["make the hover ring stronger"]);
   const seen: unknown[] = [];
-  const stop = observeTmuxComposer("session", {
-    onState: (reading) => { seen.push(reading); },
-    onEnd: () => {},
-  }, tmux);
+  const stop = observeTmuxComposer(
+    "session",
+    {
+      onState: (reading) => {
+        seen.push(reading);
+      },
+      onEnd: () => {},
+    },
+    tmux,
+  );
   await settle(60);
   // One reading of the pane carries all of it: the box, whatever dialog stands in front of it,
   // and the mode its footer names. There is no dialog here, which is a statement rather than an
   // absence.
-  expect(seen).toEqual([{
-    composer: { text: "make the hover ring stronger", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
-    question: null,
-    permissionMode: "auto",
-  }]);
+  expect(seen).toEqual([
+    {
+      composer: {
+        text: "make the hover ring stronger",
+        hint: null,
+        reason: null,
+        exact: true,
+        commands: [],
+        pastes: [],
+        images: [],
+      },
+      question: null,
+      permissionMode: "auto",
+    },
+  ]);
   expect(state.watching).toBe(true);
   stop();
   expect(state.watching).toBe(false);
@@ -50,10 +52,16 @@ test("reports what the composer holds without waiting for the pane to write", as
 test("a mode change reaches the panel though the box did not move", async () => {
   const { tmux, state, write } = watchable(["hello"]);
   const seen: TmuxComposerEnvelope[] = [];
-  const stop = observeTmuxComposer("session", {
-    onState: (reading) => { seen.push(reading); },
-    onEnd: () => {},
-  }, tmux);
+  const stop = observeTmuxComposer(
+    "session",
+    {
+      onState: (reading) => {
+        seen.push(reading);
+      },
+      onEnd: () => {},
+    },
+    tmux,
+  );
   await settle(60);
 
   // Shift+Tab rewrites only the footer.
@@ -86,10 +94,16 @@ test("reads once for a burst of output, not once per write", async () => {
 test("reports only what changed, so a redraw above the box costs nobody anything", async () => {
   const { tmux, state, write } = watchable(["hello"]);
   const seen: unknown[] = [];
-  const stop = observeTmuxComposer("session", {
-    onState: (reading) => { seen.push(reading); },
-    onEnd: () => {},
-  }, tmux);
+  const stop = observeTmuxComposer(
+    "session",
+    {
+      onState: (reading) => {
+        seen.push(reading);
+      },
+      onEnd: () => {},
+    },
+    tmux,
+  );
   await settle(60);
   expect(seen).toHaveLength(1);
 
@@ -128,15 +142,25 @@ test("says a session has no pane, ends, and hangs no pipe on nothing", async () 
   state.pane = null;
   const seen: unknown[] = [];
   let ended = 0;
-  const stop = observeTmuxComposer("session", {
-    onState: (reading) => { seen.push(reading); },
-    onEnd: () => { ended += 1; },
-  }, tmux);
+  const stop = observeTmuxComposer(
+    "session",
+    {
+      onState: (reading) => {
+        seen.push(reading);
+      },
+      onEnd: () => {
+        ended += 1;
+      },
+    },
+    tmux,
+  );
   await settle(60);
-  expect(seen).toEqual([{
-    composer: { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] },
-    question: null,
-  }]);
+  expect(seen).toEqual([
+    {
+      composer: { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] },
+      question: null,
+    },
+  ]);
   expect(ended).toBe(1);
   expect(state.watching).toBe(false);
   expect(state.screens).toBe(0);
@@ -146,10 +170,16 @@ test("says a session has no pane, ends, and hangs no pipe on nothing", async () 
 test("a watched pane is never ended out from under its reader", async () => {
   const { tmux, write } = watchable(["hello"]);
   let ended = 0;
-  const stop = observeTmuxComposer("session", {
-    onState: () => {},
-    onEnd: () => { ended += 1; },
-  }, tmux);
+  const stop = observeTmuxComposer(
+    "session",
+    {
+      onState: () => {},
+      onEnd: () => {
+        ended += 1;
+      },
+    },
+    tmux,
+  );
   await settle(60);
   write();
   await settle(300);
@@ -210,12 +240,28 @@ test("a pane that stops answering is dropped, so the next push says the session 
   const tmux = runtime({
     panes,
     pane: async () => null,
-    screen: async () => { throw new TmuxUnavailable("can't find session"); },
+    screen: async () => {
+      throw new TmuxUnavailable("can't find session");
+    },
   });
-  expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, hint: null, reason: "tmux-unavailable", exact: true, commands: [], pastes: [], images: [] });
-  expect(await syncTmuxComposer("session", "hello", tmux))
-    .toEqual({ text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] });
+  expect(await syncTmuxComposer("session", "hello", tmux)).toEqual({
+    text: null,
+    hint: null,
+    reason: "tmux-unavailable",
+    exact: true,
+    commands: [],
+    pastes: [],
+    images: [],
+  });
+  expect(await syncTmuxComposer("session", "hello", tmux)).toEqual({
+    text: null,
+    hint: null,
+    reason: "no-pane",
+    exact: true,
+    commands: [],
+    pastes: [],
+    images: [],
+  });
 });
 
 test("two watchers hold one pane independently, and the first to leave does not take it", async () => {
@@ -286,7 +332,9 @@ test("a push waits for its send to reach the screen, so the next one reads the b
       const keys = new TextDecoder().decode(bytes);
       tmux.sent.push(keys);
       // Late, the way a pane is: the send returns before the screen carries it.
-      setTimeout(() => { held += typed(keys); }, 20);
+      setTimeout(() => {
+        held += typed(keys);
+      }, 20);
     },
   });
 
@@ -301,8 +349,15 @@ test("a send that never shows up on screen gives the push back rather than holdi
   // reading never match. Waiting is worth a moment and is not worth a request.
   const tmux = runtime({ screen: async () => screenWith(["frozen"]) });
   const started = Date.now();
-  expect(await syncTmuxComposer("session", "something else", tmux))
-    .toEqual({ text: "something else", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] });
+  expect(await syncTmuxComposer("session", "something else", tmux)).toEqual({
+    text: "something else",
+    hint: null,
+    reason: null,
+    exact: true,
+    commands: [],
+    pastes: [],
+    images: [],
+  });
   expect(Date.now() - started).toBeLessThan(2_000);
 });
 
@@ -342,8 +397,15 @@ test("a push that landed is not reported as failed because the pane stopped answ
       tmux.sent.push(new TextDecoder().decode(bytes));
     },
   });
-  expect(await syncTmuxComposer("session", "alpha", tmux))
-    .toEqual({ text: "alpha", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] });
+  expect(await syncTmuxComposer("session", "alpha", tmux)).toEqual({
+    text: "alpha",
+    hint: null,
+    reason: null,
+    exact: true,
+    commands: [],
+    pastes: [],
+    images: [],
+  });
   expect(tmux.sent).toEqual([`${END}${OPEN}alpha${CLOSE}`]);
 });
 

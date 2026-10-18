@@ -1,28 +1,33 @@
 import { expect, test } from "bun:test";
 import type { AgentBackend } from "@/agents/agentBackend";
-import {
-  createStartSessionRoutes,
-  type StartSessionActions,
-} from "@/http/agent-routes/startSessionRoutes";
+import { createStartSessionRoutes, type StartSessionActions } from "@/http/agent-routes/startSessionRoutes";
 import type { SessionLauncher } from "@/transcripts/session-ops/forkSession";
 
 const server = { upgrade: () => false } as unknown as Parameters<ReturnType<typeof createStartSessionRoutes>>[2];
 const PROJECT = "/Users/reader/projects/garden";
 
 /** Everything that touches the world, recorded in the order it happened. */
-function harness(options: {
-  installed?: boolean;
-  paneFails?: boolean;
-  knownPath?: boolean;
-} = {}) {
+function harness(
+  options: {
+    installed?: boolean;
+    paneFails?: boolean;
+    knownPath?: boolean;
+  } = {},
+) {
   const calls: string[] = [];
   const launcher: SessionLauncher = {
     async start(start) {
-      calls.push(`claude start ${start.cwd} ${start.title} ${start.prompt ?? "-"}${start.mode ? ` [${start.mode}]` : ""}`);
+      calls.push(
+        `claude start ${start.cwd} ${start.title} ${start.prompt ?? "-"}${start.mode ? ` [${start.mode}]` : ""}`,
+      );
       return { tmuxSession: `agentdesk-${start.sessionId}` };
     },
-    async fork() { throw new Error("a start never forks"); },
-    async end() { return null; },
+    async fork() {
+      throw new Error("a start never forks");
+    },
+    async end() {
+      return null;
+    },
   };
   const actions: StartSessionActions = {
     launch: launcher,
@@ -32,7 +37,7 @@ function harness(options: {
       if (options.paneFails) throw new Error("tmux new-session exited 1");
       return "garden-notes";
     },
-    projectPath: async (requested) => (options.knownPath ?? true) && requested === PROJECT ? PROJECT : null,
+    projectPath: async (requested) => ((options.knownPath ?? true) && requested === PROJECT ? PROJECT : null),
   };
   const opencode = {
     async createSession(_requestId: string, projectPath: string) {
@@ -48,7 +53,7 @@ function harness(options: {
     },
   };
   const routes = createStartSessionRoutes(
-    (id) => (id === "opencode" ? opencode as unknown as AgentBackend : undefined),
+    (id) => (id === "opencode" ? (opencode as unknown as AgentBackend) : undefined),
     actions,
   );
   const post = async (body: Record<string, unknown>) => {
@@ -57,7 +62,7 @@ function harness(options: {
       body: JSON.stringify({ requestId: "start-1", projectPath: PROJECT, title: "Garden notes", ...body }),
     });
     const response = await routes(request, new URL(request.url), server);
-    return { status: response!.status, body: await response!.json() as Record<string, unknown> };
+    return { status: response!.status, body: (await response!.json()) as Record<string, unknown> };
   };
   return { calls, post };
 }
@@ -81,7 +86,10 @@ test("a Claude session asked for in SDK mode is started that way, and the termin
   const { calls, post } = harness();
   expect((await post({ source: "claude", claudeMode: "sdk", prompt: "go" })).status).toBe(201);
   expect((await post({ source: "claude", claudeMode: "terminal" })).status).toBe(201);
-  expect(calls).toEqual([`claude start ${PROJECT} Garden notes go [sdk]`, `claude start ${PROJECT} Garden notes - [terminal]`]);
+  expect(calls).toEqual([
+    `claude start ${PROJECT} Garden notes go [sdk]`,
+    `claude start ${PROJECT} Garden notes - [terminal]`,
+  ]);
 });
 
 test("a run mode is refused for opencode, and an unknown one for anything", async () => {

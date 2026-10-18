@@ -12,8 +12,11 @@ import {
 } from "@/config/configClaudeLaunch";
 
 test("bypass is offered in the Shift+Tab cycle without being the mode a session starts in", () => {
-  expect(claudePermissionArgs("auto", true))
-    .toEqual(["--permission-mode", "auto", "--allow-dangerously-skip-permissions"]);
+  expect(claudePermissionArgs("auto", true)).toEqual([
+    "--permission-mode",
+    "auto",
+    "--allow-dangerously-skip-permissions",
+  ]);
 });
 
 test("turning bypass off leaves only the starting mode", () => {
@@ -22,8 +25,7 @@ test("turning bypass off leaves only the starting mode", () => {
 
 test("with nothing set, sessions start in auto with bypass offered", () => {
   if (process.env.AGENT_FEED_CLAUDE_PERMISSION_MODE || process.env.AGENT_FEED_CLAUDE_ALLOW_BYPASS) return;
-  expect(claudeLaunchPermissionArgs)
-    .toEqual(["--permission-mode", "auto", "--allow-dangerously-skip-permissions"]);
+  expect(claudeLaunchPermissionArgs).toEqual(["--permission-mode", "auto", "--allow-dangerously-skip-permissions"]);
 });
 
 test("each mod on disk becomes one --plugin-dir, in the guard-first order, and none when off", () => {
@@ -33,8 +35,12 @@ test("each mod on disk becomes one --plugin-dir, in the guard-first order, and n
       mkdirSync(join(root, name, ".claude-plugin"), { recursive: true });
       writeFileSync(join(root, name, ".claude-plugin", "plugin.json"), "{}");
     }
-    expect(claudeModArgs(root, true))
-      .toEqual(["--plugin-dir", join(root, "prompt-guard"), "--plugin-dir", join(root, "agentdesk-hub")]);
+    expect(claudeModArgs(root, true)).toEqual([
+      "--plugin-dir",
+      join(root, "prompt-guard"),
+      "--plugin-dir",
+      join(root, "agentdesk-hub"),
+    ]);
     expect(claudeModArgs(root, false)).toEqual([]);
     // A tree without the mods, as the bundled sidecar is, launches without the flags.
     expect(claudeModArgs(join(root, "nowhere"), true)).toEqual([]);
@@ -45,7 +51,8 @@ test("each mod on disk becomes one --plugin-dir, in the guard-first order, and n
 
 test("run from this source tree, launches load both mods beside the permission flags", () => {
   if (process.env.AGENT_FEED_CLAUDE_MODS) return;
-  expect(claudeLaunchModArgs.filter((arg) => arg !== "--plugin-dir").map((dir) => dir.split("/").slice(-3).join("/")))
-    .toEqual(["sidecar/mods/prompt-guard", "sidecar/mods/agentdesk-hub"]);
+  expect(
+    claudeLaunchModArgs.filter((arg) => arg !== "--plugin-dir").map((dir) => dir.split("/").slice(-3).join("/")),
+  ).toEqual(["sidecar/mods/prompt-guard", "sidecar/mods/agentdesk-hub"]);
   expect(claudeLaunchArgs).toEqual([...claudeLaunchPermissionArgs, ...claudeLaunchModArgs]);
 });
