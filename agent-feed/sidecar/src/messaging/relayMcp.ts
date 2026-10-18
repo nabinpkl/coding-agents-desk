@@ -12,7 +12,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import type { DirectoryEntry, Message, MessageAddress, SessionAddress } from "@agentdesk/agent-feed-wire";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
-import { runChannelLoop } from "@/messaging/relayChannel";
+import { channelNotification, confirmDelivery, runChannelLoop } from "@/messaging/relayChannel";
 import { readRelaySession, RELAY_SERVER_NAME, type RelaySession } from "@/messaging/relaySession";
 
 const TOOL = (name: string) => `mcp__${RELAY_SERVER_NAME}__${name}`;
@@ -182,7 +182,11 @@ export function createRelayMcpServer(options: RelayMcpOptions = {}): McpServer {
       {
         hub,
         readSession,
-        notify: (notification) => server.server.notification({ method: "notifications/claude/channel", params: { content: notification.content, meta: notification.meta } }),
+        deliver: async ({ message, fromName, streamId }) => {
+          const notification = channelNotification(message, fromName);
+          await server.server.notification({ method: "notifications/claude/channel", params: { content: notification.content, meta: notification.meta } });
+          await confirmDelivery(hub, message.id, streamId);
+        },
         log: (line) => console.error(`[${RELAY_SERVER_NAME}] ${line}`),
       },
       new AbortController().signal,

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Message } from "@agentdesk/agent-feed-wire";
 import { HubClient } from "@/messaging/hubClient";
-import { channelNotification, runChannelLoop, type ChannelNotification } from "@/messaging/relayChannel";
+import { channelNotification, confirmDelivery, runChannelLoop, type StreamDelivery } from "@/messaging/relayChannel";
 
 const SESSION = "55555555-5555-5555-5555-555555555555";
 
@@ -38,7 +38,7 @@ describe("channelNotification", () => {
 });
 
 describe("runChannelLoop", () => {
-  test("pushes each message as a notification, then confirms it on the same stream", async () => {
+  test("hands each message to the deliverer with its stream, and a confirmation names that stream", async () => {
     const confirmed: unknown[] = [];
     let query: URLSearchParams | undefined;
     const encoder = new TextEncoder();
@@ -60,13 +60,15 @@ describe("runChannelLoop", () => {
       },
     });
     const hub = new HubClient({ url: `http://127.0.0.1:${fake.port}`, machine: "mac", clientId: "cid", clientSecret: "secret" });
-    const notes: ChannelNotification[] = [];
+    const delivered: StreamDelivery[] = [];
     const stop = new AbortController();
     const loop = runChannelLoop({
       hub,
       readSession: () => ({ pid: 1, sessionId: SESSION, cwd: "/work", title: "t", channel: true }),
-      notify: async (n) => {
-        notes.push(n);
+      // The relay child's deliverer: notify, then confirm on the stream the message came on.
+      deliver: async (d) => {
+        delivered.push(d);
+        await confirmDelivery(hub, d.message.id, d.streamId);
       },
       log: () => {},
       sleep: async () => {},
@@ -76,8 +78,9 @@ describe("runChannelLoop", () => {
     await loop;
     expect(query?.get("session")).toBe(SESSION);
     expect(query?.get("channel")).toBe("1");
-    expect(notes).toHaveLength(1);
-    expect(notes[0]!.meta.message_id).toBe("m1");
+    expect(delivered).toHaveLength(1);
+    expect(channelNotification(delivered[0]!.message, delivered[0]!.fromName).meta.message_id).toBe("m1");
+    expect(delivered[0]!.streamId).toBe("s1");
     expect(confirmed[0]).toEqual({ path: "/v1/messages/m1/delivered", body: { stream: "s1" }, id: "cid" });
   });
 
@@ -101,13 +104,13 @@ describe("runChannelLoop", () => {
       },
     });
     const hub = new HubClient({ url: `http://127.0.0.1:${fake.port}`, machine: "mac", clientId: "cid", clientSecret: "secret" });
-    const notes: ChannelNotification[] = [];
+    const delivered: StreamDelivery[] = [];
     const stop = new AbortController();
     const loop = runChannelLoop({
       hub,
       readSession: () => ({ pid: 1, sessionId: SESSION, cwd: "/work", title: "t", channel: true }),
-      notify: async (n) => {
-        notes.push(n);
+      deliver: async (d) => {
+        delivered.push(d);
       },
       log: () => {},
       sleep: async () => {},
@@ -115,7 +118,7 @@ describe("runChannelLoop", () => {
     await Bun.sleep(100);
     stop.abort();
     await loop;
-    expect(notes).toHaveLength(0);
+    expect(delivered).toHaveLength(0);
     expect(confirmed).toHaveLength(0);
   });
 });

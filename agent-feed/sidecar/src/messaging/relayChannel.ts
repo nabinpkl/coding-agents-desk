@@ -1,9 +1,12 @@
-// The relay child's side of the hub stream: keep one stream open for this session, turn each
-// message into a channel notification, and confirm it only after the notification was written.
+// One session's side of the hub stream: keep one stream open for it, reconnecting with backoff,
+// and hand each message to whoever delivers it. Confirming is the deliverer's call, because only it
+// knows when the message has actually reached the session.
 //
-// Claude Code sessions get a channel notification. OpenCode sessions have no channel, so the
-// same message is written as a prompt through the sidecar's adapter; the hub contract either side
-// sees is identical, which is why this loop serves both.
+// The relay child delivers a channel notification and confirms straight after writing it. The hub
+// reader (`hubReader.ts`) hands the message on to a mod and confirms nothing: the mod confirms once
+// the message's prompt has entered the session. OpenCode sessions have no channel, so the same
+// message is written as a prompt through the sidecar's adapter; the hub contract either side sees is
+// identical, which is why this loop serves them all.
 
 import type { Message, MessageRef, MessagingSource } from "@agentdesk/agent-feed-wire";
 import type { HubClient } from "@/messaging/hubClient";
@@ -40,10 +43,27 @@ export function channelNotification(message: Message, fromName: string): Channel
   };
 }
 
+/** One message the hub pushed, with the stream it came on, which a confirmation has to name. */
+export interface StreamDelivery {
+  message: Message;
+  fromName: string;
+  streamId: string;
+}
+
+/** Tells the hub a message reached its session. Refused when it was not waiting on that stream. */
+export async function confirmDelivery(hub: HubClient, messageId: string, streamId: string): Promise<Message> {
+  return hub.request<Message>("POST", `/v1/messages/${encodeURIComponent(messageId)}/delivered`, { stream: streamId });
+}
+
 export interface ChannelLoopDeps {
   hub: HubClient;
   readSession: () => RelaySession | string;
-  notify: (notification: ChannelNotification) => Promise<void>;
+  /**
+   * Hands one message on. Resolving does not confirm it; a deliverer that has put the message in
+   * front of the session calls `confirmDelivery` itself. Throwing ends the stream, and the hub
+   * requeues whatever was not confirmed.
+   */
+  deliver: (delivery: StreamDelivery) => Promise<void>;
   log: (text: string) => void;
   /** Which runtime this child serves. Defaults to claude, the one started per session. */
   source?: MessagingSource;
@@ -62,7 +82,7 @@ export async function runChannelLoop(deps: ChannelLoopDeps, signal: AbortSignal)
   while (!signal.aborted) {
     const session = deps.readSession();
     if (typeof session === "string") {
-      deps.log(`relay channel idle: ${session}`);
+      deps.log(`hub stream idle: ${session}`);
       await sleep(SESSION_RECHECK_MS * 6);
       continue;
     }
@@ -87,20 +107,19 @@ export async function runChannelLoop(deps: ChannelLoopDeps, signal: AbortSignal)
           if (event.type === "hello") {
             opened = true;
             failures = 0;
-            deps.log(`relay channel connected as ${event.address} (channel ${event.channel ? "on" : "off"})`);
+            deps.log(`hub stream connected as ${event.address} (channel ${event.channel ? "on" : "off"})`);
             return;
           }
           // Directives ride the same stream vocabulary but are never pushed to a Claude stream;
           // ignored here rather than notified, so a future one cannot become a channel message.
           if (event.type !== "message") return;
-          await deps.notify(channelNotification(event.message, event.fromName));
-          await deps.hub.request("POST", `/v1/messages/${event.message.id}/delivered`, { stream: event.streamId });
+          await deps.deliver({ message: event.message, fromName: event.fromName, streamId: event.streamId });
         },
         connection.signal,
       );
-      deps.log("relay channel stream ended");
+      deps.log("hub stream ended");
     } catch (error) {
-      if (!connection.signal.aborted) deps.log(`relay channel stream failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (!connection.signal.aborted) deps.log(`hub stream failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       clearInterval(watcher);
       signal.removeEventListener("abort", abort);

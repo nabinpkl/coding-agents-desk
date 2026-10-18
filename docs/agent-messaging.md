@@ -216,8 +216,9 @@ body text
 ## Delivering into a Claude session through a mod (proposed, not built)
 
 Proposed 2026-10-16 in place of launching every Claude session with the development-channel flag.
-Nothing in this section is built except the prompt guard it relies on
-(`agent-feed/sidecar/mods/prompt-guard/`). Every measurement below is Claude Code 2.1.301.
+Built so far: the prompt guard it relies on (`agent-feed/sidecar/mods/prompt-guard/`), and the
+reader and the confirm helper, tested against the live hub without a mod (2026-10-16). The mod
+itself is not built. Every measurement below is Claude Code 2.1.301.
 
 **Why replace the flag.** The channel path needs `--dangerously-load-development-channels` and its
 warning on every start, cannot reach a Claude Desktop session, is a research preview that can change
@@ -230,14 +231,18 @@ is a supported way to put text into a session: `$.prompt.submit({ text })` start
 1. **A mod, `agentdesk-hub`, loaded into Bot sessions** with `--plugin-dir` by the launcher
    (`terminal/claudeSessionLaunch.ts`), beside `prompt-guard`. Nothing is installed under
    `~/.claude`.
-2. **One reader child per session.** At `session.start` the mod starts a small reader with
-   `$.process.spawn`. The reader holds the session's hub stream (`GET /v1/stream`, `source=claude`,
-   `channel=1`, the machine token from `hub.env`) and writes each message to stdout as one line. A
-   child started this way lives exactly as long as the session: ending the session sends it SIGTERM
-   within a second. **The reader must also exit on its own when its parent goes**, by watching its
-   stdin close or its parent pid change: after a SIGKILL of Claude, the probe child died only
-   because it wrote every two seconds and the closed pipe killed it, and a reader waiting silently
-   for messages writes nothing.
+2. **One reader child per session** (built: `src/hubReaderMain.ts`, `messaging/hubReader.ts`). At
+   `session.start` the mod starts it with `$.process.spawn`, passing the session id. The reader
+   holds the session's hub stream (`GET /v1/stream`, `source=claude`, `channel=1`, the machine token
+   from `hub.env`) through the relay child's own loop, and writes each message to stdout as one JSON
+   line carrying the `streamId` the hub wants back. The mod reads it with `for await` over the
+   spawn's output, buffering pieces into lines. A child started this way lives exactly as long as
+   the session: ending the session sends it SIGTERM within a second. Talk runs one way: a spawned
+   child's stdin is written once and closed, so the mod cannot answer the reader and the reader
+   cannot learn from stdin that the session is gone. **It exits on its own two ways instead**,
+   both measured: a heartbeat line every five seconds, whose write fails once nothing reads the pipe
+   ("stdout closed", a second after the pipe's reader was killed), and a parent pid that changes
+   when it is reparented ("parent gone", within the five seconds).
 3. **The reader is the session's only hub stream.** The hub keeps one stream per session address
    and a second connection from the same machine replaces the first and requeues its messages
    (`Messages.connect` in `agent-feed/hub/src/messages.ts`). The relay child already opens a `channel=0` stream for presence, so
@@ -251,8 +256,13 @@ is a supported way to put text into a session: `$.prompt.submit({ text })` start
      Haiku read a bare instruction under that frame as a prompt injection and declined it. The text
      has to say what it is: which Bot sent it, the hop count, the thread, and the `message_id` to
      answer with `hub_reply`.
-5. **Confirm only after the prompt enters.** The reader holds each message and the mod confirms it
-   (`POST /v1/messages/:id/delivered`) only once its prompt has gone in. A prompt the guard refuses
+5. **Confirm only after the prompt enters.** The reader never confirms. The mod confirms each
+   message once its prompt has gone in, by running `src/hubConfirmMain.ts <message id> <stream id>`
+   with `$.process.run` (built), which posts `POST /v1/messages/:id/delivered`. A helper rather than
+   `$.http.fetch` from the mod, so the machine token stays in the reader and the helper: every other
+   mod in the session can see a mod's own `fs.read` and `http.fetch` calls. The stream id must be
+   the one the latest delivery carried: a message requeued and pushed again arrives on a new stream,
+   and the hub refuses a confirmation naming the old one (measured). A prompt the guard refuses
    stays held and is tried again after the owner next types; a session that ends drops the stream,
    and the hub requeues whatever was unconfirmed. So `delivered` stays an honest claim, and no
    message is lost to a refusal.
@@ -340,10 +350,12 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
    is not.
 6. **Annotator adapter.** Not started beyond the `sends` table.
 7. **Permission relay:** only after its own go, and Claude-only.
-8. **Claude delivery through a mod.** Proposed, not started beyond the prompt guard it relies on
-   (`agent-feed/sidecar/mods/prompt-guard/`, built and verified live 2026-10-16). First slice: the
-   reader child and owner messages delivered with `asUser`, confirmed only after the prompt enters,
-   on a throwaway Claude session with a Bot address.
+8. **Claude delivery through a mod.** In progress. Done: the prompt guard, and the reader and
+   confirm helper, verified against the live hub with a throwaway Bot: a message is pushed to the
+   reader and stays `pushed` until the helper confirms it; a reader stopped before confirming leaves
+   it `queued`, and the next reader gets it on a new stream. An owner message could not be sent in
+   that test: the sidecar's machine token "may not send as human", so owner messages wait on a
+   surface token (the panel inbox). Next: the `agentdesk-hub` mod itself.
 
 ## Decisions for the owner
 
