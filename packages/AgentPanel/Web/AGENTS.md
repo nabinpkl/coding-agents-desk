@@ -57,9 +57,13 @@ focused text field on a phone gets one row of those keys standing on the keyboar
 together (`app/page/keyboardInset.ts`, the one place that watches the keyboard). Three things to
 know when building near it:
 
-- **A surface that draws its own key row marks its region `data-keyboard-bar="off"`**, and the bar
-  stays away: today the terminal panes and the desktop viewer. A field that offers a suggestion sets
-  `data-keyboard-suggestion` and takes it on Tab; the bar shows it as a key that presses Tab.
+- **A field whose keys are its own puts them on the bar**: it marks itself
+  `data-keyboard-bar="keys"` and draws its row with `OnKeyboardBar`, which the bar shows in place of
+  its Esc, Tab and arrows. The terminal composer's rail does this, because its keys go to a pane
+  rather than to the field. A surface that still draws its own key row in place marks its region
+  `data-keyboard-bar="off"` and the bar stays away: today the terminal panes and the desktop viewer.
+  A field that offers a suggestion sets `data-keyboard-suggestion` and takes it on Tab; the bar
+  shows it as a key that presses Tab.
 - **A bar key is a key event first.** It is dispatched to the field, so a handler written for the
   real key answers it too; only if nothing calls `preventDefault` does the bar do the key's job by
   hand (`keyboardBarKeys.ts`), because a dispatched key event moves no focus and no caret.

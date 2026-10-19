@@ -1,5 +1,6 @@
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import {
+  bringsOwnKeys,
   hasOwnKeyRow,
   KEYBOARD_BAR_HEIGHT,
   KEYBOARD_SUGGESTION_ATTRIBUTE,
@@ -139,6 +140,7 @@ export function installKeyboardInset(): { remove(): void } {
             },
             pinching,
             suggestion: field.getAttribute(KEYBOARD_SUGGESTION_ATTRIBUTE),
+            ownKeys: bringsOwnKeys(field),
           }
         : null,
     );

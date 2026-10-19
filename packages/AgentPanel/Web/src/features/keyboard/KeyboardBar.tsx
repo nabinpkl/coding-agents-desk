@@ -13,18 +13,23 @@
 // - It is drawn inside the modal dialog the field is in, when there is one: a modal dialog makes
 //   everything outside it inert, so a row drawn outside could be seen and not pressed.
 //
+// A field whose keys are not the bar's (the terminal composer's, which go to a pane) brings its own
+// row instead: it marks itself `data-keyboard-bar="keys"` and draws them with `OnKeyboardBar`, into
+// a slot the bar leaves where its own keys would be.
+//
 // It keeps to the glass rather than the page. Zoomed in, the page is drawn larger, so the row is
 // placed on the visible part of the page and scaled back down by the zoom; during a pinch, whose
 // numbers arrive late, it steps out of sight rather than trailing the fingers.
 
 import { KeyboardOff } from "lucide-react";
-import { useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { KeyRailButton } from "@/features/keyboard/KeyRailButton";
 import { pressKeyboardBarKey, type KeyboardBarKey } from "@/features/keyboard/keyboardBarKeys";
 import {
   KEYBOARD_BAR_HEIGHT,
   keyboardBarSnapshot,
+  publishKeyboardBarSlot,
   subscribeKeyboardBar,
   type KeyboardBarState,
 } from "@/features/keyboard/keyboardBarState";
@@ -41,6 +46,16 @@ export function KeyboardBar() {
   const bar = useSyncExternalStore(subscribeKeyboardBar, keyboardBarSnapshot);
   if (!bar.field || !bar.host) return null;
   return createPortal(<KeyboardBarRow bar={bar} field={bar.field} />, bar.host);
+}
+
+/**
+ * A field's own keys, drawn on the keyboard bar while that field has the keyboard. `focused` says
+ * the field is this region's; the bar only leaves room for keys when the field asked for it.
+ */
+export function OnKeyboardBar({ focused, children }: { focused: boolean; children: ReactNode }) {
+  const bar = useSyncExternalStore(subscribeKeyboardBar, keyboardBarSnapshot);
+  if (!focused || !bar.ownKeys || !bar.slot) return null;
+  return createPortal(children, bar.slot);
 }
 
 function KeyboardBarRow({ bar, field }: { bar: KeyboardBarState; field: HTMLElement }) {
@@ -78,27 +93,35 @@ function KeyboardBarRow({ bar, field }: { bar: KeyboardBarState; field: HTMLElem
       }}
       className="m-0 flex items-center gap-1 overflow-hidden border-0 border-t border-border bg-background py-1 pr-[max(6px,env(safe-area-inset-right))] pl-[max(6px,env(safe-area-inset-left))] text-foreground motion-safe:transition-opacity"
     >
-      {bar.suggestion ? (
-        <button
-          type="button"
-          // Tab is how the field takes its own suggestion, so taking it here is pressing Tab there.
-          onClick={() => pressKeyboardBarKey(field, "Tab")}
-          aria-label={`Use suggestion: ${bar.suggestion}`}
-          className="h-9 min-w-0 flex-1 cursor-pointer truncate rounded border border-border bg-muted px-3 text-left text-sm text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary active:bg-accent"
-        >
-          {bar.suggestion}
-        </button>
+      {bar.ownKeys ? (
+        // Where the field's own keys are drawn (`OnKeyboardBar`); the element is handed over as it
+        // arrives and withdrawn as it goes.
+        <div ref={publishKeyboardBarSlot} className="flex h-full min-w-0 flex-1 items-center" />
       ) : (
-        <span className="flex-1" />
+        <>
+          {bar.suggestion ? (
+            <button
+              type="button"
+              // Tab is how the field takes its own suggestion, so taking it here is pressing Tab there.
+              onClick={() => pressKeyboardBarKey(field, "Tab")}
+              aria-label={`Use suggestion: ${bar.suggestion}`}
+              className="h-9 min-w-0 flex-1 cursor-pointer truncate rounded border border-border bg-muted px-3 text-left text-sm text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary active:bg-accent"
+            >
+              {bar.suggestion}
+            </button>
+          ) : (
+            <span className="flex-1" />
+          )}
+          {KEYS.map(({ label, key }) => (
+            <KeyRailButton
+              key={key}
+              label={label}
+              className="h-9 w-11 shrink-0 text-sm"
+              onClick={() => pressKeyboardBarKey(field, key)}
+            />
+          ))}
+        </>
       )}
-      {KEYS.map(({ label, key }) => (
-        <KeyRailButton
-          key={key}
-          label={label}
-          className="h-9 w-11 shrink-0 text-sm"
-          onClick={() => pressKeyboardBarKey(field, key)}
-        />
-      ))}
       <button
         type="button"
         onClick={() => field.blur()}

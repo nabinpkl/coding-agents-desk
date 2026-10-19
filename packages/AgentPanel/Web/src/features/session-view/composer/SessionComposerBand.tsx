@@ -18,6 +18,7 @@ import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
 import { ComposerPasteStrip } from "@/features/cli-input/ComposerPasteStrip";
 import { ComposerCommandList } from "@/features/cli-input/ComposerCommandList";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
+import { OnKeyboardBar } from "@/features/keyboard/KeyboardBar";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
 import { SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
@@ -51,7 +52,6 @@ export function SessionComposerBand({
   sectionLabel,
   session,
   setComposerFocused,
-  softwareKeyboard,
   terminalComposer,
   terminalHeightBasis,
   terminalPane,
@@ -79,7 +79,6 @@ export function SessionComposerBand({
   sectionLabel: string;
   session: ComposerModel["session"];
   setComposerFocused: (focused: boolean) => void;
-  softwareKeyboard: boolean;
   terminalComposer: {
     context: ComposerPaneContext;
     shown: boolean;
@@ -195,9 +194,10 @@ export function SessionComposerBand({
           <div className="flex items-end">
             <textarea
               ref={autoGrow}
-              // The keyboard bar (`features/keyboard`): a band with its own key rail keeps it, and a
-              // placeholder that is an offer rather than a label is shown on the bar as a key.
-              data-keyboard-bar={editor.rail ? "off" : undefined}
+              // The keyboard bar (`features/keyboard`): a band with its own key rail draws it there
+              // (below), and a placeholder that is an offer rather than a label is shown on the bar
+              // as a key.
+              data-keyboard-bar={editor.rail ? "keys" : undefined}
               data-keyboard-suggestion={editor.onAcceptHint ? editor.placeholder : undefined}
               value={editor.value}
               onChange={(event) => editor.onChange(event.target.value)}
@@ -266,16 +266,19 @@ export function SessionComposerBand({
         {/* Every one of these acts on the draft, so they go where the draft goes. */}
         {rowActions.map(actionButton)}
       </div>
-      {/* Under the whole row rather than inside the field's box, because it is not part of the
-          text: it stands between the composer and the keyboard, which is where a thumb coming off
-          the keys reaches first. Only where the keyboard is actually missing these keys -- a
-          desktop browser has Esc and Ctrl already, and a rail there would spend a row saying so. */}
-      {editor.rail && composerFocused && softwareKeyboard ? (
-        <TerminalKeyRail
-          modifiers={editor.rail.modifiers}
-          onModifier={editor.rail.onModifier}
-          onKey={editor.rail.onKey}
-        />
+      {/* On the keyboard bar, standing on the phone's keyboard where a thumb coming off the keys
+          reaches first, at the size of the screen rather than of the card. The bar is there only
+          where the keyboard is missing these keys and is up: a desktop browser has Esc and Ctrl
+          already, and a rail there would spend a row saying so. */}
+      {editor.rail ? (
+        <OnKeyboardBar focused={composerFocused}>
+          <TerminalKeyRail
+            layout="bar"
+            modifiers={editor.rail.modifiers}
+            onModifier={editor.rail.onModifier}
+            onKey={editor.rail.onKey}
+          />
+        </OnKeyboardBar>
       ) : null}
       {/* One small line under the field: the things that change what the composer holds or shows on
           the left, the context meter on the right. They were a row of full-size buttons beside the

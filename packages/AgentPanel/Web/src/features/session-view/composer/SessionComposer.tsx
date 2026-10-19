@@ -11,7 +11,6 @@ import type { AgentSessionControlState } from "@/features/activity-feed/data-sou
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import type { CliSessionHandle } from "@/features/cli-input/useCliSession";
 import { useTmuxComposer } from "@/features/cli-input/useTmuxComposer";
-import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { type ComposerPaneContext, composerTerminalPane } from "@/features/session-view/composer/terminalArrangement";
 import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
@@ -309,15 +308,12 @@ export function SessionComposer({
   const editorValue = windowBand ? windowComposer.draft : tmuxBand ? tmuxComposer.draft : localDraft;
   const autoGrow = useAutoGrowingTextArea(editorValue);
   /**
-   * Whether the key rail is standing under the field.
+   * Whether this band's field is the one being typed into, which is when its key rail stands on the
+   * phone's keyboard bar (`features/keyboard`).
    *
    * Focus rather than "there is a draft", because the rail is how a phone reaches Escape -- and
    * the moment it is most wanted is a box the reader wants to clear, which is a box they have just
    * typed into and may have emptied again.
-   *
-   * Read once per band rather than at import, the same way the terminal's rail does it: a browser
-   * does not grow a software keyboard part way through a session, and a test has to be able to say
-   * which kind of browser it is.
    */
   const [composerFocused, setComposerFocused] = useState(false);
   // Reaching for the field is the first of the two intents that attach the pane; touching the
@@ -330,7 +326,6 @@ export function SessionComposer({
     },
     [engage],
   );
-  const [softwareKeyboard] = useState(drawsOwnKeyboard);
 
   // The pane that stands above the field, or null when this session's is hidden.
   const terminalPane = composerTerminalPane(terminalComposer, terminalHeightBasis);
@@ -416,7 +411,6 @@ export function SessionComposer({
       sectionLabel={sectionLabel}
       session={session}
       setComposerFocused={noteComposerFocus}
-      softwareKeyboard={softwareKeyboard}
       terminalComposer={terminalComposer}
       terminalHeightBasis={terminalHeightBasis}
       terminalPane={terminalPane}

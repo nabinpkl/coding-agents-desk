@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { KeyboardBar } from "@/features/keyboard/KeyboardBar";
+import { KeyboardBar, OnKeyboardBar } from "@/features/keyboard/KeyboardBar";
 import { publishKeyboardBar } from "@/features/keyboard/keyboardBarState";
 
 afterEach(() => {
@@ -15,7 +15,10 @@ function focusedField(): HTMLTextAreaElement {
   return field;
 }
 
-function show(field: HTMLElement, overrides: { suggestion?: string | null; scale?: number; pinching?: boolean } = {}) {
+function show(
+  field: HTMLElement,
+  overrides: { suggestion?: string | null; scale?: number; pinching?: boolean; ownKeys?: boolean } = {},
+) {
   act(() =>
     publishKeyboardBar({
       field,
@@ -23,6 +26,7 @@ function show(field: HTMLElement, overrides: { suggestion?: string | null; scale
       viewport: { left: 0, bottom: 508, width: 390, scale: overrides.scale ?? 1 },
       pinching: overrides.pinching ?? false,
       suggestion: overrides.suggestion ?? null,
+      ownKeys: overrides.ownKeys ?? false,
     }),
   );
 }
@@ -88,5 +92,37 @@ describe("the keyboard bar", () => {
     show(field);
     const pressed = fireEvent.pointerDown(screen.getByRole("button", { name: "Tab" }));
     expect(pressed).toBe(false);
+  });
+
+  it("draws a field's own keys in place of its own, for the region whose field is focused", () => {
+    const field = focusedField();
+    const pressed: string[] = [];
+    render(
+      <>
+        <KeyboardBar />
+        <OnKeyboardBar focused>
+          <button type="button" onClick={() => pressed.push("Ctrl")}>
+            Ctrl
+          </button>
+        </OnKeyboardBar>
+        <OnKeyboardBar focused={false}>
+          <button type="button">Elsewhere</button>
+        </OnKeyboardBar>
+      </>,
+    );
+    show(field, { ownKeys: true });
+    const bar = screen.getByRole("toolbar");
+    const ctrl = screen.getByRole("button", { name: "Ctrl" });
+    expect(bar.contains(ctrl)).toBe(true);
+    expect(screen.queryByRole("button", { name: "Esc" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Elsewhere" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Hide keyboard" })).toBeTruthy();
+    fireEvent.click(ctrl);
+    expect(pressed).toEqual(["Ctrl"]);
+
+    // A plain field next takes the bar's own keys back, and the region's keys leave with the slot.
+    show(focusedField());
+    expect(screen.queryByRole("button", { name: "Ctrl" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Esc" })).toBeTruthy();
   });
 });

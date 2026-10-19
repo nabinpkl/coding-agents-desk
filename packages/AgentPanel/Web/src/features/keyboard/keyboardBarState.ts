@@ -16,6 +16,13 @@ export const KEYBOARD_BAR_HEIGHT = 44;
 const OWN_KEY_ROW = '[data-keyboard-bar="off"]';
 
 /**
+ * Marks a region whose fields bring their own keys ONTO the bar, in place of its Esc, Tab and
+ * arrows: the terminal composer's rail, whose keys go to a pane rather than to the field. Written
+ * `data-keyboard-bar="keys"`; the region draws its keys into the bar with `OnKeyboardBar`.
+ */
+const OWN_KEYS_ON_BAR = '[data-keyboard-bar="keys"]';
+
+/**
  * On a field, the suggestion it is offering, which the bar shows as a key that takes it. Taking it
  * is the field's own Tab: the bar presses Tab, and the field already knows what that means.
  */
@@ -34,6 +41,10 @@ export interface KeyboardBarState {
   /** A pinch is under way, while which the viewport's numbers arrive late. */
   pinching: boolean;
   suggestion: string | null;
+  /** The field brings its own keys, so the bar leaves room for them rather than drawing its own. */
+  ownKeys: boolean;
+  /** Where a field's own keys are drawn on the bar, set by the bar once it is on screen. */
+  slot: HTMLElement | null;
 }
 
 const HIDDEN: KeyboardBarState = {
@@ -42,6 +53,8 @@ const HIDDEN: KeyboardBarState = {
   viewport: { left: 0, bottom: 0, width: 0, scale: 1 },
   pinching: false,
   suggestion: null,
+  ownKeys: false,
+  slot: null,
 };
 
 let current = HIDDEN;
@@ -62,6 +75,8 @@ function same(left: KeyboardBarState, right: KeyboardBarState): boolean {
     left.host === right.host &&
     left.pinching === right.pinching &&
     left.suggestion === right.suggestion &&
+    left.ownKeys === right.ownKeys &&
+    left.slot === right.slot &&
     left.viewport.left === right.viewport.left &&
     left.viewport.bottom === right.viewport.bottom &&
     left.viewport.width === right.viewport.width &&
@@ -69,15 +84,31 @@ function same(left: KeyboardBarState, right: KeyboardBarState): boolean {
   );
 }
 
-/** Replaces the state, telling readers only when something they draw from changed. */
-export function publishKeyboardBar(next: KeyboardBarState | null): void {
-  const value = next ?? HIDDEN;
+function replace(value: KeyboardBarState): void {
   if (same(current, value)) return;
   current = value;
   for (const listener of listeners) listener();
 }
 
+/**
+ * Replaces what the keyboard says, telling readers only when something they draw from changed. The
+ * slot is the bar's own to say, so it is kept.
+ */
+export function publishKeyboardBar(next: Omit<KeyboardBarState, "slot"> | null): void {
+  replace({ ...(next ?? HIDDEN), slot: current.slot });
+}
+
+/** The bar says where a field's own keys go, or that it has gone. */
+export function publishKeyboardBarSlot(slot: HTMLElement | null): void {
+  replace({ ...current, slot });
+}
+
 /** Whether this field sits in a region that draws its own key row. */
 export function hasOwnKeyRow(field: Element): boolean {
   return field.closest(OWN_KEY_ROW) !== null;
+}
+
+/** Whether this field sits in a region that draws its own keys onto the bar. */
+export function bringsOwnKeys(field: Element): boolean {
+  return field.closest(OWN_KEYS_ON_BAR) !== null;
 }

@@ -98,7 +98,6 @@ function band(model: ComposerModel) {
       sectionLabel="Message"
       session={model.session}
       setComposerFocused={() => {}}
-      softwareKeyboard={false}
       terminalComposer={null}
       terminalHeightBasis={null}
       terminalPane={null}
