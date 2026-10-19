@@ -6,10 +6,10 @@ import {
 } from "react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import { KEEP_IN_SIGHT_ATTRIBUTE } from "@/app/page/keyboardInset";
 import { terminalContextLabel } from "@/features/terminal/terminalContext";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
+import { OnKeyboardBar } from "@/features/keyboard/KeyboardBar";
 import { TerminalRestartButton } from "@/features/terminal/TerminalRestartButton";
 import { paneRoomBesideTranscript } from "@/features/terminal/terminalPaneRoom";
 import { keepLastDrawnRowInView } from "@/features/terminal/lastDrawnRowInView";
@@ -165,13 +165,6 @@ export function AgentTerminalPane({
       const from = chosen ?? fontSize ?? TERMINAL_ZOOM.minimum;
       return Math.min(TERMINAL_ZOOM.maximum, Math.max(TERMINAL_ZOOM.minimum, Math.round(from) + by));
     });
-  // Read once per pane rather than at import: a browser does not grow a software keyboard part way
-  // through a session, but a test has to be able to say which kind of browser it is.
-  const [softwareKeyboard] = useState(drawsOwnKeyboard);
-  // Only where the keyboard is missing these keys, and only while that keyboard is up: a desktop
-  // browser has Esc and Ctrl already, and a rail standing there permanently would spend height on
-  // a terminal nobody is typing into.
-  const showsKeyRail = focused && softwareKeyboard;
 
   // An element answers every question the two window events answer and one they do not: the
   // surface can change height without the window doing anything, which is what happens when a
@@ -192,7 +185,7 @@ export function AgentTerminalPane({
    * The tallest a band pane is any use at: its whole screen at the width it has, plus the pane's
    * own chrome. A band never reshapes the session, so past this a drag only adds blank, and on a
    * phone that blank was most of a tall pane with the screen small at its foot (2026-10-17).
-   * Measured after layout rather than during render; the chrome moves with the key rail.
+   * Measured after layout rather than during render.
    */
   const [wholeScreen, setWholeScreen] = useState<number | null>(null);
   useDomSync(() => {
@@ -200,7 +193,7 @@ export function AgentTerminalPane({
     const mount = mountRef.current;
     const known = band && contentHeight !== null && contentHeight > 0 && pane && mount;
     setWholeScreen(known ? contentHeight + pane.offsetHeight - mount.clientHeight : null);
-  }, [band, contentHeight, showsKeyRail, mountRef]);
+  }, [band, contentHeight, mountRef]);
   const share = (available: number): number =>
     Math.max(MINIMUM_TERMINAL_HEIGHT, Math.min(available * MAXIMUM_TERMINAL_SHARE, wholeScreen ?? Infinity));
   const ceiling = (): number => share(band ? basis : (paneRef.current?.parentElement?.clientHeight ?? 0));
@@ -323,11 +316,12 @@ export function AgentTerminalPane({
     <section
       ref={paneRef}
       aria-label={`${terminalContextLabel(context)} terminal`}
-      // What a phone keyboard must not cover while the terminal has focus: the whole pane, key rail
-      // included, rather than xterm's hidden field alone (`keepTypingInSight`).
+      // What a phone keyboard must not cover while the terminal has focus: the whole pane, rather
+      // than xterm's hidden field alone (`keepTypingInSight`).
       {...{ [KEEP_IN_SIGHT_ATTRIBUTE]: "" }}
-      // Its own key rail stands under it, so the keyboard bar does not stand on the keyboard too.
-      data-keyboard-bar="off"
+      // Its keys go to the PTY rather than to xterm's field, so it puts its own rail on the keyboard
+      // bar (`features/keyboard`) in place of the bar's Esc, Tab and arrows.
+      data-keyboard-bar="keys"
       className={`flex min-h-[150px] shrink-0 flex-col border-t border-border ${band ? "" : "h-[38%]"}`}
       style={appliedHeight === null ? undefined : { height: appliedHeight }}
     >
@@ -370,7 +364,9 @@ export function AgentTerminalPane({
         ref={mountRef}
         className="flex min-h-0 flex-1 overflow-auto py-3 [&>.xterm]:m-auto [&>.xterm]:box-content [&>.xterm]:shrink-0 [&>.xterm]:rounded-lg [&>.xterm]:bg-white [&>.xterm]:p-2 dark:[&>.xterm]:bg-[#0b0e14]"
       />
-      {showsKeyRail ? <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} /> : null}
+      <OnKeyboardBar focused={focused}>
+        <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
+      </OnKeyboardBar>
       <footer className="flex min-h-6 shrink-0 items-center gap-3 overflow-hidden border-t border-border px-2 font-mono text-[10px] text-muted-foreground">
         <span>{labels.sync}</span>
         {labels.ownership ? <span>{labels.ownership}</span> : null}

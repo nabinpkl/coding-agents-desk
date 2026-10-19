@@ -273,7 +273,6 @@ export function SessionComposerBand({
       {editor.rail ? (
         <OnKeyboardBar focused={composerFocused}>
           <TerminalKeyRail
-            layout="bar"
             modifiers={editor.rail.modifiers}
             onModifier={editor.rail.onModifier}
             onKey={editor.rail.onKey}

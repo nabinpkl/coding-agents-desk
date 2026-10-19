@@ -2,8 +2,8 @@ import { useCallback, useRef, useState } from "react";
 import { Paperclip } from "lucide-react";
 import type { AgentTerminalContext } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
+import { OnKeyboardBar } from "@/features/keyboard/KeyboardBar";
 import { useAgentTerminal, type AgentTerminalState } from "@/features/terminal/useAgentTerminal";
 import {
   clampTileBox,
@@ -77,13 +77,6 @@ export function TerminalTile({
     paneShape: "follow",
     onState,
   });
-  // Read once per tile rather than at import: a browser does not grow a software keyboard part way
-  // through a session, but a test has to be able to say which kind of browser it is.
-  const [softwareKeyboard] = useState(drawsOwnKeyboard);
-  // Only where the keyboard is missing these keys, and only while that keyboard is up: a desktop
-  // browser has Esc and Ctrl already, and a rail standing under every tile would spend height on
-  // terminals nobody is typing into.
-  const showsKeyRail = focused && softwareKeyboard;
 
   // The box on screen, or null while unarranged: the mount shrink-wraps the screen until
   // the reader gives it a size. Drags accumulate from here, so a second drag starts where
@@ -191,8 +184,9 @@ export function TerminalTile({
   return (
     <section
       aria-label={`${label} terminal`}
-      // Its own key rail stands under it, so the keyboard bar does not stand on the keyboard too.
-      data-keyboard-bar="off"
+      // Its keys go to the PTY rather than to xterm's field, so it puts its own rail on the keyboard
+      // bar (`features/keyboard`) in place of the bar's Esc, Tab and arrows.
+      data-keyboard-bar="keys"
       className="relative flex w-fit flex-col overflow-hidden rounded border border-border bg-white dark:bg-[#0b0e14]"
     >
       <header className="flex min-h-6 shrink-0 items-center justify-between gap-2 border-b border-border px-2 font-mono text-[10px]">
@@ -213,7 +207,9 @@ export function TerminalTile({
         style={box ? { width: box.width, height: box.height } : undefined}
         className="min-h-0 min-w-0 overflow-auto p-1 [&>.xterm]:shrink-0"
       />
-      {showsKeyRail ? <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} /> : null}
+      <OnKeyboardBar focused={focused}>
+        <TerminalKeyRail modifiers={modifiers} onModifier={toggleModifier} onKey={pressKey} />
+      </OnKeyboardBar>
       <footer className="flex min-h-5 shrink-0 items-center gap-2 overflow-hidden border-t border-border px-2 font-mono text-[10px] text-muted-foreground">
         <span className="min-w-0 flex-1 truncate">
           {state?.kind === "error"

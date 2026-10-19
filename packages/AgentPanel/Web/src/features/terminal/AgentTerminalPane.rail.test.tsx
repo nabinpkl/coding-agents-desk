@@ -1,9 +1,12 @@
-// The key rail a phone gets over a focused terminal, for the keys its keyboard lacks, and its absence
-// on a browser whose keyboard has them. Split from the pane's main suite, which covers the stream,
+// The key rail a phone gets on its keyboard for a focused terminal, for the keys that keyboard lacks,
+// and its absence on a browser whose keyboard has them. Through the real keyboard watcher and bar,
+// because the rail is drawn nowhere else. Split from the pane's main suite, which covers the stream,
 // the band's height and the tap that raises the keyboard.
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { installKeyboardInset } from "@/app/page/keyboardInset";
+import { KeyboardBar } from "@/features/keyboard/KeyboardBar";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 
@@ -87,8 +90,16 @@ class FakeResizeObserver {
   disconnect() {}
 }
 
+let keyboard: { remove(): void } | null = null;
+
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+});
+
+afterEach(() => {
+  act(() => keyboard?.remove());
+  keyboard = null;
+  vi.unstubAllGlobals();
 });
 
 function railFeed() {
@@ -108,7 +119,10 @@ function railFeed() {
   } as unknown as SidecarDataSource;
 }
 
-/** A phone: no hover, coarse pointer, and a keyboard that appears over half the screen. */
+/**
+ * A phone, or not: whether the pointer is coarse, and a visual viewport its keyboard shrinks. The
+ * keyboard is raised already, since the pane focuses its terminal as it opens.
+ */
 function stubTouchSurface(matches: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches,
@@ -116,17 +130,35 @@ function stubTouchSurface(matches: boolean) {
     addEventListener: () => {},
     removeEventListener: () => {},
   }));
+  vi.stubGlobal("innerHeight", 844);
+  vi.stubGlobal(
+    "visualViewport",
+    Object.assign(new EventTarget(), { height: 508, width: 390, offsetTop: 0, offsetLeft: 0, scale: 1 }),
+  );
+  keyboard = installKeyboardInset();
 }
 
-it("gives a phone the keys its keyboard does not have, once the terminal has focus", async () => {
+function renderPane(feed: SidecarDataSource) {
+  const context = { kind: "tmux" as const, session: "composerprobe" };
+  render(
+    <>
+      <KeyboardBar />
+      <AgentTerminalPane feed={feed} context={context} onState={vi.fn()} layout="band" />
+    </>,
+  );
+}
+
+it("gives a phone the keys its keyboard does not have, on the keyboard, once the terminal has focus", async () => {
   stubTouchSurface(true);
   const feed = railFeed();
-  const context = { kind: "tmux" as const, session: "composerprobe" };
-  render(<AgentTerminalPane feed={feed} context={context} onState={vi.fn()} layout="band" />);
+  renderPane(feed);
   await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
 
-  // Opening focuses the terminal, so the rail is there with the keyboard it belongs to.
-  expect(screen.getByLabelText("Terminal key rail")).toBeInTheDocument();
+  // Opening focuses the terminal, so the rail is there with the keyboard it belongs to, standing
+  // on the keyboard bar in place of the bar's own keys.
+  const bar = screen.getByRole("toolbar", { name: "Keyboard keys" });
+  expect(bar.contains(screen.getByLabelText("Terminal key rail"))).toBe(true);
+  expect(screen.getAllByRole("button", { name: "Esc" })).toHaveLength(1);
 
   fireEvent.click(screen.getByRole("button", { name: "Esc" }));
   expect(feed.sendTerminalInput).toHaveBeenLastCalledWith("terminal-1", "\u001b");
@@ -143,17 +175,17 @@ it("gives a phone the keys its keyboard does not have, once the terminal has foc
   act(() => terminal.emitData("c"));
   expect(feed.sendTerminalInput).toHaveBeenLastCalledWith("terminal-1", "c");
 
-  act(() => terminal.textarea?.dispatchEvent(new FocusEvent("blur")));
+  act(() => terminal.textarea?.blur());
   expect(screen.queryByLabelText("Terminal key rail")).toBeNull();
 });
 
 it("leaves the rail off a browser whose keyboard already has those keys", async () => {
   stubTouchSurface(false);
   const feed = railFeed();
-  const context = { kind: "tmux" as const, session: "composerprobe" };
-  render(<AgentTerminalPane feed={feed} context={context} onState={vi.fn()} layout="band" />);
+  renderPane(feed);
   await waitFor(() => expect(feed.subscribeTerminal).toHaveBeenCalled());
 
-  act(() => terminal.textarea?.dispatchEvent(new FocusEvent("focus")));
+  act(() => terminal.textarea?.focus());
+  expect(screen.queryByRole("toolbar")).toBeNull();
   expect(screen.queryByLabelText("Terminal key rail")).toBeNull();
 });
