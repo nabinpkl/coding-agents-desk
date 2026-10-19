@@ -23,6 +23,7 @@ import {
   type AgentSessionDescriptorResolver,
 } from "@/transcripts/catalog/catalogState";
 import { getSnapshot } from "@/transcripts/catalog/catalogState";
+import { isScratchFolder } from "@/scratch/scratchFolders";
 
 /**
  * The project list for the current catalog.
@@ -82,12 +83,16 @@ function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
     if (sessionArchivedAt(session) === undefined) showing.add(session.project);
     let project = grouped.get(session.project);
     if (!project) {
+      // A scratch chat's folder is named by what it is: its own name is generated, and a list of
+      // them would read as noise.
+      const scratch = isScratchFolder(session.project);
       project = {
         projectPath: session.project,
-        displayName: basename(session.project),
+        displayName: scratch ? "Scratch" : basename(session.project),
         sourceCounts: { claude: 0, codex: 0, opencode: 0 },
         sessionCount: 0,
         lastEventAt: 0,
+        ...(scratch ? { scratch: true as const } : {}),
       };
       grouped.set(session.project, project);
     }

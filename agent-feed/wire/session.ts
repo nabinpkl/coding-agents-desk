@@ -49,6 +49,12 @@ export interface ProjectSummary {
    * folder is listed so that session has a row to be reached from.
    */
   archivedAt?: number;
+  /**
+   * The folder is a scratch chat's: one the sidecar made for a chat started with no project
+   * (`StartScratchCommand`), holding that chat alone. Lists name these by what they are rather
+   * than by the folder's generated name. Absent for every other folder.
+   */
+  scratch?: true;
 }
 
 export interface SessionSummary {
@@ -205,6 +211,17 @@ export interface StartSessionCommand {
    * (ADR-0143). Refused for opencode, which has its own serve.
    */
   claudeMode?: ClaudeRunMode;
+}
+
+/**
+ * Starting a chat with no project: the sidecar makes it a folder of its own, names it from the
+ * message, and starts a Claude session through the Agent SDK with the scratch brief ahead of the
+ * message (`withScratchBrief`). Nothing exists before this is sent, and a start that fails leaves
+ * no folder behind.
+ */
+export interface StartScratchCommand {
+  /** What the person typed. Required: the chat is started by its first message. */
+  prompt: string;
 }
 
 /** What `StartSessionCommand` started: the session, and which harness it is running in. */

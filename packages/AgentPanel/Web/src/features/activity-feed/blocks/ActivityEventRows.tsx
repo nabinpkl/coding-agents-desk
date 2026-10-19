@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronRight, GitBranch } from "lucide-react";
-import { RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
+import { RawDetails, ScratchBriefDrawer } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
 import { type DisplayRole, clusterLabel, displayRole } from "@/features/activity-feed/rows/activityDisplayItems";
 import { eventPreview, isFlowBlock, messageText, toolIntent } from "@/features/activity-feed/rows/activityEventText";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
@@ -258,6 +258,7 @@ export function UserRow({
           (isHighlighted ? "ring-2 ring-primary ring-inset" : "")
         }
       >
+        {ev.humanTurn ? <ScratchBriefDrawer blocks={ev.blocks} /> : null}
         <UserMessageBody ev={ev} ctx={ctx} isCollapsed={isCollapsed} onToggle={onToggle} />
       </div>
     </div>

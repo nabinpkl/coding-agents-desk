@@ -75,6 +75,7 @@ export {
   taskFromText,
 } from "./botSessionTitle.ts";
 export { isSaidText } from "./saidText.ts";
+export { SCRATCH_BRIEF_LABEL, splitScratchBrief, withScratchBrief } from "./scratchBrief.ts";
 export type { EventsPageAt } from "./pageAt.ts";
 export { eventsPageAtFromQuery, eventsPageAtQuery } from "./pageAt.ts";
 
@@ -167,6 +168,7 @@ export type {
   SessionSummary,
   StartedSession,
   StartedSourceSession,
+  StartScratchCommand,
   StartSessionCommand,
 } from "./session.ts";
 

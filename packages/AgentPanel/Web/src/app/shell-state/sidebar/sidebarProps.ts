@@ -143,6 +143,10 @@ export function sidebarProps({
         newSession.openDialog();
         chrome.setHoverPreviewOpen(false);
       },
+      onNewChat: () => {
+        newSession.openChat();
+        chrome.setHoverPreviewOpen(false);
+      },
     },
     onAddBot: () => {
       commands.setBotCreatorOpen(true);

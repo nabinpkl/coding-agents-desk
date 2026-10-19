@@ -7,7 +7,7 @@
 // session: a row subscribes to no thread, and picking one opens it in the modal, which is where
 // its transcript stream opens.
 
-import { FolderTree, Plus } from "lucide-react";
+import { FolderTree, MessageSquare, Plus } from "lucide-react";
 import { useMemo } from "react";
 import type { ProjectSummary, RecentSession, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
@@ -18,6 +18,7 @@ import {
   type SessionCanvasMove,
 } from "@/features/sidebar/session-list/ProjectSidebarItem";
 import { SidebarError, SidebarReconnecting, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
+import { RowMenu } from "@/features/bots/menus/RowMenu";
 
 /** What the project list needs whichever list it sits in; the rest is this view's. */
 type ProjectListProps = Omit<
@@ -46,12 +47,14 @@ export interface CanvasSessions {
   reviews: { open: boolean; onToggle: () => void; onShowMore: () => void };
   /** Opens the dialog that starts a session on no Bot, in Claude Code or opencode. */
   onNewSession: () => void;
+  /** Opens the Chat box, which starts a chat with no project once its first message is sent. */
+  onNewChat: () => void;
 }
 
 export function CanvasSessionsList({ list, sessions }: { list: ProjectListProps; sessions: CanvasSessions }) {
   return (
     <>
-      <div className="flex justify-between gap-2 border-b border-border/80 px-2 py-1">
+      <div className="flex items-center gap-0.5 border-b border-border/80 px-2 py-1">
         <button
           type="button"
           onClick={sessions.onNewSession}
@@ -63,6 +66,8 @@ export function CanvasSessionsList({ list, sessions }: { list: ProjectListProps;
           {/* "New" beside the list it adds to, so both controls fit one row at the rail's width. */}
           New
         </button>
+        <RowMenu label="new sessions" items={[{ label: "Chat", icon: MessageSquare, onSelect: sessions.onNewChat }]} />
+        <span className="flex-1" />
         <button
           type="button"
           aria-pressed={sessions.grouped}

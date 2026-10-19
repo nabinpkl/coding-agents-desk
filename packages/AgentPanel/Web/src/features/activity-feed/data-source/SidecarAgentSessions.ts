@@ -15,6 +15,7 @@ import type {
   SourceId,
   StartedSession,
   StartedSourceSession,
+  StartScratchCommand,
   StartSessionCommand,
 } from "@agentdesk/agent-feed-wire";
 import { parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
@@ -64,6 +65,18 @@ export class SidecarAgentSessions extends SidecarTerminals {
   async startSession(command: StartSessionCommand): Promise<StartedSourceSession> {
     return parse<StartedSourceSession>(
       await this.transport.request("POST", "/api/agent-sessions/start", {
+        body: { requestId: crypto.randomUUID(), ...command },
+      }),
+    );
+  }
+
+  /**
+   * Starts a chat with no project: the sidecar makes its folder, names it from the message and
+   * starts it through the Agent SDK, or makes nothing and says why.
+   */
+  async startScratchSession(command: StartScratchCommand): Promise<StartedSourceSession> {
+    return parse<StartedSourceSession>(
+      await this.transport.request("POST", "/api/agent-sessions/start-scratch", {
         body: { requestId: crypto.randomUUID(), ...command },
       }),
     );

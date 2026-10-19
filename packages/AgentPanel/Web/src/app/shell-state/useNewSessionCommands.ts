@@ -7,6 +7,9 @@
 // empty feed, since that pane holds the runner's log and the runner takes the first message.
 // `started` holds that until the catalog lists the session, at which point the modal over the
 // canvas takes it as an ordinary session.
+//
+// A chat skips the dialog: the Chat box asks only for the first message, and the sidecar picks
+// everything else. Once sent it is `started` like any other, so it hands over the same way.
 
 import { useCallback, useMemo, useState } from "react";
 import type { StartSessionCommand } from "@agentdesk/agent-feed-wire";
@@ -30,6 +33,23 @@ export function useNewSessionCommands(feed: SidecarDataSource) {
     [feed],
   );
 
+  /**
+   * A chat with no project: the Chat box holds only the first message, and sending it is what
+   * makes the chat's folder and starts it, through the SDK. Throws for the box to show beside the
+   * message it leaves in place.
+   */
+  const [chatOpen, setChatOpen] = useState(false);
+  const startChat = useCallback(
+    async (prompt: string) => {
+      const session = await feed.startScratchSession({ prompt });
+      setStarted({ ...session, sdk: true });
+      setChatOpen(false);
+    },
+    [feed],
+  );
+  const openChat = useCallback(() => setChatOpen(true), []);
+  const closeChat = useCallback(() => setChatOpen(false), []);
+
   const openDialog = useCallback(() => setDialogOpen(true), []);
   const closeDialog = useCallback(() => setDialogOpen(false), []);
   const clearStarted = useCallback(() => setStarted(null), []);
@@ -40,5 +60,17 @@ export function useNewSessionCommands(feed: SidecarDataSource) {
    */
   const watched = useMemo(() => (started ? [{ projectPath: started.projectPath }] : []), [started]);
 
-  return { dialogOpen, openDialog, closeDialog, start, started, clearStarted, watched };
+  return {
+    dialogOpen,
+    openDialog,
+    closeDialog,
+    start,
+    chatOpen,
+    openChat,
+    closeChat,
+    startChat,
+    started,
+    clearStarted,
+    watched,
+  };
 }

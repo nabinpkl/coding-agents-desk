@@ -4,6 +4,7 @@
 // and whatever it says about the turn. `processLine` and `extractBlockRaw` both read
 // this, which is what keeps a block's index the same in the feed and in the Raw drawer.
 
+import { SCRATCH_BRIEF_LABEL, splitScratchBrief } from "@agentdesk/agent-feed-wire";
 import type { ActivityBlock, LineResult, ParsedLine } from "@/transcripts/transcriptTypes";
 import { isHumanTurnStart } from "@/transcripts/humanTurns";
 import {
@@ -250,7 +251,10 @@ export function normalizedRecord(line: string, ev: Record<string, unknown>): Nor
     };
   }
 
-  const contentBlocks = commandOutputBlocks(message.content) ?? normalizeBlocks(message.content);
+  const contentBlocks = withBriefSplitOut(
+    commandOutputBlocks(message.content) ?? normalizeBlocks(message.content),
+    t === "user" && ev.isMeta !== true,
+  );
   const stateBlocks: NormalizedClaudeBlock[] = [];
   const usage = t === "assistant" ? extractClaudeUsage(message.usage, assistantModel(message), ts) : null;
   if (usage)
@@ -289,6 +293,24 @@ export function normalizedRecord(line: string, ev: Record<string, unknown>): Nor
   }
   if (cwd) result.cwd = cwd;
   return { result, rawBlocks };
+}
+
+/**
+ * A scratch chat's first message as two blocks: the brief, as metadata under its own label, then
+ * what the person typed. Every reader of a message's text then reads only the person's words; the
+ * brief stays on the line for the feed to fold and for a handover to carry.
+ */
+function withBriefSplitOut(blocks: NormalizedClaudeBlock[], personLine: boolean): NormalizedClaudeBlock[] {
+  const first = blocks[0];
+  if (!personLine || first?.block.kind !== "text" || !first.block.text) return blocks;
+  const split = splitScratchBrief(first.block.text);
+  if (!split) return blocks;
+  // The raw text too, which is what a message cut short is expanded from.
+  const raw = first.raw === null ? null : (splitScratchBrief(first.raw)?.rest ?? first.raw);
+  const rest: NormalizedClaudeBlock[] = split.rest
+    ? [{ ...first, block: { ...first.block, text: split.rest }, raw }]
+    : [];
+  return [{ block: metadataBlock(SCRATCH_BRIEF_LABEL, split.brief), raw: null }, ...rest, ...blocks.slice(1)];
 }
 
 /**

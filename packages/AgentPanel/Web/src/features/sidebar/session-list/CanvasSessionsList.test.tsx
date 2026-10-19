@@ -44,6 +44,7 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
     reconnecting: false,
     reviews: { open: false, onToggle: () => {}, onShowMore: () => {} },
     onNewSession: () => {},
+    onNewChat: () => {},
     ...overrides,
   };
 }
@@ -78,6 +79,36 @@ describe("the Canvas tab's Sessions view", () => {
     rerender(<CanvasSessionsList list={list} sessions={sessions({ onNewSession, grouped: true })} />);
     fireEvent.click(screen.getByRole("button", { name: "New session" }));
     expect(onNewSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers a chat from the menu beside New", () => {
+    const onNewChat = vi.fn();
+    render(<CanvasSessionsList list={list} sessions={sessions({ onNewChat })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for new sessions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Chat" }));
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("folds scratch chats into one group, each named by its own folder", () => {
+    const chat: ProjectSummary = {
+      projectPath: "/scratch/plan-the-garden-1a2b",
+      displayName: "Scratch",
+      sourceCounts: { claude: 1 },
+      sessionCount: 1,
+      lastEventAt: 4,
+      scratch: true,
+    };
+    render(
+      <CanvasSessionsList list={{ ...list, projects: [chat, oss, desk] }} sessions={sessions({ grouped: true })} />,
+    );
+
+    const projects = screen.getByRole("list", { name: "Projects" });
+    expect(within(projects).queryByText("Scratch")).toBeNull();
+    expect(within(projects).getByText("oss-agent")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Scratch (1)" }));
+    expect(
+      within(screen.getByRole("list", { name: "Scratch chats" })).getByText("plan-the-garden-1a2b"),
+    ).toBeInTheDocument();
   });
 
   it("opens a row with the project it belongs to", () => {

@@ -6,6 +6,7 @@ import { open } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { config } from "@/config/config";
 import { isHarnessUserText } from "@/transcripts/humanTurns";
+import { splitScratchBrief } from "@agentdesk/agent-feed-wire";
 import type { Header, LastSelection } from "@/transcripts/transcriptTypes";
 import { turnClosedFor } from "@/transcripts/claude/claudePayloads";
 import { currentTitles, titlesOf, type Titles } from "@/transcripts/claude/claudeTitles";
@@ -135,7 +136,9 @@ export function promptText(ev: Record<string, unknown>): string | undefined {
     // The harness writes interrupts, caveats, slash-command echoes and task notifications as
     // user messages. None is prose a person chose, so none is more useful as a title than the id.
     if (text && isHarnessUserText(text)) return undefined;
-    return text;
+    // A scratch chat's opens with its brief, which is not what the person asked.
+    const scratch = text ? splitScratchBrief(text) : null;
+    return scratch ? scratch.rest || undefined : text;
   }
   if (ev.type === "queue-operation" && ev.operation === "enqueue") {
     return typeof ev.content === "string" ? ev.content.trim() || undefined : undefined;

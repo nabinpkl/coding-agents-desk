@@ -69,7 +69,13 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
 
   const close = (restoreFocus = true) => {
     setOpen(false);
-    if (restoreFocus) globalThis.requestAnimationFrame?.(() => trigger.current?.focus());
+    // Only to a page that has lost it: an item that opens a dialog has put the focus in that
+    // dialog by now, and taking it back to the trigger would leave the dialog unfocused.
+    if (!restoreFocus) return;
+    globalThis.requestAnimationFrame?.(() => {
+      const holder = document.activeElement;
+      if (holder === null || holder === document.body) trigger.current?.focus();
+    });
   };
 
   return (

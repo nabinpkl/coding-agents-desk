@@ -16,6 +16,7 @@ import {
   useProjectArchiveCommand,
   type ProjectArchiveCommand,
 } from "@/features/sidebar/session-list/ArchivedProjects";
+import { ScratchProjects, scratchItemProject } from "@/features/sidebar/session-list/ScratchProjects";
 import { SecurityReviewFold, splitSecurityReviews } from "@/features/sidebar/session-list/SecurityReviewSessions";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
@@ -371,28 +372,33 @@ export function ProjectSessionList(props: {
       </>
     );
   }
+  const scratch = props.projects.filter((project) => project.scratch);
+  const item = (project: ProjectSummary, listedAs: ProjectSummary = project) => (
+    <ProjectSidebarItem
+      key={project.projectPath}
+      project={listedAs}
+      sessions={props.sessionsByProject.get(project.projectPath)}
+      expanded={props.expandedProjectPaths.has(project.projectPath)}
+      active={props.selectedProjectPath === project.projectPath}
+      selectedSessionKey={props.selectedProjectPath === project.projectPath ? props.selectedSessionKey : null}
+      creating={props.pi?.creatingProjectPath === project.projectPath}
+      creationError={props.pi?.creationErrors.get(project.projectPath) ?? null}
+      onToggle={() => props.onToggleProject(project.projectPath)}
+      onSelectSession={(session) => props.onSelectSession(project, session)}
+      {...(props.pi ? { onCreatePiSession: () => props.pi!.onCreate(project) } : {})}
+      {...(props.canvasMove ? { canvasMove: props.canvasMove } : {})}
+      {...(props.archiving ? { archiving: props.archiving } : {})}
+      {...(projectArchiving ? { projectArchive } : {})}
+    />
+  );
   return (
     <>
       <ul role="list" aria-label="Projects">
-        {props.projects.map((project) => (
-          <ProjectSidebarItem
-            key={project.projectPath}
-            project={project}
-            sessions={props.sessionsByProject.get(project.projectPath)}
-            expanded={props.expandedProjectPaths.has(project.projectPath)}
-            active={props.selectedProjectPath === project.projectPath}
-            selectedSessionKey={props.selectedProjectPath === project.projectPath ? props.selectedSessionKey : null}
-            creating={props.pi?.creatingProjectPath === project.projectPath}
-            creationError={props.pi?.creationErrors.get(project.projectPath) ?? null}
-            onToggle={() => props.onToggleProject(project.projectPath)}
-            onSelectSession={(session) => props.onSelectSession(project, session)}
-            {...(props.pi ? { onCreatePiSession: () => props.pi!.onCreate(project) } : {})}
-            {...(props.canvasMove ? { canvasMove: props.canvasMove } : {})}
-            {...(props.archiving ? { archiving: props.archiving } : {})}
-            {...(projectArchiving ? { projectArchive } : {})}
-          />
-        ))}
+        {props.projects.filter((project) => !project.scratch).map((project) => item(project))}
       </ul>
+      <ScratchProjects count={scratch.length}>
+        {scratch.map((project) => item(project, scratchItemProject(project)))}
+      </ScratchProjects>
       {archivedFold}
     </>
   );

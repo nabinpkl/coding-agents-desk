@@ -6,6 +6,7 @@ import type { SessionReference } from "@/features/activity-feed/data-source/Agen
 import { useDataSource } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import { SHIKI_THEMES, useCodeHighlighting } from "@/features/activity-feed/markdown/highlighter";
 import type { ActivityBlock } from "@/features/activity-feed/useSessionEventsStream";
+import { SCRATCH_BRIEF_LABEL } from "@agentdesk/agent-feed-wire";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 import { runWithFinally } from "@/hooks/state/runWithFinally";
 
@@ -52,6 +53,24 @@ export function LabeledTextBlock({ block }: { block: ActivityBlock }) {
         {block.text ?? ""}
       </pre>
     </div>
+  );
+}
+
+/**
+ * A scratch chat's brief, folded above the first message it was sent with.
+ *
+ * The sidecar splits it out of that message as a metadata block under its own label, so the
+ * message shows only what the person typed. In raw mode it is also in the line's Raw drawer, with
+ * the rest of the line's metadata; this is the reading view's one way to see it.
+ */
+export function ScratchBriefDrawer({ blocks }: { blocks: readonly ActivityBlock[] }) {
+  const brief = blocks.find((block) => block.kind === "metadata" && block.label === SCRATCH_BRIEF_LABEL);
+  if (!brief?.text) return null;
+  return (
+    <details className={`${DRAWER_CLASS} mb-1`}>
+      <summary className={DRAWER_SUMMARY_CLASS}>{SCRATCH_BRIEF_LABEL}</summary>
+      <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{brief.text}</p>
+    </details>
   );
 }
 

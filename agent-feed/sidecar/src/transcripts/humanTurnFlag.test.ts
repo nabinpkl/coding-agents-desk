@@ -8,6 +8,7 @@
 // mistake a summarizer here already made once.
 
 import { expect, test } from "bun:test";
+import { SCRATCH_BRIEF_LABEL, withScratchBrief } from "@agentdesk/agent-feed-wire";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 import { codexAdapter } from "@/transcripts/codex/codexTranscript";
 
@@ -102,4 +103,23 @@ test("codex marks a person speaking, and not its injected instructions", () => {
     }),
   );
   expect(injected?.event?.humanTurn).toBeUndefined();
+});
+
+test("claude splits a scratch chat's brief out of the person's first message, and still marks it theirs", () => {
+  const r = claudeAdapter.processLine(
+    JSON.stringify({
+      type: "user",
+      timestamp: "2026-10-19T05:00:00.000Z",
+      cwd: "/scratch/plan-1a2b",
+      message: { role: "user", content: withScratchBrief("You are in a scratch folder.", "Plan the garden") },
+    }),
+  );
+  expect(r?.event?.humanTurn).toBe(true);
+  expect(r?.event?.blocks[0]).toEqual({
+    kind: "metadata",
+    label: SCRATCH_BRIEF_LABEL,
+    text: "You are in a scratch folder.",
+  });
+  expect(r?.event?.blocks[1]).toEqual({ kind: "text", text: "Plan the garden" });
+  expect(claudeAdapter.snippetFor(r!.event!)).toBe("→ Plan the garden");
 });

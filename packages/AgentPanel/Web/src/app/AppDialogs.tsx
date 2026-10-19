@@ -23,6 +23,7 @@ import { ForkSessionDialog, type ForkRequest } from "@/features/bots/dialogs/For
 import { HandoverDialog, type HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
 import { NewSessionDialog } from "@/features/bots/dialogs/NewSessionDialog";
+import { ChatDraftDialog } from "@/features/bots/dialogs/ChatDraftDialog";
 import { SessionModal } from "@/features/session-view/SessionModal";
 import { StartedSessionModal } from "@/features/session-view/StartedSessionModal";
 import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
@@ -188,6 +189,11 @@ export function AppDialogs({
           onStart={newSession.start}
         />
       </PanelErrorBoundary>
+      {newSession.chatOpen ? (
+        <PanelErrorBoundary surface="new chat" overlay onDismiss={newSession.closeChat}>
+          <ChatDraftDialog onClose={newSession.closeChat} onStart={newSession.startChat} />
+        </PanelErrorBoundary>
+      ) : null}
       {newSession.started ? (
         <PanelErrorBoundary
           key={sessionKey(newSession.started)}
