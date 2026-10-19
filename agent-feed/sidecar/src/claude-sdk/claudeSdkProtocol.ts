@@ -191,18 +191,70 @@ export function encodeLine(message: SidecarToRunner | RunnerToSidecar): string {
   return `${JSON.stringify(message)}\n`;
 }
 
-/** Splits a byte stream into lines, holding at most one partial line. */
+/**
+ * Splits a byte stream into lines, holding at most one partial line.
+ *
+ * The partial line is kept as its pieces and joined once, when its end arrives. Appending each
+ * chunk to one string and splitting all of it again cost the square of the line: measured, a 16 MiB
+ * line arriving in 8 KiB chunks took 13s and a 45 MiB one 92s, past the reply timeout.
+ */
 export class LineReader {
-  private buffer = "";
+  private pieces: string[] = [];
+  private held = 0;
   private readonly decoder = new TextDecoder();
 
   /** The complete lines in `chunk`; throws when a line outgrows `MAXIMUM_LINE_BYTES`. */
   push(chunk: Uint8Array): string[] {
-    this.buffer += this.decoder.decode(chunk, { stream: true });
-    const lines = this.buffer.split("\n");
-    this.buffer = lines.pop() ?? "";
-    if (this.buffer.length > MAXIMUM_LINE_BYTES) throw new Error("runner protocol line is too long");
+    const parts = this.decoder.decode(chunk, { stream: true }).split("\n");
+    const rest = parts.pop() ?? "";
+    const lines: string[] = [];
+    if (parts.length > 0) {
+      lines.push([...this.pieces, parts[0]].join(""), ...parts.slice(1));
+      this.pieces = [];
+      this.held = 0;
+    }
+    if (rest) {
+      this.pieces.push(rest);
+      this.held += rest.length;
+      if (this.held > MAXIMUM_LINE_BYTES) throw new Error("runner protocol line is too long");
+    }
     return lines.filter((line) => line.trim().length > 0);
+  }
+}
+
+/** What a `LineWriter` writes to: a Bun socket, which answers how many bytes it took. */
+export interface LineSink {
+  write(data: Uint8Array): number;
+}
+
+/**
+ * Writes whole lines to a socket that takes only part of a write.
+ *
+ * A Bun socket's `write` hands the kernel what it will take now, answers how much, and drops the
+ * rest: measured with Bun 1.3.13 on a macOS unix socket, writes of 64 KiB, 1 MiB and 4 MiB each sent
+ * 8,192 bytes. The rest is kept here and written on `drain`. Without it a prompt carrying a
+ * screenshot reached the runner cut at 8 KiB, was glued to the next line, and both were dropped as
+ * unreadable while the panel waited for a reply that never came (2026-10-19).
+ */
+export class LineWriter {
+  private backlog = Buffer.alloc(0);
+
+  constructor(private readonly maximumBacklogBytes: number) {}
+
+  /** Writes `line` behind anything kept; false when what is kept passed the limit. */
+  write(socket: LineSink, line: string): boolean {
+    const bytes = Buffer.from(line);
+    this.backlog = this.backlog.length === 0 ? bytes : Buffer.concat([this.backlog, bytes]);
+    this.flush(socket);
+    return this.backlog.length <= this.maximumBacklogBytes;
+  }
+
+  /** Writes what is kept, as far as the socket takes it: the socket's `drain` handler. */
+  flush(socket: LineSink): void {
+    if (this.backlog.length === 0) return;
+    const written = socket.write(this.backlog);
+    // Cut by bytes, never by characters: a partial write can stop inside a multi-byte one.
+    this.backlog = written >= this.backlog.length ? Buffer.alloc(0) : this.backlog.subarray(Math.max(0, written));
   }
 }
 

@@ -13,6 +13,7 @@ import type { PermissionResult, SDKUserMessage } from "@anthropic-ai/claude-agen
 import {
   encodeLine,
   LineReader,
+  LineWriter,
   parseSidecarMessage,
   PROTOCOL_VERSION,
   type RunnerReply,
@@ -28,8 +29,8 @@ const MAXIMUM_BACKLOG_BYTES = 16 * 1024 * 1024;
 
 interface Connection {
   reader: LineReader;
-  /** Bytes the kernel has not taken yet; flushed on `drain`. */
-  backlog: Buffer;
+  /** Keeps what the kernel has not taken yet; flushed on `drain`. */
+  writer: LineWriter;
   greeted: boolean;
 }
 
@@ -80,22 +81,12 @@ export async function serveRunner(
   const connections = new Set<Socket<Connection>>();
 
   const send = (socket: Socket<Connection>, message: RunnerToSidecar): void => {
-    const data = socket.data;
-    data.backlog = Buffer.concat([data.backlog, Buffer.from(encodeLine(message))]);
-    flush(socket);
     // A sidecar that stopped reading is let go rather than buffered for without bound. It loses
     // nothing it cannot have back: a connection is handed everything kept again on arrival.
-    if (data.backlog.length > MAXIMUM_BACKLOG_BYTES) {
+    if (!socket.data.writer.write(socket, encodeLine(message))) {
       log("closed a connection that stopped reading");
       socket.end();
     }
-  };
-  // Cut by bytes, never by characters: a partial write can stop inside a multi-byte one.
-  const flush = (socket: Socket<Connection>): void => {
-    const data = socket.data;
-    if (data.backlog.length === 0) return;
-    const written = socket.write(data.backlog);
-    data.backlog = written >= data.backlog.length ? Buffer.alloc(0) : data.backlog.subarray(Math.max(0, written));
   };
 
   const unsubscribe = runner.subscribe((event) => {
@@ -159,7 +150,7 @@ export async function serveRunner(
     unix: identity.socketPath,
     socket: {
       open(socket) {
-        socket.data = { reader: new LineReader(), backlog: Buffer.alloc(0), greeted: false };
+        socket.data = { reader: new LineReader(), writer: new LineWriter(MAXIMUM_BACKLOG_BYTES), greeted: false };
         connections.add(socket);
         send(socket, {
           type: "hello",
@@ -184,7 +175,7 @@ export async function serveRunner(
         for (const line of lines) receive(socket, line);
       },
       drain(socket) {
-        flush(socket);
+        socket.data.writer.flush(socket);
       },
       close(socket) {
         connections.delete(socket);

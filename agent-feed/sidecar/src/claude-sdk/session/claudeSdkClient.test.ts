@@ -201,6 +201,29 @@ describe("a prompt sent while a turn runs", () => {
   });
 });
 
+describe("a prompt larger than one socket write", () => {
+  test("reaches the runner whole, its image intact", async () => {
+    const session = await runnerFor();
+    const client = new ClaudeSdkClient(work, quiet);
+    const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
+    // A phone screenshot is a few hundred KB; this is well past one 8 KiB write either way.
+    const data = Buffer.alloc(6 * 1024 * 1024, 7).toString("base64");
+    const reply = await client.command(session.sessionId, {
+      type: "prompt",
+      text: "what is in this?",
+      images: [{ mediaType: "image/png", data }],
+    });
+    expect(reply).toEqual({ ok: true });
+    for (let tries = 0; session.fake().received.length === 0 && tries < 50; tries += 1) await Bun.sleep(10);
+    const content = session.fake().received[0]?.message.content as { source?: { data: string } }[];
+    expect(content[0]?.source?.data).toBe(data);
+    // And the connection still reads: the next command is answered, not glued to a leftover.
+    expect(await client.command(session.sessionId, { type: "prompt", text: "and this?" })).toEqual({ ok: true });
+    followed.stop();
+    await session.stop();
+  });
+});
+
 describe("the effort a session runs at", () => {
   test("is the CLI's own word before any turn, until a level is chosen, which then wins", async () => {
     const session = await runnerFor();

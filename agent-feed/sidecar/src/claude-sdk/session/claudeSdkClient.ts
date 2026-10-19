@@ -20,6 +20,8 @@ import { DISCONNECTED_CLAUDE_SDK_STATE, type ClaudeSdkSessionState } from "@agen
 import {
   encodeLine,
   LineReader,
+  LineWriter,
+  MAXIMUM_LINE_BYTES,
   parseRunnerMessage,
   PROTOCOL_VERSION,
   runnerBuild,
@@ -36,6 +38,9 @@ import type { ClaudeSdkLiveFeed } from "@/claude-sdk/session/claudeSdkLiveFeed";
 
 /** How long a command waits for the runner's reply before it is reported as not established. */
 const REPLY_TIMEOUT_MS = 20_000;
+
+/** Unsent bytes one connection may hold before it is closed: a prompt at the line cap, and one more. */
+const MAXIMUM_BACKLOG_BYTES = 2 * MAXIMUM_LINE_BYTES;
 
 type RunnerMessage = DistributiveOmit<Exclude<SidecarToRunner, { type: "hello" }>, "id">;
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
@@ -55,7 +60,8 @@ interface Connection {
   session: SdkSession | null;
   /** Whether the runner runs code older than what is on disk now. */
   stale: boolean;
-  socket: Socket<undefined> | null;
+  /** Carries the writer that keeps what the kernel has not taken yet. */
+  socket: Socket<LineWriter> | null;
   /** In flight, so two callers asking at once share one connect. */
   opening: Promise<boolean> | null;
   listeners: Set<(state: ClaudeSdkSessionState) => void>;
@@ -188,7 +194,11 @@ export class ClaudeSdkClient {
       }, REPLY_TIMEOUT_MS);
       connection.replies.set(id, { resolve, timer });
     });
-    connection.socket.write(encodeLine({ ...message, id }));
+    if (!connection.socket.data.write(connection.socket, encodeLine({ ...message, id }))) {
+      // Closing answers every waiting command, this one included, as having no runner.
+      this.log(`${connection.sessionId}: closed a connection to a runner that stopped reading`);
+      connection.socket.end();
+    }
     return reply;
   }
 
@@ -249,10 +259,12 @@ export class ClaudeSdkClient {
     let introduced = false;
     let greeted!: (ok: boolean) => void;
     const ready = new Promise<boolean>((resolve) => (greeted = resolve));
-    const socket = await Bun.connect({
+    const socket = await Bun.connect<LineWriter>({
       unix: path,
+      data: new LineWriter(MAXIMUM_BACKLOG_BYTES),
       socket: {
-        open: (socket) => void socket.write(encodeLine({ type: "hello", version: PROTOCOL_VERSION })),
+        open: (socket) => void socket.data.write(socket, encodeLine({ type: "hello", version: PROTOCOL_VERSION })),
+        drain: (socket) => socket.data.flush(socket),
         data: (_socket, chunk) => {
           let lines: string[];
           try {
@@ -430,7 +442,7 @@ export class ClaudeSdkClient {
     this.update(connection);
   }
 
-  private closed(connection: Connection, socket: Socket<undefined>): void {
+  private closed(connection: Connection, socket: Socket<LineWriter>): void {
     if (connection.socket && connection.socket !== socket) return;
     connection.socket = null;
     for (const waiting of connection.replies.values()) {
