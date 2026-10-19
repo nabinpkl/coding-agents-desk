@@ -12,7 +12,10 @@
 import type { ClaudePermissionMode } from "./tmuxComposer.ts";
 import type { TmuxQuestionAnswer, TmuxQuestionOutcome } from "./tmuxQuestion.ts";
 
-/** How a Claude session's process is run. Terminal is the default; SDK is chosen at creation. */
+/**
+ * How a Claude session's process is run, chosen at creation. A start that names none gets the
+ * terminal; the panel's new-session dialog names SDK, which is the current path.
+ */
 export type ClaudeRunMode = "terminal" | "sdk";
 
 /** How much Claude thinks before answering, in the SDK's names for the levels, least first. */
@@ -103,6 +106,13 @@ export interface ClaudeSdkSessionState {
    * on it (`getSettings().applied`, or its init where it names one); null while nothing has said.
    */
   effort: ClaudeEffortLevel | null;
+  /**
+   * Claude's guess at what the person will say next, which the terminal draws faint in its empty
+   * box; null when it is offering none. The CLI sends one after some turns' results, its own call
+   * which (never after the first, nor in plan mode), and it stops being an offer the moment
+   * anything is sent or the session starts working again.
+   */
+  suggestion: string | null;
 }
 
 /** A prompt sent to an SDK session while it was busy, as the feed shows it until it is taken in. */
@@ -150,6 +160,7 @@ export const DISCONNECTED_CLAUDE_SDK_STATE: ClaudeSdkSessionState = {
   models: [],
   queued: [],
   effort: null,
+  suggestion: null,
 };
 
 /** A turn typed into an SDK session. */

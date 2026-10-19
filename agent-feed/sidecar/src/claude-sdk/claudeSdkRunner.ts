@@ -168,6 +168,10 @@ export class ClaudeSdkRunner {
       // session shows are gone from the card and the transcript alike (measured 2026-10-17).
       thinking: { type: "adaptive", display: "summarized" },
       includePartialMessages: true,
+      // Claude's guess at the next prompt, which the terminal draws in its empty box. The SDK sends
+      // it as a `prompt_suggestion` message after a turn's result, and only when asked; it is
+      // written to no transcript, so this is the only way an SDK session's composer can offer it.
+      promptSuggestions: true,
       // `-n`: the title and the registry name a terminal session gets, on a resume too, where the
       // SDK would otherwise derive a name from the directory (measured 2026-10-17).
       extraArgs: { name: plan.name },

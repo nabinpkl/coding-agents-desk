@@ -56,6 +56,7 @@ describe("the options a plan comes to", () => {
       plugins: [{ type: "local", path: "/mods/prompt-guard" }],
       thinking: { type: "adaptive", display: "summarized" },
       includePartialMessages: true,
+      promptSuggestions: true,
       extraArgs: { name: "Probe session" },
     });
     expect(options.resume).toBeUndefined();

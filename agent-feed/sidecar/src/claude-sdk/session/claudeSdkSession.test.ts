@@ -66,6 +66,31 @@ describe("a session's state", () => {
     expect(session.state().status).toBe("exited");
   });
 
+  test("offers Claude's guess at the next prompt until a prompt is sent or a turn starts", () => {
+    const session = new SdkSession(SESSION, true);
+    expect(session.state().suggestion).toBeNull();
+    const turnEnds = () => {
+      session.fold(message({ type: "result", subtype: "success" }));
+      session.fold(message({ type: "prompt_suggestion", suggestion: "run the tests" }));
+    };
+    turnEnds();
+    expect(session.state()).toMatchObject({ status: "idle", suggestion: "run the tests" });
+    session.fold({ kind: "input" });
+    expect(session.state().suggestion).toBeNull();
+
+    turnEnds();
+    // A background task's turn, which no input started.
+    session.fold(message({ type: "stream_event", event: { type: "message_start" } }));
+    expect(session.state().suggestion).toBeNull();
+
+    turnEnds();
+    session.fold(message({ type: "prompt_suggestion", suggestion: "  " }));
+    expect(session.state().suggestion).toBeNull();
+    turnEnds();
+    session.fold({ kind: "ended" });
+    expect(session.state().suggestion).toBeNull();
+  });
+
   test("is idle once the CLI answers a call, without waiting for the init of a first turn", () => {
     const session = new SdkSession(SESSION, true);
     session.answered();

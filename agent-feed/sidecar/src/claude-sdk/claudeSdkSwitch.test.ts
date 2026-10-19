@@ -24,6 +24,7 @@ const IDLE_RUNNER: ClaudeSdkSessionState = {
   models: [],
   queued: [],
   effort: null,
+  suggestion: null,
 };
 
 function row(overrides: Partial<ClaudeSessionProcess> = {}): ClaudeSessionProcess {

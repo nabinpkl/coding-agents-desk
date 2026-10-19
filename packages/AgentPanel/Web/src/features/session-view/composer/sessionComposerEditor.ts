@@ -21,9 +21,9 @@ export interface ComposerEditor {
   /**
    * What Tab does instead of moving focus, when there is something to accept.
    *
-   * Only the mirrored terminal band has one: it is the only field whose placeholder is a real
-   * offer from the other side rather than a label. Absent everywhere else, so Tab keeps moving
-   * focus, which is what a keyboard reader expects of it.
+   * Only where the placeholder is Claude's own guess at the next prompt rather than a label: the
+   * SDK band and the mirrored terminal band, and only while the guess is showing. Absent
+   * otherwise, so Tab keeps moving focus, which is what a keyboard reader expects of it.
    */
   onAcceptHint?: () => void;
   /**
@@ -83,18 +83,32 @@ export interface ComposerEditor {
   };
 }
 
+/**
+ * Claude's guess at the next prompt, while the SDK band is in a state to offer it: the session
+ * idle and the field empty, the only time the terminal draws one either.
+ */
+function sdkSuggestion(m: ComposerModel): string | null {
+  const { state } = m.sdkSession;
+  if (m.unavailable || m.deliveryPending || state.status !== "idle" || m.localDraft.length > 0) return null;
+  return state.suggestion;
+}
+
 export function composerEditor(m: ComposerModel): ComposerEditor {
+  const suggestion = m.sdkBand ? sdkSuggestion(m) : null;
   return m.sdkBand
     ? {
         value: m.localDraft,
         onChange: m.unavailable ? () => {} : m.setLocalDraft,
         disabled: m.unavailable || m.deliveryPending,
         ariaLabel: "Message this session",
+        // The guess is a placeholder, as the terminal draws it: no part of the value until Tab
+        // takes it, and then only into the field, where it can be edited before it is sent.
         placeholder: m.unavailable
           ? "This session is not running"
           : m.sdkSession.state.status === "running"
             ? "Queue the next message\u2026"
-            : "Message Claude\u2026",
+            : (suggestion ?? "Message Claude\u2026"),
+        ...(suggestion === null ? {} : { onAcceptHint: () => m.setLocalDraft(suggestion) }),
         maxLength: 100_000,
         sendOnEnter: !m.unavailable,
         // Held in the band and sent with the turn, as opencode's are: the pane is the runner's log.

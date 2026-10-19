@@ -42,6 +42,7 @@ const LIVE: ClaudeSdkSessionState = {
   ],
   queued: [],
   effort: null,
+  suggestion: null,
 };
 
 function handle(
@@ -215,6 +216,27 @@ describe("the SDK band's actions", () => {
     expect(compactControl(sdkModel(handle({ connected: false }), { editorValue: "" }))!.blocked).toBe(
       "This session is not running.",
     );
+  });
+
+  it("offers Claude's guess at the next prompt in the empty field, and Tab puts it there to edit", () => {
+    const m = sdkModel(handle({ suggestion: "run the tests" }), { localDraft: "" });
+    const editor = composerEditor(m);
+    expect(editor.placeholder).toBe("run the tests");
+    editor.onAcceptHint!();
+    expect(m.setLocalDraft).toHaveBeenCalledWith("run the tests");
+    expect(m.sdkSession.send).not.toHaveBeenCalled();
+  });
+
+  it("offers no guess over a draft, during a turn, or without a runner, so Tab moves focus there", () => {
+    for (const m of [
+      sdkModel(handle({ suggestion: "run the tests" })),
+      sdkModel(handle({ suggestion: "run the tests", status: "running" }), { localDraft: "" }),
+      sdkModel(handle({ suggestion: "run the tests", connected: false }), { localDraft: "" }),
+    ]) {
+      const editor = composerEditor(m);
+      expect(editor.placeholder).not.toBe("run the tests");
+      expect(editor.onAcceptHint).toBeUndefined();
+    }
   });
 
   it("says when there is no runner, and says the runner's refusal", () => {

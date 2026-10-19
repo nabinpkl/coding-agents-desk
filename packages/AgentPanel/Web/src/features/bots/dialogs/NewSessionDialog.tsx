@@ -34,7 +34,8 @@ export function NewSessionDialog({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [selectedPath, setSelectedPath] = useStateFor<string | null>(open, () => null);
-  const [harness, setHarness] = useStateFor<NewSessionHarness>(open, () => "claude");
+  // The SDK runner is how a Claude session runs now; the terminal UI is kept for sessions already in it.
+  const [harness, setHarness] = useStateFor<NewSessionHarness>(open, () => "claude-sdk");
   const [title, setTitle] = useStateFor(open, () => "");
   const [prompt, setPrompt] = useStateFor(open, () => "");
   const [pending, setPending] = useStateFor(open, () => false);

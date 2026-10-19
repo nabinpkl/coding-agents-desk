@@ -40,9 +40,10 @@ it("starts only once it has a directory and a name, in the harness picked", asyn
   );
 });
 
-it("sends no first message when none was written", async () => {
+it("starts a Claude session through the SDK, with no first message, when nothing else is picked", async () => {
   const onStart = vi.fn(async () => {});
   const start = dialog(onStart);
+  expect(screen.getByRole("radio", { name: /Claude SDK/ })).toBeChecked();
   fireEvent.click(screen.getByRole("radio", { name: /garden/ }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Garden notes" } });
   fireEvent.change(screen.getByLabelText("First message"), { target: { value: "   " } });
@@ -50,27 +51,26 @@ it("sends no first message when none was written", async () => {
   await waitFor(() =>
     expect(onStart).toHaveBeenCalledWith({
       source: "claude",
+      claudeMode: "sdk",
       projectPath: GARDEN.projectPath,
       title: "Garden notes",
     }),
   );
 });
 
-it("starts a Claude session through the SDK when that is the harness picked", async () => {
+it("starts a Claude session in its terminal UI when that is the harness picked", async () => {
   const onStart = vi.fn(async () => {});
   const start = dialog(onStart);
   fireEvent.click(screen.getByRole("radio", { name: /garden/ }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Garden notes" } });
-  fireEvent.click(screen.getByRole("radio", { name: /Claude SDK/ }));
+  fireEvent.click(screen.getByRole("radio", { name: /Claude Code/ }));
   fireEvent.click(start);
   await waitFor(() =>
-    expect(onStart).toHaveBeenCalledWith(
-      expect.objectContaining({
-        source: "claude",
-        claudeMode: "sdk",
-        title: "Garden notes",
-      }),
-    ),
+    expect(onStart).toHaveBeenCalledWith({
+      source: "claude",
+      projectPath: GARDEN.projectPath,
+      title: "Garden notes",
+    }),
   );
 });
 

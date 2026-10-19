@@ -109,6 +109,8 @@ export class SdkSession {
   /** Prompts sent while a turn ran, held until that turn ends (`queue`). */
   private queued: ClaudeSdkQueuedPrompt[] = [];
   private nextQueued = 0;
+  /** Claude's guess at the next prompt, from its last turn, until something moves past it. */
+  private suggestion: string | null = null;
   /** The callbacks the runner holds, by its id for each, as the panel shows them. */
   private readonly pending = new Map<string, ClaudeSdkPendingRequest>();
 
@@ -156,6 +158,7 @@ export class SdkSession {
       models: this.models,
       queued: this.queued,
       effort: this.effort ?? this.applied.effort ?? null,
+      suggestion: this.suggestion,
     };
   }
 
@@ -196,10 +199,12 @@ export class SdkSession {
     switch (record.kind) {
       case "input":
         this.becomes("running");
+        this.suggestion = null;
         return null;
       case "ended":
         this.status = "exited";
         this.queued = [];
+        this.suggestion = null;
         return null;
       case "called":
         this.called(record.method, record.args);
@@ -362,6 +367,8 @@ export class SdkSession {
   private message(message: Fields & { type: string }): RunnerStreamFrame | null {
     if (message.type === "stream_event" || message.type === "assistant") {
       this.becomes("running");
+      // A turn under way, the person's or one a background task started, makes the guess stale.
+      this.suggestion = null;
       const event = message.event as Fields | undefined;
       return message.type === "stream_event" && event && isString(event.type)
         ? {
@@ -373,6 +380,13 @@ export class SdkSession {
     if (message.type === "result") {
       this.becomes("idle");
       this.queued = [];
+      return null;
+    }
+    // Sent after the result it follows, so the turn it guesses from is already over. The runner
+    // keeps the latest one and replays records in the order they last arrived, so after a sidecar
+    // restart an input sent since still clears it.
+    if (message.type === "prompt_suggestion") {
+      this.suggestion = isString(message.suggestion) && message.suggestion.trim() ? message.suggestion : null;
       return null;
     }
     if (message.type !== "system") return null;
