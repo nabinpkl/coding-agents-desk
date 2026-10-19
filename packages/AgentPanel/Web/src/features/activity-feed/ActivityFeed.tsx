@@ -168,6 +168,7 @@ export function ActivityFeed({
     // to pin to. A fresh session that only has the live mirror would otherwise
     // never arm the follower, so its growing tail wouldn't auto-scroll.
     events.length > 0 || tails.length > 0,
+    `${source}:${sessionId}`,
   );
 
   // Scroll offset the sticky bars are computed from, read from a ref at every render. A scroll

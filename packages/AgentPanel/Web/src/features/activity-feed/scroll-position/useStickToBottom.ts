@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { useSnapBackWitness } from "@/features/activity-feed/scroll-position/useSnapBackWitness";
 import { useEventListener } from "@/hooks/dom/useEventListener";
 import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
 
@@ -102,11 +103,17 @@ const DOWNWARD_KEYS = new Set(["ArrowDown", "PageDown", "End"]);
  *
  * `active` gates observer setup on the content tree being mounted (the feed
  * renders loading/empty placeholders first, when the refs are still null).
+ *
+ * A snap that puts a reader back at the end shortly after they wheeled up is reported to telemetry
+ * (`useSnapBackWitness`), with `session` naming the transcript. Reported 2026-10-18 on the Mac: a
+ * Claude card handed over from opencode would not scroll up during its first heavy turn, a reload
+ * cleared it, and neither a fresh browser nor a streaming probe reproduced it.
  */
 export function useStickToBottom(
   scrollRef: React.RefObject<HTMLElement | null>,
   sizedRef: React.RefObject<HTMLElement | null>,
   active: boolean,
+  session: string,
 ): {
   following: boolean;
   onScroll: () => void;
@@ -123,6 +130,7 @@ export function useStickToBottom(
   // page sees, so the press is the only evidence the reader is moving it.
   const scrollbarHeldRef = useRef(false);
   const [following, setFollowingState] = useState(true);
+  const { sawWheel, snapped } = useSnapBackWitness(scrollRef, active, session);
 
   const setFollowing = useCallback((next: boolean) => {
     if (followingRef.current === next) return;
@@ -130,18 +138,35 @@ export function useStickToBottom(
     setFollowingState(next);
   }, []);
 
-  const snapToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    enforcingRef.current = true;
-    el.scrollTop = el.scrollHeight;
-    lastTopRef.current = el.scrollTop;
-    // Release the fence after the browser has dispatched the scroll event this
-    // write triggers, so onScroll can distinguish it from a user gesture.
-    requestAnimationFrame(() => {
-      enforcingRef.current = false;
-    });
-  }, [scrollRef]);
+  // `undid` is passed when the follower snapped on its own over a viewport that had risen from
+  // where it last put it: the snap is then one that may have undone a reader's scroll.
+  const snapToBottom = useCallback(
+    (undid?: { cause: "resize" | "scroll"; upPx: number }) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const wasEnforcing = enforcingRef.current;
+      enforcingRef.current = true;
+      el.scrollTop = el.scrollHeight;
+      lastTopRef.current = el.scrollTop;
+      if (undid && undid.upPx > END_EPSILON_PX) {
+        snapped({
+          cause: undid.cause,
+          upPx: Math.round(undid.upPx),
+          enforcing: wasEnforcing,
+          scrollbarHeld: scrollbarHeldRef.current,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+          intentAt: upwardIntentAtRef.current,
+        });
+      }
+      // Release the fence after the browser has dispatched the scroll event this
+      // write triggers, so onScroll can distinguish it from a user gesture.
+      requestAnimationFrame(() => {
+        enforcingRef.current = false;
+      });
+    },
+    [scrollRef, snapped],
+  );
 
   const scrollToBottom = useCallback(() => {
     setFollowing(true);
@@ -165,7 +190,9 @@ export function useStickToBottom(
   // is pulling away from it. The scroll event their input produces is what detaches; a snap landing
   // first would put the viewport back at the end before that event could see it move.
   useResizeObserver(active ? sizedRef : null, () => {
-    if (followingRef.current && !pullingUp()) snapToBottom();
+    if (!followingRef.current || pullingUp()) return;
+    const top = scrollRef.current?.scrollTop ?? lastTopRef.current;
+    snapToBottom({ cause: "resize", upPx: lastTopRef.current - top });
   });
 
   // Record when an input last asked to move towards earlier content. Only the
@@ -190,6 +217,7 @@ export function useStickToBottom(
     scroller,
     "wheel",
     (event) => {
+      sawWheel(event);
       if (event.deltaY < 0) markUpward();
       if (event.deltaY > 0) markDownward();
     },
@@ -257,7 +285,8 @@ export function useStickToBottom(
     const el = scrollRef.current;
     if (!el) return;
     const top = el.scrollTop;
-    const wentUp = top < lastTopRef.current - 1;
+    const rose = lastTopRef.current - top;
+    const wentUp = rose > 1;
     const fromEnd = el.scrollHeight - top - el.clientHeight;
     lastTopRef.current = top;
     const pulledUp = pullingUp();
@@ -269,7 +298,7 @@ export function useStickToBottom(
       // The reader asked to go up: let them. Short of the end for any other reason is layout,
       // which a viewport that is following does not get to keep.
       if (wentUp && pulledUp) setFollowing(false);
-      else if (!pulledUp) snapToBottom();
+      else if (!pulledUp) snapToBottom({ cause: "scroll", upPx: rose });
     } else if (fromEnd <= END_EPSILON_PX) {
       // At the end is not enough: the reader has to be the one who brought it there.
       const pushedDown =

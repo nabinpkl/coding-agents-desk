@@ -78,6 +78,7 @@ function setup(scrollEl = makeScrollEl()) {
       scrollRef as React.RefObject<HTMLElement | null>,
       sizedRef as React.RefObject<HTMLElement | null>,
       true,
+      "claude:test",
     ),
   );
   return { view, scrollEl };
