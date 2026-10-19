@@ -8,9 +8,6 @@ const ARROWS: Array<{ label: string; key: RailKey; position: string }> = [
   { label: "↓", key: "down", position: "col-start-2 row-start-2" },
   { label: "→", key: "right", position: "col-start-3 row-start-2" },
 ];
-/** On the keyboard bar the arrows lie in one row, in the order a thumb reads them. */
-const BAR_ARROW_ORDER: RailKey[] = ["left", "up", "down", "right"];
-const BAR_ARROWS = [...ARROWS].sort((a, b) => BAR_ARROW_ORDER.indexOf(a.key) - BAR_ARROW_ORDER.indexOf(b.key));
 const MODIFIERS: Array<{ label: string; modifier: RailModifier }> = [
   { label: "Ctrl", modifier: "ctrl" },
   // "Alt" rather than the Mac's "Opt": in a terminal this is Meta, and what it does is prefix an
@@ -30,9 +27,9 @@ const MODIFIERS: Array<{ label: string; modifier: RailModifier }> = [
  * share -- how a latching modifier behaves, and what a key looks like -- is shared as code
  * (`features/keyboard`), and the rest is different because the machines are.
  *
- * `layout="bar"` is the same keys as one row of full-height keys, for the keyboard bar
- * (`features/keyboard/KeyboardBar.tsx`) that stands on the phone's keyboard: the bar is one row
- * tall and as wide as the screen, so the arrows lie flat rather than stacking.
+ * `layout="bar"` is the same keys in the same arrangement, for the keyboard bar
+ * (`features/keyboard/KeyboardBar.tsx`) that stands on the phone's keyboard: the bar gives it its
+ * edges and its height, so the rail drops its own border and fills the bar.
  */
 export function TerminalKeyRail({
   modifiers,
@@ -45,34 +42,8 @@ export function TerminalKeyRail({
   onKey: (key: RailKey) => void;
   layout?: "rail" | "bar";
 }) {
-  if (layout === "bar") {
-    const keyClass = "h-9 flex-1 text-sm";
-    return (
-      // The bar already keeps a press from taking focus.
-      <div role="group" aria-label="Terminal keys" className="flex h-full min-w-0 flex-1 items-center gap-1">
-        <KeyRailButton label="Esc" className={keyClass} onClick={() => onKey("escape")} />
-        <KeyRailButton label="Tab" className={keyClass} onClick={() => onKey("tab")} />
-        <KeyRailButton label="⇧" className={keyClass} state={modifiers.shift} onClick={() => onModifier("shift")} />
-        {BAR_ARROWS.map((arrow) => (
-          <KeyRailButton
-            key={arrow.key}
-            label={arrow.label}
-            className={`${keyClass} text-base leading-none`}
-            onClick={() => onKey(arrow.key)}
-          />
-        ))}
-        {MODIFIERS.map(({ label, modifier }) => (
-          <KeyRailButton
-            key={modifier}
-            label={label}
-            className={keyClass}
-            state={modifiers[modifier]}
-            onClick={() => onModifier(modifier)}
-          />
-        ))}
-      </div>
-    );
-  }
+  const onBar = layout === "bar";
+  const keyText = onBar ? "text-sm" : "text-xs";
   return (
     <section
       aria-label="Terminal key rail"
@@ -82,11 +53,13 @@ export function TerminalKeyRail({
       onMouseDown={(event) => event.preventDefault()}
       // As tall as its keys rather than a fixed height: the arrow pad's two rows need 38px, and a
       // 36px rail let them hang over the footer below. Taking the room pushes the screen up instead.
-      className="grid shrink-0 grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(2,minmax(0,1fr))] gap-1 border-t border-border px-1.5 py-1"
+      className={`grid grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(2,minmax(0,1fr))] gap-1 ${
+        onBar ? "h-full min-w-0 flex-1" : "shrink-0 border-t border-border px-1.5 py-1"
+      }`}
     >
-      <KeyRailButton label="Esc" onClick={() => onKey("escape")} />
-      <KeyRailButton label="Tab" onClick={() => onKey("tab")} />
-      <KeyRailButton label="⇧" state={modifiers.shift} onClick={() => onModifier("shift")} />
+      <KeyRailButton label="Esc" className={keyText} onClick={() => onKey("escape")} />
+      <KeyRailButton label="Tab" className={keyText} onClick={() => onKey("tab")} />
+      <KeyRailButton label="⇧" className={keyText} state={modifiers.shift} onClick={() => onModifier("shift")} />
       <div role="group" aria-label="Arrow keys" className="grid h-full grid-cols-3 grid-rows-2 gap-0.5">
         {ARROWS.map((arrow) => (
           <KeyRailButton
@@ -98,7 +71,13 @@ export function TerminalKeyRail({
         ))}
       </div>
       {MODIFIERS.map(({ label, modifier }) => (
-        <KeyRailButton key={modifier} label={label} state={modifiers[modifier]} onClick={() => onModifier(modifier)} />
+        <KeyRailButton
+          key={modifier}
+          label={label}
+          className={keyText}
+          state={modifiers[modifier]}
+          onClick={() => onModifier(modifier)}
+        />
       ))}
     </section>
   );

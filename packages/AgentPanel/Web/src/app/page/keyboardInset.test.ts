@@ -235,7 +235,7 @@ describe("installKeyboardInset", () => {
     installed.remove();
   });
 
-  it("raises the bar for a field that brings its own keys, and tells it so", () => {
+  it("raises a taller bar for a field that brings its own keys, and tells it so", () => {
     const device = phone();
     const field = document.createElement("textarea");
     field.setAttribute("data-keyboard-bar", "keys");
@@ -244,7 +244,7 @@ describe("installKeyboardInset", () => {
     const installed = installKeyboardInset();
     field.focus();
     device.keyboard(336);
-    expect(document.documentElement.style.getPropertyValue("--agent-panel-keyboard-inset")).toBe("380px");
+    expect(document.documentElement.style.getPropertyValue("--agent-panel-keyboard-inset")).toBe("400px");
     expect(keyboardBarSnapshot()).toMatchObject({ field, ownKeys: true });
     installed.remove();
   });

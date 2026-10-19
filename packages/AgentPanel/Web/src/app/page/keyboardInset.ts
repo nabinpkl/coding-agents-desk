@@ -2,7 +2,7 @@ import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import {
   bringsOwnKeys,
   hasOwnKeyRow,
-  KEYBOARD_BAR_HEIGHT,
+  keyboardBarHeight,
   KEYBOARD_SUGGESTION_ATTRIBUTE,
   publishKeyboardBar,
 } from "@/features/keyboard/keyboardBarState";
@@ -113,7 +113,7 @@ export function installKeyboardInset(): { remove(): void } {
       viewportOffsetTop,
       typing,
       scale,
-      bar: field ? KEYBOARD_BAR_HEIGHT : 0,
+      bar: field ? keyboardBarHeight(bringsOwnKeys(field)) : 0,
     });
     document.documentElement.style.setProperty(INSET_PROPERTY, `${inset}px`);
     document.documentElement.toggleAttribute(RAISED_ATTRIBUTE, inset > 0);

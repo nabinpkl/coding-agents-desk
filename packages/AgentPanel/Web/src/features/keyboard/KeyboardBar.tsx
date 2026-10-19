@@ -27,7 +27,7 @@ import { createPortal } from "react-dom";
 import { KeyRailButton } from "@/features/keyboard/KeyRailButton";
 import { pressKeyboardBarKey, type KeyboardBarKey } from "@/features/keyboard/keyboardBarKeys";
 import {
-  KEYBOARD_BAR_HEIGHT,
+  keyboardBarHeight,
   keyboardBarSnapshot,
   publishKeyboardBarSlot,
   subscribeKeyboardBar,
@@ -86,7 +86,7 @@ function KeyboardBarRow({ bar, field }: { bar: KeyboardBarState; field: HTMLElem
         left,
         top: bottom,
         width: width * scale,
-        height: KEYBOARD_BAR_HEIGHT,
+        height: keyboardBarHeight(bar.ownKeys),
         transform: `scale(${1 / scale}) translateY(-100%)`,
         transformOrigin: "top left",
         opacity: bar.pinching ? 0 : 1,

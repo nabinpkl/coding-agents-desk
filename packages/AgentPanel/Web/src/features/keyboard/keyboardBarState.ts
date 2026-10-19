@@ -10,6 +10,17 @@
 export const KEYBOARD_BAR_HEIGHT = 44;
 
 /**
+ * How tall it stands when the field brings its own keys: the terminal rail's arrow pad is two rows,
+ * ↑ over ← ↓ →, and each row wants a key a thumb can hit.
+ */
+const KEYBOARD_BAR_KEYS_HEIGHT = 64;
+
+/** The bar's height for what it is carrying. */
+export function keyboardBarHeight(ownKeys: boolean): number {
+  return ownKeys ? KEYBOARD_BAR_KEYS_HEIGHT : KEYBOARD_BAR_HEIGHT;
+}
+
+/**
  * Marks a region whose fields already draw their own key row, so the bar stays away from them: a
  * terminal's rail and the desktop viewer's keys. Written `data-keyboard-bar="off"` on the region.
  */
