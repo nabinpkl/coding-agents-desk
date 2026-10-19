@@ -91,6 +91,8 @@ export function DesktopKeyboardChrome({
         <textarea
           ref={captureRef}
           aria-label="Remote Mac keyboard input"
+          // The viewer draws its own keys on the keyboard, so the keyboard bar stays away.
+          data-keyboard-bar="off"
           autoCapitalize="none"
           autoComplete="off"
           autoCorrect="off"

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { KEEP_IN_SIGHT_ATTRIBUTE, keepTypingInSight, keyboardInset, typesText } from "@/app/page/keyboardInset";
+import {
+  installKeyboardInset,
+  KEEP_IN_SIGHT_ATTRIBUTE,
+  keepTypingInSight,
+  keyboardInset,
+  showsKeyboardBar,
+  typesText,
+} from "@/app/page/keyboardInset";
+import { keyboardBarSnapshot } from "@/features/keyboard/keyboardBarState";
 
 describe("keyboardInset", () => {
   it("gives back the strip a keyboard covers", () => {
@@ -47,6 +55,41 @@ describe("keyboardInset", () => {
         typing: true,
       }),
     ).toBe(0);
+  });
+
+  it("gives back the keyboard bar's row as well, while it stands on the keyboard", () => {
+    expect(
+      keyboardInset({ layoutHeight: 844, viewportHeight: 508, viewportOffsetTop: 0, typing: true, scale: 1, bar: 44 }),
+    ).toBe(380);
+  });
+
+  it("moves nothing under a reader who has zoomed in", () => {
+    // The page is theirs to pan; the bar keeps to the glass on its own.
+    expect(
+      keyboardInset({ layoutHeight: 844, viewportHeight: 300, viewportOffsetTop: 0, typing: true, scale: 2, bar: 44 }),
+    ).toBe(0);
+  });
+});
+
+describe("showsKeyboardBar", () => {
+  const reading = { typing: true, drawsKeyboard: true, ownKeyRow: false, covered: 336, scale: 1 };
+
+  it("stands on a phone's keyboard for a focused field", () => {
+    expect(showsKeyboardBar(reading)).toBe(true);
+  });
+
+  it("waits for the keyboard to arrive, so the page moves once for both", () => {
+    expect(showsKeyboardBar({ ...reading, covered: 0 })).toBe(false);
+  });
+
+  it("is up whenever a field is focused while zoomed in, where the keyboard cannot be measured", () => {
+    expect(showsKeyboardBar({ ...reading, covered: 0, scale: 2 })).toBe(true);
+  });
+
+  it("stays away from a desktop keyboard, a field with its own key row, and nothing focused", () => {
+    expect(showsKeyboardBar({ ...reading, drawsKeyboard: false })).toBe(false);
+    expect(showsKeyboardBar({ ...reading, ownKeyRow: true })).toBe(false);
+    expect(showsKeyboardBar({ ...reading, typing: false })).toBe(false);
   });
 });
 
@@ -124,5 +167,71 @@ describe("keepTypingInSight", () => {
     field.focus();
     resize();
     expect(field.scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe("installKeyboardInset", () => {
+  /** A phone: a coarse pointer, and a visual viewport a keyboard can shrink. */
+  function phone() {
+    const viewport = Object.assign(new EventTarget(), {
+      height: 844,
+      width: 390,
+      offsetTop: 0,
+      offsetLeft: 0,
+      scale: 1,
+    });
+    vi.stubGlobal("visualViewport", viewport);
+    vi.stubGlobal("innerHeight", 844);
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("coarse") }));
+    return {
+      keyboard(height: number) {
+        viewport.height = 844 - height;
+        viewport.dispatchEvent(new Event("resize"));
+      },
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.replaceChildren();
+  });
+
+  it("clears the keyboard and the bar on it, raises the bar for the field, and brings the field back into sight", async () => {
+    const device = phone();
+    const field = document.createElement("textarea");
+    field.scrollIntoView = vi.fn();
+    document.body.append(field);
+    const installed = installKeyboardInset();
+    field.focus();
+    device.keyboard(336);
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--agent-panel-keyboard-inset")).toBe("380px");
+    expect(keyboardBarSnapshot()).toMatchObject({ field, host: document.body, viewport: { bottom: 508, width: 390 } });
+    expect(field.scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+
+    // The field's offer reaches the bar while it stays focused.
+    field.setAttribute("data-keyboard-suggestion", "run the tests");
+    await Promise.resolve();
+    expect(keyboardBarSnapshot().suggestion).toBe("run the tests");
+
+    installed.remove();
+    expect(keyboardBarSnapshot().field).toBeNull();
+    expect(root.style.getPropertyValue("--agent-panel-keyboard-inset")).toBe("");
+  });
+
+  it("leaves a field with its own key row to it, clearing only the keyboard", () => {
+    const device = phone();
+    const pane = document.createElement("section");
+    pane.setAttribute("data-keyboard-bar", "off");
+    const field = document.createElement("textarea");
+    field.scrollIntoView = vi.fn();
+    pane.append(field);
+    document.body.append(pane);
+    const installed = installKeyboardInset();
+    field.focus();
+    device.keyboard(336);
+    expect(document.documentElement.style.getPropertyValue("--agent-panel-keyboard-inset")).toBe("336px");
+    expect(keyboardBarSnapshot().field).toBeNull();
+    installed.remove();
   });
 });

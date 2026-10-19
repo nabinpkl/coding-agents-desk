@@ -1031,3 +1031,16 @@
 .xterm .xterm-helper-textarea {
   font-size: 16px;
 }
+
+/* A full-screen overlay -- a session window, a dialog -- is sized to the layout viewport, which a
+   phone keyboard does not shorten, so the `html` inset above never reaches it: its lower part (a
+   session's message box, a dialog's last field) sat under the keyboard and the keyboard bar on it.
+   While the keyboard is up, every one ends where the page does. In the utilities layer so it wins
+   over the `inset-0` and `h-dvh` it corrects; matched on those two classes because together they
+   are what makes an element a full-screen overlay here. */
+@layer utilities {
+  html[data-keyboard-up] .fixed.inset-0 {
+    bottom: var(--agent-panel-keyboard-inset, 0px);
+    height: auto;
+  }
+}

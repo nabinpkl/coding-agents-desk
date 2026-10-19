@@ -195,6 +195,10 @@ export function SessionComposerBand({
           <div className="flex items-end">
             <textarea
               ref={autoGrow}
+              // The keyboard bar (`features/keyboard`): a band with its own key rail keeps it, and a
+              // placeholder that is an offer rather than a label is shown on the bar as a key.
+              data-keyboard-bar={editor.rail ? "off" : undefined}
+              data-keyboard-suggestion={editor.onAcceptHint ? editor.placeholder : undefined}
               value={editor.value}
               onChange={(event) => editor.onChange(event.target.value)}
               onFocus={() => {

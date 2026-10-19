@@ -49,6 +49,29 @@ behaviour is meant to be universal it belongs above that branch, in the shared m
 branch used only where the two genuinely differ. This is the same trap as the surface-scoping rule
 under "Code" in the root `AGENTS.md`: the previous conversation being about one path does not make the next change about it.
 
+## The keyboard bar, and what a phone keyboard takes from the page
+
+Settled 2026-10-19, on the owner's word. An iPhone's keyboard has no Esc, Tab or arrows, so every
+focused text field on a phone gets one row of those keys standing on the keyboard
+(`features/keyboard/KeyboardBar.tsx`), and the page gives up the keyboard's height and the row's
+together (`app/page/keyboardInset.ts`, the one place that watches the keyboard). Three things to
+know when building near it:
+
+- **A surface that draws its own key row marks its region `data-keyboard-bar="off"`**, and the bar
+  stays away: today the terminal panes and the desktop viewer. A field that offers a suggestion sets
+  `data-keyboard-suggestion` and takes it on Tab; the bar shows it as a key that presses Tab.
+- **A bar key is a key event first.** It is dispatched to the field, so a handler written for the
+  real key answers it too; only if nothing calls `preventDefault` does the bar do the key's job by
+  hand (`keyboardBarKeys.ts`), because a dispatched key event moves no focus and no caret.
+- **A full-screen overlay is shortened through its classes.** `fixed inset-0` is sized to the
+  layout viewport, which a keyboard does not shorten, so `styles.css` ends every `.fixed.inset-0`
+  at the page's bottom while the keyboard is up. An overlay built some other way stays under the
+  keyboard and the bar. The bar itself is drawn as a popover, inside the open modal dialog when the
+  field is in one, so neither a dialog's backdrop nor its inertness hides it.
+
+Measured only with a stand-in keyboard in an emulated iPhone. What the real one reports, WebKit's own
+form strip above the keys included, is the open question.
+
 ## Panel state: what is remembered, and where
 
 Three places hold state in the Agent Panel, and picking the wrong one is how a reader ends up with a

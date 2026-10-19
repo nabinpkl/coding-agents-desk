@@ -191,6 +191,8 @@ export function TerminalTile({
   return (
     <section
       aria-label={`${label} terminal`}
+      // Its own key rail stands under it, so the keyboard bar does not stand on the keyboard too.
+      data-keyboard-bar="off"
       className="relative flex w-fit flex-col overflow-hidden rounded border border-border bg-white dark:bg-[#0b0e14]"
     >
       <header className="flex min-h-6 shrink-0 items-center justify-between gap-2 border-b border-border px-2 font-mono text-[10px]">

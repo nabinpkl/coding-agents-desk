@@ -326,6 +326,8 @@ export function AgentTerminalPane({
       // What a phone keyboard must not cover while the terminal has focus: the whole pane, key rail
       // included, rather than xterm's hidden field alone (`keepTypingInSight`).
       {...{ [KEEP_IN_SIGHT_ATTRIBUTE]: "" }}
+      // Its own key rail stands under it, so the keyboard bar does not stand on the keyboard too.
+      data-keyboard-bar="off"
       className={`flex min-h-[150px] shrink-0 flex-col border-t border-border ${band ? "" : "h-[38%]"}`}
       style={appliedHeight === null ? undefined : { height: appliedHeight }}
     >

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "@/app/styles.css";
 import { App } from "@/app/AgentPanelApp";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
+import { KeyboardBar } from "@/features/keyboard/KeyboardBar";
 import { panelEntry } from "@/app/page/panelEntry";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
@@ -109,6 +110,8 @@ if (entry === "ide") {
           ) : (
             <BrowserSurfaces transport={transport} feed={feed} host={host} />
           )}
+          {/* One for every surface: it stands on a phone's keyboard for whichever field is focused. */}
+          <KeyboardBar />
         </PanelErrorBoundary>
       </StrictMode>,
     );

@@ -71,7 +71,8 @@ export function ShellTerminal({
   const showsKeyRail = focused && softwareKeyboard;
 
   return (
-    <section aria-label={label} className="flex h-full min-h-0 flex-col">
+    // Its own key rail stands under it, so the keyboard bar does not stand on the keyboard too.
+    <section aria-label={label} data-keyboard-bar="off" className="flex h-full min-h-0 flex-col">
       {/* The screen, filling the pane, flush to its edges.
 
           No padding on this box and none on the screen inside it, and neither is a style choice.
