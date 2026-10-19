@@ -357,9 +357,9 @@ try {
     check('a control inside a card answers a press at fit', false, 'no aria-expanded control found');
   }
 
-  // Press-to-zoom is what the canvas AROUND the strip is left with, and it is enough to get in and
-  // out of a surface carrying no chrome of its own: a press below a card goes to that card at 1:1,
-  // and a press on the empty canvas at 1:1 comes back out to fit.
+  // A press on the empty canvas around the strip changes nothing. It used to zoom to the card above
+  // it, which made the tap that closes a phone keyboard throw away the reader's scale (removed
+  // 2026-10-19). Pinch and the sidebar toggle are the ways in and out.
   atFit = await backToFit();
   const under = await page.evaluate(() => {
     const strip = document.querySelector('ul[aria-label="Bot canvas"]');
@@ -374,23 +374,9 @@ try {
   });
   await page.mouse.click(under.x, under.y);
   await page.waitForTimeout(700);
-  const zoomed = await canvas(page);
-  check('a press on the canvas under a card zooms to that card at its own size', zoomed.scale > 0.99,
-    `${atFit.scale.toFixed(3)} -> ${zoomed.scale.toFixed(3)}`);
-
-  // And back out. Pressed well below the strip, which at 1:1 is only as tall as its tallest card.
-  const empty = await page.evaluate(() => {
-    const strip = document.querySelector('ul[aria-label="Bot canvas"]');
-    const scroller = strip.parentElement.parentElement;
-    const box = scroller.getBoundingClientRect();
-    const below = strip.getBoundingClientRect().bottom;
-    return { x: Math.round(box.left + 40), y: Math.round(Math.min(box.bottom - 20, below + 60)) };
-  });
-  await page.mouse.click(empty.x, empty.y);
-  await page.waitForTimeout(700);
-  const back = await canvas(page);
-  check('a press on the empty canvas returns to fit', back.scale < 0.99,
-    `scale ${back.scale.toFixed(3)}`);
+  const after = await canvas(page);
+  check('a press on the empty canvas leaves the scale alone', Math.abs(after.scale - atFit.scale) < 0.001,
+    `${atFit.scale.toFixed(3)} -> ${after.scale.toFixed(3)}`);
 
   // -------------------------------------------------------------------------
   // One finger still pans natively

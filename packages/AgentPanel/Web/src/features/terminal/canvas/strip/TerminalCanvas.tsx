@@ -119,7 +119,7 @@ export function TerminalCanvas({
     if (!mixed) return undefined;
     return machines.find((machine) => machine.key === (machineId ?? ""))?.label;
   };
-  // The whole strip drawn small, with pinch and press-to-a-card gestures. Off, nothing here
+  // The whole strip drawn small, zoomed by pinch. Off, nothing here
   // renders and no transform exists in the tree, so the default strip keeps its own pointer
   // arithmetic byte for byte. Its own storage keys, never the Bot canvas's.
   //

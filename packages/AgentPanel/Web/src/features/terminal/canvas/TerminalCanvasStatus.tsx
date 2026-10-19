@@ -34,9 +34,7 @@ export function TerminalCanvasStatus({
         aria-pressed={zoom.on}
         onClick={zoom.onToggle}
         title={
-          zoom.on
-            ? "Draw the strip at its own size again"
-            : "Draw the whole strip at once. Pinch or double-tap to move around it."
+          zoom.on ? "Draw the strip at its own size again" : "Draw the whole strip at once. Pinch to zoom in and out."
         }
         className={`mt-1.5 flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-(length:--agent-panel-fs-sidebar-chip,11px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
           zoom.on

@@ -29,7 +29,6 @@
 // iOS momentum, and what lets the existing scroll memory go on meaning something.
 
 import { useCallback, useRef, type CSSProperties } from "react";
-import { cardUnder, pressedOnStrip } from "@/features/bots/canvas/canvasPress";
 import { useDomSync } from "@/hooks/dom/useDomSync";
 import { useEventListener } from "@/hooks/dom/useEventListener";
 import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
@@ -112,9 +111,6 @@ const BOT_ZOOM_STORAGE: CanvasZoomStorage = {
   loadScale: loadCanvasZoomScale,
   storeScale: storeCanvasZoomScale,
 };
-
-/** How far inside the scroller a card lands when a press zooms to it, so it is not flush. */
-const CARD_INSET = 12;
 
 /**
  * A trackpad pinch arrives as a ctrl-wheel of much smaller deltas than a mouse wheel's notch, so
@@ -424,46 +420,6 @@ export function useCanvasZoom({
   };
   useEventListener<TouchEvent>(surface, "touchend", endPinch, { passive: true });
   useEventListener<TouchEvent>(surface, "touchcancel", endPinch, { passive: true });
-
-  // A press that reaches the scroller rather than a card, which is the empty canvas AROUND the
-  // strip: beside it, and below it, where a canvas drawn small leaves most of the panel empty.
-  //
-  // The strip itself is a hit-test target at every scale, so a press on a card belongs to the
-  // card and never to the canvas. That is deliberate -- the cards are the reader's at any size
-  // -- and it leaves this the whole of the way in and out on a surface carrying no chrome.
-  useEventListener<MouseEvent>(surface, "click", (event) => {
-    const box = scrollerRef.current;
-    const strand = strip.current;
-    if (!box || !strand || pressedOnStrip(event, strand)) return;
-    const rect = box.getBoundingClientRect();
-    // Already at its own size, so there is nothing left to zoom into and the press means the
-    // other direction. This is the way back out on a surface that carries no chrome of its own.
-    if (drawnRef.current >= 1) {
-      zoomTo(floor.current, event.clientX, event.clientY);
-      return;
-    }
-    const boxes = [...strand.children].map((child) => child.getBoundingClientRect());
-    const index = cardUnder(boxes, event.clientX);
-    const card = boxes[index];
-    if (!card) {
-      zoomTo(1, event.clientX, event.clientY);
-      return;
-    }
-    // Straight to the card that was aimed at, rather than to whatever happened to be under the
-    // middle of the screen. The target scale is 1, so a content coordinate is a scroll offset
-    // once the room around the canvas is added back to it.
-    landing.current = {
-      left: Math.max(
-        0,
-        (box.scrollLeft + card.left - rect.left - gap.current.left) / drawnRef.current + gap.current.left - CARD_INSET,
-      ),
-      top: Math.max(
-        0,
-        (box.scrollTop + card.top - rect.top - gap.current.top) / drawnRef.current + gap.current.top - CARD_INSET,
-      ),
-    };
-    setWanted(1);
-  });
 
   return {
     on,
