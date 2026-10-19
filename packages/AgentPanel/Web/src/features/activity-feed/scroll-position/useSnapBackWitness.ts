@@ -3,8 +3,7 @@
 //
 // The follower decides from its own wheel listener on the scroller, so it cannot be the witness to
 // that listener missing a wheel. This one listens on the window instead, in the capture phase, and
-// counts a wheel as being over the transcript when the scroller the ref holds NOW contains its
-// target. Comparing the two answers the question the record exists for: whether the follower was
+// counts a wheel as being over the transcript when the scroller contains its target. Comparing the two answers the question the record exists for: whether the follower was
 // handed the wheel and let it go, or never received it.
 
 import { useRef } from "react";
@@ -30,8 +29,7 @@ export type SnapFacts = Pick<
 };
 
 export function useSnapBackWitness(
-  scrollRef: React.RefObject<HTMLElement | null>,
-  active: boolean,
+  scroller: HTMLElement | null,
   session: string,
 ): { sawWheel: (event: WheelEvent) => void; snapped: (facts: SnapFacts) => void } {
   const upWheelRef = useRef<{ at: number; event: WheelEvent } | null>(null);
@@ -40,11 +38,11 @@ export function useSnapBackWitness(
   const heldBackRef = useRef(0);
 
   useEventListener<WheelEvent>(
-    active ? window : null,
+    scroller ? window : null,
     "wheel",
     (event) => {
       if (event.deltaY >= 0) return;
-      const el = scrollRef.current;
+      const el = scroller;
       if (!el || !(event.target instanceof Node) || !el.contains(event.target)) return;
       upWheelRef.current = { at: performance.now(), event };
     },

@@ -135,6 +135,11 @@ Each is the short form; the file named holds the full text and the measurements 
   a file you are committing, build that index entry by hand and, after any commit of the index, read
   `git show --stat HEAD` before pushing. Never `git checkout --` a file you did not change. A failing
   leg on files your diff never touched is most likely a peer's. (`docs/agents/shared-branch.md`.)
+- **Attach to a DOM node once it is there, not through a ref read once.** Hold the node as state and
+  hand the element to the listener or observer, and gate on the element, never on a flag standing in
+  for it: a ref still empty when the effect ran is never attached, and nothing says so. Test it with
+  the node mounting after the hook. ("Attach to an element when it arrives",
+  `packages/AgentPanel/Web/AGENTS.md`.)
 - **An empty result is a claim about the probe** until a second look agrees: a screenshot, the layer
   above or below, the input instead of the output, or asking the human. `log show` returns nothing
   in this session; use `log stream` or a log file. (`docs/agents/debugging.md`.)

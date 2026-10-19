@@ -2,6 +2,10 @@
 // `onResize` once per report with the report's last entry. The callback always sees the latest
 // render. The entry can be missing -- a stand-in observer under test reports nothing -- so a caller
 // that needs a size reads it from the entry when there is one and from its element otherwise.
+//
+// Pass an element held as state rather than a ref wherever the target can mount after the
+// component does, or be replaced: a ref is read once, when the effect runs, and one still empty
+// then is never observed, silently ("Attach to an element when it arrives", the panel's AGENTS.md).
 
 import { useEffect, useEffectEvent, type RefObject } from "react";
 

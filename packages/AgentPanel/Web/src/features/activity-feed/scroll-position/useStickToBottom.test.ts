@@ -71,16 +71,7 @@ beforeEach(() => {
 });
 
 function setup(scrollEl = makeScrollEl()) {
-  const scrollRef = { current: scrollEl };
-  const sizedRef = { current: {} as HTMLElement };
-  const view = renderHook(() =>
-    useStickToBottom(
-      scrollRef as React.RefObject<HTMLElement | null>,
-      sizedRef as React.RefObject<HTMLElement | null>,
-      true,
-      "claude:test",
-    ),
-  );
+  const view = renderHook(() => useStickToBottom(scrollEl, {} as HTMLElement, "claude:test"));
   return { view, scrollEl };
 }
 
@@ -454,5 +445,28 @@ describe("useStickToBottom", () => {
     act(() => view.result.current.scrollToBottom());
     expect(view.result.current.following).toBe(true);
     expect(scrollEl.scrollTop).toBe(1800);
+  });
+
+  // The feed draws "loading" first, and a queued prompt is already something to follow then: the
+  // scroller mounts renders later. Measured 2026-10-18 on a Claude card after a handover.
+  it("attaches to a scroller that mounts after the follower, and lets a wheel up detach", () => {
+    const scrollEl = makeScrollEl();
+    const view = renderHook(
+      ({ scroller, sized }: { scroller: HTMLElement | null; sized: HTMLElement | null }) =>
+        useStickToBottom(scroller, sized, "claude:test"),
+      { initialProps: { scroller: null as HTMLElement | null, sized: null as HTMLElement | null } },
+    );
+    expect(roCallback).toBeNull();
+    view.rerender({ scroller: scrollEl, sized: {} as HTMLElement });
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    expect(scrollEl.scrollTop).toBe(1000);
+    act(() => wheel(scrollEl, -120));
+    scrollEl.scrollTop = 500;
+    act(() => view.result.current.onScroll());
+    expect(view.result.current.following).toBe(false);
+    expect(scrollEl.scrollTop).toBe(500);
   });
 });

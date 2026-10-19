@@ -153,23 +153,25 @@ export function ActivityFeed({
     [liveTails, queuedPrompts, events],
   );
   const parentRef = useRef<HTMLDivElement>(null);
-  const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);
+  // The scroller and the content inside it, as elements, for the follower to attach to: it
+  // attaches when they mount and again if they are replaced. Both mount only once the transcript
+  // has rows, which is not the first render that has something to follow: a queued prompt, or
+  // events that nice mode hides, arrive while "loading" or "no events" is still drawn. A follower
+  // that attached on that render, through a ref, found nothing and never attached again.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const [sized, setSized] = useState<HTMLDivElement | null>(null);
+  const attachScroller = useCallback((node: HTMLDivElement | null) => {
+    parentRef.current = node;
+    setScroller(node);
+  }, []);
 
   // Follow-the-tail: stick to the bottom as the thread grows, release when the
   // user scrolls up. The hook owns a ResizeObserver on the measured content and
   // reads intent off the input that caused a scroll, so nothing here depends on
   // estimated row heights or a from-bottom threshold. `pause()` detaches on
   // user-driven restructures (collapse/expand, jump-to-message).
-  const { following, onScroll, scrollToBottom, pause } = useStickToBottom(
-    parentRef,
-    sizedRef,
-    // Follow the bottom when there is durable content OR a streaming live tail
-    // to pin to. A fresh session that only has the live mirror would otherwise
-    // never arm the follower, so its growing tail wouldn't auto-scroll.
-    events.length > 0 || tails.length > 0,
-    `${source}:${sessionId}`,
-  );
+  const { following, onScroll, scrollToBottom, pause } = useStickToBottom(scroller, sized, `${source}:${sessionId}`);
 
   // Scroll offset the sticky bars are computed from, read from a ref at every render. A scroll
   // re-renders only when it moves a bar or the top line (`changesAt`, in `useStickyIndices`), not
@@ -369,13 +371,13 @@ export function ActivityFeed({
     <div className="relative h-full overflow-hidden" aria-busy={restoring}>
       {threadControls}
       <div
-        ref={parentRef}
+        ref={attachScroller}
         onScroll={handleScroll}
         className="h-full overflow-y-auto"
         style={{ overflowAnchor: "none" }}
       >
         <div
-          ref={sizedRef}
+          ref={setSized}
           style={{
             height: rowVirtualizer.getTotalSize(),
             position: "relative",

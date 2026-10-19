@@ -2,7 +2,8 @@
 // a span of its own so the archive can say why it happened. Reported 2026-10-18 on the Mac: a
 // Claude card, handed over from opencode, would not let the reader scroll up during its first heavy
 // turn, and a reload cleared it. Neither a fresh browser nor a streaming throwaway reproduced it,
-// so the record is taken where it happens. `useSnapBackWitness` decides when one is worth sending.
+// so the record is taken where it happens. The cause found since, a scroller that mounted after the
+// follower attached (`useStickToBottom`), shows here as `hook_saw_wheel: false`. `useSnapBackWitness` decides when one is worth sending.
 //
 // Its own trace, and a `ui.` op, because that is what `tracesSampler` in `panelTelemetry.ts` keeps
 // once the page load is over. `startNewTrace` also clears the active span, so this is a root span

@@ -173,6 +173,30 @@ and the reason beside it: today that is the feed's virtualizer and the two hooks
 disable comment that silences nothing fails the gate, because one still hides its function from
 the compiler and from the compiler's own lint rules.
 
+## Attach to an element when it arrives, not to a ref
+
+Settled 2026-10-19, on the owner's word, after a Claude card would not scroll up in its first turn.
+
+**Anything attached to a DOM node -- a listener, an observer, a measurement -- is attached to the
+node once it is there, and again if it is replaced.** Hold the node as state, with the `useState`
+setter as its callback ref (or a callback that also fills a ref the imperative code reads), and
+hand that element to `useEventListener`, `useResizeObserver` and the like. A ref object is read once,
+when the effect behind the hook runs: a node that mounts on a later render, or is swapped for
+another, is never attached, and nothing fails. The handler simply never runs.
+
+A flag standing in for "the node is there" (`active`, `open`, `ready`) is the same slip, because
+the flag and the node are set by different renders. Gate on the element itself. The case that
+settled it: the transcript's tail follower (`useStickToBottom`) armed on "there is something to
+follow", and a queued prompt made that true while the feed still drew "loading". The scroller
+mounted a render later, the follower's wheel listener was never on it, and every scroll up read as
+layout and snapped back until a reload.
+
+A test of attach code mounts the target AFTER the hook, not with it, the order the page actually
+uses (`activityFeedTailFollow.test.tsx`), and fails with the attach taken out. The callers that still
+pass a ref are safe only while the node mounts in the same commit as the component holding the hook
+and is never replaced. Moving one of them to an element is the fix, not a check that the ref is
+filled.
+
 ## Transient states take no space
 
 Settled 2026-10-18, on the owner's word, after the canvas jumped on every sidecar restart.

@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { useSnapBackWitness } from "@/features/activity-feed/scroll-position/useSnapBackWitness";
 import { useEventListener } from "@/hooks/dom/useEventListener";
 import { useResizeObserver } from "@/hooks/dom/useResizeObserver";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Treat the container as "at the end" within this many pixels. This is a
 // sub-pixel rounding tolerance (fractional device pixels, flex rounding), NOT
@@ -101,18 +102,21 @@ const DOWNWARD_KEYS = new Set(["ArrowDown", "PageDown", "End"]);
  * is fresh the follower does not snap, and a move up inside the fence is the reader's, since a snap
  * only ever moves the viewport down.
  *
- * `active` gates observer setup on the content tree being mounted (the feed
- * renders loading/empty placeholders first, when the refs are still null).
+ * It takes the scroller and the content as elements, not refs, and attaches when they mount. The
+ * feed draws "loading" or "no events" before it has rows, and that is not always while there is
+ * nothing to follow: a queued prompt, or events that nice mode hides, arrive first. A ref read when
+ * the follower attached was still empty then, nothing told it the scroller mounted later, and a
+ * reader's wheel never reached it: every scroll up read as layout and snapped straight back.
+ * Reported 2026-10-18 on a Claude card in its first turn after a handover; a reload cleared it.
  *
  * A snap that puts a reader back at the end shortly after they wheeled up is reported to telemetry
- * (`useSnapBackWitness`), with `session` naming the transcript. Reported 2026-10-18 on the Mac: a
- * Claude card handed over from opencode would not scroll up during its first heavy turn, a reload
- * cleared it, and neither a fresh browser nor a streaming probe reproduced it.
+ * (`useSnapBackWitness`), with `session` naming the transcript: the late-mounting scroller above
+ * was found by reading code after neither a fresh browser nor a streaming probe reproduced it, and
+ * the record is what will show any other way to the same symptom.
  */
 export function useStickToBottom(
-  scrollRef: React.RefObject<HTMLElement | null>,
-  sizedRef: React.RefObject<HTMLElement | null>,
-  active: boolean,
+  scroller: HTMLElement | null,
+  sized: HTMLElement | null,
   session: string,
 ): {
   following: boolean;
@@ -130,7 +134,10 @@ export function useStickToBottom(
   // page sees, so the press is the only evidence the reader is moving it.
   const scrollbarHeldRef = useRef(false);
   const [following, setFollowingState] = useState(true);
-  const { sawWheel, snapped } = useSnapBackWitness(scrollRef, active, session);
+  const { sawWheel, snapped } = useSnapBackWitness(scroller, session);
+  // The same element, for the code that moves it: what is attached is keyed on `scroller`, and
+  // what writes `scrollTop` reads this, since a hook does not write to its own arguments.
+  const scrollerRef = useLatestRef(scroller);
 
   const setFollowing = useCallback((next: boolean) => {
     if (followingRef.current === next) return;
@@ -142,7 +149,7 @@ export function useStickToBottom(
   // where it last put it: the snap is then one that may have undone a reader's scroll.
   const snapToBottom = useCallback(
     (undid?: { cause: "resize" | "scroll"; upPx: number }) => {
-      const el = scrollRef.current;
+      const el = scrollerRef.current;
       if (!el) return;
       const wasEnforcing = enforcingRef.current;
       enforcingRef.current = true;
@@ -165,7 +172,7 @@ export function useStickToBottom(
         enforcingRef.current = false;
       });
     },
-    [scrollRef, snapped],
+    [scrollerRef, snapped],
   );
 
   const scrollToBottom = useCallback(() => {
@@ -189,9 +196,9 @@ export function useStickToBottom(
   // Tail enforcement: re-pin whenever the measured content height changes, except while the reader
   // is pulling away from it. The scroll event their input produces is what detaches; a snap landing
   // first would put the viewport back at the end before that event could see it move.
-  useResizeObserver(active ? sizedRef : null, () => {
+  useResizeObserver(sized, () => {
     if (!followingRef.current || pullingUp()) return;
-    const top = scrollRef.current?.scrollTop ?? lastTopRef.current;
+    const top = scrollerRef.current?.scrollTop ?? lastTopRef.current;
     snapToBottom({ cause: "resize", upPx: lastTopRef.current - top });
   });
 
@@ -207,12 +214,11 @@ export function useStickToBottom(
   // re-attach; the input does it itself.
   const markDownward = () => {
     downwardIntentAtRef.current = performance.now();
-    const el = scrollRef.current;
+    const el = scrollerRef.current;
     if (el && !followingRef.current && el.scrollHeight - el.scrollTop - el.clientHeight <= END_EPSILON_PX) {
       setFollowing(true);
     }
   };
-  const scroller = active ? scrollRef : null;
   useEventListener<WheelEvent>(
     scroller,
     "wheel",
@@ -250,7 +256,7 @@ export function useStickToBottom(
     scroller,
     "pointerdown",
     (event) => {
-      const el = scrollRef.current;
+      const el = scrollerRef.current;
       if (el && event.target === el && event.offsetX >= el.clientWidth - SCROLLBAR_GRAB_PX) {
         scrollbarHeldRef.current = true;
       }
@@ -260,12 +266,12 @@ export function useStickToBottom(
   const released = () => {
     scrollbarHeldRef.current = false;
   };
-  useEventListener(active ? window : null, "pointerup", released, { capture: true });
-  useEventListener(active ? window : null, "pointercancel", released, { capture: true });
+  useEventListener(scroller ? window : null, "pointerup", released, { capture: true });
+  useEventListener(scroller ? window : null, "pointercancel", released, { capture: true });
   // On window: scrolling by keyboard does not require focus to be inside the feed, and usually
   // is not.
   useEventListener<KeyboardEvent>(
-    active ? window : null,
+    scroller ? window : null,
     "keydown",
     (event) => {
       // Typed into a field, a space or an arrow moves the caret, not the feed, so it is the reader
@@ -282,7 +288,7 @@ export function useStickToBottom(
   );
 
   const onScroll = useCallback(() => {
-    const el = scrollRef.current;
+    const el = scrollerRef.current;
     if (!el) return;
     const top = el.scrollTop;
     const rose = lastTopRef.current - top;
@@ -305,7 +311,7 @@ export function useStickToBottom(
         scrollbarHeldRef.current || performance.now() - downwardIntentAtRef.current <= DOWNWARD_INTENT_WINDOW_MS;
       if (pushedDown) setFollowing(true);
     }
-  }, [scrollRef, setFollowing, snapToBottom, pullingUp]);
+  }, [scrollerRef, setFollowing, snapToBottom, pullingUp]);
 
   return { following, onScroll, scrollToBottom, pause };
 }

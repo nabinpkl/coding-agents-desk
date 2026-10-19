@@ -48,7 +48,7 @@ afterEach(() => {
 describe("useSnapBackWitness", () => {
   it("reports a snap after an upward wheel the follower never received", () => {
     const { scroller, row } = transcript();
-    const { result } = renderHook(() => useSnapBackWitness({ current: scroller }, true, "claude:s1"));
+    const { result } = renderHook(() => useSnapBackWitness(scroller, "claude:s1"));
     wheelOver(row, -80);
     now += 400;
     result.current.snapped(facts);
@@ -66,7 +66,7 @@ describe("useSnapBackWitness", () => {
 
   it("says when the follower did receive that wheel", () => {
     const { scroller, row } = transcript();
-    const { result } = renderHook(() => useSnapBackWitness({ current: scroller }, true, "claude:s1"));
+    const { result } = renderHook(() => useSnapBackWitness(scroller, "claude:s1"));
     const event = wheelOver(row, -80);
     result.current.sawWheel(event);
     // The momentum that ends a trackpad flick: the window keeps nothing of it, and nor may the follower.
@@ -79,7 +79,7 @@ describe("useSnapBackWitness", () => {
     const { scroller, row } = transcript();
     const elsewhere = document.createElement("div");
     document.body.append(elsewhere);
-    const { result } = renderHook(() => useSnapBackWitness({ current: scroller }, true, "claude:s1"));
+    const { result } = renderHook(() => useSnapBackWitness(scroller, "claude:s1"));
     result.current.snapped(facts);
     wheelOver(row, 80);
     result.current.snapped(facts);
@@ -93,7 +93,7 @@ describe("useSnapBackWitness", () => {
 
   it("sends one report per two seconds and counts the snaps it held back", () => {
     const { scroller, row } = transcript();
-    const { result } = renderHook(() => useSnapBackWitness({ current: scroller }, true, "claude:s1"));
+    const { result } = renderHook(() => useSnapBackWitness(scroller, "claude:s1"));
     wheelOver(row, -80);
     result.current.snapped(facts);
     now += 100;
@@ -132,9 +132,7 @@ describe("useStickToBottom's snap-back report", () => {
       clientHeight: { configurable: true, get: () => 500 },
       scrollTop: { configurable: true, get: () => top, set: (value: number) => (top = Math.min(value, 1500)) },
     });
-    const { result } = renderHook(() =>
-      useStickToBottom({ current: scroller }, { current: document.createElement("div") }, true, "claude:s1"),
-    );
+    const { result } = renderHook(() => useStickToBottom(scroller, document.createElement("div"), "claude:s1"));
     act(() => result.current.onScroll());
     wheelOver(row, -80);
     // Past the follower's 250ms window: the scroll that follows reads as layout and is snapped.
@@ -162,9 +160,7 @@ describe("useStickToBottom's snap-back report", () => {
       clientHeight: { configurable: true, get: () => 500 },
       scrollTop: { configurable: true, get: () => top, set: (value: number) => (top = Math.min(value, 1500)) },
     });
-    const { result } = renderHook(() =>
-      useStickToBottom({ current: scroller }, { current: document.createElement("div") }, true, "claude:s1"),
-    );
+    const { result } = renderHook(() => useStickToBottom(scroller, document.createElement("div"), "claude:s1"));
     wheelOver(row, -80);
     act(() => result.current.scrollToBottom());
     expect(top).toBe(1500);
@@ -180,9 +176,7 @@ describe("useStickToBottom's snap-back report", () => {
       clientHeight: { configurable: true, get: () => 500 },
       scrollTop: { configurable: true, get: () => top, set: (value: number) => (top = Math.min(value, height - 500)) },
     });
-    const { result } = renderHook(() =>
-      useStickToBottom({ current: scroller }, { current: document.createElement("div") }, true, "claude:s1"),
-    );
+    const { result } = renderHook(() => useStickToBottom(scroller, document.createElement("div"), "claude:s1"));
     act(() => result.current.onScroll());
     wheelOver(row, -80);
     now += 400;

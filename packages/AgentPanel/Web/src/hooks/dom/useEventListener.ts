@@ -1,6 +1,10 @@
 // A listener on something outside React -- the window, the document, an element -- attached while
 // the component is mounted and the target exists, and moved when the target changes. The handler
 // always sees the latest render, so it never needs to be in a dependency list.
+//
+// Pass an element held as state rather than a ref wherever the target can mount after the
+// component does, or be replaced: a ref is read once, when the effect runs, and one still empty
+// then is never attached, silently ("Attach to an element when it arrives", the panel's AGENTS.md).
 
 import { useEffect, useEffectEvent, type RefObject } from "react";
 
