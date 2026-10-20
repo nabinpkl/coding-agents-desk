@@ -92,25 +92,30 @@ export function useRevealWhenAsked(key: string): (node: HTMLElement | null) => v
 }
 
 /** How long the ring lasts, and how long it waits for the smooth scroll to land before it starts. */
-const RING_MS = 1400;
+const RING_MS = 2000;
 const RING_DELAY_MS = 250;
 
 /**
- * Two beats of a ring on the card's rounded box, then nothing.
+ * Three beats of a ring in the session's Bot colour on the card's rounded box, then nothing.
  *
- * An outline rather than a border or a shadow: it takes no room, so nothing beside the card moves,
- * and with a negative offset it is drawn just inside the card's edge, where the Bot card that clips
- * whatever hangs past its sessions cannot cut it off. Animated here rather than by a class, because
- * the card's classes are React's and showing a session opens it, which rewrites them. Reduced motion
- * keeps the ring and drops the beat: it stands for the same time and goes.
+ * The colour is the Bot's rail, the bar down the card's leading edge, so the ring reads as that
+ * card lighting up rather than as a focus mark laid over it; a theme-grey ring was too quiet to
+ * find on a busy canvas. A card with no Bot colour takes the theme's primary instead.
+ *
+ * An outline, drawn just inside the card's edge: it takes no room, so nothing beside the card moves,
+ * and the Bot card that clips whatever hangs past its sessions cannot cut it off. A halo outside it
+ * (a shadow, which takes no room either) carries the colour into the gap between cards, where the
+ * clip allows. Animated here rather than by a class, because the card's classes are React's and
+ * showing a session opens it, which rewrites them. Reduced motion keeps the ring and drops the
+ * beat: it stands for the same time and goes.
  */
 function ringRevealed(node: HTMLElement): void {
   const card = node.firstElementChild;
   if (!(card instanceof HTMLElement) || typeof card.animate !== "function") return;
-  const ink = getComputedStyle(card).getPropertyValue("--primary").trim() || "currentColor";
-  const edge = { outlineStyle: "solid", outlineWidth: "2px", outlineOffset: "-2px" };
-  const on = { ...edge, outlineColor: ink };
-  const off = { ...edge, outlineColor: "transparent" };
+  const { ink, halo } = ringColours(getComputedStyle(card));
+  const edge = { outlineStyle: "solid", outlineWidth: "3px", outlineOffset: "-3px" };
+  const on = { ...edge, outlineColor: ink, boxShadow: `0 0 0 4px ${halo}` };
+  const off = { ...edge, outlineColor: "transparent", boxShadow: "0 0 0 4px transparent" };
   const still = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const frames = still
     ? [
@@ -120,10 +125,26 @@ function ringRevealed(node: HTMLElement): void {
       ]
     : [
         { ...off, offset: 0 },
-        { ...on, offset: 0.12 },
-        { ...off, offset: 0.4 },
-        { ...on, offset: 0.55 },
+        { ...on, offset: 0.08 },
+        { ...on, offset: 0.2 },
+        { ...off, offset: 0.32 },
+        { ...on, offset: 0.42 },
+        { ...on, offset: 0.54 },
+        { ...off, offset: 0.66 },
+        { ...on, offset: 0.76 },
         { ...off, offset: 1 },
       ];
-  card.animate(frames, { duration: RING_MS, delay: RING_DELAY_MS, easing: "ease-out" });
+  card.animate(frames, { duration: RING_MS, delay: RING_DELAY_MS, easing: "ease-in-out" });
+}
+
+/** The Bot's rail colour and a see-through step of it, or the theme's primary where there is no Bot hue. */
+function ringColours(style: CSSStyleDeclaration): { ink: string; halo: string } {
+  const hue = style.getPropertyValue("--bot-hue").trim();
+  const lightness = style.getPropertyValue("--bot-rail-l").trim();
+  const chroma = style.getPropertyValue("--bot-rail-c").trim();
+  if (hue && lightness && chroma) {
+    return { ink: `oklch(${lightness} ${chroma} ${hue})`, halo: `oklch(${lightness} ${chroma} ${hue} / 0.35)` };
+  }
+  const primary = style.getPropertyValue("--primary").trim() || "currentColor";
+  return { ink: primary, halo: `color-mix(in oklch, ${primary} 35%, transparent)` };
 }
