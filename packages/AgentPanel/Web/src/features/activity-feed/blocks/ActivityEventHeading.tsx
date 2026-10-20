@@ -110,6 +110,14 @@ export const CHIP_CLASS =
 export const COLUMN_GUTTER_CLASS = "px-[clamp(0.75rem,3%,1.5rem)]";
 
 /**
+ * The edge and fill of a Nice tool card: a tool row, a call inside an assistant message, a folded
+ * run. Prose and reasoning run on the ground with no card, so a card only has to say "set apart",
+ * not shout it over a column of other cards: the edge is drawn at the softer weight the text
+ * cards used to carry.
+ */
+export const TOOL_CARD_CLASS = "border-border/60 session-view-row-tool";
+
+/**
  * The width a session's column stops growing at, and the centring that goes with it.
  *
  * The other half of the gutter above: that one is the space either side of the column, this is the

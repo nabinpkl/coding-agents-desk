@@ -2,7 +2,7 @@
 
 import { ChevronRight } from "lucide-react";
 import { clusterLabel } from "@/features/activity-feed/rows/activityDisplayItems";
-import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
+import { COLUMN_GUTTER_CLASS, TOOL_CARD_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
 
 /**
@@ -27,7 +27,7 @@ export function ClusterRow({
   onExpand: () => void;
 }) {
   const wrapperClass =
-    "border-x border-border session-view-row-tool px-[0.6em] " +
+    `border-x ${TOOL_CARD_CLASS} px-[0.6em] ` +
     (isFirst ? "rounded-t-md border-t pt-[0.4em] " : "pt-[0.3em] ") +
     (isLast ? "rounded-b-md border-b pb-[0.4em] " : "pb-[0.3em] ") +
     (!isLast ? "border-b border-dashed border-border/60 " : "");

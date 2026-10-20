@@ -1,6 +1,6 @@
 /**
- * What Nice draws each row on: assistant prose on the transcript's own ground, and a card for
- * everything beside it -- tool calls, their results, reasoning.
+ * What Nice draws each row on: assistant prose and reasoning on the transcript's own ground, and a
+ * card for the work beside them -- tool calls and their results.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -86,7 +86,7 @@ describe("Nice row surfaces", () => {
     expect(toolCard?.parentElement?.className).toContain("py-[0.1em]");
   });
 
-  it("keeps reasoning on a card, and gives a call inside an assistant message a card of its own", () => {
+  it("runs reasoning on the ground too, and gives a call inside an assistant message a card of its own", () => {
     const view = renderRow(
       <>
         <SegmentEventRow
@@ -116,8 +116,10 @@ describe("Nice row surfaces", () => {
       </>,
     );
 
-    expect(view.container.querySelector('[data-feed-card="text"]')?.className).toContain("session-view-row");
-    const prose = view.container.querySelector('[data-feed-card="plain"]');
+    const [reasoning, prose] = view.container.querySelectorAll('[data-feed-card="plain"]');
+    expect(reasoning?.textContent).toContain("thinking it over");
+    expect(reasoning?.className).not.toMatch(/session-view-row/);
+    expect(reasoning?.className).toContain("border-transparent");
     const call = prose?.querySelector('[data-feed-card="tool"]');
     expect(call?.className).toContain("session-view-row-tool");
     expect(call?.querySelector("button")?.textContent).toMatch(/Read/);

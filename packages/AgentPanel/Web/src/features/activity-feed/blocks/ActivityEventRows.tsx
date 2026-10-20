@@ -17,6 +17,7 @@ import { Block } from "@/features/activity-feed/blocks/ActivityBlockViews";
 import {
   EventHeading,
   COLUMN_GUTTER_CLASS,
+  TOOL_CARD_CLASS,
   isFoldableRole,
   showEventRoleLabel,
 } from "@/features/activity-feed/blocks/ActivityEventHeading";
@@ -70,7 +71,7 @@ export interface EventRowContext {
 function ToolCard({ lifted, children }: { lifted: boolean; children: React.ReactNode }) {
   if (!lifted) return children;
   return (
-    <div className="rounded-md border border-border px-[0.6em] py-[0.3em] session-view-row-tool" data-feed-card="tool">
+    <div className={`rounded-md border px-[0.6em] py-[0.3em] ${TOOL_CARD_CLASS}`} data-feed-card="tool">
       {children}
     </div>
   );
@@ -379,17 +380,19 @@ export function SegmentEventRow({
 }) {
   const role = displayRole(ev);
   const isNice = ctx.session.mode === "nice";
-  // What the agent said is the transcript itself, so it runs on the transcript's ground with no
-  // card. A card says "this is a separate object", and on every row it said nothing: prose,
-  // tools and reasoning all came out as the same stack of boxes. Now only the things beside the
-  // prose -- tool calls, their results, reasoning, system notes -- are lifted off it.
-  const niceCardKind = role === "tool" || role === "result" ? "tool" : role === "assistant" ? "plain" : "text";
+  // What the agent said and thought is the transcript itself, so prose and reasoning run on the
+  // transcript's ground with no card. A card says "this is a separate object", and on every row it
+  // said nothing: prose, tools and reasoning all came out as the same stack of boxes. Now only the
+  // work beside them -- tool calls and their results -- is lifted off it, and a system note or a
+  // queued prompt keeps the text card.
+  const niceCardKind =
+    role === "tool" || role === "result" ? "tool" : role === "assistant" || role === "reasoning" ? "plain" : "text";
   const wrapperClass = isNice
     ? // A plain row keeps the card's padding and a transparent edge, so its text starts on the
       // same column as the text inside the cards around it.
       "rounded-md border px-[0.6em] py-[0.3em] transition-shadow duration-300 " +
       (niceCardKind === "tool"
-        ? "border-border session-view-row-tool "
+        ? `${TOOL_CARD_CLASS} `
         : niceCardKind === "plain"
           ? ev.pending === "queued"
             ? "border-border/60 "

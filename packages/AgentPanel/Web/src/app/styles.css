@@ -537,7 +537,10 @@
     --bot-session-ground-c: 0.090;
     --bot-session-row-l: 0.205;
     --bot-session-row-c: 0.090;
-    --bot-session-row-tool-l: 0.249;
+    /* A tool card, raised 0.015 off the ground (0.220). It was 0.249 while every row was a card;
+       with prose and reasoning on the ground it is the only raised thing in the transcript, and a
+       step that large made the tools the loudest part of what the session said. */
+    --bot-session-row-tool-l: 0.235;
     --bot-session-row-tool-c: 0.090;
     /* Below the rows (0.205) and the ground (0.220) rather than above them: a well rather than a
        raised card, 0.047 dEok off the row surface over 72 hues, muted text at 7.24:1. */
@@ -691,7 +694,8 @@
   /* The five surfaces an open session shows, each falling back to the token or utility it used to
      name outright. The fallback is the whole safety of the scheme: everywhere but a Bot card there
      is no `--session-view-*` to inherit, so these resolve to `--card`, `--background`, `--muted`
-     and what `bg-muted/60` compiled to, and the app's own thread view renders exactly as it did.
+     and a 40% mix of `--muted` (60% until prose and reasoning came off their cards, which left the
+     tool card the only raised row), and the app's own thread view renders as it did otherwise.
      Never write any of them as a bare `var()` with no fallback -- an unresolved custom property
      makes the declaration invalid at computed-value time, and the surface would come back
      transparent with nothing said about it.
@@ -718,7 +722,7 @@
   .session-view-row-tool {
     background-color: var(
       --session-view-row-tool,
-      color-mix(in oklab, var(--muted) 60%, transparent)
+      color-mix(in oklab, var(--muted) 40%, transparent)
     );
   }
 
