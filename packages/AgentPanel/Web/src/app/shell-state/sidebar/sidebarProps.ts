@@ -5,7 +5,7 @@
 // because it is the seam where the panel's five state groups meet the sidebar's props, and that
 // list is long enough to bury the shell it used to sit in.
 
-import type { ProjectSummary } from "@agentdesk/agent-feed-wire";
+import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { useBots } from "@/features/bots/useBots";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
@@ -15,6 +15,7 @@ import type { useBotCommands } from "@/app/shell-state/useBotCommands";
 import type { ShellMachines } from "@/app/shell-state/useBotMachines";
 import { botsOnShownMachines, machineIsHidden } from "@/features/bots/botMachines";
 import { botSessionFaces } from "@/features/bots/avatar/botSessionFaces";
+import { revealOnCanvas } from "@/features/bots/canvas/canvasReveal";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
@@ -125,7 +126,20 @@ export function sidebarProps({
     onCanvasViewChange: chrome.changeCanvasView,
     canvasSessions: {
       onOpen: thread.openSessionInModal,
-      canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveListedSessionToCanvas },
+      canvasMove: {
+        held: roster.heldSessionKeys,
+        onMove: roster.moveListedSessionToCanvas,
+        // What a press on the session's row in the Bots view does, then the scroll to its card. The
+        // first Bot holding it, which is also the Bot whose face its row wears.
+        onShow: (session: SessionSummary) => {
+          const bot = roster.orderedBots.find((each) =>
+            each.sessionRefs.some((ref) => ref.source === session.source && ref.sessionId === session.sessionId),
+          );
+          if (!bot) return;
+          roster.openSessionOnCanvas(bot, session);
+          revealOnCanvas(`${session.source}:${session.sessionId}`);
+        },
+      },
       // From the same roster, sets and open cards the Bots view draws its rows from, so a session
       // wears one face in both views.
       faces: botSessionFaces(roster.orderedBots, {

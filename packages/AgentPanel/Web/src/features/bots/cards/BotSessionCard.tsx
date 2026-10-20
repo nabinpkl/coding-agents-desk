@@ -250,6 +250,8 @@ export function BotSessionCard({
     // therefore resolved the whole session to ZERO -- which is what a phone showed, a Bot card with
     // an empty body and a one-pixel sliver where the roster should be.
     <li
+      // What the sidebar's "Show on canvas" finds this card by (`canvasReveal`).
+      data-session-key={sessionKey(session)}
       className={`shrink-0 ${lifted ? "z-10" : ""}`}
       style={{
         width: open ? resize.width : CLOSED_SESSION_WIDTH,

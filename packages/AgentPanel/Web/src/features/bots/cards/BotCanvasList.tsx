@@ -16,6 +16,7 @@ import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanva
 import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedCanvasScroll";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
+import { useRevealOnCanvas } from "@/features/bots/canvas/canvasReveal";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { keepTypingInSightWhileMounted } from "@/app/page/keyboardInset";
 import type { MachineError } from "@/features/bots/useBots";
@@ -183,6 +184,8 @@ export function BotCanvasList({
     on: canvasZoom.mode,
     room: canvasZoom.room,
   });
+  // A session the sidebar asked to see, scrolled to once its card is drawn.
+  useRevealOnCanvas(canvas);
   // The stored offset is in content space, so it cannot be put back until the scale is known.
   const rememberScroll = useRememberedCanvasScroll(canvas, standing, {
     scale: zoom.scale,

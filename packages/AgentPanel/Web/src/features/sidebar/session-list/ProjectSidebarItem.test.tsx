@@ -183,3 +183,37 @@ describe("a session row's activity", () => {
     expect(screen.getByText("ready").className).toContain("sr-only");
   });
 });
+
+describe("a session row's Show on canvas", () => {
+  const faces = new Map([["claude:held", { style: undefined, rank: undefined, open: false }]]);
+
+  it("is offered on a row wearing a Bot's face, and shows that session", () => {
+    const onShow = vi.fn();
+    render(
+      <ProjectSessionPreview
+        sessions={[loose, held]}
+        selectedSessionKey={null}
+        onSelect={() => {}}
+        canvasMove={{ held: new Set(["claude:held"]), onMove: () => {}, onShow }}
+        faces={faces}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Show Loose on the canvas" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show Held on the canvas" }));
+    expect(onShow).toHaveBeenCalledWith(held);
+  });
+
+  it("is not offered where the list has nothing to show it with", () => {
+    render(
+      <ProjectSessionPreview
+        sessions={[held]}
+        selectedSessionKey={null}
+        onSelect={() => {}}
+        canvasMove={{ held: new Set(["claude:held"]), onMove: () => {} }}
+        faces={faces}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Show Held on the canvas" })).toBeNull();
+  });
+});

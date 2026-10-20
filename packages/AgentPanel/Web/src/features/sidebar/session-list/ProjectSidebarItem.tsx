@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ChevronDown, FolderArchive, LayoutDashboard, LoaderCircle, Plus } from "lucide-react";
+import { Archive, ChevronDown, FolderArchive, LayoutDashboard, LoaderCircle, LocateFixed, Plus } from "lucide-react";
 import { useId, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { RowMenu, type RowMenuItem } from "@/features/bots/menus/RowMenu";
@@ -29,13 +29,16 @@ export type { SessionArchiving };
 const INITIAL_SESSION_COUNT = 3;
 
 /**
- * Moving a session onto the canvas from its row. Offered only by the Canvas tab's list, and only
- * on rows no Bot holds: a held session is on the canvas already, or one click from it in the roster.
+ * What a row can do about the canvas, offered only by the Canvas tab's list. A session no Bot holds
+ * can be moved onto it, from the row's menu; one a Bot holds, which wears that Bot's face, can be
+ * shown on it, from a button of its own.
  */
 export interface SessionCanvasMove {
   /** `source:sessionId` of every session some Bot holds, on any machine. */
   held: ReadonlySet<string>;
   onMove: (session: SessionSummary) => void;
+  /** Opens a Bot's session's card and brings it into view, putting it back first if it was off. */
+  onShow?: (session: SessionSummary) => void;
 }
 const SESSION_BATCH_SIZE = 10;
 
@@ -314,6 +317,10 @@ export function SessionRow({
   }
   if (archive) menu.push({ label: "Archive session", icon: Archive, onSelect: () => archive.run(session, true) });
   const failure = archive?.failureFor(session) ?? null;
+  const title = session.title || session.sessionId;
+  // A button rather than a menu item: a session that is somewhere on a canvas of thirty cards is
+  // the one a reader most often wants to find, and a menu would make that two presses.
+  const show = canvasMove?.onShow && faces?.has(key) ? canvasMove.onShow : undefined;
   return (
     <li className={`flex flex-wrap items-center ${active ? "bg-muted" : ""}`}>
       <button
@@ -327,7 +334,7 @@ export function SessionRow({
         <SessionMark session={session} faces={faces} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
-            {session.title || session.sessionId}
+            {title}
           </span>
           <SessionMeta
             source={session.source}
@@ -344,9 +351,22 @@ export function SessionRow({
           aria-label="Archiving"
         />
       ) : null}
+      {show ? (
+        <button
+          type="button"
+          onClick={() => show(session)}
+          aria-label={`Show ${title} on the canvas`}
+          title="Show on canvas"
+          className={`flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:bg-background focus-visible:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary active:bg-background/70 ${
+            menu.length > 0 ? "" : "mr-1"
+          }`}
+        >
+          <LocateFixed className="size-4" aria-hidden />
+        </button>
+      ) : null}
       {menu.length > 0 ? (
         <span className="pr-1">
-          <RowMenu label={session.title || session.sessionId} items={menu} />
+          <RowMenu label={title} items={menu} />
         </span>
       ) : null}
       {failure ? (

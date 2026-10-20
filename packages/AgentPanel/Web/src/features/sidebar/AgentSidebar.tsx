@@ -449,6 +449,23 @@ export function AgentSidebarDialog({ open, triggerRef, onRequestClose, ...sideba
     globalThis.requestAnimationFrame?.(() => triggerRef.current?.focus());
   };
 
+  // Showing a session on the canvas closes the drawer too: on the phone it covers the canvas, so
+  // a card brought into view behind it has not been shown to anyone.
+  const { canvasSessions } = sidebarProps;
+  const show = canvasSessions.canvasMove.onShow;
+  const closingCanvasSessions = show
+    ? {
+        ...canvasSessions,
+        canvasMove: {
+          ...canvasSessions.canvasMove,
+          onShow: (session: SessionSummary) => {
+            closeDialog();
+            show(session);
+          },
+        },
+      }
+    : canvasSessions;
+
   // The drawer is the compact-layout agent navigation, so it only ever renders on the phone,
   // where it is also the one surface the app shell's safe-area padding cannot reach: `showModal`
   // puts it in the top layer, a sibling of the tree that pays for the edges. It sits against the
@@ -468,7 +485,7 @@ export function AgentSidebarDialog({ open, triggerRef, onRequestClose, ...sideba
         if (event.target === event.currentTarget) closeDialog();
       }}
     >
-      <AgentSidebar {...sidebarProps} onClose={closeDialog} ownsWindowTitlebar />
+      <AgentSidebar {...sidebarProps} canvasSessions={closingCanvasSessions} onClose={closeDialog} ownsWindowTitlebar />
     </dialog>
   );
 }
