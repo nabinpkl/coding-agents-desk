@@ -249,9 +249,10 @@ export function BotSessionCard({
     // therefore resolved the whole session to ZERO -- which is what a phone showed, a Bot card with
     // an empty body and a one-pixel sliver where the roster should be.
     <li
-      // Scrolls to this card when the sidebar's "Show on canvas" asks for it (`canvasStore`).
+      // Scrolls to this card when the sidebar's "Show on canvas" asks for it (`canvasStore`), and
+      // the scroll margin stops it short of the canvas's edge rather than flush against it.
       ref={reveal}
-      className={`shrink-0 ${lifted ? "z-10" : ""}`}
+      className={`shrink-0 scroll-mx-8 scroll-my-4 ${lifted ? "z-10" : ""}`}
       style={{
         width: open ? resize.width : CLOSED_SESSION_WIDTH,
         transform: offset === 0 ? undefined : `translateX(${offset}px)`,
