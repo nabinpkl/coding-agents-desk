@@ -235,8 +235,12 @@ export function UserRow({
     // the ragged left edge is the signal; a full-width card on the right would look the same as
     // every other row. Everything inside stays left-aligned -- prose, code and diffs are read
     // from a left margin whichever side of the feed they sit on.
+    //
+    // A message a person wrote opens a turn, so it takes the gap above it that a box used to
+    // give: with prose and reasoning on the bare ground, the end of one reply and the start of
+    // the next turn otherwise sat as close as two paragraphs of the same reply.
     <div
-      className={`${COLUMN_GUTTER_CLASS} flex items-start justify-end gap-1 py-[0.4em]`}
+      className={`${COLUMN_GUTTER_CLASS} flex items-start justify-end gap-1 ${ev.humanTurn ? "pt-[1.6em]" : "pt-[0.4em]"} pb-[0.4em]`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       {/* Outside the card, on its left. The card is the one thing in this feed that is not
