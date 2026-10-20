@@ -73,7 +73,9 @@ export function useCanvasStore<T>(selector: (state: CanvasStoreState) => T): T {
  * the moment it arrives and one drawn before it scrolls the moment it is asked: the ref is attached
  * again whenever `asked` changes, and attaching is what scrolls. `nearest` on both axes, so a card
  * already in full view does not move, and the session's card rather than its Bot's, so a Bot wider
- * than the canvas scrolls to the session asked for.
+ * than the canvas scrolls to the session asked for. Then the card is ringed for a moment
+ * (`ringRevealed`), because on a canvas of thirty cards arriving in view is not the same as being
+ * found.
  */
 export function useRevealWhenAsked(key: string): (node: HTMLElement | null) => void {
   const store = useCanvasStoreApi();
@@ -82,8 +84,46 @@ export function useRevealWhenAsked(key: string): (node: HTMLElement | null) => v
     (node: HTMLElement | null) => {
       if (node === null || !asked) return;
       node.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
+      ringRevealed(node);
       store.getState().revealed(key);
     },
     [asked, key, store],
   );
+}
+
+/** How long the ring lasts, and how long it waits for the smooth scroll to land before it starts. */
+const RING_MS = 1400;
+const RING_DELAY_MS = 250;
+
+/**
+ * Two beats of a ring on the card's rounded box, then nothing.
+ *
+ * An outline rather than a border or a shadow: it takes no room, so nothing beside the card moves,
+ * and with a negative offset it is drawn just inside the card's edge, where the Bot card that clips
+ * whatever hangs past its sessions cannot cut it off. Animated here rather than by a class, because
+ * the card's classes are React's and showing a session opens it, which rewrites them. Reduced motion
+ * keeps the ring and drops the beat: it stands for the same time and goes.
+ */
+function ringRevealed(node: HTMLElement): void {
+  const card = node.firstElementChild;
+  if (!(card instanceof HTMLElement) || typeof card.animate !== "function") return;
+  const ink = getComputedStyle(card).getPropertyValue("--primary").trim() || "currentColor";
+  const edge = { outlineStyle: "solid", outlineWidth: "2px", outlineOffset: "-2px" };
+  const on = { ...edge, outlineColor: ink };
+  const off = { ...edge, outlineColor: "transparent" };
+  const still = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const frames = still
+    ? [
+        { ...on, offset: 0 },
+        { ...on, offset: 0.9 },
+        { ...off, offset: 1 },
+      ]
+    : [
+        { ...off, offset: 0 },
+        { ...on, offset: 0.12 },
+        { ...off, offset: 0.4 },
+        { ...on, offset: 0.55 },
+        { ...off, offset: 1 },
+      ];
+  card.animate(frames, { duration: RING_MS, delay: RING_DELAY_MS, easing: "ease-out" });
 }

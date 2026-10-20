@@ -12,14 +12,24 @@ const scrolled = vi.fn();
 // The card's own ref, as `BotSessionCard` attaches it: a stand-in that renews the callback on every
 // render would scroll for reasons the card never has.
 function Card({ sessionKey }: { sessionKey: string }) {
-  return <div ref={useRevealWhenAsked(sessionKey)} data-key={sessionKey} />;
+  return (
+    <div ref={useRevealWhenAsked(sessionKey)} data-key={sessionKey}>
+      <div data-ringed={sessionKey} />
+    </div>
+  );
 }
+
+const ringed = vi.fn();
 
 const ownScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
 
 beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
     scrolled(this.dataset.key);
+  };
+  HTMLElement.prototype.animate = function (this: HTMLElement) {
+    ringed(this.dataset.ringed);
+    return {} as Animation;
   };
 });
 
@@ -35,6 +45,8 @@ function Canvas({ store, cards }: { store: CanvasStore; cards: string[] }) {
 
 afterEach(() => {
   scrolled.mockReset();
+  ringed.mockReset();
+  delete (HTMLElement.prototype as { animate?: unknown }).animate;
   if (ownScroll) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", ownScroll);
   else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
 });
@@ -47,6 +59,15 @@ describe("useRevealWhenAsked", () => {
     view.rerender(<Canvas store={store} cards={["claude:a", "claude:b"]} />);
     expect(scrolled.mock.calls).toEqual([["claude:b"]]);
     expect(store.getState().revealKey).toBeNull();
+  });
+
+  // Rings the card's own box, the one with the rounded edge, and only the card asked for.
+  it("rings the card it scrolled to, once", () => {
+    const store = createCanvasStore();
+    const view = render(<Canvas store={store} cards={["claude:a", "claude:b"]} />);
+    act(() => store.getState().reveal("claude:b"));
+    view.rerender(<Canvas store={store} cards={["claude:a", "claude:b"]} />);
+    expect(ringed.mock.calls).toEqual([["claude:b"]]);
   });
 
   // The order the page uses when a Bot comes back on the canvas: asked first, drawn after.
