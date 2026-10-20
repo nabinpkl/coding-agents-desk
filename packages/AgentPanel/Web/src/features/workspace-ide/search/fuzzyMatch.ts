@@ -15,6 +15,12 @@ export interface FuzzyMatch {
   positions: number[];
 }
 
+/** What a filter did, counted so a test can check its cost without timing it. */
+export interface FuzzyWork {
+  /** Query pieces that passed the subsequence test and went through the scoring pass. */
+  scored: number;
+}
+
 const WORD_START = 8;
 const SEPARATOR_AFTER = 7;
 const CAMEL = 6;
@@ -74,9 +80,15 @@ let rowA = new Float64Array(256);
 let rowB = new Float64Array(256);
 let backs = new Int32Array(256 * 8);
 
-function scorePiece(path: string, lowered: string, query: string): { score: number; positions: number[] } | null {
+function scorePiece(
+  path: string,
+  lowered: string,
+  query: string,
+  work: FuzzyWork | undefined,
+): { score: number; positions: number[] } | null {
   const loweredQuery = query.toLowerCase();
   if (!isSubsequence(loweredQuery, lowered)) return null;
+  if (work) work.scored += 1;
   const length = path.length;
   const count = loweredQuery.length;
   const nameStart = path.lastIndexOf("/") + 1;
@@ -164,14 +176,14 @@ function scorePiece(path: string, lowered: string, query: string): { score: numb
  * Spaces split the query into pieces that must each match, in any order, the way VS Code's
  * quick open reads `ide surface`.
  */
-export function fuzzyScore(path: string, query: string): FuzzyMatch | null {
+export function fuzzyScore(path: string, query: string, work?: FuzzyWork): FuzzyMatch | null {
   const pieces = query.split(/\s+/).filter(Boolean);
   if (pieces.length === 0) return { path, score: 0, positions: [] };
   const lowered = path.toLowerCase();
   let score = 0;
   const positions = new Set<number>();
   for (const piece of pieces) {
-    const scored = scorePiece(path, lowered, piece);
+    const scored = scorePiece(path, lowered, piece, work);
     if (!scored) return null;
     score += scored.score;
     for (const position of scored.positions) positions.add(position);
@@ -181,10 +193,10 @@ export function fuzzyScore(path: string, query: string): FuzzyMatch | null {
 }
 
 /** The best `limit` matches, best first. */
-export function fuzzyFilter(paths: readonly string[], query: string, limit: number): FuzzyMatch[] {
+export function fuzzyFilter(paths: readonly string[], query: string, limit: number, work?: FuzzyWork): FuzzyMatch[] {
   const matches: FuzzyMatch[] = [];
   for (const path of paths) {
-    const match = fuzzyScore(path, query);
+    const match = fuzzyScore(path, query, work);
     if (match) matches.push(match);
   }
   matches.sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
