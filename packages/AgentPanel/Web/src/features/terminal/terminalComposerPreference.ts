@@ -29,7 +29,8 @@
  * closed. Capped so a store of every session ever opened cannot accumulate; the pane toggled
  * longest ago is the one dropped.
  */
-import { useSyncExternalStore } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 
 const STORAGE_KEY = "agent-panel.terminal-composer";
 
@@ -46,8 +47,6 @@ export interface TerminalComposerSession {
   shownByDefault?: boolean;
 }
 
-const listeners = new Set<() => void>();
-
 interface Arrangement {
   shown: boolean;
   /** The height the pane was last dragged to, or null for one nobody has dragged. */
@@ -61,7 +60,8 @@ interface Arrangement {
  */
 type Remembered = Map<string, Arrangement>;
 
-let remembered = load();
+/** The in-memory copy every band renders from. Storage is the record; see the setters below. */
+const store = createStore<{ remembered: Remembered }>(() => ({ remembered: load() }));
 
 function sessionKey(session: TerminalComposerSession): string {
   return `${session.source}:${session.sessionId}`;
@@ -101,7 +101,7 @@ function load(): Remembered {
   }
 }
 
-function store(state: Remembered): void {
+function write(state: Remembered): void {
   try {
     const entries = [...state].map(([key, { shown, height }]) => {
       if (!shown) return [key, height, HIDDEN];
@@ -142,14 +142,13 @@ export function toggleTerminalComposer(session: TerminalComposerSession): void {
   const next = load();
   const current = next.get(key);
   arrange(next, key, { shown: !(current?.shown ?? shownByDefault), height: current?.height ?? null }, shownByDefault);
-  remembered = next;
-  store(next);
-  for (const listener of listeners) listener();
+  write(next);
+  store.setState({ remembered: next });
 }
 
 /** The height this session's pane was last dragged to, or null for one nobody has dragged. */
 export function terminalComposerHeight(session: TerminalComposerSession): number | null {
-  return remembered.get(sessionKey(session))?.height ?? null;
+  return store.getState().remembered.get(sessionKey(session))?.height ?? null;
 }
 
 /**
@@ -159,10 +158,9 @@ export function terminalComposerHeight(session: TerminalComposerSession): number
  * are ordinary, and a write that put its own view of the store back would erase what the other
  * one arranged.
  *
- * Notifies nobody. A drag calls this on every pointer move, and the one reader of this store
- * subscribes to whether a pane is SHOWN, which a resize cannot change -- so waking every band on
- * the page sixty times a second would be work in exchange for no repaint. The height is read when
- * a pane mounts, which is the only moment it is wanted.
+ * Re-renders nobody. A drag calls this on every pointer move, and the one reader of this store
+ * selects whether a pane is SHOWN, which a resize cannot change -- so no band repaints sixty times
+ * a second for it. The height is read when a pane mounts, which is the only moment it is wanted.
  */
 export function setTerminalComposerHeight(session: TerminalComposerSession, height: number): void {
   if (!Number.isFinite(height) || height <= 0) return;
@@ -176,21 +174,14 @@ export function setTerminalComposerHeight(session: TerminalComposerSession, heig
   // pane shown by default and never pressed goes in at the tail, as `arrange` would put it.
   if (next.has(key)) next.set(key, { shown: true, height: Math.round(height) });
   else arrange(next, key, { shown: true, height: Math.round(height) }, session.shownByDefault ?? false);
-  remembered = next;
-  store(next);
+  write(next);
+  store.setState({ remembered: next });
 }
 
 export function useTerminalComposerShown(session: TerminalComposerSession): boolean {
-  // Read through the key so the snapshot is a boolean: `useSyncExternalStore` compares snapshots by
-  // identity, and handing it the Map would re-render every session's band on any session's press.
+  // Read through the key so the answer is a boolean: zustand compares answers by identity, and
+  // handing back the Map would re-render every session's band on any session's press.
   const key = sessionKey(session);
   const shownByDefault = session.shownByDefault ?? false;
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => remembered.get(key)?.shown ?? shownByDefault,
-    () => shownByDefault,
-  );
+  return useStore(store, (state) => state.remembered.get(key)?.shown ?? shownByDefault);
 }

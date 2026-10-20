@@ -22,7 +22,9 @@
 //      never more than once, and never for a reader who does not open that language.
 
 import type { HighlighterCore } from "shiki/core";
-import { useCallback, useSyncExternalStore } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
+import { useSubscription } from "@/hooks/useSubscription";
 
 // Emitted by codeToHtml as `--shiki-light` / `--shiki-dark` CSS variables on each token;
 // markdown.css selects between them from the system theme.
@@ -68,27 +70,20 @@ let loaded = new Set<string>();
 const asking = new Set<string>();
 /** Asked for and refused: shiki has no such grammar, or it would not load. Never asked again. */
 const refused = new Set<string>();
-const listeners = new Set<() => void>();
 /**
  * What a reader renders from, replaced whole on every announcement.
  *
- * The value itself rather than a counter beside the variables above: React Compiler caches a
- * hook's result on what it reads through React, and takes a module variable read in render to
- * never change, so a counter that moved while `instance` was read directly left every block on the
- * `null` highlighter it first saw.
+ * Read through the store rather than from the variables above: React Compiler caches a hook's
+ * result on what it reads through React, and takes a module variable read in render to never
+ * change, so a block that read `instance` directly stayed on the `null` highlighter it first saw.
  */
-let snapshot: { highlighter: HighlighterCore | null; loaded: ReadonlySet<string> } = {
+const store = createStore<{ highlighter: HighlighterCore | null; loaded: ReadonlySet<string> }>(() => ({
   highlighter: null,
   loaded,
-};
+}));
 
 function announce(): void {
-  snapshot = { highlighter: instance, loaded };
-  for (const listener of listeners) listener();
-}
-
-function readSnapshot(): typeof snapshot {
-  return snapshot;
+  store.setState({ highlighter: instance, loaded });
 }
 
 function ensureHighlighter(): Promise<HighlighterCore> {
@@ -196,17 +191,11 @@ export function grammarWanted(nameOrLang: string): string {
  */
 export function useCodeHighlighting(nameOrLang: string): { highlighter: HighlighterCore | null; lang: string } {
   const wanted = grammarWanted(nameOrLang);
-  // Subscribing is also what asks for the grammar, so a block that wants a new one asks once.
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      listeners.add(onChange);
-      void ensureHighlighter().then(() => ensureLanguage(wanted));
-      return () => {
-        listeners.delete(onChange);
-      };
-    },
-    [wanted],
-  );
-  const current = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
-  return { highlighter: current.highlighter, lang: current.loaded.has(wanted) ? wanted : PLAIN };
+  // Reading a grammar is what asks for it, so a block that wants a new one asks once.
+  useSubscription(`highlighter:${wanted}`, () => {
+    void ensureHighlighter().then(() => ensureLanguage(wanted));
+  });
+  const highlighter = useStore(store, (state) => state.highlighter);
+  const ready = useStore(store, (state) => state.loaded.has(wanted));
+  return { highlighter, lang: ready ? wanted : PLAIN };
 }

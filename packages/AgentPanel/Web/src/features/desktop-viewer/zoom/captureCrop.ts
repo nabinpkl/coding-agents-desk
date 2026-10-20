@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import type { CapturePlan } from "@/features/desktop-viewer/zoom/tileCapturePlan";
 
 /**
@@ -15,15 +16,15 @@ import type { CapturePlan } from "@/features/desktop-viewer/zoom/tileCapturePlan
  * restoring yesterday's rectangle onto a desktop that has since changed shape would open the
  * viewer looking at the wrong place with no way to tell that had happened.
  */
-let current: CapturePlan | null = null;
-const listeners = new Set<() => void>();
+const store = createStore<{ plan: CapturePlan | null }>(() => ({ plan: null }));
 
 export function getCaptureCrop(): CapturePlan | null {
-  return current;
+  return store.getState().plan;
 }
 
 /** Same plan means same object, so a subscriber never re-renders, or renegotiates, for no change. */
 export function setCaptureCrop(next: CapturePlan | null): void {
+  const current = getCaptureCrop();
   if (
     next === null
       ? current === null
@@ -38,20 +39,12 @@ export function setCaptureCrop(next: CapturePlan | null): void {
         next.pixelHeight === current.pixelHeight
   )
     return;
-  current = next;
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  store.setState({ plan: next });
 }
 
 /** Re-renders only the caller when the plan changes. */
 export function useCaptureCrop(): CapturePlan | null {
-  return useSyncExternalStore(subscribe, getCaptureCrop, getCaptureCrop);
+  return useStore(store, (state) => state.plan);
 }
 
 /**
@@ -74,7 +67,7 @@ export function onCaptureCropApplied(listener: (plan: CapturePlan | null) => voi
 }
 
 export function captureCropApplied(): void {
-  for (const listener of appliedListeners) listener(current);
+  for (const listener of appliedListeners) listener(getCaptureCrop());
 }
 
 /**

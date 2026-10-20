@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 
 /**
  * Whether crop-based zoom runs a coarse whole-display stream underneath the sharp cropped one.
@@ -18,32 +19,23 @@ function restore(): boolean {
   }
 }
 
-let current = restore();
-const listeners = new Set<() => void>();
+const store = createStore<{ on: boolean }>(() => ({ on: restore() }));
 
 export function getOverviewLayer(): boolean {
-  return current;
+  return store.getState().on;
 }
 
 export function setOverviewLayer(next: boolean): void {
-  if (next === current) return;
-  current = next;
+  if (next === getOverviewLayer()) return;
   try {
     localStorage.setItem(STORAGE_KEY, next ? "on" : "off");
   } catch {
     // a private window still gets the choice for this session
   }
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  store.setState({ on: next });
 }
 
 /** Re-renders only the caller when the switch changes. */
 export function useOverviewLayer(): boolean {
-  return useSyncExternalStore(subscribe, getOverviewLayer, getOverviewLayer);
+  return useStore(store, (state) => state.on);
 }

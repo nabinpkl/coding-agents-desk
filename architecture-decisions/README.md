@@ -178,3 +178,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0145 | A Claude session resumes with the model, effort and permission mode it last ran with                              | accepted                         | 2026-10-18 |
 | ADR-0146 | The panel reads data through queries and stores, and bans effects outside named hooks                             | accepted                         | 2026-10-18 |
 | ADR-0147 | A role session registers its agent log with the sidecar, found through the rendezvous board                       | accepted                         | 2026-10-19 |
+| ADR-0149 | Panel state shared across the tree lives in zustand, and reaches the canvas cards through context                  | accepted                         | 2026-10-20 |

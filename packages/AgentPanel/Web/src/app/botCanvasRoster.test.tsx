@@ -11,6 +11,7 @@ import {
   FIXTURE_PROJECT_A,
   FIXTURE_SESSIONS,
   deliverProjects,
+  deliverSessions,
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
@@ -419,5 +420,33 @@ describe("App shell", () => {
     act(() => second.transport.deliver("/api/bots/stream", held));
     expect(standing()).toEqual(["Nightly Sweeper sessions", "Release Captain sessions"]);
     second.unmount();
+  });
+
+  // From the Canvas tab's Sessions view, whose rows sit beside the canvas rather than on it: the
+  // card opens and scrolls itself into view, rather than the canvas searching for it afterwards.
+  it("opens a session's card and scrolls to it from its row in the Sessions view", async () => {
+    const scrolled: Element[] = [];
+    vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(function (this: HTMLElement) {
+      scrolled.push(this);
+    });
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
+    });
+    fireEvent.click(
+      within(screen.getByRole("tablist", { name: "Canvas views" })).getByRole("tab", { name: "Sessions" }),
+    );
+    scrolled.length = 0;
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show Session Claude 01 on the canvas" }));
+
+    const card = canvas().getByRole("button", { name: /^Session Claude 01/ });
+    expect(card).toHaveAttribute("aria-expanded", "true");
+    // The session's own card, not the Bot card around it, which can be wider than the canvas.
+    expect(scrolled).toEqual([card.closest("li")]);
+    unmount();
   });
 });

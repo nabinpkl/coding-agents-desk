@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SessionViewContext } from "@/features/session-view/SessionView";
+import type { BotView } from "@agentdesk/agent-feed-wire";
 import {
   loadSessionCardSizes,
   storeSessionCardSizes,
@@ -8,15 +7,14 @@ import {
   type BotCardSizes,
 } from "@/features/bots/canvas/botCanvasPreferences";
 import { botsOnShownMachines } from "@/features/bots/botMachines";
-import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import type { SessionDraftControls } from "@/features/bots/cards/BotSessionDraftCard";
 import { BotCanvasCard } from "@/features/bots/cards/BotCanvasCard";
 import { CanvasNotices, CanvasReconnecting } from "@/features/bots/cards/canvasNotices";
-import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
+import { sessionKey } from "@/features/bots/cards/botCanvasCards";
 import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedCanvasScroll";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
-import { useRevealOnCanvas } from "@/features/bots/canvas/canvasReveal";
+import { useCanvasCards } from "@/features/bots/canvas/canvasShell";
+import { useCanvasStore } from "@/features/bots/canvas/canvasStore";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { keepTypingInSightWhileMounted } from "@/app/page/keyboardInset";
 import type { MachineError } from "@/features/bots/useBots";
@@ -42,82 +40,33 @@ export function BotCanvasList({
   bots,
   hues,
   ranks,
-  sessionContextFor,
   machines,
   keyOfBot,
   hiddenMachines,
   machineErrors,
-  botError,
-  onAddSession,
-  onForkSession,
-  attachSessionToBot,
-  onForkFromLastMessage,
-  onForkFromLastCompaction,
-  onHandoverSession,
-  onRenameSession,
-  onDetachSession,
-  onRemoveSessionFromCanvas,
-  onMaximizeSession,
-  onDetachBot,
-  onSetFatherSession,
-  onRenameBot,
-  onDeleteBot,
   onMoveBot,
-  onReorderSessions,
-  detachedSessionKeys,
-  openKeys,
-  onToggleSession,
-  newSessions,
-  onCloseNewSession,
-  sessionDrafts,
   canvasZoom,
 }: {
   bots: BotView[];
   hues: ReadonlyMap<string, number>;
   /** The ranks the card avatars draw their faces from. See the canvas above. */
   ranks: ReadonlyMap<string, number>;
-  /** See `BotCanvas`: one context per Bot, because a Bot can be on another machine. */
-  sessionContextFor: (botId: string) => SessionViewContext;
   /** See `BotCanvas`: the chip row, and which machine each card is on. */
   machines: readonly { key: string; label: string }[];
   keyOfBot: (botId: string) => string | undefined;
   hiddenMachines: ReadonlySet<string>;
   machineErrors: readonly MachineError[];
-  botError: BotCommandError | null;
-  onAddSession: (bot: BotView) => void;
-  onForkSession: (bot: BotView, session: SessionSummary) => void;
-  attachSessionToBot: (bot: BotView) => (session: AgentSessionDescriptor) => void | Promise<void>;
-  /** The same fork, starting just before the last thing a person said in that session. */
-  onForkFromLastMessage: (bot: BotView, session: SessionSummary) => void;
-  onForkFromLastCompaction: (bot: BotView, session: SessionSummary) => void;
-  onHandoverSession: (bot: BotView, session: SessionSummary) => void;
-  /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
-  onRenameSession: (session: SessionSummary) => void;
-  onDetachSession: (bot: BotView, session: BotSessionRef) => void;
-  onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
-  /** Opens this session in the modal, over the canvas, without changing what the card shows. */
-  onMaximizeSession: (bot: BotView, session: SessionSummary) => void;
-  onDetachBot: (bot: BotView) => void;
-  /** Names a session the Bot's Father, or clears it with a null ref. */
-  onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
-  /** Opens the dialog that renames a Bot and restyles its face. */
-  onRenameBot: (bot: BotView) => void;
-  /** Forgets a Bot; its sessions survive. */
-  onDeleteBot: (bot: BotView) => void;
-  onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
   onMoveBot: (moved: string, target: string) => void;
-  detachedSessionKeys: ReadonlySet<string>;
-  openKeys: ReadonlySet<string>;
-  onToggleSession: (key: string) => void;
-  newSessions: readonly NewBotSession[];
-  onCloseNewSession: (sessionId: string) => void;
-  sessionDrafts: SessionDraftControls;
   /** See `BotCanvas`: the whole strip drawn small enough to see at once. */
   canvasZoom: { mode: boolean; room: number };
 }) {
   // Every Bot's card size, read once at mount and written on release rather than on every pointer
   // move, so a drag is one storage write.
   const [sessionSizes, setSessionSizes] = useState<BotCardSizes>(loadSessionCardSizes);
+  // What the strip itself reads of what every card reads: whether a failure has a card to land on,
+  // and the started sessions whose widths a prune must keep.
+  const { botError, detachedSessionKeys, newSessions } = useCanvasCards();
+  const dropReveal = useCanvasStore((state) => state.dropReveal);
   // Hidden machines drop out HERE rather than upstream, because hiding one is a question about what
   // this strip shows and not about which Bots exist: the sidebar roster still lists every one, and
   // its chip still says how many each machine is holding back. Shared with the sidebar's status
@@ -184,8 +133,6 @@ export function BotCanvasList({
     on: canvasZoom.mode,
     room: canvasZoom.room,
   });
-  // A session the sidebar asked to see, scrolled to once its card is drawn.
-  useRevealOnCanvas(canvas);
   // The stored offset is in content space, so it cannot be put back until the scale is known.
   const rememberScroll = useRememberedCanvasScroll(canvas, standing, {
     scale: zoom.scale,
@@ -228,33 +175,10 @@ export function BotCanvasList({
             bot={bot}
             hue={hues.get(bot.botId)}
             rank={ranks.get(bot.botId)}
-            sessionContext={sessionContextFor(bot.botId)}
             {...(labelOf(bot.botId) ? { machineLabel: labelOf(bot.botId)! } : {})}
-            botError={botError}
-            detachedSessionKeys={detachedSessionKeys}
-            openKeys={openKeys}
-            onToggleSession={onToggleSession}
             sessionSizes={sessionSizes}
             onResizeSession={resizeSession}
-            onAddSession={onAddSession}
-            onForkSession={onForkSession}
-            attachSessionToBot={attachSessionToBot}
-            onForkFromLastMessage={onForkFromLastMessage}
-            onForkFromLastCompaction={onForkFromLastCompaction}
-            onHandoverSession={onHandoverSession}
-            onRenameSession={onRenameSession}
-            onDetachSession={onDetachSession}
-            onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
-            onMaximizeSession={onMaximizeSession}
-            onDetachBot={onDetachBot}
-            onSetFatherSession={onSetFatherSession}
-            onRenameBot={onRenameBot}
-            onDeleteBot={onDeleteBot}
-            onReorderSessions={onReorderSessions}
             scroller={canvas}
-            newSessions={newSessions.filter((each) => each.botId === bot.botId)}
-            onCloseNewSession={onCloseNewSession}
-            sessionDrafts={sessionDrafts}
           />
         </PanelErrorBoundary>
       ))}
@@ -268,6 +192,11 @@ export function BotCanvasList({
       <div
         ref={attachCanvas}
         onScroll={rememberScroll}
+        // A session the sidebar asked to see waits for its card, and stops waiting once the reader
+        // takes the canvas in hand: a card arriving after that would pull the strip away from where
+        // they are. Press and wheel, not scroll, which the reveal's own smooth scroll fires too.
+        onPointerDown={dropReveal}
+        onWheel={dropReveal}
         style={zoom.scrollerStyle}
         // The margin is the SCROLLER's rather than padding on the strip inside it, so the gutter
         // holds while the canvas is scrolled: cards enter and leave at the inset edge instead of

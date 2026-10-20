@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import { CAPTURE_SCALE_MAX, CAPTURE_SCALE_MIN } from "@/features/desktop-viewer/tile-stream/TileStreamRtc";
 
 /**
@@ -26,33 +27,24 @@ function restore(): number {
   }
 }
 
-let current = restore();
-const listeners = new Set<() => void>();
+const store = createStore<{ scale: number }>(() => ({ scale: restore() }));
 
 export function getCaptureScale(): number {
-  return current;
+  return store.getState().scale;
 }
 
 export function setCaptureScale(value: number): void {
   const next = clamp(value);
-  if (next === current) return;
-  current = next;
+  if (next === getCaptureScale()) return;
   try {
     localStorage.setItem(STORAGE_KEY, String(next));
   } catch {
     // a private window still gets the choice for this session
   }
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  store.setState({ scale: next });
 }
 
 /** Re-renders only the caller when the multiplier changes. */
 export function useCaptureScale(): number {
-  return useSyncExternalStore(subscribe, getCaptureScale, getCaptureScale);
+  return useStore(store, (state) => state.scale);
 }

@@ -133,9 +133,10 @@ a private window and a container with storage disabled both throw. Write from ON
 `usePersistentState` returns (`@/hooks/state/usePersistentState`), rather than beside each of the
 calls that change it; that is how one of them ends up forgotten.
 
-**Where this is going.** There are currently three mechanisms doing this one job -- hand-rolled
-`load*`/`store*` pairs, `useSyncExternalStore` singletons, and one `zustand` store -- and none of
-them has a version or a migration, so every one silently discards a reader's value when its shape
+**Where this is going.** There are currently two mechanisms doing this one job -- hand-rolled
+`load*`/`store*` pairs, and `zustand` stores that read and write storage by hand (the
+`useSyncExternalStore` singletons moved onto zustand on 2026-10-20, ADR-0149) -- and none of them
+has a version or a migration, so every one silently discards a reader's value when its shape
 changes. ADR-0114 records the decision to consolidate onto `zustand`'s `persist` middleware (already
 a dependency) with `partialize`, `version` and `migrate`, and carries the migration order. Note what
 `persist` does NOT change: it makes writing easy enough that the rule above stops being enforced by
@@ -164,12 +165,28 @@ or each mount opens its own stream and closing the drawer drops a restart in fli
   entry per data source in a `WeakMap`, readers counted, and whatever the entry holds open (a
   stream, a poll) closed after the last reader leaves while its state stays for the next. The work
   is plain functions beside the store; the hook only reads it with `useSourceStore` and binds them.
-  `useUsage`, `useDesktopPark` and `useMessages` are built on it. `useLimits` is the same shape
-  written by hand before the helper existed. A store keyed on the data source starts fresh when
+  `useUsage`, `useDesktopPark`, `useMessages` and `useLimits` are built on it. A store keyed on the data source starts fresh when
   that object is rebuilt by a hot swap, which is the right answer for one machine's data.
 - **Data across every machine**: `features/profile/useStaleSessions.ts`. A module-level `zustand`
   store (`createStore` from `zustand/vanilla`, read with `useStore`) keyed by `machineKey`, because
   its answer spans machines and outlives any one data source.
+- **State two distant parts of the tree share, or a request one makes of the other**: a `zustand`
+  store, never one written by hand (ADR-0149; `useSyncExternalStore` is a lint error outside
+  `src/hooks/` and `sourceStore.ts`). One record for the whole page is a module store
+  (`zoomMode.ts`, `botFacesSwitch.ts`). One a surface shares is made once by that surface's owner
+  and handed down in a context, so each render of the app has its own and a test resets nothing:
+  `features/bots/canvas/canvasStore.ts`, where the Sessions view asks the canvas to show a session
+  and the card scrolls itself when its key is the one asked for. A selector returns a value, never
+  a fresh object or array, which zustand would read as a change on every call and re-render
+  forever.
+
+**What the shell owns reaches the canvas's cards through context, not down the strip.** The commands
+a card issues and the facts every card reads (open cards, cards off the canvas, a Bot's failure,
+started sessions, drafts) belong to `App`'s hooks, because the sidebar, the dialogs and the thread
+view share them. `App` hands them to `CanvasShell` (`features/bots/canvas/canvasShell.tsx`) around
+`BotCanvas`, and a card reads them with `useCanvasActions` and `useCanvasCards`; `BotCanvas` and
+`BotCanvasList` take only what the strip lays out. A new canvas command is a field on
+`CanvasActions` and a line in `App`, not a prop through four files.
 
 The widget stays presentational and takes its handles as props, so its tests stand them up
 directly; a `Live*` wrapper beside it does the subscribing (`LiveProfileRow`, `MessagesInbox`), and
@@ -192,10 +209,10 @@ the thing. `useDomSync` is DOM work only; `useNotify` is a parent that should be
 Nor a ref read or written while rendering. The panel builds with React Compiler (`panelReact.ts`)
 and its rules are lint errors: a latest value goes through `useLatestRef`, one a handler writes
 ahead of the render through `useCommitToRef`, the time through `useNow`, and a ref a hook returns
-is split off the rest of what it returns. A store's hook renders from its `useSyncExternalStore`
-snapshot and never from module variables beside it: the compiler takes a module variable to be
-constant and caches the first answer (the Shiki highlighter stayed `null` that way), and no lint
-rule says so. A check during render for "did this change" compares the inputs themselves, never a
+is split off the rest of what it returns. A store's hook renders from what `useStore` selects
+and never from module variables beside it: the compiler takes a module variable to be constant and
+caches the first answer (the Shiki highlighter stayed `null` that way), and no lint rule says so. A
+check during render for "did this change" compares the inputs themselves, never a
 `useMemo`'s identity: the compiler drops a memo whose result is neither returned nor drawn, and the
 canvas roster's prune looped on that. A hand-written `useCallback` or `useMemo` lists every setter and
 ref it uses, because the compiler skips the whole component otherwise, and so does a `finally`

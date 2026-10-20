@@ -5,8 +5,7 @@
 // open session's are its own. `BotSessionCard.tsx` holds the row this renders.
 
 import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SessionViewContext } from "@/features/session-view/SessionView";
+import type { BotView } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import {
   FilePathOpenerContext,
@@ -19,11 +18,13 @@ import { botSessionSlots, botSurfaceStyle } from "@/features/bots/botSurface";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { canRenameSession } from "@/features/bots/sessionRename";
 import { handoverMenuProp } from "@/features/bots/sessionHandover";
-import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import { BotSessionDraftCard, type SessionDraftControls } from "@/features/bots/cards/BotSessionDraftCard";
+import { BotNewSessionCard } from "@/features/bots/cards/BotNewSessionCard";
+import { BotSessionDraftCard } from "@/features/bots/cards/BotSessionDraftCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
-import { SESSION_GAP, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
+import { SESSION_GAP, sessionKey } from "@/features/bots/cards/botCanvasCards";
+import { useCanvasActions, useCanvasCards } from "@/features/bots/canvas/canvasShell";
+import { useCanvasStore } from "@/features/bots/canvas/canvasStore";
 import { reorderSessionRefs, standingAfter } from "@/features/bots/cards/botSessionOrder";
 import { isFatherSession } from "@/features/bots/botRosterOrder";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
@@ -36,11 +37,6 @@ export function BotCanvasCard({
   bot,
   hue,
   rank,
-  sessionContext,
-  botError,
-  detachedSessionKeys,
-  openKeys,
-  onToggleSession,
   sessionSizes,
   onResizeSession,
   offset,
@@ -51,25 +47,7 @@ export function BotCanvasCard({
   onMoveBySteps,
   canMoveLeft,
   canMoveRight,
-  onAddSession,
-  onForkSession,
-  attachSessionToBot,
-  onForkFromLastMessage,
-  onForkFromLastCompaction,
-  onHandoverSession,
-  onRenameSession,
-  onDetachSession,
-  onRemoveSessionFromCanvas,
-  onMaximizeSession,
-  onDetachBot,
-  onSetFatherSession,
-  onRenameBot,
-  onDeleteBot,
-  onReorderSessions,
   scroller,
-  newSessions,
-  onCloseNewSession,
-  sessionDrafts,
   machineLabel,
 }: {
   bot: BotView;
@@ -77,11 +55,6 @@ export function BotCanvasCard({
   hue: number | undefined;
   /** This Bot's rank in the creation order, or nothing where the hue is nothing. Draws the face. */
   rank: number | undefined;
-  sessionContext: SessionViewContext;
-  botError: BotCommandError | null;
-  detachedSessionKeys: ReadonlySet<string>;
-  openKeys: ReadonlySet<string>;
-  onToggleSession: (key: string) => void;
   /** Every session's own size, by `source:sessionId`. */
   sessionSizes: BotCardSizes;
   onResizeSession: (key: string, size: BotCardSize, keep: boolean) => void;
@@ -96,35 +69,6 @@ export function BotCanvasCard({
   onMoveBySteps: (steps: number) => void;
   canMoveLeft: boolean;
   canMoveRight: boolean;
-  onAddSession: (bot: BotView) => void;
-  onForkSession: (bot: BotView, session: SessionSummary) => void;
-  attachSessionToBot: (bot: BotView) => (session: AgentSessionDescriptor) => void | Promise<void>;
-  onForkFromLastMessage: (bot: BotView, session: SessionSummary) => void;
-  onForkFromLastCompaction: (bot: BotView, session: SessionSummary) => void;
-  /** Opens the handover dialog for a Claude session. Absent as a capability elsewhere. */
-  onHandoverSession: (bot: BotView, session: SessionSummary) => void;
-  /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
-  onRenameSession: (session: SessionSummary) => void;
-  onDetachSession: (bot: BotView, session: BotSessionRef) => void;
-  /** Takes one session's card off the canvas; the Bot keeps the session either way. */
-  onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
-  /** Opens this session in the modal, over the canvas, without changing what the card shows. */
-  onMaximizeSession: (bot: BotView, session: SessionSummary) => void;
-  onDetachBot: (bot: BotView) => void;
-  /** Names a session the Bot's Father, or clears it with a null ref. */
-  onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
-  /** Opens the dialog that renames this Bot and restyles its face. */
-  onRenameBot: (bot: BotView) => void;
-  /** Forgets this Bot; its sessions survive. */
-  onDeleteBot: (bot: BotView) => void;
-  /**
-   * Stands this Bot's sessions in a new order, naming the one that was carried.
-   *
-   * The whole order rather than the move, because that is what the Bot is asked to hold and what
-   * the sidecar checks against the references it has: see `botSessionOrder.ts` for the translation
-   * from the cards on screen, which are only ever a subset of it.
-   */
-  onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
   /**
    * The canvas's own scroller, so a session carried to the edge of the panel makes it creep.
    *
@@ -132,11 +76,6 @@ export function BotCanvasCard({
    * is laid out in full and the thing that has to move is the surface underneath.
    */
   scroller: React.RefObject<HTMLDivElement | null>;
-  /** This Bot's share of the sessions the panel has started, already filtered to it. */
-  newSessions: readonly NewBotSession[];
-  onCloseNewSession: (sessionId: string) => void;
-  /** Every fork and fresh session waiting on the canvas to be started; this card draws its own Bot's. */
-  sessionDrafts: SessionDraftControls;
   /**
    * The machine this Bot's directory is on, or absent when the canvas is showing only one.
    *
@@ -151,6 +90,32 @@ export function BotCanvasCard({
   // reference went missing; this closes the chain by saying the row reached the screen, which is
   // the half that cannot be recovered from the sidecar's log after the fact.
   useMissingSessionLog(bot, "canvas-card");
+  // The commands this card's sessions issue and the facts every card reads, straight from the shell
+  // (`canvasShell.tsx`): the strip above has no use for them, so it does not carry them.
+  const {
+    onAddSession,
+    onForkSession,
+    attachSessionToBot,
+    onForkFromLastMessage,
+    onForkFromLastCompaction,
+    onHandoverSession,
+    onRenameSession,
+    onDetachSession,
+    onRemoveSessionFromCanvas,
+    onMaximizeSession,
+    onDetachBot,
+    onSetFatherSession,
+    onRenameBot,
+    onDeleteBot,
+    onReorderSessions,
+    onToggleSession,
+    onCloseNewSession,
+  } = useCanvasActions();
+  const cards = useCanvasCards();
+  const { botError, detachedSessionKeys, openKeys, sessionDrafts } = cards;
+  const sessionContext = cards.sessionContextFor(bot.botId);
+  // This Bot's share of the sessions the panel has started.
+  const newSessions = cards.newSessions.filter((each) => each.botId === bot.botId);
   // Dropped as soon as the Bot itself carries the session, rather than when the shell decides it
   // should be gone. The two happen a snapshot apart, and rendering both for that moment would put
   // two cards with one identity side by side.
@@ -250,6 +215,13 @@ export function BotCanvasCard({
   // of them scrolled last (measured 2026-10-13 in the panel's scroll log: three `scrollIntoView`
   // calls within 500ms of the bots stream reconnecting, 336 -> 3984). So a key is announced once,
   // and forgotten only when the reader closes it.
+  //
+  // Not when the reader asked to see one of this Bot's sessions, which opens it too: that session's
+  // own card scrolls to it (`useRevealWhenAsked`), and a Bot card wider than the canvas scrolled to
+  // after it would take the strip back to the Bot's leading edge.
+  const revealingHere = useCanvasStore(
+    (state) => state.revealKey !== null && shown.some((session) => sessionKey(session) === state.revealKey),
+  );
   const card = useRef<HTMLLIElement | null>(null);
   const announced = useRef<ReadonlySet<string>>(openKeys);
   useDomSync(() => {
@@ -264,9 +236,9 @@ export function BotCanvasCard({
       if (openKeys.has(key)) next.add(key);
     }
     announced.current = next;
-    if (!opened) return;
+    if (!opened || revealingHere) return;
     card.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-  }, [openKeys, shown]);
+  }, [openKeys, shown, revealingHere]);
   useMountEffect(() => reachMilestone("first-card"));
   // `bot-surface` sets the background and the border together, because a tinted card inside a
   // neutral border reads as a mistake rather than as a colour. A Bot the roster has not ranked

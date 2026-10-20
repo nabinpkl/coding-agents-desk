@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 
 /**
  * How the viewer zooms, held outside the component tree so the chrome can switch it and the
@@ -22,32 +23,23 @@ function restore(): ZoomMode {
   }
 }
 
-let current: ZoomMode = restore();
-const listeners = new Set<() => void>();
+const store = createStore<{ mode: ZoomMode }>(() => ({ mode: restore() }));
 
 export function getZoomMode(): ZoomMode {
-  return current;
+  return store.getState().mode;
 }
 
 export function setZoomMode(next: ZoomMode): void {
-  if (next === current) return;
-  current = next;
+  if (next === getZoomMode()) return;
   try {
     localStorage.setItem(STORAGE_KEY, next);
   } catch {
     // a private window still gets the choice for this session
   }
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  store.setState({ mode: next });
 }
 
 /** Re-renders only the caller when the mode changes. */
 export function useZoomMode(): ZoomMode {
-  return useSyncExternalStore(subscribe, getZoomMode, getZoomMode);
+  return useStore(store, (state) => state.mode);
 }

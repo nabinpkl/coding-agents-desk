@@ -22,6 +22,7 @@ import { FilePathOpenerContext } from "@/features/activity-feed/markdown/filePat
 import { SessionCodeButton, SessionCodeDialog } from "@/features/bots/code/SessionCodeButton";
 import { SessionLogButton } from "@/features/bots/code/SessionLogButton";
 import { useSessionCode } from "@/features/bots/code/useSessionCode";
+import { useRevealWhenAsked } from "@/features/bots/canvas/canvasStore";
 
 /** How far a press has to travel before it stops being a click and becomes a carry. */
 const MOVE_THRESHOLD = 4;
@@ -34,9 +35,6 @@ const MOVE_THRESHOLD = 4;
  * its own width, its own height, its own three grips, remembered against its own session. Nothing
  * about it is derived from the Bot card around it -- that card grows to fit this one, rather than
  * this one being fitted into what the card had left over.
- *
- * The space beside a session narrower than its Bot card is deliberate. Nothing sits there today,
- * and it is where a second open session goes when more than one at a time is allowed.
  */
 export function BotSessionCard({
   bot,
@@ -160,6 +158,7 @@ export function BotSessionCard({
    */
   const [tasksHost, setTasksHost] = useState<HTMLElement | null>(null);
   const code = useSessionCode(session, bot);
+  const reveal = useRevealWhenAsked(sessionKey(session));
   /**
    * What this card's session does with a dropped image, published up from inside it.
    *
@@ -250,8 +249,8 @@ export function BotSessionCard({
     // therefore resolved the whole session to ZERO -- which is what a phone showed, a Bot card with
     // an empty body and a one-pixel sliver where the roster should be.
     <li
-      // What the sidebar's "Show on canvas" finds this card by (`canvasReveal`).
-      data-session-key={sessionKey(session)}
+      // Scrolls to this card when the sidebar's "Show on canvas" asks for it (`canvasStore`).
+      ref={reveal}
       className={`shrink-0 ${lifted ? "z-10" : ""}`}
       style={{
         width: open ? resize.width : CLOSED_SESSION_WIDTH,

@@ -2,11 +2,11 @@
 // preferences. Apart from the faces themselves: what a face looks like does not depend on whether
 // faces are on.
 
-import { useSyncExternalStore } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import { loadSidebarPreferences, storeSidebarPreferences } from "@/features/sidebar/sidebarPreferences";
 
-const faceListeners = new Set<() => void>();
-let facesOn = loadSidebarPreferences().botFaces;
+const store = createStore<{ facesOn: boolean }>(() => ({ facesOn: loadSidebarPreferences().botFaces }));
 
 /**
  * Whether Bots wear their generated faces instead of their initials.
@@ -18,22 +18,11 @@ let facesOn = loadSidebarPreferences().botFaces;
  * would erase what the other tab had arranged.
  */
 export function useBotFaces(): boolean {
-  return useSyncExternalStore(
-    (listener) => {
-      faceListeners.add(listener);
-      return () => {
-        faceListeners.delete(listener);
-      };
-    },
-    () => facesOn,
-    () => false,
-  );
+  return useStore(store, (state) => state.facesOn);
 }
 
 /** Flips the faces switch. The roster header holds its one control. */
 export function setBotFaces(on: boolean): void {
   storeSidebarPreferences({ ...loadSidebarPreferences(), botFaces: on });
-  if (facesOn === on) return;
-  facesOn = on;
-  for (const listener of faceListeners) listener();
+  if (store.getState().facesOn !== on) store.setState({ facesOn: on });
 }

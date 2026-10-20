@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import type {
   LimitsStreamMessage,
   QuotaReport,
@@ -9,6 +9,7 @@ import type {
   VendorQuotas,
 } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { createSourceStore, useSourceStore, type SourceStore } from "@/features/activity-feed/data-source/sourceStore";
 
 /** The one method this needs, so a test can stand in for a whole data source with an object. */
 export type LimitsFeed = Pick<SidecarDataSource, "subscribeLimits">;
@@ -35,15 +36,18 @@ type Reading =
   | { kind: "ready"; vendors: VendorQuotas[] }
   | { kind: "error"; message: string };
 
-interface Entry {
-  reading: Reading;
-  listeners: Set<() => void>;
-  /** How many mounted readouts are watching, which is what holds the subscription open. */
-  live: number;
-  unsubscribe: (() => void) | null;
-}
-
 const IDLE: Reading = { kind: "idle" };
+
+/**
+ * Stands in for "no sidecar to ask", so the hook below has one store and one source to read either
+ * way. Never subscribed to: a readout rendered without a sidecar stays empty rather than inventing a
+ * meter.
+ */
+const NO_FEED: LimitsFeed = { subscribeLimits: () => () => {} };
+
+/** Each machine's open stream, so the last reader leaving can close it. */
+const streams = new WeakMap<LimitsFeed, () => void>();
+const goStreams = new WeakMap<LimitsFeed, () => void>();
 
 /**
  * One subscription per SIDECAR, not per session or per card.
@@ -55,29 +59,41 @@ const IDLE: Reading = { kind: "idle" };
  * so sharing here costs no plumbing and turns eight streams into one. That matters more than it
  * would for a plain read: the relay admits a bounded number of concurrent subscriptions.
  *
- * Weak, so a machine that goes away takes its entry with it rather than pinning a dead data source
- * for the life of the page.
+ * The stream is opened by the first card and closed by the last; the reading itself outlives it, so
+ * a card reopening shows the last known meters at once and then corrects.
  */
-const entries = new WeakMap<LimitsFeed, Entry>();
+const limits = limitsStore(false);
 /**
  * The OpenCode Go plan meter, one subscription per sidecar like the above but its own stream:
  * the sidecar polls opencode.ai for it, so it is opened by a mounted Go meter (an expanded
  * opencode session card on the Go plan) and by nothing else.
  */
-const goEntries = new WeakMap<LimitsFeed, Entry>();
+const goLimits = limitsStore(true);
 
-function entryFor(feed: LimitsFeed, go: boolean): Entry {
-  const store = go ? goEntries : entries;
-  const existing = store.get(feed);
-  if (existing) return existing;
-  const made: Entry = { reading: IDLE, listeners: new Set(), live: 0, unsubscribe: null };
-  store.set(feed, made);
-  return made;
-}
-
-function publish(entry: Entry, reading: Reading) {
-  entry.reading = reading;
-  for (const listener of entry.listeners) listener();
+function limitsStore(go: boolean) {
+  const open = go ? goStreams : streams;
+  const store = createSourceStore<LimitsFeed, Reading>({
+    initial: () => IDLE,
+    opened: (feed) => {
+      if (feed === NO_FEED) return;
+      if (store.get(feed).kind === "idle") store.set(feed, () => ({ kind: "loading" }));
+      open.set(
+        feed,
+        feed.subscribeLimits(
+          {
+            onMessage: (message) => receive(store, feed, message),
+            onError: (reason) => store.set(feed, () => ({ kind: "error", message: reason })),
+          },
+          go ? "opencode-go" : null,
+        ),
+      );
+    },
+    closed: (feed) => {
+      open.get(feed)?.();
+      open.delete(feed);
+    },
+  });
+  return store;
 }
 
 /**
@@ -94,47 +110,18 @@ function normalize(report: QuotaReport): VendorQuotas[] | null {
   }));
 }
 
-function receive(entry: Entry, message: LimitsStreamMessage) {
+function receive(store: SourceStore<LimitsFeed, Reading>, feed: LimitsFeed, message: LimitsStreamMessage) {
   if (message?.type === "error") {
-    publish(entry, { kind: "error", message: message.error.message });
+    store.set(feed, () => ({ kind: "error", message: message.error.message }));
     return;
   }
   // Checked rather than trusted, because this is rendered on every open card at once: a body
   // without `vendors` would otherwise throw inside the render below and take the whole session
   // card down with it, not just the meter. Named, not swallowed.
   const vendors = normalize(message?.report);
-  publish(
-    entry,
+  store.set(feed, () =>
     vendors ? { kind: "ready", vendors } : { kind: "error", message: "limits response carried no vendors" },
   );
-}
-
-/**
- * Counts one reader in, opening the stream if it is the first, and returns what counts it out.
- *
- * No sidecar to ask is answered by the caller: the surface that has one always passes it, and
- * a readout rendered without one stays empty rather than inventing a meter.
- */
-function follow(entry: Entry, feed: LimitsFeed, go: boolean, onChange: () => void): () => void {
-  entry.listeners.add(onChange);
-  entry.live += 1;
-  if (entry.live === 1 && !entry.unsubscribe) {
-    if (entry.reading.kind === "idle") publish(entry, { kind: "loading" });
-    entry.unsubscribe = feed.subscribeLimits(
-      {
-        onMessage: (message) => receive(entry, message),
-        onError: (reason) => publish(entry, { kind: "error", message: reason }),
-      },
-      go ? "opencode-go" : null,
-    );
-  }
-  return () => {
-    entry.listeners.delete(onChange);
-    entry.live -= 1;
-    if (entry.live > 0) return;
-    entry.unsubscribe?.();
-    entry.unsubscribe = null;
-  };
 }
 
 /**
@@ -150,23 +137,7 @@ export function useLimits(
   /** Show only this vendor's windows, or every vendor's where a surface wants them all. */
   vendor: QuotaVendorId | null = null,
 ): LimitsState {
-  const go = vendor === "opencode-go";
-  const entry = feed ? entryFor(feed, go) : null;
-
-  // A reader is counted in by its subscription. The stream is opened by the first card and closed
-  // by the last; the reading itself outlives it, so a card reopening shows the last known meters
-  // at once and then corrects.
-  const subscribe = useCallback(
-    (onChange: () => void) => (entry && feed ? follow(entry, feed, go, onChange) : () => {}),
-    [entry, feed, go],
-  );
-  // The store's own object, unchanged between reads, because `useSyncExternalStore` compares
-  // snapshots by identity and a fresh one per render is an infinite loop rather than a re-render.
-  const reading = useSyncExternalStore(
-    subscribe,
-    () => entry?.reading ?? IDLE,
-    () => IDLE,
-  );
+  const reading = useSourceStore(vendor === "opencode-go" ? goLimits : limits, feed ?? NO_FEED);
 
   return useMemo<LimitsState>(() => {
     if (reading.kind !== "ready") return reading;

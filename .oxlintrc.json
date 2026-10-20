@@ -99,6 +99,10 @@
     // cancel flag, a write to storage watching a value. Each of those has a better home -- the
     // render, a query (`@/query/panelQuery`), a store, the event handler -- and an effect left
     // anywhere is the example the next one gets copied from.
+    //
+    // Nor a store written by hand (ADR-0149). On 2026-10-20 the panel held ten, each its own
+    // listener set, `subscribe` and `useSyncExternalStore`, the newest copied from the one beside
+    // it while zustand, already a dependency, sat unused for that job.
     "eslint/no-restricted-imports": [
       "error",
       {
@@ -107,6 +111,11 @@
             "name": "react",
             "importNames": ["useEffect", "useLayoutEffect", "useInsertionEffect"],
             "message": "Compute it in render, read it with usePanelQuery, subscribe through a store, do it in the event handler, or use a hook from @/hooks (ADR-0146)."
+          },
+          {
+            "name": "react",
+            "importNames": ["useSyncExternalStore"],
+            "message": "Hold state shared across the tree in a zustand store (createStore from zustand/vanilla, read with useStore), one data source's in createSourceStore, and an outside system's value through a hook in @/hooks (ADR-0149)."
           }
         ]
       }
@@ -168,7 +177,40 @@
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useTrackpadGestures.ts",
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useScrollStripGestures.ts"
       ],
-      "rules": { "eslint/no-restricted-imports": "off" }
+      // Their effects are allowed; a hand-written store is not, so the second half is restated.
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "react",
+                "importNames": ["useSyncExternalStore"],
+                "message": "Hold state shared across the tree in a zustand store (createStore from zustand/vanilla, read with useStore), one data source's in createSourceStore, and an outside system's value through a hook in @/hooks (ADR-0149)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The one helper that keeps state per data source, readers counted, which is a different
+      // shape from one zustand store: see `sourceStore.ts`. Its effect ban stays.
+      "files": ["**/AgentPanel/Web/src/features/activity-feed/data-source/sourceStore.ts"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "react",
+                "importNames": ["useEffect", "useLayoutEffect", "useInsertionEffect"],
+                "message": "Compute it in render, read it with usePanelQuery, subscribe through a store, do it in the event handler, or use a hook from @/hooks (ADR-0146)."
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       // The sidecar does not use chokidar. It holds a native watch per FILE in a directory it

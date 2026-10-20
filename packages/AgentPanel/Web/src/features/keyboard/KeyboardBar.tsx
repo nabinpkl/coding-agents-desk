@@ -23,15 +23,14 @@
 // numbers arrive late, it steps out of sight rather than trailing the fingers.
 
 import { KeyboardOff } from "lucide-react";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { KeyRailButton } from "@/features/keyboard/KeyRailButton";
 import { pressKeyboardBarKey, type KeyboardBarKey } from "@/features/keyboard/keyboardBarKeys";
 import {
   keyboardBarHeight,
-  keyboardBarSnapshot,
   publishKeyboardBarSlot,
-  subscribeKeyboardBar,
+  useKeyboardBarState,
   type KeyboardBarState,
 } from "@/features/keyboard/keyboardBarState";
 import { useDomSync } from "@/hooks/dom/useDomSync";
@@ -44,7 +43,7 @@ const KEYS: { label: string; key: KeyboardBarKey }[] = [
 ];
 
 export function KeyboardBar() {
-  const bar = useSyncExternalStore(subscribeKeyboardBar, keyboardBarSnapshot);
+  const bar = useKeyboardBarState((state) => state);
   if (!bar.field || !bar.host) return null;
   return createPortal(<KeyboardBarRow bar={bar} field={bar.field} />, bar.host);
 }
@@ -54,8 +53,7 @@ export function KeyboardBar() {
  * is not up, or the focused field did not ask for room. `focused` says the field is this region's.
  */
 export function useKeyboardBarSlot(focused: boolean): HTMLElement | null {
-  const bar = useSyncExternalStore(subscribeKeyboardBar, keyboardBarSnapshot);
-  return focused && bar.ownKeys ? bar.slot : null;
+  return useKeyboardBarState((bar) => (focused && bar.ownKeys ? bar.slot : null));
 }
 
 /** A field's own keys, drawn on the keyboard bar while that field has the keyboard. */

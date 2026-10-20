@@ -15,7 +15,6 @@ import type { useBotCommands } from "@/app/shell-state/useBotCommands";
 import type { ShellMachines } from "@/app/shell-state/useBotMachines";
 import { botsOnShownMachines, machineIsHidden } from "@/features/bots/botMachines";
 import { botSessionFaces } from "@/features/bots/avatar/botSessionFaces";
-import { revealOnCanvas } from "@/features/bots/canvas/canvasReveal";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
@@ -33,6 +32,7 @@ export function sidebarProps({
   newSession,
   roster,
   thread,
+  revealOnCanvas,
 }: {
   botsState: ReturnType<typeof useBots>;
   chrome: Omit<ReturnType<typeof useSidebarChrome>, "drawerTriggerRef">;
@@ -46,6 +46,8 @@ export function sidebarProps({
   newSession: ReturnType<typeof useNewSessionCommands>;
   roster: ReturnType<typeof useCanvasRoster>;
   thread: ReturnType<typeof useThreadSelection>;
+  /** Asks the canvas to bring a session's card into view, once it is drawn (`canvasStore`). */
+  revealOnCanvas: (key: string) => void;
 }) {
   // Over the WHOLE roster rather than over the Bots on the canvas, because the roster rows this
   // marks include the ones already taken off it: a Bot that is both detached and on a hidden

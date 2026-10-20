@@ -1,7 +1,4 @@
-import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SessionViewContext } from "@/features/session-view/SessionView";
-import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import type { SessionDraftControls } from "@/features/bots/cards/BotSessionDraftCard";
+import type { BotView } from "@agentdesk/agent-feed-wire";
 import { CanvasPlaceholder } from "@/features/bots/cards/canvasNotices";
 import { type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { BotCanvasList } from "@/features/bots/cards/BotCanvasList";
@@ -39,6 +36,10 @@ export type { BotCommandError };
  *
  * Behind its own boundary, so a canvas that throws leaves the sidebar and the tab bar standing; each
  * Bot and each session card inside has one too (`cards/BotCanvasList`, `cards/BotCanvasCard`).
+ *
+ * What it is handed is what the strip lays out. The commands a card issues and the facts every card
+ * reads (which are open, which are off the canvas, a Bot's failure) reach the cards directly, through
+ * `CanvasShell` rendered around this: see `canvasShell.tsx`.
  */
 export function BotCanvas(props: ComponentProps<typeof CanvasContent>) {
   return (
@@ -54,36 +55,13 @@ function CanvasContent({
   ranks,
   loading,
   error,
-  sessionContextFor,
   machines,
   keyOfBot,
   hiddenMachines,
   machineErrors,
-  botError,
-  onAddSession,
-  onForkSession,
-  attachSessionToBot,
-  onForkFromLastMessage,
-  onForkFromLastCompaction,
-  onHandoverSession,
-  onRenameSession,
-  onDetachSession,
-  onRemoveSessionFromCanvas,
-  onMaximizeSession,
-  onDetachBot,
-  onSetFatherSession,
-  onRenameBot,
-  onDeleteBot,
   onMoveBot,
-  onReorderSessions,
   detachedCount,
-  detachedSessionKeys,
-  openKeys,
-  onToggleSession,
   onAddBot,
-  newSessions,
-  onCloseNewSession,
-  sessionDrafts,
   canvasZoom,
 }: {
   bots: BotView[];
@@ -104,20 +82,6 @@ function CanvasContent({
   ranks: ReadonlyMap<string, number>;
   loading: boolean;
   error: string | null;
-  /**
-   * Everything an opened row's session needs that is not the session, built once by the shell.
-   * The same object the thread view is given, which is what makes a row here the same surface
-   * rather than a lesser copy of it.
-   */
-  /**
-   * The context ONE card renders its session in, by Bot.
-   *
-   * A resolver rather than a context, because the canvas is the surface that shows several machines
-   * at once: a Bot whose directory is on a peer must read its transcripts, run its commands and
-   * open its terminals through that peer's sidecar. See `botMachines.ts`. A single-machine panel
-   * gets the same object back for every Bot, so nothing here notices.
-   */
-  sessionContextFor: (botId: string) => SessionViewContext;
   /**
    * Every machine whose Bots this canvas reads, and EMPTY when there is only one.
    *
@@ -147,60 +111,6 @@ function CanvasContent({
    * that IS working must not be replaced to say it, which is what `error` does.
    */
   machineErrors: readonly MachineError[];
-  /**
-   * A failure from editing a Bot, shown on the card of the session it was about.
-   *
-   * This surface is where a detach is most likely to be pressed -- the action is in every row's
-   * menu -- so the card that failed to go away is what says so. One about no session, or about a
-   * session this canvas is not showing, goes to the canvas's own band instead.
-   */
-  botError: BotCommandError | null;
-  onAddSession: (bot: BotView) => void;
-  /** Branches a new session from this one, in its own pane, and gives it to the Bot. */
-  onForkSession: (bot: BotView, session: SessionSummary) => void;
-  /** A function of the Bot: the card is the only thing that knows which one it belongs to. */
-  attachSessionToBot: (bot: BotView) => (session: AgentSessionDescriptor) => void | Promise<void>;
-  /** The same fork, starting just before the last thing a person said in that session. */
-  onForkFromLastMessage: (bot: BotView, session: SessionSummary) => void;
-  onForkFromLastCompaction: (bot: BotView, session: SessionSummary) => void;
-  onHandoverSession: (bot: BotView, session: SessionSummary) => void;
-  /** Opens the rename dialog for this session. Claude only; a Codex row does not offer it. */
-  onRenameSession: (session: SessionSummary) => void;
-  /**
-   * Drops the reference from the Bot's projection. The session itself is untouched.
-   *
-   * Takes a reference rather than a summary because the rows that most need this are the ones with
-   * no summary left: a transcript the catalog has forgotten shows as "missing" and would otherwise
-   * be the one entry a Bot can never be rid of.
-   */
-  onDetachSession: (bot: BotView, session: BotSessionRef) => void;
-  /**
-   * Takes one session's card off this canvas, leaving the Bot's reference to it alone.
-   *
-   * Takes no Bot, unlike the removal above it, because the answer is not a fact about a Bot: the
-   * canvas hides a session, and a session belongs to one Bot at a time, so its key is the whole
-   * address.
-   */
-  onRemoveSessionFromCanvas: (session: BotSessionRef) => void;
-  /** Opens this session in the modal, over the canvas, without changing what the card shows. */
-  onMaximizeSession: (bot: BotView, session: SessionSummary) => void;
-  /**
-   * Takes the whole Bot off this canvas. The Bot, its curated sessions and their transcripts are
-   * untouched -- this arranges the view, and the sidebar's canvas panel is where it waits to come
-   * back.
-   */
-  onDetachBot: (bot: BotView) => void;
-  /** Names a session the Bot's Father, or clears it with a null ref. */
-  onSetFatherSession: (bot: BotView, session: BotSessionRef | null) => void;
-  /** Opens the dialog that renames a Bot and restyles its face. */
-  onRenameBot: (bot: BotView) => void;
-  /** Forgets a Bot; its sessions survive. */
-  onDeleteBot: (bot: BotView) => void;
-  /**
-   * Stands one Bot's sessions in a new order, naming the one carried. A Bot command rather than an
-   * arrangement of this canvas: that order is the Bot's own and reaches every surface reading it.
-   */
-  onReorderSessions: (bot: BotView, sessionRefs: BotSessionRef[], moved: BotSessionRef) => void;
   /** Stands one Bot where another stands. By id; see `moveBot` in `useCanvasRoster`. */
   onMoveBot: (moved: string, target: string) => void;
   /**
@@ -209,38 +119,7 @@ function CanvasContent({
    * to Add Bot rather than to the roster their Bots are already in.
    */
   detachedCount: number;
-  /**
-   * The sessions NOT on the canvas, as `source:sessionId`, whichever Bot holds them.
-   *
-   * Subtracted from each card's roster rather than from `bots`, because a Bot with every session
-   * hidden is still a Bot on the canvas: its header is where sessions are added, and dropping the
-   * card would take away the way back to a Bot the reader only meant to tidy.
-   */
-  detachedSessionKeys: ReadonlySet<string>;
-  /**
-   * Which sessions are open, as `source:sessionId`, owned above this component.
-   *
-   * It used to live in `BotCanvasList`, and it moved out when the sidebar beside the canvas gained
-   * the same rows: a session picked over there opens the card over here, which cannot work while
-   * the only copy of the answer is inside the thing being driven.
-   */
-  openKeys: ReadonlySet<string>;
-  /** Opens that session, or closes it if it is already open. */
-  onToggleSession: (key: string) => void;
   onAddBot: () => void;
-  /**
-   * Sessions this panel has started that the catalog does not know yet.
-   *
-   * They cannot arrive through `bots` and that is not an omission: a Bot curates references the
-   * sidecar resolved, and the sidecar refuses a reference to a session with no transcript. So a
-   * session lives here from the moment it is started until its first turn writes one, at which
-   * point the shell attaches it and it becomes an ordinary row on its Bot. See `BotNewSessionCard`.
-   */
-  newSessions: readonly NewBotSession[];
-  /** Takes the card away. The tmux session keeps running; nothing was attached to detach. */
-  onCloseNewSession: (sessionId: string) => void;
-  /** Forks and fresh sessions on a Bot, waiting to be started from their own cards (`BotSessionDraftCard`). */
-  sessionDrafts: SessionDraftControls;
   /**
    * Draw the whole canvas at once, small enough to see the arrangement, and pinch to move around it.
    *
@@ -266,34 +145,11 @@ function CanvasContent({
         bots={bots}
         hues={hues}
         ranks={ranks}
-        sessionContextFor={sessionContextFor}
         machines={machines}
         keyOfBot={keyOfBot}
         hiddenMachines={hiddenMachines}
         machineErrors={machineErrors}
-        botError={botError}
-        onAddSession={onAddSession}
-        onForkSession={onForkSession}
-        attachSessionToBot={attachSessionToBot}
-        onForkFromLastMessage={onForkFromLastMessage}
-        onForkFromLastCompaction={onForkFromLastCompaction}
-        onHandoverSession={onHandoverSession}
-        onRenameSession={onRenameSession}
-        onDetachSession={onDetachSession}
-        onRemoveSessionFromCanvas={onRemoveSessionFromCanvas}
-        onMaximizeSession={onMaximizeSession}
-        onDetachBot={onDetachBot}
-        onSetFatherSession={onSetFatherSession}
-        onRenameBot={onRenameBot}
-        onDeleteBot={onDeleteBot}
-        onReorderSessions={onReorderSessions}
         onMoveBot={onMoveBot}
-        detachedSessionKeys={detachedSessionKeys}
-        openKeys={openKeys}
-        onToggleSession={onToggleSession}
-        newSessions={newSessions}
-        onCloseNewSession={onCloseNewSession}
-        sessionDrafts={sessionDrafts}
         canvasZoom={canvasZoom}
       />
     </div>

@@ -18,6 +18,8 @@ import { AppDialogs } from "@/app/AppDialogs";
 import { buildSessionViewContext } from "@/app/shell-state/sessionViewContext";
 import { sidebarProps } from "@/app/shell-state/sidebar/sidebarProps";
 import { BotCanvas } from "@/features/bots/canvas/BotCanvas";
+import { CanvasShell, type CanvasActions, type CanvasCards } from "@/features/bots/canvas/canvasShell";
+import { createCanvasStore } from "@/features/bots/canvas/canvasStore";
 import { FatherHome } from "@/app/FatherHome";
 import { botCanvasHues, botCanvasRanks } from "@/features/bots/botSurface";
 import { machineKey, type BotMachine } from "@/features/bots/botMachines";
@@ -89,6 +91,8 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     chrome.setHoverPreviewOpen,
   );
   const newSession = useNewSessionCommands(feed);
+  // What the canvas is asked from outside it, made once for the life of this shell (`canvasStore`).
+  const [canvasStore] = useState(createCanvasStore);
   // A Bot command's failure, or a canvas change's that did not land. One band, the command's first.
   const botError = commands.botCommandError ?? roster.canvasError;
   // The home's wiring, shared by its two stands. Out of the way entirely where the site-wide
@@ -224,6 +228,37 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     onForkFromMessage: commands.forkFromMessage,
   });
 
+  // What the canvas's cards act through and read, handed to them by `CanvasShell` rather than passed
+  // down the strip. Built here because these hooks are the shell's: the sidebar, the dialogs and the
+  // thread view act on the same Bots and read the same open cards (ADR-0149).
+  const canvasActions: CanvasActions = {
+    onAddSession: commands.openBotSessionPicker,
+    onForkSession: commands.forkSession,
+    onForkFromLastMessage: commands.forkFromLastMessage,
+    onForkFromLastCompaction: commands.forkFromLastCompaction,
+    onHandoverSession: commands.handoverSession,
+    attachSessionToBot: roster.attachSessionToBot,
+    onRenameSession: commands.setRenamingSession,
+    onDetachSession: commands.detachBotSession,
+    onRemoveSessionFromCanvas: roster.removeSessionFromCanvas,
+    onMaximizeSession: thread.openBotSessionInModal,
+    onDetachBot: roster.toggleBotOnCanvas,
+    onSetFatherSession: commands.setFatherBotSession,
+    onRenameBot: commands.setRenamingBot,
+    onDeleteBot: commands.deleteBot,
+    onReorderSessions: commands.reorderBotSessions,
+    onToggleSession: roster.toggleCanvasSession,
+    onCloseNewSession: commands.closeNewSession,
+  };
+  const canvasCards: CanvasCards = {
+    sessionContextFor: (botId) => shellMachines.contextFor(sessionViewContext, botId),
+    openKeys: roster.canvasOpenKeys,
+    detachedSessionKeys: roster.detachedSessionKeys,
+    botError,
+    newSessions: commands.newSessions,
+    sessionDrafts,
+  };
+
   // One subscription for all three sidebar mounts. Owned here rather than inside the sidebar so
   // the pinned rail, the hover preview, and the phone drawer share one stream instead of opening
   // one each; only two of them are ever mounted at once, but the report should not be fetched
@@ -241,6 +276,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     newSession,
     roster,
     thread,
+    revealOnCanvas: canvasStore.getState().reveal,
   });
 
   return (
@@ -410,44 +446,23 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
                 />
               </div>
             ) : chrome.sidebarMode === "canvas" ? (
-              <BotCanvas
-                bots={roster.canvasBots}
-                hues={botHues}
-                ranks={botRanks}
-                loading={botsState.loading}
-                error={botsState.error}
-                machines={shellMachines.chips}
-                keyOfBot={shellMachines.keyOfBot}
-                hiddenMachines={roster.hiddenMachines}
-                machineErrors={botsState.machineErrors}
-                sessionContextFor={(botId) => shellMachines.contextFor(sessionViewContext, botId)}
-                botError={botError}
-                onAddSession={commands.openBotSessionPicker}
-                onForkSession={commands.forkSession}
-                attachSessionToBot={roster.attachSessionToBot}
-                onForkFromLastMessage={commands.forkFromLastMessage}
-                onForkFromLastCompaction={commands.forkFromLastCompaction}
-                onHandoverSession={commands.handoverSession}
-                onRenameSession={commands.setRenamingSession}
-                onDetachSession={commands.detachBotSession}
-                onSetFatherSession={commands.setFatherBotSession}
-                onRenameBot={commands.setRenamingBot}
-                onDeleteBot={commands.deleteBot}
-                onReorderSessions={commands.reorderBotSessions}
-                onRemoveSessionFromCanvas={roster.removeSessionFromCanvas}
-                onMaximizeSession={thread.openBotSessionInModal}
-                onDetachBot={roster.toggleBotOnCanvas}
-                onMoveBot={roster.moveBot}
-                detachedCount={botsState.bots.length - roster.canvasBots.length}
-                detachedSessionKeys={roster.detachedSessionKeys}
-                openKeys={roster.canvasOpenKeys}
-                onToggleSession={roster.toggleCanvasSession}
-                onAddBot={() => commands.setBotCreatorOpen(true)}
-                newSessions={commands.newSessions}
-                onCloseNewSession={commands.closeNewSession}
-                sessionDrafts={sessionDrafts}
-                canvasZoom={{ mode: roster.canvasZoomMode, room: roster.canvasRoom }}
-              />
+              <CanvasShell store={canvasStore} actions={canvasActions} cards={canvasCards}>
+                <BotCanvas
+                  bots={roster.canvasBots}
+                  hues={botHues}
+                  ranks={botRanks}
+                  loading={botsState.loading}
+                  error={botsState.error}
+                  machines={shellMachines.chips}
+                  keyOfBot={shellMachines.keyOfBot}
+                  hiddenMachines={roster.hiddenMachines}
+                  machineErrors={botsState.machineErrors}
+                  onMoveBot={roster.moveBot}
+                  detachedCount={botsState.bots.length - roster.canvasBots.length}
+                  onAddBot={() => commands.setBotCreatorOpen(true)}
+                  canvasZoom={{ mode: roster.canvasZoomMode, room: roster.canvasRoom }}
+                />
+              </CanvasShell>
             ) : sidebarEmptyText(chrome.sidebarMode) ? (
               <EmptyThread text={sidebarEmptyText(chrome.sidebarMode)!} />
             ) : null}

@@ -6,6 +6,9 @@
 // bar move together: the same reading that shortens the page by the keyboard and the bar is the one
 // that places the bar, so neither can be a frame behind the other.
 
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
+
 /** How tall the bar stands, in screen pixels: one row of keys a thumb can hit. */
 export const KEYBOARD_BAR_HEIGHT = 44;
 
@@ -62,16 +65,15 @@ const HIDDEN: KeyboardBarState = {
   slot: null,
 };
 
-let current = HIDDEN;
-const listeners = new Set<() => void>();
+const store = createStore<{ bar: KeyboardBarState }>(() => ({ bar: HIDDEN }));
 
 export function keyboardBarSnapshot(): KeyboardBarState {
-  return current;
+  return store.getState().bar;
 }
 
-export function subscribeKeyboardBar(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+/** One answer from the bar's state, re-rendering the caller only when that answer changes. */
+export function useKeyboardBarState<T>(select: (bar: KeyboardBarState) => T): T {
+  return useStore(store, (state) => select(state.bar));
 }
 
 function same(left: KeyboardBarState, right: KeyboardBarState): boolean {
@@ -90,9 +92,8 @@ function same(left: KeyboardBarState, right: KeyboardBarState): boolean {
 }
 
 function replace(value: KeyboardBarState): void {
-  if (same(current, value)) return;
-  current = value;
-  for (const listener of listeners) listener();
+  if (same(keyboardBarSnapshot(), value)) return;
+  store.setState({ bar: value });
 }
 
 /**
@@ -100,12 +101,12 @@ function replace(value: KeyboardBarState): void {
  * slot is the bar's own to say, so it is kept.
  */
 export function publishKeyboardBar(next: Omit<KeyboardBarState, "slot"> | null): void {
-  replace({ ...(next ?? HIDDEN), slot: current.slot });
+  replace({ ...(next ?? HIDDEN), slot: keyboardBarSnapshot().slot });
 }
 
 /** The bar says where a field's own keys go, or that it has gone. */
 export function publishKeyboardBarSlot(slot: HTMLElement | null): void {
-  replace({ ...current, slot });
+  replace({ ...keyboardBarSnapshot(), slot });
 }
 
 /** Whether this field sits in a region that draws its own keys onto the bar. */
