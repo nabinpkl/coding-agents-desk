@@ -92,7 +92,7 @@ describe("a user message row", () => {
     expect(expand.lastElementChild?.tagName.toLowerCase()).toBe("svg");
   });
 
-  it("opens a turn with room above it, where a person wrote it, and only there", () => {
+  it("opens a turn with room above and below it, where a person wrote it, and only there", () => {
     const typed = renderRow(
       <UserRow
         ev={event({ humanTurn: true })}
@@ -103,12 +103,13 @@ describe("a user message row", () => {
       />,
     );
     expect(typed.container.firstElementChild?.className).toContain("pt-[1.6em]");
+    expect(typed.container.firstElementChild?.className).toContain("pb-[0.9em]");
     typed.unmount();
 
     // A slash command's echo or a reminder is a "user" row too, and starts no turn.
     const echo = renderRow(
       <UserRow ev={event()} ctx={CTX} isCollapsed={false} onToggle={() => {}} isHighlighted={false} />,
     );
-    expect(echo.container.firstElementChild?.className).toContain("pt-[0.4em]");
+    expect(echo.container.firstElementChild?.className).toContain("py-[0.4em]");
   });
 });

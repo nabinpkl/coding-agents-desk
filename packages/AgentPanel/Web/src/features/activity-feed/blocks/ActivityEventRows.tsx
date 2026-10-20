@@ -238,9 +238,11 @@ export function UserRow({
     //
     // A message a person wrote opens a turn, so it takes the gap above it that a box used to
     // give: with prose and reasoning on the bare ground, the end of one reply and the start of
-    // the next turn otherwise sat as close as two paragraphs of the same reply.
+    // the next turn otherwise sat as close as two paragraphs of the same reply. A smaller gap
+    // under it sets the reply off from the question, so the reply's first line does not read as
+    // a caption to the card.
     <div
-      className={`${COLUMN_GUTTER_CLASS} flex items-start justify-end gap-1 ${ev.humanTurn ? "pt-[1.6em]" : "pt-[0.4em]"} pb-[0.4em]`}
+      className={`${COLUMN_GUTTER_CLASS} flex items-start justify-end gap-1 ${ev.humanTurn ? "pt-[1.6em] pb-[0.9em]" : "py-[0.4em]"}`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       {/* Outside the card, on its left. The card is the one thing in this feed that is not
@@ -275,7 +277,7 @@ export function UserRow({
           //
           // `min-w-0` so a wide child (a pasted diff, a long unbroken path) scrolls inside the
           // card the way it does anywhere else, rather than forcing the card past its maximum.
-          "min-w-0 max-w-[85%] rounded-md border border-primary/30 bg-primary/10 px-[0.6em] py-[0.35em] transition-shadow duration-300 " +
+          "min-w-0 max-w-[85%] rounded-md border border-primary/30 bg-primary/10 px-[0.9em] py-[0.6em] transition-shadow duration-300 " +
           (isHighlighted ? "ring-2 ring-primary ring-inset" : "")
         }
       >
