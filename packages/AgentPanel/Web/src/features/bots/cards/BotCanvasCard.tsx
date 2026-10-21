@@ -174,6 +174,7 @@ export function BotCanvasCard({
             anchor={bot.nextAnchor}
             onStart={(choices) => sessionDrafts.start(draft.key, choices)}
             onClose={() => sessionDrafts.close(draft.key)}
+            {...(draft.fork ? {} : { onAddExisting: () => sessionDrafts.addExisting(bot.botId) })}
           />
         ))}
       {(startingAfter.get(after) ?? []).map((each) => (

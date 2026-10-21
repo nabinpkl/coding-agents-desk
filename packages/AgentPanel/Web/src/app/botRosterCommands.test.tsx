@@ -80,7 +80,7 @@ describe("App shell", () => {
       });
     });
 
-    expect(canvas().getByRole("button", { name: "Add sessions to Orphan" })).toBeDisabled();
+    expect(canvas().getByRole("button", { name: "New session in Orphan" })).toBeDisabled();
     unmount();
   });
 
@@ -340,7 +340,8 @@ describe("App shell", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Add sessions to Beta Curator" }));
+    fireEvent.click(screen.getByRole("button", { name: "New session in Beta Curator" }));
+    // The dormant Bots tab draws no canvas for a draft card, so its + still opens the dialog.
     await waitFor(() => {
       expect(transport.subscriptions.map((subscription) => subscription.path)).toContainEqual(
         expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),

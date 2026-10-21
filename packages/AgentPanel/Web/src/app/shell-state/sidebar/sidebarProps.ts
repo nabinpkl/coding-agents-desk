@@ -5,7 +5,7 @@
 // because it is the seam where the panel's five state groups meet the sidebar's props, and that
 // list is long enough to bury the shell it used to sit in.
 
-import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { useBots } from "@/features/bots/useBots";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
@@ -92,7 +92,13 @@ export function sidebarProps({
     botsError: botsState.error,
     selectedBotId: thread.selectedBotId,
     onSelectBotSession: thread.openBotSession,
-    onAddBotSession: commands.openBotSessionPicker,
+    // A draft card on the canvas, which the phone's drawer covers. The dormant Bots tab draws no
+    // canvas, so there it is still the Add sessions dialog.
+    onAddBotSession: (bot: BotView) => {
+      if (chrome.sidebarMode !== "canvas") return commands.openBotSessionPicker(bot.botId);
+      commands.addSessionDraft(bot);
+      if (chrome.usesModalSidebar) chrome.setSidebarOpen(false);
+    },
     onDetachBotSession: commands.detachBotSession,
     onSetFatherBotSession: commands.setFatherBotSession,
     onRenameSession: commands.setRenamingSession,

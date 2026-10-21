@@ -91,12 +91,9 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
       ...(machines === undefined ? {} : { machines: shellMachines.all.map(machineKey) }),
     },
     shellMachines.feeds,
+    canvas,
   );
-  const commands = useBotCommands(
-    shellMachines.feeds,
-    { putBotOnCanvas: roster.putBotOnCanvas, setCanvasOpenKeys: roster.setCanvasOpenKeys },
-    chrome.setHoverPreviewOpen,
-  );
+  const commands = useBotCommands(shellMachines.feeds, roster, chrome.setHoverPreviewOpen);
   const newSession = useNewSessionCommands(feed);
   // The Branches tab draws its own copy of the canvas; see `canvas` above.
   const CanvasView = canvas === "branches" ? BranchCanvas : BotCanvas;
@@ -141,11 +138,6 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
    */
   const botHues = useMemo(() => botCanvasHues(shellMachines.colourBots), [shellMachines.colourBots]);
   const botRanks = useMemo(() => botCanvasRanks(shellMachines.colourBots), [shellMachines.colourBots]);
-  // Sessions started here that the catalog has not listed yet: a Bot's, and one on no Bot.
-  const sessionDrafts = useMemo(
-    () => ({ drafts: commands.sessionDrafts, start: commands.startDraft, close: commands.closeDraft }),
-    [commands.sessionDrafts, commands.startDraft, commands.closeDraft],
-  );
   const startedSessions = useMemo(
     () => [...commands.newSessions, ...newSession.watched],
     [commands.newSessions, newSession.watched],
@@ -241,7 +233,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   // down the strip. Built here because these hooks are the shell's: the sidebar, the dialogs and the
   // thread view act on the same Bots and read the same open cards (ADR-0149).
   const canvasActions: CanvasActions = {
-    onAddSession: commands.openBotSessionPicker,
+    onAddSession: commands.addSessionDraft,
     onForkSession: commands.forkSession,
     onForkFromLastMessage: commands.forkFromLastMessage,
     onForkFromLastCompaction: commands.forkFromLastCompaction,
@@ -265,7 +257,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     detachedSessionKeys: roster.detachedSessionKeys,
     botError,
     newSessions: commands.newSessions,
-    sessionDrafts,
+    sessionDrafts: commands.draftControls,
   };
 
   // One subscription for all three sidebar mounts. Owned here rather than inside the sidebar so

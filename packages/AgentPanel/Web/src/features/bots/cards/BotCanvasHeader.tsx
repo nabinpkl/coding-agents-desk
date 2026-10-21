@@ -115,7 +115,7 @@ export function BotCanvasHeader({
         ];
   // A press on the header is a click until it has travelled far enough to be a carry. Without that
   // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
-  // pixels while clicking "Add sessions" would reorder the canvas.
+  // pixels while clicking "New session" would reorder the canvas.
   const grab = useRef<{ pointerId: number; startX: number; carrying: boolean } | null>(null);
   const MOVE_THRESHOLD = 4;
   const grabHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -205,8 +205,8 @@ export function BotCanvasHeader({
           disabled={bot.environmentAvailability === "missing"}
           // Named for its Bot: a canvas of eight cards would otherwise give a screen reader eight
           // identically named buttons with no way to tell which card it is on.
-          aria-label={`Add sessions to ${bot.name}`}
-          title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "Add sessions"}
+          aria-label={`New session in ${bot.name}`}
+          title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "New session"}
           className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="size-4" aria-hidden />

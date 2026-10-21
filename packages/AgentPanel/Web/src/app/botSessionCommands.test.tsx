@@ -305,7 +305,9 @@ describe("App shell", () => {
 
     // The picker reads the Bot's directory off the inventory stream, so opening it from the canvas
     // has to widen that subscription exactly as opening it from the sidebar does.
-    fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Beta Curator" }));
+    fireEvent.click(canvas().getByRole("button", { name: "New session in Beta Curator" }));
+    // The + makes a draft card; an existing session is attached from the dialog it can open.
+    fireEvent.click(await screen.findByRole("button", { name: "Add existing sessions instead" }));
     await waitFor(() => {
       expect(transport.subscriptions.map((subscription) => subscription.path)).toContainEqual(
         expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
@@ -363,7 +365,9 @@ describe("App shell", () => {
       body: JSON.stringify({ title: "Adam (Port the parser)" }),
     });
 
-    fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Release Captain" }));
+    fireEvent.click(canvas().getByRole("button", { name: "New session in Release Captain" }));
+    // A fresh opencode session has nothing to hand over, so it still starts from the dialog.
+    fireEvent.click(await screen.findByRole("button", { name: "Add existing sessions instead" }));
     // Claude in its terminal until the reader says otherwise: the default.
     expect(screen.getByRole("radio", { name: /Claude Code/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /opencode/ }));
@@ -421,7 +425,7 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("starts a Claude session for a Bot only once its first message is sent from its draft card", async () => {
+  it("opens a draft card from a Bot's + and starts its Claude session only once the first message is sent", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -441,15 +445,13 @@ describe("App shell", () => {
       }),
     });
 
-    fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Release Captain" }));
-    fireEvent.change(screen.getByLabelText("Start a new session here"), { target: { value: "Port the parser" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    fireEvent.click(canvas().getByRole("button", { name: "New session in Release Captain" }));
 
-    // A draft card on the Bot, seeded with the task, and nothing asked of the sidecar: a Claude
-    // started with no first turn writes no transcript, and nothing can resume it.
+    // A draft card on the Bot straight from its +, as a fork makes one, and nothing asked of the
+    // sidecar: a Claude started with no first turn writes no transcript, and nothing can resume it.
     const draft = within(await waitFor(() => canvas().getByRole("region", { name: "New session" })));
-    expect(draft.getByLabelText("Task, bracketed after the name")).toHaveProperty("value", "Port the parser");
     expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.change(draft.getByLabelText("Task, bracketed after the name"), { target: { value: "Port the parser" } });
     expect(transport.requests.some((request) => request.path === "/api/bots/bot-1/sessions")).toBe(false);
 
     fireEvent.change(draft.getByLabelText("The session's first message"), { target: { value: "Start with lexing" } });

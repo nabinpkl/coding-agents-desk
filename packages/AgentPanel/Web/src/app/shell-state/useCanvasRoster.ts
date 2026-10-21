@@ -36,6 +36,7 @@ import {
   storeHiddenMachines,
 } from "@/features/bots/canvas/botCanvasPreferences";
 import { loadCanvasZoomMode, storeCanvasZoomMode } from "@/features/bots/canvas/useCanvasZoom";
+import { branchesWithSession, type PanelCanvas } from "@/features/branches/branchBots";
 import { usePersistentState } from "@/hooks/state/usePersistentState";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNotify } from "@/hooks/useNotify";
@@ -59,6 +60,8 @@ export function useCanvasRoster(
   },
   /** Which machine's sidecar holds each Bot's record, and so its place on the canvas. */
   feeds: BotFeeds,
+  /** Which canvas this roster arranges: Branches also lists the sessions started on it. */
+  canvas: PanelCanvas = "bots",
 ) {
   // What is off the canvas: whole Bots by id, then single sessions as `source:sessionId`. Derived
   // from the records on every snapshot rather than held, so there is no second copy to drift.
@@ -324,6 +327,23 @@ export function useCanvasRoster(
   );
 
   /**
+   * Opens the card of a session a draft on this canvas just started.
+   *
+   * On Branches it is also added to its Bot's Branches list, which is what draws it there once it
+   * is an ordinary session: without that, the card would last only until its first turn landed.
+   */
+  const openStartedSession = useCallback(
+    (botId: string, ref: BotSessionRef) => {
+      const key = `${ref.source}:${ref.sessionId}`;
+      const bot = canvas === "branches" ? currentBots.current.find((each) => each.botId === botId) : undefined;
+      const command = bot ? branchesWithSession(bot, ref) : null;
+      if (command) void setBotCanvas(botId, command, key);
+      setCanvasOpenKeys((current) => new Set(current).add(key));
+    },
+    [canvas, currentBots, setBotCanvas, setCanvasOpenKeys],
+  );
+
+  /**
    * Binds a session one of a Bot's own sessions just made -- `/new` and `/fork` -- to that Bot,
    * and opens its card.
    *
@@ -458,6 +478,7 @@ export function useCanvasRoster(
     removeSessionFromCanvas,
     toggleCanvasSession,
     openSessionOnCanvas,
+    openStartedSession,
     attachSessionToBot,
     heldSessionKeys,
     moveSessionToCanvas,

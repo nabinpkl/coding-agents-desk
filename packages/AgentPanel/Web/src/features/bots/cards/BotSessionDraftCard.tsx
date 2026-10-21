@@ -1,4 +1,4 @@
-import { ChevronsUpDown, GitBranch, GitFork, LoaderCircle, Plus, Send, X } from "lucide-react";
+import { ChevronsUpDown, GitBranch, GitFork, ListPlus, LoaderCircle, Plus, Send, X } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { ChoiceMenu, type MenuChoice } from "@/features/bots/menus/ChoiceMenu";
 import { HARNESSES, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
@@ -9,10 +9,10 @@ import { useMountEffect } from "@/hooks/useMountEffect";
 
 /**
  * A session on a Bot that has not started: a fork beside its source, or a fresh session asked for
- * from the Add sessions dialog. Its card holds the task its name brackets, the first turn, the
- * harness and a worktree until the reader sends. Nothing runs before then, because the name is a
- * launch argument and so is the harness, and a fresh session with no first turn is a `claude` with
- * no transcript, which nothing can resume.
+ * with the Bot's + (or from the Add sessions dialog). Its card holds the task its name brackets,
+ * the first turn, the harness and a worktree until the reader sends. Nothing runs before then,
+ * because the name is a launch argument and so is the harness, and a fresh session with no first
+ * turn is a `claude` with no transcript, which nothing can resume.
  */
 export interface SessionDraft {
   key: string;
@@ -29,6 +29,8 @@ export interface SessionDraftControls {
   drafts: readonly SessionDraft[];
   start: (key: string, choices: DraftChoices) => Promise<string | null>;
   close: (key: string) => void;
+  /** Opens the Add sessions dialog for a Bot: an existing session instead of a fresh one. */
+  addExisting: (botId: string) => void;
 }
 
 /** What the reader chose on a draft card. */
@@ -61,6 +63,7 @@ export function BotSessionDraftCard({
   anchor,
   onStart,
   onClose,
+  onAddExisting,
 }: {
   draft: SessionDraft;
   /** The anchor the session's name will bracket its task onto: the Bot's next. */
@@ -68,6 +71,8 @@ export function BotSessionDraftCard({
   /** Starts it, answering why not when it does not. */
   onStart: (choices: DraftChoices) => Promise<string | null>;
   onClose: () => void;
+  /** Opens the Add sessions dialog instead; absent on a fork, which has nothing to swap for. */
+  onAddExisting?: () => void;
 }) {
   const { fork } = draft;
   const source = fork ? fork.session.title || fork.session.sessionId : null;
@@ -93,7 +98,7 @@ export function BotSessionDraftCard({
     ...(option.value !== "opencode"
       ? {}
       : !fork
-        ? { unavailable: "opencode starts from the Add sessions dialog, with nothing to hand over." }
+        ? { unavailable: "A fresh opencode session starts from the Add sessions dialog, the list button above." }
         : fork.from
           ? { unavailable: "opencode takes the whole conversation, not from a message." }
           : {}),
@@ -151,6 +156,22 @@ export function BotSessionDraftCard({
             aria-label="Task, bracketed after the name"
             className="min-w-0 flex-1 rounded-md bg-transparent px-1.5 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) outline-none transition-colors placeholder:text-muted-foreground hover:bg-background/60 focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
           />
+          {onAddExisting ? (
+            <button
+              type="button"
+              onClick={() => {
+                // An untouched draft gives way to the dialog; one with words in it stays.
+                if (!task.trim() && !brief.trim()) onClose();
+                onAddExisting();
+              }}
+              disabled={pending}
+              aria-label="Add existing sessions instead"
+              title="Add existing sessions, or start opencode"
+              className={`${COMPOSER_FOOTER_BUTTON_CLASS} text-muted-foreground hover:text-foreground`}
+            >
+              <ListPlus className="size-4" aria-hidden />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}

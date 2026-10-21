@@ -232,11 +232,11 @@ describe("BotSidebarPanel bot rows", () => {
   /**
    * The header strip of one Bot's entry, and the entry around it.
    *
-   * Found through the Add-sessions button rather than the Bot's name, because these fixtures give
+   * Found through the New session button rather than the Bot's name, because these fixtures give
    * each Bot a directory named after it, so the name renders twice in one row -- once as the title
    * and once in the path line under it -- and matching on it finds both.
    */
-  const addOf = (name: string) => screen.getByRole("button", { name: `Add sessions to ${name}` });
+  const addOf = (name: string) => screen.getByRole("button", { name: `New session in ${name}` });
   const headerOf = (name: string) => addOf(name).closest("div")!;
   const entryOf = (name: string) => addOf(name).closest("li")!;
   const rowOf = (title: string) => screen.getByText(title).closest("li")!;

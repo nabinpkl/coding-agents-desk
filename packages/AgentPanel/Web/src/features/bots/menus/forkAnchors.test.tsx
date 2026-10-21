@@ -54,6 +54,7 @@ function commands(feed: SidecarDataSource) {
       {
         putBotOnCanvas: () => {},
         setCanvasOpenKeys: () => {},
+        openStartedSession: () => {},
       },
       () => {},
     ),

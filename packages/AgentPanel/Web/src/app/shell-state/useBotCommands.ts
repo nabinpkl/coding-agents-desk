@@ -10,11 +10,12 @@
 // It writes into the canvas roster in two places, which is why those are passed in: a started
 // session opens its card, and puts its Bot back on the canvas if it was off.
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
+import type { SessionDraftControls } from "@/features/bots/cards/BotSessionDraftCard";
 import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { handoverDestination } from "@/features/bots/sessionHandover";
 import { useBotRecordCommands } from "@/app/shell-state/useBotRecordCommands";
@@ -36,6 +37,8 @@ export function useBotCommands(
     /** Puts a Bot that is off the canvas back on it, on its record. */
     putBotOnCanvas: (botId: string) => void;
     setCanvasOpenKeys: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
+    /** Opens the card of a session a draft started, and keeps it on this canvas. */
+    openStartedSession: (botId: string, ref: BotSessionRef) => void;
   },
   /** Dropped whenever a picker or dialog opens, so a peek never stacks over the thing it opened. */
   setHoverPreviewOpen: (open: boolean) => void,
@@ -148,7 +151,8 @@ export function useBotCommands(
   );
 
   const drafts = useSessionDrafts(feeds, roster, setNewSessions);
-  const forks = useForkCommands(feeds, drafts.addDraft, setBotCommandError);
+  const { addDraft } = drafts;
+  const forks = useForkCommands(feeds, addDraft, setBotCommandError);
 
   /**
    * An opencode session for a Bot: created at the serve, attached, named, and opened as a card.
@@ -222,12 +226,37 @@ export function useBotCommands(
     [feeds],
   );
 
+  /** The Add sessions dialog, for attaching sessions the Bot's directory already has. */
   const openBotSessionPicker = useCallback(
-    (bot: BotView) => {
-      setBotSessionPickerId(bot.botId);
+    (botId: string) => {
+      setBotSessionPickerId(botId);
       setHoverPreviewOpen(false);
     },
     [setHoverPreviewOpen],
+  );
+
+  /**
+   * A Bot's +: a draft card for a fresh session at the end of its row, as a fork puts one beside
+   * its source. Claude in its terminal until the card says otherwise; the card can open the Add
+   * sessions dialog for an existing session instead.
+   */
+  const addSessionDraft = useCallback(
+    (bot: BotView) => {
+      setHoverPreviewOpen(false);
+      addDraft({ botId: bot.botId, task: "", harness: "claude" });
+    },
+    [addDraft, setHoverPreviewOpen],
+  );
+
+  // What the canvas does with the drafts on it, a card's own and the dialog one can open instead.
+  const draftControls = useMemo<SessionDraftControls>(
+    () => ({
+      drafts: drafts.sessionDrafts,
+      start: drafts.startDraft,
+      close: drafts.closeDraft,
+      addExisting: openBotSessionPicker,
+    }),
+    [drafts.sessionDrafts, drafts.startDraft, drafts.closeDraft, openBotSessionPicker],
   );
 
   const attachBotSessions = useCallback(
@@ -329,6 +358,8 @@ export function useBotCommands(
     closeNewSession,
     renameSession,
     openBotSessionPicker,
+    addSessionDraft,
+    draftControls,
     attachBotSessions,
     detachBotSession,
     reorderBotSessions,

@@ -1,12 +1,13 @@
 // Sessions on a Bot that have not started: a fork asked for from a card, or a fresh session asked
-// for from the Add sessions dialog. Each is a draft card in its Bot's row (`BotSessionDraftCard`)
-// until the reader sends its first message, and sending is what starts it, into the same
-// `newSessions` list every started session waits in until its transcript lands.
+// for with its Bot's + (or from the Add sessions dialog). Each is a draft card in its Bot's row
+// (`BotSessionDraftCard`) until the reader sends its first message, and sending is what starts it,
+// into the same `newSessions` list every started session waits in until its transcript lands.
 //
 // Nothing runs before then. A Claude session started with no first turn writes no transcript, so
 // it is a process nothing can resume: a relaunch finds no conversation and leaves an empty pane.
 
 import { useCallback, useState } from "react";
+import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import type { DraftChoices, SessionDraft } from "@/features/bots/cards/BotSessionDraftCard";
@@ -16,11 +17,12 @@ export function useSessionDrafts(
   feeds: BotFeeds,
   roster: {
     putBotOnCanvas: (botId: string) => void;
-    setCanvasOpenKeys: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
+    /** Opens a started session's card, and keeps it on the canvas the draft was on. */
+    openStartedSession: (botId: string, ref: BotSessionRef) => void;
   },
   setNewSessions: React.Dispatch<React.SetStateAction<readonly NewBotSession[]>>,
 ) {
-  const { putBotOnCanvas, setCanvasOpenKeys } = roster;
+  const { putBotOnCanvas, openStartedSession } = roster;
   const [sessionDrafts, setSessionDrafts] = useState<readonly SessionDraft[]>([]);
 
   /** A draft card on its Bot, which is put back on the canvas if it was off, so the card is seen. */
@@ -64,7 +66,7 @@ export function useSessionDrafts(
           // Always, as a fresh opencode session's is: the attach spent the Bot's anchor, and this is
           // what puts it on the session, with the task bracketed after it when there is one.
           await feed.setSessionTask("opencode", started.sessionId, choices.task.trim());
-          setCanvasOpenKeys((current) => new Set(current).add(`opencode:${started.sessionId}`));
+          openStartedSession(botId, { source: "opencode", sessionId: started.sessionId });
         } else {
           const { claudeMode } = harnessStart(choices.harness);
           const { started } = await feed.addBotSessions(botId, {
@@ -98,7 +100,7 @@ export function useSessionDrafts(
               ...(brief === undefined ? {} : { firstTurn: true }),
             },
           ]);
-          setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
+          openStartedSession(botId, { source: "claude", sessionId: started.sessionId });
         }
         closeDraft(key);
         return null;
@@ -106,7 +108,7 @@ export function useSessionDrafts(
         return `Could not start the ${noun}: ${error instanceof Error ? error.message : String(error)}`;
       }
     },
-    [closeDraft, feeds, sessionDrafts, setCanvasOpenKeys, setNewSessions],
+    [closeDraft, feeds, openStartedSession, sessionDrafts, setNewSessions],
   );
 
   return { sessionDrafts, addDraft, startDraft, closeDraft };

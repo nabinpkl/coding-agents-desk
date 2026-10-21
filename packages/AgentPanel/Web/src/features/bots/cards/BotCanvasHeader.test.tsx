@@ -188,7 +188,7 @@ describe("a header without room for them", () => {
     expect(screen.queryByRole("button", { name: "Open a terminal in Bridget (Review Bot)" })).toBeNull();
     // What stays is the name and the add button: the name is what the width was spent on.
     expect(screen.getByText("Bridget (Review Bot)")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add sessions to Bridget (Review Bot)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New session in Bridget (Review Bot)" })).toBeTruthy();
     openMenu();
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
       "Browse code",

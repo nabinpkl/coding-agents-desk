@@ -324,8 +324,8 @@ export function BotRosterRow({
           type="button"
           onClick={() => onAddSession(bot)}
           disabled={bot.environmentAvailability === "missing"}
-          aria-label={`Add sessions to ${bot.name}`}
-          title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "Add sessions"}
+          aria-label={`New session in ${bot.name}`}
+          title={bot.environmentAvailability === "missing" ? "Bot directory is unavailable" : "New session"}
           className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-background/70 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="size-4" aria-hidden />

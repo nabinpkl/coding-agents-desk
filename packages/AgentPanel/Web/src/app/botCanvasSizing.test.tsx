@@ -231,8 +231,8 @@ describe("App shell", () => {
 
     // Gone from the canvas, and the count agrees.
     expect(screen.queryByRole("region", { name: "Release Captain sessions" })).toBeNull();
-    expect(canvas().queryByRole("button", { name: "Add sessions to Release Captain" })).toBeNull();
-    expect(canvas().getByRole("button", { name: "Add sessions to Eval Bot" })).toBeInTheDocument();
+    expect(canvas().queryByRole("button", { name: "New session in Release Captain" })).toBeNull();
+    expect(canvas().getByRole("button", { name: "New session in Eval Bot" })).toBeInTheDocument();
     expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
 
     // The Bot did not move anywhere. It is in the same roster row it was always in -- the full
@@ -249,7 +249,7 @@ describe("App shell", () => {
     );
 
     fireEvent.click(roster.getByRole("button", { name: "Put Release Captain on the canvas" }));
-    expect(canvas().getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
+    expect(canvas().getByRole("button", { name: "New session in Release Captain" })).toBeInTheDocument();
     expect(screen.getByText("2 bots on the canvas")).toBeInTheDocument();
     unmount();
   });

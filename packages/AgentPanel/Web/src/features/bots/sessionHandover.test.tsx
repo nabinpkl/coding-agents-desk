@@ -53,6 +53,9 @@ function commands(feed: SidecarDataSource, openKeys: Set<string> = new Set()) {
             openKeys.clear();
             for (const key of next) openKeys.add(key);
           },
+          openStartedSession: (_botId: string, ref: { source: string; sessionId: string }) => {
+            openKeys.add(`${ref.source}:${ref.sessionId}`);
+          },
         },
         () => {},
       ),

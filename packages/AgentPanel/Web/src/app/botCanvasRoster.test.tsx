@@ -73,7 +73,7 @@ describe("App shell", () => {
     expect(canvas().getByText("Its session is off the canvas")).toBeInTheDocument();
     expect(canvas().queryByText("No sessions attached")).toBeNull();
     // The Bot's own header stays, which is the only way back to a Bot that was merely tidied.
-    expect(canvas().getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
+    expect(canvas().getByRole("button", { name: "New session in Release Captain" })).toBeInTheDocument();
     unmount();
   });
 
@@ -123,7 +123,7 @@ describe("App shell", () => {
     deliver(second.transport, held);
 
     expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
-    expect(canvas().queryByRole("button", { name: "Add sessions to Eval Bot" })).toBeNull();
+    expect(canvas().queryByRole("button", { name: "New session in Eval Bot" })).toBeNull();
     expect(canvas().getByText("Its session is off the canvas")).toBeInTheDocument();
 
     // And the way back is the same click it was before the reload, at both levels.
@@ -276,7 +276,7 @@ describe("App shell", () => {
     });
 
     // The canvas starts whole every visit, because nothing about the arrangement is stored.
-    expect(canvas().getByRole("button", { name: "Add sessions to Release Captain" })).toBeInTheDocument();
+    expect(canvas().getByRole("button", { name: "New session in Release Captain" })).toBeInTheDocument();
     expect(screen.getByText("1 bot on the canvas")).toBeInTheDocument();
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Release Captain" }));

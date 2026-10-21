@@ -1,7 +1,7 @@
 // Which Bots and sessions the Branches tab shows: those marked for it on the Bot's record
 // (`canvases.branches` in `bots.json`). The Feed canvas shows every Bot, marked or not.
 
-import type { BotView } from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, BotView, SetBotCanvasCommand } from "@agentdesk/agent-feed-wire";
 
 /** Which canvas a shell draws: the Feed's, every Bot, or the Branches tab's. */
 export type PanelCanvas = "bots" | "branches";
@@ -26,4 +26,23 @@ export function botsOnBranches(bots: readonly BotView[]): BotView[] {
       },
     ];
   });
+}
+
+/**
+ * The canvas command that adds one more session to a Bot's Branches list, or null when the Bot is
+ * not on Branches or already lists it. The list is replaced whole on the record, so it is built
+ * from the one the Bot holds now.
+ */
+export function branchesWithSession(bot: BotView, ref: BotSessionRef): SetBotCanvasCommand | null {
+  const listed = bot.canvases?.branches?.sessionRefs;
+  if (!listed) return null;
+  if (listed.some((each) => each.source === ref.source && each.sessionId === ref.sessionId)) return null;
+  return {
+    canvases: {
+      branches: [
+        ...listed.map(({ source, sessionId }) => ({ source, sessionId })),
+        { source: ref.source, sessionId: ref.sessionId },
+      ],
+    },
+  };
 }
