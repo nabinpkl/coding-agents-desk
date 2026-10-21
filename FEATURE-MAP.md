@@ -126,12 +126,13 @@ providers are still wired into the sidecar and still put rows in the session lis
 is current: **Pi** (dormant since 2026-09-13) and **Codex** (dormant since 2026-10-11). Both on
 the owner's word; "Seven things this map exists to stop you getting wrong", below, has what each
 still touches. A gap on a Pi or Codex row is not a bug to fix, and neither is a provider to extend.
-A Claude session runs through the Agent SDK runner by default; Claude Code's terminal UI mode is
-dormant, under the same heading.
+A Claude session runs in Claude Code's terminal UI by default, and the Agent SDK runner is picked at
+creation, under the same heading.
 
 ## Seven things this map exists to stop you getting wrong
 
-Moved here from `AGENTS.md` on 2026-10-17; the one on Claude's terminal mode was added 2026-10-18.
+Moved here from `AGENTS.md` on 2026-10-17; the one on Claude's run modes was added 2026-10-18 and
+reversed 2026-10-20.
 The root `AGENTS.md` keeps one line for each.
 They are easy to infer backwards from the shape of the tree.
 
@@ -164,18 +165,18 @@ They are easy to infer backwards from the shape of the tree.
   badge (`SourceBadge.tsx`). Do not extend it, do not suggest extending it (making it a handover
   source was proposed once from the code's own comments), and do not treat a gap on a Codex row as
   a bug to fix.
-- **A Claude session runs through the Agent SDK runner by default; the terminal UI mode is dormant**
-  (recorded 2026-10-18, on the owner's word). The runner is ADR-0143: `claudeMode: "sdk"`,
-  `agent-feed/sidecar/src/claude-sdk/`, and the panel's `useSdkSession`. New Claude work goes there.
-  The other mode, Claude Code's own terminal UI in a tmux pane, is still wired in and may still be
-  running sessions, so it has to keep working, but it is no longer a priority: leave its code
-  alone. Add no features to it, do not refactor it, and do not treat a gap in it as a bug to chase.
-  That covers the mode and the code that drives a session by typing into and reading its pane: the
-  sidecar's `input/` (the tmux composer, the question and `/rewind` pickers read off the screen, the
-  permission-mode footer and its Shift+Tab switch, `claudeCliSession`) and the panel's tmux composer
-  in `features/cli-input/` (`useTmuxComposer`, `tmuxComposerHandle`, `useCliSession`). Not dormant:
-  tmux itself, whose pane holds the SDK runner's process (ADR-0143) and opencode's sessions, and the
-  terminal view that shows those panes.
+- **A Claude session runs in its terminal UI by default; the Agent SDK runner is the other mode,
+  picked at creation** (recorded 2026-10-20, on the owner's word, reversing the 2026-10-18 entry that
+  made the SDK the default and the terminal mode dormant). The reason is remote control: Claude
+  Code's remote control reaches a session in its terminal UI and not one in the SDK runner, and it is
+  how a session is still reached while the sidecar is down. So the panel's harness pickers, a Bot's
+  +, and a fork's draft card all start on Claude Code (`harness: "claude"`, which sends
+  `claudeMode: "terminal"`), and a start that names no mode runs in the terminal. Both modes are
+  current and both are kept working: the terminal mode and the code that drives a session through
+  its pane (the sidecar's `input/`, the panel's `features/cli-input/`), and the SDK runner (ADR-0143,
+  `claudeMode: "sdk"`, `agent-feed/sidecar/src/claude-sdk/`, the panel's `useSdkSession`). One start
+  still picks the SDK on purpose: a scratch chat (`scratchSessionRoutes.ts`), because a new folder
+  makes the terminal ask whether to trust it on every chat, and the runner does not ask.
 - **The sidebar's Bots tab is dormant in favour of Canvas** (recorded 2026-09-15, on the owner's
   word). Canvas is where Bots are read and acted on. The Bots tab (`AgentSidebarMode` `"bots"` in
   `features/sidebar/AgentSidebar.tsx`) is still wired in and still looks current: it sits between

@@ -54,7 +54,7 @@ export function useForkCommands(
         setForkRequest(request);
         return;
       }
-      addDraft({ botId, fork: request, task: "", harness: "claude-sdk" });
+      addDraft({ botId, fork: request, task: "", harness: "claude" });
     },
     [addDraft],
   );

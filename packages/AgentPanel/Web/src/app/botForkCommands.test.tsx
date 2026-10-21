@@ -99,15 +99,15 @@ describe("App shell", () => {
 
     // Creating a session is the Bot's business: the terminal resource attaches to panes and does
     // not make them. The worktree left off sends nothing rather than sending false. The panel
-    // sends the task as typed; the sidecar spends the anchor and brackets it. Claude through the
-    // SDK unless another harness is chosen on the card.
+    // sends the task as typed; the sidecar spends the anchor and brackets it. Claude in its
+    // terminal unless another harness is chosen on the card.
     await waitFor(() => {
       expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toEqual({
         requestId: expect.any(String),
         launch: {
           title: "Retry the flaky gate",
           prompt: "Run it again",
-          claudeMode: "sdk",
+          claudeMode: "terminal",
           from: { source: "claude", sessionId: "sid-claude-01" },
         },
       });
@@ -259,7 +259,7 @@ describe("App shell", () => {
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
     fireEvent.change(screen.getByLabelText("The fork's first message"), { target: { value: "carry on in opencode" } });
-    fireEvent.click(screen.getByRole("button", { name: /Runs in Claude SDK/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Runs in Claude Code/ }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: /opencode/ }));
     fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
 

@@ -18,12 +18,16 @@ export const HARNESSES: readonly { value: NewSessionHarness; label: string; sour
   { value: "opencode", label: "opencode", source: "opencode" },
 ];
 
-/** What a start sends for a harness: the source, and for Claude, how its process runs. */
+/**
+ * What a start sends for a harness: the source, and for Claude, how its process runs. Said for the
+ * terminal too, so a fork picked to run there does not take the SDK from a source that last ran in it.
+ */
 export function harnessStart(harness: NewSessionHarness): {
   source: "claude" | "opencode";
   claudeMode?: ClaudeRunMode;
 } {
-  return harness === "claude-sdk" ? { source: "claude", claudeMode: "sdk" } : { source: harness };
+  if (harness === "opencode") return { source: "opencode" };
+  return { source: "claude", claudeMode: harness === "claude-sdk" ? "sdk" : "terminal" };
 }
 
 function sessionKey(session: Pick<SessionSummary, "source" | "sessionId">): string {
@@ -77,9 +81,9 @@ export function BotSessionPickerDialog({
   const [pending, setPending] = useStateFor(opening, () => false);
   const [error, setError] = useStateFor<string | null>(opening, () => null);
   const [task, setTask] = useStateFor(opening, () => "");
-  // The SDK, Claude's current path: a Claude session starts from a draft card once its first
-  // message is written, so there is a composer to write it in whichever way Claude runs.
-  const [harness, setHarness] = useStateFor<NewSessionHarness>(opening, () => "claude-sdk");
+  // Claude in its terminal, the default: remote control reaches only that mode, and it is what still
+  // answers when the sidecar is down. The SDK runner is picked here when wanted.
+  const [harness, setHarness] = useStateFor<NewSessionHarness>(opening, () => "claude");
   const attachedKeys = useMemo(() => new Set(bot?.sessionRefs.map(sessionKey) ?? []), [bot]);
 
   // A choice can only be of a session still listed and not attached already.

@@ -136,7 +136,7 @@ describe("what the command does with it", () => {
           from: { eventId: "claude:sid-1:line:12", text: "Rewrite the picker driver" },
         },
         task: "",
-        harness: "claude-sdk",
+        harness: "claude",
       },
     ]);
   });
@@ -221,7 +221,7 @@ describe("finding the compaction", () => {
           from: { eventId: "claude:sid-1:line:88", text: "Now do the other half" },
         },
         task: "",
-        harness: "claude-sdk",
+        harness: "claude",
       },
     ]);
   });

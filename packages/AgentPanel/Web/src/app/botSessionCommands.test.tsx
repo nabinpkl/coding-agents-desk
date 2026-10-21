@@ -364,8 +364,8 @@ describe("App shell", () => {
     });
 
     fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Release Captain" }));
-    // Claude through the SDK until the reader says otherwise: Claude's current path.
-    expect(screen.getByRole("radio", { name: /Claude SDK/ })).toBeChecked();
+    // Claude in its terminal until the reader says otherwise: the default.
+    expect(screen.getByRole("radio", { name: /Claude Code/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /opencode/ }));
     fireEvent.change(screen.getByLabelText("Start a new session here"), { target: { value: "Port the parser" } });
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
@@ -458,7 +458,7 @@ describe("App shell", () => {
     await waitFor(() => {
       expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toEqual({
         requestId: expect.any(String),
-        launch: { title: "Port the parser", prompt: "Start with lexing", claudeMode: "sdk" },
+        launch: { title: "Port the parser", prompt: "Start with lexing", claudeMode: "terminal" },
       });
     });
     // The draft gives way to the started session's card, which waits for the transcript to land.

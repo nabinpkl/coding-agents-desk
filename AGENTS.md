@@ -40,10 +40,9 @@ map exists to stop you getting wrong":
   it or fix its gaps. The Pi SDK still runs the turn summarizer, so that dependency stays.
 - **Codex is dormant as a session provider** (2026-10-11), though it is still wired in. Do not
   extend it, suggest extending it, or fix its gaps. Sessions run in Claude and opencode.
-- **A Claude session runs through the Agent SDK runner by default; the terminal UI mode is dormant**
-  (2026-10-18). Claude Code's own TUI in a tmux pane, and the code that drives a session by typing
-  into and reading that pane, may still be running sessions: keep it working, but add no features
-  to it and leave its code alone. tmux itself is not dormant: it holds the SDK runner and opencode.
+- **A Claude session runs in its terminal UI, in a tmux pane, by default; the Agent SDK runner is
+  the other mode, picked at creation** (2026-10-20). Remote control reaches only the terminal mode,
+  and it is how a session is still reached while the sidecar is down. Both modes are current.
 - **The sidebar's Bots tab is dormant in favour of Canvas** (2026-09-15). `BotSidebarPanel` is not:
   it is the Canvas roster too.
 - **Canvas session cards are the current iteration; the Sessions tab and its full-width thread

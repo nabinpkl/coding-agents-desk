@@ -51,10 +51,10 @@ const HARNESS_DESCRIPTIONS: Record<NewSessionHarness, string> = {
  * its Bot's row, with the composer its first turn is typed into. Sending starts it; nothing runs
  * before, because the name and the harness are both launch arguments with no second chance.
  *
- * A fork runs Claude through the SDK by default, as the reader asked; a fresh one starts in the
- * harness the dialog chose. Neither can go to opencode from here when it has no conversation to
- * hand over: a fork from a message has no whole conversation, and a fresh session none at all
- * (the dialog starts opencode itself).
+ * A fork runs Claude in its terminal by default, as every new Claude session does; a fresh one
+ * starts in the harness the dialog chose. Neither can go to opencode from here when it has no
+ * conversation to hand over: a fork from a message has no whole conversation, and a fresh session
+ * none at all (the dialog starts opencode itself).
  */
 export function BotSessionDraftCard({
   draft,

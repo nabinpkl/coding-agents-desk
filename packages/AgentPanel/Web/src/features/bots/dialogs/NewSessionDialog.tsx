@@ -34,8 +34,8 @@ export function NewSessionDialog({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [selectedPath, setSelectedPath] = useStateFor<string | null>(open, () => null);
-  // The SDK runner is how a Claude session runs now; the terminal UI is kept for sessions already in it.
-  const [harness, setHarness] = useStateFor<NewSessionHarness>(open, () => "claude-sdk");
+  // Claude in its terminal by default: remote control reaches only that mode. The SDK runner is a pick.
+  const [harness, setHarness] = useStateFor<NewSessionHarness>(open, () => "claude");
   const [title, setTitle] = useStateFor(open, () => "");
   const [prompt, setPrompt] = useStateFor(open, () => "");
   const [pending, setPending] = useStateFor(open, () => false);
