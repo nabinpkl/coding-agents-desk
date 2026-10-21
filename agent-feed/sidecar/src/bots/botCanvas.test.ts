@@ -114,3 +114,36 @@ test("stands a Bot at a position on the strip, and refuses one that is not a pla
     await expect(registry.setCanvas(botId, { position }, { kind: "user" })).rejects.toBeInstanceOf(BotInvalidError);
   }
 });
+
+test("puts a Bot on another canvas with the sessions it shows there, and null takes it off", async () => {
+  const { registry, botId, ref, secondRef } = await botWithTwo();
+  // Named out of order: the record keeps the Bot's own order, as it does for off-canvas sessions.
+  const on = await registry.setCanvas(botId, { canvases: { branches: [secondRef, ref] } }, { kind: "user" });
+  expect(on.canvases?.branches?.sessionRefs.map((each) => each.sessionId)).toEqual(["session-1", "session-2"]);
+  expect((await registry.snapshot()).bots[0]!.canvases?.branches?.sessionRefs).toHaveLength(2);
+
+  // A Bot can stand on one with none of its sessions showing.
+  const bare = await registry.setCanvas(botId, { canvases: { branches: [] } }, { kind: "user" });
+  expect(bare.canvases?.branches?.sessionRefs).toEqual([]);
+
+  const off = await registry.setCanvas(botId, { canvases: { branches: null } }, { kind: "user" });
+  expect("canvases" in off).toBe(false);
+});
+
+test("refuses a canvas that does not exist, and a session the Bot does not hold", async () => {
+  const { registry, botId, claudeRef } = await botWithTwo();
+  const unknown = { elsewhere: [] } as unknown as Record<"branches", []>;
+  await expect(registry.setCanvas(botId, { canvases: unknown }, { kind: "user" })).rejects.toBeInstanceOf(
+    BotInvalidError,
+  );
+  await expect(
+    registry.setCanvas(botId, { canvases: { branches: [claudeRef] } }, { kind: "user" }),
+  ).rejects.toBeInstanceOf(BotNotFoundError);
+});
+
+test("takes a session the Bot lets go off every canvas it was shown on", async () => {
+  const { registry, botId, ref, secondRef } = await botWithTwo();
+  await registry.setCanvas(botId, { canvases: { branches: [ref, secondRef] } }, { kind: "user" });
+  const detached = await registry.detachSessions(botId, { requestId: "r3", sessionRefs: [ref] }, { kind: "user" });
+  expect(detached.canvases?.branches?.sessionRefs.map((each) => each.sessionId)).toEqual(["session-2"]);
+});

@@ -20,6 +20,18 @@ export interface BotSessionRef {
   sessionId: string;
 }
 
+/**
+ * A canvas a Bot can stand on besides the Feed's. The Feed canvas shows every Bot, as it always has;
+ * one of these shows only the Bots that name it, with only the sessions they list for it.
+ */
+export const BOT_CANVAS_NAMES = ["branches"] as const;
+export type BotCanvasName = (typeof BOT_CANVAS_NAMES)[number];
+
+/** A Bot's place on one of those canvases: which of its sessions stand there, in its own order. */
+export interface BotCanvasMembership {
+  sessionRefs: BotSessionRef[];
+}
+
 export interface BotDirectoryEnvironment {
   kind: "directory";
   path: string;
@@ -94,6 +106,12 @@ export interface BotRecord {
    * strip, and a Bot without one stands after every Bot with one.
    */
   canvasPosition?: number;
+  /**
+   * The canvases besides the Feed's this Bot stands on, each with the sessions shown there: a
+   * subset of `sessionRefs`, possibly empty. A canvas absent here does not show the Bot; absent
+   * altogether means none. Changed with `SetBotCanvasCommand.canvases`.
+   */
+  canvases?: Partial<Record<BotCanvasName, BotCanvasMembership>>;
   /**
    * The session that speaks as this Bot's Father, and the panel renders as its home.
    *
@@ -312,6 +330,11 @@ export interface SetBotCanvasCommand {
   sessions?: BotCanvasSessionChange[];
   /** The Bot's new `canvasPosition`. A nonnegative integer. */
   position?: number;
+  /**
+   * The sessions this Bot shows on each named canvas, replacing what it showed there; null takes
+   * the Bot off that canvas. A canvas left out is left as it is.
+   */
+  canvases?: Partial<Record<BotCanvasName, BotSessionRef[] | null>>;
 }
 
 export interface BotCanvasSessionChange extends BotSessionRef {

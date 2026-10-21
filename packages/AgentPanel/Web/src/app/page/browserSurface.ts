@@ -5,7 +5,7 @@
 // lived in `BrowserSurfaces.tsx` beside it, so every edit to that file went past refresh to
 // `main.tsx`, which accepts nothing, and reloaded every open panel instead of updating it.
 
-export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals" | "ide" | "arena";
+export type BrowserSurface = "desktop" | "feed" | "screen" | "terminals" | "ide" | "arena" | "branches";
 
 export const SURFACES: { readonly name: BrowserSurface; readonly label: string }[] = [
   { name: "desktop", label: "Desktop" },
@@ -14,6 +14,7 @@ export const SURFACES: { readonly name: BrowserSurface; readonly label: string }
   { name: "terminals", label: "Terminals" },
   { name: "ide", label: "IDE" },
   { name: "arena", label: "Arena" },
+  { name: "branches", label: "Branches" },
 ];
 
 const NAMED = new Set<string>(SURFACES.map((surface) => surface.name));

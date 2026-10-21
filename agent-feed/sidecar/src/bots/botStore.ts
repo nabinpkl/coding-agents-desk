@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { BotRecord } from "@agentdesk/agent-feed-wire";
+import { BOT_CANVAS_NAMES, type BotRecord } from "@agentdesk/agent-feed-wire";
 import { isAgentLogPath } from "@/bots/sessions/botSessionLogs";
 import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
 import { acquireFileLock, writeJsonAtomically } from "@/config/lockedJsonFile";
@@ -37,6 +37,19 @@ function isSessionRef(value: unknown): boolean {
     isRecord(value) &&
     (value.source === "claude" || value.source === "codex" || value.source === "pi" || value.source === "opencode") &&
     typeof value.sessionId === "string"
+  );
+}
+
+/** A Bot's other canvases: known names only, each holding a list of session references. */
+function isBotCanvases(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return Object.entries(value).every(
+    ([name, membership]) =>
+      (BOT_CANVAS_NAMES as readonly string[]).includes(name) &&
+      isRecord(membership) &&
+      Array.isArray(membership.sessionRefs) &&
+      membership.sessionRefs.every(isSessionRef),
   );
 }
 
@@ -103,6 +116,7 @@ function isBotRecord(value: unknown): value is BotRecord {
     (value.offCanvasSessionRefs === undefined ||
       (Array.isArray(value.offCanvasSessionRefs) && value.offCanvasSessionRefs.every(isSessionRef))) &&
     (value.fatherSession === undefined || isSessionRef(value.fatherSession)) &&
+    isBotCanvases(value.canvases) &&
     (value.createdBy.kind === "user" || (value.createdBy.kind === "bot" && typeof value.createdBy.botId === "string"))
   );
 }

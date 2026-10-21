@@ -14,7 +14,12 @@ import { searchWithSidebarMode, sidebarModeFromSearch } from "@/features/sidebar
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 import { useNotify } from "@/hooks/useNotify";
 
-export function useSidebarChrome() {
+/**
+ * `canvasOnly` holds the sidebar on its Canvas view and leaves the remembered view and the address
+ * alone, for a tab that shows nothing else (Branches): its choice is not the reader's, so it must
+ * not overwrite the one the Feed tab comes back to.
+ */
+export function useSidebarChrome({ canvasOnly = false }: { canvasOnly?: boolean } = {}) {
   const { compact, hoverCapable } = useSidebarEnvironment();
   /**
    * The sidebar's arrangement, with the address bar ahead of what was stored.
@@ -31,12 +36,12 @@ export function useSidebarChrome() {
   });
   // One owner for every rendering of the sidebar: the pinned desktop rail, hover preview,
   // and phone drawer must never disagree about which view is selected.
-  const sidebarMode = sidebarPreferences.mode;
+  const sidebarMode: AgentSidebarMode = canvasOnly ? "canvas" : sidebarPreferences.mode;
   // Written on every change of the view rather than only on a press, so the address is right after
   // a restore from storage too. `replaceState` rather than `pushState`: choosing a view is not a
   // navigation, and making Back walk the tabs would take a reader out of the panel to leave it.
   useNotify(sidebarMode, () => {
-    if (typeof window === "undefined") return;
+    if (canvasOnly || typeof window === "undefined") return;
     if (sidebarModeFromSearch(window.location.search) === sidebarMode) return;
     try {
       window.history.replaceState(
@@ -186,6 +191,7 @@ export function useSidebarChrome() {
     !sidebarPreferences.canvasSessionsGrouped;
 
   return {
+    canvasOnly,
     compact,
     hoverCapable,
     cancelHoverClose,

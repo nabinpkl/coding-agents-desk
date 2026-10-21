@@ -357,6 +357,18 @@ export function BrowserSurfaces({
               feed={sessionFeed}
               host={host}
             />
+          ) : surface === "branches" ? (
+            // The feed's own shell with the canvas swapped for the copy this tab grows from, so it
+            // reads every machine the way the canvas does. See `features/branches/BranchCanvas`.
+            <App
+              key={sessionId ?? "default"}
+              feed={sessionFeed}
+              host={host}
+              machines={machines}
+              fill
+              fatherExternal
+              canvas="branches"
+            />
           ) : (
             <App key={sessionId ?? "default"} feed={sessionFeed} host={host} machines={machines} fill fatherExternal />
           )}

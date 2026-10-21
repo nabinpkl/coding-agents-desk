@@ -22,6 +22,8 @@ import {
 import { botFeeds, machineKey, machinesAreMixed, type BotFeeds, type BotMachine } from "@/features/bots/botMachines";
 import { useBots, type BotRosterState } from "@/features/bots/useBots";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
+import { botsOnBranches, type PanelCanvas } from "@/features/branches/branchBots";
+import type { BotView } from "@agentdesk/agent-feed-wire";
 
 /** One machine's pair of window composers. Bound to a source, so shared across its sessions. */
 export interface MachineComposers {
@@ -34,6 +36,11 @@ export interface ShellMachines {
   readonly all: readonly BotMachine[];
   /** Every machine's Bots as one roster, and which machine each is on. */
   readonly roster: BotRosterState;
+  /**
+   * Every Bot, even where `roster` is narrowed to the Branches tab's: what colours and faces are
+   * ranked over (`botCanvasHues`), so a Bot wears one colour on every tab.
+   */
+  readonly colourBots: readonly BotView[];
   /** Which sidecar each Bot command goes to. */
   readonly feeds: BotFeeds;
   /** The window composers for the machine this shell is pointed at. */
@@ -88,6 +95,8 @@ export function useBotMachines(
   feed: SidecarDataSource,
   /** Every machine the embedder can reach, or absent for one that reaches only its own. */
   machines: readonly BotMachine[] | undefined,
+  /** The Branches tab's shell sees only the Bots and sessions marked for it (`botsOnBranches`). */
+  canvas: PanelCanvas = "bots",
 ): ShellMachines {
   // One machine, unlabelled, when the embedder names none -- and when it names none YET. An empty
   // list is the ordinary first render in the browser shell, where the live index arrives a moment
@@ -98,7 +107,11 @@ export function useBotMachines(
     () => (machines && machines.length > 0 ? machines : [{ label: "this machine", feed }]),
     [machines, feed],
   );
-  const roster = useBots(all);
+  const everyBot = useBots(all);
+  // Memoized on the list itself: a fresh array each render would read as a roster change to every
+  // hook that prunes against it (`useCanvasRoster`).
+  const branchBots = useMemo(() => botsOnBranches(everyBot.bots), [everyBot.bots]);
+  const roster = canvas === "branches" ? { ...everyBot, bots: branchBots } : everyBot;
   // Identity-stable, because `machineOf` and `machineOfSession` are: every command callback in the
   // shell closes over this, and a new object on each Bot-stream push would rebuild all of them.
   const feeds = useMemo(
@@ -166,6 +179,7 @@ export function useBotMachines(
   return {
     all,
     roster,
+    colourBots: everyBot.bots,
     feeds,
     composers,
     labels,

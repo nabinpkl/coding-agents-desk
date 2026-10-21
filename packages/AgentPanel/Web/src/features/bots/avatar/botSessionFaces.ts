@@ -54,13 +54,15 @@ export type SessionFaces = ReadonlyMap<string, BotSessionFace>;
  *
  * Built from the whole roster, the way the roster and the canvas build theirs, so a session wears
  * the same colour, face and eyes here as on its card. A session two Bots hold takes its first one's.
+ * `colourBots` is that whole roster where `bots` is narrowed to one tab's (Branches).
  */
 export function botSessionFaces(
   bots: readonly BotView[],
   canvas: CanvasMembership & { openSessionKeys: ReadonlySet<string> },
+  colourBots: readonly BotView[] = bots,
 ): SessionFaces {
-  const hues = botCanvasHues(bots);
-  const ranks = botCanvasRanks(bots);
+  const hues = botCanvasHues(colourBots);
+  const ranks = botCanvasRanks(colourBots);
   const faces = new Map<string, BotSessionFace>();
   for (const bot of bots) {
     const hue = hues.get(bot.botId);

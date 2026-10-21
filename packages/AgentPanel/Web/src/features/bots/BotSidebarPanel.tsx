@@ -9,6 +9,7 @@ import { botCanvasHues, botCanvasRanks } from "@/features/bots/botSurface";
 
 export function BotSidebarPanel({
   bots,
+  colourBots = bots,
   loading,
   error,
   selectedBotIds,
@@ -25,6 +26,8 @@ export function BotSidebarPanel({
   canvas,
 }: {
   bots: BotView[];
+  /** The roster colours are ranked over, where `bots` is narrowed to one tab's (Branches). */
+  colourBots?: readonly BotView[];
   /**
    * Which machine each Bot is on, by id, and EMPTY when there is only one machine to be on.
    *
@@ -106,8 +109,8 @@ export function BotSidebarPanel({
    * and dims them. So the input is the same input the shell hands the canvas, and a Bot's face in
    * this list is the colour of its card by construction rather than by agreement.
    */
-  const hues = useMemo(() => botCanvasHues(bots), [bots]);
-  const ranks = useMemo(() => botCanvasRanks(bots), [bots]);
+  const hues = useMemo(() => botCanvasHues(colourBots), [colourBots]);
+  const ranks = useMemo(() => botCanvasRanks(colourBots), [colourBots]);
   // Colours and ranks come from the WHOLE roster and its own order, which is why they are derived
   // from `bots` and not from this: where a row sits must not change what colour it wears.
   // Keyed on its two sets rather than on `canvas`, so a rebuilt `canvas` holding the same sets keeps it.

@@ -18,6 +18,8 @@ import { AppDialogs } from "@/app/AppDialogs";
 import { buildSessionViewContext } from "@/app/shell-state/sessionViewContext";
 import { sidebarProps } from "@/app/shell-state/sidebar/sidebarProps";
 import { BotCanvas } from "@/features/bots/canvas/BotCanvas";
+import { BranchCanvas } from "@/features/branches/BranchCanvas";
+import type { PanelCanvas } from "@/features/branches/branchBots";
 import { CanvasShell, type CanvasActions, type CanvasCards } from "@/features/bots/canvas/canvasShell";
 import { createCanvasStore } from "@/features/bots/canvas/canvasStore";
 import { FatherHome } from "@/app/FatherHome";
@@ -62,17 +64,22 @@ interface Props {
   fill?: boolean;
   /** The site-wide Father home stands over this mount, so the feed's own stays out of its way. */
   fatherExternal?: boolean;
+  /**
+   * Which canvas the canvas view draws: the Bot canvas, or its copy the Branches tab is growing into a
+   * main chat with the chats forked from it. Everything around it is the same shell.
+   */
+  canvas?: PanelCanvas;
 }
 
-export function App({ feed, host, machines, fill = false, fatherExternal = false }: Props) {
+export function App({ feed, host, machines, fill = false, fatherExternal = false, canvas = "bots" }: Props) {
   // Which machines this shell can see, which Bots are on each, and which sidecar answers for one.
   // One hook because it is one decision made in five places; see `useBotMachines`.
-  const shellMachines = useBotMachines(feed, machines);
+  const shellMachines = useBotMachines(feed, machines, canvas);
   const botsState = shellMachines.roster;
   const windowComposers = shellMachines.composers;
   // The drawer's trigger apart from the rest: what render reads off `chrome` must not sit beside a
   // ref, or every one of those reads looks like a read of the ref.
-  const { drawerTriggerRef, ...chrome } = useSidebarChrome();
+  const { drawerTriggerRef, ...chrome } = useSidebarChrome({ canvasOnly: canvas === "branches" });
   // `known` as well as `settled`: a roster that is complete for the machines seen SO FAR is not a
   // roster to drop stored cards against. See `useBotMachines`.
   const roster = useCanvasRoster(
@@ -91,6 +98,8 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     chrome.setHoverPreviewOpen,
   );
   const newSession = useNewSessionCommands(feed);
+  // The Branches tab draws its own copy of the canvas; see `canvas` above.
+  const CanvasView = canvas === "branches" ? BranchCanvas : BotCanvas;
   // What the canvas is asked from outside it, made once for the life of this shell (`canvasStore`).
   const [canvasStore] = useState(createCanvasStore);
   // A Bot command's failure, or a canvas change's that did not land. One band, the command's first.
@@ -130,8 +139,8 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
    * and a colour ranked over that subset would repaint the whole strip whenever a reader took one
    * off it. The full list is what makes a Bot's colour its own.
    */
-  const botHues = useMemo(() => botCanvasHues(botsState.bots), [botsState.bots]);
-  const botRanks = useMemo(() => botCanvasRanks(botsState.bots), [botsState.bots]);
+  const botHues = useMemo(() => botCanvasHues(shellMachines.colourBots), [shellMachines.colourBots]);
+  const botRanks = useMemo(() => botCanvasRanks(shellMachines.colourBots), [shellMachines.colourBots]);
   // Sessions started here that the catalog has not listed yet: a Bot's, and one on no Bot.
   const sessionDrafts = useMemo(
     () => ({ drafts: commands.sessionDrafts, start: commands.startDraft, close: commands.closeDraft }),
@@ -447,7 +456,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
               </div>
             ) : chrome.sidebarMode === "canvas" ? (
               <CanvasShell store={canvasStore} actions={canvasActions} cards={canvasCards}>
-                <BotCanvas
+                <CanvasView
                   bots={roster.canvasBots}
                   hues={botHues}
                   ranks={botRanks}

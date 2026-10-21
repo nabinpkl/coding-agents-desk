@@ -61,6 +61,7 @@ export function sidebarProps({
   return {
     mode: chrome.sidebarMode,
     onModeChange: chrome.changeSidebarMode,
+    canvasOnly: chrome.canvasOnly,
     feed,
     machines: machines.all,
     projects: inventory.projects,
@@ -82,6 +83,7 @@ export function sidebarProps({
     // The canvas's own arrangement rather than the order the machines answered in: this list and
     // the strip are the same Bots, so a reader who moves a card has moved this row with it.
     bots: roster.orderedBots,
+    colourBots: machines.colourBots,
     botMachineLabels: machines.labels,
     // The roster rows' terminal button opens a shell in the Bot's own directory, on the machine
     // that owns it. Read as of this render, because the rows ask while they draw.
@@ -144,12 +146,16 @@ export function sidebarProps({
       },
       // From the same roster, sets and open cards the Bots view draws its rows from, so a session
       // wears one face in both views.
-      faces: botSessionFaces(roster.orderedBots, {
-        detachedBotIds: roster.detachedBotIds,
-        machineHiddenBotIds,
-        detachedSessionKeys: roster.detachedSessionKeys,
-        openSessionKeys: roster.canvasOpenKeys,
-      }),
+      faces: botSessionFaces(
+        roster.orderedBots,
+        {
+          detachedBotIds: roster.detachedBotIds,
+          machineHiddenBotIds,
+          detachedSessionKeys: roster.detachedSessionKeys,
+          openSessionKeys: roster.canvasOpenKeys,
+        },
+        machines.colourBots,
+      ),
       modalSelection: thread.modalThread
         ? {
             projectPath: thread.modalThread.project.projectPath,
