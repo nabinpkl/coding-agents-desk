@@ -227,6 +227,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     compact: chrome.compact,
     tasksHost,
     onForkFromMessage: commands.forkFromMessage,
+    hidePromptSuggestions: canvas === "branches",
   });
 
   // What the canvas's cards act through and read, handed to them by `CanvasShell` rather than passed

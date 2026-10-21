@@ -84,6 +84,7 @@ function SessionViewContent({
   tasksHost,
   onAcceptFiles,
   onForkFromMessage,
+  hidePromptSuggestions = false,
   onAttachSession,
   externalError = null,
   pane = null,
@@ -413,6 +414,7 @@ function SessionViewContent({
           surfaces={panelCommands.surfaces}
           onAbort={commands.abortRun}
           onQueuedPrompts={setQueuedPrompts}
+          hidePromptSuggestions={hidePromptSuggestions}
         />
         {isTerminalSource(source) ? <TerminalNotice source={source} state={terminal} /> : null}
         {terminal.kind === "loading" || terminal.kind === "ready" ? (

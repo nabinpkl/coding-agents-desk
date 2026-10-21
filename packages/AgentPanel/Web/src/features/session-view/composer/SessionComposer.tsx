@@ -61,6 +61,7 @@ export function SessionComposer({
   surfaces,
   onAbort,
   onQueuedPrompts,
+  hidePromptSuggestions = false,
 }: {
   feed: SidecarDataSource;
   session: SessionSummary;
@@ -130,6 +131,8 @@ export function SessionComposer({
    * read by the feed because this band is what follows the session's runner.
    */
   onQueuedPrompts?: (queued: readonly ClaudeSdkQueuedPrompt[]) => void;
+  /** Leaves Claude's guess at the next prompt out of the field (`SessionViewContext`). */
+  hidePromptSuggestions?: boolean;
 }) {
   const { source, sessionId, capabilities } = session;
   const isClaude = source === "claude";
@@ -386,7 +389,7 @@ export function SessionComposer({
     windowBand,
     windowComposer,
   };
-  const editor = composerEditor(model);
+  const editor = composerEditor(model, { promptSuggestions: !hidePromptSuggestions });
   const actions = composerActions(model);
   const { caption, captionIsError } = composerCaption(model);
   const sectionLabel = composerSectionLabel(model);

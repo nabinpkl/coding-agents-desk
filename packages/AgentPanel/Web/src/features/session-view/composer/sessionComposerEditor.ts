@@ -93,8 +93,13 @@ function sdkSuggestion(m: ComposerModel): string | null {
   return state.suggestion;
 }
 
-export function composerEditor(m: ComposerModel): ComposerEditor {
-  const suggestion = m.sdkBand ? sdkSuggestion(m) : null;
+/**
+ * `promptSuggestions: false` drops Claude's guess at the next prompt from both bands that show one,
+ * which also leaves the phone's keyboard bar nothing to offer: it reads the guess off `onAcceptHint`.
+ */
+export function composerEditor(m: ComposerModel, { promptSuggestions = true } = {}): ComposerEditor {
+  const suggestion = m.sdkBand && promptSuggestions ? sdkSuggestion(m) : null;
+  const tmuxHint = promptSuggestions ? m.tmuxComposer.hint : null;
   return m.sdkBand
     ? {
         value: m.localDraft,
@@ -154,7 +159,7 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
             // Claude's own suggestion when it is offering one, shown where the terminal shows it and
             // as what it is: a placeholder, which takes no part in the value and is never pushed.
             // Tab accepts it, the same key that accepts it in the pane.
-            placeholder: m.tmuxComposer.hint ?? "Type into Claude's terminal\u2026",
+            placeholder: tmuxHint ?? "Type into Claude's terminal\u2026",
             // A coarse guard rather than the sidecar's own limit restated: that one counts BYTES and
             // this counts UTF-16 units, so they are not the same quantity and cannot be. The number
             // is the sidecar's, which is smaller than a turn sent once because this text is retyped
@@ -164,7 +169,7 @@ export function composerEditor(m: ComposerModel): ComposerEditor {
             // No `onFocus`: the stream behind this field is already current, where the bands either
             // side of it re-read something at the moment somebody is about to act on it.
             onBlur: m.tmuxComposer.onBlur,
-            ...(m.tmuxComposer.hint === null ? {} : { onAcceptHint: () => void m.tmuxComposer.accept() }),
+            ...(tmuxHint === null ? {} : { onAcceptHint: () => void m.tmuxComposer.accept() }),
             onFiles: (files) => void m.tmuxComposer.drop(files),
             images: m.tmuxComposer.images,
             onRemoveImage: m.tmuxComposer.remove,

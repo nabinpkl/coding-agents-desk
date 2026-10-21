@@ -240,6 +240,13 @@ describe("the SDK band's actions", () => {
     }
   });
 
+  it("offers no guess at all on a surface that hides them, so the field and Tab are as if none came", () => {
+    const m = sdkModel(handle({ suggestion: "run the tests" }), { localDraft: "" });
+    const editor = composerEditor(m, { promptSuggestions: false });
+    expect(editor.placeholder).toBe("Message Claude\u2026");
+    expect(editor.onAcceptHint).toBeUndefined();
+  });
+
   it("says when there is no runner, and says the runner's refusal", () => {
     const gone = sdkModel(handle({ connected: false }));
     expect(composerEditor(gone).placeholder).toBe("This session is not running");

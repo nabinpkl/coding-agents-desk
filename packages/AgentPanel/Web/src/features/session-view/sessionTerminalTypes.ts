@@ -69,4 +69,10 @@ export interface SessionViewContext {
     /** The Bot whose card asked, which the fork then lands on as a card. Absent off the canvas. */
     botId?: string;
   }) => void;
+  /**
+   * Leaves Claude's guess at the next prompt out of the composer: no placeholder guess, no Tab to
+   * take it, no key for it on the phone's keyboard bar. For a surface where the guess gives away
+   * what the reader is meant to work out (the Branches tab's study chats).
+   */
+  hidePromptSuggestions?: boolean;
 }

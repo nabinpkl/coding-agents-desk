@@ -33,6 +33,8 @@ export function buildSessionViewContext(input: {
     message: { eventId: string; text: string };
     botId?: string;
   }) => void;
+  /** Leaves Claude's guess at the next prompt out of every composer on this surface. */
+  hidePromptSuggestions?: boolean;
 }): SessionViewContext {
   return {
     feed: input.feed,
@@ -45,5 +47,6 @@ export function buildSessionViewContext(input: {
     compact: input.compact,
     tasksHost: input.tasksHost,
     ...(input.onForkFromMessage === undefined ? {} : { onForkFromMessage: input.onForkFromMessage }),
+    ...(input.hidePromptSuggestions ? { hidePromptSuggestions: true } : {}),
   };
 }
