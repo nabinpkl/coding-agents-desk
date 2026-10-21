@@ -262,9 +262,20 @@ async function opencodeImage(
   });
 }
 
-export function createEventImageRoutes(
-  imageFor?: (sessionId: string, eventIndex: number, blockIndex: number) => { mediaType: string; data: string } | null,
-): RouteHandler {
+type ImageLookup = (
+  sessionId: string,
+  eventIndex: number,
+  blockIndex: number,
+) => { mediaType: string; data: string } | null;
+
+/** The picture behind an opencode image block, from whichever backend is registered as opencode now. */
+export function opencodeImageFrom(backend: () => unknown): ImageLookup {
+  return (sessionId, eventIndex, blockIndex) =>
+    (backend() as { opencodeImage?: ImageLookup } | undefined)?.opencodeImage?.(sessionId, eventIndex, blockIndex) ??
+    null;
+}
+
+export function createEventImageRoutes(imageFor?: ImageLookup): RouteHandler {
   return (request, url) => {
     if (request.method !== "GET") return undefined;
     if (imageFor) {

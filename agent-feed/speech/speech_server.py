@@ -5,16 +5,24 @@
 #
 # One resident Kitten TTS nano 0.8 (fp32 ONNX, CPU, about 240 MB) with espeak-ng in-process for
 # pronunciation. A message is cut into pieces, the first a few words long so it is heard soon, and
-# each piece is made and pushed as soon as it is ready. Messages are made one at a time, in the
-# order they arrived, so two never interleave.
+# each piece is made and pushed once what was pushed before it is within LEAD_S of finishing on the
+# page. Making is many times faster than playing, so sending a whole message at once put tens of
+# seconds of audio in flight (96 KB a second of it), and a stop or the next message waited behind
+# all of it. Messages are made one at a time, in the order they arrived, so two never interleave.
 #
 #   GET  /listen   the push stream: frames of uint32 LE header length, JSON header (with the speed
 #                  the piece was made at), uint32 LE PCM byte length, float32 PCM at 24 kHz. An empty
 #                  frame at once and every 5 s after keeps it alive.
-#   POST /say      <- {text, tone?}  -> {listeners, durationMs} once the whole message is made, or 409
-#                  nobody_listening with no stream open (nothing is made). `tone` (attention or
-#                  done) rides the first piece's header; the page plays it before the words.
-#   POST /cancel   <- {message}  the rest of that message is not made
+#   POST /say      <- {text, tone?, ref?}  -> {listeners, durationMs, cancelled} once the whole message is
+#                  made (or cancelled), or 409 nobody_listening with no stream open (nothing is made).
+#                  `tone` (attention or done) rides the first piece's header; the page plays it before
+#                  the words. `ref` names the caller's message, so it can be cancelled by that name.
+#   GET  /events   the control stream: one JSON object a line, {"stop": message} when a message is
+#                  cancelled, a bare newline at once and every 5 s after. Its own stream so a stop is
+#                  never queued behind audio still on its way down /listen.
+#   POST /cancel   <- {message} or {ref}  the rest of that message is not made, and every page is told
+#                  to drop what it holds of it: on /events at once, and on /listen as a stop frame
+#                  ({stop: message}, no audio) for a page that has no control stream
 #   POST /ack      <- the page's timings for a message's first piece, logged
 #   GET  /speed    -> {speed}; POST /speed <- {speed} sets how fast every later message is spoken
 #                  (Kitten's own rate, so the pitch stays; clamped to SPEEDS)
@@ -55,7 +63,22 @@ MODEL_MAX_SPEED = 2.0
 FIRST_WORDS = 4  # the first piece, short so it is heard soon
 MAX_WORDS = 8  # every later piece, at most
 KEEPALIVE_S = 5.0
+# How far ahead of the page's playback a message is sent: room for a network hiccup, and all that is
+# in flight to throw away when it is stopped.
+LEAD_S = 3.0
 CLAUSE = re.compile(r"[^,.!?;:]+[,.!?;:]?")
+
+
+def trimmed(audio: np.ndarray) -> np.ndarray:
+    """A piece without the silence Kitten leaves around it, kept to 30 ms before the first sound and 60 ms
+    after the last. A page trims by the same rule before it plays a piece, so pacing by the untrimmed
+    length ran ahead of the page by about a third, measured, and let its buffer run dry every few
+    seconds. Trimmed here, what this paces by is what the page plays, and the silence is not sent at
+    all. Trimming twice changes nothing."""
+    loud = np.flatnonzero(np.abs(audio) > 0.01)
+    if loud.size == 0:
+        return audio[:1]
+    return audio[max(0, loud[0] - 720) : min(len(audio), loud[-1] + 1440)]
 
 
 def log(line: str) -> None:
@@ -119,10 +142,15 @@ class Channel:
     def __init__(self, voice: Voice):
         self.voice = voice
         self.listeners: list[queue.Queue[bytes]] = []
+        self.watchers: list[queue.Queue[bytes]] = []  # the control streams
         self.listeners_lock = threading.Lock()
+        self.changed = threading.Condition()  # told when a message is cancelled, to end a paced wait
         self.say_lock = threading.Lock()
         self.ids = itertools.count(1)
         self.cancelled: set[int] = set()
+        # The newest message each caller's ref named: a ref is reused (one per Bot, one for reading
+        # a reply aloud), and cancelling it means the latest.
+        self.refs: dict[str, int] = {}
 
     def listening(self) -> int:
         with self.listeners_lock:
@@ -133,21 +161,53 @@ class Channel:
             for listener in self.listeners:
                 listener.put(data)
 
-    def say(self, text: str, tone: str | None = None) -> float:
-        """Makes and pushes `text` piece by piece, after any message before it; returns its length in ms."""
+    def tell(self, event: dict) -> None:
+        line = (json.dumps(event) + "\n").encode()
+        with self.listeners_lock:
+            for watcher in self.watchers:
+                watcher.put(line)
+
+    def cancel(self, message: int) -> None:
+        """Stops making `message` and tells every page to drop what it already has of it."""
+        with self.changed:
+            self.cancelled.add(message)
+            self.changed.notify_all()
+        self.tell({"stop": message})
+        self.push(frame({"stop": message}, b""))
+        log(f"cancel #{message}")
+
+    def say(self, text: str, tone: str | None = None, ref: str | None = None) -> tuple[float, bool]:
+        """Makes and pushes `text` piece by piece, after any message before it, paced to LEAD_S ahead
+        of the page's playback. Returns how long it plays, in ms, and whether it was cancelled part
+        way; it returns about LEAD_S before the page finishes playing it."""
+        # Numbered before waiting its turn, so a cancel by ref reaches a message still waiting.
+        message = next(self.ids)
+        if ref:
+            self.refs[ref] = message
         with self.say_lock:
-            message = next(self.ids)
             received = time.perf_counter()
             parts = pieces(text)
             duration_ms = 0.0
+            # When what has been pushed of this message finishes playing on the page.
+            played_by = time.monotonic()
             for i, piece in enumerate(parts):
+                wait = played_by - LEAD_S - time.monotonic()
+                if wait > 0:
+                    with self.changed:
+                        self.changed.wait_for(lambda: message in self.cancelled, timeout=wait)
                 if message in self.cancelled:
                     log(f"#{message}: cancelled, {len(parts) - i} piece(s) not made")
-                    break
+                    return duration_ms, True
                 # Stamped on the piece: the page stretches it from this to the listener's speed.
                 speed = min(self.voice.speed, MODEL_MAX_SPEED)
                 audio, espeak_ms, model_ms = self.voice.make(piece, speed)
-                duration_ms += len(audio) / SAMPLE_RATE * 1000
+                audio = trimmed(audio)
+                # As the page plays it: the pause it leaves after a clause, and stretched from the speed
+                # it was made at to the listener's.
+                pause = 0.28 if re.search(r"[.!?]$", piece) else 0.12 if re.search(r"[,;:]$", piece) else 0.0
+                plays_s = (len(audio) / SAMPLE_RATE + pause) * speed / self.voice.speed
+                duration_ms += plays_s * 1000
+                played_by = max(played_by, time.monotonic()) + plays_s
                 mac_ms = (time.perf_counter() - received) * 1000
                 self.push(frame({
                     "message": message, "index": i, "last": i == len(parts) - 1, "text": piece, "speed": speed,
@@ -157,7 +217,7 @@ class Channel:
                 if i == 0:
                     log(f"#{message}: first piece out after {mac_ms:.0f} ms (model {model_ms:.0f} ms) "
                         f"to {self.listening()} listener(s)")
-            return duration_ms
+            return duration_ms, message in self.cancelled
 
 
 def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
@@ -199,36 +259,40 @@ def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
             elif self.path.startswith("/speed"):
                 self.answer(200, {"speed": channel.voice.speed})
             elif self.path.startswith("/listen"):
-                self.listen()
+                self.stream(channel.listeners, "listener", KEEPALIVE, "application/octet-stream")
+            elif self.path.startswith("/events"):
+                self.stream(channel.watchers, "watcher", b"\n", "application/x-ndjson")
             else:
                 self.refuse(404, "route-not-found", f"the speech process has no route GET {self.path}")
 
-        def listen(self) -> None:
+        def stream(self, subscribers: list, kind: str, keepalive: bytes, content_type: str) -> None:
             inbox: queue.Queue[bytes] = queue.Queue()
             with channel.listeners_lock:
-                channel.listeners.append(inbox)
-            log(f"listener joined ({channel.listening()})")
+                subscribers.append(inbox)
+                count = len(subscribers)
+            log(f"{kind} joined ({count})")
             self.send_response(200)
-            self.send_header("content-type", "application/octet-stream")
+            self.send_header("content-type", content_type)
             self.send_header("cache-control", "no-store")
             self.end_headers()
             try:
                 # Something at once, so the page's stream opens now rather than at the first keepalive.
-                self.wfile.write(KEEPALIVE)
+                self.wfile.write(keepalive)
                 self.wfile.flush()
                 while True:
                     try:
                         data = inbox.get(timeout=KEEPALIVE_S)
                     except queue.Empty:
-                        data = KEEPALIVE
+                        data = keepalive
                     self.wfile.write(data)
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass
             finally:
                 with channel.listeners_lock:
-                    channel.listeners.remove(inbox)
-                log(f"listener left ({channel.listening()})")
+                    subscribers.remove(inbox)
+                    count = len(subscribers)
+                log(f"{kind} left ({count})")
 
         def do_POST(self) -> None:
             if self.foreign():
@@ -247,7 +311,9 @@ def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
                 else:
                     heard_by = channel.listening()
                     tone = body.get("tone") if body.get("tone") in ("attention", "done") else None
-                    self.answer(200, {"listeners": heard_by, "durationMs": round(channel.say(text, tone))})
+                    ref = body.get("ref") if isinstance(body.get("ref"), str) else None
+                    duration_ms, cancelled = channel.say(text, tone, ref)
+                    self.answer(200, {"listeners": heard_by, "durationMs": round(duration_ms), "cancelled": cancelled})
             elif self.path.startswith("/speed"):
                 speed = body.get("speed")
                 if not isinstance(speed, (int, float)) or isinstance(speed, bool):
@@ -257,8 +323,11 @@ def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
                 log(f"speed {channel.voice.speed}")
                 self.answer(200, {"speed": channel.voice.speed})
             elif self.path.startswith("/cancel"):
-                channel.cancelled.add(int(body["message"]))
-                log(f"cancel #{body['message']}")
+                ref = body.get("ref")
+                message = channel.refs.get(ref) if isinstance(ref, str) else body.get("message")
+                if isinstance(message, int) and not isinstance(message, bool):
+                    channel.cancel(message)
+                # Nothing by that name is not an error: whatever it named is already gone.
                 self.answer(204)
             elif self.path.startswith("/ack"):
                 log(f"heard #{body.get('message')}: {json.dumps(body)}")

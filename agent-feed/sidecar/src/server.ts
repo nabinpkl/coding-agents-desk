@@ -33,7 +33,7 @@ import { createProjectArchiveRoutes } from "@/http/agent-routes/projectArchiveRo
 import { installSessionArchive, SessionArchiveStore } from "@/transcripts/session-ops/sessionArchive";
 import { broadcast as broadcastCatalog } from "@/transcripts/catalog/catalogState";
 import { createBracketRoutes } from "@/http/session-routes/bracketRoutes";
-import { createEventImageRoutes } from "@/http/session-routes/eventImageRoutes";
+import { createEventImageRoutes, opencodeImageFrom } from "@/http/session-routes/eventImageRoutes";
 import { createSummaryRoutes } from "@/http/session-routes/summaryRoutes";
 import { createTaskRoutes } from "@/http/session-routes/taskRoutes";
 import { createAgentTerminalRoutes } from "@/http/agent-routes/agentTerminalRoutes";
@@ -92,6 +92,7 @@ import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpenco
 import { createHubRoutes } from "@/messaging/hubRoutes";
 import { createAudioForward } from "@/audio/audioForward";
 import { createPushRoutes } from "@/push/pushRoutes";
+import { createSpeechRoutes } from "@/push/speechRoutes";
 import { startLiveTurnFinishedNotifier } from "@/push/liveTurnFinished";
 import { sendPush } from "@/push/pushSender";
 import { bindableDirectory } from "@/bots/botDirectory";
@@ -251,6 +252,7 @@ const routes: RouteHandler[] = [
   createSupervisorRoutes(),
   createTelemetryRoutes(sinkEnvelope),
   createPushRoutes({ path: config.webPushPath, subject: config.webPushSubject, send: sendPush }),
+  createSpeechRoutes(),
   createAudioForward(),
   createArenaRoutes(arenaService),
   createArenaCodeRoutes(arenaService, repositoryGitWatch, {
@@ -303,18 +305,7 @@ const routes: RouteHandler[] = [
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),
   // And `/events/<n>/blocks/<b>/image`, the picture behind an image block.
-  createEventImageRoutes((sessionId, eventIndex, blockIndex) => {
-    const backend = resolveBackend("opencode") as
-      | {
-          opencodeImage?: (
-            sessionId: string,
-            eventIndex: number,
-            blockIndex: number,
-          ) => { mediaType: string; data: string } | null;
-        }
-      | undefined;
-    return backend?.opencodeImage?.(sessionId, eventIndex, blockIndex) ?? null;
-  }),
+  createEventImageRoutes(opencodeImageFrom(() => resolveBackend("opencode"))),
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position
   // here is only for readability.
   createUsageRoutes(usageScanner),

@@ -1,6 +1,7 @@
 // What a Bot's session says on the Mac's audio channel (the speech process,
 // `agent-feed/speech/speech_server.py`), to someone who is listening while doing something else:
 // when its turn finishes, when it asks a question and waits, and once more if that wait goes on.
+// And a reply read out loud when a person asks for it (`readAloud`, behind the feed's speaker).
 //
 // It says the session's spoken status (`transcripts/spokenStatus.ts`): the short lines the session
 // closed its turn with, or the question it is waiting on. A turn that wrote no block says its
@@ -12,7 +13,7 @@
 // with a newer one waiting replaces its older one, so a burst of sessions finishing is heard as the
 // latest word from each rather than a backlog.
 
-import { AUDIO_SPEAK_MAX_CHARS, type BotRecord } from "@agentdesk/agent-feed-wire";
+import { AUDIO_SPEAK_MAX_CHARS, SPEECH_READ_MAX_CHARS, type BotRecord } from "@agentdesk/agent-feed-wire";
 import { speechPort } from "@/audio/audioConfig";
 import { normalizedLine } from "@/transcripts/claude/claudeNormalize";
 import { isHumanTurnStart } from "@/transcripts/humanTurns";
@@ -84,10 +85,14 @@ export function speakableReply(markdown: string, limit = AUDIO_SPEAK_MAX_CHARS):
   return sentenceEnd > limit / 2 ? cut.slice(0, sentenceEnd + 1) : `${cut.slice(0, cut.lastIndexOf(" "))}.`;
 }
 
+/** A reply without the blocks a session writes about its own turn, which are not part of what it said. */
+export function withoutReports(reply: string): string {
+  return reply.replace(/<(task-state|spoken-status|next-suggestions-for-user)>[\s\S]*?(<\/\1>|$)/g, " ");
+}
+
 /** The first few sentences of a reply, for a turn that wrote no block. */
 export function replyOpening(reply: string): string {
-  const without = reply.replace(/<(task-state|spoken-status|next-suggestions-for-user)>[\s\S]*?<\/\1>/g, " ");
-  const text = speakableReply(without, FALLBACK_CHARACTERS * 2);
+  const text = speakableReply(withoutReports(reply), FALLBACK_CHARACTERS * 2);
   // Split where a sentence's end meets a space, so a reply that quotes punctuation ("..") keeps
   // the words around it rather than losing everything before the quote.
   const sentences = text.split(/(?<=[.!?])\s+/);
@@ -129,55 +134,104 @@ export function spokenAnnouncement(
   return speakableReply(`${name} ${replyOpening(reply)}`);
 }
 
-type Announcement = { key: string; text: string; tone: SpeechTone; urgent: boolean };
+/**
+ * What the speech process answered for one message: how many heard it and for how long, whether it
+ * was stopped part way, or null when nobody listened.
+ */
+export type SpeechHeard = { listeners: number; durationMs: number; cancelled: boolean } | null;
 
-/** Sends one announcement to the speech process; nobody listening is not a failure. */
-export type SpeechSay = (text: string, tone: SpeechTone) => Promise<void>;
+/** What became of one queued message. */
+export type SpeechOutcome =
+  | { said: true; listeners: number; durationMs: number }
+  | { said: false; why: "nobody-listening" | "replaced" | "stopped" | "failed" };
 
-async function sayOnMac(text: string, tone: SpeechTone): Promise<void> {
+type Announcement = {
+  key: string;
+  text: string;
+  tone: SpeechTone | null;
+  urgent: boolean;
+  settle: (outcome: SpeechOutcome) => void;
+};
+
+/**
+ * Sends one message to the speech process, named by `ref` (its key in the queue) so it can be
+ * cancelled by that name; nobody listening is an answer, not a failure.
+ */
+export type SpeechSay = (text: string, tone: SpeechTone | null, ref: string) => Promise<SpeechHeard>;
+
+async function sayOnMac(text: string, tone: SpeechTone | null, ref: string): Promise<SpeechHeard> {
   const response = await fetch(`http://127.0.0.1:${speechPort()}/say`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, tone }),
+    body: JSON.stringify(tone ? { text, tone, ref } : { text, ref }),
   });
   if (response.status === 409) {
     console.log(`[speech] nobody listening, not said: ${JSON.stringify(text.slice(0, 60))}`);
-    return;
+    return null;
   }
   if (!response.ok) throw new Error(`the speech process answered ${response.status}: ${await response.text()}`);
-  console.log(`[speech] said ${JSON.stringify(text.slice(0, 60))} (${tone}): ${await response.text()}`);
+  const heard = (await response.json()) as { listeners: number; durationMs: number; cancelled?: boolean };
+  console.log(`[speech] said ${JSON.stringify(text.slice(0, 60))} (${tone ?? "no tone"}): ${JSON.stringify(heard)}`);
+  return { listeners: heard.listeners, durationMs: heard.durationMs, cancelled: heard.cancelled === true };
 }
 
 /**
- * The one line of announcements. `say` resolves once the speech process has made a message, which
- * is when the next can go: the speech process plays them in the order it made them.
+ * Stops the newest message `ref` named, wherever it is: still being made, or made and still playing.
+ * The speech process stops making it and tells every page to drop what it holds of it.
+ */
+async function cancelOnMac(ref: string): Promise<void> {
+  const response = await fetch(`http://127.0.0.1:${speechPort()}/cancel`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ref }),
+  });
+  if (!response.ok) throw new Error(`the speech process answered ${response.status} to a cancel`);
+}
+
+/**
+ * The one line of messages. `say` resolves once the speech process has made a message, which is
+ * when the next can go: the speech process plays them in the order it made them. Each `enqueue`
+ * resolves with what became of its own message.
  */
 export function createSpeechQueue(say: SpeechSay = sayOnMac) {
   const queue: Announcement[] = [];
-  let sending: Promise<void> | null = null;
+  let sending = false;
 
   async function drain(): Promise<void> {
     for (let next = queue.shift(); next; next = queue.shift()) {
       try {
-        await say(next.text, next.tone);
+        const heard = await say(next.text, next.tone, next.key);
+        if (!heard) next.settle({ said: false, why: "nobody-listening" });
+        else if (heard.cancelled) next.settle({ said: false, why: "stopped" });
+        else next.settle({ said: true, listeners: heard.listeners, durationMs: heard.durationMs });
       } catch (error) {
         console.error(`[speech] ${next.key}: not said`, error);
+        next.settle({ said: false, why: "failed" });
       }
     }
-    sending = null;
+    sending = false;
   }
 
   return {
     /** Queues `text` from `key` (a Bot), replacing anything it queued that has not gone yet. */
-    enqueue(key: string, text: string, tone: SpeechTone, urgent: boolean): Promise<void> {
-      const stale = queue.findIndex((item) => item.key === key);
-      if (stale !== -1) queue.splice(stale, 1);
-      const item = { key, text, tone, urgent };
-      const firstCalm = queue.findIndex((queued) => !queued.urgent);
-      if (urgent && firstCalm !== -1) queue.splice(firstCalm, 0, item);
-      else queue.push(item);
-      sending ??= drain();
-      return sending;
+    enqueue(key: string, text: string, tone: SpeechTone | null, urgent: boolean): Promise<SpeechOutcome> {
+      return new Promise((settle) => {
+        const stale = queue.findIndex((item) => item.key === key);
+        if (stale !== -1) queue.splice(stale, 1)[0]?.settle({ said: false, why: "replaced" });
+        const item = { key, text, tone, urgent, settle };
+        const firstCalm = queue.findIndex((queued) => !queued.urgent);
+        if (urgent && firstCalm !== -1) queue.splice(firstCalm, 0, item);
+        else queue.push(item);
+        if (!sending) {
+          sending = true;
+          void drain();
+        }
+      });
+    },
+    /** Takes `key`'s message out of the line if it has not gone yet. The one being made is not here. */
+    withdraw(key: string): void {
+      const waiting = queue.findIndex((item) => item.key === key);
+      if (waiting !== -1) queue.splice(waiting, 1)[0]?.settle({ said: false, why: "stopped" });
     },
   };
 }
@@ -208,4 +262,27 @@ export async function speakSession(bot: BotRecord, session: Session, occasion: S
   }
   const urgent = occasion !== "finished" || needsAttention(status);
   await speechQueue.enqueue(bot.botId, text, urgent ? "attention" : "done", urgent);
+}
+
+/** The queue key, and the speech process's ref, of a reply read out loud: one at a time. */
+const READ_ALOUD = "read-aloud";
+
+/** Stops the reply being read out loud, wherever it is: waiting its turn, being made, or playing. */
+export async function stopReading(): Promise<void> {
+  speechQueue.withdraw(READ_ALOUD);
+  await cancelOnMac(READ_ALOUD);
+}
+
+/**
+ * Reads a reply out loud because a person asked (the feed's speaker), ahead of the sessions' calm
+ * announcements and with no tone, since the person knows what is coming. Its report blocks are left
+ * out. One reply at a time: asking for another stops the one being read first. Null when nothing in
+ * it can be said.
+ */
+export async function readAloud(reply: string): Promise<SpeechOutcome | null> {
+  const text = speakableReply(withoutReports(reply), SPEECH_READ_MAX_CHARS);
+  if (!text) return null;
+  // Before queueing the new one, so the cancel, which names the newest message, cannot reach it.
+  await stopReading().catch((error: unknown) => console.error("[speech] could not stop the last reading", error));
+  return speechQueue.enqueue(READ_ALOUD, text, null, true);
 }

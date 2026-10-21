@@ -70,3 +70,24 @@ export type AudioSpeakResponse = { listeners: number; durationMs: number };
 export const AUDIO_LISTENERS_ROUTE = "/api/audio/listeners";
 
 export type AudioListenersResponse = { listeners: number };
+
+/**
+ * `POST /api/speech/read`: read a reply out loud on this Mac's speech process
+ * (`agent-feed/speech/speech_server.py`), to whoever listens on its push stream, in line with the
+ * sessions' own announcements so the two never talk over each other. The sidecar's route, not the
+ * audio process's. The session's own report blocks are left out and the rest is made speakable:
+ * code is named rather than read, and a reply past `SPEECH_READ_MAX_CHARS` is cut at a sentence.
+ * One reply at a time: reading another stops this one. With nobody listening it is refused, 409
+ * `nobody_listening`, and nothing is made; one stopped before it finished answers 409 `stopped`.
+ */
+export const SPEECH_READ_ROUTE = "/api/speech/read";
+
+/** `POST /api/speech/stop`: stops the reply being read out loud, wherever it is, and answers 204. */
+export const SPEECH_STOP_ROUTE = "/api/speech/stop";
+
+export const SPEECH_READ_MAX_CHARS = 4_000;
+
+export type SpeechReadRequest = { text: string };
+
+/** `listeners` is how many pages it went to; `durationMs` how long it plays. */
+export type SpeechReadResponse = { listeners: number; durationMs: number };

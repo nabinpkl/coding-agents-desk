@@ -12,6 +12,7 @@ import { describeEditChange } from "@/features/activity-feed/blocks/diff/describ
 import { SearchResultBody, parseSearchResult } from "@/features/activity-feed/blocks/SearchResultBody";
 import { WebResultBody, parseWebResult } from "@/features/activity-feed/blocks/WebResultBody";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
+import { AgentReply } from "@/features/activity-feed/markdown/AgentReply";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
 import { EventFileImage, EventImageBlock } from "@/features/activity-feed/blocks/EventImageBlock";
@@ -132,7 +133,7 @@ export function Block({
           className="leading-(--agent-panel-prose-leading) text-foreground"
           style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
         >
-          <Markdown content={revealedText} streaming={isStreamingProse} />
+          <AgentReply content={revealedText} streaming={isStreamingProse} />
         </div>
       );
     }

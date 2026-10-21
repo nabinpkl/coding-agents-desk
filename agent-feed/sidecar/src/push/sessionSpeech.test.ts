@@ -10,6 +10,7 @@ import {
   speakerName,
   spokenAnnouncement,
   type SpeechTone,
+  withoutReports,
 } from "@/push/sessionSpeech";
 
 function user(content: unknown): string {
@@ -120,16 +121,57 @@ describe("the queue", () => {
     const said: string[] = [];
     let release: () => void = () => {};
     const first = new Promise<void>((resolve) => (release = resolve));
-    const queue = createSpeechQueue((text: string, tone: SpeechTone) => {
+    const heard = { listeners: 1, durationMs: 900 };
+    const queue = createSpeechQueue(async (text: string, tone: SpeechTone | null) => {
       said.push(`${text}/${tone}`);
-      return said.length === 1 ? first : Promise.resolve();
+      if (said.length === 1) await first;
+      return { ...heard, cancelled: false };
     });
-    const done = queue.enqueue("a", "A one", "done", false);
-    void queue.enqueue("b", "B old", "done", false);
-    void queue.enqueue("c", "C needs you", "attention", true);
-    void queue.enqueue("b", "B new", "done", false);
+    const a = queue.enqueue("a", "A one", "done", false);
+    const bOld = queue.enqueue("b", "B old", "done", false);
+    const c = queue.enqueue("c", "C needs you", "attention", true);
+    const bNew = queue.enqueue("b", "B new", "done", false);
+    expect(await bOld).toEqual({ said: false, why: "replaced" });
     release();
-    await done;
+    const spoken = { said: true as const, ...heard };
+    expect(await Promise.all([a, c, bNew])).toEqual([spoken, spoken, spoken]);
     expect(said).toEqual(["A one/done", "C needs you/attention", "B new/done"]);
+  });
+
+  test("tells each message whether anyone heard it, or why not", async () => {
+    const refs: string[] = [];
+    const queue = createSpeechQueue((text, _tone, ref) => {
+      refs.push(ref);
+      if (text === "boom") return Promise.reject(new Error("speech process down"));
+      if (text === "cut") return Promise.resolve({ listeners: 1, durationMs: 300, cancelled: true });
+      return Promise.resolve(null);
+    });
+    expect(await queue.enqueue("a", "hello", null, true)).toEqual({ said: false, why: "nobody-listening" });
+    expect(await queue.enqueue("a", "boom", null, true)).toEqual({ said: false, why: "failed" });
+    expect(await queue.enqueue("b", "cut", null, true)).toEqual({ said: false, why: "stopped" });
+    // Each message is named to the speech process by its key, which is what a cancel names.
+    expect(refs).toEqual(["a", "a", "b"]);
+  });
+
+  test("withdraws a message still waiting its turn", async () => {
+    let release: () => void = () => {};
+    const first = new Promise<void>((resolve) => (release = resolve));
+    const queue = createSpeechQueue(async () => {
+      await first;
+      return { listeners: 1, durationMs: 1, cancelled: false };
+    });
+    void queue.enqueue("a", "being made", null, true);
+    const waiting = queue.enqueue("b", "waiting", null, true);
+    queue.withdraw("b");
+    expect(await waiting).toEqual({ said: false, why: "stopped" });
+    release();
+  });
+});
+
+describe("a reply read out loud", () => {
+  test("leaves out the blocks a session writes about its own turn, even one still open", () => {
+    expect(withoutReports("<task-state>\ntask: x\n</task-state>\nIt works.\n<spoken-status>\ndone: y").trim()).toBe(
+      "It works.",
+    );
   });
 });

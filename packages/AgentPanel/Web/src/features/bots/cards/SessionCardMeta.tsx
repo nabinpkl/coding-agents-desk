@@ -29,6 +29,7 @@ import { WorktreeChip } from "@/features/sidebar/session-list/SessionMeta";
 import { placePopup, triggerIsVisible, type Placement } from "@/features/bots/menus/anchoredPlacement";
 import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
 import { useEventListener } from "@/hooks/dom/useEventListener";
+import { SPOKEN_KIND_INK, SPOKEN_KIND_LABEL, SPOKEN_KIND_ORDER } from "@/features/activity-feed/markdown/replyReports";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 
@@ -85,39 +86,21 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
 }
 
 type SpokenStatus = NonNullable<SessionSummary["spokenStatus"]>;
-type SpokenKind = SpokenStatus["lines"][number]["kind"];
-
-/** Most pressing first: the chip names the first of these a status holds. */
-const KIND_ORDER: readonly SpokenKind[] = ["waiting", "failed", "running", "done", "note"];
-const KIND_LABEL: Record<SpokenKind, string> = {
-  waiting: "Needs you",
-  failed: "Failed",
-  running: "Running",
-  done: "Done",
-  note: "Note",
-};
-const KIND_INK: Record<SpokenKind, string> = {
-  waiting: "text-attention font-medium",
-  failed: "text-destructive font-medium",
-  running: "text-foreground",
-  done: "session-muted-ink",
-  note: "session-muted-ink",
-};
 
 function StatusButton({ status }: { status: SpokenStatus }) {
-  const kind = KIND_ORDER.find((one) => status.lines.some((line) => line.kind === one)) ?? "note";
-  const label = status.from === "question" ? "Asks you" : KIND_LABEL[kind];
+  const kind = SPOKEN_KIND_ORDER.find((one) => status.lines.some((line) => line.kind === one)) ?? "note";
+  const label = status.from === "question" ? "Asks you" : SPOKEN_KIND_LABEL[kind];
   return (
     <MetaPopover
       label="How this session's latest turn stands"
-      triggerClassName={`shrink-0 ${KIND_INK[kind]}`}
+      triggerClassName={`shrink-0 ${SPOKEN_KIND_INK[kind]}`}
       trigger={label}
     >
       <ul className="space-y-1">
         {status.lines.map((line, index) => (
           <li key={index} className="text-pretty">
-            <span className={KIND_INK[line.kind]}>
-              {status.from === "question" ? "Asks you" : KIND_LABEL[line.kind]}:
+            <span className={SPOKEN_KIND_INK[line.kind]}>
+              {status.from === "question" ? "Asks you" : SPOKEN_KIND_LABEL[line.kind]}:
             </span>{" "}
             {line.text}
           </li>
