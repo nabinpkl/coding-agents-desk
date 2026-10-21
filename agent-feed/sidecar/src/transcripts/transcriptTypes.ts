@@ -15,6 +15,7 @@
 // that discovered the session. Listing sessions opens no transcript body.
 
 import type { ParsedLine, SourceId, TokenUsage, EventCacheHit } from "@agentdesk/agent-feed-wire";
+import type { SessionSpokenStatus } from "@/transcripts/spokenStatus";
 import type { SessionTaskState } from "@/transcripts/taskState";
 
 export type {
@@ -96,6 +97,8 @@ export interface Header {
   firstPrompt?: string;
   /** The newest `<task-state>` block the session opened a response with (`claudeTaskState.ts`). */
   taskState?: SessionTaskState;
+  /** How its latest turn stands, for a listener (`claudeSpokenStatus.ts`). */
+  spokenStatus?: SessionSpokenStatus;
 }
 
 // Whether the nice view lets a line through. `machinery` means everything the
@@ -204,6 +207,8 @@ export interface Session {
   firstPrompt?: string;
   /** What the session said it set out to do, from its newest `<task-state>` block. */
   taskState?: SessionTaskState;
+  /** How its latest turn stands: the `<spoken-status>` block it closed with, or its open question. */
+  spokenStatus?: SessionSpokenStatus;
 }
 
 // Adapters own only source-specific JSONL parsing. Catalog discovery and

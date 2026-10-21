@@ -10,7 +10,7 @@ import { splitScratchBrief } from "@agentdesk/agent-feed-wire";
 import type { Header, LastSelection } from "@/transcripts/transcriptTypes";
 import { turnClosedFor } from "@/transcripts/claude/claudePayloads";
 import { currentTitles, titlesOf, type Titles } from "@/transcripts/claude/claudeTitles";
-import { currentTaskState } from "@/transcripts/claude/claudeTaskState";
+import { currentReports } from "@/transcripts/claude/claudeTaskState";
 
 const HEADER_EDGE_BYTES = 32 * 1024;
 /**
@@ -388,7 +388,9 @@ export async function readHeader(filePath: string): Promise<Header | null> {
       through,
     });
     out.title = titles.customTitle ?? titles.aiTitle;
-    out.taskState = await currentTaskState(fh, filePath, through);
+    const reports = await currentReports(fh, filePath, through);
+    out.taskState = reports.taskState;
+    out.spokenStatus = reports.spokenStatus;
     if (wandered.length > 0) out.recentCwds = [...new Set(wandered.reverse())];
     return out.cwd ? out : null;
   } finally {

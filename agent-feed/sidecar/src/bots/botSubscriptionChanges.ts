@@ -83,6 +83,8 @@ export function viewSignature(snapshot: BotSnapshot): string {
               one.sessionId,
               one.title,
               one.taskState?.at ?? "",
+              // A status set, replaced or cleared (a new turn, a question answered) is news to a card.
+              `${one.spokenStatus?.from ?? ""}${one.spokenStatus?.at ?? ""}`,
               one.activity,
               Math.floor(one.lastEventAt / MINUTE_MS),
             ].join(":"),

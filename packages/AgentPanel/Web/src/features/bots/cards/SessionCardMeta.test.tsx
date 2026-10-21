@@ -7,6 +7,43 @@ import { SessionCardMeta } from "@/features/bots/cards/SessionCardMeta";
 const AT = new Date(2026, 9, 17, 9, 5).getTime();
 
 describe("SessionCardMeta", () => {
+  it("names the most pressing kind of the latest turn's status, and opens every line on a tap", () => {
+    render(
+      <SessionCardMeta
+        source="claude"
+        lastEventAt={AT}
+        activity="ready"
+        spokenStatus={{
+          from: "block",
+          at: AT,
+          lines: [
+            { kind: "done", text: "slider reaches four times" },
+            { kind: "waiting", text: "say go to rebuild" },
+          ],
+        }}
+      />,
+    );
+    const chip = screen.getByRole("button", { name: "Needs you" });
+    expect(chip.className).toContain("text-attention");
+    expect(screen.queryByText("say go to rebuild")).toBeNull();
+    fireEvent.click(chip);
+    expect(screen.getByRole("dialog", { name: "How this session's latest turn stands" })).toBeInTheDocument();
+    expect(screen.getByText("say go to rebuild")).toBeInTheDocument();
+    expect(screen.getByText("slider reaches four times")).toBeInTheDocument();
+  });
+
+  it("calls a question it waits on a question", () => {
+    render(
+      <SessionCardMeta
+        source="claude"
+        lastEventAt={AT}
+        activity="ready"
+        spokenStatus={{ from: "question", at: AT, lines: [{ kind: "waiting", text: "Rebuild now?" }] }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Asks you" })).toBeInTheDocument();
+  });
+
   it("shows what the session set out to do, and opens its decisions on a tap", () => {
     render(
       <SessionCardMeta

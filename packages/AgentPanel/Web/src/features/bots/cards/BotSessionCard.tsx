@@ -365,6 +365,7 @@ export function BotSessionCard({
                   activity={session.activity}
                   worktree={session.worktree}
                   taskState={session.taskState}
+                  spokenStatus={session.spokenStatus}
                 />
               </div>
               <ChevronDown

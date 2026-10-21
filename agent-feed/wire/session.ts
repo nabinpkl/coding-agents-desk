@@ -100,6 +100,27 @@ export interface SessionSummary {
    * does when its brief hands it work.
    */
   taskState?: SessionTaskState;
+  /**
+   * How the session's latest turn stands, said to someone who may only be listening: the
+   * `<spoken-status>` block its latest response closed with, or the question it is waiting on an
+   * answer to. Absent while a turn is under way, and when the latest turn wrote no block.
+   */
+  spokenStatus?: SessionSpokenStatus;
+}
+
+/** What a spoken status line reports. `waiting` needs the person; the order is how much it matters. */
+export type SpokenStatusKind = "waiting" | "failed" | "done" | "running" | "note";
+
+export interface SessionSpokenStatus {
+  /** At most four, each a short line, in the order the session wrote them. */
+  lines: { kind: SpokenStatusKind; text: string }[];
+  /** When the response carrying it was written, epoch ms. */
+  at: number;
+  /**
+   * `block`: the session's own block, closing a response. `question`: the session asked the person
+   * a question through a tool and is waiting on the answer; its one line is that question.
+   */
+  from: "block" | "question";
 }
 
 /** One `<task-state>` block: the goal, then the decisions the session wrote under it. */

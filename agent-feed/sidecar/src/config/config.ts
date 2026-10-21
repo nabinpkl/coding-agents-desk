@@ -10,7 +10,13 @@ import {
   integerEnvironment,
   urlEnvironment,
 } from "@/config/configEnvironment";
-import { botsPath, sessionArchivePath, webPushPath, webPushSenderPath } from "@/config/configStores";
+import {
+  botsPath,
+  sessionArchivePath,
+  speechRemindersPath,
+  webPushPath,
+  webPushSenderPath,
+} from "@/config/configStores";
 import { composerHandlesPath, composerImageDirectory } from "@/config/configComposer";
 import { contextWindowEnvironment, contextWindowIn } from "@/config/contextWindows";
 import { ripgrepBinary, tmuxBinary, yabaiBinary } from "@/config/configBinaries";
@@ -131,6 +137,11 @@ export const config = {
   // only once the turn has stayed closed this long: a turn that opens again inside it sends nothing.
   pushTurnFinished: booleanEnvironment("AGENT_FEED_PUSH_TURN_FINISHED", true),
   pushQuietMs: integerEnvironment("AGENT_FEED_PUSH_QUIET_MS", 10_000, 0, 10 * 60_000),
+  // A question such a session asks and waits on is announced once it has stood this long, and a
+  // status that needs the person is said once more after the second (`push/sessionSpeech.ts`).
+  pushQuestionQuietMs: integerEnvironment("AGENT_FEED_PUSH_QUESTION_QUIET_MS", 3_000, 0, 10 * 60_000),
+  speechRemindMs: integerEnvironment("AGENT_FEED_SPEECH_REMIND_MS", 10 * 60_000, 60_000, 24 * 60 * 60_000),
+  speechRemindersPath,
   claudeLiveEnabled: booleanEnvironment("AGENT_FEED_CLAUDE_LIVE_ENABLED", true),
   claudeLiveReconnectMs: integerEnvironment("AGENT_FEED_CLAUDE_LIVE_RECONNECT_MS", 1000, 50, 60_000),
   claudeLiveReconnectMaxMs: integerEnvironment("AGENT_FEED_CLAUDE_LIVE_RECONNECT_MAX_MS", 30_000, 1_000, 5 * 60_000),

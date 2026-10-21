@@ -3,7 +3,7 @@ import { appendFileSync, mkdtempSync, rmSync, statSync, writeFileSync } from "no
 import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentTaskState, taskStateOfLine } from "@/transcripts/claude/claudeTaskState";
+import { currentReports, taskStateOfLine } from "@/transcripts/claude/claudeTaskState";
 
 const work = mkdtempSync(join(tmpdir(), "claude-task-state-"));
 afterAll(() => rmSync(work, { recursive: true, force: true }));
@@ -22,7 +22,7 @@ const block = (task: string) => `<task-state>\ntask: ${task}\n- one decision\n</
 async function read(path: string) {
   const fh = await open(path, "r");
   try {
-    return await currentTaskState(fh, path, statSync(path).size);
+    return (await currentReports(fh, path, statSync(path).size)).taskState;
   } finally {
     await fh.close();
   }

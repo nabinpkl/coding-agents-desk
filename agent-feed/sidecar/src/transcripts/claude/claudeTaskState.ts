@@ -12,14 +12,24 @@
 // Only the session's own words count: an `assistant` record from the main thread, never a person's
 // message, a tool result, or a subagent's turn. A fork's transcript starts with its parent's
 // records, so a fork shows its parent's block until its first response writes its own.
+//
+// The same pass follows the session's spoken status (`claudeSpokenStatus.ts`), so the two blocks a
+// session reports itself with cost one read of each new byte between them.
 
 import type { open } from "node:fs/promises";
+import {
+  emptySpokenStatusTrack,
+  followSpokenStatus,
+  type SpokenStatusTrack,
+} from "@/transcripts/claude/claudeSpokenStatus";
+import type { SessionSpokenStatus } from "@/transcripts/spokenStatus";
 import { mayHoldTaskState, parseTaskState, type SessionTaskState } from "@/transcripts/taskState";
 
 type FileHandle = Awaited<ReturnType<typeof open>>;
 
 interface TaskStateMemo {
   state: SessionTaskState | null;
+  spoken: SpokenStatusTrack;
   /** Where the last read stopped, at a line start: the next read resumes here. */
   through: number;
 }
@@ -31,34 +41,43 @@ const FIRST_READ_BYTES = 4 * 1024 * 1024;
 const CHUNK_BYTES = 64 * 1024;
 const NEWLINE = 0x0a;
 
+/** What a session reports about itself: its newest task block, and how its latest turn stands. */
+export interface SessionReports {
+  taskState?: SessionTaskState;
+  spokenStatus?: SessionSpokenStatus;
+}
+
 /**
- * The newest block in the file at `path`, read up to `through`, where the last complete line ends.
+ * The newest task block in the file at `path`, and its spoken status, read up to `through`, where
+ * the last complete line ends.
  */
-export async function currentTaskState(
-  fh: FileHandle,
-  path: string,
-  through: number,
-): Promise<SessionTaskState | undefined> {
+export async function currentReports(fh: FileHandle, path: string, through: number): Promise<SessionReports> {
   const memo = memos.get(path);
   // A file shorter than what was read of it is not the file that was remembered.
   const resumes = memo !== undefined && memo.through <= through;
   const from = resumes ? memo.through : Math.max(0, through - FIRST_READ_BYTES);
   let state = resumes ? memo.state : null;
+  // Copied rather than moved in place, so a read that fails part way leaves the memo as it was.
+  const spoken: SpokenStatusTrack = resumes ? { ...memo.spoken } : emptySpokenStatusTrack();
   if (from < through) {
     // A first read that starts mid-file starts mid-line; a resumed one starts where a line did.
-    const newer = await newestBetween(fh, from, through, !resumes && from > 0);
+    const newer = await newestBetween(fh, from, through, !resumes && from > 0, spoken);
     if (newer) state = newer;
   }
-  memos.set(path, { state, through });
-  return state ?? undefined;
+  memos.set(path, { state, spoken, through });
+  return {
+    ...(state ? { taskState: state } : {}),
+    ...(spoken.status ? { spokenStatus: spoken.status } : {}),
+  };
 }
 
-/** The newest block on the complete lines in [from, to). */
+/** The newest task block on the complete lines in [from, to), moving `spoken` past each line. */
 async function newestBetween(
   fh: FileHandle,
   from: number,
   to: number,
   skipFirstLine: boolean,
+  spoken: SpokenStatusTrack,
 ): Promise<SessionTaskState | null> {
   let newest: SessionTaskState | null = null;
   let position = from;
@@ -75,7 +94,9 @@ async function newestBetween(
       if (skipping) {
         skipping = false;
       } else {
-        newest = taskStateOfLine(window.toString("utf-8", start, br)) ?? newest;
+        const line = window.toString("utf-8", start, br);
+        newest = taskStateOfLine(line) ?? newest;
+        followSpokenStatus(line, spoken);
       }
       start = br + 1;
     }

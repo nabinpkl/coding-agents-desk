@@ -15,6 +15,11 @@
 // It opens as a popover over the canvas rather than inside the card. Inside, it grew the card's
 // header, so resting on a task shrank the transcript under it and pushed every row below; and the
 // card clips what it holds, so it could not reach past a closed card's one row anyway.
+//
+// Beside it, how the session's latest turn stands: its `<spoken-status>` block, or the question it
+// waits on (the same lines the audio channel says). The chip names the most pressing kind, in the
+// attention colour when the session needs the person and the destructive one when something failed,
+// so a Bot that is waiting stands out across the canvas; it opens to every line the same way.
 
 import { useCallback, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -36,18 +41,21 @@ export function SessionCardMeta({
   activity,
   worktree,
   taskState,
+  spokenStatus,
 }: {
   source: string;
   lastEventAt: number;
   activity: Bin;
   worktree?: { path: string; branch: string | null };
   taskState?: SessionSummary["taskState"];
+  spokenStatus?: SessionSummary["spokenStatus"];
 }) {
   const time = new Date(lastEventAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
       <SourceBadge source={source} />
       {taskState ? <TaskButton taskState={taskState} /> : <span className="flex-1" />}
+      {spokenStatus ? <StatusButton status={spokenStatus} /> : null}
       {worktree ? <WorktreeChip worktree={worktree} /> : null}
       {/* The face says it; a screen reader, which is not shown the face, still hears it here. */}
       <span className="sr-only">{activity}</span>
@@ -57,6 +65,80 @@ export function SessionCardMeta({
 }
 
 function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["taskState"]> }) {
+  return (
+    <MetaPopover
+      label="What this session set out to do"
+      // At the title's size rather than the caption's: it is the line a reader came to read.
+      triggerClassName="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground"
+      trigger={taskState.task}
+    >
+      <p className="font-medium text-pretty">{taskState.task}</p>
+      {taskState.lines.length > 0 ? (
+        <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+          {taskState.lines.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+    </MetaPopover>
+  );
+}
+
+type SpokenStatus = NonNullable<SessionSummary["spokenStatus"]>;
+type SpokenKind = SpokenStatus["lines"][number]["kind"];
+
+/** Most pressing first: the chip names the first of these a status holds. */
+const KIND_ORDER: readonly SpokenKind[] = ["waiting", "failed", "running", "done", "note"];
+const KIND_LABEL: Record<SpokenKind, string> = {
+  waiting: "Needs you",
+  failed: "Failed",
+  running: "Running",
+  done: "Done",
+  note: "Note",
+};
+const KIND_INK: Record<SpokenKind, string> = {
+  waiting: "text-attention font-medium",
+  failed: "text-destructive font-medium",
+  running: "text-foreground",
+  done: "session-muted-ink",
+  note: "session-muted-ink",
+};
+
+function StatusButton({ status }: { status: SpokenStatus }) {
+  const kind = KIND_ORDER.find((one) => status.lines.some((line) => line.kind === one)) ?? "note";
+  const label = status.from === "question" ? "Asks you" : KIND_LABEL[kind];
+  return (
+    <MetaPopover
+      label="How this session's latest turn stands"
+      triggerClassName={`shrink-0 ${KIND_INK[kind]}`}
+      trigger={label}
+    >
+      <ul className="space-y-1">
+        {status.lines.map((line, index) => (
+          <li key={index} className="text-pretty">
+            <span className={KIND_INK[line.kind]}>
+              {status.from === "question" ? "Asks you" : KIND_LABEL[line.kind]}:
+            </span>{" "}
+            {line.text}
+          </li>
+        ))}
+      </ul>
+    </MetaPopover>
+  );
+}
+
+/** A piece of the meta line that opens a popover: on hover for a mouse, pinned by a click or a tap. */
+function MetaPopover({
+  label,
+  trigger: triggerContent,
+  triggerClassName,
+  children,
+}: {
+  label: string;
+  trigger: React.ReactNode;
+  triggerClassName: string;
+  children: React.ReactNode;
+}) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -122,10 +204,9 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
         onPointerLeave={leave}
         aria-expanded={showing}
         aria-controls={showing ? popupId : undefined}
-        // At the title's size rather than the caption's: it is the line a reader came to read.
-        className="pointer-events-auto min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left text-(length:--agent-panel-fs-sidebar-meta,13px) text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary"
+        className={`pointer-events-auto cursor-pointer rounded-sm text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary ${triggerClassName}`}
       >
-        {taskState.task}
+        {triggerContent}
       </button>
       {showing
         ? createPortal(
@@ -133,7 +214,7 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
               ref={popup}
               id={popupId}
               role="dialog"
-              aria-label="What this session set out to do"
+              aria-label={label}
               // For anything that asks "is the pointer still inside me" with a DOM containment test,
               // the way the row menus mark themselves: the portal is outside the card in the DOM.
               data-portal-menu=""
@@ -146,14 +227,7 @@ function TaskButton({ taskState }: { taskState: NonNullable<SessionSummary["task
               }}
               className="fixed z-50 w-max max-w-80 cursor-text select-text rounded-lg border border-border bg-popover p-3 text-(length:--agent-panel-fs-sidebar-meta,13px) text-popover-foreground shadow-xl"
             >
-              <p className="font-medium text-pretty">{taskState.task}</p>
-              {taskState.lines.length > 0 ? (
-                <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
-                  {taskState.lines.map((line, index) => (
-                    <li key={index}>{line}</li>
-                  ))}
-                </ul>
-              ) : null}
+              {children}
             </div>,
             document.body,
           )

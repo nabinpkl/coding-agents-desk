@@ -30,3 +30,8 @@ export const webPushPath = resolve(
 
 /** Which sidecar sends the notifications this machine raises on its own (`push/pushSenderLease.ts`). */
 export const webPushSenderPath = `${webPushPath}.sender`;
+
+/** The spoken reminders waiting sessions are owed, kept across restarts (`push/speechReminders.ts`). */
+export const speechRemindersPath = resolve(
+  process.env.AGENT_FEED_SPEECH_REMINDERS_PATH?.trim() || join(storeDirectory, "speech-reminders.json"),
+);

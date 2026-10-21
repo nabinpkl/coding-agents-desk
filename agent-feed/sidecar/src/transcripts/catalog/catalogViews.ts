@@ -184,6 +184,7 @@ export function summarizeSession(
     ...(archivedAt === undefined ? {} : { archivedAt }),
     ...(automation === undefined ? {} : { automation }),
     ...(session.taskState === undefined ? {} : { taskState: session.taskState }),
+    ...(session.spokenStatus === undefined ? {} : { spokenStatus: session.spokenStatus }),
   };
 }
 

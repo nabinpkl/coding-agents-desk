@@ -7,6 +7,7 @@ import { realpath, stat } from "node:fs/promises";
 import { basename, relative } from "node:path";
 import { config } from "@/config/config";
 import type { LastSelection, Session, SourceId } from "@/transcripts/transcriptTypes";
+import type { SessionSpokenStatus } from "@/transcripts/spokenStatus";
 import type { SessionTaskState } from "@/transcripts/taskState";
 import {
   CLAUDE_SESSION_PATTERN,
@@ -53,6 +54,7 @@ export function makeSession(
     lastTurnClosed?: boolean;
     firstPrompt?: string;
     taskState?: SessionTaskState;
+    spokenStatus?: SessionSpokenStatus;
   } = {},
 ): Session {
   return {

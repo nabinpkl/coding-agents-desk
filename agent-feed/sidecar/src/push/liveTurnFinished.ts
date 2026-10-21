@@ -1,10 +1,13 @@
-// The turn-finished notifier wired to the live catalog, the Bot store and the push fan-out.
+// The turn-finished notifier wired to the live catalog, the Bot store, the push fan-out and the
+// Mac's audio channel.
 
 import type { BotStore } from "@/bots/botStore";
 import { config } from "@/config/config";
 import { pushToAll } from "@/push/pushFanout";
 import { sendPush } from "@/push/pushSender";
 import { holdsSenderLease } from "@/push/pushSenderLease";
+import { speakSession } from "@/push/sessionSpeech";
+import { fileReminderStore } from "@/push/speechReminders";
 import { startTurnFinishedNotifier } from "@/push/turnFinishedNotifier";
 import { catalogReady, getSnapshot, subscribeCatalog } from "@/transcripts/catalog/transcriptCatalog";
 
@@ -28,6 +31,7 @@ export function startLiveTurnFinishedNotifier(botStore: Pick<BotStore, "snapshot
         const answered = outcomes.map((outcome) => `${new URL(outcome.endpoint).host} ${outcome.status}`).join(", ");
         console.log(`[push] ${payload.tag}: ${answered || "no device subscribed"}`);
       },
+      announce: speakSession,
       mayPush: () => holdsSenderLease(config.webPushSenderPath),
       // The quiet window, not a poll: one timer per closed turn, cancelled if the turn reopens.
       schedule: (work, ms) => {
@@ -36,6 +40,10 @@ export function startLiveTurnFinishedNotifier(botStore: Pick<BotStore, "snapshot
         return () => clearTimeout(timer);
       },
       quietMs: config.pushQuietMs,
+      questionQuietMs: config.pushQuestionQuietMs,
+      remindMs: config.speechRemindMs,
+      reminderStore: fileReminderStore(config.speechRemindersPath),
+      now: Date.now,
     });
   });
   return () => {

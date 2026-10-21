@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { BotRecord } from "@agentdesk/agent-feed-wire";
 import type { PushPayload } from "@/push/pushSender";
+import type { ReminderStore, StoredReminder } from "@/push/speechReminders";
+import { drained } from "@/testing/until";
 import { curatingBot, startTurnFinishedNotifier, turnFinishedPayload } from "@/push/turnFinishedNotifier";
 import type { Session } from "@/transcripts/transcriptTypes";
 
@@ -14,10 +16,26 @@ function session(sessionId: string, lastTurnClosed: boolean | undefined, fields:
 
 const ALPHA = bot({ name: "Alpha", sessionRefs: [{ source: "claude", sessionId: "s1" }] });
 
-function harness(bots: readonly BotRecord[] = [ALPHA], mayPush = true) {
+const NOW = 1_000_000;
+
+function harness(bots: readonly BotRecord[] = [ALPHA], mayPush = true, saved: StoredReminder[] = []) {
   let listener: (sessions: readonly Session[]) => void = () => {};
-  const timers: { work: () => Promise<void>; cancelled: boolean }[] = [];
+  const timers: { work: () => Promise<void>; ms: number; cancelled: boolean }[] = [];
+  /** The reminder store, in memory: what a restart would read back. */
+  const stored = [...saved];
+  const reminderStore: ReminderStore = {
+    load: () => Promise.resolve([...saved]),
+    save: (reminder) => {
+      stored.splice(0, stored.length, ...stored.filter((item) => item.key !== reminder.key), reminder);
+      return Promise.resolve();
+    },
+    remove: (key, at) => {
+      stored.splice(0, stored.length, ...stored.filter((item) => item.key !== key || item.at !== at));
+      return Promise.resolve();
+    },
+  };
   const pushed: PushPayload[] = [];
+  const announced: string[] = [];
   const stop = startTurnFinishedNotifier({
     subscribe: (next) => {
       listener = next;
@@ -28,15 +46,23 @@ function harness(bots: readonly BotRecord[] = [ALPHA], mayPush = true) {
       pushed.push(payload);
       return Promise.resolve();
     },
+    announce: (curator, finished, occasion) => {
+      announced.push(`${curator.name}:${finished.sessionId}:${occasion}`);
+      return Promise.resolve();
+    },
     mayPush: () => mayPush,
-    schedule: (work) => {
-      const timer = { work, cancelled: false };
+    schedule: (work, ms) => {
+      const timer = { work, ms, cancelled: false };
       timers.push(timer);
       return () => {
         timer.cancelled = true;
       };
     },
     quietMs: 10_000,
+    questionQuietMs: 3_000,
+    remindMs: 600_000,
+    reminderStore,
+    now: () => NOW,
   });
   const emit = (...sessions: Session[]) => listener(sessions);
   /** Runs every timer still standing, as if the quiet window passed. */
@@ -45,7 +71,7 @@ function harness(bots: readonly BotRecord[] = [ALPHA], mayPush = true) {
     await Promise.all(standing.map((timer) => timer.work()));
   };
 
-  return { emit, elapse, pushed, timers, stop };
+  return { emit, elapse, pushed, announced, timers, stored, stop };
 }
 
 describe("turn-finished notifier", () => {
@@ -68,6 +94,104 @@ describe("turn-finished notifier", () => {
     expect(pushed).toEqual([
       { title: "Alpha", body: "Finished: Fix the scroll", url: "/?entry=feed&view=canvas", tag: "turn:claude:s1:42" },
     ]);
+  });
+
+  test("the same close is announced on the audio channel, once, by its Bot", async () => {
+    const { emit, elapse, announced } = harness();
+    emit(session("s1", false));
+    emit(session("s1", true));
+    await elapse();
+    expect(announced).toEqual(["Alpha:s1:finished"]);
+  });
+
+  test("a turn that closed with a status pushes its first line, and a waiting one is said once more", async () => {
+    const { emit, elapse, pushed, announced, timers, stored } = harness();
+    const status = { from: "block" as const, at: 7, lines: [{ kind: "waiting" as const, text: "say go to rebuild" }] };
+    emit(session("s1", false));
+    emit(session("s1", true, { spokenStatus: status }));
+    await elapse();
+    expect(pushed[0]?.body).toBe("Needs you: say go to rebuild");
+    expect(timers.filter((timer) => !timer.cancelled)).toHaveLength(1);
+    // Kept, so a restart before it is due still owes it.
+    expect(stored).toEqual([{ key: "claude:s1", at: 7, due: NOW + 600_000 }]);
+    await elapse();
+    expect(announced).toEqual(["Alpha:s1:finished", "Alpha:s1:reminder"]);
+    // Once only: nothing stands after the reminder, in memory or in the store.
+    expect(timers.filter((timer) => !timer.cancelled)).toHaveLength(0);
+    expect(stored).toEqual([]);
+  });
+
+  test("a reminder a restart reads back is armed for the time it has left, and said", async () => {
+    const status = { from: "block" as const, at: 7, lines: [{ kind: "waiting" as const, text: "pick one" }] };
+    const { emit, elapse, announced, timers, stored } = harness([ALPHA], true, [
+      { key: "claude:s1", at: 7, due: NOW + 90_000 },
+    ]);
+    emit(session("s1", true, { spokenStatus: status }));
+    await drained();
+    expect(timers.map((timer) => timer.ms)).toEqual([90_000]);
+    await elapse();
+    expect(announced).toEqual(["Alpha:s1:reminder"]);
+    expect(stored).toEqual([]);
+  });
+
+  test("a read-back reminder already past due fires at once, and says nothing if its wait ended", async () => {
+    const newer = { from: "block" as const, at: 8, lines: [{ kind: "done" as const, text: "rebuilt" }] };
+    const { emit, elapse, announced, timers, stored } = harness([ALPHA], true, [
+      { key: "claude:s1", at: 7, due: NOW - 5_000 },
+    ]);
+    emit(session("s1", true, { spokenStatus: newer }));
+    await drained();
+    expect(timers.map((timer) => timer.ms)).toEqual([0]);
+    await elapse();
+    expect(announced).toEqual([]);
+    expect(stored).toEqual([]);
+  });
+
+  test("a sidecar that does not send leaves a read-back reminder for the one that does", async () => {
+    const status = { from: "block" as const, at: 7, lines: [{ kind: "waiting" as const, text: "pick one" }] };
+    const saved = [{ key: "claude:s1", at: 7, due: NOW + 1_000 }];
+    const { emit, elapse, announced, stored } = harness([ALPHA], false, saved);
+    emit(session("s1", true, { spokenStatus: status }));
+    await drained();
+    await elapse();
+    expect(announced).toEqual([]);
+    expect(stored).toEqual(saved);
+  });
+
+  test("a reminder is not said once the person has started a new turn", async () => {
+    const { emit, elapse, announced } = harness();
+    const status = { from: "block" as const, at: 7, lines: [{ kind: "waiting" as const, text: "pick one" }] };
+    emit(session("s1", false));
+    emit(session("s1", true, { spokenStatus: status }));
+    await elapse();
+    emit(session("s1", false));
+    await elapse();
+    expect(announced).toEqual(["Alpha:s1:finished"]);
+  });
+
+  test("a question it waits on is pushed and said once, after its quiet window", async () => {
+    const { emit, elapse, pushed, announced } = harness();
+    const question = { from: "question" as const, at: 9, lines: [{ kind: "waiting" as const, text: "Rebuild now?" }] };
+    emit(session("s1", false));
+    emit(session("s1", false, { spokenStatus: question }));
+    emit(session("s1", false, { spokenStatus: question }));
+    await elapse();
+    expect(pushed.map((payload) => payload.body)).toEqual(["Asks: Rebuild now?"]);
+    expect(announced).toEqual(["Alpha:s1:question"]);
+  });
+
+  test("a question answered inside its window, or already open at startup, is not announced", async () => {
+    const answered = harness();
+    const question = { from: "question" as const, at: 9, lines: [{ kind: "waiting" as const, text: "Rebuild now?" }] };
+    answered.emit(session("s1", false));
+    answered.emit(session("s1", false, { spokenStatus: question }));
+    answered.emit(session("s1", false));
+    await answered.elapse();
+    expect(answered.announced).toEqual([]);
+    const restarted = harness();
+    restarted.emit(session("s1", false, { spokenStatus: question }));
+    await restarted.elapse();
+    expect(restarted.announced).toEqual([]);
   });
 
   test("a turn that opens again inside the window pushes nothing", async () => {
