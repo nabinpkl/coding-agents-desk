@@ -20,6 +20,11 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     // refreshing one copy would race each other.
     gridEncoderSlots: join(root, "bin", "grid-encoder-slots"),
     panelTlsDirectory: join(root, "agent-panel", "tls"),
+    // The speech process's voice (`agent-feed/speech/speech_server.py`): Kitten TTS nano 0.8's
+    // model.onnx, voices.npz and symbols.json, with a SOURCE.txt naming where they came from. Model
+    // files are not checked in, so they live with the other things a machine holds for this one.
+    speechModels: absoluteEnvironmentPath(environment, "AGENTDESK_SPEECH_MODELS",
+      join(root, "speech", "kitten-nano-0.8-fp32")),
     // Whether the reader last asked for edits to be applied as they land, or held until they say.
     // Durable rather than in the dev server's memory, because a dev server restart is one of the
     // things a reader is asking to be protected from when they choose to hold them.
@@ -60,6 +65,7 @@ if (import.meta.main) {
     "grid-encoder": paths.gridEncoder,
     "grid-encoder-slots": paths.gridEncoderSlots,
     "panel-tls": paths.panelTlsDirectory,
+    "speech-models": paths.speechModels,
     "sidecar-registry": paths.sidecarRegistry,
     "webrtc-diag-log": paths.webrtcDiagLog,
     "telemetry-archive": paths.telemetryArchive,
@@ -69,6 +75,6 @@ if (import.meta.main) {
   } else if (Object.hasOwn(named, key) && bundleId === undefined) {
     process.stdout.write(`${named[key]}\n`);
   } else {
-    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|sidecar-registry|webrtc-diag-log|telemetry-archive|host-app <bundle-id>");
+    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|speech-models|sidecar-registry|webrtc-diag-log|telemetry-archive|host-app <bundle-id>");
   }
 }

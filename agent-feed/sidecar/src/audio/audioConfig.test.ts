@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { audioPort } from "@/audio/audioConfig";
+import { audioPort, speechPort } from "@/audio/audioConfig";
 
 describe("the audio process's port", () => {
   test("is the sidecar's plus one, so each host's pair stays apart", () => {
@@ -10,5 +10,16 @@ describe("the audio process's port", () => {
   test("can be named outright, and a value that is not a port is ignored rather than used", () => {
     expect(audioPort({ AGENT_FEED_AUDIO_PORT: "9100", AGENT_FEED_PORT: "7782" })).toBe(9100);
     expect(audioPort({ AGENT_FEED_AUDIO_PORT: "nope", AGENT_FEED_PORT: "70000" })).toBe(7683);
+  });
+});
+
+describe("the speech process's port", () => {
+  test("is the sidecar's plus eight, beside each host's audio process", () => {
+    expect(speechPort({})).toBe(7690);
+    expect(speechPort({ AGENT_FEED_PORT: "7782" })).toBe(7790);
+  });
+
+  test("can be named outright", () => {
+    expect(speechPort({ AGENT_FEED_SPEECH_PORT: "9200", AGENT_FEED_PORT: "7782" })).toBe(9200);
   });
 });

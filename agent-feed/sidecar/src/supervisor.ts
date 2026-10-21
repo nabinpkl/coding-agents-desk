@@ -15,6 +15,9 @@
 // the channel's listeners. That one is replaced only when a file IT is built from changes, so a
 // listener's stream outlives the sidecar's restarts, which every save anywhere else in the tree is.
 //
+// And a third: the speech process (`agent-feed/speech/speech_server.py`), Python holding Kitten TTS,
+// which the sidecar sends a Bot session's announcements to. Replaced only when its own file changes.
+//
 // Everything it says goes to stdout, which the host writes to the sidecar's own log file, because
 // `log show` answers nothing in this session and a supervisor whose reasoning is unreadable after
 // the fact is indistinguishable from one that is not running. It also heartbeats its state onto the
@@ -39,6 +42,7 @@ import {
   type SupervisorState,
 } from "@/supervisor/supervisorGate";
 import { declaredPackages, linkFailure } from "@/supervisor/supervisorLinks";
+import { createSpeechProcess } from "@/supervisor/speechProcess";
 import { superviseChild } from "@/supervisor/supervisedChild";
 import { ownSources } from "@/supervisor/supervisorSources";
 import { createTypeBaseline, describeTypeError } from "@/supervisor/typecheck";
@@ -159,8 +163,14 @@ function publish(state: SupervisorState = published): void {
 // ---------------------------------------------------------------------------
 // The processes
 
-const sidecar = superviseChild("sidecar", SERVER, say);
-const audio = superviseChild("audio process", AUDIO_SERVER, say);
+const sidecar = superviseChild("sidecar", [process.execPath, SERVER], say);
+const audio = superviseChild("audio process", [process.execPath, AUDIO_SERVER], say);
+const speech = createSpeechProcess({
+  agentFeed: dirname(dirname(SOURCE)),
+  log: say,
+  stopping: () => stopping,
+  settleMs: SETTLE_MS,
+});
 let stopping = false;
 /** Set once a file the audio process is built from has moved, and cleared by replacing it. */
 let audioStale = false;
@@ -365,7 +375,8 @@ function startWatching(): void {
       onError: (error) => say(`watcher error under ${dir}: ${String(error)}`),
     });
   }
-  say(`watching ${SOURCE}, ${WIRE} and ${IMPORTED_OUTSIDE.length} file(s) outside them`);
+  speech.watch();
+  say(`watching ${SOURCE}, ${WIRE}, ${speech.server} and ${IMPORTED_OUTSIDE.length} file(s) outside them`);
   // A whole tree waiting out the quiet window has no event to wake it when the window ends, so it
   // is asked again on a clock. Only while something is waiting, which is a read of a few bytes.
   setInterval(() => {
@@ -397,20 +408,21 @@ function leave(why: string): void {
   say(why);
   clearSupervisorDescriptor();
   // The children hold the ports, so leaving before they are gone hands the next launch bound ports
-  // -- and a child that outlives this is an orphan nothing will ever stop. So this waits for both
-  // exits, and `stopChild` makes sure there are some, escalating inside the two seconds the host
+  // -- and a child that outlives this is an orphan nothing will ever stop. So this waits for every
+  // child to exit, and `stopChild` makes sure each does, escalating inside the two seconds the host
   // allows before it kills this process. The timer is only for a child the kernel cannot reap,
   // which SIGKILL does not fix either. A supervisor killed with SIGKILL cannot do even this, which
-  // is why `host-login` reclaims the sidecar's and the audio process's ports before it starts.
-  void Promise.all([sidecar.stop(), audio.stop()]).then(() => process.exit(0));
+  // is why `host-login` reclaims the sidecar's and the audio process's ports before it starts, and why
+  // the speech process leaves on its own once its parent is gone (`speech_server.py`).
+  void Promise.all([sidecar.stop(), audio.stop(), speech.stop()]).then(() => process.exit(0));
   setTimeout(() => process.exit(0), 2_000);
 }
 
-process.on("SIGTERM", () => leave("SIGTERM; stopping the sidecar and the audio process"));
-process.on("SIGINT", () => leave("SIGINT; stopping the sidecar and the audio process"));
-process.on("SIGHUP", () => leave("SIGHUP; stopping the sidecar and the audio process"));
+process.on("SIGTERM", () => leave("SIGTERM; stopping the sidecar, the audio process and the speech process"));
+process.on("SIGINT", () => leave("SIGINT; stopping the sidecar, the audio process and the speech process"));
+process.on("SIGHUP", () => leave("SIGHUP; stopping the sidecar, the audio process and the speech process"));
 
-say(`supervising ${SERVER} and ${AUDIO_SERVER}, and watching ${OWN.size} files of its own`);
+say(`supervising ${SERVER}, ${AUDIO_SERVER} and ${speech.server}, and watching ${OWN.size} files of its own`);
 // A fresh supervisor is a fresh decision. Whatever a panel asked of the last one is forgotten here,
 // so a request left over from yesterday cannot silently freeze this machine's sidecar.
 clearSupervisorRequest();
@@ -421,6 +433,7 @@ const requests = setInterval(readRequest, REQUEST_POLL_MS);
 requests.unref?.();
 sidecar.start();
 audio.start();
+void speech.startOnceSidecarIsLive();
 startWatching();
 // The tree the first sidecar is reading, whose errors are where the comparison starts.
 void typed();

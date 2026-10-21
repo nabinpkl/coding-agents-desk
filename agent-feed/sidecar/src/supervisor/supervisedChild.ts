@@ -1,8 +1,10 @@
-// One process the supervisor keeps running: the sidecar, and the audio process beside it.
+// One process the supervisor keeps running: the sidecar, the audio process and the speech process
+// beside it.
 //
-// Started with this Bun, restarted after a backoff when it exits on its own, and replaced when the
-// supervisor decides its code moved. Its output goes to the supervisor's, which the host already
-// writes to the sidecar's log, so both children's lines land in one file.
+// Started from the command it is given (this Bun and an entry file, or the speech process's Python),
+// restarted after a backoff when it exits on its own, and replaced when the supervisor decides its
+// code moved. Its output goes to the supervisor's, which the host already writes to the sidecar's
+// log, so every child's lines land in one file.
 
 import { stopChild } from "@/supervisor/supervisorStop";
 
@@ -20,7 +22,11 @@ export type SupervisedChild = {
   stop(): Promise<unknown>;
 };
 
-export function superviseChild(name: string, entry: string, log: (message: string) => void): SupervisedChild {
+export function superviseChild(
+  name: string,
+  command: readonly string[],
+  log: (message: string) => void,
+): SupervisedChild {
   let child: ReturnType<typeof Bun.spawn> | undefined;
   /** Set while a restart is deliberate, so the exit it causes is not read as a crash. */
   let replacing = false;
@@ -32,7 +38,7 @@ export function superviseChild(name: string, entry: string, log: (message: strin
     // stdio inherited: the host is already reading the supervisor's output into the sidecar's log,
     // and a second copy through here would only add a layer that can drop lines.
     const spawned = Bun.spawn({
-      cmd: [process.execPath, entry],
+      cmd: [...command],
       stdio: ["ignore", "inherit", "inherit"],
     });
     child = spawned;

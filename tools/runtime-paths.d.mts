@@ -3,6 +3,7 @@ export interface RuntimePaths {
   gridEncoder: string;
   gridEncoderSlots: string;
   panelTlsDirectory: string;
+  speechModels: string;
   panelPublishMode: string;
   sidecarRegistry: string;
   webrtcDiagLog: string;
