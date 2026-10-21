@@ -12,13 +12,18 @@
 
 import { AUDIO_HOST, audioPort } from "@/audio/audioConfig";
 import { createAudioRoutes } from "@/audio/audioStream";
+import { createSpeechPushExperimentRoutes } from "@/audio/speechPushExperiment";
 import { errorResponse } from "@/http/protocol/httpResponses";
 import { refuseForeignRequest } from "@/http/protocol/requestGuard";
 
 /** Who may address this process: loopback by either name. The sidecar and the dev server use the first. */
 const ALLOWED_HOSTS = new Set([AUDIO_HOST, "localhost"]);
 
-const routes = createAudioRoutes();
+const audioRoutes = createAudioRoutes();
+// Ahead of the channel's routes: while it runs, the experiment answers `/api/audio/speak`.
+const speechPushRoutes = createSpeechPushExperimentRoutes();
+const routes: typeof audioRoutes = (request, url, bunServer) =>
+  speechPushRoutes(request, url, bunServer) ?? audioRoutes(request, url, bunServer);
 
 const server = Bun.serve<undefined>({
   hostname: AUDIO_HOST,

@@ -1,0 +1,1714 @@
+<!doctype html>
+<!--
+  Experiment, kept until it is settled whether Agent Radio moves to it. `?push=1` is the live one:
+  the page that plays what the Mac's speech process says (a session finishing its turn, a reply read
+  out loud from the feed's speaker), mixed with noise made here. Its server half is
+  `agent-feed/sidecar/src/audio/speechPushExperiment.ts`. The modes that make speech on the phone
+  need nothing on the Mac. `?mac=1` posts to a route that is gone, and the mic, dictation and Whisper
+  modes need a dictation server that is not checked in.
+
+  What it started as, not part of the panel: can a page make the channel itself, on the phone, and
+  keep it playing on a locked screen? Noise (white, pink or brown, picked on the page with the agent's
+  and the noise's levels) generated in Web Audio, with the audio session set
+  to playback, and a line every 15 seconds spoken by a speech synthesizer running in the page,
+  rendered to samples and mixed into the same graph: iOS's own voice is a separate output, and iOS
+  turns everything else down while it speaks. Kitten TTS nano 0.8 by default (a 24 MB 8-bit model on
+  ONNX Runtime, with espeak-ng for pronunciation); ?engine=kokoro for Kokoro (kokoro-js 1.2.1, 92 MB),
+  ?engine=tiny for TinyTTS (6.5 MB model, text front end in `tinytts-front.js`),
+  ?engine=espeak for espeak-ng (18 MB), ?engine=sam for SAM (21 KB). Everything third-party is
+  loaded pinned. Nothing is
+  streamed; the page reports what it sees to the audio process so it can be read on the Mac.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>On-Phone Audio Test</title>
+    <style>
+      :root {
+        --ground: #f4f5f7;
+        --ink: #14161a;
+        --muted: #5b6270;
+        --line: #d5d8de;
+        --accent: #2f6fde;
+        --accent-ink: #ffffff;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ground: #14161a;
+          --ink: #eceef2;
+          --muted: #9aa1ad;
+          --line: #2c3038;
+          --accent: #6b9cf2;
+          --accent-ink: #0d1117;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--ground);
+        color: var(--ink);
+        font: 16px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+      }
+      main {
+        max-width: 460px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+      dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      dt {
+        color: var(--muted);
+      }
+      dd {
+        margin: 0;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 14px 18px;
+        border-radius: 12px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--accent-ink);
+        touch-action: manipulation;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      #modes a[aria-current="page"] {
+        color: var(--accent-ink) !important;
+        background: var(--accent);
+        padding: 2px 8px;
+        border-radius: 6px;
+        text-decoration: none;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      #mix {
+        margin: 0;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        display: grid;
+        gap: 10px;
+      }
+      #mix legend {
+        padding: 0 6px;
+        color: var(--muted);
+      }
+      .level {
+        display: grid;
+        grid-template-columns: 4.5em 1fr 2.6em;
+        align-items: center;
+        gap: 12px;
+      }
+      .level output {
+        text-align: right;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .level input[type="range"] {
+        width: 100%;
+        min-height: 32px;
+        accent-color: var(--accent);
+      }
+      .level select {
+        grid-column: 2 / 4;
+        font: inherit;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      .level :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      textarea {
+        font: inherit;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+      }
+      .big {
+        font-size: 28px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      pre {
+        margin: 0;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font: 12px/1.5 ui-monospace, Menlo, monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 40vh;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>On-Phone Audio Test</h1>
+      <div id="mode" style="font-weight: 600"></div>
+      <nav id="modes" style="display: flex; flex-wrap: wrap; gap: 8px 16px">
+        <a href="/experiments/local-test.html" style="color: var(--accent)">Run on CPU</a>
+        <a href="/experiments/local-test.html?ep=webgpu" style="color: var(--accent)">Run on GPU</a>
+        <a href="/experiments/local-test.html?ep=webgpu&amp;kprec=int8" style="color: var(--accent)">GPU, small model</a>
+        <a href="/api/audio/local-test" style="color: var(--accent)">CPU, several threads</a>
+        <a href="/experiments/local-test.html?mac=1" style="color: var(--accent)">Mac voice</a>
+        <a href="/experiments/local-test.html?push=1" style="color: var(--accent)">Mac push</a>
+        <a href="/experiments/local-test.html?push=1&amp;mic=1" style="color: var(--accent)">Mac push + mic</a>
+        <a href="/experiments/local-test.html?push=1&amp;dictate=1" style="color: var(--accent)">Mac push + dictation</a>
+        <a href="/experiments/local-test.html?push=1&amp;mic=1&amp;dictate=1" style="color: var(--accent)">Mac push + mic + dictation</a>
+        <a href="/experiments/local-test.html?push=1&amp;mic=1&amp;dictate=1&amp;whisper=1" style="color: var(--accent)">Mac push + mic + dictation + Whisper</a>
+        <a href="/experiments/local-test.html?push=1&amp;mic=1&amp;whisper=1" style="color: var(--accent)">Mac push + mic + Whisper</a>
+      </nav>
+      <button id="start" type="button">Start</button>
+      <fieldset id="mix">
+        <legend>Mix</legend>
+        <label class="level" for="voice-level">
+          <span>Agent</span>
+          <input id="voice-level" type="range" min="0" max="10" step="1" />
+          <output id="voice-out" for="voice-level"></output>
+        </label>
+        <label class="level" for="noise-level">
+          <span>Noise</span>
+          <input id="noise-level" type="range" min="0" max="10" step="1" />
+          <output id="noise-out" for="noise-level"></output>
+        </label>
+        <label class="level" for="speed-level" id="speed-row" hidden>
+          <span>Speed</span>
+          <input id="speed-level" type="range" min="0.5" max="4" step="0.05" />
+          <output id="speed-out" for="speed-level"></output>
+        </label>
+        <label class="level" for="noise-color">
+          <span>Color</span>
+          <select id="noise-color">
+            <option value="white">White: even hiss</option>
+            <option value="pink">Pink: rain</option>
+            <option value="brown">Brown: low rumble</option>
+          </select>
+        </label>
+      </fieldset>
+      <label for="text" style="color: var(--muted)">Message</label>
+      <textarea id="text" rows="3">The build finished on the Mac, all the tests passed, and the change is ready for you to review when you get back.</textarea>
+      <button id="say" type="button" disabled>Say it</button>
+      <button id="replay" type="button" disabled hidden>Replay the last message</button>
+      <div class="big" id="latency">-</div>
+      <div id="ask" hidden style="position: fixed; inset: auto 16px max(16px, env(safe-area-inset-bottom)) 16px; padding: 16px; border-radius: 14px; background: var(--ink); color: var(--ground); display: flex; gap: 12px; align-items: center; justify-content: space-between">
+        <span>Speaking? Stop the agent</span>
+        <button id="confirm" type="button">Stop</button>
+      </div>
+      <dl id="live"></dl>
+      <pre id="log"></pre>
+    </main>
+    <script
+      src="https://cdn.jsdelivr.net/npm/sam-js@0.3.1/dist/samjs.min.js"
+      integrity="sha384-kq62Gmv7z1YGOgFgbmMGtd74A7c6OKQF5Ux476a0EN9CeenO9B6PXgTBTfLxpRwz"
+      crossorigin="anonymous"
+    ></script>
+    <script>
+      // ONNX Runtime's CPU-only build, or with ?ep=webgpu its WebGPU build (which can also fall back to
+      // the CPU). Written in while the page parses, so `ort` exists before the scripts below run.
+      (() => {
+        const gpu = new URLSearchParams(location.search).get("ep") === "webgpu";
+        const [file, hash] = gpu
+          ? ["ort.webgpu.min.js", "sha384-6BOUZhMpgaXRZBIj89pTWET0c7xcMe1yHACreuaBy2kUZwLd2tzCmv7MzwZccHYH"]
+          : ["ort.wasm.min.js", "sha384-Bw6URI+Gvoadw0do7/QrSHUC9D1vCYYK5OSqChFyhyV5mzPL4oe2rOAFljAnS8Sq"];
+        document.write(
+          `<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/${file}" integrity="${hash}" crossorigin="anonymous"><\/script>`,
+        );
+      })();
+    </script>
+    <script src="/experiments/tinytts-front.js"></script>
+    <script>
+      const params = new URLSearchParams(location.search);
+      // Which test this page is running: its link is marked, and its name is shown above the links.
+      {
+        const here = location.pathname + location.search;
+        const links = [...document.querySelectorAll("#modes a")];
+        const current = links.find((a) => a.getAttribute("href") === here);
+        if (current) current.setAttribute("aria-current", "page");
+        document.getElementById("mode").textContent = `Running: ${current ? current.textContent.trim() : here}`;
+      }
+      // The mix, set on this page and played by its own Web Audio: levels 0 to 10 heard as squares
+      // (loudness is heard on a log scale), as Agent Radio's are. Remembered in this browser.
+      const LEVEL_MAX = 10;
+      const COLORS = ["white", "pink", "brown"];
+      const stored = (key) => {
+        try {
+          return localStorage.getItem(`localTest.${key}`);
+        } catch {
+          return null;
+        }
+      };
+      const remember = (key, value) => {
+        try {
+          localStorage.setItem(`localTest.${key}`, String(value));
+        } catch {
+          // Not remembered: the default next time.
+        }
+      };
+      const storedLevel = (key, fallback) => {
+        const value = Number(stored(key) ?? NaN);
+        return Number.isFinite(value) ? Math.min(LEVEL_MAX, Math.max(0, Math.round(value))) : fallback;
+      };
+      const mix = {
+        voice: storedLevel("voice", 8),
+        noise: storedLevel("noise", 3),
+        color: COLORS.includes(stored("color")) ? stored("color") : "pink",
+      };
+      const heardShare = (level) => (level / LEVEL_MAX) ** 2;
+      const ENGINE = ["sam", "espeak", "tiny", "kokoro"].includes(params.get("engine")) ? params.get("engine") : "kitten";
+      // ?kprec=int8 for the 24 MB 8-bit model; full precision (57 MB) by default, which runs faster here.
+      const KITTEN =
+        params.get("kprec") === "int8"
+          ? "https://huggingface.co/KittenML/kitten-tts-nano-0.8-int8/resolve/84781d74e29ee25217551556398b42f80593a813/"
+          : "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32/resolve/7a1db645b1f3ab9420761d87428e042b9cec3f26/";
+      const KITTEN_VOICE = params.get("kitten") ?? "Luna";
+      const ON_GPU = params.get("ep") === "webgpu";
+      // ?mac=1: the Mac's resident Kitten makes each piece; the page only pronounces and plays.
+      const ON_MAC = params.get("mac") === "1";
+      // ?push=1: the Mac takes text itself and pushes each piece's audio down a stream this page
+      // holds open; the page only plays it. For finding the floor of Mac text to phone sound.
+      const ON_PUSH = params.get("push") === "1";
+      // ?mic=1: also capture the microphone, with echo cancellation, and report its level each second,
+      // marked by whether the agent's voice was playing. Answers: does the agent's own voice leak into
+      // the mic, and does the mic keep working on a locked screen.
+      const WITH_MIC = params.get("mic") === "1";
+      // ?dictate=1: Safari's own speech recognition (Apple's dictation) runs alongside the page's audio,
+      // to see whether its text reaches the page while locked when the page is kept alive by audio.
+      const WITH_DICTATION = params.get("dictate") === "1";
+      // ?whisper=1: each utterance the gate marks is sent to the Mac and transcribed whole by Whisper.
+      const WITH_WHISPER = params.get("whisper") === "1";
+      const UTT_START_DB = Number(params.get("startdb") ?? -45); // a soft voice begins an utterance above this
+      const UTT_KEEP_DB = Number(params.get("keepdb") ?? -55); // and carries it on above this
+      const END_GAP_S = Number(params.get("endgap") ?? 2.0); // a message ends after this long below it
+      async function transcribeOnMac({ samples, sampleRate, endAt, voicedSeconds, peakDb }) {
+        const endedAt = performance.now() - (context.currentTime - endAt) * 1000; // when the speech stopped
+        // To 16 kHz, averaging each group of samples, as 16-bit integers.
+        const step = sampleRate / 16000;
+        const out = new Int16Array(Math.floor(samples.length / step));
+        for (let i = 0; i < out.length; i += 1) {
+          const from = Math.floor(i * step), to = Math.floor((i + 1) * step);
+          let sum = 0;
+          for (let j = from; j < to; j += 1) sum += samples[j];
+          out[i] = Math.max(-32768, Math.min(32767, Math.round((sum / (to - from)) * 32767)));
+        }
+        const sentAt = performance.now();
+        try {
+          const response = await fetch("/api/audio/kitten-utterance", { method: "POST", body: out.buffer });
+          const result = await response.json();
+          const now = performance.now();
+          if (result.open) {
+            log(`whisper heard "${result.heard}": spelling started, waiting for "end spelling"`);
+            return;
+          }
+          log(`whisper (page ${document.visibilityState}): "${result.text}"${result.heard && result.heard !== result.text ? ` (heard "${result.heard}")` : ""} ready ${Math.round(now - endedAt)} ms after you stopped (waited ${Math.round(sentAt - endedAt)} ms to send ${(out.length / 16000).toFixed(1)} s of audio with ${voicedSeconds.toFixed(1)} s of voice peaking at ${peakDb.toFixed(0)} dB; round trip ${Math.round(now - sentAt)} ms, of it queued ${result.queuedMs} ms and Whisper ${result.decodeMs} ms)`);
+        } catch (error) {
+          log(`whisper failed: ${error.message}`);
+        }
+      }
+      // A short phrase that stops the agent the way the pause button does: it is already deliberate.
+      const STOP_WORDS = /^(?:ok(?:ay)?[ ,]+)?(?:stop|wait|hold on|pause|quiet|shut up)\b/i;
+      function startDictation() {
+        const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+        if (!Recognition) return log("dictation: not available here");
+        let speechAt = null;
+        const listen = () => {
+          const recognition = new Recognition();
+          recognition.lang = "en-US";
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.onstart = () => log(`dictation listening (page ${document.visibilityState})`);
+          recognition.onspeechstart = () => {
+            speechAt = performance.now();
+            log(`dictation: speech started (page ${document.visibilityState})`);
+          };
+          recognition.onresult = (event) => {
+            for (let i = event.resultIndex; i < event.results.length; i += 1) {
+              const result = event.results[i];
+              if (!result.isFinal) {
+                // Provisional words: a stop acts on them at once rather than waiting for the phrase to
+                // end, which Apple marks only after a pause.
+                const words = result[0].transcript.trim();
+                if (STOP_WORDS.test(words) && agentSpeaking()) {
+                  const after = speechAt === null ? "" : `, ${Math.round(performance.now() - speechAt)} ms after speech started`;
+                  if (confirmStop(`a spoken stop ("${words}", provisional${after})`)) log(`stop heard before the phrase ended`);
+                }
+                continue;
+              }
+              const after = speechAt === null ? "" : ` ${Math.round(performance.now() - speechAt)} ms after speech started`;
+              const text = result[0].transcript.trim();
+              const agentTalking = agentSpeaking();
+              log(`dictation final (page ${document.visibilityState}, agent ${agentTalking ? "speaking" : "quiet"})${after}: "${text}" (confidence ${result[0].confidence.toFixed(2)})`);
+              // A stop is never forwarded as something said; it may already have acted while provisional.
+              if (STOP_WORDS.test(text)) {
+                confirmStop(`a spoken stop ("${text}")`);
+                continue;
+              }
+              // Anything else is what the listener said: to the Mac, as an agent would receive it.
+              fetch("/api/audio/kitten-heard", {
+                method: "POST",
+                body: JSON.stringify({ text, confidence: result[0].confidence, agentTalking, visibility: document.visibilityState }),
+              }).catch(() => {});
+            }
+          };
+          recognition.onerror = (event) => log(`dictation error: ${event.error}`);
+          // It stops on its own after silence or a time limit; listen again, as a live mic would.
+          recognition.onend = () => {
+            log(`dictation stopped (page ${document.visibilityState}); listening again`);
+            // A short wait before listening again, so a recognizer that ends at once (refused, no
+            // permission) does not spin.
+            setTimeout(() => {
+              try {
+                listen();
+              } catch (error) {
+                log(`dictation restart refused: ${error.message}`);
+              }
+            }, 300);
+          };
+          recognition.start();
+        };
+        listen();
+      }
+      const mic = { track: null, peakDb: -120, speechStarts: 0, peakWhileAgentDb: -120, peakQuietDb: -120 };
+      const SPEECH_DB = Number(params.get("speechdb") ?? -35); // louder than this counts as speech
+      // The gate: an AudioWorklet on the audio thread, which iOS does not throttle while audio plays.
+      // Input 0 is the mic, input 1 the agent's voice; the output is the voice, muted the moment the
+      // mic holds speech for SUSTAIN_MS. Louder is needed while the agent speaks, since its start leaks
+      // through echo cancellation. Muted stays muted until the page says a new message has begun.
+      const SUSTAIN_MS = Number(params.get("sustain") ?? 150);
+      // ?confirm=0 for the gate to cut the agent off by itself; by default speech only asks, and the
+      // listener confirms: the banner's button, or the lock screen's pause button (or an AirPods press).
+      const CONFIRM = params.get("confirm") !== "0";
+      const ASK_MS = 8000; // how long the question stays up
+      let askedAt = null; // audio-clock time of the speech being asked about, while the question is up
+      let askTimer = null;
+      const NOW_PLAYING = { title: "Agent Radio test", artist: "Listening" };
+      function setNowPlaying(fields) {
+        if ("mediaSession" in navigator) navigator.mediaSession.metadata = new MediaMetadata(fields);
+      }
+      function askToStop(at) {
+        askedAt = at;
+        document.getElementById("ask").hidden = false;
+        setNowPlaying({ title: "Speaking? Press pause to stop", artist: "Agent Radio test" });
+        clearTimeout(askTimer);
+        // A timer, justified: an unanswered question goes away after a while, and nothing else says when.
+        askTimer = setTimeout(() => {
+          askedAt = null;
+          document.getElementById("ask").hidden = true;
+          setNowPlaying(NOW_PLAYING);
+          log("question dismissed: not answered");
+        }, ASK_MS);
+      }
+      function confirmStop(how) {
+        // Stops while the question is up, or, for the pause button, whenever the agent is speaking:
+        // pressing pause on the lock screen or an AirPods is already deliberate.
+        const speaking = agentSpeaking();
+        const deliberate = how === "the pause button" || how.startsWith("a spoken stop");
+        if (askedAt === null && !(deliberate && speaking)) return false;
+        const afterMs = askedAt === null ? null : Math.round((context.currentTime - askedAt) * 1000);
+        clearTimeout(askTimer);
+        askedAt = null;
+        document.getElementById("ask").hidden = true;
+        setNowPlaying(NOW_PLAYING);
+        gate?.port.postMessage({ type: "mute" });
+        interrupt();
+        log(`stopped by ${how}${afterMs === null ? " (no question up)" : `, ${afterMs} ms after the speech was detected`}`);
+        return true;
+      }
+      // The lock screen shows Now Playing for a media element, not for Web Audio: a silent loop owns it.
+      function silentLoop() {
+        const rate = 8000;
+        const bytes = new Uint8Array(44 + rate * 2);
+        const view = new DataView(bytes.buffer);
+        const text = (at, value) => [...value].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+        text(0, "RIFF"); view.setUint32(4, 36 + rate * 2, true); text(8, "WAVEfmt ");
+        view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+        view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true); text(36, "data"); view.setUint32(40, rate * 2, true);
+        const element = new Audio(URL.createObjectURL(new Blob([bytes], { type: "audio/wav" })));
+        element.loop = true;
+        return element;
+      }
+      let nowPlayingElement = null;
+      function startNowPlaying() {
+        nowPlayingElement = silentLoop();
+        nowPlayingElement.play().then(
+          () => log("now playing: silent loop started"),
+          (error) => log(`now playing refused: ${error.message}`),
+        );
+        if (!("mediaSession" in navigator)) return;
+        setNowPlaying(NOW_PLAYING);
+        navigator.mediaSession.setActionHandler("pause", () => {
+          // Pause is the confirm while the question is up; otherwise it is ignored, and the loop keeps
+          // the session (and the lock screen's controls) alive.
+          if (!confirmStop("the pause button")) log("pause pressed with the agent quiet");
+          void nowPlayingElement.play().catch(() => {});
+          navigator.mediaSession.playbackState = "playing";
+        });
+        navigator.mediaSession.setActionHandler("play", () => void nowPlayingElement.play().catch(() => {}));
+        navigator.mediaSession.playbackState = "playing";
+      }
+      const AGENT_DB = Number(params.get("agentdb") ?? -30); // the bar while the agent speaks
+      const GATE_WORKLET = `
+        class Gate extends AudioWorkletProcessor {
+          constructor(options) {
+            super();
+            Object.assign(this, options.processorOptions);
+            this.sustain = (this.sustainMs / 1000) * sampleRate;
+            this.loud = 0; this.quiet = 0; this.inSpeech = false; this.muted = false; this.gain = 1; this.agentHold = 0;
+            // The mic's power, smoothed over about 25 ms: one 128-sample block is 2.7 ms, and speech dips
+            // that briefly between syllables all the time.
+            this.power = 0; this.smoothing = 1 - Math.exp(-128 / (0.025 * sampleRate));
+            this.gap = 0.1 * sampleRate; // speech ends only after this long below the bar
+            // Messages, for transcription, cut with two bars so a soft voice and its pauses stay in one
+            // piece: one begins above uttStartDb held for 100 ms, carries on while above uttKeepDb, and
+            // ends after endGap below it (2 s by default, long enough for the pauses between spelled
+            // words), or at 30 s. Whisper then hears the whole message at once, with its context. 0.4 s
+            // from before it began is kept, so the first word is whole; one with under 0.3 s of voice is
+            // dropped. While the agent speaks, both bars rise above its leaking voice.
+            this.preroll = new Float32Array(Math.round(0.4 * sampleRate)); this.prerollAt = 0;
+            this.recording = null; this.recorded = 0; this.silent = 0; this.voiced = 0; this.rising = 0; this.uttPeak = -120;
+            this.endGap = this.endGapS * sampleRate; this.maxSamples = 30 * sampleRate; this.minVoiced = 0.3 * sampleRate;
+            this.peak = -120; this.peakAgent = -120; this.peakQuiet = -120; this.starts = 0; this.frames = 0;
+            this.port.onmessage = (event) => {
+              if (event.data.type === "unmute") this.muted = false;
+              if (event.data.type === "mute") this.muted = true;
+            };
+          }
+          record(mic, db, agent) {
+            const startBar = agent ? this.agentDb : this.uttStartDb;
+            const keepBar = agent ? this.agentDb - 8 : this.uttKeepDb;
+            const n = mic.length;
+            if (this.recording) {
+              const room = this.recording.length - this.recorded;
+              this.recording.set(mic.subarray(0, Math.min(room, n)), this.recorded);
+              this.recorded += Math.min(room, n);
+              if (db > keepBar) { this.silent = 0; this.voiced += n; this.uttPeak = Math.max(this.uttPeak, db); }
+              else this.silent += n;
+              if (this.silent >= this.endGap || this.recorded >= this.recording.length) {
+                if (this.voiced >= this.minVoiced) {
+                  const samples = this.recording.slice(0, this.recorded - Math.max(0, this.silent - 0.3 * sampleRate));
+                  this.port.postMessage(
+                    { type: "utterance", samples, sampleRate, endAt: currentTime - this.silent / sampleRate, voicedSeconds: this.voiced / sampleRate, peakDb: this.uttPeak },
+                    [samples.buffer],
+                  );
+                } else {
+                  this.port.postMessage({ type: "dropped", voicedSeconds: this.voiced / sampleRate, peakDb: this.uttPeak });
+                }
+                this.recording = null;
+              }
+              return;
+            }
+            this.rising = db > startBar ? this.rising + n : 0;
+            if (this.rising >= 0.1 * sampleRate) {
+              this.recording = new Float32Array(this.maxSamples);
+              const p = this.preroll, at = this.prerollAt;
+              this.recording.set(p.subarray(at), 0);
+              this.recording.set(p.subarray(0, at), p.length - at);
+              this.recorded = p.length; this.silent = 0; this.voiced = this.rising; this.rising = 0; this.uttPeak = db;
+            }
+            for (let i = 0; i < n; i++) {
+              this.preroll[this.prerollAt] = mic[i];
+              this.prerollAt = (this.prerollAt + 1) % this.preroll.length;
+            }
+          }
+          process(inputs, outputs) {
+            const mic = inputs[0][0];
+            const voice = inputs[1][0];
+            const out = outputs[0][0];
+            const n = out.length;
+            let micSum = 0, voiceSum = 0;
+            if (mic) for (let i = 0; i < mic.length; i++) micSum += mic[i] * mic[i];
+            if (voice) for (let i = 0; i < voice.length; i++) voiceSum += voice[i] * voice[i];
+            this.power += (micSum / n - this.power) * this.smoothing;
+            const db = 10 * Math.log10(Math.max(this.power, 1e-12));
+            // The agent counts as speaking for 300 ms after its last voiced sound, across gaps between words.
+            if (Math.sqrt(voiceSum / n) > 0.003) this.agentHold = 0.3 * sampleRate; else this.agentHold = Math.max(0, this.agentHold - n);
+            const agent = this.agentHold > 0;
+            this.peak = Math.max(this.peak, db);
+            if (agent) this.peakAgent = Math.max(this.peakAgent, db); else this.peakQuiet = Math.max(this.peakQuiet, db);
+            if (mic) this.record(mic, db, agent);
+            if (db > (agent ? this.agentDb : this.quietDb)) {
+              this.loud += n;
+              this.quiet = 0;
+              if (!this.inSpeech && this.loud >= this.sustain) {
+                this.inSpeech = true;
+                this.starts += 1;
+                const wasPlaying = this.gain > 0.5 && agent;
+                if (this.autoMute) this.muted = true;
+                this.port.postMessage({ type: "speech", db, agent, wasPlaying, at: currentTime });
+              }
+            } else if ((this.quiet += n) >= this.gap) {
+              this.loud = 0;
+              this.inSpeech = false;
+            }
+            const target = this.muted ? 0 : 1;
+            for (let i = 0; i < n; i++) {
+              this.gain += (target - this.gain) * 0.005; // a few milliseconds' fade, so the cut does not click
+              out[i] = (voice ? voice[i] : 0) * this.gain;
+            }
+            this.frames += n;
+            if (this.frames >= sampleRate) {
+              this.port.postMessage({ type: "levels", peak: this.peak, peakAgent: this.peakAgent, peakQuiet: this.peakQuiet, starts: this.starts, at: currentTime });
+              this.frames = 0; this.peak = -120; this.peakAgent = -120; this.peakQuiet = -120;
+            }
+            return true;
+          }
+        }
+        registerProcessor("gate", Gate);
+      `;
+      let gate = null;
+      async function startMic() {
+        if (navigator.audioSession) navigator.audioSession.type = "play-and-record";
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        mic.track = stream.getAudioTracks()[0];
+        const settings = mic.track.getSettings();
+        log(`mic on: echo cancellation ${settings.echoCancellation}, noise suppression ${settings.noiseSuppression}, session ${navigator.audioSession?.type ?? "-"}`);
+        for (const name of ["mute", "unmute", "ended"]) mic.track.addEventListener(name, () => log(`mic ${name}`));
+        await context.audioWorklet.addModule(URL.createObjectURL(new Blob([GATE_WORKLET], { type: "text/javascript" })));
+        gate = new AudioWorkletNode(context, "gate", {
+          numberOfInputs: 2,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+          processorOptions: { quietDb: SPEECH_DB, agentDb: AGENT_DB, sustainMs: SUSTAIN_MS, autoMute: !CONFIRM, uttStartDb: UTT_START_DB, uttKeepDb: UTT_KEEP_DB, endGapS: END_GAP_S },
+        });
+        context.createMediaStreamSource(stream).connect(gate, 0, 0);
+        voiceBus.disconnect();
+        voiceBus.connect(gate, 0, 1);
+        gate.connect(context.destination);
+        gate.port.onmessage = (event) => {
+          const data = event.data;
+          if (data.type === "dropped") {
+            log(`too short to send: ${data.voicedSeconds.toFixed(2)} s of voice, peak ${data.peakDb.toFixed(0)} dB`);
+            return;
+          }
+          if (data.type === "utterance") {
+            if (WITH_WHISPER) transcribeOnMac(data);
+            return;
+          }
+          if (data.type === "levels") {
+            Object.assign(mic, { peakDb: data.peak, peakWhileAgentDb: data.peakAgent, peakQuietDb: data.peakQuiet, speechStarts: data.starts });
+            return;
+          }
+          const mainLagMs = Math.round((context.currentTime - data.at) * 1000);
+          if (CONFIRM) {
+            // Speech only asks: the agent keeps talking until the listener confirms.
+            if (data.agent || agentSpeaking()) askToStop(data.at);
+          } else {
+            // The gate has already muted the voice on the audio thread; drop the rest and tell the Mac.
+            interrupt();
+          }
+          log(`speech at ${data.db.toFixed(0)} dB, agent ${data.agent ? "speaking" : "quiet"}${data.wasPlaying ? (CONFIRM ? ": asked to stop" : ": voice muted on the audio thread") : ""}; page heard of it ${mainLagMs} ms later`);
+        };
+        log(`gate on: speech above ${SPEECH_DB} dB (${AGENT_DB} dB while the agent speaks) for ${SUSTAIN_MS} ms`);
+      }
+      const KOKORO_VOICE = params.get("kvoice") ?? "af_heart";
+      const TINY_MODEL =
+        "https://huggingface.co/backtracking/tiny-tts/resolve/6d0cc902621451fcd47462b50ee0aabc6a852e25/tinytts.onnx";
+      const TINY_DICTIONARY = "https://cdn.jsdelivr.net/npm/tiny-tts@5.0.1/cmudict.json";
+      const ESPEAK = "https://cdn.jsdelivr.net/npm/espeak-ng@1.0.2/dist/";
+      const t0 = performance.now();
+      const id = crypto.randomUUID().slice(0, 8);
+      const logBox = document.getElementById("log");
+      const unsent = [];
+      const log = (line) => {
+        const stamped = `${((performance.now() - t0) / 1000).toFixed(1).padStart(6)}s  ${line}`;
+        logBox.textContent = `${stamped}\n` + logBox.textContent;
+        unsent.push(stamped.trim());
+      };
+      const state = { spoken: 0, finished: 0, errors: 0, ticks: 0 };
+      let context = null;
+      let voiceBus = null;
+      const sam = new SamJs();
+
+      /** One noise sample per call, of each color, roughly unit scale (as Agent Radio's `noiseColors.ts`). */
+      const NOISE_SOURCES = {
+        white: () => () => Math.random() * 2 - 1,
+        // Kellet's filter on white: within half a decibel of -3 dB an octave.
+        pink: () => {
+          let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+          return () => {
+            const white = Math.random() * 2 - 1;
+            b0 = 0.99886 * b0 + white * 0.0555179;
+            b1 = 0.99332 * b1 + white * 0.0750759;
+            b2 = 0.969 * b2 + white * 0.153852;
+            b3 = 0.8665 * b3 + white * 0.3104856;
+            b4 = 0.55 * b4 + white * 0.5329522;
+            b5 = -0.7616 * b5 - white * 0.016898;
+            const out = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+            b6 = white * 0.115926;
+            return out;
+          };
+        },
+        // White summed with a slow leak back to zero: -6 dB an octave, wandering without drifting off.
+        brown: () => {
+          let last = 0;
+          return () => (last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02);
+        },
+      };
+      /** Every color is scaled to this loudness (RMS) before its level, so a level sounds alike in each. */
+      const NOISE_RMS = 0.3 / Math.sqrt(3);
+      const noiseLoops = new Map();
+
+      /**
+       * Eight seconds of `color`, looped without a seam: made past its end, and that overrun faded in
+       * over the start, so the last sample runs into the first as any sample runs into the next.
+       */
+      function noiseLoop(ctx, color) {
+        const cached = noiseLoops.get(color);
+        if (cached) return cached;
+        const rate = ctx.sampleRate;
+        const length = rate * 8;
+        const fade = Math.round(rate / 2);
+        const next = NOISE_SOURCES[color]();
+        for (let i = 0; i < rate; i += 1) next(); // settled: the filters start from rest
+        const raw = new Float32Array(length + fade);
+        for (let i = 0; i < raw.length; i += 1) raw[i] = next();
+        for (let i = 0; i < fade; i += 1) {
+          const share = (i / fade) * (Math.PI / 2);
+          raw[i] = raw[i] * Math.sin(share) + raw[length + i] * Math.cos(share);
+        }
+        let sum = 0;
+        for (let i = 0; i < length; i += 1) sum += raw[i] * raw[i];
+        const scale = NOISE_RMS / Math.sqrt(sum / length);
+        const buffer = ctx.createBuffer(1, length, rate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < length; i += 1) data[i] = Math.max(-1, Math.min(1, raw[i] * scale));
+        noiseLoops.set(color, buffer);
+        return buffer;
+      }
+
+      let noiseBus = null;
+      /** The loop playing now, and its own fader, so a color change crossfades rather than clicks. */
+      let noisePlaying = null;
+      const COLOR_FADE_S = 0.2;
+
+      function playNoiseColor() {
+        const now = context.currentTime;
+        const source = context.createBufferSource();
+        source.buffer = noiseLoop(context, mix.color);
+        source.loop = true;
+        const fader = context.createGain();
+        source.connect(fader).connect(noiseBus);
+        if (noisePlaying) {
+          fader.gain.setValueAtTime(0, now);
+          fader.gain.linearRampToValueAtTime(1, now + COLOR_FADE_S);
+          noisePlaying.fader.gain.setValueAtTime(1, now);
+          noisePlaying.fader.gain.linearRampToValueAtTime(0, now + COLOR_FADE_S);
+          noisePlaying.source.stop(now + COLOR_FADE_S + 0.05);
+        }
+        source.start(now);
+        noisePlaying = { source, fader, color: mix.color };
+      }
+
+      /** Moves the page's gains to the mix, smoothed over about 30 ms so a slider step does not click. */
+      function applyMix() {
+        if (!context) return;
+        const now = context.currentTime;
+        noiseBus.gain.setTargetAtTime(heardShare(mix.noise), now, 0.03);
+        voiceBus.gain.setTargetAtTime(heardShare(mix.voice), now, 0.03);
+        if (noisePlaying && noisePlaying.color !== mix.color) playNoiseColor();
+      }
+
+      for (const key of ["voice", "noise"]) {
+        const input = document.getElementById(`${key}-level`);
+        const shown = document.getElementById(`${key}-out`);
+        input.value = String(mix[key]);
+        shown.textContent = String(mix[key]);
+        input.addEventListener("input", () => {
+          mix[key] = Number(input.value);
+          shown.textContent = input.value;
+          remember(key, mix[key]);
+          applyMix();
+        });
+        input.addEventListener("change", () => log(`${key === "voice" ? "agent" : "noise"} level ${mix[key]}`));
+      }
+      {
+        const select = document.getElementById("noise-color");
+        select.value = mix.color;
+        select.addEventListener("change", () => {
+          mix.color = select.value;
+          remember("color", mix.color);
+          applyMix();
+          log(`noise color ${mix.color}`);
+        });
+      }
+
+      // How fast the Mac speaks, in push mode: Kitten's own rate, set on the speech process for every
+      // later message (pitch stays, as it would not if the phone sped up playback). Remembered here
+      // and sent again on every connection, since the speech process forgets it when it restarts.
+      const speed = { value: Number(stored("speed") ?? NaN) };
+      if (!Number.isFinite(speed.value)) speed.value = 0.8;
+      const speedInput = document.getElementById("speed-level");
+      const speedShown = document.getElementById("speed-out");
+      const showSpeed = () => {
+        speedInput.value = String(speed.value);
+        speedShown.textContent = `${speed.value.toFixed(2)}×`;
+      };
+      async function sendSpeed() {
+        const response = await fetch("/api/audio/kitten-speed", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ speed: speed.value }),
+        }).catch((error) => ({ ok: false, status: 0, text: async () => error.message }));
+        const body = await response.text();
+        if (!response.ok) {
+          log(`speed not set: ${response.status} ${body}`);
+          return;
+        }
+        log(`speed ${JSON.parse(body).speed} on the Mac`);
+      }
+      if (ON_PUSH) {
+        document.getElementById("speed-row").hidden = false;
+        showSpeed();
+        speedInput.addEventListener("input", () => {
+          speed.value = Number(speedInput.value);
+          speedShown.textContent = `${speed.value.toFixed(2)}×`;
+          // At once, on what is already queued; the Mac makes later pieces at it when the drag ends.
+          voicePlayer?.node.port.postMessage({ type: "speed", value: speed.value });
+        });
+        speedInput.addEventListener("change", () => {
+          remember("speed", speed.value);
+          void sendSpeed();
+        });
+      }
+
+      /** SAM: 22.05 kHz samples, synchronously. */
+      function renderSam(text) {
+        const samples = sam.buf32(text);
+        if (!samples || !samples.length) throw new Error("SAM rendered nothing");
+        const buffer = context.createBuffer(1, samples.length, 22050);
+        buffer.getChannelData(0).set(samples);
+        return buffer;
+      }
+
+      // espeak-ng is its command-line program compiled to WebAssembly: each line runs it once with
+      // `-w` and reads the WAV it wrote. The 18 MB module is fetched and compiled once, then only
+      // instantiated per line.
+      let espeak = null;
+      function loadEspeak() {
+        espeak ??= (async () => {
+          const startedAt = performance.now();
+          const [{ default: ESpeakNG }, wasm] = await Promise.all([
+            import(`${ESPEAK}espeak-ng.js`),
+            WebAssembly.compileStreaming(fetch(`${ESPEAK}espeak-ng.wasm`)),
+          ]);
+          log(`espeak-ng loaded in ${((performance.now() - startedAt) / 1000).toFixed(1)} s`);
+          return { ESpeakNG, wasm };
+        })();
+        return espeak;
+      }
+      async function renderEspeak(text) {
+        const { ESpeakNG, wasm } = await loadEspeak();
+        const program = await ESpeakNG({
+          arguments: ["-v", "en-us", "-s", "160", "-w", "/line.wav", text],
+          instantiateWasm(imports, done) {
+            WebAssembly.instantiate(wasm, imports).then((instance) => done(instance));
+            return {};
+          },
+          print() {},
+          printErr: (line) => log(`espeak: ${line}`),
+        });
+        const wav = program.FS.readFile("/line.wav");
+        return context.decodeAudioData(wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength));
+      }
+
+      // TinyTTS: text to phoneme ids in `tinytts-front.js`, then one run of the model, which returns
+      // 44.1 kHz samples. The model, its runtime and the dictionary are fetched once.
+      let tiny = null;
+      function loadTiny() {
+        tiny ??= (async () => {
+          const startedAt = performance.now();
+          ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/";
+          ort.env.wasm.numThreads = 1; // threads need a cross-origin isolated page, which this is not
+          const [session, dictionary] = await Promise.all([
+            ort.InferenceSession.create(TINY_MODEL, { executionProviders: ["wasm"] }),
+            fetch(TINY_DICTIONARY).then((response) => response.json()),
+          ]);
+          TinyTTSFront.setDictionary(dictionary);
+          log(`TinyTTS loaded in ${((performance.now() - startedAt) / 1000).toFixed(1)} s`);
+          return session;
+        })();
+        return tiny;
+      }
+      async function renderTiny(text) {
+        const session = await loadTiny();
+        const { phoneIds, toneIds, langIds } = TinyTTSFront.textToPhonemeIds(text);
+        const n = phoneIds.length;
+        const ints = (values) => BigInt64Array.from(values, (v) => BigInt(v));
+        const one = (value) => new ort.Tensor("float32", Float32Array.from([value]), [1]);
+        const result = await session.run({
+          x: new ort.Tensor("int64", ints(phoneIds), [1, n]),
+          x_lengths: new ort.Tensor("int64", ints([n]), [1]),
+          sid: new ort.Tensor("int64", ints([0]), [1]),
+          tone: new ort.Tensor("int64", ints(toneIds), [1, n]),
+          language: new ort.Tensor("int64", ints(langIds), [1, n]),
+          bert: new ort.Tensor("float32", new Float32Array(n * 1024), [1, 1024, n]),
+          ja_bert: new ort.Tensor("float32", new Float32Array(n * 768), [1, 768, n]),
+          noise_scale: one(0.667),
+          noise_scale_w: one(0.8),
+          length_scale: one(1),
+        });
+        const samples = result.audio.data;
+        const buffer = context.createBuffer(1, samples.length, TinyTTSFront.SAMPLE_RATE);
+        buffer.getChannelData(0).set(samples);
+        return buffer;
+      }
+
+      // Kokoro through kokoro-js's browser build, which brings its own runtime and pronunciation.
+      let kokoro = null;
+      function loadKokoro() {
+        kokoro ??= (async () => {
+          const startedAt = performance.now();
+          const { KokoroTTS } = await import("https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js");
+          const model = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+            dtype: "q8",
+            device: "wasm",
+            revision: "1939ad2a8e416c0acfeecc08a694d14ef25f2231",
+          });
+          log(`Kokoro loaded in ${((performance.now() - startedAt) / 1000).toFixed(1)} s`);
+          return model;
+        })();
+        return kokoro;
+      }
+      async function renderKokoro(text) {
+        const model = await loadKokoro();
+        const spoken = await model.generate(text, { voice: KOKORO_VOICE });
+        const buffer = context.createBuffer(1, spoken.audio.length, spoken.sampling_rate);
+        buffer.getChannelData(0).set(spoken.audio);
+        return buffer;
+      }
+
+      // Kitten TTS nano 0.8, as its own ONNX code runs it (kittenml/kittentts_legacy/onnx_model.py):
+      // espeak-ng's IPA with stress, one symbol id per character, a voice's style row picked by the
+      // text's length, and a speed prior per voice. Its config.json gives the aliases and priors.
+      const KITTEN_SYMBOLS = "$;:,.!?\u00a1\u00bf\u2014\u2026\"\u00ab\u00bb\"\" ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\u0251\u0250\u0252\u00e6\u0253\u0299\u03b2\u0254\u0255\u00e7\u0257\u0256\u00f0\u02a4\u0259\u0258\u025a\u025b\u025c\u025d\u025e\u025f\u0284\u0261\u0260\u0262\u029b\u0266\u0267\u0127\u0265\u029c\u0268\u026a\u029d\u026d\u026c\u026b\u026e\u029f\u0271\u026f\u0270\u014b\u0273\u0272\u0274\u00f8\u0275\u0278\u03b8\u0153\u0276\u0298\u0279\u027a\u027e\u027b\u0280\u0281\u027d\u0282\u0283\u0288\u02a7\u0289\u028a\u028b\u2c71\u028c\u0263\u0264\u028d\u03c7\u028e\u028f\u0291\u0290\u0292\u0294\u02a1\u0295\u02a2\u01c0\u01c1\u01c2\u01c3\u02c8\u02cc\u02d0\u02d1\u02bc\u02b4\u02b0\u02b1\u02b2\u02b7\u02e0\u02e4\u02de\u2193\u2191\u2192\u2197\u2198'\u0329'\u1d7b";
+      const KITTEN_SYMBOL_INDEX = new Map();
+      [...KITTEN_SYMBOLS].forEach((symbol, index) => KITTEN_SYMBOL_INDEX.set(symbol, index)); // last wins, as in Python
+      const KITTEN_ALIASES = { Bella: "expr-voice-2-f", Jasper: "expr-voice-2-m", Luna: "expr-voice-3-f", Bruno: "expr-voice-3-m", Rosie: "expr-voice-4-f", Hugo: "expr-voice-4-m", Kiki: "expr-voice-5-f", Leo: "expr-voice-5-m" };
+      const KITTEN_PRIORS = { "expr-voice-4-m": 0.9 }; // every other voice 0.8
+
+      /** numpy's .npz: a zip of .npy arrays, stored uncompressed. Little-endian float32 only. */
+      function readNpz(bytes) {
+        const view = new DataView(bytes);
+        const text = new TextDecoder();
+        const arrays = {};
+        let at = 0;
+        while (at + 30 <= bytes.byteLength && view.getUint32(at, true) === 0x04034b50) {
+          if (view.getUint16(at + 8, true) !== 0) throw new Error("compressed npz entry");
+          const nameLength = view.getUint16(at + 26, true);
+          const extraLength = view.getUint16(at + 28, true);
+          const name = text.decode(new Uint8Array(bytes, at + 30, nameLength)).replace(/\.npy$/, "");
+          const npy = at + 30 + nameLength + extraLength;
+          const headerLength = view.getUint16(npy + 8, true);
+          const header = text.decode(new Uint8Array(bytes, npy + 10, headerLength));
+          if (!header.includes("<f4")) throw new Error(`${name}: not little-endian float32`);
+          const shape = /\(([^)]*)\)/.exec(header)[1].split(",").map((n) => n.trim()).filter(Boolean).map(Number);
+          const start = npy + 10 + headerLength;
+          const length = shape.reduce((a, b) => a * b, 1);
+          arrays[name] = { shape, data: new Float32Array(bytes.slice(start, start + length * 4)) };
+          at = start + length * 4;
+          // A data descriptor may follow; skip to the next entry's signature.
+          while (at + 4 <= bytes.byteLength && view.getUint32(at, true) !== 0x04034b50 && view.getUint32(at, true) !== 0x02014b50) at += 1;
+        }
+        return arrays;
+      }
+
+      /**
+       * espeak-ng's IPA, with stress marks: one line per clause it finds. Each call is a fresh copy of
+       * the program (this build exposes no way to run it twice in one copy), holding 32 MB until it is
+       * collected, so a message is pronounced in one call, not one per clause.
+       */
+      async function espeakLines(text) {
+        const { ESpeakNG, wasm } = await loadEspeak();
+        const lines = [];
+        state.espeakRuns = (state.espeakRuns ?? 0) + 1;
+        await ESpeakNG({
+          arguments: ["-q", "--ipa", "-v", "en-us", text],
+          instantiateWasm(imports, done) {
+            WebAssembly.instantiate(wasm, imports).then((instance) => done(instance));
+            return {};
+          },
+          print: (line) => lines.push(line.trim()),
+          printErr: (line) => log(`espeak: ${line}`),
+        });
+        return lines.filter(Boolean);
+      }
+
+      /**
+       * A message as pieces to speak in turn, each with its pronunciation. The first few words are
+       * pronounced on their own and handed over first, so the first sound waits for them alone; the
+       * rest is pronounced in one more espeak call. A clause longer than a piece is cut by words,
+       * using espeak's words where it gave one per word (it runs some short words together); otherwise
+       * the clause stays whole.
+       */
+      async function* piecesWithPhonemes(text) {
+        const words = text.trim().split(/\s+/);
+        const firstClause = (text.match(/[^,.!?;:]+[,.!?;:]?/) ?? [text])[0].trim().split(/\s+/);
+        const headLength = Math.min(FIRST_WORDS, firstClause.length);
+        const head = words.slice(0, headLength).join(" ");
+        const rest = words.slice(headLength).join(" ");
+        yield { text: head, phonemes: await pronounce(head) };
+        if (!rest) return;
+        const clauses = (rest.match(/[^,.!?;:]+[,.!?;:]?/g) ?? [rest]).map((c) => c.trim()).filter(Boolean);
+        let sounds = await espeakLines(clauses.join(" "));
+        if (sounds.length !== clauses.length) {
+          log(`espeak gave ${sounds.length} lines for ${clauses.length} clauses, so one call per clause`);
+          sounds = [];
+          for (const clause of clauses) sounds.push((await espeakLines(clause)).join(" "));
+        }
+        for (const [i, clause] of clauses.entries()) {
+          // espeak drops punctuation; each clause's goes back, as the phonemizer Kitten uses does.
+          const mark = /[,.!?;:]$/.test(clause) ? clause.slice(-1) : "";
+          const clauseWords = (mark ? clause.slice(0, -1) : clause).trim().split(/\s+/);
+          const said = sounds[i].split(/\s+/);
+          if (clauseWords.length <= MAX_WORDS || said.length !== clauseWords.length) {
+            yield { text: clause, phonemes: sounds[i] + mark };
+            continue;
+          }
+          for (let at = 0; at < clauseWords.length; at += MAX_WORDS) {
+            const end = Math.min(clauseWords.length, at + MAX_WORDS);
+            const tail = end === clauseWords.length ? mark : "";
+            yield { text: clauseWords.slice(at, end).join(" ") + tail, phonemes: said.slice(at, end).join(" ") + tail };
+          }
+        }
+      }
+      /** One stretch of text, its punctuation kept, pronounced in one espeak call. */
+      async function pronounce(text) {
+        const mark = /[,.!?;:]$/.test(text) ? text.slice(-1) : "";
+        return (await espeakLines(mark ? text.slice(0, -1) : text)).join(" ") + mark;
+      }
+
+      let kitten = null;
+      const kittenTimes = []; // per piece: how long pronunciation and the model each took
+      function loadKitten() {
+        kitten ??= (async () => {
+          const startedAt = performance.now();
+          ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/";
+          // Several threads only where the page is cross-origin isolated (served from /api/audio/local-test).
+          ort.env.wasm.numThreads = crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+          log(`model threads ${ort.env.wasm.numThreads} (cross-origin isolated: ${crossOriginIsolated})`);
+          const [session, voices] = await Promise.all([
+            ort.InferenceSession.create(`${KITTEN}kitten_tts_nano_v0_8.onnx`, {
+              executionProviders: ON_GPU ? ["webgpu", "wasm"] : ["wasm"],
+            }),
+            fetch(`${KITTEN}voices.npz`).then((response) => response.arrayBuffer()).then(readNpz),
+            loadEspeak(),
+          ]);
+          log(ON_GPU ? `GPU: ${navigator.gpu ? "WebGPU present" : "no WebGPU here, so the CPU runs it"}` : "CPU");
+          log(`Kitten loaded in ${((performance.now() - startedAt) / 1000).toFixed(1)} s, voices ${Object.keys(voices).length}`);
+          return { session, voices };
+        })();
+        return kitten;
+      }
+      /**
+       * A piece's speech trimmed to the speech and a breath either side. Each piece comes out as a whole
+       * utterance, with silence at both ends; joined, those silences add up to a pause mid-sentence.
+       */
+      function trimmedSpeech(samples) {
+        const loud = (v) => Math.abs(v) > 0.01;
+        const first = samples.findIndex(loud);
+        const last = samples.findLastIndex(loud);
+        return first < 0 ? samples.subarray(0, 0) : samples.subarray(Math.max(0, first - 720), Math.min(samples.length, last + 1440));
+      }
+      /** A piece's trimmed speech as an audio buffer. */
+      function speechBuffer(samples) {
+        const trimmed = trimmedSpeech(samples);
+        const buffer = context.createBuffer(1, Math.max(1, trimmed.length), 24000);
+        buffer.getChannelData(0).set(trimmed);
+        return buffer;
+      }
+
+      /** One piece, already pronounced, made by the Mac's resident Kitten. */
+      async function renderOnMac({ text, phonemes }) {
+        const startedAt = performance.now();
+        const response = await fetch("/api/audio/kitten", {
+          method: "POST",
+          body: JSON.stringify({ phonemes, textLength: text.length, voice: KITTEN_ALIASES[KITTEN_VOICE] ?? KITTEN_VOICE }),
+        });
+        if (!response.ok) throw new Error(`Mac voice answered ${response.status}`);
+        const samples = new Float32Array(await response.arrayBuffer());
+        kittenTimes.push({
+          words: text.split(" ").length,
+          modelMs: Number(response.headers.get("x-model-ms")),
+          roundTripMs: Math.round(performance.now() - startedAt),
+        });
+        return speechBuffer(samples);
+      }
+
+      /** One piece, already pronounced, through the model. */
+      async function renderKitten({ text, phonemes }) {
+        if (ON_MAC) return renderOnMac({ text, phonemes });
+        const { session, voices } = await loadKitten();
+        const voice = KITTEN_ALIASES[KITTEN_VOICE] ?? KITTEN_VOICE;
+        const tokens = (phonemes.match(/[\p{L}\p{N}_]+|[^\p{L}\p{N}_\s]/gu) ?? []).join(" ");
+        const ids = [0];
+        for (const symbol of tokens) {
+          const id = KITTEN_SYMBOL_INDEX.get(symbol);
+          if (id !== undefined) ids.push(id);
+        }
+        ids.push(10, 0);
+        const t1 = performance.now();
+        const { shape, data } = voices[voice];
+        const row = Math.min(text.length, shape[0] - 1);
+        const result = await session.run({
+          input_ids: new ort.Tensor("int64", BigInt64Array.from(ids, (id) => BigInt(id)), [1, ids.length]),
+          style: new ort.Tensor("float32", data.slice(row * shape[1], (row + 1) * shape[1]), [1, shape[1]]),
+          speed: new ort.Tensor("float32", Float32Array.from([KITTEN_PRIORS[voice] ?? 0.8]), [1]),
+        });
+        const t2 = performance.now();
+        kittenTimes.push({ words: text.split(" ").length, modelMs: Math.round(t2 - t1) });
+        return speechBuffer(result[session.outputNames[0]].data);
+      }
+
+      // Streamed speaking, for Kitten: a message is cut into short pieces, the first piece is made and
+      // starts playing, and each next piece is made while the one before plays, then scheduled to
+      // start the moment it ends. The first sound waits for one short piece, not the whole message.
+      const FIRST_WORDS = Number(params.get("first") ?? 4); // the first piece, kept short
+      const MAX_WORDS = 8; // any later piece without punctuation in it
+      let cursor = 0; // the audio clock time the voice is busy until
+      let chain = Promise.resolve(); // one message at a time, in the order given
+      function speakStreamed(text) {
+        state.spoken += 1;
+        const givenAt = performance.now();
+        chain = chain
+          .then(async () => {
+            let pieceCount = 0;
+            let firstSoundMs = null;
+            let queuedMs = 0; // of that, time spent behind the message before it, still playing
+            let gapMs = 0;
+            kittenTimes.length = 0;
+            for await (const piece of piecesWithPhonemes(text)) {
+              pieceCount += 1;
+              const buffer = await renderKitten(piece);
+              const now = context.currentTime;
+              if (cursor < now) {
+                // The voice ran dry before this piece was ready: a gap, unless nothing was playing.
+                if (firstSoundMs !== null) gapMs += (now - cursor) * 1000;
+                cursor = now + 0.02;
+              }
+              const source = context.createBufferSource();
+              source.buffer = buffer;
+              source.connect(voiceBus);
+              source.start(cursor);
+              if (firstSoundMs === null) {
+                firstSoundMs = Math.round(performance.now() - givenAt + (cursor - now) * 1000);
+                queuedMs = Math.round(Math.max(0, cursor - now - 0.02) * 1000);
+              }
+              // A pause where the text has one: longer at the end of a sentence than at a comma.
+              cursor += buffer.duration + (/[.!?]$/.test(piece.text) ? 0.28 : /[,;:]$/.test(piece.text) ? 0.12 : 0);
+            }
+            state.finished += 1;
+            state.renderMs = firstSoundMs;
+            state.lastGapMs = Math.round(gapMs);
+            document.getElementById("latency").textContent = `first sound after ${firstSoundMs} ms`;
+            const first = kittenTimes[0];
+            if (first) log(`espeak runs so far ${state.espeakRuns}; first piece (${first.words} words) model ${first.modelMs} ms${first.roundTripMs ? `, round trip ${first.roundTripMs} ms` : ""}; all pieces ${kittenTimes.map((t) => t.roundTripMs ?? t.modelMs).join(", ")} ms`);
+            log(`streamed in ${pieceCount} pieces: first sound after ${firstSoundMs} ms (${queuedMs} ms of it queued behind the last message), gaps ${Math.round(gapMs)} ms: ${text}`);
+          })
+          .catch((error) => {
+            state.errors += 1;
+            log(`kitten failed: ${error.message}`);
+          });
+      }
+
+      // Mac push: read frames off the open stream and play each piece the moment it arrives.
+      // Frame: uint32 LE header length, JSON header, uint32 LE PCM byte length, float32 PCM, 24 kHz.
+      const rtts = [];
+      async function pingMac() {
+        const startedAt = performance.now();
+        await fetch(`/api/audio/kitten-ping?at=${Date.now()}`, { cache: "no-store" });
+        rtts.push(performance.now() - startedAt);
+        if (rtts.length > 7) rtts.shift();
+      }
+      const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
+      /**
+       * Push mode's player: the Mac's speech queued in an AudioWorklet and time-stretched there (WSOLA:
+       * overlapping 21 ms frames, each placed where it best continues the last, which keeps the pitch)
+       * by the listener's speed over the speed each piece was made at. A slider move is heard within a
+       * frame, and a piece the Mac already made at that speed is copied through untouched (ratio 1).
+       * Speech arrives at 24 kHz and is resampled to the output rate after stretching.
+       */
+      const VOICE_WORKLET = `
+        const SRC_RATE = 24000, W = 512, HS = 256, SEEK = 96;
+        // Periodic Hann: two windows half a frame apart sum to exactly 1.
+        const WINDOW = Float32Array.from({ length: W }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / W));
+        class Voice extends AudioWorkletProcessor {
+          constructor() {
+            super();
+            this.src = new Float32Array(SRC_RATE * 60);
+            this.base = 0; // the absolute sample index src[0] holds
+            this.end = 0; // one past the last sample queued
+            this.regions = []; // { from, made }: the speed the audio from 'from' on was made at
+            this.spans = []; // { message, from, end }: where each message's pieces sit, to drop one
+            this.speed = 1;
+            this.pos = 0; // where the next frame nominally starts
+            this.prev = -1; // where the last frame started; -1 after a silence
+            this.acc = new Float32Array(W);
+            this.out = new Float32Array(8192); // stretched audio at 24 kHz, a ring
+            this.outRead = 0;
+            this.outLen = 0;
+            this.phase = 0;
+            this.speaking = false;
+            this.port.onmessage = (event) => this.message(event.data);
+          }
+          message(data) {
+            if (data.type === "speed") this.speed = data.value;
+            if (data.type === "clear") {
+              this.end = Math.ceil(this.pos);
+              this.regions = [];
+              this.spans = [];
+              this.acc.fill(0);
+              this.outLen = 0;
+              this.prev = -1;
+            }
+            if (data.type === "piece") this.append(data.samples, data.made, data.pause, data.message);
+            if (data.type === "drop") this.drop(data.message);
+          }
+          // Cuts one message out, wherever it sits: the rest of it if it is the one being heard, all of
+          // it if it is still waiting, and whatever was queued after it closes up behind the cut.
+          drop(message) {
+            const mine = this.spans.filter((s) => s.message === message);
+            if (mine.length === 0) return;
+            this.spans = this.spans.filter((s) => s.message !== message);
+            const playing = Math.ceil(this.pos);
+            const cut0 = Math.max(Math.min(...mine.map((s) => s.from)), playing);
+            const cut1 = Math.max(...mine.map((s) => s.end));
+            if (cut1 <= cut0) return; // already heard to the end
+            const length = cut1 - cut0;
+            this.src.copyWithin(cut0 - this.base, cut1 - this.base, this.end - this.base);
+            this.end -= length;
+            for (const s of this.spans) {
+              if (s.from >= cut1) {
+                s.from -= length;
+                s.end -= length;
+              }
+            }
+            this.regions = this.regions
+              .filter((r) => r.from < cut0 || r.from >= cut1)
+              .map((r) => (r.from >= cut1 ? { from: r.from - length, made: r.made } : r));
+            if (cut0 === playing) {
+              // It was the one being heard: what was already stretched from it goes too.
+              this.outLen = 0;
+              this.acc.fill(0);
+              this.prev = -1;
+            }
+          }
+          at(i) {
+            return i < this.base || i >= this.end ? 0 : this.src[i - this.base];
+          }
+          append(samples, made, pause, message) {
+            const from = Math.max(this.end, Math.ceil(this.pos));
+            const end = from + samples.length + Math.round(pause * SRC_RATE);
+            this.spans.push({ message, from, end });
+            if (from - this.end > 0 || this.prev < 0) this.prev = -1;
+            // Room: drop what has been played, and grow if a long queue still does not fit.
+            const keep = Math.max(this.base, Math.floor(this.pos) - W);
+            if (end - keep > this.src.length) {
+              const grown = new Float32Array(Math.max(this.src.length * 2, end - keep));
+              grown.set(this.src.subarray(keep - this.base, this.end - this.base));
+              this.src = grown;
+            } else if (keep > this.base) {
+              this.src.copyWithin(0, keep - this.base, this.end - this.base);
+            }
+            this.base = keep;
+            this.src.fill(0, this.end - this.base, end - this.base);
+            this.src.set(samples, from - this.base);
+            this.end = end;
+            this.regions.push({ from, made });
+            this.regions = this.regions.filter((r, i, all) => i === all.length - 1 || all[i + 1].from > this.base);
+            this.spans = this.spans.filter((s) => s.end > this.base);
+          }
+          madeAt(i) {
+            let made = this.speed;
+            for (const r of this.regions) if (r.from <= i) made = r.made;
+            return made;
+          }
+          hop() {
+            const ratio = this.speed / this.madeAt(this.pos);
+            let start = Math.round(this.pos);
+            if (this.prev >= 0 && Math.abs(ratio - 1) < 0.001) {
+              start = this.prev + HS; // made at this speed: the exact continuation, a straight copy
+            } else if (this.prev >= 0) {
+              const natural = this.prev + HS;
+              let best = start;
+              let bestScore = -Infinity;
+              for (let d = -SEEK; d <= SEEK; d += 2) {
+                let score = 0;
+                for (let i = 0; i < HS; i += 2) score += this.at(start + d + i) * this.at(natural + i);
+                if (score > bestScore) {
+                  bestScore = score;
+                  best = start + d;
+                }
+              }
+              start = best;
+            }
+            for (let i = 0; i < W; i += 1) this.acc[i] += WINDOW[i] * this.at(start + i);
+            for (let i = 0; i < HS; i += 1) {
+              this.out[(this.outRead + this.outLen) % this.out.length] = this.acc[i];
+              this.outLen += 1;
+            }
+            this.acc.copyWithin(0, HS);
+            this.acc.fill(0, W - HS);
+            this.prev = start;
+            this.pos = Math.abs(ratio - 1) < 0.001 ? start + HS : this.pos + HS * ratio;
+          }
+          process(_, outputs) {
+            const channel = outputs[0][0];
+            const step = SRC_RATE / sampleRate;
+            const need = Math.ceil(channel.length * step) + 2;
+            // Frames are made while there is speech to make them from, and a frame past its end so the
+            // last one's tail is heard; after that the queue is silent and costs nothing.
+            while (this.outLen < need && this.pos < this.end + W) this.hop();
+            for (let i = 0; i < channel.length; i += 1) {
+              if (this.outLen < 2) {
+                channel[i] = 0;
+                continue;
+              }
+              const a = this.out[this.outRead];
+              const b = this.out[(this.outRead + 1) % this.out.length];
+              channel[i] = a + (b - a) * this.phase;
+              this.phase += step;
+              while (this.phase >= 1 && this.outLen > 1) {
+                this.phase -= 1;
+                this.outRead = (this.outRead + 1) % this.out.length;
+                this.outLen -= 1;
+              }
+            }
+            const speaking = this.pos < this.end;
+            if (speaking !== this.speaking) {
+              this.speaking = speaking;
+              this.port.postMessage({ type: speaking ? "speaking" : "quiet" });
+            }
+            return true;
+          }
+        }
+        registerProcessor("voice", Voice);
+      `;
+      /** The push player once Start has made it: the node, and whether it is speaking now. */
+      let voicePlayer = null;
+      async function startVoicePlayer() {
+        await context.audioWorklet.addModule(URL.createObjectURL(new Blob([VOICE_WORKLET], { type: "text/javascript" })));
+        const node = new AudioWorkletNode(context, "voice", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
+        node.connect(voiceBus);
+        voicePlayer = { node, speaking: false, busyUntil: 0 };
+        node.port.onmessage = (event) => {
+          voicePlayer.speaking = event.data.type === "speaking";
+        };
+        node.port.postMessage({ type: "speed", value: speed.value });
+        document.getElementById("replay").hidden = false;
+        // The lock screen's back button, where Now Playing shows (with the mic on): hear it again.
+        if ("mediaSession" in navigator) navigator.mediaSession.setActionHandler("previoustrack", replayLast);
+        log("push player ready: speech is stretched on the phone to the speed slider");
+      }
+      /**
+       * The tone before a message, so the kind of news is heard before its words: two rising notes for
+       * one that needs you, one soft note for one that is done. Made at the push player's 24 kHz.
+       */
+      function toneSamples(tone) {
+        const notes = tone === "attention" ? [[660, 0.09], [880, 0.12]] : [[523, 0.14]];
+        const gap = 0.04;
+        const out = new Float32Array(Math.round(24000 * (notes.reduce((sum, [, s]) => sum + s + gap, 0) + 0.12)));
+        let at = 0;
+        for (const [frequency, seconds] of notes) {
+          const length = Math.round(24000 * seconds);
+          for (let i = 0; i < length; i += 1) {
+            const envelope = Math.min(1, i / 240, (length - i) / 480); // 10 ms in, 20 ms out: no click
+            out[at + i] = 0.22 * envelope * Math.sin((2 * Math.PI * frequency * i) / 24000);
+          }
+          at += length + Math.round(24000 * gap);
+        }
+        return out;
+      }
+      /** The message last heard, as it was queued, for Replay. */
+      let lastHeard = { message: null, pieces: [] };
+      function queuePiece(piece) {
+        voicePlayer.node.port.postMessage({ type: "piece", ...piece, samples: piece.samples.slice() });
+      }
+      function replayLast() {
+        if (!voicePlayer || lastHeard.pieces.length === 0) return;
+        for (const piece of lastHeard.pieces) queuePiece(piece);
+        log(`replaying #${lastHeard.message}`);
+      }
+      /** Whether the agent's voice is playing: the push player's word, or the scheduled buffers'. */
+      function agentSpeaking() {
+        return voicePlayer ? voicePlayer.speaking : scheduled.length > 0;
+      }
+      const scheduled = []; // { source, message } still to play or playing (the in-page voices)
+      let lastMessage = null;
+      let droppedMessage = null;
+      function interrupt() {
+        for (const { source } of scheduled.splice(0)) {
+          try {
+            source.stop();
+          } catch {
+            // Already ended.
+          }
+        }
+        cursor = context.currentTime;
+        voicePlayer?.node.port.postMessage({ type: "clear" });
+        if (voicePlayer) voicePlayer.busyUntil = 0;
+        if (lastMessage === null) return;
+        droppedMessage = lastMessage;
+        fetch("/api/audio/kitten-cancel", { method: "POST", body: JSON.stringify({ message: lastMessage }) }).catch(() => {});
+      }
+      /** The Mac stopped a message (a reply read aloud, stopped from the panel): drop what is left of it. */
+      function stopPushed(message) {
+        // Told twice, on the control stream and then on the audio stream behind what was in flight.
+        if (droppedMessage === message) return;
+        droppedMessage = message;
+        voicePlayer?.node.port.postMessage({ type: "drop", message });
+        if (voicePlayer && message === lastMessage) voicePlayer.busyUntil = performance.now();
+        log(`#${message} stopped from the Mac`);
+      }
+      function playPushed(header, samples, receivedAt) {
+        if (header.message === droppedMessage) return;
+        if (header.index === 0 && header.message !== lastMessage) {
+          lastMessage = header.message;
+          gate?.port.postMessage({ type: "unmute" });
+        }
+        const speech = trimmedSpeech(samples);
+        const pause = /[.!?]$/.test(header.text) ? 0.28 : /[,;:]$/.test(header.text) ? 0.12 : 0;
+        const made = header.speed ?? 0.8;
+        if (header.index === 0) lastHeard = { message: header.message, pieces: [] };
+        const pieces = [];
+        const message = header.message;
+        if (header.index === 0 && header.tone) pieces.push({ samples: toneSamples(header.tone), made: speed.value, pause: 0, message });
+        pieces.push({ samples: speech, made, pause, message });
+        for (const piece of pieces) {
+          queuePiece(piece);
+          if (lastHeard.message === header.message) lastHeard.pieces.push(piece);
+        }
+        document.getElementById("replay").disabled = false;
+        // When it should start, estimated at the speed now: still speaking an earlier message, this one
+        // waits its turn, which is not delivery time.
+        const nowMs = performance.now();
+        const startsAt = Math.max(nowMs, voicePlayer.busyUntil);
+        voicePlayer.busyUntil = startsAt + ((speech.length / 24000 + pause) * 1000 * made) / speed.value;
+        const queuedMs = header.index === 0 ? Math.round(startsAt - nowMs) : 0;
+        if (header.index !== 0) return;
+        const phoneMs = Math.round(startsAt - receivedAt) - queuedMs;
+        const outputMs = Math.round(((context.outputLatency || 0) + (context.baseLatency || 0)) * 1000);
+        const netMs = Math.round(median(rtts) / 2);
+        const totalMs = Math.round(header.macMs + netMs + phoneMs + outputMs);
+        state.renderMs = totalMs;
+        state.finished += 1;
+        document.getElementById("latency").textContent = `≈ ${totalMs} ms: Mac ${Math.round(header.macMs)} + network ${netMs} + phone ${phoneMs} + output ${outputMs}`;
+        if (queuedMs) log(`#${header.message} waited ${queuedMs} ms behind the message before it (not counted)`);
+        log(`pushed #${header.message}: Mac ${header.macMs} ms (espeak ${header.espeakMs}, model ${header.modelMs}), network ≈${netMs} (RTT ${Math.round(median(rtts))}), phone ${phoneMs}, output ${outputMs}: ≈${totalMs} ms`);
+        fetch("/api/audio/kitten-ack", {
+          method: "POST",
+          body: JSON.stringify({ message: header.message, macMs: header.macMs, queuedMs, netMs, rttMs: Math.round(median(rtts)), phoneMs, outputMs, totalMs, visibility: document.visibilityState }),
+        }).catch(() => {});
+      }
+      /** The waits before each try after the Mac's stream dropped, the last repeating; reset once one connects. */
+      const RECONNECT_MS = [1000, 2000, 4000, 8000, 15000];
+      /** The Mac sends a keepalive every 5 s, so this long with nothing means the stream has stalled. */
+      const MAC_SILENT_MS = 12000;
+      const macStream = { state: "off", connects: 0, drops: 0 };
+
+      /** One connection to the Mac's push stream, read until it ends; returns why it ended. */
+      async function readMacStream() {
+        const stop = new AbortController();
+        let heardAt = Date.now();
+        // A timer, justified: a stalled connection raises nothing; only the missing keepalives tell.
+        const watchdog = setInterval(() => {
+          const silentMs = Date.now() - heardAt;
+          if (silentMs > MAC_SILENT_MS) stop.abort(new Error(`nothing from the Mac for ${Math.round(silentMs / 1000)} s`));
+        }, 2000);
+        try {
+          const response = await fetch(`/api/audio/kitten-listen?at=${Date.now()}`, { cache: "no-store", signal: stop.signal });
+          if (!response.ok) return `the Mac answered ${response.status}`;
+          macStream.connects += 1;
+          macStream.state = "listening";
+          void sendSpeed();
+          log(`listening to the Mac: ${response.status}${macStream.connects > 1 ? `, connection ${macStream.connects}` : ""}`);
+          heardAt = Date.now();
+          const reader = response.body.getReader();
+          let pending = new Uint8Array(0);
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) return "the Mac's stream ended";
+            heardAt = Date.now();
+            const receivedAt = performance.now();
+            const joined = new Uint8Array(pending.length + value.length);
+            joined.set(pending);
+            joined.set(value, pending.length);
+            pending = joined;
+            for (;;) {
+              if (pending.length < 4) break;
+              const view = new DataView(pending.buffer, pending.byteOffset, pending.byteLength);
+              const headerLength = view.getUint32(0, true);
+              if (pending.length < 8 + headerLength) break;
+              const pcmLength = view.getUint32(4 + headerLength, true);
+              const end = 8 + headerLength + pcmLength;
+              if (pending.length < end) break;
+              const header = JSON.parse(new TextDecoder().decode(pending.subarray(4, 4 + headerLength)));
+              if (pcmLength > 0) {
+                const samples = new Float32Array(pending.slice(8 + headerLength, end).buffer);
+                playPushed(header, samples, receivedAt);
+              } else if (typeof header.stop === "number") {
+                stopPushed(header.stop);
+              }
+              pending = pending.slice(end);
+            }
+          }
+        } catch (error) {
+          return stop.signal.aborted ? stop.signal.reason.message : `listening failed: ${error.message}`;
+        } finally {
+          clearInterval(watchdog);
+        }
+      }
+
+      /**
+       * Listens to the Mac for as long as the page runs, connecting again whenever the stream drops: the
+       * Mac's speech server or the dev server restarting, or the network going away for a while.
+       * Speech already scheduled plays on; what the Mac pushed while nothing was connected is not heard.
+       */
+      async function listenToMac() {
+        let tries = 0;
+        for (;;) {
+          const connectsBefore = macStream.connects;
+          const why = await readMacStream();
+          if (macStream.connects !== connectsBefore) tries = 0;
+          macStream.drops += 1;
+          const wait = RECONNECT_MS[Math.min(tries, RECONNECT_MS.length - 1)];
+          tries += 1;
+          macStream.state = `${why}; reconnecting in ${wait / 1000} s`;
+          log(macStream.state);
+          await new Promise((resolve) => setTimeout(resolve, wait));
+          macStream.state = `reconnecting, try ${tries}`;
+        }
+      }
+
+      /**
+       * The Mac's control stream, beside the audio one: a stop arrives here at once, where on the audio
+       * stream it would wait behind every byte of speech already on its way. Reconnects as the audio
+       * stream does, and drops a stalled connection the same way.
+       */
+      async function watchMac() {
+        for (let tries = 0; ; tries += 1) {
+          const stop = new AbortController();
+          let heardAt = Date.now();
+          // A timer, justified: a stalled connection raises nothing; only the missing keepalives tell.
+          const watchdog = setInterval(() => {
+            if (Date.now() - heardAt > MAC_SILENT_MS) stop.abort(new Error("the control stream went quiet"));
+          }, 2000);
+          try {
+            const response = await fetch(`/api/audio/kitten-events?at=${Date.now()}`, { cache: "no-store", signal: stop.signal });
+            if (response.ok) {
+              tries = 0;
+              log("control stream open");
+              const reader = response.body.getReader();
+              const decoder = new TextDecoder();
+              let pending = "";
+              for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                heardAt = Date.now();
+                pending += decoder.decode(value, { stream: true });
+                const lines = pending.split("\n");
+                pending = lines.pop() ?? "";
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  const event = JSON.parse(line);
+                  if (typeof event.stop === "number") stopPushed(event.stop);
+                }
+              }
+            }
+          } catch (error) {
+            log(`control stream: ${stop.signal.aborted ? stop.signal.reason.message : error.message}`);
+          } finally {
+            clearInterval(watchdog);
+          }
+          await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS[Math.min(tries, RECONNECT_MS.length - 1)]));
+        }
+      }
+
+      /**
+       * Push mode: hands `text` to the Mac the way an agent does, `POST /api/audio/speak`, and hears it
+       * come back down the push stream like any agent's message.
+       */
+      async function speakOnMac(text) {
+        state.spoken += 1;
+        const response = await fetch("/api/audio/speak", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text }),
+        }).catch((error) => ({ ok: false, status: 0, text: async () => error.message }));
+        const body = await response.text();
+        if (!response.ok) state.errors += 1;
+        log(`speak: ${response.status} ${body}`);
+      }
+
+      /** Renders `text` in the page and plays it into the page's own mix. */
+      async function speak(text) {
+        if (ON_PUSH) return speakOnMac(text);
+        if (ENGINE === "kitten") return speakStreamed(text);
+        state.spoken += 1;
+        const startedAt = performance.now();
+        let buffer;
+        try {
+          const render = { sam: renderSam, espeak: renderEspeak, tiny: renderTiny, kokoro: renderKokoro, kitten: renderKitten }[ENGINE];
+          buffer = await render(text);
+        } catch (error) {
+          state.errors += 1;
+          log(`${ENGINE} failed: ${error.message}`);
+          return;
+        }
+        const renderMs = Math.round(performance.now() - startedAt);
+        state.renderMs = renderMs;
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(voiceBus);
+        source.onended = () => {
+          state.finished += 1;
+          log("speech ended");
+        };
+        source.start();
+        log(`speech started (${buffer.duration.toFixed(1)} s, made in ${renderMs} ms): ${text}`);
+      }
+
+      document.getElementById("start").addEventListener("click", (event) => {
+        event.currentTarget.disabled = true;
+        // Safari's Audio Session API: "playback" is the category that is meant to keep going in the background.
+        if (navigator.audioSession) {
+          navigator.audioSession.type = "playback";
+          log(`audio session type ${navigator.audioSession.type}`);
+        } else log("no navigator.audioSession here");
+        context = new AudioContext();
+        context.addEventListener("statechange", () => log(`audio context ${context.state}`));
+        noiseBus = context.createGain();
+        noiseBus.gain.value = heardShare(mix.noise);
+        noiseBus.connect(context.destination);
+        voiceBus = context.createGain();
+        voiceBus.gain.value = heardShare(mix.voice);
+        voiceBus.connect(context.destination);
+        playNoiseColor();
+        log(`mix: agent ${mix.voice}, noise ${mix.noise} ${mix.color}`);
+        void context.resume();
+        if (WITH_DICTATION) startDictation();
+        if (WITH_MIC && CONFIRM) startNowPlaying();
+        if (WITH_MIC) void startMic().catch((error) => log(`mic failed: ${error.name} ${error.message}`));
+        if (ON_PUSH) {
+          void pingMac();
+          // A timer, justified: the network's round trip is measured by timing one, and nothing announces it.
+          setInterval(() => void pingMac(), 2000);
+          void startVoicePlayer()
+            .then(() => {
+              void watchMac();
+              return listenToMac();
+            })
+            .catch((error) => log(`push player failed: ${error.message}`));
+        } else if (ENGINE === "kitten") {
+          // Warm up: the first run of a model is slow, so pay it before any message, and discard it.
+          chain = (ON_MAC ? loadEspeak() : loadKitten())
+            .then(() => pronounce("Ready."))
+            .then((phonemes) => renderKitten({ text: "Ready.", phonemes }))
+            .then(() => log("warmed up"));
+        }
+        // Ready once the model has warmed up; until then a press would measure the loading.
+        void chain.then(() => {
+          document.getElementById("say").disabled = false;
+          log("ready: press Say it");
+        });
+      });
+
+      document.getElementById("confirm").addEventListener("click", () => confirmStop("the banner"));
+      document.getElementById("replay").addEventListener("click", replayLast);
+      document.getElementById("say").addEventListener("click", () => {
+        const text = document.getElementById("text").value.trim();
+        if (!text || !context) return;
+        document.getElementById("latency").textContent = "…";
+        speak(text);
+      });
+
+      // Polled once a second: what this reports is whether timers, the context and speech still run.
+      const live = document.getElementById("live");
+      const row = (name, value) => {
+        const dt = document.createElement("dt");
+        dt.textContent = name;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        live.append(dt, dd);
+      };
+      setInterval(() => {
+        state.ticks += 1;
+        live.replaceChildren();
+        row("Audio context", context ? context.state : "-");
+        row("Noise playing for", context ? `${context.currentTime.toFixed(1)} s` : "-");
+        row("Lines asked / finished", `${state.spoken} / ${state.finished}`);
+        row("Speech errors", String(state.errors));
+        row("Mix", `agent ${mix.voice}, noise ${mix.noise} ${mix.color}${ON_PUSH ? `, speed ${speed.value.toFixed(2)}×` : ""}`);
+        if (ON_PUSH) row("Mac stream", `${macStream.state} (connected ${macStream.connects}, dropped ${macStream.drops})`);
+        if (WITH_MIC) {
+          row("Mic", mic.track ? `${mic.track.readyState}${mic.track.muted ? ", muted" : ""}, peak ${Math.round(mic.peakDb)} dB, speech starts ${mic.speechStarts}` : "off");
+        }
+        row("Model runs on", ON_PUSH ? "the Mac, pushed" : ON_MAC ? "the Mac (resident Kitten)" : ON_GPU ? (navigator.gpu ? "GPU (WebGPU)" : "CPU (no WebGPU)") : "CPU");
+        row("Voice", ENGINE === "kitten" ? `kitten ${KITTEN_VOICE}, first sound after ${state.renderMs ?? "-"} ms, gaps ${state.lastGapMs ?? "-"} ms` : `${ENGINE}, last line made in ${state.renderMs ?? "-"} ms`);
+        if (!context) return;
+        fetch("/api/audio/test-reports", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            kind: "local-test",
+            page: id,
+            visibility: document.visibilityState,
+            context: context.state,
+            contextTime: Number(context.currentTime.toFixed(1)),
+            spoken: state.spoken,
+            finished: state.finished,
+            errors: state.errors,
+            engine: ENGINE,
+            renderMs: state.renderMs ?? null,
+            gapMs: state.lastGapMs ?? null,
+            onGpu: ON_GPU,
+            onMac: ON_MAC,
+            onPush: ON_PUSH,
+            ...(WITH_MIC
+              ? {
+                  mic: {
+                    state: mic.track ? `${mic.track.readyState}${mic.track.muted ? ", muted" : ""}` : "none",
+                    peakDb: Math.round(mic.peakDb),
+                    peakWhileAgentDb: Math.round(mic.peakWhileAgentDb),
+                    peakQuietDb: Math.round(mic.peakQuietDb),
+                    speechStarts: mic.speechStarts,
+                  },
+                }
+              : {}),
+            log: unsent.splice(0),
+          }),
+          keepalive: true,
+        }).catch(() => {});
+      }, 1000);
+    </script>
+  </body>
+</html>
