@@ -160,8 +160,25 @@ class Channel:
             return duration_ms
 
 
-def handler_for(channel: Channel) -> type[BaseHTTPRequestHandler]:
+def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
+    # Only the sidecar and the audio process call this, server to server, so no browser ever should.
+    # A browser does not treat loopback as a boundary: any page open in it can POST here (a
+    # text/plain body needs no preflight), and a page whose name is re-pointed at 127.0.0.1 (DNS
+    # rebinding) could read /listen. So the Host must name this port on loopback, and a request
+    # carrying either header a browser adds to what a page sends is refused.
+    hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+
     class Handler(BaseHTTPRequestHandler):
+        def foreign(self) -> bool:
+            host = self.headers.get("host", "")
+            if host not in hosts:
+                self.refuse(400, "host-not-allowed", f"host not allowed: {host}")
+                return True
+            if self.headers.get("origin") is not None or self.headers.get("sec-fetch-site") is not None:
+                self.refuse(403, "browser-request", "the speech process takes no request from a browser")
+                return True
+            return False
+
         def answer(self, status: int, body: dict | None = None) -> None:
             data = json.dumps(body).encode() if body is not None else b""
             self.send_response(status)
@@ -175,6 +192,8 @@ def handler_for(channel: Channel) -> type[BaseHTTPRequestHandler]:
             self.answer(status, {"error": {"code": code, "message": message, "retryable": status >= 500}})
 
         def do_GET(self) -> None:
+            if self.foreign():
+                return
             if self.path.startswith("/ping"):
                 self.answer(204)
             elif self.path.startswith("/speed"):
@@ -212,6 +231,8 @@ def handler_for(channel: Channel) -> type[BaseHTTPRequestHandler]:
                 log(f"listener left ({channel.listening()})")
 
         def do_POST(self) -> None:
+            if self.foreign():
+                return
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)) or b"{}")
             except json.JSONDecodeError:
@@ -276,7 +297,7 @@ def main() -> None:
     # Warm up: the first runs of the model are slow, so they are paid here, not by the first message.
     for text in ("Warming up.", "The build finished on", "The build finished on the Mac, all the tests passed."):
         voice.make(text)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(Channel(voice)))
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(Channel(voice), args.port))
     server.daemon_threads = True
     log(f"ready on 127.0.0.1:{args.port}, models from {args.models}")
     server.serve_forever()
