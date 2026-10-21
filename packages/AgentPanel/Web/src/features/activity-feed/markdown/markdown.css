@@ -41,6 +41,11 @@
      the fallback for a surface that has not defined it, not a second default
      to keep in sync. */
   line-height: var(--agent-panel-prose-leading, 1.6);
+  /* A bare URL or path is one token with nothing to break on. Without this it ran past the
+     paragraph and gave its feed row a sideways scroll (a 49-character artifact link in a
+     433px card). `anywhere` rather than `break-word` so it also lowers the min-content width
+     a flex or grid parent measures. */
+  overflow-wrap: anywhere;
 }
 .agent-panel-md__prose > :first-child {
   margin-top: 0;
@@ -228,7 +233,9 @@
   padding: 0.2em;
   border-radius: 4px;
   color: var(--muted-foreground);
-  transition: background-color 120ms, color 120ms;
+  transition:
+    background-color 120ms,
+    color 120ms;
 }
 .agent-panel-code__copy:hover {
   background: var(--background);
