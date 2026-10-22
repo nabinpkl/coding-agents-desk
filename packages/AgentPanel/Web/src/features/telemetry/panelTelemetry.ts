@@ -8,7 +8,8 @@
 // client attaches no trace headers -- which is how the sidecar's half of a trace went missing.
 //
 // What a load records, without code of ours: the navigation's phases and Web Vitals, a span per
-// resource the page fetched, long animation frames, and a span per `fetch`. The `fetch` spans carry
+// resource the page fetched (scripts cut to a count and the slowest few, `scriptSpanSummary.ts`),
+// long animation frames, and a span per `fetch`. The `fetch` spans carry
 // trace headers to `/api`, so the sidecar's handling of each request lands in the same trace.
 // What only this panel knows -- its milestones and its streams -- is in `pageMilestones.ts`.
 
@@ -22,6 +23,7 @@ import {
 } from "@sentry/react";
 import type { RootOptions } from "react-dom/client";
 import { awaitMilestones } from "@/features/telemetry/pageMilestones";
+import { summarizeScriptSpans } from "@/features/telemetry/scriptSpanSummary";
 
 const TELEMETRY_ROUTE = "/api/telemetry/envelope";
 
@@ -80,6 +82,8 @@ export function installPanelTelemetry(): void {
       // Ours only. React's development build writes its own measures ("Update", "Cascading
       // Update") by the hundred, and they would bury the milestones.
       userTimingIntegration({ ignore: [/^(?!panel |stream )/] }),
+      // A dev load's ~380 module fetches, as a count and the slowest ten (`scriptSpanSummary.ts`).
+      { name: "ScriptSpanSummary", processEvent: summarizeScriptSpans },
     ],
   });
   // Once the load is over, the page moves to a trace nobody samples. Left on the load's, every
