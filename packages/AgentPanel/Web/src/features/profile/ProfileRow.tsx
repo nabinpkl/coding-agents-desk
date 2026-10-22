@@ -17,6 +17,7 @@ import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
 import { StaleSessionsModal } from "@/features/profile/StaleSessionsModal";
 import { AgentRadioMenuItem } from "@/features/profile/AgentRadioMenuItem";
 import { PushMenuItems } from "@/features/profile/PushMenuItems";
+import { ListenHereMenuItem } from "@/features/audio-channel/ListenHere";
 import {
   useStaleSessions,
   type StaleSessionsHandle,
@@ -184,6 +185,7 @@ export function ProfileRow({
           </button>
           <PushMenuItems />
           <AgentRadioMenuItem />
+          <ListenHereMenuItem />
           {/* Whether an edit acts on anything the moment it is saved: this page's own modules, and
               every machine's sidecar, which is the half that costs more -- a restart takes every
               stream the panel is holding with it. One switch because "stop changing under me" is

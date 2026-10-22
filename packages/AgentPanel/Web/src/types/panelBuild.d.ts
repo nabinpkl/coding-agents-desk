@@ -28,6 +28,8 @@ interface ImportMeta {
     accept(deps: readonly string[], callback: (modules: readonly (unknown | undefined)[]) => void): void;
     /** Gives an update back to the page, which then reloads, when it cannot be taken in place. */
     invalidate(message?: string): void;
+    /** Runs as this module is replaced by its newer copy: `radioListener.ts` stops its audio there. */
+    dispose(callback: (data: unknown) => void): void;
   };
 }
 

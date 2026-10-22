@@ -9,6 +9,7 @@ import {
 import { botsOnShownMachines } from "@/features/bots/botMachines";
 import { BotCanvasCard } from "@/features/bots/cards/BotCanvasCard";
 import { CanvasNotices, CanvasReconnecting } from "@/features/bots/cards/canvasNotices";
+import { ListenNotice } from "@/features/audio-channel/ListenHere";
 import { sessionKey } from "@/features/bots/cards/botCanvasCards";
 import { useRememberedCanvasScroll } from "@/features/bots/canvas/useRememberedCanvasScroll";
 import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
@@ -189,6 +190,7 @@ export function BotCanvasList({
     // while it scrolls under them. In the flow they moved every card on each sidecar restart.
     <div className="relative flex min-h-0 flex-1 flex-col">
       <CanvasReconnecting machineErrors={machineErrors} />
+      <ListenNotice />
       <div
         ref={attachCanvas}
         onScroll={rememberScroll}

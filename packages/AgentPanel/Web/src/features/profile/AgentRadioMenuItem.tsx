@@ -1,8 +1,9 @@
 // The Profile menu's way to Agent Radio, the audio channel's own page (`public/listen.html`).
 //
-// A link rather than a player: listening lives on that page so a panel reload cannot stop it, and
-// on the iPhone the page is installed to the Home Screen as an app of its own. Opened in a new tab
-// so the panel stays where it was.
+// A link: listening on that page is what a panel reload cannot stop, and on the iPhone the page is
+// installed to the Home Screen as an app of its own. Opened in a new tab so the panel stays where it
+// was. Listening in the panel itself is the entry beside it (`ListenHereMenuItem`), which a reload
+// does end.
 
 import { ExternalLink, Radio } from "lucide-react";
 import { PROFILE_MENU_ITEM_CLASS } from "@/features/profile/PushMenuItems";

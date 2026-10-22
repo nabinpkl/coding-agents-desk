@@ -281,6 +281,8 @@ describe("live updates", () => {
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Agent Radio" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Listen to Agent Radio here" }));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(toggle);
   });
 });
