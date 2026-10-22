@@ -139,9 +139,31 @@
         border-radius: 8px;
         padding: 8px 10px;
       }
-      .level :focus-visible {
+      .level :focus-visible,
+      .toggle :focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 32px;
+      }
+      .toggle input {
+        width: 20px;
+        height: 20px;
+        margin: 0;
+        accent-color: var(--accent);
+      }
+      .toggle[hidden] {
+        display: none;
+      }
+      .toggle small {
+        color: var(--muted);
+      }
+      .level:has(input:disabled, select:disabled) {
+        opacity: 0.45;
       }
       textarea {
         font: inherit;
@@ -193,6 +215,14 @@
           <span>Agent</span>
           <input id="voice-level" type="range" min="0" max="10" step="1" />
           <output id="voice-out" for="voice-level"></output>
+        </label>
+        <label class="toggle" for="noise-on">
+          <input id="noise-on" type="checkbox" />
+          <span>Play noise</span>
+        </label>
+        <label class="toggle" for="keep-alive" id="keep-alive-row">
+          <input id="keep-alive" type="checkbox" />
+          <span>Keep-alive hiss <small>at about −80 dB, so the phone keeps the page playing</small></span>
         </label>
         <label class="level" for="noise-level">
           <span>Noise</span>
@@ -280,8 +310,22 @@
         voice: storedLevel("voice", 8),
         noise: storedLevel("noise", 3),
         color: COLORS.includes(stored("color")) ? stored("color") : "pink",
+        // Off: only the agent is heard. The loop keeps running either way, so turning it back on
+        // needs no new source and starts without a click.
+        noiseOn: stored("noiseOn") !== "false",
+        // With noise off, whether the loop still plays at KEEP_ALIVE_GAIN rather than at nothing, in
+        // case a page whose output is pure silence is taken for one that stopped and is suspended on a
+        // locked screen. Off by default: on 2026-10-21 a locked iPhone with noise off and no hiss still
+        // played a message, after about a minute locked. Kept as a switch until a long lock agrees.
+        keepAlive: stored("keepAlive") === "true",
       };
       const heardShare = (level) => (level / LEVEL_MAX) ** 2;
+      // About -80 dBFS: the loop's RMS (0.17) times this is 1e-4, a few steps of a 16-bit output, so
+      // never digital silence, and far below anything heard at full volume.
+      const KEEP_ALIVE_GAIN = 0.0006;
+      const noiseGain = () => (mix.noiseOn ? heardShare(mix.noise) : mix.keepAlive ? KEEP_ALIVE_GAIN : 0);
+      const noiseState = () =>
+        mix.noiseOn ? `noise ${mix.noise} ${mix.color}` : mix.keepAlive ? "noise off, keep-alive hiss" : "noise off, silent";
       const ENGINE = ["sam", "espeak", "tiny", "kokoro"].includes(params.get("engine")) ? params.get("engine") : "kitten";
       // ?kprec=int8 for the 24 MB 8-bit model; full precision (57 MB) by default, which runs faster here.
       const KITTEN =
@@ -733,7 +777,7 @@
       function applyMix() {
         if (!context) return;
         const now = context.currentTime;
-        noiseBus.gain.setTargetAtTime(heardShare(mix.noise), now, 0.03);
+        noiseBus.gain.setTargetAtTime(noiseGain(), now, 0.03);
         voiceBus.gain.setTargetAtTime(heardShare(mix.voice), now, 0.03);
         if (noisePlaying && noisePlaying.color !== mix.color) playNoiseColor();
       }
@@ -760,6 +804,31 @@
           applyMix();
           log(`noise color ${mix.color}`);
         });
+      }
+      {
+        const noiseOn = document.getElementById("noise-on");
+        const keepAlive = document.getElementById("keep-alive");
+        const shown = () => {
+          noiseOn.checked = mix.noiseOn;
+          keepAlive.checked = mix.keepAlive;
+          // The hiss only matters with the noise off, and the noise's own controls only with it on.
+          document.getElementById("keep-alive-row").hidden = mix.noiseOn;
+          document.getElementById("noise-level").disabled = !mix.noiseOn;
+          document.getElementById("noise-color").disabled = !mix.noiseOn;
+        };
+        shown();
+        for (const [input, key] of [
+          [noiseOn, "noiseOn"],
+          [keepAlive, "keepAlive"],
+        ]) {
+          input.addEventListener("change", () => {
+            mix[key] = input.checked;
+            remember(key, mix[key]);
+            shown();
+            applyMix();
+            log(noiseState());
+          });
+        }
       }
 
       // How fast the Mac speaks, in push mode: Kitten's own rate, set on the speech process for every
@@ -800,6 +869,7 @@
           void sendSpeed();
         });
       }
+
 
       /** SAM: 22.05 kHz samples, synchronously. */
       function renderSam(text) {
@@ -1607,13 +1677,13 @@
         context = new AudioContext();
         context.addEventListener("statechange", () => log(`audio context ${context.state}`));
         noiseBus = context.createGain();
-        noiseBus.gain.value = heardShare(mix.noise);
+        noiseBus.gain.value = noiseGain();
         noiseBus.connect(context.destination);
         voiceBus = context.createGain();
         voiceBus.gain.value = heardShare(mix.voice);
         voiceBus.connect(context.destination);
         playNoiseColor();
-        log(`mix: agent ${mix.voice}, noise ${mix.noise} ${mix.color}`);
+        log(`mix: agent ${mix.voice}, ${noiseState()}`);
         void context.resume();
         if (WITH_DICTATION) startDictation();
         if (WITH_MIC && CONFIRM) startNowPlaying();
@@ -1667,7 +1737,7 @@
         row("Noise playing for", context ? `${context.currentTime.toFixed(1)} s` : "-");
         row("Lines asked / finished", `${state.spoken} / ${state.finished}`);
         row("Speech errors", String(state.errors));
-        row("Mix", `agent ${mix.voice}, noise ${mix.noise} ${mix.color}${ON_PUSH ? `, speed ${speed.value.toFixed(2)}×` : ""}`);
+        row("Mix", `agent ${mix.voice}, ${noiseState()}${ON_PUSH ? `, speed ${speed.value.toFixed(2)}×` : ""}`);
         if (ON_PUSH) row("Mac stream", `${macStream.state} (connected ${macStream.connects}, dropped ${macStream.drops})`);
         if (WITH_MIC) {
           row("Mic", mic.track ? `${mic.track.readyState}${mic.track.muted ? ", muted" : ""}, peak ${Math.round(mic.peakDb)} dB, speech starts ${mic.speechStarts}` : "off");
