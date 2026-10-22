@@ -65,8 +65,17 @@ reaches the network.
   holds two packages (`ptts`, `numpy`).
 - Bad, because the model and `ptts` 0.4.0 were released on 2026-10-20, two days before this, with
   150 stars on the runtime's repository: young, and a dependency to watch.
-- Bad, because it runs on the GPU only, by choice: the CPU took 15 s for a paragraph the GPU made in
-  0.9 s. A Mac without Metal would not speak.
+- Bad, because the GPU winds down when idle and the first frame pays to wake it: 7 ms back to back, 22 ms
+  after 1 s idle, 81 ms after 3 s and about 100 ms after 12 s (measured 2026-10-22), so the first
+  message after a quiet spell starts later than it could. Keeping the GPU awake with a small
+  synthesis every second brought it to about 18 ms, but at 159 ms of GPU work a tick it was not
+  worth about 80 ms, and keeping only the CPU busy barely helped (101 to 71 ms).
+- Neutral, because it runs on the GPU only, by choice: there the speech process uses about 35% of one
+  core while it makes speech, where Phonon on the CPU uses 250% to 540% (2 to 10 threads; 8-bit,
+  which runs on the CPU only). The CPU route would start 20 to 40 ms sooner after idle (about 50 ms
+  against 71 to 87 ms) and hold 190 MB against 235, but it takes several cores in bursts on a Mac
+  whose CPU is the part builds and tests keep busy; under a gate's load (load average up to 20) its
+  slowest first frame was 158 ms against the GPU's 116. A Mac without Metal would not speak.
 - Neutral, because the voice is English only; the catalog's other languages need Gradium's 40M
   multilingual model, which is gated and non-commercial.
 - Neutral, because a voice picked on the phone is held by the speech process until it restarts; the

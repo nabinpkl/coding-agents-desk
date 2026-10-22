@@ -69,7 +69,7 @@ class Voice:
     def __init__(self, models: Path):
         catalog = models / "voices"
         self.catalog = [json.loads(line) for line in (catalog / "voices.jsonl").read_text().splitlines() if line.strip()]
-        # On the GPU or not at all: the CPU took 15 s for a paragraph the GPU made in 0.9 s (2026-10-21).
+        # On the GPU: about 35% of one core while it speaks, where the CPU route takes 250% to 540% (ADR-0150).
         self.tts = ptts.TTS(str(models), lang="en", quant="f32", device="metal", voice_catalog=str(catalog))
         self.name = BUILT_IN_VOICE
         self.speed = 1.0  # how fast the pages play it, told by them on every connection
