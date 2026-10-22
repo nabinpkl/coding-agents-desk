@@ -1,7 +1,8 @@
 # The speech process: an agent's text made into speech on this Mac and pushed to every page
 # listening, which plays it into its own mix. Started and restarted by the sidecar's supervisor
 # beside the audio process. The sidecar sends a Bot session's announcements, and replies read out
-# loud, to `/say` (`agent-feed/sidecar/src/push/sessionSpeech.ts`).
+# loud, to `/say` (`agent-feed/sidecar/src/push/sessionSpeech.ts`), and a reply one page plays on its
+# own device to `/render`.
 #
 # One resident Phonon 31M English (Gradium, Apache-2.0) on the Mac's GPU, through its `ptts` runtime:
 # about 235 MB, measured 2026-10-21. It reads text through its own tokenizer, so a word like "tmux" or
@@ -21,9 +22,15 @@
 #   GET  /events   the control stream: one JSON object a line, {"stop": message} when a message is
 #                  cancelled, a bare newline at once and every 5 s after. Its own stream so a stop is
 #                  never queued behind audio still on its way down /listen.
+#   POST /render   <- {text, ref}  -> 200, the message's speech as the body: float32 mono PCM at 24 kHz,
+#                  each frame written as it is made, unpaced, then the body ends. For one page to play
+#                  on its own device (the feed's speaker), so it skips /listen and the line /say keeps:
+#                  it runs beside a message being said, on the same model (two streams at once measured
+#                  sound and in time, 2026-10-22). Made in the voice in use.
 #   POST /cancel   <- {message} or {ref}  the rest of that message is not made, and every page is told
 #                  to drop what it holds of it: on /events at once, and on /listen as a stop frame
-#                  ({stop: message}, no audio) for a page that has no control stream
+#                  ({stop: message}, no audio) for a page that has no control stream. A ref naming a
+#                  /render stops making it, and its body ends.
 #   GET  /voices   -> {voice, voices: [{name, locale, gender, description}]}: the voice in use, and
 #                  every voice it can switch to
 #   POST /voice    <- {voice}  -> {voice}: speaks every later message in that voice
@@ -57,6 +64,9 @@ KEEPALIVE_S = 5.0
 # How far ahead of the page's playback a message is sent: room for a network hiccup, and all that is
 # in flight to throw away when it is stopped.
 LEAD_S = 3.0
+# How long a /render write may sit blocked before its reader counts as gone: the sidecar never says
+# when the page hung up, it only stops reading.
+RENDER_WRITE_TIMEOUT_S = 10.0
 
 
 def log(line: str) -> None:
@@ -106,6 +116,8 @@ class Channel:
         # The newest message each caller's ref named: a ref is reused (one per Bot, one for reading
         # a reply aloud), and cancelling it means the latest.
         self.refs: dict[str, int] = {}
+        # Each /render being made, by its caller's ref, set when it is cancelled.
+        self.renders: dict[str, threading.Event] = {}
 
     def listening(self) -> int:
         with self.listeners_lock:
@@ -165,6 +177,29 @@ class Channel:
                         log(f"#{message}: first audio out after {mac_ms:.0f} ms, in {voice}, to {self.listening()} listener(s)")
                     self.push(frame(header, pcm.tobytes()))
             return played_s * 1000, message in self.cancelled
+
+    def render(self, text: str, ref: str, write) -> None:
+        """Makes `text` for one caller, handing each frame's PCM to `write` as it is made, until it is
+        all made or `ref` is cancelled. Outside the line `say` keeps, so it never waits behind one."""
+        stop = threading.Event()
+        self.renders[ref] = stop
+        started = time.perf_counter()
+        made_s = 0.0
+        try:
+            with self.voice.tts.stream(text, voice=self.voice.name) as audio:
+                for index, chunk in enumerate(audio):
+                    if stop.is_set():
+                        log(f"render {ref}: cancelled after {made_s:.1f} s of it")
+                        return
+                    pcm = np.asarray(chunk, dtype="<f4").reshape(-1)
+                    if index == 0:
+                        log(f"render {ref}: first audio out after {(time.perf_counter() - started) * 1000:.0f} ms, in {self.voice.name}")
+                    made_s += len(pcm) / SAMPLE_RATE
+                    write(pcm.tobytes())
+            log(f"render {ref}: {made_s:.1f} s of speech in {time.perf_counter() - started:.1f} s")
+        finally:
+            if self.renders.get(ref) is stop:
+                del self.renders[ref]
 
 
 def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
@@ -263,6 +298,25 @@ def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
                     ref = body.get("ref") if isinstance(body.get("ref"), str) else None
                     duration_ms, cancelled = channel.say(text, tone, ref)
                     self.answer(200, {"listeners": heard_by, "durationMs": round(duration_ms), "cancelled": cancelled})
+            elif self.path.startswith("/render"):
+                text, ref = body.get("text"), body.get("ref")
+                if not isinstance(text, str) or not text.strip() or not isinstance(ref, str) or not ref:
+                    self.refuse(400, "invalid_message", "expected { text, ref } with something to say")
+                    return
+                self.send_response(200)
+                self.send_header("content-type", "application/octet-stream")
+                self.send_header("cache-control", "no-store")
+                self.end_headers()  # no length: the body ends when the connection does
+                self.connection.settimeout(RENDER_WRITE_TIMEOUT_S)
+
+                def write(pcm: bytes) -> None:
+                    self.wfile.write(pcm)
+                    self.wfile.flush()
+
+                try:
+                    channel.render(text, ref, write)
+                except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                    log(f"render {ref}: the reader went away")
             elif self.path.split("?")[0] == "/voice":  # exactly, so /voices is not taken for it
                 name = body.get("voice")
                 if not isinstance(name, str) or not channel.voice.knows(name):
@@ -282,6 +336,11 @@ def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
                 self.answer(200, {"speed": channel.voice.speed})
             elif self.path.startswith("/cancel"):
                 ref = body.get("ref")
+                rendering = channel.renders.get(ref) if isinstance(ref, str) else None
+                if rendering:
+                    rendering.set()
+                    self.answer(204)
+                    return
                 message = channel.refs.get(ref) if isinstance(ref, str) else body.get("message")
                 if isinstance(message, int) and not isinstance(message, bool):
                     channel.cancel(message)

@@ -264,6 +264,31 @@ export async function speakSession(bot: BotRecord, session: Session, occasion: S
   await speechQueue.enqueue(bot.botId, text, urgent ? "attention" : "done", urgent);
 }
 
+/** A reply as it is read out loud, on Agent Radio or on the device that asked: empty when nothing can be said. */
+export function readableReply(reply: string): string {
+  return speakableReply(withoutReports(reply), SPEECH_READ_MAX_CHARS);
+}
+
+/**
+ * A reply made into speech for one page to play itself (`speech_server.py`'s `/render`): the speech
+ * process's answer, whose body is the PCM as it is made. Outside the queue, so it never waits for an
+ * announcement or stops one. `ref` names it for `stopHere`.
+ */
+export async function speechForPage(reply: string, ref: string): Promise<Response | null> {
+  const text = readableReply(reply);
+  if (!text) return null;
+  return fetch(`http://127.0.0.1:${speechPort()}/render`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text, ref }),
+  });
+}
+
+/** Stops making the speech `ref` names. The page stops playing it on its own. */
+export async function stopSpeechForPage(ref: string): Promise<void> {
+  await cancelOnMac(ref);
+}
+
 /** The queue key, and the speech process's ref, of a reply read out loud: one at a time. */
 const READ_ALOUD = "read-aloud";
 
@@ -280,7 +305,7 @@ export async function stopReading(): Promise<void> {
  * it can be said.
  */
 export async function readAloud(reply: string): Promise<SpeechOutcome | null> {
-  const text = speakableReply(withoutReports(reply), SPEECH_READ_MAX_CHARS);
+  const text = readableReply(reply);
   if (!text) return null;
   // Before queueing the new one, so the cancel, which names the newest message, cannot reach it.
   await stopReading().catch((error: unknown) => console.error("[speech] could not stop the last reading", error));

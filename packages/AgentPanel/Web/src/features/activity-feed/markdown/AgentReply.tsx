@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ArrowRight, ListChecks, Volume2, type LucideIcon } from "lucide-react";
-import { ReadAloudButton } from "@/features/audio-channel/ReadAloudButton";
+import { ReplyAudioButtons } from "@/features/audio-channel/ReplyAudioButtons";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
 import {
   SPOKEN_KIND_INK,
@@ -15,7 +15,8 @@ import {
  * An agent's reply in the feed: its prose as Markdown, and each block it wrote about its own turn
  * (`replyReports.ts`) as a section under its own heading, so the task it took on, how the turn
  * stands and what to do next read as what they are rather than as one run-together paragraph. Once
- * it has landed it ends in a speaker that reads it out loud (`ReadAloudButton`).
+ * it has landed it ends in two buttons that read it out loud, to Agent Radio or on this device
+ * (`ReplyAudioButtons`).
  */
 export function AgentReply({ content, streaming = false }: { content: string; streaming?: boolean }) {
   const segments = splitReply(content);
@@ -27,7 +28,7 @@ export function AgentReply({ content, streaming = false }: { content: string; st
         if (segment.kind === "prose") return <Markdown key={at} content={segment.text} streaming={live} />;
         return <ReplyReport key={at} segment={segment} />;
       })}
-      {streaming ? null : <ReadAloudButton text={content} />}
+      {streaming ? null : <ReplyAudioButtons text={content} />}
     </div>
   );
 }

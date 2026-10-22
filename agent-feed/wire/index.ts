@@ -374,6 +374,7 @@ export type {
   AudioNoiseColor,
   AudioSpeakRequest,
   AudioSpeakResponse,
+  SpeechHereRequest,
   SpeechReadRequest,
   SpeechReadResponse,
 } from "./audioChannel.ts";
@@ -385,7 +386,10 @@ export {
   AUDIO_SPEAK_MAX_CHARS,
   AUDIO_SPEAK_ROUTE,
   AUDIO_STREAM_ROUTE,
+  SPEECH_HERE_ROUTE,
+  SPEECH_HERE_STOP_ROUTE,
   SPEECH_READ_MAX_CHARS,
   SPEECH_READ_ROUTE,
+  SPEECH_SAMPLE_RATE,
   SPEECH_STOP_ROUTE,
 } from "./audioChannel.ts";

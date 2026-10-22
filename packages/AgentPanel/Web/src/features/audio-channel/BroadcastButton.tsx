@@ -1,17 +1,19 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Square, Volume2, VolumeX } from "lucide-react";
+import { Radio, Square } from "lucide-react";
 import { SPEECH_READ_ROUTE, SPEECH_STOP_ROUTE, type SpeechReadResponse } from "@agentdesk/agent-feed-wire";
+import { replyAudioButtonClass } from "@/features/audio-channel/replyAudioButtonClass";
 
 /**
- * The speaker at the end of an agent's reply: reads it out loud on this Mac's speech process, to
- * whoever listens on its push stream (`POST /api/speech/read`). The sidecar leaves out the reply's
- * report blocks and queues it with the sessions' own announcements, so it is heard in turn.
+ * The broadcast button at the end of an agent's reply: reads it out loud on this Mac's speech
+ * process, to whoever listens on Agent Radio (`POST /api/speech/read`), not on this device; the
+ * speaker beside it does that (`SpeakHereButton`). The sidecar leaves out the reply's report blocks
+ * and queues it with the sessions' own announcements, so it is heard in turn.
  *
  * A tap reads, a tap while it reads stops it (`POST /api/speech/stop`, which also cuts what the
  * page already has), and the next tap reads it again from the top. One reply is read at a time:
- * starting another stops this one, and this button goes back to its speaker when its own request
+ * starting another stops this one, and this button goes back to its broadcast icon when its own request
  * comes back stopped.
  *
  * Its states are said in the row it sits in, which is always there, so none of them moves the feed,
@@ -46,7 +48,7 @@ async function askToRead(text: string): Promise<Answer> {
   }
 }
 
-export function ReadAloudButton({ text }: { text: string }) {
+export function BroadcastButton({ text }: { text: string }) {
   const [reading, setReading] = useState<Reading>({ state: "idle" });
   // Which request the button shows: one stopped by a tap answers late, and that answer is ignored.
   const shown = useRef(0);
@@ -82,33 +84,27 @@ export function ReadAloudButton({ text }: { text: string }) {
     void fetch(SPEECH_STOP_ROUTE, { method: "POST" }).catch(() => undefined);
   };
   const isReading = reading.state === "reading";
-  const label = isReading ? "Stop reading" : "Read aloud";
+  const label = isReading ? "Stop broadcast" : "Broadcast to Agent Radio";
   return (
-    <div className="flex items-center gap-1.5 text-[0.8em]">
+    // Its own items in the row (`ReplyAudioButtons`), with any word after both buttons, so neither moves.
+    <div className="contents">
       <button
         type="button"
         onClick={isReading ? stop : () => void read()}
         aria-label={label}
         title={reading.state === "failed" ? reading.reason : label}
-        className={
-          "inline-flex size-[1.9em] items-center justify-center rounded-sm outline-none transition-colors " +
-          "hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary " +
-          "active:bg-foreground/10 " +
-          (isReading ? "text-primary" : "session-muted-ink")
-        }
+        className={replyAudioButtonClass(isReading)}
       >
         {isReading ? (
           <Square aria-hidden className="size-[0.95em] fill-current" />
-        ) : reading.state === "nobody" ? (
-          <VolumeX aria-hidden className="size-[1.15em]" />
         ) : (
-          <Volume2 aria-hidden className="size-[1.15em]" />
+          <Radio aria-hidden className="size-[1.15em]" />
         )}
       </button>
       {reading.state === "nobody" ? (
-        <span className="session-muted-ink">Nobody is listening</span>
+        <span className="session-muted-ink order-1">Nobody is listening</span>
       ) : reading.state === "failed" ? (
-        <span className="text-destructive">Could not read it out</span>
+        <span className="text-destructive order-1">Could not broadcast it</span>
       ) : null}
     </div>
   );

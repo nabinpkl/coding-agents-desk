@@ -91,3 +91,22 @@ export type SpeechReadRequest = { text: string };
 
 /** `listeners` is how many pages it went to; `durationMs` how long it plays. */
 export type SpeechReadResponse = { listeners: number; durationMs: number };
+
+/**
+ * `POST /api/speech/here`: a reply made into speech on this Mac and handed back to the page that
+ * asked, to play on its own device rather than to Agent Radio's listeners. Made speakable and cut
+ * as `SPEECH_READ_ROUTE` does, outside its line, so it neither waits behind nor stops what is being
+ * said there. The body is the speech as it is made: float32 little-endian mono PCM at
+ * `SPEECH_SAMPLE_RATE`, ending when the whole message is made. 422 `nothing_to_say` when nothing in
+ * the text can be said. Always this Mac's sidecar, whichever machine the reply came from: only this
+ * Mac has the voice.
+ */
+export const SPEECH_HERE_ROUTE = "/api/speech/here";
+
+/** `POST /api/speech/here/stop` <- `{ ref }`: stops making that page's speech, and answers 204. */
+export const SPEECH_HERE_STOP_ROUTE = "/api/speech/here/stop";
+
+export const SPEECH_SAMPLE_RATE = 24_000;
+
+/** `ref` is the page's own name for this playback, so it can stop it: letters, digits and dashes. */
+export type SpeechHereRequest = { text: string; ref: string };

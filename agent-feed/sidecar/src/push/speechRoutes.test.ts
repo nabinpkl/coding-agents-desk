@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { readAloud, stopReading } from "@/push/sessionSpeech";
+import type { readAloud, speechForPage, stopReading, stopSpeechForPage } from "@/push/sessionSpeech";
 import { createSpeechRoutes } from "@/push/speechRoutes";
 
 const server = {} as never;
@@ -13,7 +13,7 @@ function post(body: unknown): [Request, URL] {
 }
 
 async function answer(speak: typeof readAloud, body: unknown) {
-  const response = await createSpeechRoutes(speak)(...post(body), server);
+  const response = await createSpeechRoutes({ speak })(...post(body), server);
   return { status: response?.status, body: await response?.json() };
 }
 
@@ -55,13 +55,66 @@ describe("reading a reply out loud", () => {
       return Promise.resolve();
     };
     const request = new Request("http://localhost/api/speech/stop", { method: "POST" });
-    const response = await createSpeechRoutes(() => Promise.resolve(null), halt)(request, new URL(request.url), server);
+    const response = await createSpeechRoutes({ halt })(request, new URL(request.url), server);
     expect(response?.status).toBe(204);
     expect(stops).toBe(1);
   });
 
   test("leaves every other path to the routes after it", () => {
     const request = new Request("http://localhost/api/speech/other", { method: "POST" });
-    expect(createSpeechRoutes(() => Promise.resolve(null))(request, new URL(request.url), server)).toBeUndefined();
+    expect(createSpeechRoutes()(request, new URL(request.url), server)).toBeUndefined();
+  });
+});
+
+function postTo(path: string, body: unknown): [Request, URL] {
+  const request = new Request(`http://localhost${path}`, { method: "POST", body: JSON.stringify(body) });
+  return [request, new URL(request.url)];
+}
+
+describe("playing a reply on the device that asked", () => {
+  test("streams the speech process's PCM back, under a ref of the page's own", async () => {
+    const asked: [string, string][] = [];
+    const pcm = new Float32Array([0.25, -0.5]);
+    const speakHere: typeof speechForPage = (text, ref) => {
+      asked.push([text, ref]);
+      return Promise.resolve(new Response(pcm.buffer, { status: 200 }));
+    };
+    const response = await createSpeechRoutes({ speakHere })(
+      ...postTo("/api/speech/here", { text: "It works.", ref: "a1-b2" }),
+      server,
+    );
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("x-sample-rate")).toBe("24000");
+    expect(Array.from(new Float32Array(await response!.arrayBuffer()))).toEqual([0.25, -0.5]);
+    // Prefixed, so a page cannot name a Bot's message or the broadcast's reading.
+    expect(asked).toEqual([["It works.", "page-a1-b2"]]);
+  });
+
+  test("refuses a ref that is not a plain name, and says when nothing can be said", async () => {
+    const speakHere: typeof speechForPage = () => Promise.resolve(null);
+    const routes = createSpeechRoutes({ speakHere });
+    expect((await routes(...postTo("/api/speech/here", { text: "Hi.", ref: "../x" }), server))?.status).toBe(400);
+    expect((await routes(...postTo("/api/speech/here", { text: "Hi." }), server))?.status).toBe(400);
+    expect((await routes(...postTo("/api/speech/here", { text: "```", ref: "r" }), server))?.status).toBe(422);
+  });
+
+  test("says the speech process failed rather than streaming its error", async () => {
+    const speakHere: typeof speechForPage = () => Promise.resolve(new Response("no", { status: 500 }));
+    const response = await createSpeechRoutes({ speakHere })(
+      ...postTo("/api/speech/here", { text: "Hi.", ref: "r" }),
+      server,
+    );
+    expect(response?.status).toBe(502);
+  });
+
+  test("stops that page's speech by its ref", async () => {
+    const stopped: string[] = [];
+    const haltHere: typeof stopSpeechForPage = (ref) => {
+      stopped.push(ref);
+      return Promise.resolve();
+    };
+    const response = await createSpeechRoutes({ haltHere })(...postTo("/api/speech/here/stop", { ref: "r" }), server);
+    expect(response?.status).toBe(204);
+    expect(stopped).toEqual(["page-r"]);
   });
 });
