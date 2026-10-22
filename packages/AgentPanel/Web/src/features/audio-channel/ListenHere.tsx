@@ -1,8 +1,9 @@
 "use client";
 
-import { Headphones, LoaderCircle, X } from "lucide-react";
+import { Headphones, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { PROFILE_MENU_ITEM_CLASS } from "@/features/profile/PushMenuItems";
 import {
+  reloadForUpdates,
   startListening,
   stopListening,
   useListenState,
@@ -55,10 +56,12 @@ export function ListenHereMenuItem() {
 /**
  * What listening here needs from the reader, floated over the canvas so it moves nothing, and gone
  * the moment it is answered: the tap that starts listening again after a reload ended it, since iOS
- * starts a page's audio only from a tap.
+ * starts a page's audio only from a tap; or, while listening, that the panel kept itself through
+ * updates it missed (`reconnectInPlace.ts`) and takes them on a reload, which ends listening.
  */
 export function ListenNotice() {
   const state = useListenState();
+  if (state.updatesWaiting && state.phase !== "off" && state.phase !== "resume") return <UpdatesWaiting />;
   if (state.phase !== "resume") return null;
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
@@ -82,6 +85,28 @@ export function ListenNotice() {
           className="inline-flex size-[1.9em] items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-accent/80"
         >
           <X className="size-[1em]" aria-hidden />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function UpdatesWaiting() {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
+      <div
+        role="status"
+        className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-1 font-medium text-foreground shadow-lg shadow-black/25 ring-1 ring-black/5"
+        style={{ fontSize: "var(--agent-panel-fs-sidebar-body, 15px)" }}
+      >
+        <span className="pl-3 text-muted-foreground">Panel updates waiting</span>
+        <button
+          type="button"
+          onClick={reloadForUpdates}
+          className="flex items-center gap-2 rounded-full px-3 py-1 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary active:bg-accent/80"
+        >
+          <RefreshCw className="size-[1em]" aria-hidden />
+          Reload
         </button>
       </div>
     </div>

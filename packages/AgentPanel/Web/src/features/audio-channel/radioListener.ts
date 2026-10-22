@@ -23,6 +23,8 @@ export type ListenPhase = "off" | "starting" | "listening" | "reconnecting" | "r
 export type ListenState = {
   phase: ListenPhase;
   detail: string | null;
+  /** The dev server sent updates while this page was away, and it kept itself rather than reload. */
+  updatesWaiting: boolean;
 };
 
 /** The voice's player once it is made: where pieces, speeds and drops are posted. */
@@ -32,6 +34,8 @@ export type ListenerDeps = {
   makeContext: () => AudioContext;
   makeVoice: (context: AudioContext) => Promise<VoicePort>;
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
+  /** Takes the updates that are waiting: a page reload, which ends what is playing. */
+  reload: () => void;
 };
 
 const STORAGE_KEY = "agentdesk.radio.listeningHere";
@@ -99,6 +103,7 @@ export function createRadioListener(deps: ListenerDeps) {
   const store = createStore<ListenState>(() => ({
     phase: remembered ? "resume" : "off",
     detail: null,
+    updatesWaiting: false,
   }));
   let running: Running | null = null;
 
@@ -271,6 +276,16 @@ export function createRadioListener(deps: ListenerDeps) {
       remember(false);
       end();
       store.setState({ phase: "off", detail: null });
+      // It was the reason the page kept itself, so the updates it held off arrive now.
+      if (store.getState().updatesWaiting) deps.reload();
+    },
+    /** Whether a reload would cost what is playing, which is when the page keeps itself. */
+    isListening(): boolean {
+      return running !== null;
+    },
+    /** The page kept itself through updates it missed; said until the reader reloads. */
+    markUpdatesWaiting(): void {
+      store.setState({ updatesWaiting: true });
     },
     /** Ends what is playing but keeps "was listening", for a module being replaced by a newer copy. */
     end,
@@ -281,14 +296,44 @@ const listener = createRadioListener({
   makeContext: () => new AudioContext(),
   makeVoice: makeVoiceNode,
   storage: browserStorage(),
+  reload: () => location.reload(),
 });
 
 // An edit to this file replaces the module: the copy playing now stops, and the new one, reading
 // that it was listening, asks for the tap that starts it again. Otherwise both would play.
-import.meta.hot?.dispose(() => listener.end());
+import.meta.hot?.dispose(() => {
+  listener.end();
+  if (typeof window !== "undefined") window.removeEventListener(RELOAD_WAITING_EVENT, onUpdatesWaiting);
+});
+
+/**
+ * The dev server's half (`app/dev-server/reconnectInPlace.ts`, which patches Vite's client): when the
+ * page comes back from the background having missed updates, it asks this whether to reload, and
+ * keeps itself while Agent Radio plays here. Named on `window` because Vite's client is not a module
+ * the panel can import; the two names are checked against that file by its test.
+ */
+export const HOLD_RELOAD_GLOBAL = "__agentPanelHoldReload";
+export const RELOAD_WAITING_GLOBAL = "__agentPanelReloadWaiting";
+export const RELOAD_WAITING_EVENT = "agent-panel:reload-waiting";
+
+type PanelWindow = Window & Record<typeof HOLD_RELOAD_GLOBAL, () => boolean> & Record<string, unknown>;
+
+function onUpdatesWaiting(): void {
+  listener.markUpdatesWaiting();
+}
+
+if (typeof window !== "undefined") {
+  const page = window as unknown as PanelWindow;
+  page[HOLD_RELOAD_GLOBAL] = () => listener.isListening();
+  window.addEventListener(RELOAD_WAITING_EVENT, onUpdatesWaiting);
+  // Said before this module was replaced by a newer copy.
+  if (page[RELOAD_WAITING_GLOBAL] === true) listener.markUpdatesWaiting();
+}
 
 export const startListening = () => listener.start();
 export const stopListening = () => listener.stop();
+/** Takes the updates that are waiting now, which ends listening until the next tap. */
+export const reloadForUpdates = () => location.reload();
 
 export function useListenState(): ListenState {
   return useStore(listener.store);

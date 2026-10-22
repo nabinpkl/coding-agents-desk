@@ -20,6 +20,7 @@ import {
 import { proxyToSidecar } from "./src/app/dev-server/sidecarProxy";
 import { slimResponses } from "./src/app/dev-server/slimResponses";
 import { hookRefresh } from "./src/app/dev-server/hookRefresh";
+import { reconnectInPlace } from "./src/app/dev-server/reconnectInPlace";
 import { panelReact } from "./src/app/dev-server/panelReact";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createTypeHolds, dependentsOf, resend } from "./src/app/dev-server/typeHolds";
@@ -425,6 +426,9 @@ export default defineConfig({
     // Puts modules of hooks alone under Fast Refresh, which Vite leaves out; without it a save that
     // adds or removes a hook inside one fails its callers with "Should have a queue".
     hookRefresh(),
+    // Keeps an open page when its socket to this server comes back, instead of Vite's reload: iOS
+    // closes a backgrounded page's sockets, so that was a reload on most returns to the panel.
+    reconnectInPlace(),
     panelReact(),
     tailwindcss(),
     // Before `panelSessions`, because middleware runs in the order it was added and this one owns

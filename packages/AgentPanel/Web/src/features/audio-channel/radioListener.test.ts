@@ -44,6 +44,7 @@ function fakeMac(speed = 1.25) {
 }
 
 function setUp(storage = memoryStorage()) {
+  const reloads: number[] = [];
   const posted: { type: string; message?: number; made?: number; value?: number }[] = [];
   const voice: VoicePort = { postMessage: (message) => posted.push(message as (typeof posted)[number]) };
   const context = { resume: () => Promise.resolve(), close: vi.fn(() => Promise.resolve()) };
@@ -51,8 +52,9 @@ function setUp(storage = memoryStorage()) {
     makeContext: () => context as unknown as AudioContext,
     makeVoice: () => Promise.resolve(voice),
     storage,
+    reload: () => reloads.push(1),
   });
-  return { listener, posted, context, storage };
+  return { listener, posted, context, storage, reloads };
 }
 
 afterEach(() => {
@@ -105,6 +107,19 @@ describe("listening to Agent Radio in the panel", () => {
     expect(reloaded.listener.store.getState().phase).toBe("resume");
     reloaded.listener.stop();
     expect(setUp(storage).listener.store.getState().phase).toBe("off");
+  });
+
+  it("holds the page through updates while listening, and takes them once it stops", () => {
+    vi.stubGlobal("fetch", fakeMac().fetch);
+    const { listener, reloads } = setUp();
+    expect(listener.isListening()).toBe(false);
+    listener.start();
+    expect(listener.isListening()).toBe(true);
+    listener.markUpdatesWaiting();
+    expect(listener.store.getState().updatesWaiting).toBe(true);
+    expect(reloads).toHaveLength(0);
+    listener.stop();
+    expect(reloads).toHaveLength(1);
   });
 });
 
