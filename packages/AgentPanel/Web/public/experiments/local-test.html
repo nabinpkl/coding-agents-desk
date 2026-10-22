@@ -159,6 +159,15 @@
       .toggle[hidden] {
         display: none;
       }
+      button.secondary {
+        justify-self: start;
+        padding: 8px 14px;
+        background: transparent;
+        color: var(--accent);
+      }
+      button.secondary:active:not(:disabled) {
+        background: var(--line);
+      }
       .about {
         margin: 0;
         color: var(--muted);
@@ -245,6 +254,7 @@
           <select id="voice-name"></select>
         </label>
         <p class="about" id="voice-about" hidden></p>
+        <button id="voice-preview" class="secondary" type="button" disabled hidden>Hear this voice</button>
         <label class="level" for="noise-color">
           <span>Color</span>
           <select id="noise-color">
@@ -925,8 +935,21 @@
         showVoiceAbout();
         if (voiceChoice.value !== voice) await sendVoice();
       }
+      // Says one line in the voice picked, through the same route an agent's message takes, so a voice
+      // can be tried without waiting for one. Ready once Start has made the player that hears it.
+      const PREVIEW_LINE = "I read the tmux logs and the ADR.";
+      const previewButton = document.getElementById("voice-preview");
+      previewButton.addEventListener("click", async () => {
+        previewButton.disabled = true;
+        previewButton.textContent = "Saying it…";
+        await sendVoice(); // the Mac speaks in the voice shown here, even if it restarted since
+        await speakOnMac(PREVIEW_LINE);
+        previewButton.textContent = "Hear this voice";
+        previewButton.disabled = false;
+      });
       if (ON_PUSH) {
         document.getElementById("voice-row").hidden = false;
+        previewButton.hidden = false;
         voiceSelect.addEventListener("change", () => {
           voiceChoice.value = voiceSelect.value;
           remember("voice", voiceChoice.value);
@@ -1459,6 +1482,7 @@
         };
         node.port.postMessage({ type: "speed", value: speed.value });
         document.getElementById("replay").hidden = false;
+        previewButton.disabled = false;
         // The lock screen's back button, where Now Playing shows (with the mic on): hear it again.
         if ("mediaSession" in navigator) navigator.mediaSession.setActionHandler("previoustrack", replayLast);
         log("push player ready: speech is stretched on the phone to the speed slider");
@@ -1523,6 +1547,23 @@
         if (voicePlayer && message === lastMessage) voicePlayer.busyUntil = performance.now();
         log(`#${message} stopped from the Mac`);
       }
+      /**
+       * What the phone says its audio output adds, in the browser's two parts: `baseLatency`, the
+       * processing buffer between this page's audio graph and the system, and `outputLatency`, the
+       * output route (the speaker, or a Bluetooth device's own buffer). Read from iOS through WebKit,
+       * not measured here.
+       */
+      function outputParts() {
+        return {
+          sampleRate: context.sampleRate,
+          baseMs: Math.round((context.baseLatency || 0) * 1000),
+          routeMs: Math.round((context.outputLatency || 0) * 1000),
+        };
+      }
+      function logOutput(when) {
+        const parts = outputParts();
+        log(`audio output ${when}: ${parts.sampleRate} Hz, base ${parts.baseMs} ms, route ${parts.routeMs} ms`);
+      }
       function playPushed(header, samples, receivedAt) {
         if (header.message === droppedMessage) return;
         if (header.index === 0 && header.message !== lastMessage) {
@@ -1550,7 +1591,8 @@
         const queuedMs = header.index === 0 ? Math.round(startsAt - nowMs) : 0;
         if (header.index !== 0) return;
         const phoneMs = Math.round(startsAt - receivedAt) - queuedMs;
-        const outputMs = Math.round(((context.outputLatency || 0) + (context.baseLatency || 0)) * 1000);
+        const { baseMs, routeMs } = outputParts();
+        const outputMs = baseMs + routeMs;
         const netMs = Math.round(median(rtts) / 2);
         const totalMs = Math.round(header.macMs + netMs + phoneMs + outputMs);
         state.renderMs = totalMs;
@@ -1560,7 +1602,7 @@
         log(`pushed #${header.message} in ${header.voice}: Mac ${header.macMs} ms, network ≈${netMs} (RTT ${Math.round(median(rtts))}), phone ${phoneMs}, output ${outputMs}: ≈${totalMs} ms`);
         fetch("/api/audio/speech-ack", {
           method: "POST",
-          body: JSON.stringify({ message: header.message, macMs: header.macMs, queuedMs, netMs, rttMs: Math.round(median(rtts)), phoneMs, outputMs, totalMs, visibility: document.visibilityState }),
+          body: JSON.stringify({ message: header.message, macMs: header.macMs, queuedMs, netMs, rttMs: Math.round(median(rtts)), phoneMs, outputMs, baseMs, routeMs, totalMs, visibility: document.visibilityState }),
         }).catch(() => {});
       }
       /** The waits before each try after the Mac's stream dropped, the last repeating; reset once one connects. */
@@ -1740,7 +1782,10 @@
           log(`audio session type ${navigator.audioSession.type}`);
         } else log("no navigator.audioSession here");
         context = new AudioContext();
-        context.addEventListener("statechange", () => log(`audio context ${context.state}`));
+        context.addEventListener("statechange", () => {
+          log(`audio context ${context.state}`);
+          if (context.state === "running") logOutput("now");
+        });
         noiseBus = context.createGain();
         noiseBus.gain.value = noiseGain();
         noiseBus.connect(context.destination);
@@ -1799,6 +1844,10 @@
         state.ticks += 1;
         live.replaceChildren();
         row("Audio context", context ? context.state : "-");
+        if (context) {
+          const parts = outputParts();
+          row("Audio output", `${parts.sampleRate} Hz, base ${parts.baseMs} ms, route ${parts.routeMs} ms`);
+        }
         row("Noise playing for", context ? `${context.currentTime.toFixed(1)} s` : "-");
         row("Lines asked / finished", `${state.spoken} / ${state.finished}`);
         row("Speech errors", String(state.errors));
@@ -1815,6 +1864,7 @@
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             kind: "local-test",
+            audioOutput: outputParts(),
             page: id,
             visibility: document.visibilityState,
             context: context.state,
