@@ -53,6 +53,15 @@ PLUGIN_DIRS="${THROWAWAY_PLUGIN_DIRS:-}"
 # `--strict-mcp-config`, so without this it has no MCP servers at all, not even the project's own
 # `.mcp.json`: a probe that has to send or answer hub messages names the relay here.
 MCP_CONFIG="${THROWAWAY_MCP_CONFIG:-}"
+# `off` drops `--strict-mcp-config`, for a probe of a mod's own MCP server: strict mode loads only
+# `--mcp-config`, and hides the servers a `--plugin-dir` mod brings (measured 2026-10-21 on 2.1.306).
+# The session then also loads the user's and the repo's servers, the hub relay among them, but not
+# the claude.ai connectors: their tool definitions alone took a probe's first prompt to ~248K tokens,
+# past Haiku's 200K, so this mode turns them off for the session (`--settings`, nothing written).
+STRICT_MCP="${THROWAWAY_STRICT_MCP:-on}"
+# Tools the session may use without asking, comma-separated, passed as `--allowedTools`: how a probe
+# calls an MCP tool without a permission prompt hanging the pane.
+ALLOWED_TOOLS="${THROWAWAY_ALLOWED_TOOLS:-}"
 
 usage() {
   echo "usage: $(basename "$0") start|say|pane|stop <name> [text]" >&2
@@ -71,8 +80,16 @@ case "$verb" in
       exit 1
     fi
     id="$(uuidgen | tr 'A-Z' 'a-z')"
-    args=(claude --model "$MODEL" --effort "$EFFORT" --session-id "$id" -n "$name" --strict-mcp-config)
+    args=(claude --model "$MODEL" --effort "$EFFORT" --session-id "$id" -n "$name")
+    if [ "$STRICT_MCP" != off ]; then
+      args+=(--strict-mcp-config)
+    else
+      args+=(--settings '{"disableClaudeAiConnectors":true}')
+    fi
     args+=(--tools "$TOOLS")
+    if [ -n "$ALLOWED_TOOLS" ]; then
+      args+=(--allowedTools "$ALLOWED_TOOLS")
+    fi
     if [ -n "$MCP_CONFIG" ]; then
       args+=(--mcp-config "$MCP_CONFIG")
     fi

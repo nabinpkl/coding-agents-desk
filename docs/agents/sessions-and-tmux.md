@@ -182,6 +182,14 @@ sends or answers hub messages names the relay there. Run two such probes from tw
 Joining a Bot renames the probe's tmux session to its anchor name (`hubA` became `elias-huba`), so
 `say`, `pane` and `stop` take the new name after that.
 
+**`THROWAWAY_STRICT_MCP=off` lets a mod's own MCP server load.** Strict mode hides the servers a
+`--plugin-dir` mod brings (measured 2026-10-21, Claude Code 2.1.306). Off, the probe also loads the
+user's and the repo's servers and runs the user's hooks, so expect a startup hook to send it off on
+an errand before your prompt; the claude.ai connectors are turned off for the session, because their
+tools alone overflowed Haiku's 200K context. A mod's tool is named
+`mcp__plugin_<mod>_<server>__<tool>` (measured 2026-10-22), and **`THROWAWAY_ALLOWED_TOOLS`** takes
+that name to call it without a permission prompt hanging the pane.
+
 **Probe on the cheap model.** The default is Haiku at `--effort low`, and the reason is not
 frugality for its own sake: a probe session exists to produce transcript records and API flows, and
 nothing reads what it says. The run that prompted this script spent Opus on the word "acorn", three
