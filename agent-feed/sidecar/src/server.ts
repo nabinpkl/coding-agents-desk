@@ -101,6 +101,8 @@ import { renameClaudeSession } from "@/transcripts/session-ops/renameSession";
 import { AgentTerminalService } from "@/terminal/agentTerminalService";
 import { userShellPath } from "@/terminal/userShellPath";
 import { sourceVersion } from "@/sourceVersion";
+import { AskOwnerWaits } from "@/asks/askOwnerWaits";
+import { createAskOwnerRoutes } from "@/asks/askOwnerRoutes";
 
 /**
  * The code this process read, hashed once as it starts. Every module is loaded by the time the
@@ -301,6 +303,8 @@ const routes: RouteHandler[] = [
   // Two drivers behind one path, split by what each may press: `answer` may press the keys that
   // finish the call, `point` only the arrows that move a cursor without committing anything.
   createTmuxQuestionRoutes({ answer: answerTmuxQuestion, point: pointTmuxQuestion }),
+  // And `/asks`: ask_owner calls waiting on the owner, which a session's tool process holds open.
+  createAskOwnerRoutes(new AskOwnerWaits()),
   createClaudeSdkRoutes(claudeLive), // `/sdk/...`, a session run through the Agent SDK (ADR-0143)
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),

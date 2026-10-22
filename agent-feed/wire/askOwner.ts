@@ -104,3 +104,14 @@ export type AskOwnerRefusal = "not-waiting" | "wrong-answers";
  * the owner closed the questions without answering.
  */
 export type AskOwnerOutcome = { delivered: true } | { delivered: false; reason: AskOwnerRefusal; message: string };
+
+/**
+ * `POST /api/asks`, from the process serving the tool to a session: this call is waiting. The
+ * response is a stream that carries one `AskOwnerVerdict` and ends, with heartbeats until then.
+ * Sent again under the same id after a sidecar restart, and a call whose every waiting request has
+ * gone is no longer waiting: its session ended, or its tool call was cancelled.
+ */
+export type WaitAskOwnerCommand = Omit<AskOwnerCall, "askedAt">;
+
+/** How a waiting call ended: answered, or closed by the owner without an answer. */
+export type AskOwnerVerdict = { answered: AskOwnerAnswer[] } | { dismissed: true };

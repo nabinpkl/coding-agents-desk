@@ -67,6 +67,8 @@ export type {
   AskOwnerQuestionKind,
   AskOwnerRefusal,
   AskOwnerStreamMessage,
+  AskOwnerVerdict,
+  WaitAskOwnerCommand,
 } from "./askOwner.ts";
 
 export { ASK_OWNER_MAX_QUESTIONS } from "./askOwner.ts";
