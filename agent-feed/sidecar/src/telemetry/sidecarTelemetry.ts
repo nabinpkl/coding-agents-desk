@@ -12,6 +12,7 @@
 //     child of the load that waited on it. Everything else -- a tile's frame pulls, the host's
 //     probes, the panel's requests after its load -- passes through untouched and synchronously.
 //   - This process's own start, from the moment Bun started it to the moment it listens.
+//   - Its memory, once it listens and every five minutes after (`sidecarMemory.ts`).
 //
 // `Bun.serve` instrumentation from the SDK's defaults is NOT used: it wraps every request in an
 // async handler, WebSocket upgrades and hours-long streams included, and records all of them.
@@ -21,6 +22,7 @@
 
 import * as Sentry from "@sentry/bun";
 import { createTransport } from "@sentry/core";
+import { MEMORY_SPAN, startProcessMemorySamples } from "@/telemetry/sidecarMemory";
 import { sinkEnvelope } from "@/telemetry/telemetrySink";
 import { TELEMETRY_ROUTE } from "@/telemetry/telemetryRoutes";
 
@@ -39,8 +41,9 @@ Sentry.initWithoutDefaultIntegrations({
       sinkEnvelope("sidecar", typeof body === "string" ? body : new TextDecoder().decode(body));
       return { statusCode: 200 };
     }),
-  // Join the panel's decision when there is one; otherwise only this process's start is recorded.
-  tracesSampler: ({ name, parentSampled }) => parentSampled ?? name === BOOT,
+  // Join the panel's decision when there is one; otherwise only this process's start and its
+  // memory readings are recorded.
+  tracesSampler: ({ name, parentSampled }) => parentSampled ?? (name === BOOT || name === MEMORY_SPAN),
   integrations: [
     Sentry.functionToStringIntegration(),
     Sentry.linkedErrorsIntegration(),
@@ -56,6 +59,7 @@ const boot = Sentry.startInactiveSpan({ name: BOOT, op: "app.start", startTime: 
 /** Called once the server is listening. */
 export function sidecarListening(): void {
   boot.end();
+  startProcessMemorySamples();
 }
 
 /** A sampled trace header: `<trace>-<span>-1`. Unsampled or absent means the page is not tracing. */

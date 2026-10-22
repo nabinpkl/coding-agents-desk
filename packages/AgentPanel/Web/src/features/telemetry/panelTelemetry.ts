@@ -11,7 +11,8 @@
 // resource the page fetched (scripts cut to a count and the slowest few, `scriptSpanSummary.ts`),
 // long animation frames, and a span per `fetch`. The `fetch` spans carry
 // trace headers to `/api`, so the sidecar's handling of each request lands in the same trace.
-// What only this panel knows -- its milestones and its streams -- is in `pageMilestones.ts`.
+// What only this panel knows -- its milestones and its streams -- is in `pageMilestones.ts`, and
+// what it holds in memory, at the load's end and every twenty minutes after, in `pageMemory.ts`.
 
 import {
   browserTracingIntegration,
@@ -22,6 +23,7 @@ import {
   userTimingIntegration,
 } from "@sentry/react";
 import type { RootOptions } from "react-dom/client";
+import { pageMemoryAttributes, startPageMemorySamples } from "@/features/telemetry/pageMemory";
 import { awaitMilestones } from "@/features/telemetry/pageMilestones";
 import { summarizeScriptSpans } from "@/features/telemetry/scriptSpanSummary";
 
@@ -92,12 +94,15 @@ export function installPanelTelemetry(): void {
   // the SDK's own handler there, which is what puts the load's sampled trace on the scope.
   client?.on("beforeIdleSpanEnd", (span) => {
     if (spanToJSON(span).attributes?.["sentry.op"] !== "pageload") return;
+    // What the page holds once it has loaded (`pageMemory.ts`).
+    span.setAttributes(pageMemoryAttributes());
     getCurrentScope().setPropagationContext({
       traceId: crypto.randomUUID().replaceAll("-", ""),
       sampleRand: Math.random(),
       sampled: false,
     });
   });
+  if (client) startPageMemorySamples();
   // The canvas is the surface being read (AGENTS.md), and the one whose load these describe.
   if (new URLSearchParams(window.location.search).get("view") === "canvas") {
     awaitMilestones(["first-card"]);

@@ -28,7 +28,9 @@ How the sidecar is launched and supervised on this Mac: `docs/agents/dev-loop.md
   and both SDKs deliver to the sidecar, which keeps every envelope in a 1GB-capped archive
   (`runtime-paths.mjs telemetry-archive`) and copies it to Spotlight if one is running.
   `node tools/telemetry-replay.mjs list|trace|replay` searches the archive and sends an old trace
-  back into Spotlight. `npx @spotlightjs/spotlight` is the viewer, and it listens on EVERY
+  back into Spotlight. Memory goes to the same archive (2026-10-22): the page's at each load's end
+  and every twenty minutes (element count everywhere, JS heap in Chrome only), the sidecar's every
+  five minutes; `telemetry-replay.mjs memory` prints them. `npx @spotlightjs/spotlight` is the viewer, and it listens on EVERY
   interface with no option to narrow it, so run it by hand rather than leaving it up.
 
 ## A channel that is turned off without being awaited will race its own re-opening
