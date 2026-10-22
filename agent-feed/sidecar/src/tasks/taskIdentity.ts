@@ -122,6 +122,10 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
       if (notification) notifications.set(notification.taskId, notification);
       continue;
     }
+    // Only the conversation itself. Claude Code also writes `api-request-blob` records, copies of
+    // what it sent the API that repeat earlier calls and results with no timestamp of their own;
+    // read as events, a copy rewrote a task's start with no time and the panel showed it at 0s.
+    if (record.type !== "user" && record.type !== "assistant") continue;
 
     const message = record.message as { content?: unknown } | undefined;
     const blocks = message?.content;

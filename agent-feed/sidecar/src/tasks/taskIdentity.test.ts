@@ -104,6 +104,41 @@ describe("parseTranscriptWindow, subagents", () => {
   });
 });
 
+describe("parseTranscriptWindow, copies of the API request", () => {
+  const call = {
+    type: "tool_use",
+    id: "toolu_1",
+    name: "Bash",
+    input: { command: "just check", run_in_background: true },
+  };
+  const result = {
+    type: "tool_result",
+    tool_use_id: "toolu_1",
+    content: "Command running in background with ID: bx3lsggha. Output is being written to: /tmp/t/bx3lsggha.output",
+  };
+
+  // Measured on a live transcript: a copy that repeated both halves after the real records left
+  // the task with no start, and the panel showed it running for 0s.
+  test("a copy with no timestamp does not replace the start the conversation recorded", () => {
+    const scan = parseTranscriptWindow(
+      window(
+        { type: "assistant", timestamp: "2026-10-21T06:02:27.335Z", message: { content: [call] } },
+        { type: "user", timestamp: "2026-10-21T06:02:27.403Z", message: { content: [result] } },
+        { type: "api-request-blob", hash: "a", message: { role: "assistant", content: [call] } },
+        { type: "api-request-blob", hash: "b", message: { role: "user", content: [result] } },
+      ),
+    );
+    expect(scan.starts.get("bx3lsggha")?.startedAt).toBe(Date.parse("2026-10-21T06:02:27.335Z"));
+  });
+
+  test("a task found only in a copy is not a task", () => {
+    const scan = parseTranscriptWindow(
+      window({ type: "api-request-blob", hash: "b", message: { role: "user", content: [result] } }),
+    );
+    expect(scan.starts.size).toBe(0);
+  });
+});
+
 describe("parseTranscriptWindow, the two notification shapes", () => {
   const notification = [
     "<task-notification>",
