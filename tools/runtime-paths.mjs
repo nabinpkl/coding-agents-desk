@@ -20,11 +20,12 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     // refreshing one copy would race each other.
     gridEncoderSlots: join(root, "bin", "grid-encoder-slots"),
     panelTlsDirectory: join(root, "agent-panel", "tls"),
-    // The speech process's voice (`agent-feed/speech/speech_server.py`): Kitten TTS nano 0.8's
-    // model.onnx, voices.npz and symbols.json, with a SOURCE.txt naming where they came from. Model
-    // files are not checked in, so they live with the other things a machine holds for this one.
+    // The speech process's voice (`agent-feed/speech/speech_server.py`): Phonon 31M English and its
+    // everyday English voices, with a SOURCE.txt naming where they came from, put there by
+    // `just speech-voice`. Model files are not checked in, so they live with the other things a
+    // machine holds for this one.
     speechModels: absoluteEnvironmentPath(environment, "AGENTDESK_SPEECH_MODELS",
-      join(root, "speech", "kitten-nano-0.8-fp32")),
+      join(root, "speech", "phonon-31m-en")),
     // Whether the reader last asked for edits to be applied as they land, or held until they say.
     // Durable rather than in the dev server's memory, because a dev server restart is one of the
     // things a reader is asking to be protected from when they choose to hold them.

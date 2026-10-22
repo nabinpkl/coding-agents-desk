@@ -119,3 +119,7 @@ graphify-out/
 # with --plugin-dir, for the version running.
 agent-feed/sidecar/mods/*/.claude-plugin/types/
 agent-feed/sidecar/mods/*/tsconfig.json
+
+# The clips behind public/experiments/voice-samples.html: binary audio, kept on the Mac that made
+# them (2026-10-21) rather than in history, so the page plays only there.
+packages/AgentPanel/Web/public/experiments/voice-samples/

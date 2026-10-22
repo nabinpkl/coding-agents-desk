@@ -2,7 +2,7 @@
 <!--
   Experiment, kept until it is settled whether Agent Radio moves to it. `?push=1` is the live one:
   the page that plays what the Mac's speech process says (a session finishing its turn, a reply read
-  out loud from the feed's speaker), mixed with noise made here. Its server half is
+  out loud from the feed's speaker) in the Phonon voice picked here, mixed with noise made here. Its server half is
   `agent-feed/sidecar/src/audio/speechPushExperiment.ts`. The modes that make speech on the phone
   need nothing on the Mac. `?mac=1` posts to a route that is gone, and the mic, dictation and Whisper
   modes need a dictation server that is not checked in.
@@ -159,6 +159,11 @@
       .toggle[hidden] {
         display: none;
       }
+      .about {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
       .toggle small {
         color: var(--muted);
       }
@@ -207,6 +212,7 @@
         <a href="/experiments/local-test.html?push=1&amp;mic=1&amp;dictate=1" style="color: var(--accent)">Mac push + mic + dictation</a>
         <a href="/experiments/local-test.html?push=1&amp;mic=1&amp;dictate=1&amp;whisper=1" style="color: var(--accent)">Mac push + mic + dictation + Whisper</a>
         <a href="/experiments/local-test.html?push=1&amp;mic=1&amp;whisper=1" style="color: var(--accent)">Mac push + mic + Whisper</a>
+        <a href="/experiments/voice-samples.html" style="color: var(--accent)">Voice samples</a>
       </nav>
       <button id="start" type="button">Start</button>
       <fieldset id="mix">
@@ -234,6 +240,11 @@
           <input id="speed-level" type="range" min="0.5" max="4" step="0.05" />
           <output id="speed-out" for="speed-level"></output>
         </label>
+        <label class="level" for="voice-name" id="voice-row" hidden>
+          <span>Voice</span>
+          <select id="voice-name"></select>
+        </label>
+        <p class="about" id="voice-about" hidden></p>
         <label class="level" for="noise-color">
           <span>Color</span>
           <select id="noise-color">
@@ -831,9 +842,9 @@
         }
       }
 
-      // How fast the Mac speaks, in push mode: Kitten's own rate, set on the speech process for every
-      // later message (pitch stays, as it would not if the phone sped up playback). Remembered here
-      // and sent again on every connection, since the speech process forgets it when it restarts.
+      // How fast speech plays, in push mode: the phone stretches it (WSOLA, so the pitch stays), and the
+      // Mac is told so it paces what it sends and says how long a message plays. Remembered here and
+      // sent again on every connection, since the speech process forgets it when it restarts.
       const speed = { value: Number(stored("speed") ?? NaN) };
       if (!Number.isFinite(speed.value)) speed.value = 0.8;
       const speedInput = document.getElementById("speed-level");
@@ -843,7 +854,7 @@
         speedShown.textContent = `${speed.value.toFixed(2)}×`;
       };
       async function sendSpeed() {
-        const response = await fetch("/api/audio/kitten-speed", {
+        const response = await fetch("/api/audio/speech-speed", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ speed: speed.value }),
@@ -861,7 +872,7 @@
         speedInput.addEventListener("input", () => {
           speed.value = Number(speedInput.value);
           speedShown.textContent = `${speed.value.toFixed(2)}×`;
-          // At once, on what is already queued; the Mac makes later pieces at it when the drag ends.
+          // At once, on what is already queued; the Mac paces by it once the drag ends.
           voicePlayer?.node.port.postMessage({ type: "speed", value: speed.value });
         });
         speedInput.addEventListener("change", () => {
@@ -870,6 +881,59 @@
         });
       }
 
+      // Which voice the Mac speaks in, in push mode: one of the voices the speech process lists
+      // (Phonon's own, and the everyday English voices of its catalog). Remembered here and sent again
+      // on every connection, since the speech process forgets it when it restarts; a change is heard
+      // from the next message on.
+      const voiceChoice = { value: stored("voice"), voices: [] };
+      const voiceSelect = document.getElementById("voice-name");
+      const VOICE_ACCENTS = { "en-us": "American", "en-gb": "British" };
+      const showVoiceAbout = () => {
+        const about = document.getElementById("voice-about");
+        about.textContent = voiceChoice.voices.find((choice) => choice.name === voiceChoice.value)?.description ?? "";
+        about.hidden = !about.textContent;
+      };
+      async function sendVoice() {
+        const response = await fetch("/api/audio/speech-voice", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ voice: voiceChoice.value }),
+        }).catch((error) => ({ ok: false, status: 0, text: async () => error.message }));
+        const body = await response.text();
+        log(response.ok ? `voice ${JSON.parse(body).voice} on the Mac` : `voice not set: ${response.status} ${body}`);
+      }
+      /** Lists the Mac's voices in the picker, grouped by accent, and puts this page's choice back on it. */
+      async function loadVoices() {
+        const response = await fetch("/api/audio/speech-voices", { cache: "no-store" }).catch(() => null);
+        if (!response?.ok) {
+          log(`voices not listed: ${response ? response.status : "no answer"}`);
+          return;
+        }
+        const { voice, voices } = await response.json();
+        voiceChoice.voices = voices;
+        const groups = new Map();
+        for (const choice of voices) {
+          const label = choice.locale
+            ? `${VOICE_ACCENTS[choice.locale] ?? choice.locale} ${choice.gender === "male" ? "men" : "women"}`
+            : "Built in";
+          if (!groups.has(label)) groups.set(label, Object.assign(document.createElement("optgroup"), { label }));
+          groups.get(label).append(new Option(choice.name === "default" ? "Phonon's own" : choice.name, choice.name));
+        }
+        voiceSelect.replaceChildren(...groups.values());
+        if (!voices.some((choice) => choice.name === voiceChoice.value)) voiceChoice.value = voice;
+        voiceSelect.value = voiceChoice.value;
+        showVoiceAbout();
+        if (voiceChoice.value !== voice) await sendVoice();
+      }
+      if (ON_PUSH) {
+        document.getElementById("voice-row").hidden = false;
+        voiceSelect.addEventListener("change", () => {
+          voiceChoice.value = voiceSelect.value;
+          remember("voice", voiceChoice.value);
+          showVoiceAbout();
+          void sendVoice();
+        });
+      }
 
       /** SAM: 22.05 kHz samples, synchronously. */
       function renderSam(text) {
@@ -1215,7 +1279,7 @@
       const rtts = [];
       async function pingMac() {
         const startedAt = performance.now();
-        await fetch(`/api/audio/kitten-ping?at=${Date.now()}`, { cache: "no-store" });
+        await fetch(`/api/audio/speech-ping?at=${Date.now()}`, { cache: "no-store" });
         rtts.push(performance.now() - startedAt);
         if (rtts.length > 7) rtts.shift();
       }
@@ -1448,7 +1512,7 @@
         if (voicePlayer) voicePlayer.busyUntil = 0;
         if (lastMessage === null) return;
         droppedMessage = lastMessage;
-        fetch("/api/audio/kitten-cancel", { method: "POST", body: JSON.stringify({ message: lastMessage }) }).catch(() => {});
+        fetch("/api/audio/speech-cancel", { method: "POST", body: JSON.stringify({ message: lastMessage }) }).catch(() => {});
       }
       /** The Mac stopped a message (a reply read aloud, stopped from the panel): drop what is left of it. */
       function stopPushed(message) {
@@ -1465,14 +1529,14 @@
           lastMessage = header.message;
           gate?.port.postMessage({ type: "unmute" });
         }
-        const speech = trimmedSpeech(samples);
-        const pause = /[.!?]$/.test(header.text) ? 0.28 : /[,;:]$/.test(header.text) ? 0.12 : 0;
-        const made = header.speed ?? 0.8;
+        // A frame of one continuous recording, made at the voice's own pace as the Mac streams it: queued
+        // as it comes, with nothing trimmed or added, and stretched to the speed slider as it plays.
+        const made = 1;
         if (header.index === 0) lastHeard = { message: header.message, pieces: [] };
         const pieces = [];
         const message = header.message;
         if (header.index === 0 && header.tone) pieces.push({ samples: toneSamples(header.tone), made: speed.value, pause: 0, message });
-        pieces.push({ samples: speech, made, pause, message });
+        pieces.push({ samples, made, pause: 0, message });
         for (const piece of pieces) {
           queuePiece(piece);
           if (lastHeard.message === header.message) lastHeard.pieces.push(piece);
@@ -1482,7 +1546,7 @@
         // waits its turn, which is not delivery time.
         const nowMs = performance.now();
         const startsAt = Math.max(nowMs, voicePlayer.busyUntil);
-        voicePlayer.busyUntil = startsAt + ((speech.length / 24000 + pause) * 1000 * made) / speed.value;
+        voicePlayer.busyUntil = startsAt + ((samples.length / 24000) * 1000 * made) / speed.value;
         const queuedMs = header.index === 0 ? Math.round(startsAt - nowMs) : 0;
         if (header.index !== 0) return;
         const phoneMs = Math.round(startsAt - receivedAt) - queuedMs;
@@ -1493,8 +1557,8 @@
         state.finished += 1;
         document.getElementById("latency").textContent = `≈ ${totalMs} ms: Mac ${Math.round(header.macMs)} + network ${netMs} + phone ${phoneMs} + output ${outputMs}`;
         if (queuedMs) log(`#${header.message} waited ${queuedMs} ms behind the message before it (not counted)`);
-        log(`pushed #${header.message}: Mac ${header.macMs} ms (espeak ${header.espeakMs}, model ${header.modelMs}), network ≈${netMs} (RTT ${Math.round(median(rtts))}), phone ${phoneMs}, output ${outputMs}: ≈${totalMs} ms`);
-        fetch("/api/audio/kitten-ack", {
+        log(`pushed #${header.message} in ${header.voice}: Mac ${header.macMs} ms, network ≈${netMs} (RTT ${Math.round(median(rtts))}), phone ${phoneMs}, output ${outputMs}: ≈${totalMs} ms`);
+        fetch("/api/audio/speech-ack", {
           method: "POST",
           body: JSON.stringify({ message: header.message, macMs: header.macMs, queuedMs, netMs, rttMs: Math.round(median(rtts)), phoneMs, outputMs, totalMs, visibility: document.visibilityState }),
         }).catch(() => {});
@@ -1515,11 +1579,12 @@
           if (silentMs > MAC_SILENT_MS) stop.abort(new Error(`nothing from the Mac for ${Math.round(silentMs / 1000)} s`));
         }, 2000);
         try {
-          const response = await fetch(`/api/audio/kitten-listen?at=${Date.now()}`, { cache: "no-store", signal: stop.signal });
+          const response = await fetch(`/api/audio/speech-listen?at=${Date.now()}`, { cache: "no-store", signal: stop.signal });
           if (!response.ok) return `the Mac answered ${response.status}`;
           macStream.connects += 1;
           macStream.state = "listening";
           void sendSpeed();
+          void loadVoices();
           log(`listening to the Mac: ${response.status}${macStream.connects > 1 ? `, connection ${macStream.connects}` : ""}`);
           heardAt = Date.now();
           const reader = response.body.getReader();
@@ -1593,7 +1658,7 @@
             if (Date.now() - heardAt > MAC_SILENT_MS) stop.abort(new Error("the control stream went quiet"));
           }, 2000);
           try {
-            const response = await fetch(`/api/audio/kitten-events?at=${Date.now()}`, { cache: "no-store", signal: stop.signal });
+            const response = await fetch(`/api/audio/speech-events?at=${Date.now()}`, { cache: "no-store", signal: stop.signal });
             if (response.ok) {
               tries = 0;
               log("control stream open");
@@ -1743,7 +1808,7 @@
           row("Mic", mic.track ? `${mic.track.readyState}${mic.track.muted ? ", muted" : ""}, peak ${Math.round(mic.peakDb)} dB, speech starts ${mic.speechStarts}` : "off");
         }
         row("Model runs on", ON_PUSH ? "the Mac, pushed" : ON_MAC ? "the Mac (resident Kitten)" : ON_GPU ? (navigator.gpu ? "GPU (WebGPU)" : "CPU (no WebGPU)") : "CPU");
-        row("Voice", ENGINE === "kitten" ? `kitten ${KITTEN_VOICE}, first sound after ${state.renderMs ?? "-"} ms, gaps ${state.lastGapMs ?? "-"} ms` : `${ENGINE}, last line made in ${state.renderMs ?? "-"} ms`);
+        row("Voice", ON_PUSH ? `${voiceChoice.value ?? "-"} on the Mac, first sound after ${state.renderMs ?? "-"} ms` : ENGINE === "kitten" ? `kitten ${KITTEN_VOICE}, first sound after ${state.renderMs ?? "-"} ms, gaps ${state.lastGapMs ?? "-"} ms` : `${ENGINE}, last line made in ${state.renderMs ?? "-"} ms`);
         if (!context) return;
         fetch("/api/audio/test-reports", {
           method: "POST",

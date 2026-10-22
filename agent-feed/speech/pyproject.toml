@@ -1,5 +1,5 @@
-# The speech process (`speech_server.py`): Kitten TTS on this Mac for Agent Radio. Its own small
-# environment, built with `uv sync` here, so it carries nothing it does not run.
+# The speech process (`speech_server.py`): Phonon 31M on this Mac's GPU, through Gradium's `ptts`
+# runtime. Its own small environment, built with `uv sync` here, so it carries nothing it does not run.
 [project]
 name = "agentdesk-speech"
 version = "0.1.0"
@@ -7,11 +7,8 @@ description = "Text to speech on the Mac for AgentDesk's audio channel."
 requires-python = ">=3.13"
 dependencies = [
     "numpy==2.4.6",
-    "onnxruntime==1.24.4",
-    # Pronunciation, as Kitten's own package does it. Both last released 2025-01; accepted in
-    # docs/dependency-exceptions.md.
-    "phonemizer-fork==3.3.2",
-    "espeakng-loader==0.2.4",
+    # Phonon's runtime (Rust, with Metal), whose only dependency is numpy.
+    "ptts==0.4.0",
 ]
 
 [tool.uv]

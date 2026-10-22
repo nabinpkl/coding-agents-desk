@@ -1,9 +1,9 @@
 // The supervisor's third child: the speech process (`agent-feed/speech/speech_server.py`), Python
-// holding Kitten TTS, which the sidecar sends a Bot session's announcements to.
+// holding Phonon on the Mac's GPU, which the sidecar sends a Bot session's announcements to.
 //
-// Its own Python environment, built by `uv sync` in its directory (which pins its packages), and its
-// voice from the runtime root. One source file and no imports of ours, so that file changing is the
-// one thing that replaces it. Not judged by the supervisor's gate: Bun cannot parse Python, and a
+// Its own Python environment, and its voice from the runtime root, both put in place by
+// `just speech-voice`, which pins its packages and the voice's files. One source file and no
+// imports of ours, so that file changing is the one thing that replaces it. Not judged by the supervisor's gate: Bun cannot parse Python, and a
 // file that will not run fails at once and is started again on the crash backoff.
 
 import { existsSync } from "node:fs";
@@ -42,9 +42,9 @@ export function createSpeechProcess({ agentFeed, log, stopping, settleMs }: Spee
 
   /** Starts it, or says what it is missing: a machine without it still runs the rest. */
   function start(): void {
-    const missing = [python, join(models, "model.onnx")].find((path) => !existsSync(path));
+    const missing = [python, join(models, "model.safetensors")].find((path) => !existsSync(path));
     if (missing) {
-      log(`not starting the speech process: ${missing} is not there (\`uv sync\` in ${directory} builds the first)`);
+      log(`not starting the speech process: ${missing} is not there (\`just speech-voice\` puts both in place)`);
       return;
     }
     child.start();

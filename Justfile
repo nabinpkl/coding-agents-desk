@@ -853,6 +853,16 @@ grid-encoder:
     sh tools/test-desktop-navigation.sh
     sh tools/build-grid-encoder.sh
 
+# The speech process's environment and voice (`agent-feed/speech`): its pinned packages, then Phonon
+# 31M and the everyday English voices into the runtime root. Run once per machine, and again when
+# the pins in `agent-feed/speech/fetch_voice.py` move.
+speech-voice:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd agent-feed/speech
+    uv sync --frozen
+    .venv/bin/python -u fetch_voice.py --models "$(node ../../tools/runtime-paths.mjs speech-models)"
+
 # Build the gesture/voice interaction webview bundle into InteractionPanel's
 # package resources. The gesture-agent web app is the authored renderer; its
 # Vite embed output is content-published before the consuming app build.

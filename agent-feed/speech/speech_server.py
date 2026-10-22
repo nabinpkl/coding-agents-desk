@@ -1,21 +1,22 @@
 # The speech process: an agent's text made into speech on this Mac and pushed to every page
 # listening, which plays it into its own mix. Started and restarted by the sidecar's supervisor
-# beside the audio process. The sidecar sends a Bot session's announcements to `/say`
-# (`agent-feed/sidecar/src/push/sessionSpeech.ts`).
+# beside the audio process. The sidecar sends a Bot session's announcements, and replies read out
+# loud, to `/say` (`agent-feed/sidecar/src/push/sessionSpeech.ts`).
 #
-# One resident Kitten TTS nano 0.8 (fp32 ONNX, CPU, about 240 MB) with espeak-ng in-process for
-# pronunciation. A message is cut into pieces, the first a few words long so it is heard soon, and
-# each piece is made and pushed once what was pushed before it is within LEAD_S of finishing on the
-# page. Making is many times faster than playing, so sending a whole message at once put tens of
-# seconds of audio in flight (96 KB a second of it), and a stop or the next message waited behind
-# all of it. Messages are made one at a time, in the order they arrived, so two never interleave.
+# One resident Phonon 31M English (Gradium, Apache-2.0) on the Mac's GPU, through its `ptts` runtime:
+# about 235 MB, measured 2026-10-21. It reads text through its own tokenizer, so a word like "tmux" or
+# "ADR" is not guessed from spelling rules, and it makes speech one 80 ms frame at a time. Each frame
+# is pushed as it is made, so the first is heard within milliseconds, and the rest are paced to LEAD_S
+# ahead of the page's playback: making runs 8 to 16 times faster than playing, and sending ahead of
+# that would put tens of seconds in flight for a stop to wait behind. Messages are made one at a
+# time, in the order they arrived, so two never interleave.
 #
-#   GET  /listen   the push stream: frames of uint32 LE header length, JSON header (with the speed
-#                  the piece was made at), uint32 LE PCM byte length, float32 PCM at 24 kHz. An empty
-#                  frame at once and every 5 s after keeps it alive.
+#   GET  /listen   the push stream: frames of uint32 LE header length, JSON header, uint32 LE PCM byte
+#                  length, float32 mono PCM at 24 kHz, made at the voice's own pace (the page stretches
+#                  it to its speed). An empty frame at once and every 5 s after keeps it alive.
 #   POST /say      <- {text, tone?, ref?}  -> {listeners, durationMs, cancelled} once the whole message is
 #                  made (or cancelled), or 409 nobody_listening with no stream open (nothing is made).
-#                  `tone` (attention or done) rides the first piece's header; the page plays it before
+#                  `tone` (attention or done) rides the first frame's header; the page plays it before
 #                  the words. `ref` names the caller's message, so it can be cancelled by that name.
 #   GET  /events   the control stream: one JSON object a line, {"stop": message} when a message is
 #                  cancelled, a bare newline at once and every 5 s after. Its own stream so a stop is
@@ -23,19 +24,21 @@
 #   POST /cancel   <- {message} or {ref}  the rest of that message is not made, and every page is told
 #                  to drop what it holds of it: on /events at once, and on /listen as a stop frame
 #                  ({stop: message}, no audio) for a page that has no control stream
-#   POST /ack      <- the page's timings for a message's first piece, logged
-#   GET  /speed    -> {speed}; POST /speed <- {speed} sets how fast every later message is spoken
-#                  (Kitten's own rate, so the pitch stays; clamped to SPEEDS)
+#   GET  /voices   -> {voice, voices: [{name, locale, gender, description}]}: the voice in use, and
+#                  every voice it can switch to
+#   POST /voice    <- {voice}  -> {voice}: speaks every later message in that voice
+#   POST /ack      <- the page's timings for a message's first frame, logged
+#   GET  /speed    -> {speed}; POST /speed <- {speed}: how fast the pages play speech (they stretch it),
+#                  which is how this paces what it sends and how long it reports a message plays
 #   GET  /ping     204, for the page to time a round trip
 #
-# Usage: python speech_server.py --port 7690 --models <dir with model.onnx, voices.npz, symbols.json>
+# Usage: python speech_server.py --port 7690 --models <dir that `fetch_voice.py` filled>
 
 import argparse
 import itertools
 import json
 import os
 import queue
-import re
 import select
 import struct
 import threading
@@ -43,42 +46,17 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import espeakng_loader
 import numpy as np
-import onnxruntime as ort
-from phonemizer.backend.espeak.wrapper import EspeakWrapper
-
-# espeak-ng's library and data ship inside espeakng_loader; the phonemizer is told before it loads.
-EspeakWrapper.set_library(espeakng_loader.get_library_path())
-os.environ["ESPEAK_DATA_PATH"] = espeakng_loader.get_data_path()
-from phonemizer.backend import EspeakBackend  # noqa: E402  (needs the library set first)
+import ptts
 
 SAMPLE_RATE = 24_000
-VOICE = "expr-voice-3-f"  # Kitten's "Luna"
-SPEEDS = (0.5, 4.0)  # the rates /speed accepts; 1 is the model's own pace, higher is faster
-# The fastest the model itself is asked for. Past it, it barely speeds up (measured 2026-10-21, with
-# the silence the page trims taken out: 2x 3.0 s, 3x 2.5 s, 4x 2.2 s for one sentence), so a piece is
-# made at no more than this and stamped with it, and the page stretches it the rest of the way.
-MODEL_MAX_SPEED = 2.0
-FIRST_WORDS = 4  # the first piece, short so it is heard soon
-MAX_WORDS = 8  # every later piece, at most
+# The voice built into the model's checkpoint; every other one is read from the catalog beside it.
+BUILT_IN_VOICE = "default"
+SPEEDS = (0.5, 4.0)  # the playback speeds /speed accepts; 1 is the voice's own pace
 KEEPALIVE_S = 5.0
 # How far ahead of the page's playback a message is sent: room for a network hiccup, and all that is
 # in flight to throw away when it is stopped.
 LEAD_S = 3.0
-CLAUSE = re.compile(r"[^,.!?;:]+[,.!?;:]?")
-
-
-def trimmed(audio: np.ndarray) -> np.ndarray:
-    """A piece without the silence Kitten leaves around it, kept to 30 ms before the first sound and 60 ms
-    after the last. A page trims by the same rule before it plays a piece, so pacing by the untrimmed
-    length ran ahead of the page by about a third, measured, and let its buffer run dry every few
-    seconds. Trimmed here, what this paces by is what the page plays, and the silence is not sent at
-    all. Trimming twice changes nothing."""
-    loud = np.flatnonzero(np.abs(audio) > 0.01)
-    if loud.size == 0:
-        return audio[:1]
-    return audio[max(0, loud[0] - 720) : min(len(audio), loud[-1] + 1440)]
 
 
 def log(line: str) -> None:
@@ -86,46 +64,23 @@ def log(line: str) -> None:
 
 
 class Voice:
-    """Kitten and espeak-ng, loaded once. `make` is safe from any thread; runs take turns."""
+    """Phonon on the GPU, the voices it can speak in, and the one in use. Read by one message at a time."""
 
     def __init__(self, models: Path):
-        symbols = json.loads((models / "symbols.json").read_text())
-        self.index = {symbol: i for i, symbol in enumerate(symbols)}  # last wins, as in Kitten's own code
-        self.styles = np.load(models / "voices.npz")[VOICE]
-        self.session = ort.InferenceSession(str(models / "model.onnx"), providers=["CPUExecutionProvider"])
-        self.espeak = EspeakBackend(language="en-us", preserve_punctuation=True, with_stress=True)
-        self.lock = threading.Lock()
-        self.speed = 0.8  # what the experiment settled on before there was a slider
+        catalog = models / "voices"
+        self.catalog = [json.loads(line) for line in (catalog / "voices.jsonl").read_text().splitlines() if line.strip()]
+        # On the GPU or not at all: the CPU took 15 s for a paragraph the GPU made in 0.9 s (2026-10-21).
+        self.tts = ptts.TTS(str(models), lang="en", quant="f32", device="metal", voice_catalog=str(catalog))
+        self.name = BUILT_IN_VOICE
+        self.speed = 1.0  # how fast the pages play it, told by them on every connection
 
-    def make(self, piece: str, speed: float | None = None) -> tuple[np.ndarray, float, float]:
-        """`piece` as samples at SAMPLE_RATE (at `speed`, or the current one), with ms spent
-        pronouncing and in the model."""
-        started = time.perf_counter()
-        phonemes = self.espeak.phonemize([piece])[0]
-        pronounced = time.perf_counter()
-        tokens = " ".join(re.findall(r"\w+|[^\w\s]", phonemes))
-        ids = [0] + [self.index[c] for c in tokens if c in self.index] + [10, 0]
-        row = min(len(piece), self.styles.shape[0] - 1)
-        with self.lock:
-            out = self.session.run(None, {
-                "input_ids": np.array([ids], dtype=np.int64),
-                "style": self.styles[row : row + 1],
-                "speed": np.array([speed or self.speed], dtype=np.float32),
-            })[0]
-        done = time.perf_counter()
-        return np.asarray(out, dtype=np.float32).reshape(-1), (pronounced - started) * 1000, (done - pronounced) * 1000
+    def choices(self) -> list[dict]:
+        built_in = {"name": BUILT_IN_VOICE, "locale": None, "gender": None, "description": "The model's own voice"}
+        keep = ("name", "locale", "gender", "description")
+        return [built_in] + [{key: row.get(key) for key in keep} for row in self.catalog]
 
-
-def pieces(text: str) -> list[str]:
-    """The first few words (up to the first clause's end), then clauses of at most MAX_WORDS words."""
-    words = text.split()
-    first_clause = CLAUSE.match(text)
-    head = min(FIRST_WORDS, len(first_clause.group(0).split()) if first_clause else len(words))
-    out = [" ".join(words[:head])]
-    for clause in CLAUSE.findall(" ".join(words[head:])):
-        clause_words = clause.split()
-        out += [" ".join(clause_words[i : i + MAX_WORDS]) for i in range(0, len(clause_words), MAX_WORDS)]
-    return [piece for piece in out if piece]
+    def knows(self, name: str) -> bool:
+        return any(choice["name"] == name for choice in self.choices())
 
 
 def frame(header: dict, pcm: bytes) -> bytes:
@@ -177,47 +132,39 @@ class Channel:
         log(f"cancel #{message}")
 
     def say(self, text: str, tone: str | None = None, ref: str | None = None) -> tuple[float, bool]:
-        """Makes and pushes `text` piece by piece, after any message before it, paced to LEAD_S ahead
-        of the page's playback. Returns how long it plays, in ms, and whether it was cancelled part
-        way; it returns about LEAD_S before the page finishes playing it."""
+        """Makes and pushes `text` frame by frame, after any message before it, paced to LEAD_S ahead of
+        the page's playback. Returns how long it plays, in ms, and whether it was cancelled part way;
+        it returns about LEAD_S before the page finishes playing it."""
         # Numbered before waiting its turn, so a cancel by ref reaches a message still waiting.
         message = next(self.ids)
         if ref:
             self.refs[ref] = message
         with self.say_lock:
             received = time.perf_counter()
-            parts = pieces(text)
-            duration_ms = 0.0
+            voice, speed = self.voice.name, self.voice.speed
+            played_s = 0.0
             # When what has been pushed of this message finishes playing on the page.
             played_by = time.monotonic()
-            for i, piece in enumerate(parts):
-                wait = played_by - LEAD_S - time.monotonic()
-                if wait > 0:
-                    with self.changed:
-                        self.changed.wait_for(lambda: message in self.cancelled, timeout=wait)
-                if message in self.cancelled:
-                    log(f"#{message}: cancelled, {len(parts) - i} piece(s) not made")
-                    return duration_ms, True
-                # Stamped on the piece: the page stretches it from this to the listener's speed.
-                speed = min(self.voice.speed, MODEL_MAX_SPEED)
-                audio, espeak_ms, model_ms = self.voice.make(piece, speed)
-                audio = trimmed(audio)
-                # As the page plays it: the pause it leaves after a clause, and stretched from the speed
-                # it was made at to the listener's.
-                pause = 0.28 if re.search(r"[.!?]$", piece) else 0.12 if re.search(r"[,;:]$", piece) else 0.0
-                plays_s = (len(audio) / SAMPLE_RATE + pause) * speed / self.voice.speed
-                duration_ms += plays_s * 1000
-                played_by = max(played_by, time.monotonic()) + plays_s
-                mac_ms = (time.perf_counter() - received) * 1000
-                self.push(frame({
-                    "message": message, "index": i, "last": i == len(parts) - 1, "text": piece, "speed": speed,
-                    **({"tone": tone} if tone and i == 0 else {}),
-                    "espeakMs": round(espeak_ms, 2), "modelMs": round(model_ms, 1), "macMs": round(mac_ms, 1),
-                }, audio.tobytes()))
-                if i == 0:
-                    log(f"#{message}: first piece out after {mac_ms:.0f} ms (model {model_ms:.0f} ms) "
-                        f"to {self.listening()} listener(s)")
-            return duration_ms, message in self.cancelled
+            with self.voice.tts.stream(text, voice=voice) as audio:
+                for index, chunk in enumerate(audio):
+                    wait = played_by - LEAD_S - time.monotonic()
+                    if wait > 0:
+                        with self.changed:
+                            self.changed.wait_for(lambda: message in self.cancelled, timeout=wait)
+                    if message in self.cancelled:
+                        log(f"#{message}: cancelled after {played_s:.1f} s of it")
+                        return played_s * 1000, True
+                    pcm = np.asarray(chunk, dtype="<f4").reshape(-1)
+                    plays_s = len(pcm) / SAMPLE_RATE / speed
+                    played_s += plays_s
+                    played_by = max(played_by, time.monotonic()) + plays_s
+                    header = {"message": message, "index": index}
+                    if index == 0:
+                        mac_ms = (time.perf_counter() - received) * 1000
+                        header.update({"text": text[:200], "voice": voice, "macMs": round(mac_ms, 1), **({"tone": tone} if tone else {})})
+                        log(f"#{message}: first audio out after {mac_ms:.0f} ms, in {voice}, to {self.listening()} listener(s)")
+                    self.push(frame(header, pcm.tobytes()))
+            return played_s * 1000, message in self.cancelled
 
 
 def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
@@ -258,6 +205,8 @@ def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
                 self.answer(204)
             elif self.path.startswith("/speed"):
                 self.answer(200, {"speed": channel.voice.speed})
+            elif self.path.startswith("/voices"):
+                self.answer(200, {"voice": channel.voice.name, "voices": channel.voice.choices()})
             elif self.path.startswith("/listen"):
                 self.stream(channel.listeners, "listener", KEEPALIVE, "application/octet-stream")
             elif self.path.startswith("/events"):
@@ -314,6 +263,15 @@ def handler_for(channel: Channel, port: int) -> type[BaseHTTPRequestHandler]:
                     ref = body.get("ref") if isinstance(body.get("ref"), str) else None
                     duration_ms, cancelled = channel.say(text, tone, ref)
                     self.answer(200, {"listeners": heard_by, "durationMs": round(duration_ms), "cancelled": cancelled})
+            elif self.path.split("?")[0] == "/voice":  # exactly, so /voices is not taken for it
+                name = body.get("voice")
+                if not isinstance(name, str) or not channel.voice.knows(name):
+                    self.refuse(400, "unknown_voice", f"expected {{ voice }} naming one of GET /voices, not {name!r}")
+                    return
+                if name != channel.voice.name:
+                    channel.voice.name = name
+                    log(f"voice {name}")
+                self.answer(200, {"voice": channel.voice.name})
             elif self.path.startswith("/speed"):
                 speed = body.get("speed")
                 if not isinstance(speed, (int, float)) or isinstance(speed, bool):
@@ -363,12 +321,11 @@ def main() -> None:
     args = parser.parse_args()
     threading.Thread(target=leave_with_parent, daemon=True, name="leave-with-parent").start()
     voice = Voice(args.models)
-    # Warm up: the first runs of the model are slow, so they are paid here, not by the first message.
-    for text in ("Warming up.", "The build finished on", "The build finished on the Mac, all the tests passed."):
-        voice.make(text)
+    # Warm up: the first run builds the GPU's kernels, so it is paid here, not by the first message.
+    voice.tts.synth("Warming up the voice.")
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(Channel(voice), args.port))
     server.daemon_threads = True
-    log(f"ready on 127.0.0.1:{args.port}, models from {args.models}")
+    log(f"ready on 127.0.0.1:{args.port}: Phonon on {voice.tts.device}, {len(voice.catalog)} catalog voices, from {args.models}")
     server.serve_forever()
 
 

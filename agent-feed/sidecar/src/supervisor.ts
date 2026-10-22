@@ -15,8 +15,8 @@
 // the channel's listeners. That one is replaced only when a file IT is built from changes, so a
 // listener's stream outlives the sidecar's restarts, which every save anywhere else in the tree is.
 //
-// And a third: the speech process (`agent-feed/speech/speech_server.py`), Python holding Kitten TTS,
-// which the sidecar sends a Bot session's announcements to. Replaced only when its own file changes.
+// And a third: the speech process (`agent-feed/speech/speech_server.py`), Python holding Phonon on
+// the GPU, which the sidecar sends a Bot session's announcements to. Replaced only when its own file changes.
 //
 // Everything it says goes to stdout, which the host writes to the sidecar's own log file, because
 // `log show` answers nothing in this session and a supervisor whose reasoning is unreadable after

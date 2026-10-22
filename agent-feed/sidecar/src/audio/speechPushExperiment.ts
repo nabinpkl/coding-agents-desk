@@ -39,13 +39,14 @@ async function isolatedTestPage(): Promise<Response> {
 }
 
 /**
- * `/api/audio/kitten-<route>`, passed through to the speech process as it is: `listen` is its push
+ * `/api/audio/speech-<route>`, passed through to the speech process as it is: `listen` is its push
  * stream, `events` its control stream, `ack` the page's timings, `cancel` stops a message, `ping` a
- * round trip to time, `speed` how fast it speaks. Any other name is not this experiment's, and is
- * left for another handler.
+ * round trip to time, `speed` how fast the page plays speech, `voices` the voices it can speak in and
+ * `voice` the one it switches to. Any other name is not the speech process's, and is left for
+ * another handler.
  */
-const KITTEN_PREFIX = "/api/audio/kitten-";
-const SPEECH_ROUTES = new Set(["listen", "events", "ack", "cancel", "ping", "speed"]);
+const SPEECH_PREFIX = "/api/audio/speech-";
+const SPEECH_ROUTES = new Set(["listen", "events", "ack", "cancel", "ping", "speed", "voices", "voice"]);
 
 async function forwardToSpeech(request: Request, route: string, search: string): Promise<Response> {
   let answer: Response;
@@ -61,7 +62,10 @@ async function forwardToSpeech(request: Request, route: string, search: string):
   }
   return new Response(answer.body, {
     status: answer.status,
-    headers: { "content-type": "application/octet-stream", "cache-control": "no-store" },
+    headers: {
+      "content-type": answer.headers.get("content-type") ?? "application/octet-stream",
+      "cache-control": "no-store",
+    },
   });
 }
 
@@ -122,8 +126,8 @@ async function keepReport(request: Request): Promise<Response> {
 export function createSpeechPushExperimentRoutes(): RouteHandler {
   return (request, url) => {
     if (url.pathname === AUDIO_SPEAK_ROUTE && request.method === "POST") return speakOnPush(request);
-    if (url.pathname.startsWith(KITTEN_PREFIX)) {
-      const route = url.pathname.slice(KITTEN_PREFIX.length);
+    if (url.pathname.startsWith(SPEECH_PREFIX)) {
+      const route = url.pathname.slice(SPEECH_PREFIX.length);
       return SPEECH_ROUTES.has(route) ? forwardToSpeech(request, route, url.search) : undefined;
     }
     if (url.pathname === LOCAL_TEST_ROUTE && request.method === "GET") return isolatedTestPage();
