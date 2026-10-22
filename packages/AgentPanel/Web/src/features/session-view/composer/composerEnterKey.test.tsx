@@ -81,6 +81,7 @@ function band(model: ComposerModel) {
   return (
     <SessionComposerBand
       actions={[]}
+      askOwner={null}
       autoGrow={() => {}}
       caption={null}
       captionIsError={false}

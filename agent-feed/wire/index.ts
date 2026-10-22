@@ -57,6 +57,21 @@ export type {
 export { CLAUDE_PERMISSION_MODES, COMPOSER_IMAGE_MEDIA_TYPES, MAXIMUM_COMPOSER_IMAGE_BYTES } from "./tmuxComposer.ts";
 
 export type {
+  AnswerAskOwnerCommand,
+  AskOwnerAnswer,
+  AskOwnerCall,
+  AskOwnerChoice,
+  AskOwnerOption,
+  AskOwnerOutcome,
+  AskOwnerQuestion,
+  AskOwnerQuestionKind,
+  AskOwnerRefusal,
+  AskOwnerStreamMessage,
+} from "./askOwner.ts";
+
+export { ASK_OWNER_MAX_QUESTIONS } from "./askOwner.ts";
+
+export type {
   TmuxQuestionAnswer,
   TmuxQuestionOutcome,
   TmuxQuestionPoint,

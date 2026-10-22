@@ -21,6 +21,8 @@ import { TerminalKeyRail } from "@/features/terminal/TerminalKeyRail";
 import { OnKeyboardBar } from "@/features/keyboard/KeyboardBar";
 import { AgentTerminalPane } from "@/features/terminal/AgentTerminalPane";
 import { AskUserQuestionMirror } from "@/features/session-view/composer/question/AskUserQuestionMirror";
+import { AskOwnerCard } from "@/features/session-view/composer/ask-owner/AskOwnerCard";
+import type { AskOwnerModel } from "@/features/session-view/composer/ask-owner/useAskOwner";
 import { SdkApprovalRequests } from "@/features/session-view/composer/question/SdkApprovalRequests";
 import type { QuestionMirrorModel } from "@/features/session-view/composer/question/useQuestionMirror";
 import { OpencodeModelsDialog, OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
@@ -35,6 +37,7 @@ import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEve
 
 export function SessionComposerBand({
   actions,
+  askOwner,
   autoGrow,
   caption,
   captionIsError,
@@ -58,6 +61,8 @@ export function SessionComposerBand({
   usage,
 }: {
   actions: ComposerAction[];
+  /** The ask_owner call this session is waiting on, or null when there is none. */
+  askOwner: AskOwnerModel | null;
   autoGrow: (element: HTMLTextAreaElement | null) => void;
   caption: string | null;
   captionIsError: boolean;
@@ -105,6 +110,7 @@ export function SessionComposerBand({
   return (
     <section aria-label={sectionLabel} className={`shrink-0 border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-3`}>
       {model.sdkBand ? <SdkApprovalRequests session={model.sdkSession} /> : null}
+      {askOwner ? <AskOwnerCard key={askOwner.call.toolUseId} model={askOwner} /> : null}
       {question ? <AskUserQuestionMirror key={question.callId} {...question.mirror} /> : null}
       {/* The session's own terminal: beside the field, or instead of it.
 

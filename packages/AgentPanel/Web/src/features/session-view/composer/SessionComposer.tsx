@@ -15,6 +15,7 @@ import type { OpenAskUserQuestion } from "@/app/askUserQuestion";
 import { type ComposerPaneContext, composerTerminalPane } from "@/features/session-view/composer/terminalArrangement";
 import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
 import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
+import { useAskOwner } from "@/features/session-view/composer/ask-owner/useAskOwner";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
 import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
 import { useComposerFileDrop } from "@/features/session-view/composer/hold/useComposerFileDrop";
@@ -268,6 +269,9 @@ export function SessionComposer({
     sdk: sdkCandidate ? sdkSession : null,
   });
 
+  // Our own question tool, which only a Claude session is given; what waits is the sidecar's to say.
+  const askOwner = useAskOwner(feed, tmuxComposerSession, isClaude);
+
   // Every non-window transport composes against local state. If native resolution refuses after
   // somebody has already typed, hand that exact draft to the selected local transport before the
   // native watcher releases ownership.
@@ -396,6 +400,7 @@ export function SessionComposer({
 
   return (
     <SessionComposerBand
+      askOwner={askOwner}
       actions={actions}
       autoGrow={autoGrow}
       caption={caption}

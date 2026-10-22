@@ -19,10 +19,11 @@ import type {
   WorkspaceSummary,
 } from "@agentdesk/agent-feed-wire";
 import { expectEmpty, parse } from "@/features/activity-feed/data-source/sidecarRoutes";
-import { base64FromBlob, SidecarComposers } from "@/features/activity-feed/data-source/layers/SidecarComposers";
+import { base64FromBlob } from "@/features/activity-feed/data-source/layers/SidecarComposers";
+import { SidecarAsks } from "@/features/activity-feed/data-source/layers/SidecarAsks";
 import { TerminalViewers, type TerminalViewer } from "@/features/activity-feed/data-source/sidecarTerminalStream";
 
-export class SidecarTerminals extends SidecarComposers {
+export class SidecarTerminals extends SidecarAsks {
   private readonly terminals = new TerminalViewers(this.transport);
   /**
    * The tail of each terminal's write chain, so the next write waits for the one before it.
