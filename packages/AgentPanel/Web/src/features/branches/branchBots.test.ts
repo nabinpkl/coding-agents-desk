@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { FIXTURE_SESSIONS } from "@/app/fake-sidecar/fixtureData";
-import { botsOnBranches, branchesWithSession } from "@/features/branches/branchBots";
+import { botsOnBranches, botsOnFeed, branchesWithSession, feedHiddenSessionKeys } from "@/features/branches/branchBots";
 
 function bot(botId: string, sessions: SessionSummary[], extra: Partial<BotView> = {}): BotView {
   return {
@@ -47,12 +47,49 @@ describe("branchesWithSession", () => {
 
   it("adds a session started on Branches after the ones its Bot already lists there", () => {
     const onBranches = bot("b", [], { canvases: { branches: { sessionRefs: [listed] } } });
-    expect(branchesWithSession(onBranches, started)).toEqual({ canvases: { branches: [listed, started] } });
+    expect(branchesWithSession(onBranches, started)).toEqual({
+      canvases: { branches: { sessionRefs: [listed, started] } },
+    });
+  });
+
+  it("names the sessions already exclusive to Branches again, since the list is replaced whole", () => {
+    const onBranches = bot("b", [], {
+      canvases: { branches: { sessionRefs: [listed], exclusiveSessionRefs: [listed] } },
+    });
+    expect(branchesWithSession(onBranches, started)).toEqual({
+      canvases: { branches: { sessionRefs: [listed, started], exclusiveSessionRefs: [listed] } },
+    });
   });
 
   it("asks for nothing when the Bot is not on Branches or already lists the session", () => {
     expect(branchesWithSession(bot("b", []), started)).toBeNull();
     const already = bot("b", [], { canvases: { branches: { sessionRefs: [listed, started] } } });
     expect(branchesWithSession(already, started)).toBeNull();
+  });
+});
+
+describe("botsOnFeed", () => {
+  const [first, second] = [FIXTURE_SESSIONS[0]!, FIXTURE_SESSIONS[1]!];
+  const secondRef: BotSessionRef = { source: second.source, sessionId: second.sessionId };
+
+  it("leaves out the sessions exclusive to Branches, and keeps the ones shown on both", () => {
+    const marked = bot("marked", [first, second], {
+      canvases: {
+        branches: {
+          sessionRefs: [{ source: first.source, sessionId: first.sessionId }, secondRef],
+          exclusiveSessionRefs: [secondRef],
+        },
+      },
+    });
+    const [shown] = botsOnFeed([marked]);
+    expect(shown!.sessions.map((each) => each.sessionId)).toEqual([first.sessionId]);
+    expect(shown!.sessionRefs).toHaveLength(2);
+    expect([...feedHiddenSessionKeys([marked])]).toEqual([`${second.source}:${second.sessionId}`]);
+  });
+
+  it("hands back a Bot with nothing exclusive as it was", () => {
+    const plain = bot("plain", [first]);
+    expect(botsOnFeed([plain])[0]).toBe(plain);
+    expect(feedHiddenSessionKeys([plain]).size).toBe(0);
   });
 });

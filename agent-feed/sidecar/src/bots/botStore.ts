@@ -40,7 +40,7 @@ function isSessionRef(value: unknown): boolean {
   );
 }
 
-/** A Bot's other canvases: known names only, each holding a list of session references. */
+/** A Bot's other canvases: known names only, each holding its session references and its exclusive ones. */
 function isBotCanvases(value: unknown): boolean {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
@@ -49,7 +49,9 @@ function isBotCanvases(value: unknown): boolean {
       (BOT_CANVAS_NAMES as readonly string[]).includes(name) &&
       isRecord(membership) &&
       Array.isArray(membership.sessionRefs) &&
-      membership.sessionRefs.every(isSessionRef),
+      membership.sessionRefs.every(isSessionRef) &&
+      (membership.exclusiveSessionRefs === undefined ||
+        (Array.isArray(membership.exclusiveSessionRefs) && membership.exclusiveSessionRefs.every(isSessionRef))),
   );
 }
 

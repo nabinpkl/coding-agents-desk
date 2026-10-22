@@ -267,6 +267,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   // twice when they are.
   const sidebar = sidebarProps({
     botsState,
+    canvas,
     chrome,
     commands,
     creatingProjectPath,

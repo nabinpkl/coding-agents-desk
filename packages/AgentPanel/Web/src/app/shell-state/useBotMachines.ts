@@ -22,7 +22,7 @@ import {
 import { botFeeds, machineKey, machinesAreMixed, type BotFeeds, type BotMachine } from "@/features/bots/botMachines";
 import { useBots, type BotRosterState } from "@/features/bots/useBots";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
-import { botsOnBranches, type PanelCanvas } from "@/features/branches/branchBots";
+import { botsOnBranches, botsOnFeed, type PanelCanvas } from "@/features/branches/branchBots";
 import type { BotView } from "@agentdesk/agent-feed-wire";
 
 /** One machine's pair of window composers. Bound to a source, so shared across its sessions. */
@@ -95,7 +95,7 @@ export function useBotMachines(
   feed: SidecarDataSource,
   /** Every machine the embedder can reach, or absent for one that reaches only its own. */
   machines: readonly BotMachine[] | undefined,
-  /** The Branches tab's shell sees only the Bots and sessions marked for it (`botsOnBranches`). */
+  /** Which canvas's Bots and sessions the shell sees: `botsOnBranches` or `botsOnFeed`. */
   canvas: PanelCanvas = "bots",
 ): ShellMachines {
   // One machine, unlabelled, when the embedder names none -- and when it names none YET. An empty
@@ -110,8 +110,11 @@ export function useBotMachines(
   const everyBot = useBots(all);
   // Memoized on the list itself: a fresh array each render would read as a roster change to every
   // hook that prunes against it (`useCanvasRoster`).
-  const branchBots = useMemo(() => botsOnBranches(everyBot.bots), [everyBot.bots]);
-  const roster = canvas === "branches" ? { ...everyBot, bots: branchBots } : everyBot;
+  const canvasBots = useMemo(
+    () => (canvas === "branches" ? botsOnBranches(everyBot.bots) : botsOnFeed(everyBot.bots)),
+    [canvas, everyBot.bots],
+  );
+  const roster = { ...everyBot, bots: canvasBots };
   // Identity-stable, because `machineOf` and `machineOfSession` are: every command callback in the
   // shell closes over this, and a new object on each Bot-stream push would rebuild all of them.
   const feeds = useMemo(

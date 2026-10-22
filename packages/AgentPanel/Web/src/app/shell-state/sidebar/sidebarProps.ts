@@ -5,7 +5,7 @@
 // because it is the seam where the panel's five state groups meet the sidebar's props, and that
 // list is long enough to bury the shell it used to sit in.
 
-import type { BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotView, ProjectSummary, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { useBots } from "@/features/bots/useBots";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { useSidebarChrome } from "@/app/shell-state/sidebar/useSidebarChrome";
@@ -18,9 +18,11 @@ import { botSessionFaces } from "@/features/bots/avatar/botSessionFaces";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
+import { feedHiddenSessionKeys, type PanelCanvas } from "@/features/branches/branchBots";
 
 export function sidebarProps({
   botsState,
+  canvas,
   chrome,
   commands,
   creatingProjectPath,
@@ -35,6 +37,8 @@ export function sidebarProps({
   revealOnCanvas,
 }: {
   botsState: ReturnType<typeof useBots>;
+  /** The canvas beside this sidebar. On the Feed's, the Sessions view leaves out what Feed hides. */
+  canvas: PanelCanvas;
   chrome: Omit<ReturnType<typeof useSidebarChrome>, "drawerTriggerRef">;
   commands: ReturnType<typeof useBotCommands>;
   creatingProjectPath: ReturnType<typeof usePiSessionCreation>["creatingProjectPath"];
@@ -58,6 +62,9 @@ export function sidebarProps({
       .filter((bot) => machineIsHidden(roster.hiddenMachines, machines.keyOfBot, bot.botId))
       .map((bot) => bot.botId),
   );
+  // Over every Bot, because the Feed's roster has already dropped these sessions. Left out of the
+  // Sessions view as well as the cards: a row there would open a card the Feed does not draw.
+  const offFeed = canvas === "bots" ? feedHiddenSessionKeys(machines.colourBots) : new Set<string>();
   return {
     mode: chrome.sidebarMode,
     onModeChange: chrome.changeSidebarMode,
@@ -65,7 +72,7 @@ export function sidebarProps({
     feed,
     machines: machines.all,
     projects: inventory.projects,
-    sessionsByProject: inventory.sessionsByProject,
+    sessionsByProject: withoutSessions(inventory.sessionsByProject, offFeed),
     archiving: inventory.archiving,
     loading: inventory.loadingLayer,
     error: inventory.layerError,
@@ -170,7 +177,7 @@ export function sidebarProps({
         : null,
       grouped: chrome.sidebarPreferences.canvasSessionsGrouped,
       onGroupedChange: chrome.changeCanvasSessionsGrouped,
-      recent: inventory.recent,
+      recent: recentWithout(inventory.recent, offFeed),
       onShowMore: inventory.showMoreRecent,
       reconnecting: inventory.reconnecting,
       reviews: {
@@ -192,4 +199,24 @@ export function sidebarProps({
       chrome.setHoverPreviewOpen(false);
     },
   };
+}
+
+const keyOf = (session: SessionSummary) => `${session.source}:${session.sessionId}`;
+
+/** The catalog without these sessions; the same map when there are none to leave out. */
+function withoutSessions(
+  byProject: ReadonlyMap<string, SessionSummary[]>,
+  hidden: ReadonlySet<string>,
+): ReadonlyMap<string, SessionSummary[]> {
+  if (hidden.size === 0) return byProject;
+  return new Map([...byProject].map(([path, sessions]) => [path, sessions.filter((each) => !hidden.has(keyOf(each)))]));
+}
+
+/** The flat list without these sessions; the same payload when there are none to leave out. */
+function recentWithout(
+  recent: RecentSessionsPayload | null,
+  hidden: ReadonlySet<string>,
+): RecentSessionsPayload | null {
+  if (!recent || hidden.size === 0) return recent;
+  return { ...recent, recent: recent.recent.filter((each) => !hidden.has(keyOf(each))) };
 }
