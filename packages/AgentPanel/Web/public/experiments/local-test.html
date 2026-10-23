@@ -159,6 +159,83 @@
       .toggle[hidden] {
         display: none;
       }
+      .dict-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .dict-head span {
+        flex: 1;
+        min-width: 12em;
+        color: var(--muted);
+      }
+      .dict-box {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        min-height: 25vh;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: var(--ground);
+        color: var(--ink);
+      }
+      .dict-box:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .dict-unsure {
+        text-decoration: underline dotted var(--accent);
+        text-underline-offset: 3px;
+      }
+      .dict-spelled {
+        font-family: ui-monospace, Menlo, monospace;
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        border-radius: 4px;
+        padding: 0 3px;
+      }
+      .voice-test-body {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .voice-test > summary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        color: var(--muted);
+        list-style: none;
+      }
+      .voice-test > summary::-webkit-details-marker {
+        display: none;
+      }
+      .voice-test > summary::before {
+        content: "";
+        width: 0.45em;
+        height: 0.45em;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: rotate(-45deg);
+        transition: transform 120ms ease;
+      }
+      .voice-test[open] > summary::before {
+        transform: rotate(45deg);
+      }
+      .voice-test > summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .voice-test > summary::before {
+          transition: none;
+        }
+      }
+      .dict-interim {
+        min-height: 1.4em;
+        color: var(--muted);
+      }
       button.secondary {
         justify-self: start;
         padding: 8px 14px;
@@ -264,10 +341,43 @@
           </select>
         </label>
       </fieldset>
-      <label for="text" style="color: var(--muted)">Message</label>
-      <textarea id="text" rows="3">The build finished on the Mac, all the tests passed, and the change is ready for you to review when you get back.</textarea>
-      <button id="say" type="button" disabled>Say it</button>
-      <button id="replay" type="button" disabled hidden>Replay the last message</button>
+      <details class="voice-test" id="voice-test">
+        <summary>Voice test</summary>
+        <div class="voice-test-body">
+          <label for="text" style="color: var(--muted)">Message</label>
+          <textarea id="text" rows="3">The build finished on the Mac, all the tests passed, and the change is ready for you to review when you get back.</textarea>
+          <button id="say" type="button" disabled>Say it</button>
+          <button id="replay" type="button" disabled hidden>Replay the last message</button>
+        </div>
+      </details>
+      <label class="toggle" for="mic-on" id="mic-on-row" hidden>
+        <input id="mic-on" type="checkbox" checked />
+        <span>Mic on <small>off closes the mic and dictation; what is playing keeps playing</small></span>
+      </label>
+      <button id="record" type="button" disabled hidden>Record the mic to the Mac</button>
+      <section id="dictation" hidden style="flex-direction: column; gap: 8px">
+        <div class="dict-head">
+          <span id="dict-label">Dictation: edit freely, new phrases are added at the end; dotted means Apple was unsure</span>
+          <button id="dict-copy" class="secondary" type="button">Copy</button>
+          <button id="dict-clear" class="secondary" type="button">Clear</button>
+        </div>
+        <div id="dict-box" class="dict-box" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="dict-label" spellcheck="false"></div>
+        <div id="dict-interim" class="dict-interim" aria-live="polite"></div>
+        <div class="dict-head">
+          <label for="dict-target" style="color: var(--muted)">Add to</label>
+          <select id="dict-target" style="flex: 1; min-width: 0"><option value="">Loading sessions…</option></select>
+          <button id="dict-append" type="button">Add to composer</button>
+        </div>
+        <label class="toggle" for="dict-stream">
+          <input id="dict-stream" type="checkbox" />
+          <span>Stream to the composer <small>each finished phrase goes in as it comes, and the box shows that composer</small></span>
+        </label>
+        <div id="dict-append-status" style="color: var(--muted)" aria-live="polite"></div>
+      </section>
+      <div id="recording" hidden>
+        <audio id="recording-audio" controls preload="none" style="display: block; width: 100%"></audio>
+        <pre id="recording-heard" style="margin: 8px 0 0; white-space: pre-wrap"></pre>
+      </div>
       <div class="big" id="latency">-</div>
       <div id="ask" hidden style="position: fixed; inset: auto 16px max(16px, env(safe-area-inset-bottom)) 16px; padding: 16px; border-radius: 14px; background: var(--ink); color: var(--ground); display: flex; gap: 12px; align-items: center; justify-content: space-between">
         <span>Speaking? Stop the agent</span>
@@ -399,27 +509,520 @@
       }
       // A short phrase that stops the agent the way the pause button does: it is already deliberate.
       const STOP_WORDS = /^(?:ok(?:ay)?[ ,]+)?(?:stop|wait|hold on|pause|quiet|shut up)\b/i;
+      /**
+       * The dictation box, as on the dictation box page (`public/dictate-box.html`): each phrase Apple
+       * finishes is added at the end and never replaces what is there, so edits survive; one Apple was
+       * unsure of (confidence under 0.5) is underlined dotted; the words still being heard show live
+       * under the box. Between "start spelling" and "end spelling", NATO words become letters (a
+       * near miss counts as the nearest one; one too far off shows as "?").
+       */
+      const dictBox = document.getElementById("dict-box");
+      const dictInterim = document.getElementById("dict-interim");
+      const DICT_UNSURE = 0.5;
+      const NATO = {
+        alpha: "a", alfa: "a", bravo: "b", charlie: "c", delta: "d", echo: "e", foxtrot: "f", golf: "g",
+        hotel: "h", india: "i", juliet: "j", juliett: "j", kilo: "k", lima: "l", mike: "m", november: "n",
+        oscar: "o", papa: "p", quebec: "q", romeo: "r", sierra: "s", tango: "t", uniform: "u", victor: "v",
+        whiskey: "w", whisky: "w", xray: "x", yankee: "y", zulu: "z", dash: "-", hyphen: "-", dot: ".",
+        period: ".", underscore: "_", slash: "/", zero: "0", one: "1", two: "2", three: "3", four: "4",
+        five: "5", six: "6", seven: "7", eight: "8", nine: "9",
+      };
+      const SPELL_START = /\bstart(?:ing)?[\s,.:;-]+spell(?:ing)?\b[.,!?]?/i;
+      const SPELL_END = /\b(?:end|and|stop)(?:ing)?[\s,.:;-]+spell(?:ing)?\b[.,!?]?/i; // "end" is often heard as "and"
+      /** Likeness of two words, 0 to 1: twice their longest common subsequence over their lengths. */
+      function wordLikeness(a, b) {
+        const row = new Array(b.length + 1).fill(0);
+        for (let i = 1; i <= a.length; i += 1) {
+          let diagonal = 0;
+          for (let j = 1; j <= b.length; j += 1) {
+            const above = row[j];
+            row[j] = a[i - 1] === b[j - 1] ? diagonal + 1 : Math.max(row[j], row[j - 1]);
+            diagonal = above;
+          }
+        }
+        return (2 * row[b.length]) / (a.length + b.length);
+      }
+      /** One spoken word as a letter: a NATO word, a single letter, or the nearest NATO word; else "?". */
+      function spokenLetter(word) {
+        if (NATO[word]) return NATO[word];
+        if (word.length === 1) return word;
+        let best = null;
+        let score = 0;
+        for (const name of Object.keys(NATO)) {
+          const likely = wordLikeness(word, name);
+          if (likely > score) [best, score] = [name, likely];
+        }
+        if (score >= 0.5) {
+          log(`spelling: heard "${word}", taken as ${best}`);
+          return NATO[best];
+        }
+        log(`spelling: "${word}" is not near any NATO word`);
+        return "?";
+      }
+      function spokenLetters(text) {
+        const spoken = text.toLowerCase().replace(/x[\s-]ray/g, "xray").replace(/fox trot/g, "foxtrot");
+        return (spoken.match(/[a-z0-9]+/g) ?? []).map(spokenLetter).join("");
+      }
+      let dictSpelling = null; // the span collecting letters while between the markers
+      // While the box mirrors a session's composer, phrases are put together here instead, unseen,
+      // and only sent: the box shows what the composer then holds.
+      const dictStage = document.createElement("div");
+      let dictMirroring = false;
+      function dictInto() {
+        return dictMirroring ? dictStage : dictBox;
+      }
+      function dictSpaceBefore() {
+        const last = dictInto().lastChild?.textContent ?? "";
+        if (last && !/\s$/.test(last)) dictInto().append(" ");
+      }
+      function dictAddText(text, confidence) {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        dictSpaceBefore();
+        const span = document.createElement("span");
+        span.textContent = trimmed;
+        if (confidence < DICT_UNSURE) {
+          span.className = "dict-unsure";
+          span.title = `Apple was unsure of this phrase (confidence ${confidence.toFixed(2)})`;
+        }
+        dictInto().append(span);
+      }
+      /** A finished phrase, added at the end. Spelling can open in one phrase and close several later. */
+      function dictAppend(text, confidence) {
+        let rest = text;
+        while (rest) {
+          if (dictSpelling) {
+            const end = SPELL_END.exec(rest);
+            dictSpelling.textContent += spokenLetters(end ? rest.slice(0, end.index) : rest);
+            if (!end) break;
+            log(`spelled: "${dictSpelling.textContent}"`);
+            dictSpelling = null;
+            rest = rest.slice(end.index + end[0].length);
+            continue;
+          }
+          const start = SPELL_START.exec(rest);
+          if (!start) {
+            dictAddText(rest, confidence);
+            break;
+          }
+          dictAddText(rest.slice(0, start.index), confidence);
+          dictSpaceBefore();
+          dictSpelling = document.createElement("span");
+          dictSpelling.className = "dict-spelled";
+          dictInto().append(dictSpelling);
+          rest = rest.slice(start.index + start[0].length);
+        }
+        dictInto().scrollTop = dictInto().scrollHeight;
+      }
+      document.getElementById("dict-clear").addEventListener("click", () => {
+        dictBox.replaceChildren();
+        dictSpelling = null;
+        log("dictation box cleared by hand");
+      });
+      document.getElementById("dict-copy").addEventListener("click", () => {
+        void navigator.clipboard
+          .writeText(dictBox.innerText.trim())
+          .then(() => log("dictation box copied"))
+          .catch((error) => log(`copy failed: ${error.message}`));
+      });
+      /**
+       * Where the box's text goes: a session's composer, added at the end and not sent, so it waits
+       * there to be read over and sent from the panel. Sessions are listed by Bot, per machine, from
+       * each machine's Bots (this Mac's `/api`, a peer's `/session/<id>/api`). Only Claude sessions
+       * running in a terminal have a composer this can reach; one running through the SDK says so.
+       */
+      const DICT_TARGET_KEY = "agentdesk.pushPage.dictTarget";
+      const dictTarget = document.getElementById("dict-target");
+      const dictAppendStatus = document.getElementById("dict-append-status");
+      const dictTargets = new Map(); // option value -> { prefix, sessionId, label }
+      let dictListed = "";
+      /**
+       * What tells the model the words were dictated: once per run, ahead of the first quoted piece.
+       * Speech recognition hears words it does not know as words it does, so the model is asked to
+       * check rather than act on a phrase that reads oddly. A phrase Apple was unsure of is struck
+       * through where it stands, inside its quotes, so the model sees which words to doubt.
+       */
+      const DICT_LABEL =
+        "[Dictated by voice: speech recognition may have misheard words, so ask if anything is unclear. Low confidence is marked ~~like this~~]";
+      function quoted(text) {
+        return `"${text.replace(/"/g, "'")}"`;
+      }
+      function struck(text) {
+        return `~~${text}~~`;
+      }
+      /** The box as one quoted, labelled piece, each phrase Apple was unsure of struck through. */
+      function dictatedText() {
+        const parts = [...dictBox.childNodes].map((node) => {
+          if (node.nodeType !== Node.ELEMENT_NODE) return node.textContent;
+          const text = node.innerText;
+          if (!node.classList.contains("dict-unsure") || !text.trim()) return text;
+          // The mark goes round the words, not the spaces either side of them.
+          const [, before, words, after] = /^(\s*)(.*?)(\s*)$/s.exec(text);
+          return `${before}${struck(words)}${after}`;
+        });
+        return `${DICT_LABEL} ${quoted(parts.join("").trim())}`;
+      }
+      /** The most of a title an option shows; the whole of it is the option's tooltip. */
+      const DICT_TITLE_CHARS = 64;
+      function shortened(title) {
+        return title.length <= DICT_TITLE_CHARS ? title : `${title.slice(0, DICT_TITLE_CHARS - 1).trimEnd()}…`;
+      }
+      /** Session titles in one Bot's directory, by session id; empty when it has none listed. */
+      async function titlesIn(prefix, directory) {
+        if (!directory) return new Map();
+        try {
+          const response = await fetch(`${prefix}/sessions?projectPath=${encodeURIComponent(directory)}`, { cache: "no-store" });
+          if (!response.ok) return new Map();
+          const { sessions } = await response.json();
+          return new Map((sessions ?? []).map((session) => [session.sessionId, session.title]));
+        } catch {
+          return new Map();
+        }
+      }
+      function rememberedTarget() {
+        try {
+          return localStorage.getItem(DICT_TARGET_KEY) ?? "";
+        } catch {
+          return "";
+        }
+      }
+      async function loadDictTargets() {
+        let machines = [{ label: "this Mac" }];
+        try {
+          const index = await (await fetch("/session/index.json", { cache: "no-store" })).json();
+          if (Array.isArray(index) && index.length > 0) machines = index;
+        } catch {
+          // one machine, this one
+        }
+        const groups = [];
+        await Promise.all(
+          machines.map(async (machine) => {
+            const prefix = machine.id ? `/session/${encodeURIComponent(machine.id)}/api` : "/api";
+            try {
+              const { bots } = await (await fetch(`${prefix}/bots`, { cache: "no-store" })).json();
+              const titled = await Promise.all((bots ?? []).map((bot) => titlesIn(prefix, bot.environment?.path)));
+              for (const [at, bot] of (bots ?? []).entries()) {
+                const titles = titled[at];
+                const off = new Set((bot.offCanvasSessionRefs ?? []).map((ref) => `${ref.source}:${ref.sessionId}`));
+                const entries = (bot.sessionRefs ?? [])
+                  .filter((ref) => ref.source === "claude")
+                  .map((ref) => {
+                    const key = `${ref.source}:${ref.sessionId}`;
+                    // The session's full title where its Bot's directory lists it; else the name it was given.
+                    const name = titles.get(ref.sessionId)?.trim() || bot.sessionAnchors?.[key] || ref.sessionId.slice(0, 8);
+                    const label = off.has(key) ? `${shortened(name)} · off canvas` : shortened(name);
+                    return { value: `${machine.id ?? ""}|${key}`, label, full: name, off: off.has(key), prefix, sessionId: ref.sessionId };
+                  })
+                  .sort((a, b) => Number(a.off) - Number(b.off));
+                if (entries.length > 0) groups.push({ label: `${bot.name} · ${machine.label}`, entries });
+              }
+            } catch (error) {
+              log(`sessions on ${machine.label} not listed: ${error.message}`);
+            }
+          }),
+        );
+        groups.sort((a, b) => a.label.localeCompare(b.label));
+        // Rebuilt only when the list changed: replacing the options under an open picker closes it.
+        const listed = JSON.stringify(groups.map((group) => [group.label, group.entries.map((entry) => [entry.value, entry.label])]));
+        if (listed === dictListed) return;
+        dictListed = listed;
+        const chosen = dictTarget.value || rememberedTarget();
+        dictTargets.clear();
+        dictTarget.replaceChildren(
+          new Option("Pick a session", ""),
+          ...groups.map((group) => {
+            const optgroup = document.createElement("optgroup");
+            optgroup.label = group.label;
+            for (const entry of group.entries) {
+              dictTargets.set(entry.value, { prefix: entry.prefix, sessionId: entry.sessionId, label: shortened(entry.full) });
+              const option = new Option(entry.label, entry.value);
+              option.title = entry.full;
+              optgroup.append(option);
+            }
+            return optgroup;
+          }),
+        );
+        dictTarget.value = dictTargets.has(chosen) ? chosen : "";
+        if (chosen && !dictTargets.has(chosen)) dictAppendStatus.textContent = "The session picked last time is no longer listed";
+      }
+      dictTarget.addEventListener("change", () => {
+        try {
+          localStorage.setItem(DICT_TARGET_KEY, dictTarget.value);
+        } catch {
+          // remembered for this page only
+        }
+        dictAppendStatus.textContent = "";
+      });
+      document.getElementById("dict-append").addEventListener("click", async (event) => {
+        const target = dictTargets.get(dictTarget.value);
+        const text = dictBox.innerText.trim();
+        if (!target) return void (dictAppendStatus.textContent = "Pick a session to add to");
+        if (!text) return void (dictAppendStatus.textContent = "The box is empty");
+        const button = event.currentTarget;
+        button.disabled = true;
+        dictAppendStatus.textContent = `Adding to ${target.label}…`;
+        try {
+          const response = await fetch(`${target.prefix}/sessions/claude/${target.sessionId}/composer/append`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text: dictatedText() }),
+          });
+          const body = await response.json().catch(() => null);
+          if (response.status === 409) {
+            dictAppendStatus.textContent = `${target.label}'s cursor is not at the end of its composer: move it there, then add again`;
+          } else if (!response.ok) {
+            dictAppendStatus.textContent = `Not added: ${body?.error?.message ?? response.status}`;
+          } else if (body?.reason) {
+            dictAppendStatus.textContent =
+              body.reason === "no-pane"
+                ? `${target.label} is not running in a terminal (an SDK session or a closed one), so it has no composer to add to`
+                : `Not added: ${target.label}'s composer is not there right now (${body.reason})`;
+          } else {
+            dictBox.replaceChildren();
+            dictSpelling = null;
+            dictStream.streamed = 0;
+            dictAppendStatus.textContent = `Added to ${target.label}'s composer. Read it over and send it from the panel.`;
+            log(`added ${text.length} characters to ${target.label}'s composer`);
+          }
+        } catch (error) {
+          dictAppendStatus.textContent = `Not added: ${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      dictTarget.addEventListener("focus", () => void loadDictTargets());
+
+      /**
+       * Streaming: while on, each phrase Apple finishes goes into the picked session's composer as
+       * well as the box, through the same append. What the box held before streaming started goes
+       * first. A phrase is held while spelling is open, so a spelled word goes in whole rather than
+       * as letters with spaces between. Edits made in the box after a phrase has gone are not sent.
+       *
+       * The page also watches that composer (`…/composer/stream`, the one the panel's cards read):
+       * once it has held text and then empties, which is what sending it does (or clearing it by
+       * hand), the box is cleared too, so the next dictation starts fresh.
+       */
+      const dictStreamToggle = document.getElementById("dict-stream");
+      // `labelled`: this run has put the dictation label in the composer already. `unsure`: the
+      // lowest confidence among the phrases not yet sent (a spelled word can span several).
+      const dictStream = { streamed: 0, sending: Promise.resolve(), watch: null, watching: null, held: false, labelled: false, unsure: 1 };
+      function streamingTarget() {
+        return dictStreamToggle.checked ? dictTargets.get(dictTarget.value) ?? null : null;
+      }
+      /** Sends what the phrases gained since the last send, in order behind it, quoted and labelled. */
+      function streamDelta(confidence = 1, source = dictInto()) {
+        dictStream.unsure = Math.min(dictStream.unsure, confidence);
+        const target = streamingTarget();
+        if (!target || dictSpelling) return;
+        const now = source === dictStage ? dictStage.textContent : source.innerText;
+        const piece = now.slice(dictStream.streamed).trim();
+        dictStream.streamed = now.length;
+        if (!piece) return;
+        const delta = `${dictStream.labelled ? "" : `${DICT_LABEL} `}${quoted(dictStream.unsure < DICT_UNSURE ? struck(piece) : piece)}`;
+        dictStream.labelled = true;
+        dictStream.unsure = 1;
+        dictStream.sending = dictStream.sending.then(async () => {
+          try {
+            const response = await fetch(`${target.prefix}/sessions/claude/${target.sessionId}/composer/append`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ text: delta }),
+            });
+            const body = await response.json().catch(() => null);
+            if (response.status === 409) dictAppendStatus.textContent = `Not streamed: ${target.label}'s cursor is not at the end of its composer`;
+            else if (!response.ok) dictAppendStatus.textContent = `Not streamed: ${body?.error?.message ?? response.status}`;
+            else if (body?.reason) dictAppendStatus.textContent = `Not streamed: ${target.label} has no terminal composer (${body.reason})`;
+            else dictAppendStatus.textContent = `Streaming to ${target.label}'s composer`;
+          } catch (error) {
+            dictAppendStatus.textContent = `Not streamed: ${error.message}`;
+          }
+        });
+      }
+      /** Watches the target's composer, and clears the box once it empties after holding text. */
+      function watchComposer() {
+        const target = streamingTarget();
+        const key = target ? `${target.prefix}|${target.sessionId}` : null;
+        if (key === dictStream.watching) return;
+        dictStream.watch?.close();
+        dictStream.watch = null;
+        dictStream.watching = key;
+        dictStream.held = false;
+        if (!target) return;
+        const watch = new EventSource(`${target.prefix}/sessions/claude/${target.sessionId}/composer/stream`);
+        dictStream.watch = watch;
+        watch.onmessage = (event) => {
+          let text;
+          try {
+            text = JSON.parse(event.data)?.composer?.text;
+          } catch {
+            return;
+          }
+          if (typeof text !== "string") return; // no composer right now, which says nothing
+          if (dictMirroring) dictBox.textContent = text;
+          if (text.trim()) {
+            dictStream.held = true;
+            return;
+          }
+          if (!dictStream.held) return;
+          // Held text and then emptied, which is what sending does: the next phrase starts a new run.
+          dictStream.held = false;
+          dictStage.replaceChildren();
+          dictSpelling = null;
+          dictStream.streamed = 0;
+          dictStream.labelled = false;
+          dictAppendStatus.textContent = `${target.label}'s composer was sent (or emptied)`;
+          log(`${target.label}'s composer emptied; a new dictation run starts`);
+        };
+      }
+      function streamingChanged() {
+        // Whatever the box holds when streaming starts, or moves to another session, goes first,
+        // and that session has not been told yet that what follows is dictated.
+        dictStream.streamed = 0;
+        dictStream.labelled = false;
+        const target = streamingTarget();
+        if (target && !dictMirroring) streamDelta(1, dictBox);
+        // Then the box mirrors that composer: edits and clears belong there, so it cannot be typed in.
+        // Leaving the mirror empties the box, which held the composer's copy, so Add cannot send it again.
+        if (dictMirroring && !target) dictBox.replaceChildren();
+        dictMirroring = Boolean(target);
+        dictStage.replaceChildren();
+        dictSpelling = null;
+        dictStream.streamed = 0;
+        dictBox.contentEditable = dictMirroring ? "false" : "true";
+        dictBox.title = dictMirroring ? `Showing ${target.label}'s composer; edit it there` : "";
+        document.getElementById("dict-append").disabled = dictMirroring;
+        document.getElementById("dict-clear").disabled = dictMirroring;
+        watchComposer();
+        if (target) dictAppendStatus.textContent = `Streaming to ${target.label}'s composer; the box shows it`;
+        else if (dictStreamToggle.checked) dictAppendStatus.textContent = "Pick a session to stream to";
+        else dictAppendStatus.textContent = "";
+      }
+      dictStreamToggle.addEventListener("change", streamingChanged);
+      dictTarget.addEventListener("change", () => {
+        if (dictStreamToggle.checked) streamingChanged();
+      });
+      document.getElementById("dict-clear").addEventListener("click", () => {
+        dictStream.streamed = 0;
+      });
+
+      /**
+       * Which session dictation streams into is the Mac's to hold (`/api/audio/dictation-target`),
+       * so the mic on a session's composer in the panel can choose it too. This page follows it, and
+       * tells the Mac when it is changed here: a session picked with streaming on is "stream into
+       * it", streaming off is "nowhere".
+       */
+      const DICT_TARGET_ROUTE = "/api/audio/dictation-target";
+      let dictFollowing = null;
+      function tellMacTarget() {
+        const sessionId = streamingTarget()?.sessionId ?? null;
+        fetch(DICT_TARGET_ROUTE, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        }).catch((error) => log(`dictation target not sent to the Mac: ${error.message}`));
+      }
+      function dictValueFor(sessionId) {
+        for (const [value, entry] of dictTargets) if (entry.sessionId === sessionId) return value;
+        return null;
+      }
+      async function applyMacTarget(sessionId) {
+        if (sessionId === null) return showNowhere();
+        if (streamingTarget()?.sessionId === sessionId) return;
+        let value = dictValueFor(sessionId);
+        if (!value) {
+          // Picked in the panel from a list this page has not read yet: read it again.
+          dictListed = "";
+          await loadDictTargets();
+          value = dictValueFor(sessionId);
+          if (!value) {
+            dictAppendStatus.textContent = "The panel picked a session this page does not list";
+            return log(`dictation target ${sessionId} from the panel is not listed here`);
+          }
+        }
+        dictTarget.value = value;
+        try {
+          localStorage.setItem(DICT_TARGET_KEY, value);
+        } catch {
+          // remembered for this page only
+        }
+        // Set rather than clicked, so neither fires its change and tells the Mac back what it said.
+        dictStreamToggle.checked = true;
+        streamingChanged();
+        log(`streaming to ${dictTargets.get(value).label}, chosen from the panel`);
+      }
+      /** Nowhere: no session picked and streaming off, so the page cannot read as aimed at one. */
+      function showNowhere() {
+        const was = streamingTarget();
+        const picked = dictTarget.value;
+        // Forgotten as well, or the list still loading would pick the remembered one again.
+        try {
+          localStorage.setItem(DICT_TARGET_KEY, "");
+        } catch {
+          // remembered for this page only
+        }
+        dictAppendStatus.textContent = "Not streaming to any session";
+        if (!was && !picked) return;
+        dictTarget.value = "";
+        dictStreamToggle.checked = false;
+        streamingChanged();
+        dictAppendStatus.textContent = "Not streaming to any session";
+        log(was ? `streaming to ${was.label} stopped from the panel` : "no session picked: dictation streams nowhere");
+      }
+      function followMacTarget() {
+        if (dictFollowing) return;
+        dictFollowing = new EventSource(`${DICT_TARGET_ROUTE}/stream`);
+        dictFollowing.onmessage = (event) => {
+          let sessionId;
+          try {
+            sessionId = JSON.parse(event.data).sessionId;
+          } catch {
+            return;
+          }
+          if (sessionId === null || typeof sessionId === "string") void applyMacTarget(sessionId);
+        };
+      }
+      dictStreamToggle.addEventListener("change", tellMacTarget);
+      dictTarget.addEventListener("change", () => {
+        if (dictStreamToggle.checked) tellMacTarget();
+      });
       function startDictation() {
         const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
         if (!Recognition) return log("dictation: not available here");
         let speechAt = null;
+        showDictation();
+        void loadDictTargets();
+        followMacTarget();
+        // Per recognition session: the finished phrases as Apple last reported them, by index, so a
+        // phrase reported again is not added twice, and a revision Apple makes is logged, not applied.
+        let finished = [];
         const listen = () => {
+          if (!micWanted) return;
+          finished = [];
           const recognition = new Recognition();
+          dictRecognition = recognition;
           recognition.lang = "en-US";
           recognition.continuous = true;
           recognition.interimResults = true;
           recognition.onstart = () => log(`dictation listening (page ${document.visibilityState})`);
           recognition.onspeechstart = () => {
             speechAt = performance.now();
+            noteForRecording("speech started");
             log(`dictation: speech started (page ${document.visibilityState})`);
           };
           recognition.onresult = (event) => {
+            // The words still being heard, live under the box.
+            let interim = "";
+            for (let i = event.resultIndex; i < event.results.length; i += 1) {
+              if (!event.results[i].isFinal) interim += event.results[i][0].transcript;
+            }
+            dictInterim.textContent = interim.trim() ? `hearing: ${interim.trim()}` : "";
             for (let i = event.resultIndex; i < event.results.length; i += 1) {
               const result = event.results[i];
               if (!result.isFinal) {
                 // Provisional words: a stop acts on them at once rather than waiting for the phrase to
                 // end, which Apple marks only after a pause.
                 const words = result[0].transcript.trim();
+                noteHearing(words);
                 if (STOP_WORDS.test(words) && agentSpeaking()) {
                   const after = speechAt === null ? "" : `, ${Math.round(performance.now() - speechAt)} ms after speech started`;
                   if (confirmStop(`a spoken stop ("${words}", provisional${after})`)) log(`stop heard before the phrase ended`);
@@ -428,6 +1031,13 @@
               }
               const after = speechAt === null ? "" : ` ${Math.round(performance.now() - speechAt)} ms after speech started`;
               const text = result[0].transcript.trim();
+              if (finished[i] !== undefined) {
+                if (finished[i] !== text) log(`Apple revised a finished phrase: "${finished[i]}" became "${text}" (the box keeps the first)`);
+                finished[i] = text;
+                continue;
+              }
+              finished[i] = text;
+              noteForRecording(`"${text}" (confidence ${result[0].confidence.toFixed(2)})`, true);
               const agentTalking = agentSpeaking();
               log(`dictation final (page ${document.visibilityState}, agent ${agentTalking ? "speaking" : "quiet"})${after}: "${text}" (confidence ${result[0].confidence.toFixed(2)})`);
               // A stop is never forwarded as something said; it may already have acted while provisional.
@@ -435,6 +1045,8 @@
                 confirmStop(`a spoken stop ("${text}")`);
                 continue;
               }
+              dictAppend(text, result[0].confidence);
+              streamDelta(result[0].confidence);
               // Anything else is what the listener said: to the Mac, as an agent would receive it.
               fetch("/api/audio/kitten-heard", {
                 method: "POST",
@@ -442,9 +1054,16 @@
               }).catch(() => {});
             }
           };
-          recognition.onerror = (event) => log(`dictation error: ${event.error}`);
+          recognition.onerror = (event) => {
+            noteForRecording(`error: ${event.error}`);
+            log(`dictation error: ${event.error}`);
+          };
           // It stops on its own after silence or a time limit; listen again, as a live mic would.
           recognition.onend = () => {
+            dictInterim.textContent = "";
+            if (recognition !== dictRecognition) return; // one the page stopped, and maybe replaced
+            if (!micWanted) return void log("dictation stopped: the mic is off");
+            noteForRecording("dictation ended by itself; listening again");
             log(`dictation stopped (page ${document.visibilityState}); listening again`);
             // A short wait before listening again, so a recognizer that ends at once (refused, no
             // permission) does not spin.
@@ -458,9 +1077,62 @@
           };
           recognition.start();
         };
+        dictListen = listen;
         listen();
       }
       const mic = { track: null, peakDb: -120, speechStarts: 0, peakWhileAgentDb: -120, peakQuietDb: -120 };
+      /**
+       * The mic switch: off stops the mic's track and dictation, so the phone's mic is closed and
+       * its audio goes back to playback alone (iOS plays at 16 kHz while a mic is open); on opens
+       * them again, into the same gate and recorder. The agent's voice and the noise play on.
+       */
+      let micWanted = true;
+      let dictRecognition = null;
+      let dictListen = null;
+      /** The dictation box and where it goes, shown only while the mic is on, since only then is there any. */
+      function showDictation() {
+        const section = document.getElementById("dictation");
+        section.hidden = !micWanted;
+        // Set inline, not by `hidden` alone: the section is laid out by an inline display.
+        section.style.display = micWanted ? "flex" : "none";
+      }
+      const micToggle = document.getElementById("mic-on");
+      micToggle.addEventListener("change", async () => {
+        micWanted = micToggle.checked;
+        micToggle.disabled = true;
+        try {
+          if (micWanted) {
+            if (WITH_MIC && gate) {
+              const micSource = await openMic();
+              micSource.connect(gate, 0, 0);
+              if (recorder.tap) micSource.connect(recorder.tap);
+              document.getElementById("record").disabled = false;
+            }
+            if (dictListen) {
+              showDictation();
+              dictListen();
+            }
+          } else {
+            if (recorder.id) stopRecording();
+            document.getElementById("record").disabled = true;
+            mic.track?.stop();
+            mic.track = null;
+            const recognition = dictRecognition;
+            dictRecognition = null;
+            recognition?.abort();
+            dictInterim.textContent = "";
+            if (dictListen) showDictation();
+            if (navigator.audioSession) navigator.audioSession.type = "playback";
+            log(`mic off, session ${navigator.audioSession?.type ?? "-"}`);
+          }
+        } catch (error) {
+          log(`mic not turned on: ${error.name} ${error.message}`);
+          micToggle.checked = false;
+          micWanted = false;
+        } finally {
+          micToggle.disabled = false;
+        }
+      });
       const SPEECH_DB = Number(params.get("speechdb") ?? -35); // louder than this counts as speech
       // The gate: an AudioWorklet on the audio thread, which iOS does not throttle while audio plays.
       // Input 0 is the mic, input 1 the agent's voice; the output is the voice, muted the moment the
@@ -649,7 +1321,8 @@
         registerProcessor("gate", Gate);
       `;
       let gate = null;
-      async function startMic() {
+      /** The mic, opened: its track kept on `mic`, and a source for the graph to take it from. */
+      async function openMic() {
         if (navigator.audioSession) navigator.audioSession.type = "play-and-record";
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -658,6 +1331,10 @@
         const settings = mic.track.getSettings();
         log(`mic on: echo cancellation ${settings.echoCancellation}, noise suppression ${settings.noiseSuppression}, session ${navigator.audioSession?.type ?? "-"}`);
         for (const name of ["mute", "unmute", "ended"]) mic.track.addEventListener(name, () => log(`mic ${name}`));
+        return context.createMediaStreamSource(stream);
+      }
+      async function startMic() {
+        const micSource = await openMic();
         await context.audioWorklet.addModule(URL.createObjectURL(new Blob([GATE_WORKLET], { type: "text/javascript" })));
         gate = new AudioWorkletNode(context, "gate", {
           numberOfInputs: 2,
@@ -665,7 +1342,8 @@
           outputChannelCount: [1],
           processorOptions: { quietDb: SPEECH_DB, agentDb: AGENT_DB, sustainMs: SUSTAIN_MS, autoMute: !CONFIRM, uttStartDb: UTT_START_DB, uttKeepDb: UTT_KEEP_DB, endGapS: END_GAP_S },
         });
-        context.createMediaStreamSource(stream).connect(gate, 0, 0);
+        micSource.connect(gate, 0, 0);
+        void startRecorder(micSource);
         voiceBus.disconnect();
         voiceBus.connect(gate, 0, 1);
         gate.connect(context.destination);
@@ -694,6 +1372,133 @@
           log(`speech at ${data.db.toFixed(0)} dB, agent ${data.agent ? "speaking" : "quiet"}${data.wasPlaying ? (CONFIRM ? ": asked to stop" : ": voice muted on the audio thread") : ""}; page heard of it ${mainLagMs} ms later`);
         };
         log(`gate on: speech above ${SPEECH_DB} dB (${AGENT_DB} dB while the agent speaks) for ${SUSTAIN_MS} ms`);
+      }
+      /**
+       * Recording the mic on the Mac, between Record and Stop: the same stream the gate hears (with
+       * the browser's echo cancellation), as float32 at the page's own rate, posted about once a
+       * second, to hear afterwards what was said when Apple's dictation heard nothing or the wrong
+       * thing. What dictation heard meanwhile is kept with it, at the second it came.
+       */
+      const TAP_WORKLET = `
+        class Tap extends AudioWorkletProcessor {
+          constructor() {
+            super();
+            this.on = false;
+            this.port.onmessage = (event) => (this.on = event.data.on);
+          }
+          process(inputs, outputs) {
+            const channel = inputs[0][0];
+            if (this.on && channel) this.port.postMessage(channel.slice(0));
+            return true;
+          }
+        }
+        registerProcessor("tap", Tap);
+      `;
+      const RECORD_PIECE_S = 1;
+      // `noting` stays set a little past Stop: Apple finishes a phrase only after a pause, so the last
+      // one arrives a second or two after the recording closes.
+      const recorder = { tap: null, id: null, noting: false, lastFinal: null, startedAt: 0, pieces: [], queued: 0, sent: 0, sending: Promise.resolve(), heard: [], lastHearing: "" };
+      const LATE_FINAL_MS = 3000;
+      async function startRecorder(micSource) {
+        await context.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP_WORKLET], { type: "text/javascript" })));
+        recorder.tap = new AudioWorkletNode(context, "tap", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+        const silent = context.createGain();
+        silent.gain.value = 0; // the tap only runs while something downstream pulls it
+        micSource.connect(recorder.tap);
+        recorder.tap.connect(silent).connect(context.destination);
+        recorder.tap.port.onmessage = (event) => {
+          if (!recorder.id) return;
+          recorder.pieces.push(event.data);
+          recorder.queued += event.data.length;
+          if (recorder.queued >= context.sampleRate * RECORD_PIECE_S) sendRecorded();
+        };
+        const button = document.getElementById("record");
+        button.hidden = false;
+        button.disabled = false;
+        button.addEventListener("click", () => (recorder.id ? stopRecording() : startRecording()));
+      }
+      /** Posts what is queued, after the piece before it, so the Mac appends them in order. */
+      function sendRecorded() {
+        const id = recorder.id;
+        const joined = new Float32Array(recorder.queued);
+        let at = 0;
+        for (const piece of recorder.pieces.splice(0)) {
+          joined.set(piece, at);
+          at += piece.length;
+        }
+        recorder.queued = 0;
+        recorder.sent += joined.length;
+        recorder.sending = recorder.sending.then(() =>
+          fetch(`/api/audio/mic-record?rec=${id}`, { method: "POST", body: joined.buffer })
+            .then((response) => {
+              if (!response.ok) log(`recording piece refused: ${response.status}`);
+            })
+            .catch((error) => log(`recording piece not sent: ${error.message}`)),
+        );
+      }
+      /** Kept with the recording at the second it came, while one runs or waits for its last phrase. */
+      function noteForRecording(line, final = false) {
+        if (!recorder.noting) return;
+        const late = recorder.id ? "" : "  (after Stop)";
+        recorder.heard.push(`${((performance.now() - recorder.startedAt) / 1000).toFixed(1).padStart(6)} s  ${line}${late}`);
+        if (final) {
+          recorder.lastHearing = "";
+          recorder.lastFinal?.();
+        }
+      }
+      /** Apple's provisional words, noted each time they change, so a phrase it never finishes still shows. */
+      function noteHearing(words) {
+        if (!words || words === recorder.lastHearing) return;
+        recorder.lastHearing = words;
+        noteForRecording(`hearing: "${words}"`);
+      }
+      function startRecording() {
+        recorder.id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+        recorder.startedAt = performance.now();
+        recorder.heard = [];
+        recorder.lastHearing = "";
+        recorder.noting = true;
+        recorder.sent = 0;
+        recorder.tap.port.postMessage({ on: true });
+        document.getElementById("record").textContent = "Stop recording";
+        log(`recording the mic to the Mac as ${recorder.id}, ${context.sampleRate} Hz`);
+      }
+      async function stopRecording() {
+        const id = recorder.id;
+        recorder.tap.port.postMessage({ on: false });
+        if (recorder.queued > 0) sendRecorded();
+        recorder.id = null;
+        const button = document.getElementById("record");
+        button.disabled = true;
+        button.textContent = "Waiting for dictation's last phrase…";
+        // Until the next final phrase, or a few seconds if none comes.
+        await new Promise((resolve) => {
+          recorder.lastFinal = resolve;
+          setTimeout(resolve, LATE_FINAL_MS);
+        });
+        recorder.lastFinal = null;
+        recorder.noting = false;
+        button.textContent = "Record the mic to the Mac";
+        await recorder.sending;
+        try {
+          const response = await fetch(`/api/audio/mic-record-end?rec=${id}&rate=${context.sampleRate}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ heard: recorder.heard }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error?.message ?? String(response.status));
+          document.getElementById("recording").hidden = false;
+          document.getElementById("recording-audio").src = result.url;
+          document.getElementById("recording-heard").textContent = recorder.heard.length
+            ? `Dictation heard:\n${recorder.heard.join("\n")}`
+            : "Dictation heard nothing while recording";
+          log(`recorded ${result.seconds} s as ${id}, ${recorder.heard.length} dictation line(s)`);
+        } catch (error) {
+          log(`recording not kept: ${error.message}`);
+        } finally {
+          button.disabled = false;
+        }
       }
       const KOKORO_VOICE = params.get("kvoice") ?? "af_heart";
       const TINY_MODEL =
@@ -1795,6 +2600,7 @@
         playNoiseColor();
         log(`mix: agent ${mix.voice}, ${noiseState()}`);
         void context.resume();
+        document.getElementById("mic-on-row").hidden = !(WITH_MIC || WITH_DICTATION);
         if (WITH_DICTATION) startDictation();
         if (WITH_MIC && CONFIRM) startNowPlaying();
         if (WITH_MIC) void startMic().catch((error) => log(`mic failed: ${error.name} ${error.message}`));

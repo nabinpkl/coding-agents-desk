@@ -7,6 +7,9 @@
 // (`agent-feed/speech/speech_server.py`) and on to every page listening there, not to Agent Radio's
 // AAC stream. The sidecar's own speech (`push/sessionSpeech.ts`) already goes to the speech process.
 
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AUDIO_SPEAK_MAX_CHARS, AUDIO_SPEAK_ROUTE } from "@agentdesk/agent-feed-wire";
 import { speakableText } from "@/audio/audioChannel";
 import { speechPort } from "@/audio/audioConfig";
@@ -123,6 +126,182 @@ async function keepReport(request: Request): Promise<Response> {
   return new Response(null, { status: 204 });
 }
 
+/**
+ * The page's mic, recorded on the Mac between its Record and Stop, to hear what Apple's dictation was
+ * given when it heard nothing or the wrong thing. `POST /api/audio/mic-record?rec=<id>` appends a
+ * piece (float32 mono, as the page's mic gives it); `POST /api/audio/mic-record-end?rec=<id>&rate=<hz>`
+ * <- {heard: [...]} makes `<id>.wav` and `<id>.txt` (what dictation heard, at what second);
+ * `GET /api/audio/mic-recording?rec=<id>` plays it back. Kept in the system's temp folder.
+ */
+const MIC_RECORDINGS = join(tmpdir(), "agentdesk-mic-recordings");
+const MIC_RECORD_ROUTE = "/api/audio/mic-record";
+const MIC_RECORD_END_ROUTE = "/api/audio/mic-record-end";
+const MIC_RECORDING_ROUTE = "/api/audio/mic-recording";
+const RECORDING_ID = /^[a-z0-9-]{1,40}$/;
+
+function recordingId(url: URL): string | null {
+  const id = url.searchParams.get("rec") ?? "";
+  return RECORDING_ID.test(id) ? id : null;
+}
+
+async function recordPiece(request: Request, id: string): Promise<Response> {
+  const piece = new Uint8Array(await request.arrayBuffer());
+  if (piece.length % 4 !== 0) return errorResponse("invalid_piece", "a piece is whole float32 samples", 400);
+  await mkdir(MIC_RECORDINGS, { recursive: true });
+  await appendFile(join(MIC_RECORDINGS, `${id}.f32`), piece);
+  return new Response(null, { status: 204 });
+}
+
+/** 16-bit mono WAV at `rate`, from float32 samples. */
+function wavOf(samples: Float32Array, rate: number): Uint8Array {
+  const out = new Uint8Array(44 + samples.length * 2);
+  const view = new DataView(out.buffer);
+  const text = (at: number, value: string) =>
+    [...value].forEach((char, i) => view.setUint8(at + i, char.charCodeAt(0)));
+  text(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((sample, i) =>
+    view.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true),
+  );
+  return out;
+}
+
+async function endRecording(request: Request, url: URL, id: string): Promise<Response> {
+  const rate = Number(url.searchParams.get("rate"));
+  if (!Number.isInteger(rate) || rate < 8000 || rate > 96000) {
+    return errorResponse("invalid_rate", "rate is the mic's sample rate, 8000 to 96000", 400);
+  }
+  const raw = join(MIC_RECORDINGS, `${id}.f32`);
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await readFile(raw));
+  } catch {
+    return errorResponse("no_recording", `nothing was recorded as ${id}`, 404);
+  }
+  const samples = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+  const heard = ((await request.json().catch(() => null)) as { heard?: unknown } | null)?.heard;
+  const lines = Array.isArray(heard) ? heard.filter((line) => typeof line === "string") : [];
+  await writeFile(join(MIC_RECORDINGS, `${id}.wav`), wavOf(samples, rate));
+  await writeFile(join(MIC_RECORDINGS, `${id}.txt`), `${lines.join("\n")}\n`);
+  await rm(raw, { force: true });
+  const seconds = Math.round((samples.length / rate) * 10) / 10;
+  console.log(
+    `[audio] mic recording ${id}: ${seconds} s at ${rate} Hz, ${lines.length} dictation line(s), in ${MIC_RECORDINGS}`,
+  );
+  return jsonResponse({ seconds, url: `${MIC_RECORDING_ROUTE}?rec=${id}` });
+}
+
+async function playRecording(id: string): Promise<Response> {
+  try {
+    const wav = await readFile(join(MIC_RECORDINGS, `${id}.wav`));
+    return new Response(wav, { headers: { "content-type": "audio/wav", "cache-control": "no-store" } });
+  } catch {
+    return errorResponse("no_recording", `no recording ${id}`, 404);
+  }
+}
+
+/**
+ * Which session the page's dictation streams into, chosen from either end: the page's own picker,
+ * or the mic on a session's composer in the panel. Held here rather than in either, so both read one
+ * answer, and here rather than in the sidecar, which forgets on every save. A session id alone,
+ * because ids are unique across machines and the page finds which machine lists it.
+ *
+ * `GET /api/audio/dictation-target` answers `{sessionId}` (null: nowhere), `POST` with `{sessionId}`
+ * sets it, and `GET …/stream` sends it as each reader connects and again on every change.
+ */
+const DICTATION_TARGET_ROUTE = "/api/audio/dictation-target";
+const DICTATION_TARGET_STREAM_ROUTE = "/api/audio/dictation-target/stream";
+const SESSION_ID = /^[A-Za-z0-9-]{1,80}$/;
+const encoder = new TextEncoder();
+let dictationTarget: string | null = null;
+const targetReaders = new Set<ReadableStreamDefaultController<Uint8Array>>();
+
+function sendToReaders(bytes: Uint8Array): void {
+  for (const reader of targetReaders) {
+    // Bun never says a reader left, so one that stopped taking what it is sent is dropped here:
+    // a reader still there takes each beat as it comes, and one that is gone lets them pile up.
+    if ((reader.desiredSize ?? 0) < -3) {
+      targetReaders.delete(reader);
+      continue;
+    }
+    try {
+      reader.enqueue(bytes);
+    } catch {
+      targetReaders.delete(reader);
+    }
+  }
+}
+
+// A beat, not a poll: it keeps an idle stream from being closed on the way, and is how a reader that
+// left is noticed (above).
+setInterval(() => sendToReaders(encoder.encode(": beat\n\n")), 20_000).unref();
+
+function targetEvent(): Uint8Array {
+  return encoder.encode(`data: ${JSON.stringify({ sessionId: dictationTarget })}\n\n`);
+}
+
+function streamTarget(): Response {
+  let mine: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      mine = controller;
+      controller.enqueue(targetEvent());
+      targetReaders.add(controller);
+    },
+    cancel() {
+      if (mine) targetReaders.delete(mine);
+    },
+  });
+  return new Response(body, {
+    headers: { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform" },
+  });
+}
+
+async function chooseTarget(request: Request): Promise<Response> {
+  let sessionId: unknown;
+  try {
+    ({ sessionId } = (await request.json()) as { sessionId?: unknown });
+  } catch {
+    return errorResponse("invalid_target", "send {sessionId}, a session id or null", 400);
+  }
+  if (sessionId !== null && (typeof sessionId !== "string" || !SESSION_ID.test(sessionId))) {
+    return errorResponse("invalid_target", "sessionId is a session id or null", 400);
+  }
+  if (sessionId !== dictationTarget) {
+    dictationTarget = sessionId;
+    console.log(`[audio] dictation streams to ${sessionId ?? "nowhere"}`);
+    sendToReaders(targetEvent());
+  }
+  return jsonResponse({ sessionId: dictationTarget });
+}
+
+function dictationTargetRoutes(request: Request, url: URL): Promise<Response> | Response | undefined {
+  if (url.pathname === DICTATION_TARGET_STREAM_ROUTE && request.method === "GET") return streamTarget();
+  if (url.pathname !== DICTATION_TARGET_ROUTE) return undefined;
+  if (request.method === "POST") return chooseTarget(request);
+  return request.method === "GET" ? jsonResponse({ sessionId: dictationTarget }) : undefined;
+}
+
+function micRecordingRoutes(request: Request, url: URL): Promise<Response> | undefined {
+  const routes = [MIC_RECORD_ROUTE, MIC_RECORD_END_ROUTE, MIC_RECORDING_ROUTE];
+  if (!routes.includes(url.pathname)) return undefined;
+  const id = recordingId(url);
+  if (!id) return Promise.resolve(errorResponse("invalid_recording", "rec is letters, digits and dashes", 400));
+  if (url.pathname === MIC_RECORDING_ROUTE) return request.method === "GET" ? playRecording(id) : undefined;
+  if (request.method !== "POST") return undefined;
+  return url.pathname === MIC_RECORD_ROUTE ? recordPiece(request, id) : endRecording(request, url, id);
+}
+
 export function createSpeechPushExperimentRoutes(): RouteHandler {
   return (request, url) => {
     if (url.pathname === AUDIO_SPEAK_ROUTE && request.method === "POST") return speakOnPush(request);
@@ -134,6 +313,6 @@ export function createSpeechPushExperimentRoutes(): RouteHandler {
     if (url.pathname === TEST_REPORTS_ROUTE) {
       return request.method === "POST" ? keepReport(request) : jsonResponse({ reports });
     }
-    return undefined;
+    return dictationTargetRoutes(request, url) ?? micRecordingRoutes(request, url);
   };
 }
