@@ -33,6 +33,7 @@ import type { PanelCommandSurfaces } from "@/features/session-view/usePanelComma
 import type { ComposerAction } from "@/features/session-view/composer/sessionComposerActions";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
+import { useComposerUndo } from "@/features/session-view/composer/composerUndo";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 export function SessionComposerBand({
@@ -107,6 +108,7 @@ export function SessionComposerBand({
   const fieldActions = actions.filter((action) => action.placement === "field");
   const footerActions = actions.filter((action) => action.placement === "footer");
   const rowActions = actions.filter((action) => action.placement === undefined);
+  const undo = useComposerUndo(editor.value, editor.onChange);
   return (
     <section aria-label={sectionLabel} className={`shrink-0 border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-3`}>
       {model.sdkBand ? <SdkApprovalRequests session={model.sdkSession} /> : null}
@@ -206,7 +208,7 @@ export function SessionComposerBand({
               data-keyboard-bar={editor.rail ? "keys" : undefined}
               data-keyboard-suggestion={editor.onAcceptHint ? editor.placeholder : undefined}
               value={editor.value}
-              onChange={(event) => editor.onChange(event.target.value)}
+              onChange={(event) => undo.change(event.target.value)}
               onFocus={() => {
                 setComposerFocused(true);
                 editor.onFocus?.();
@@ -229,6 +231,7 @@ export function SessionComposerBand({
                     },
                   })}
               onKeyDown={(event) => {
+                if (undo.onKeyDown(event)) return;
                 // Tab takes the offer rather than leaving the field, but only while there IS one:
                 // with no suggestion to accept it stays the key that moves focus.
                 if (editor.onAcceptHint && event.key === "Tab" && !event.shiftKey) {
