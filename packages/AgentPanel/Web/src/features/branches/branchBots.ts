@@ -61,9 +61,10 @@ function exclusiveKeys(bot: BotView): Set<string> {
 }
 
 /**
- * The canvas command that adds one more session to a Bot's Branches list, or null when the Bot is
- * not on Branches or already lists it. The list is replaced whole on the record, so it is built
- * from the one the Bot holds now.
+ * The canvas command that adds a session started on Branches to its Bot's Branches list, exclusive
+ * to Branches, or null when the Bot is not on Branches or already lists it. A session begun there
+ * is Branches work, and the Feed leaves it out. The list is replaced whole on the record, so it is
+ * built from the one the Bot holds now.
  */
 export function branchesWithSession(bot: BotView, ref: BotSessionRef): SetBotCanvasCommand | null {
   const membership = bot.canvases?.branches;
@@ -77,7 +78,7 @@ export function branchesWithSession(bot: BotView, ref: BotSessionRef): SetBotCan
     canvases: {
       branches: {
         sessionRefs: [...listed.map(plain), plain(ref)],
-        ...(only.length === 0 ? {} : { exclusiveSessionRefs: only.map(plain) }),
+        exclusiveSessionRefs: [...only.map(plain), plain(ref)],
       },
     },
   };

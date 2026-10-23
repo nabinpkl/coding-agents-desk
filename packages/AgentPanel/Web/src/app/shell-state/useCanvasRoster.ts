@@ -327,25 +327,32 @@ export function useCanvasRoster(
   );
 
   /**
-   * Opens the card of a session a draft on this canvas just started.
-   *
-   * On Branches it is also added to its Bot's Branches list, which is what draws it there once it
-   * is an ordinary session: without that, the card would last only until its first turn landed.
+   * On Branches, adds a session just started there to its Bot's Branches list, exclusive to
+   * Branches: that is what draws it there once it is an ordinary session (without it, the card
+   * lasted only until its first turn landed), and what keeps it off the Feed.
    */
+  const keepOnBranches = useCallback(
+    (botId: string, ref: BotSessionRef) => {
+      if (canvas !== "branches") return;
+      const bot = currentBots.current.find((each) => each.botId === botId);
+      const command = bot ? branchesWithSession(bot, ref) : null;
+      if (command) void setBotCanvas(botId, command, `${ref.source}:${ref.sessionId}`);
+    },
+    [canvas, currentBots, setBotCanvas],
+  );
+
+  /** Opens the card of a session a draft on this canvas just started. */
   const openStartedSession = useCallback(
     (botId: string, ref: BotSessionRef) => {
-      const key = `${ref.source}:${ref.sessionId}`;
-      const bot = canvas === "branches" ? currentBots.current.find((each) => each.botId === botId) : undefined;
-      const command = bot ? branchesWithSession(bot, ref) : null;
-      if (command) void setBotCanvas(botId, command, key);
-      setCanvasOpenKeys((current) => new Set(current).add(key));
+      keepOnBranches(botId, ref);
+      setCanvasOpenKeys((current) => new Set(current).add(`${ref.source}:${ref.sessionId}`));
     },
-    [canvas, currentBots, setBotCanvas, setCanvasOpenKeys],
+    [keepOnBranches, setCanvasOpenKeys],
   );
 
   /**
    * Binds a session one of a Bot's own sessions just made -- `/new` and `/fork` -- to that Bot,
-   * and opens its card.
+   * and opens its card: on Branches, a card kept to Branches (`keepOnBranches`).
    *
    * A function of the Bot rather than one that takes it per call, because the caller is a card
    * that knows which Bot it belongs to and nothing else does: the session view's context is built
@@ -366,6 +373,7 @@ export function useCanvasRoster(
         if (bot.offCanvas) {
           void setBotCanvas(bot.botId, { onCanvas: true });
         }
+        keepOnBranches(bot.botId, { source: session.source, sessionId: session.sessionId });
         setCanvasOpenKeys((current) => new Set(current).add(`${session.source}:${session.sessionId}`));
       } catch (error) {
         // Named against the Bot rather than a session card: the attach failed, so there is no card
@@ -379,7 +387,7 @@ export function useCanvasRoster(
         });
       }
     },
-    [feeds, setBotCanvas, setCanvasOpenKeys],
+    [feeds, keepOnBranches, setBotCanvas, setCanvasOpenKeys],
   );
   /**
    * Moves a session no Bot holds onto the canvas: onto the Bot of its directory, which its machine

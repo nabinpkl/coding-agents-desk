@@ -45,10 +45,10 @@ describe("branchesWithSession", () => {
   const listed: BotSessionRef = { source: "claude", sessionId: "listed" };
   const started: BotSessionRef = { source: "claude", sessionId: "started" };
 
-  it("adds a session started on Branches after the ones its Bot already lists there", () => {
+  it("adds a session started on Branches after the ones its Bot already lists there, kept off the Feed", () => {
     const onBranches = bot("b", [], { canvases: { branches: { sessionRefs: [listed] } } });
     expect(branchesWithSession(onBranches, started)).toEqual({
-      canvases: { branches: { sessionRefs: [listed, started] } },
+      canvases: { branches: { sessionRefs: [listed, started], exclusiveSessionRefs: [started] } },
     });
   });
 
@@ -57,7 +57,7 @@ describe("branchesWithSession", () => {
       canvases: { branches: { sessionRefs: [listed], exclusiveSessionRefs: [listed] } },
     });
     expect(branchesWithSession(onBranches, started)).toEqual({
-      canvases: { branches: { sessionRefs: [listed, started], exclusiveSessionRefs: [listed] } },
+      canvases: { branches: { sessionRefs: [listed, started], exclusiveSessionRefs: [listed, started] } },
     });
   });
 
