@@ -913,6 +913,36 @@
        */
       const DICT_TARGET_ROUTE = "/api/audio/dictation-target";
       let dictFollowing = null;
+      /**
+       * Whether this page's mic is listening, told to the Mac so the panel's mic can say whether a
+       * phone is there to stream. Said on each change, each time the stream connects (a Mac that
+       * restarted has forgotten), and as the page closes; the Mac counts it only while the stream
+       * named by this page's id is open.
+       */
+      const DICT_PAGE = crypto.randomUUID();
+      const DICT_MIC_ROUTE = `${DICT_TARGET_ROUTE}/mic`;
+      function tellMacMic() {
+        // Said again when the stream connects.
+        if (dictFollowing?.readyState !== EventSource.OPEN) return;
+        const on = micWanted && dictListen !== null;
+        fetch(DICT_MIC_ROUTE, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ page: DICT_PAGE, on }),
+        })
+          .then((answer) => {
+            if (!answer.ok) log(`mic ${on ? "on" : "off"} not told to the Mac: it answered ${answer.status}`);
+          })
+          .catch((error) => log(`mic ${on ? "on" : "off"} not told to the Mac: ${error.message}`));
+      }
+      window.addEventListener("pagehide", () => {
+        if (!dictFollowing) return;
+        const body = new Blob([JSON.stringify({ page: DICT_PAGE, on: false })], { type: "application/json" });
+        navigator.sendBeacon(DICT_MIC_ROUTE, body);
+      });
+      window.addEventListener("pageshow", (event) => {
+        if (event.persisted) tellMacMic();
+      });
       function tellMacTarget() {
         const sessionId = streamingTarget()?.sessionId ?? null;
         fetch(DICT_TARGET_ROUTE, {
@@ -970,7 +1000,8 @@
       }
       function followMacTarget() {
         if (dictFollowing) return;
-        dictFollowing = new EventSource(`${DICT_TARGET_ROUTE}/stream`);
+        dictFollowing = new EventSource(`${DICT_TARGET_ROUTE}/stream?page=${DICT_PAGE}`);
+        dictFollowing.onopen = tellMacMic;
         dictFollowing.onmessage = (event) => {
           let sessionId;
           try {
@@ -1131,6 +1162,7 @@
           micWanted = false;
         } finally {
           micToggle.disabled = false;
+          tellMacMic();
         }
       });
       const SPEECH_DB = Number(params.get("speechdb") ?? -35); // louder than this counts as speech

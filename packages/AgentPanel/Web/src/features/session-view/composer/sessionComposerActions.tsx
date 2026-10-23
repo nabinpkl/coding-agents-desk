@@ -75,21 +75,43 @@ const SEND_IN_FIELD_CLASS =
 const MIC_IN_FIELD_CLASS =
   "mb-2 flex size-8 shrink-0 items-center justify-center rounded-lg outline-none transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-foreground/15";
 
-/** The mic that makes this the session the phone's dictation streams into (`dictationTarget.ts`). */
+/**
+ * The mic that makes this the session the phone's dictation streams into (`dictationTarget.ts`).
+ * A dot on it while a phone's mic is listening; aimed here with none listening, it is drawn as a
+ * warning, since nothing will arrive.
+ */
 function dictationAction(dictation: NonNullable<ComposerModel["dictation"]>): ComposerAction {
-  const { here, elsewhere, known, failure } = dictation;
+  const { here, elsewhere, mics, known, failure } = dictation;
+  const silent = known && mics === 0;
   const where = here
     ? "Your phone's dictation streams into this composer"
     : elsewhere
       ? "Your phone's dictation streams into another session"
       : "Stream your phone's dictation into this composer";
+  const listening = !known
+    ? " (not yet heard from the Mac)"
+    : silent
+      ? ", but no phone mic is listening"
+      : `, ${mics === 1 ? "a phone mic is" : `${mics} phone mics are`} listening`;
+  const tint = here
+    ? silent
+      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+      : "bg-primary/10 text-primary"
+    : "text-muted-foreground hover:text-foreground";
   return {
     key: "dictation-target",
     ariaLabel: here ? "Dictation streams here, change" : "Choose where dictation streams",
-    title: failure ?? (known ? where : `${where} (not yet heard from the Mac)`),
-    icon: <Mic className="size-4" aria-hidden />,
+    title: failure ?? `${where}${listening}`,
+    icon: (
+      <span className="relative inline-flex">
+        <Mic className="size-4" aria-hidden />
+        {known && mics > 0 ? (
+          <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-emerald-500" aria-hidden />
+        ) : null}
+      </span>
+    ),
     disabled: false,
-    className: `${MIC_IN_FIELD_CLASS} ${here ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`,
+    className: `${MIC_IN_FIELD_CLASS} ${tint}`,
     placement: "field",
     menu: {
       label: "Dictation",
@@ -99,9 +121,11 @@ function dictationAction(dictation: NonNullable<ComposerModel["dictation"]>): Co
         {
           value: "here",
           label: "Stream dictation here",
-          description: elsewhere
-            ? "Moves your phone's dictation here from the session it streams into now"
-            : "What you say on your phone's dictation page is added here as you speak",
+          description: silent
+            ? "No phone mic is listening: turn the mic on on your phone's dictation page"
+            : elsewhere
+              ? "Moves your phone's dictation here from the session it streams into now"
+              : "What you say on your phone's dictation page is added here as you speak",
           icon: Mic,
         },
         {

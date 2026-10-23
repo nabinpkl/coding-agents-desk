@@ -4,6 +4,9 @@
 // can make it too. Always this Mac's `/api/audio`, whichever machine a session is on: the page is
 // served from here, and a session id is unique across machines, so the page finds the machine.
 //
+// The stream also says how many phone pages have their mic on, so the composer's mic can say when
+// there is nothing listening to stream.
+//
 // One choice for the whole page, so a module store: every composer's mic reads it, and choosing one
 // session moves it off whichever had it.
 
@@ -17,22 +20,26 @@ const STREAM_ROUTE = `${TARGET_ROUTE}/stream`;
 interface TargetState {
   /** The session dictation streams into, or null for none. */
   sessionId: string | null;
+  /** How many phone pages have their mic on. */
+  mics: number;
   /** Whether the stream has said, since it last connected; until then `sessionId` is a guess. */
   known: boolean;
   /** Why the last choice did not reach the Mac, until the next one. */
   failure: string | null;
 }
 
-const target = createStore<TargetState>(() => ({ sessionId: null, known: false, failure: null }));
+const target = createStore<TargetState>(() => ({ sessionId: null, mics: 0, known: false, failure: null }));
 
 let readers = 0;
 let stream: EventSource | null = null;
 
-/** The `sessionId` an event carries, or undefined for one that is not this stream's. */
-export function targetIn(data: string): string | null | undefined {
+/** What an event says, or undefined for one that is not this stream's. */
+export function targetIn(data: string): Pick<TargetState, "sessionId" | "mics"> | undefined {
   try {
-    const sessionId: unknown = (JSON.parse(data) as { sessionId?: unknown })?.sessionId;
-    return typeof sessionId === "string" || sessionId === null ? sessionId : undefined;
+    const { sessionId, mics } = JSON.parse(data) as { sessionId?: unknown; mics?: unknown };
+    if (typeof sessionId !== "string" && sessionId !== null) return undefined;
+    if (typeof mics !== "number" || !Number.isInteger(mics) || mics < 0) return undefined;
+    return { sessionId, mics };
   } catch {
     return undefined;
   }
@@ -46,8 +53,8 @@ function follow(): () => void {
   if (!stream) {
     const source = new EventSource(STREAM_ROUTE);
     source.onmessage = (event: MessageEvent<string>) => {
-      const sessionId = targetIn(event.data);
-      if (sessionId !== undefined) target.setState({ sessionId, known: true });
+      const said = targetIn(event.data);
+      if (said) target.setState({ ...said, known: true });
     };
     // It connects again by itself, and says the choice again when it does.
     source.onerror = () => target.setState({ known: false });
@@ -84,6 +91,8 @@ export interface DictationTarget {
   here: boolean;
   /** It streams into another one. */
   elsewhere: boolean;
+  /** How many phone pages have their mic on: none means nothing streams, wherever it is aimed. */
+  mics: number;
   known: boolean;
   failure: string | null;
   /** `here` streams into this session, `off` takes it off this one, `stop` stops it wherever it is. */
@@ -96,11 +105,13 @@ export type DictationChoice = "here" | "off" | "stop";
 export function useDictationTarget(sessionId: string, enabled: boolean): DictationTarget {
   useSubscription(enabled ? STREAM_ROUTE : null, follow);
   const current = useStore(target, (state) => state.sessionId);
+  const mics = useStore(target, (state) => state.mics);
   const known = useStore(target, (state) => state.known);
   const failure = useStore(target, (state) => state.failure);
   return {
     here: current === sessionId,
     elsewhere: current !== null && current !== sessionId,
+    mics,
     known,
     failure,
     // "Not here" from a session that does not have it changes nothing, rather than clearing another's.
@@ -113,5 +124,5 @@ export function useDictationTarget(sessionId: string, enabled: boolean): Dictati
 
 /** For tests: forget the choice. */
 export function resetDictationTarget(): void {
-  target.setState({ sessionId: null, known: false, failure: null });
+  target.setState({ sessionId: null, mics: 0, known: false, failure: null });
 }

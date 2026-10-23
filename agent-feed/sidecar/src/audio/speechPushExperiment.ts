@@ -216,50 +216,82 @@ async function playRecording(id: string): Promise<Response> {
  * answer, and here rather than in the sidecar, which forgets on every save. A session id alone,
  * because ids are unique across machines and the page finds which machine lists it.
  *
- * `GET /api/audio/dictation-target` answers `{sessionId}` (null: nowhere), `POST` with `{sessionId}`
- * sets it, and `GET …/stream` sends it as each reader connects and again on every change.
+ * `GET /api/audio/dictation-target` answers `{sessionId, mics}` (sessionId null: nowhere), `POST`
+ * with `{sessionId}` sets it, and `GET …/stream` sends it as each reader connects and again on every
+ * change. `mics` is how many phone pages have their mic on, so the panel's mic can say whether
+ * anything is listening to stream.
  */
 const DICTATION_TARGET_ROUTE = "/api/audio/dictation-target";
 const DICTATION_TARGET_STREAM_ROUTE = "/api/audio/dictation-target/stream";
+/**
+ * `POST {page, on}`: a dictation page's mic is on or off. The page says so on each change, each time
+ * its stream connects (`…/stream?page=<page>`), and as it closes. One that vanishes without saying
+ * goes with its stream, when that is cancelled or stops taking beats.
+ */
+const DICTATION_MIC_ROUTE = "/api/audio/dictation-target/mic";
 const SESSION_ID = /^[A-Za-z0-9-]{1,80}$/;
+/** A page names itself with a random UUID. */
+const PAGE_ID = /^[A-Za-z0-9-]{1,80}$/;
 const encoder = new TextEncoder();
 let dictationTarget: string | null = null;
-const targetReaders = new Set<ReadableStreamDefaultController<Uint8Array>>();
+/** Every reader of the stream, with the dictation page it is, or null for the panel. */
+const targetReaders = new Map<ReadableStreamDefaultController<Uint8Array>, string | null>();
+/** The pages whose mic is on. */
+const micsOn = new Set<string>();
+
+/** Forgets a reader, and its page's mic once no stream of that page is left; true if a mic went. */
+function dropReader(reader: ReadableStreamDefaultController<Uint8Array>): boolean {
+  const page = targetReaders.get(reader);
+  targetReaders.delete(reader);
+  if (!page || !micsOn.has(page) || [...targetReaders.values()].includes(page)) return false;
+  micsOn.delete(page);
+  console.log(`[audio] dictation mic of page ${page} gone with its stream (${micsOn.size} listening)`);
+  return true;
+}
 
 function sendToReaders(bytes: Uint8Array): void {
-  for (const reader of targetReaders) {
-    // Bun never says a reader left, so one that stopped taking what it is sent is dropped here:
-    // a reader still there takes each beat as it comes, and one that is gone lets them pile up.
+  let micGone = false;
+  for (const reader of targetReaders.keys()) {
+    // Bun cancels a stream whose reader closed it, but not one that simply went quiet, so a reader
+    // that stopped taking what it is sent is dropped here: one still there takes each beat as it
+    // comes, and one that is gone lets them pile up.
     if ((reader.desiredSize ?? 0) < -3) {
-      targetReaders.delete(reader);
+      micGone = dropReader(reader) || micGone;
       continue;
     }
     try {
       reader.enqueue(bytes);
     } catch {
-      targetReaders.delete(reader);
+      micGone = dropReader(reader) || micGone;
     }
   }
+  if (micGone) sendToReaders(targetEvent());
 }
 
 // A beat, not a poll: it keeps an idle stream from being closed on the way, and is how a reader that
 // left is noticed (above).
 setInterval(() => sendToReaders(encoder.encode(": beat\n\n")), 20_000).unref();
 
-function targetEvent(): Uint8Array {
-  return encoder.encode(`data: ${JSON.stringify({ sessionId: dictationTarget })}\n\n`);
+function targetState() {
+  return { sessionId: dictationTarget, mics: micsOn.size };
 }
 
-function streamTarget(): Response {
+function targetEvent(): Uint8Array {
+  return encoder.encode(`data: ${JSON.stringify(targetState())}\n\n`);
+}
+
+function streamTarget(url: URL): Response {
+  const asked = url.searchParams.get("page");
+  const page = asked !== null && PAGE_ID.test(asked) ? asked : null;
   let mine: ReadableStreamDefaultController<Uint8Array> | null = null;
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       mine = controller;
       controller.enqueue(targetEvent());
-      targetReaders.add(controller);
+      targetReaders.set(controller, page);
     },
     cancel() {
-      if (mine) targetReaders.delete(mine);
+      if (mine && dropReader(mine)) sendToReaders(targetEvent());
     },
   });
   return new Response(body, {
@@ -282,14 +314,39 @@ async function chooseTarget(request: Request): Promise<Response> {
     console.log(`[audio] dictation streams to ${sessionId ?? "nowhere"}`);
     sendToReaders(targetEvent());
   }
-  return jsonResponse({ sessionId: dictationTarget });
+  return jsonResponse(targetState());
+}
+
+async function setMic(request: Request): Promise<Response> {
+  let page: unknown;
+  let on: unknown;
+  try {
+    ({ page, on } = (await request.json()) as { page?: unknown; on?: unknown });
+  } catch {
+    return errorResponse("invalid_mic", "send {page, on}", 400);
+  }
+  if (typeof page !== "string" || !PAGE_ID.test(page) || typeof on !== "boolean") {
+    return errorResponse("invalid_mic", "page is letters, digits and dashes, and on is true or false", 400);
+  }
+  // A mic counts only while its page's stream is open, which is what notices the page going.
+  if (on && ![...targetReaders.values()].includes(page)) {
+    return errorResponse("no_stream", `page ${page} has no dictation-target stream open`, 409);
+  }
+  if (on !== micsOn.has(page)) {
+    if (on) micsOn.add(page);
+    else micsOn.delete(page);
+    console.log(`[audio] dictation mic turned ${on ? "on" : "off"} by page ${page} (${micsOn.size} listening)`);
+    sendToReaders(targetEvent());
+  }
+  return jsonResponse(targetState());
 }
 
 function dictationTargetRoutes(request: Request, url: URL): Promise<Response> | Response | undefined {
-  if (url.pathname === DICTATION_TARGET_STREAM_ROUTE && request.method === "GET") return streamTarget();
+  if (url.pathname === DICTATION_TARGET_STREAM_ROUTE && request.method === "GET") return streamTarget(url);
+  if (url.pathname === DICTATION_MIC_ROUTE && request.method === "POST") return setMic(request);
   if (url.pathname !== DICTATION_TARGET_ROUTE) return undefined;
   if (request.method === "POST") return chooseTarget(request);
-  return request.method === "GET" ? jsonResponse({ sessionId: dictationTarget }) : undefined;
+  return request.method === "GET" ? jsonResponse(targetState()) : undefined;
 }
 
 function micRecordingRoutes(request: Request, url: URL): Promise<Response> | undefined {

@@ -13,8 +13,8 @@ class FakeEventSource {
   constructor(readonly url: string) {
     FakeEventSource.open.push(this);
   }
-  say(sessionId: string | null) {
-    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ sessionId }) }));
+  say(sessionId: string | null, mics = 1) {
+    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ sessionId, mics }) }));
   }
   close() {
     this.closed = true;
@@ -43,7 +43,7 @@ describe("where the phone's dictation streams", () => {
     const stream = FakeEventSource.open[0]!;
     expect(stream.url).toBe("/api/audio/dictation-target/stream");
     act(() => stream.say("a"));
-    expect(first.result.current).toMatchObject({ here: true, elsewhere: false, known: true });
+    expect(first.result.current).toMatchObject({ here: true, elsewhere: false, mics: 1, known: true });
     expect(second.result.current).toMatchObject({ here: false, elsewhere: true });
     first.unmount();
     expect(stream.closed).toBe(false);
@@ -80,10 +80,21 @@ describe("where the phone's dictation streams", () => {
     expect(result.current.here).toBe(false);
   });
 
+  it("says how many phone mics are listening", () => {
+    setUp();
+    const { result } = renderHook(() => useDictationTarget("a", true));
+    act(() => FakeEventSource.open[0]!.say("a", 0));
+    expect(result.current).toMatchObject({ here: true, mics: 0 });
+    act(() => FakeEventSource.open[0]!.say("a", 2));
+    expect(result.current.mics).toBe(2);
+  });
+
   it("reads only this stream's events", () => {
-    expect(targetIn('{"sessionId":"a"}')).toBe("a");
-    expect(targetIn('{"sessionId":null}')).toBeNull();
+    expect(targetIn('{"sessionId":"a","mics":1}')).toEqual({ sessionId: "a", mics: 1 });
+    expect(targetIn('{"sessionId":null,"mics":0}')).toEqual({ sessionId: null, mics: 0 });
+    expect(targetIn('{"sessionId":"a"}')).toBeUndefined();
     expect(targetIn('{"other":1}')).toBeUndefined();
+    expect(targetIn("null")).toBeUndefined();
     expect(targetIn("not json")).toBeUndefined();
   });
 });
@@ -94,7 +105,9 @@ describe("the composer's mic", () => {
 
   it("sits in the field with a menu that streams here, not here, or stops", () => {
     const choose = vi.fn();
-    const actions = composerActions(model({ here: true, elsewhere: false, known: true, failure: null, choose }));
+    const actions = composerActions(
+      model({ here: true, elsewhere: false, mics: 1, known: true, failure: null, choose }),
+    );
     const mic = actions.find((action) => action.key === "dictation-target");
     expect(mic?.placement).toBe("field");
     expect(mic?.menu?.value).toBe("here");
@@ -105,6 +118,17 @@ describe("the composer's mic", () => {
     ]);
     mic?.menu?.onChoose("stop");
     expect(choose).toHaveBeenCalledWith("stop");
+  });
+
+  it("says when no phone mic is listening to stream", () => {
+    const listening = { here: true, elsewhere: false, known: true, failure: null, choose: vi.fn() };
+    const silent = composerActions(model({ ...listening, mics: 0 })).find((a) => a.key === "dictation-target");
+    expect(silent?.title).toMatch(/no phone mic is listening/);
+    expect(silent?.className).toMatch(/amber/);
+    expect(silent?.menu?.choices[0]?.description).toMatch(/No phone mic is listening/);
+    const heard = composerActions(model({ ...listening, mics: 1 })).find((a) => a.key === "dictation-target");
+    expect(heard?.title).toMatch(/a phone mic is listening/);
+    expect(heard?.className).not.toMatch(/amber/);
   });
 
   it("is not there for a session dictation cannot reach", () => {
