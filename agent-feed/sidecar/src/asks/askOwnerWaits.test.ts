@@ -27,7 +27,10 @@ test("shows a waiting call to its session's watchers, oldest first, and hands th
   const { seen } = watched(waits);
   const verdicts: AskOwnerVerdict[] = [];
   waits.wait(command("toolu_b"), (verdict) => verdicts.push(verdict));
-  waits.wait(command("toolu_a"), (verdict) => verdicts.push(verdict));
+  waits.wait(
+    { ...command("toolu_a"), questions: [{ id: "size", question: "How big?", kind: "text", options: [] }] },
+    (verdict) => verdicts.push(verdict),
+  );
   // The same id again joins the call already waiting, as a reconnecting tool process does.
   waits.wait(command("toolu_b"), (verdict) => verdicts.push(verdict));
   expect(seen).toEqual([[], ["toolu_b"], ["toolu_b", "toolu_a"]]);
@@ -68,4 +71,23 @@ test("will not let one session answer another's call, nor take answers that do n
   expect(verdicts).toEqual([]);
   // Still waiting after both refusals, and still answerable.
   expect(waits.answer("claude", SESSION, "toolu_a", [{ id: "name", text: "Ledger" }])).toEqual({ delivered: true });
+});
+
+test("joins a new call asking exactly what one of its session's calls already asks", () => {
+  const waits = new AskOwnerWaits();
+  const { seen } = watched(waits);
+  const verdicts: string[] = [];
+  waits.wait(command("toolu_first"), () => verdicts.push("first"));
+  // Asked again, as a model that took "moved to the background" for a failure would.
+  waits.wait(command("toolu_again"), () => verdicts.push("again"));
+  // Another session asking the same is a different question, and so is a different question here.
+  waits.wait(command("toolu_other", "9fe3988d-5392-4580-82f7-1659e881666c"), () => verdicts.push("other"));
+  waits.wait(
+    { ...command("toolu_new"), questions: [{ id: "size", question: "How big?", kind: "text", options: [] }] },
+    () => verdicts.push("new"),
+  );
+  expect(seen.at(-1)).toEqual(["toolu_first", "toolu_new"]);
+  expect(waits.answer("claude", SESSION, "toolu_first", [{ id: "name", text: "Ledger" }])).toEqual({ delivered: true });
+  expect(verdicts).toEqual(["first", "again"]);
+  expect(seen.at(-1)).toEqual(["toolu_new"]);
 });

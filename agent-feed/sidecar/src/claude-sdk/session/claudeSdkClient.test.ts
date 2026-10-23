@@ -29,6 +29,7 @@ async function runnerFor(build = BUILD, choices: RunnerPlan["choices"] = {}) {
     permissionMode: "auto",
     allowBypass: false,
     pluginDirectories: [],
+    allowedTools: [],
     claudePath: "/bin/false",
     choices,
   };
@@ -332,6 +333,7 @@ describe("one runner per session", () => {
         permissionMode: "auto",
         allowBypass: false,
         pluginDirectories: [],
+        allowedTools: [],
         claudePath: "/bin/false",
         choices: {},
       },
@@ -365,6 +367,7 @@ describe("who the client will believe", () => {
           permissionMode: "auto",
           allowBypass: false,
           pluginDirectories: [],
+          allowedTools: [],
           claudePath: "/bin/false",
           choices: {},
         },

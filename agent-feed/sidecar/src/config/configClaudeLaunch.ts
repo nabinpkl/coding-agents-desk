@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CLAUDE_PERMISSION_MODES, type ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import { booleanEnvironment } from "@/config/configEnvironment";
+import { ASK_OWNER_MOD, ASK_OWNER_TOOL_NAME } from "@/asks/askOwnerMcp";
 
 function permissionModeEnvironment(name: string, fallback: ClaudePermissionMode): ClaudePermissionMode {
   const raw = process.env[name]?.trim();
@@ -47,8 +48,9 @@ export const claudeLaunchPermissionArgs = claudePermissionArgs(
 );
 
 /**
- * The mods every session this sidecar launches loads, in this order: the prompt guard, then the
- * hub mod that delivers agent-hub messages as prompts (`mods/README.md`).
+ * The mods every session this sidecar launches loads, in this order: the prompt guard, the hub mod
+ * that delivers agent-hub messages as prompts, and the mod that gives the session its ask_owner
+ * tool (`mods/README.md`).
  *
  * Loaded with `--plugin-dir` from the sidecar's own tree rather than installed, because a
  * `--plugin-dir` mod reloads live when its files change and an installed one waits for the next
@@ -56,7 +58,7 @@ export const claudeLaunchPermissionArgs = claudePermissionArgs(
  * reads it beside the permission flags and lists every session launched without it for the
  * Profile menu's restart.
  */
-export const LAUNCH_MODS = ["prompt-guard", "agentdesk-hub"] as const;
+export const LAUNCH_MODS = ["prompt-guard", "agentdesk-hub", ASK_OWNER_MOD] as const;
 
 /**
  * The `--plugin-dir` flags for the mods under `modsRoot`. None when the mods are switched off, or
@@ -81,5 +83,24 @@ export const claudeLaunchModDirectories: readonly string[] = claudeLaunchModArgs
   (arg) => arg !== "--plugin-dir",
 );
 
+/**
+ * The tools a launched session uses without asking: a mod's own, once that mod is loaded. Asking
+ * the owner is the whole of ask_owner, so a permission prompt in front of it would be one question
+ * standing in front of another, and one nobody at the panel can answer.
+ */
+export const claudeLaunchAllowedTools: readonly string[] = claudeLaunchModDirectories.some(
+  (directory) => directory.replace(/\/+$/, "").split("/").pop() === ASK_OWNER_MOD,
+)
+  ? [ASK_OWNER_TOOL_NAME]
+  : [];
+
+/** The same tools as `--allowedTools`, for a command line. */
+export const claudeLaunchToolArgs: readonly string[] =
+  claudeLaunchAllowedTools.length === 0 ? [] : ["--allowedTools", claudeLaunchAllowedTools.join(",")];
+
 /** Everything a launched Claude session's command line carries from this sidecar. */
-export const claudeLaunchArgs: readonly string[] = [...claudeLaunchPermissionArgs, ...claudeLaunchModArgs];
+export const claudeLaunchArgs: readonly string[] = [
+  ...claudeLaunchPermissionArgs,
+  ...claudeLaunchModArgs,
+  ...claudeLaunchToolArgs,
+];

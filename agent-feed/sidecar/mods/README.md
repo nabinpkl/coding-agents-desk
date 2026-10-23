@@ -54,9 +54,29 @@ What each kind of message asks of the session (`hooks/hubKindWording.ts`) is sha
 sidecar, which frames opencode prompts with it. It lives here because Claude Code refuses a mod
 import from outside the mod's folder; a peer sidecar is shipped that one file and not the mod.
 
+## ask-owner
+
+Gives the session an `ask_owner` tool: up to five questions for the owner, answered on the
+session's card in the panel, with a note on any chosen option and questions answered in words. It
+is an MCP server (`.mcp.json`, started from `src/askOwnerMcpMain.ts`) and has no hooks, so it
+submits no prompts and cannot start a turn. Claude's own AskUserQuestion is untouched; the tool's
+description tells the model to use this one only when told to ask the owner.
+
+- each call is held open at the sidecar (`POST /api/asks`, `src/asks/`) until the owner answers or
+  dismisses it, and the answers are the tool's result. Claude Code moves a call still running after
+  two minutes to the background, and the answer then arrives as a task notice
+- the server retries the sidecar itself, waiting 1s, 2s, 5s, 10s and then 30s between attempts, and
+  never returns a quick failure the model could answer by calling again; the one quick return is a
+  refusal of malformed questions, and after three in a row the result tells the model to stop
+- a call asking exactly what one of its session's calls already asks joins it: one card, one answer
+- the session ending closes the server's input and it exits, which lets its call go; the
+  `.mcp.json` timeout is 24 hours, past Claude Code's 30-minute cut-off for a silent call
+- launches pre-approve the tool (`--allowedTools mcp__plugin_ask-owner_ask__ask_owner`), since a
+  permission prompt in front of a question for the owner is one nobody at the panel can answer
+
 ## How sessions get them
 
-Every Claude session the sidecar launches, resumes or forks loads both mods with `--plugin-dir`
+Every Claude session the sidecar launches, resumes or forks loads these mods with `--plugin-dir`
 from this directory (`config/configClaudeLaunch.ts`; `AGENT_FEED_CLAUDE_MODS=0` turns it off). They
 are not installed, so an edit here reloads live in every session holding them. A session started
 before a change to that launch is listed as behind it (`launch-flags`), and the Profile menu's

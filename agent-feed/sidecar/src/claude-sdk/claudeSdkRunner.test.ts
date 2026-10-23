@@ -17,6 +17,7 @@ const PLAN: RunnerPlan = {
   permissionMode: "auto",
   allowBypass: true,
   pluginDirectories: ["/mods/prompt-guard"],
+  allowedTools: [],
   claudePath: "/usr/local/bin/claude",
   choices: {},
 };

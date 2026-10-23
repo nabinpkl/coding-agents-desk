@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   LAUNCH_MODS,
+  claudeLaunchAllowedTools,
   claudeLaunchArgs,
   claudeLaunchModArgs,
   claudeLaunchPermissionArgs,
@@ -40,6 +41,8 @@ test("each mod on disk becomes one --plugin-dir, in the guard-first order, and n
       join(root, "prompt-guard"),
       "--plugin-dir",
       join(root, "agentdesk-hub"),
+      "--plugin-dir",
+      join(root, "ask-owner"),
     ]);
     expect(claudeModArgs(root, false)).toEqual([]);
     // A tree without the mods, as the bundled sidecar is, launches without the flags.
@@ -49,10 +52,17 @@ test("each mod on disk becomes one --plugin-dir, in the guard-first order, and n
   }
 });
 
-test("run from this source tree, launches load both mods beside the permission flags", () => {
+test("run from this source tree, launches load the mods beside the permission flags, and pre-approve ask_owner", () => {
   if (process.env.AGENT_FEED_CLAUDE_MODS) return;
   expect(
     claudeLaunchModArgs.filter((arg) => arg !== "--plugin-dir").map((dir) => dir.split("/").slice(-3).join("/")),
-  ).toEqual(["sidecar/mods/prompt-guard", "sidecar/mods/agentdesk-hub"]);
-  expect(claudeLaunchArgs).toEqual([...claudeLaunchPermissionArgs, ...claudeLaunchModArgs]);
+  ).toEqual(["sidecar/mods/prompt-guard", "sidecar/mods/agentdesk-hub", "sidecar/mods/ask-owner"]);
+  // Only the mod's own tool, by the name Claude Code gives a mod's tool (measured 2026-10-22).
+  expect(claudeLaunchAllowedTools).toEqual(["mcp__plugin_ask-owner_ask__ask_owner"]);
+  expect(claudeLaunchArgs).toEqual([
+    ...claudeLaunchPermissionArgs,
+    ...claudeLaunchModArgs,
+    "--allowedTools",
+    "mcp__plugin_ask-owner_ask__ask_owner",
+  ]);
 });

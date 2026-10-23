@@ -1,0 +1,6 @@
+{
+  "name": "ask-owner",
+  "version": "0.1.0",
+  "description": "Gives the session an ask_owner tool: up to five questions for the owner, answered in the agent-desk panel, with notes on options and answers in words.",
+  "author": { "name": "agent-desk" }
+}

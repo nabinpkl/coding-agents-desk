@@ -20,7 +20,7 @@ import {
 import { composerHandlesPath, composerImageDirectory } from "@/config/configComposer";
 import { contextWindowEnvironment, contextWindowIn } from "@/config/contextWindows";
 import { ripgrepBinary, tmuxBinary, yabaiBinary } from "@/config/configBinaries";
-import { allowedHosts, bindHost } from "@/config/configHosts";
+import { allowedHosts, bindHost, bindPort } from "@/config/configHosts";
 
 const userHomeDirectory = homedir();
 
@@ -34,7 +34,7 @@ delete process.env.AGENT_FEED_SUMMARY_API_KEY;
 export const config = {
   host: bindHost,
   allowedHosts,
-  port: integerEnvironment("AGENT_FEED_PORT", 7682, 1, 65_535),
+  port: bindPort,
   claudeProjectsDirectory: directoryEnvironment(
     "AGENT_FEED_CLAUDE_PROJECTS_DIR",
     join(userHomeDirectory, ".claude", "projects"),

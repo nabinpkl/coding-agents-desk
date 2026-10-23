@@ -35,6 +35,8 @@ export interface RunnerPlan {
   permissionMode: PermissionMode;
   allowBypass: boolean;
   pluginDirectories: string[];
+  /** Tools the session uses without asking, such as a mod's own (`claudeLaunchAllowedTools`). */
+  allowedTools: string[];
   /** The installed `claude` this session runs. */
   claudePath: string;
   /** A first turn to send as soon as the query is open. */
@@ -164,6 +166,7 @@ export class ClaudeSdkRunner {
       ...(plan.choices.effort ? { effort: plan.choices.effort } : {}),
       ...(plan.allowBypass ? { allowDangerouslySkipPermissions: true } : {}),
       plugins: plan.pluginDirectories.map((path) => ({ type: "local" as const, path })),
+      allowedTools: plan.allowedTools,
       // Without it Opus streams and stores its thinking empty, and the grey lines a terminal
       // session shows are gone from the card and the transcript alike (measured 2026-10-17).
       thinking: { type: "adaptive", display: "summarized" },

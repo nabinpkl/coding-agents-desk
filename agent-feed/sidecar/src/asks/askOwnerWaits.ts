@@ -37,9 +37,13 @@ export class AskOwnerWaits {
    *
    * The same id sent again joins the call already waiting rather than replacing it, so a serving
    * process that reconnects keeps the question the owner may be halfway through answering.
+   *
+   * So does a new call asking exactly what one of its session's calls is already asking. A model
+   * told its call "moved to the background" can take that for a failure and ask again, and would
+   * then do so every two minutes; joined, the owner sees one card, and one answer ends both.
    */
   wait(command: WaitAskOwnerCommand, onVerdict: (verdict: AskOwnerVerdict) => void): () => void {
-    let entry = this.waiting.get(command.toolUseId);
+    let entry = this.waiting.get(command.toolUseId) ?? this.askingTheSame(command);
     if (!entry) {
       entry = { call: { ...command, askedAt: this.now() }, waiters: new Set() };
       this.waiting.set(command.toolUseId, entry);
@@ -81,6 +85,16 @@ export class AskOwnerWaits {
       watching.delete(onAsks);
       if (watching.size === 0) this.watchers.delete(key);
     };
+  }
+
+  private askingTheSame(command: WaitAskOwnerCommand): Waiting | undefined {
+    const asked = JSON.stringify(command.questions);
+    return [...this.waiting.values()].find(
+      ({ call }) =>
+        call.source === command.source &&
+        call.sessionId === command.sessionId &&
+        JSON.stringify(call.questions) === asked,
+    );
   }
 
   private find(source: SourceId, sessionId: string, toolUseId: string): Waiting | undefined {

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ask": {
+      "command": "${AGENTDESK_BUN_PATH:-bun}",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/../../src/askOwnerMcpMain.ts"],
+      "timeout": 86400000
+    }
+  }
+}

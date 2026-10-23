@@ -15,7 +15,11 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { config } from "@/config/config";
 import { claudeBinary } from "@/config/configBinaries";
-import { claudeLaunchModDirectories, claudeLaunchPermission } from "@/config/configClaudeLaunch";
+import {
+  claudeLaunchAllowedTools,
+  claudeLaunchModDirectories,
+  claudeLaunchPermission,
+} from "@/config/configClaudeLaunch";
 import type { ClaudePermissionMode, ClaudeRunMode } from "@agentdesk/agent-feed-wire";
 import {
   claudeForkPaneName,
@@ -89,6 +93,7 @@ export function claudeSdkRunnerCommand(options: {
     sdkPermissionMode(options.permissionMode ?? claudeLaunchPermission.mode),
     ...(claudeLaunchPermission.allowBypass ? ["--allow-bypass"] : []),
     ...claudeLaunchModDirectories.flatMap((directory) => ["--plugin-dir", directory]),
+    ...claudeLaunchAllowedTools.flatMap((tool) => ["--allowed-tool", tool]),
     "--claude",
     claude,
     "--socket-dir",

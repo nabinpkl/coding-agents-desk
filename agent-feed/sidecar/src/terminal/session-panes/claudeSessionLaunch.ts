@@ -32,6 +32,7 @@ import {
   claudeLaunchArgs,
   claudeLaunchModArgs,
   claudeLaunchPermission,
+  claudeLaunchToolArgs,
   claudePermissionArgs,
 } from "@/config/configClaudeLaunch";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
@@ -165,6 +166,7 @@ function launchFlags(selection: ResumeSelection): string[] {
       claudeLaunchPermission.allowBypass,
     ),
     ...claudeLaunchModArgs,
+    ...claudeLaunchToolArgs,
   ];
 }
 
