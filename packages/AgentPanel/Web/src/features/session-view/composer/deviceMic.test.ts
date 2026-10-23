@@ -97,15 +97,78 @@ describe("this device's mic", () => {
     expect(first).not.toHaveBeenCalled();
   });
 
-  it("listens again after it ends by itself", () => {
+  it("listens again shortly after a session ends on silence", () => {
     vi.useFakeTimers();
     renderHook(() => useDeviceMicSink("a", true, vi.fn()));
     act(() => startDeviceMic("a"));
+    // Chrome ends a session itself after 8 s without speech.
+    act(() => vi.advanceTimersByTime(8000));
     act(() => latest().onend?.());
+    act(() => vi.advanceTimersByTime(299));
     expect(FakeRecognizer.made).toHaveLength(1);
-    act(() => vi.advanceTimersByTime(300));
+    act(() => vi.advanceTimersByTime(1));
     expect(FakeRecognizer.made).toHaveLength(2);
     expect(latest().started).toBe(true);
+  });
+
+  it("backs off when sessions end as soon as they start, and stops after five in a minute", () => {
+    vi.useFakeTimers();
+    renderHook(() => useDeviceMicSink("a", true, vi.fn()));
+    const state = renderHook(() => useDeviceMic("a"));
+    act(() => startDeviceMic("a"));
+    for (const [made, wait] of [
+      [2, 1000],
+      [3, 2000],
+      [4, 4000],
+      [5, 8000],
+    ] as const) {
+      act(() => latest().onend?.());
+      act(() => vi.advanceTimersByTime(wait - 1));
+      expect(FakeRecognizer.made).toHaveLength(made - 1);
+      act(() => vi.advanceTimersByTime(1));
+      expect(FakeRecognizer.made).toHaveLength(made);
+    }
+    act(() => latest().onend?.());
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(FakeRecognizer.made).toHaveLength(5);
+    expect(state.result.current).toMatchObject({ sessionId: null, failure: expect.stringMatching(/kept ending/) });
+  });
+
+  it("stops rather than fight another page that takes the mic", () => {
+    vi.useFakeTimers();
+    renderHook(() => useDeviceMicSink("a", true, vi.fn()));
+    const state = renderHook(() => useDeviceMic("a"));
+    act(() => startDeviceMic("a"));
+    // What Chrome tells the page whose session it cut off, followed by the end.
+    act(() => latest().onerror?.({ error: "aborted" }));
+    act(() => latest().onend?.());
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(FakeRecognizer.made).toHaveLength(1);
+    expect(state.result.current).toMatchObject({ sessionId: null, failure: expect.stringMatching(/another tab/) });
+  });
+
+  it("stops when the panel goes to the background", () => {
+    renderHook(() => useDeviceMicSink("a", true, vi.fn()));
+    const state = renderHook(() => useDeviceMic("a"));
+    act(() => startDeviceMic("a"));
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    hidden.mockRestore();
+    expect(latest().aborted).toBe(true);
+    expect(state.result.current).toMatchObject({ sessionId: null, failure: expect.stringMatching(/background/) });
+  });
+
+  it("stops after three minutes with no words, and words put that off", () => {
+    vi.useFakeTimers();
+    renderHook(() => useDeviceMicSink("a", true, vi.fn()));
+    const state = renderHook(() => useDeviceMic("a"));
+    act(() => startDeviceMic("a"));
+    act(() => vi.advanceTimersByTime(2 * 60_000));
+    act(() => latest().hear(0, ["still here", 0, false]));
+    act(() => vi.advanceTimersByTime(3 * 60_000 - 1));
+    expect(state.result.current.sessionId).toBe("a");
+    act(() => vi.advanceTimersByTime(1));
+    expect(state.result.current).toMatchObject({ sessionId: null, failure: expect.stringMatching(/three minutes/) });
   });
 
   it("stops when the last composer for its session goes, so it is never left listening unseen", () => {
