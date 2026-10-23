@@ -119,6 +119,47 @@ export async function syncTmuxComposer(
   desired: string,
   runtime: TmuxComposerRuntime = LIVE,
 ): Promise<TmuxComposerState> {
+  const edited = await rewriteBox(sessionId, () => desired, runtime);
+  // Never refused: a sync names the whole text, wherever the caret is. The branch is for the type.
+  return "refused" in edited ? unavailable("no-composer") : edited;
+}
+
+/** Why an append was not made: the caret is not at the end of the box, so typed text would land mid-prompt. */
+export type ComposerAppendRefusal = { refused: "cursor-not-at-end" };
+
+/**
+ * Adds `text` at the end of what the box holds, after a space when it holds something, without
+ * sending it: dictation from a phone, waiting for its reader to read it over and press Return.
+ *
+ * Read and written in one turn, so nothing typed in between is lost. A box wrapped over several
+ * rows is read only as a guess (see above), but the guess is always the start of what is wanted
+ * here, so only the new words are typed, at the caret. That is right only when the caret is at the
+ * end, which `ComposerBox.exact` says; otherwise this refuses rather than type into the middle.
+ */
+export async function appendTmuxComposer(
+  sessionId: string,
+  text: string,
+  runtime: TmuxComposerRuntime = LIVE,
+): Promise<TmuxComposerState | ComposerAppendRefusal> {
+  return rewriteBox(
+    sessionId,
+    (before, box) => {
+      if (!box.exact) return null;
+      return before.length === 0 || /\s$/.test(before) ? before + text : `${before} ${text}`;
+    },
+    runtime,
+  );
+}
+
+/**
+ * One edit of the box: read it, ask `desired` what it should hold (null refuses), type the
+ * difference, and wait for it to land. In the session's turn, so two edits never interleave.
+ */
+async function rewriteBox(
+  sessionId: string,
+  desired: (before: string, box: ComposerBox) => string | null,
+  runtime: TmuxComposerRuntime,
+): Promise<TmuxComposerState | ComposerAppendRefusal> {
   return inTurn(sessionId, async () => {
     try {
       const pane = await paneFor(sessionId, runtime);
@@ -126,10 +167,12 @@ export async function syncTmuxComposer(
       const box = composerBox(await runtime.screen(pane));
       if (!box) return unavailable("no-composer");
       const before = composerText(box.rows);
+      const wanted = desired(before, box);
+      if (wanted === null) return { refused: "cursor-not-at-end" } as const;
       const key = await runtime.paneKey(pane);
       const keys = keystrokesFor(
         box,
-        desired,
+        wanted,
         (token) => runtime.pastes.textFor(key, token),
         (token) => runtime.pastes.imageFor(key, token),
       );
@@ -142,7 +185,7 @@ export async function syncTmuxComposer(
       // for instead, and the menu under it is redrawn from that. An empty push is the one case
       // where a suggestion comes back, and a push beginning `/` opens a menu -- the watcher
       // reports both a moment later, which is the only reading that is not a guess.
-      return { text: desired, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
+      return { text: wanted, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     } catch (error) {
       return failed(sessionId, error, runtime);
     }

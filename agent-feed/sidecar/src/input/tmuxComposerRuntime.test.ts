@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import { CLOSE, END, KILL, OPEN, runtime, screenWith, typed } from "@/input/tmuxComposerHarness";
 import {
   acceptTmuxComposerHint,
+  appendTmuxComposer,
   composerPanes,
   dropTmuxComposerImage,
   readComposerAt,
@@ -285,4 +286,47 @@ test("binds nothing when the box gained no handle, so a wrong guess is never pas
   const tmux = runtime({ screen: async () => screenWith(["short"]) });
   await syncTmuxComposer("session", "short and then some", tmux);
   expect(tmux.pastes.textFor("agentdesk-1", "[Pasted text #1]")).toBeNull();
+});
+
+/** A pane holding `rows`, cursor where given (at the end by default), that takes what is typed into it. */
+function typingPane(rows: string[], cursor?: { row: number; column: number }) {
+  const box = { rows, cursor };
+  const tmux = runtime({
+    screen: async () => screenWith(box.rows, box.cursor),
+    send: async (_pane, bytes) => {
+      const keys = new TextDecoder().decode(bytes);
+      tmux.sent.push(keys);
+      const last = box.rows.length - 1;
+      box.rows = [...box.rows.slice(0, last), (box.rows[last] ?? "") + typed(keys)];
+      box.cursor = undefined;
+    },
+  });
+  return { tmux, box };
+}
+
+test("an append types only the new words, after a space, and presses no Return", async () => {
+  const { tmux, box } = typingPane(["hello"]);
+  const state = await appendTmuxComposer("session", "read the tmux logs", tmux);
+  expect(tmux.sent).toEqual([`${END}${OPEN} read the tmux logs${CLOSE}`]);
+  expect(box.rows).toEqual(["hello read the tmux logs"]);
+  expect("refused" in state ? null : state.text).toBe("hello read the tmux logs");
+});
+
+test("an append into an empty box adds no leading space", async () => {
+  const { tmux, box } = typingPane([""]);
+  await appendTmuxComposer("session", "start here", tmux);
+  expect(box.rows).toEqual(["start here"]);
+});
+
+test("an append to a wrapped box types at the end, since the caret is there", async () => {
+  // Wrapped, so the reading is only a guess at the spaces; with the caret at the end that is enough.
+  const { tmux } = typingPane(["alpha bravo", "charlie"]);
+  await appendTmuxComposer("session", "delta", tmux);
+  expect(tmux.sent).toEqual([`${END}${OPEN} delta${CLOSE}`]);
+});
+
+test("an append refuses a caret that is not at the end, and types nothing", async () => {
+  const { tmux } = typingPane(["hello there"], { row: 0, column: 3 });
+  expect(await appendTmuxComposer("session", "world", tmux)).toEqual({ refused: "cursor-not-at-end" });
+  expect(tmux.sent).toEqual([]);
 });

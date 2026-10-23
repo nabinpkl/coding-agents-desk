@@ -24,6 +24,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   const pressed: { key: string; modifiers: RailModifiers }[] = [];
   const previewed: string[] = [];
   const modes: string[] = [];
+  const appended: string[] = [];
   const composer: TmuxComposerDependencies = {
     observe: (sessionId, listener) => {
       watched.push(sessionId);
@@ -33,6 +34,10 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
     sync: async (_sessionId, text) => {
       synced.push(text);
       return { text, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
+    },
+    append: async (_sessionId, text) => {
+      appended.push(text);
+      return { text: `hello ${text}`, hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] };
     },
     submit: async (sessionId) => {
       submitted.push(sessionId);
@@ -62,6 +67,7 @@ function routeWith(overrides: Partial<TmuxComposerDependencies> = {}) {
   };
   return {
     route: createTmuxComposerRoutes(composer),
+    appended,
     previewed,
     synced,
     submitted,
@@ -277,4 +283,31 @@ test("sets a named permission mode, and refuses a name the CLI does not have", a
   expect((await call(feed.route, "POST", path, {}))!.status).toBe(400);
   expect(await call(feed.route, "GET", path)).toBeUndefined();
   expect(feed.modes).toEqual(["plan"]);
+});
+
+function appendRequest(body: unknown): [Request, URL] {
+  const request = new Request(`http://localhost/api/sessions/claude/${SESSION}/composer/append`, {
+    method: "POST",
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  return [request, new URL(request.url)];
+}
+
+test("an append adds dictated text to the composer, trimmed, and sends nothing", async () => {
+  const { route, appended, synced, submitted } = routeWith();
+  const response = await route(...appendRequest({ text: "  read the tmux logs  " }), server);
+  expect(response?.status).toBe(200);
+  expect(((await response!.json()) as TmuxComposerState).text).toBe("hello read the tmux logs");
+  expect(appended).toEqual(["read the tmux logs"]);
+  expect(synced).toEqual([]);
+  expect(submitted).toEqual([]);
+});
+
+test("an append refuses nothing to add, and says when the caret is not at the end", async () => {
+  expect((await routeWith().route(...appendRequest({ text: "   " }), server))?.status).toBe(400);
+  expect((await routeWith().route(...appendRequest("not json"), server))?.status).toBe(400);
+  const refusing = routeWith({ append: async () => ({ refused: "cursor-not-at-end" }) });
+  const response = await refusing.route(...appendRequest({ text: "hi" }), server);
+  expect(response?.status).toBe(409);
+  expect(((await response!.json()) as { error: { code: string } }).error.code).toBe("cursor-not-at-end");
 });

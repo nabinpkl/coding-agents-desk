@@ -29,6 +29,8 @@ import { imageMediaType, writeComposerImage } from "@/input/composer/composerIma
 import { setTmuxPermissionMode } from "@/input/permissionModeSwitch";
 import {
   acceptTmuxComposerHint,
+  appendTmuxComposer,
+  type ComposerAppendRefusal,
   dropTmuxComposerImage,
   MAXIMUM_COMPOSER_BYTES,
   liveTmuxComposerRuntime,
@@ -64,12 +66,14 @@ function isRailKey(value: unknown): value is RailKey {
 }
 
 const COMPOSER_ROUTE =
-  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/image|\/key|\/mode|\/stream|\/paste\/[^/]+)?$/i;
+  /^\/api\/sessions\/claude\/([0-9a-f-]{36})\/composer(\/submit|\/accept|\/append|\/image|\/key|\/mode|\/stream|\/paste\/[^/]+)?$/i;
 
 /** The composer, injected, so the route's address shape can be pinned without a tmux server. */
 export interface TmuxComposerDependencies {
   observe: (sessionId: string, listener: TmuxComposerListener) => () => void;
   sync: (sessionId: string, text: string) => Promise<TmuxComposerState>;
+  /** Adds text at the end of what the box holds, sending nothing: dictation waiting to be read over. */
+  append: (sessionId: string, text: string) => Promise<TmuxComposerState | ComposerAppendRefusal>;
   submit: (sessionId: string) => Promise<TmuxComposerState>;
   /** Presses Tab, which is how Claude's own suggestion becomes text in its box. */
   accept: (sessionId: string) => Promise<TmuxComposerState>;
@@ -117,6 +121,7 @@ export function liveTmuxComposerDependencies(watch: TmuxComposerWatchRuntime["wa
   return {
     observe: (sessionId, listener) => observeTmuxComposer(sessionId, listener, runtime),
     sync: (sessionId, text) => syncTmuxComposer(sessionId, text, runtime),
+    append: (sessionId, text) => appendTmuxComposer(sessionId, text, runtime),
     submit: (sessionId) => submitTmuxComposer(sessionId, runtime),
     accept: (sessionId) => acceptTmuxComposerHint(sessionId, runtime),
     drop: async (sessionId, image, mediaType) =>
@@ -149,6 +154,10 @@ export function createTmuxComposerRoutes(composer: TmuxComposerDependencies): Ro
     if (action === "/image") {
       if (request.method !== "POST") return undefined;
       return drop(composer, request, sessionId);
+    }
+    if (action === "/append") {
+      if (request.method !== "POST") return undefined;
+      return append(composer, request, sessionId);
     }
     if (action === "/key") {
       if (request.method !== "POST") return undefined;
@@ -270,6 +279,34 @@ async function sync(composer: TmuxComposerDependencies, request: Request, sessio
   // 200 with the reason in the body, for the same reason the inbox does it: "that session is not
   // in a pane" is a fact the panel renders beside the field, not a malformed request.
   return jsonResponse(await composer.sync(sessionId, body.text));
+}
+
+/**
+ * Adds dictated text at the end of the session's composer. Unlike a sync, a blank text is refused:
+ * adding nothing is not something anybody asks for. A caret that is not at the end is a 409, since
+ * the reader has to move it there (or clear the box) before this can add anything safely.
+ */
+async function append(composer: TmuxComposerDependencies, request: Request, sessionId: string): Promise<Response> {
+  let body: { text?: unknown };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return errorResponse("invalid-body", "the request body was not JSON", 400);
+  }
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (!text) return errorResponse("text-required", "an append must carry some text", 400);
+  if (Buffer.byteLength(text, "utf8") > MAXIMUM_COMPOSER_BYTES) {
+    return errorResponse("text-too-large", "that is more text than a composer will take", 413);
+  }
+  const outcome = await composer.append(sessionId, text);
+  if ("refused" in outcome) {
+    return errorResponse(
+      "cursor-not-at-end",
+      "the session's cursor is not at the end of its composer, so the text would land mid-prompt",
+      409,
+    );
+  }
+  return jsonResponse(outcome);
 }
 
 /**
