@@ -13,6 +13,17 @@ describe("a spoken status block", () => {
       ],
       at: 5,
       from: "block",
+      // Next suggestions after it: the session believes its work is done.
+      final: true,
+    });
+  });
+
+  test("is not final when no next suggestions follow it: a turn that ends mid-task", () => {
+    const text = "<spoken-status>\nrunning: the gate\n</spoken-status>";
+    expect(parseSpokenStatus(text, 0)).toEqual({
+      lines: [{ kind: "running", text: "the gate" }],
+      at: 0,
+      from: "block",
     });
   });
 

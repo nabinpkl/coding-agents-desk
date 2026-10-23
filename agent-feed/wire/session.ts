@@ -121,6 +121,11 @@ export interface SessionSpokenStatus {
    * a question through a tool and is waiting on the answer; its one line is that question.
    */
   from: "block" | "question";
+  /**
+   * The response closed with next suggestions after the block, which a session writes only once it
+   * believes its work is done, and leaves off a turn that ends mid-task. Only on a `block`.
+   */
+  final?: true;
 }
 
 /** One `<task-state>` block: the goal, then the decisions the session wrote under it. */

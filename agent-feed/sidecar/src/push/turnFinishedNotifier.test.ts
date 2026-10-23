@@ -96,12 +96,41 @@ describe("turn-finished notifier", () => {
     ]);
   });
 
-  test("the same close is announced on the audio channel, once, by its Bot", async () => {
-    const { emit, elapse, announced } = harness();
+  test("the same close is said on the audio channel at once, without the quiet window, by its Bot", async () => {
+    const { emit, elapse, announced, pushed } = harness();
     emit(session("s1", false));
     emit(session("s1", true));
+    await drained();
+    expect(announced).toEqual(["Alpha:s1:finished"]);
+    expect(pushed).toEqual([]);
     await elapse();
     expect(announced).toEqual(["Alpha:s1:finished"]);
+    expect(pushed).toHaveLength(1);
+  });
+
+  test("a close whose reply ends with next suggestions pushes at once, with no window to wait out", async () => {
+    const { emit, pushed, timers } = harness();
+    const status = {
+      from: "block" as const,
+      at: 7,
+      final: true as const,
+      lines: [{ kind: "done" as const, text: "shipped" }],
+    };
+    emit(session("s1", false));
+    emit(session("s1", true, { spokenStatus: status }));
+    await drained();
+    expect(pushed.map((payload) => payload.body)).toEqual(["Done: shipped"]);
+    expect(timers).toHaveLength(0);
+  });
+
+  test("a turn that reopens inside the window is said but not pushed", async () => {
+    const { emit, elapse, announced, pushed } = harness();
+    emit(session("s1", false));
+    emit(session("s1", true));
+    emit(session("s1", false));
+    await elapse();
+    expect(announced).toEqual(["Alpha:s1:finished"]);
+    expect(pushed).toEqual([]);
   });
 
   test("a turn that closed with a status pushes its first line, and a waiting one is said once more", async () => {

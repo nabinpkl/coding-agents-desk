@@ -10,8 +10,10 @@
 //   under `bun --watch`) must not announce every turn that was already closed.
 // - Only a session seen open and then closed notifies. A session first seen already closed was
 //   discovered, not finished.
-// - A close waits out a quiet window before it is sent, and a turn that opens again inside it sends
-//   nothing: a queued prompt, an agent that carries straight on, a background job that wakes it.
+// - A close waits out a quiet window before it is pushed, and a turn that opens again inside it
+//   pushes nothing: a queued prompt, an agent that carries straight on, a background job that wakes
+//   it. Unless the reply closed with next suggestions (`final` on its status), which a session
+//   writes only once it believes its work is done: that is pushed at once.
 // - Background jobs are not tracked: an agent forgets to stop them often enough that waiting on
 //   one would hold the notification forever. A job that wakes the agent later starts a new turn,
 //   and that turn notifies too.
@@ -21,7 +23,9 @@
 //   nobody curated (probes, workers, the security-review plugin's), and they would bury these.
 //
 // The same moment is also announced (`announce`): the session's spoken status said on the Mac's
-// audio channel (`sessionSpeech.ts`). Each goes out whether or not the other one fails.
+// audio channel (`sessionSpeech.ts`), at once rather than after the window, because a listener is
+// there to hear the turn end as it ends, and a turn that carries on simply says something more.
+// Each goes out whether or not the other one fails.
 //
 // Two more moments, for the same sessions:
 // - A question the session asks through a tool and waits on (its spoken status turns `question`).
@@ -172,12 +176,30 @@ export function startTurnFinishedNotifier(sources: TurnFinishedSources): () => v
     reminders.set(key, { at, cancel });
   };
 
-  const send = async (key: string): Promise<void> => {
-    const session = latest.get(key);
-    if (!session || closed?.get(key) !== true || !sources.mayPush()) return;
+  /** Says a turn that has just closed, and arms its reminder when it waits on the person. */
+  const announceFinished = async (key: string, session: Session): Promise<void> => {
+    if (!sources.mayPush()) return;
     const bot = curatingBot(await sources.bots(), key);
     if (!bot) return;
-    await deliver(key, bot, session, "finished", turnFinishedPayload(bot, session));
+    try {
+      await sources.announce(bot, session, "finished");
+    } catch (error) {
+      console.error(`[speech] finished speech for ${key} failed`, error);
+    }
+    if (needsPerson(session.spokenStatus)) remindLater(key, session.spokenStatus?.at ?? 0);
+  };
+
+  const pushFinished = async (key: string, session: Session): Promise<void> => {
+    if (!sources.mayPush()) return;
+    const bot = curatingBot(await sources.bots(), key);
+    if (bot) await sources.push(turnFinishedPayload(bot, session));
+  };
+
+  /** The push after the quiet window: only if the turn is still closed, as it was then. */
+  const send = async (key: string): Promise<void> => {
+    const session = latest.get(key);
+    if (!session || closed?.get(key) !== true) return;
+    await pushFinished(key, session);
   };
 
   const sendQuestion = async (key: string, at: number): Promise<void> => {
@@ -232,6 +254,15 @@ export function startTurnFinishedNotifier(sources: TurnFinishedSources): () => v
         continue;
       }
       if (before.get(key) !== false || waiting.has(key)) continue;
+      void announceFinished(key, session).catch((error: unknown) => {
+        console.error(`[speech] finished speech for ${key} failed`, error);
+      });
+      if (session.spokenStatus?.final) {
+        void pushFinished(key, session).catch((error: unknown) => {
+          console.error(`[push] turn-finished push for ${key} failed`, error);
+        });
+        continue;
+      }
       waiting.set(
         key,
         sources.schedule(() => {

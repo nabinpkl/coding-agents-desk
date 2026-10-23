@@ -45,7 +45,8 @@ export function parseSpokenStatus(text: string, at: number): SessionSpokenStatus
     // A line with no kind the posture names is still said, as a note, rather than dropped.
     lines.push({ kind: named ?? "note", text: cut(named ? (match?.[2] ?? "") : line) });
   }
-  return lines.length > 0 ? { lines, at, from: "block" } : null;
+  if (lines.length === 0) return null;
+  return after ? { lines, at, from: "block", final: true } : { lines, at, from: "block" };
 }
 
 /** A question the session asked the person and waits on, as a status of one `waiting` line. */
