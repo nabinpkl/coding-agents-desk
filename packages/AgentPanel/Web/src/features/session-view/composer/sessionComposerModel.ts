@@ -15,6 +15,7 @@ import type { useSendAttachments, SendAttachment } from "@/features/session-view
 import type { OpencodeSlashCommand } from "@/features/session-view/composer/useOpencodeCommands";
 import type { useWindowComposer } from "@/features/session-view/composer/useWindowComposer";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
+import type { DictationTarget } from "@/features/session-view/composer/dictationTarget";
 
 /** Which surface owns composition for this session, and what it needs to write. */
 export type ComposerTransport =
@@ -69,6 +70,11 @@ export interface ComposerModel {
   capabilities: SessionSummary["capabilities"];
   deliveryError: string | null;
   deliveryPending: boolean;
+  /**
+   * Whether the phone's dictation streams into this composer, and the way to choose it; null for a
+   * session it cannot reach, which is any but a Claude session in a terminal.
+   */
+  dictation: DictationTarget | null;
   editorValue: string;
   /** Attaches the pane's composer stream, which reaching for the field does too. */
   engage: () => void;

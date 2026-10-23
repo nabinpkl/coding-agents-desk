@@ -38,6 +38,7 @@ import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
 import { useRunModeSwitch } from "@/features/cli-input/useRunModeSwitch";
 import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
 import { useStateFor } from "@/hooks/state/useStateFor";
+import { useDictationTarget } from "@/features/session-view/composer/dictationTarget";
 import { useLeaveEffect } from "@/hooks/useMountEffect";
 import { useNotify } from "@/hooks/useNotify";
 
@@ -155,6 +156,9 @@ export function SessionComposer({
   const queuedPrompts = sdkSession.state.queued;
   useNotify(queuedPrompts, (prompts) => onQueuedPrompts?.(prompts));
   const runModeSwitch = useRunModeSwitch(feed, tmuxComposerSession, cliSession.refresh);
+  // Dictation is added at the end of a terminal composer, which is the only kind it can reach.
+  const dictationReachable = terminalCandidate && !sdkCandidate;
+  const dictation = useDictationTarget(sessionId, dictationReachable);
   const windowCandidate = (isClaude || isCodex) && !terminalCandidate && !sdkCandidate;
 
   // A Claude or Codex session being shown in a window reaches its prompt through that window's
@@ -360,6 +364,7 @@ export function SessionComposer({
     cliSessionBand,
     deliveryError,
     deliveryPending,
+    dictation: dictationReachable ? dictation : null,
     editorValue,
     engage,
     error,

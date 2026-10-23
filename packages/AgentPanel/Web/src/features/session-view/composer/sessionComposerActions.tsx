@@ -8,6 +8,9 @@ import {
   ChevronsUpDown,
   CornerDownLeft,
   LoaderCircle,
+  Mic,
+  MicOff,
+  OctagonX,
   Paperclip,
   Send,
   ShieldQuestion,
@@ -17,6 +20,7 @@ import type { ReactNode } from "react";
 import type { ClaudePermissionMode } from "@agentdesk/agent-feed-wire";
 import type { ChoiceMenuProps } from "@/features/bots/menus/ChoiceMenu";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
+import type { DictationChoice } from "@/features/session-view/composer/dictationTarget";
 import { submitComposer, submitOwnedTransport } from "@/features/session-view/composer/sessionComposerSubmit";
 import { currentSdkModel } from "@/features/cli-input/useSdkSession";
 import {
@@ -66,6 +70,61 @@ export type ComposerAction = {
  */
 const SEND_IN_FIELD_CLASS =
   "mb-2 mr-2 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40";
+
+/** The mic, inside the field ahead of the send: the send's size and margin, without its fill. */
+const MIC_IN_FIELD_CLASS =
+  "mb-2 flex size-8 shrink-0 items-center justify-center rounded-lg outline-none transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-foreground/15";
+
+/** The mic that makes this the session the phone's dictation streams into (`dictationTarget.ts`). */
+function dictationAction(dictation: NonNullable<ComposerModel["dictation"]>): ComposerAction {
+  const { here, elsewhere, known, failure } = dictation;
+  const where = here
+    ? "Your phone's dictation streams into this composer"
+    : elsewhere
+      ? "Your phone's dictation streams into another session"
+      : "Stream your phone's dictation into this composer";
+  return {
+    key: "dictation-target",
+    ariaLabel: here ? "Dictation streams here, change" : "Choose where dictation streams",
+    title: failure ?? (known ? where : `${where} (not yet heard from the Mac)`),
+    icon: <Mic className="size-4" aria-hidden />,
+    disabled: false,
+    className: `${MIC_IN_FIELD_CLASS} ${here ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`,
+    placement: "field",
+    menu: {
+      label: "Dictation",
+      // Not here while another has it; stopped while none does.
+      value: here ? "here" : elsewhere ? "off" : "stop",
+      choices: [
+        {
+          value: "here",
+          label: "Stream dictation here",
+          description: elsewhere
+            ? "Moves your phone's dictation here from the session it streams into now"
+            : "What you say on your phone's dictation page is added here as you speak",
+          icon: Mic,
+        },
+        {
+          value: "off",
+          label: "Not here",
+          description: here ? "Stops streaming dictation into this composer" : "Dictation stays where it is",
+          icon: MicOff,
+        },
+        {
+          value: "stop",
+          label: "Stop streaming",
+          description: elsewhere
+            ? "Stops dictation streaming into the other session"
+            : here
+              ? "Stops dictation streaming anywhere"
+              : "Dictation is not streaming anywhere",
+          icon: OctagonX,
+        },
+      ],
+      onChoose: (value) => dictation.choose(value as DictationChoice),
+    },
+  };
+}
 
 export function composerActions(m: ComposerModel): ComposerAction[] {
   const actions: ComposerAction[] = [];
@@ -215,6 +274,8 @@ export function composerActions(m: ComposerModel): ComposerAction[] {
       onClick: () => void m.onRunSlash("model", ""),
     });
   }
+  // Ahead of the send, so it sits beside it inside the field.
+  if (m.dictation) actions.push(dictationAction(m.dictation));
   if (m.windowBand) {
     // The window band's only explicit action is the Enter button: filling and
     // reading are automatic (focus prefill, debounced sync, one round trip for
