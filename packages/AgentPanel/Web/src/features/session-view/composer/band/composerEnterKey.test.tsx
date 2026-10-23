@@ -19,8 +19,8 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
-import { composerEditor } from "@/features/session-view/composer/sessionComposerEditor";
+import { SessionComposerBand } from "@/features/session-view/composer/band/SessionComposerBand";
+import { composerEditor } from "@/features/session-view/composer/band/sessionComposerEditor";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 
 const COMMANDS = [

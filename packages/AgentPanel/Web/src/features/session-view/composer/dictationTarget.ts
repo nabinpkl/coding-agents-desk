@@ -9,10 +9,19 @@
 //
 // One choice for the whole page, so a module store: every composer's mic reads it, and choosing one
 // session moves it off whichever had it.
+//
+// The mic's other source is this device's own (`deviceMic.ts`). A composer takes dictation from one
+// of the two: choosing either here takes the other off this session.
 
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { useSubscription } from "@/hooks/useSubscription";
+import {
+  deviceMicSupported,
+  startDeviceMic,
+  stopDeviceMic,
+  useDeviceMic,
+} from "@/features/session-view/composer/deviceMic";
 
 const TARGET_ROUTE = "/api/audio/dictation-target";
 const STREAM_ROUTE = `${TARGET_ROUTE}/stream`;
@@ -95,11 +104,22 @@ export interface DictationTarget {
   mics: number;
   known: boolean;
   failure: string | null;
-  /** `here` streams into this session, `off` takes it off this one, `stop` stops it wherever it is. */
+  /** This device's own mic (`deviceMic.ts`): dictating here, into another session, or neither. */
+  device: {
+    here: boolean;
+    elsewhere: boolean;
+    listening: boolean;
+    supported: boolean;
+    failure: string | null;
+  };
+  /**
+   * `here` streams the phone's dictation into this session, `device` dictates into it with this
+   * device's mic, `off` takes both off this one, `stop` stops both wherever they are.
+   */
   choose: (choice: DictationChoice) => void;
 }
 
-export type DictationChoice = "here" | "off" | "stop";
+export type DictationChoice = "here" | "device" | "off" | "stop";
 
 /** Where dictation goes, as one session's composer sees it; follows the Mac only while `enabled`. */
 export function useDictationTarget(sessionId: string, enabled: boolean): DictationTarget {
@@ -108,16 +128,37 @@ export function useDictationTarget(sessionId: string, enabled: boolean): Dictati
   const mics = useStore(target, (state) => state.mics);
   const known = useStore(target, (state) => state.known);
   const failure = useStore(target, (state) => state.failure);
+  const device = useDeviceMic(sessionId);
+  const deviceHere = device.sessionId === sessionId;
   return {
     here: current === sessionId,
     elsewhere: current !== null && current !== sessionId,
     mics,
     known,
     failure,
-    // "Not here" from a session that does not have it changes nothing, rather than clearing another's.
+    device: {
+      here: deviceHere,
+      elsewhere: device.sessionId !== null && !deviceHere,
+      listening: deviceHere && device.listening,
+      supported: deviceMicSupported(),
+      failure: device.failure,
+    },
+    // "Not here" from a session that does not have either changes nothing, rather than clearing
+    // another's. The device mic starts inside this call, which is the reader's click.
     choose: (choice) => {
-      if (choice === "here") void chooseDictationTarget(sessionId);
-      else if (choice === "stop" || current === sessionId) void chooseDictationTarget(null);
+      if (choice === "here") {
+        if (deviceHere || device.failure) stopDeviceMic();
+        void chooseDictationTarget(sessionId);
+      } else if (choice === "device") {
+        if (current === sessionId) void chooseDictationTarget(null);
+        startDeviceMic(sessionId);
+      } else if (choice === "stop") {
+        stopDeviceMic();
+        void chooseDictationTarget(null);
+      } else {
+        if (deviceHere || device.failure) stopDeviceMic();
+        if (current === sessionId) void chooseDictationTarget(null);
+      }
     },
   };
 }

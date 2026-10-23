@@ -32,8 +32,9 @@ import { OpencodeAsideDialog } from "@/features/session-view/OpencodeAsideDialog
 import type { PanelCommandSurfaces } from "@/features/session-view/usePanelCommands";
 import type { ComposerAction } from "@/features/session-view/composer/sessionComposerActions";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
-import type { ComposerEditor } from "@/features/session-view/composer/sessionComposerEditor";
-import { useComposerUndo } from "@/features/session-view/composer/composerUndo";
+import type { ComposerEditor } from "@/features/session-view/composer/band/sessionComposerEditor";
+import { useComposerUndo } from "@/features/session-view/composer/band/composerUndo";
+import { useDeviceMicHearing, useDeviceMicSink, withDictation } from "@/features/session-view/composer/deviceMic";
 import { COLUMN_GUTTER_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 
 export function SessionComposerBand({
@@ -109,6 +110,12 @@ export function SessionComposerBand({
   const footerActions = actions.filter((action) => action.placement === "footer");
   const rowActions = actions.filter((action) => action.placement === undefined);
   const undo = useComposerUndo(editor.value, editor.onChange);
+  // This device's dictation, where the composer's mic chose it: each phrase at the end of the field,
+  // through the undo history, so Cmd+Z takes one back out.
+  useDeviceMicSink(session.sessionId, model.dictation !== null, (phrase, confidence) =>
+    undo.change(withDictation(undo.current(), phrase, confidence)),
+  );
+  const hearing = useDeviceMicHearing(session.sessionId);
   return (
     <section aria-label={sectionLabel} className={`shrink-0 border-t session-view-dock ${COLUMN_GUTTER_CLASS} py-3`}>
       {model.sdkBand ? <SdkApprovalRequests session={model.sdkSession} /> : null}
@@ -176,7 +183,14 @@ export function SessionComposerBand({
       {editor.commands && editor.commands.shown.length > 0 ? (
         <ComposerCommandList commands={editor.commands.shown} onChoose={editor.commands.onChoose} />
       ) : null}
-      <div className="flex items-end gap-1.5">
+      <div className="relative flex items-end gap-1.5">
+        {/* The words this device's mic is still hearing, over the transcript above the field: they
+            come and go with every phrase, so they take no room of their own. The newest words. */}
+        {hearing ? (
+          <p className="pointer-events-none absolute inset-x-0 bottom-full z-10 mb-1 line-clamp-2 rounded-md border border-border bg-popover px-2 py-1 text-xs italic text-muted-foreground shadow-sm">
+            {hearing.length > 160 ? `\u2026${hearing.slice(-159)}` : hearing}
+          </p>
+        ) : null}
         <div
           // The box is this wrapper rather than the field, so the images sit INSIDE it, above the
           // text, the way the composer they are mirroring holds them. The field keeps its own

@@ -252,6 +252,8 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
     };
   }
   if (m.runModeSwitch?.error) return { caption: m.runModeSwitch.error, captionIsError: true };
+  // This device's mic stopping is said where it was dictating into, until the next choice.
+  if (m.dictation?.device.failure) return { caption: m.dictation.device.failure, captionIsError: true };
   let caption: string | null = null;
   let captionIsError = false;
   if (m.sdkBand) {

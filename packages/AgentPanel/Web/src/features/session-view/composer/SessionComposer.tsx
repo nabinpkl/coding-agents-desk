@@ -17,7 +17,7 @@ import type { PanelCommandSurfaces } from "@/features/session-view/usePanelComma
 import { useQuestionMirror } from "@/features/session-view/composer/question/useQuestionMirror";
 import { useAskOwner } from "@/features/session-view/composer/ask-owner/useAskOwner";
 import type { AgentTerminalComposer } from "@/features/session-view/sessionTerminalTypes";
-import { useAutoGrowingTextArea } from "@/features/session-view/composer/useAutoGrowingTextArea";
+import { useAutoGrowingTextArea } from "@/features/session-view/composer/band/useAutoGrowingTextArea";
 import { useComposerFileDrop } from "@/features/session-view/composer/hold/useComposerFileDrop";
 import { useOpencodeCommands } from "@/features/session-view/composer/useOpencodeCommands";
 import {
@@ -31,12 +31,12 @@ import {
   composerCaption,
   composerEditor,
   composerSectionLabel,
-} from "@/features/session-view/composer/sessionComposerEditor";
+} from "@/features/session-view/composer/band/sessionComposerEditor";
 import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import { useSdkSession } from "@/features/cli-input/useSdkSession";
 import type { ClaudeSdkQueuedPrompt } from "@agentdesk/agent-feed-wire";
 import { useRunModeSwitch } from "@/features/cli-input/useRunModeSwitch";
-import { SessionComposerBand } from "@/features/session-view/composer/SessionComposerBand";
+import { SessionComposerBand } from "@/features/session-view/composer/band/SessionComposerBand";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useDictationTarget } from "@/features/session-view/composer/dictationTarget";
 import { useLeaveEffect } from "@/hooks/useMountEffect";

@@ -11,6 +11,7 @@
 
 import type { KeyboardEvent } from "react";
 import { useRef } from "react";
+import { useCommitToRef } from "@/hooks/useLatestRef";
 
 export interface UndoHistory {
   past: readonly string[];
@@ -84,14 +85,24 @@ export function undoKey(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey"
 
 /**
  * The field's change and key handlers, with undo between them. `change` goes in place of the
- * editor's own `onChange`; `onKeyDown` returns true when it took the key.
+ * editor's own `onChange`; `onKeyDown` returns true when it took the key. `current` is the field's
+ * value including a change made since the last render, for something that adds to the field
+ * several times before it renders again (dictation can finish two phrases in one event).
  */
 export function useComposerUndo(value: string, onChange: (value: string) => void) {
   const history = useRef<UndoHistory>(EMPTY_HISTORY);
+  // The committed value, run ahead by each change made here until the render it causes commits.
+  const latest = useRef(value);
+  useCommitToRef(latest, value);
+  const set = (next: string) => {
+    latest.current = next;
+    onChange(next);
+  };
   return {
+    current: () => latest.current,
     change(next: string) {
-      history.current = recordEdit(history.current, value, next, Date.now());
-      onChange(next);
+      history.current = recordEdit(history.current, latest.current, next, Date.now());
+      set(next);
     },
     onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
       const direction = undoKey(event);
@@ -99,10 +110,11 @@ export function useComposerUndo(value: string, onChange: (value: string) => void
       // Taken even with nothing to undo, so the browser's own history, which the field's value
       // being set from outside has left wrong, cannot step it somewhere else.
       event.preventDefault();
-      const step = direction === "undo" ? undoEdit(history.current, value) : redoEdit(history.current, value);
+      const now = latest.current;
+      const step = direction === "undo" ? undoEdit(history.current, now) : redoEdit(history.current, now);
       if (step === null) return true;
       history.current = step.history;
-      onChange(step.value);
+      set(step.value);
       return true;
     },
   };

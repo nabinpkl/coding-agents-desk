@@ -9,7 +9,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { DISCONNECTED_CLAUDE_SDK_STATE, type ClaudeSdkSessionState } from "@agentdesk/agent-feed-wire";
 import { composerActions } from "@/features/session-view/composer/sessionComposerActions";
 import { compactControl, submitComposer } from "@/features/session-view/composer/sessionComposerSubmit";
-import { composerCaption, composerEditor } from "@/features/session-view/composer/sessionComposerEditor";
+import { composerCaption, composerEditor } from "@/features/session-view/composer/band/sessionComposerEditor";
 import { composerTransport, type ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 import {
   currentSdkModel,

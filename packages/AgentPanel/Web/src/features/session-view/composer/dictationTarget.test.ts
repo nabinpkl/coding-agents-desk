@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { resetDictationTarget, targetIn, useDictationTarget } from "@/features/session-view/composer/dictationTarget";
+import { resetDeviceMic } from "@/features/session-view/composer/deviceMic";
 import { composerActions } from "@/features/session-view/composer/sessionComposerActions";
 import type { ComposerModel } from "@/features/session-view/composer/sessionComposerModel";
 
@@ -102,36 +103,103 @@ describe("where the phone's dictation streams", () => {
 describe("the composer's mic", () => {
   const model = (dictation: ComposerModel["dictation"]) =>
     ({ dictation, session: { source: "claude", sessionId: "a" }, editorValue: "" }) as unknown as ComposerModel;
+  const noDevice = { here: false, elsewhere: false, listening: false, supported: true, failure: null };
+  const phoneHere = { here: true, elsewhere: false, mics: 1, known: true, failure: null, device: noDevice };
+  const micOf = (dictation: ComposerModel["dictation"]) =>
+    composerActions(model(dictation)).find((action) => action.key === "dictation-target");
 
-  it("sits in the field with a menu that streams here, not here, or stops", () => {
+  it("sits in the field with a menu of the phone, this device, not here, or stop", () => {
     const choose = vi.fn();
-    const actions = composerActions(
-      model({ here: true, elsewhere: false, mics: 1, known: true, failure: null, choose }),
-    );
-    const mic = actions.find((action) => action.key === "dictation-target");
+    const mic = micOf({ ...phoneHere, choose });
     expect(mic?.placement).toBe("field");
     expect(mic?.menu?.value).toBe("here");
     expect(mic?.menu?.choices.map((choice) => choice.label)).toEqual([
       "Stream dictation here",
+      "Use this device's mic",
       "Not here",
       "Stop streaming",
     ]);
-    mic?.menu?.onChoose("stop");
-    expect(choose).toHaveBeenCalledWith("stop");
+    mic?.menu?.onChoose("device");
+    expect(choose).toHaveBeenCalledWith("device");
   });
 
-  it("says when no phone mic is listening to stream", () => {
-    const listening = { here: true, elsewhere: false, known: true, failure: null, choose: vi.fn() };
-    const silent = composerActions(model({ ...listening, mics: 0 })).find((a) => a.key === "dictation-target");
+  it("will not stream the phone here while no phone mic is listening", () => {
+    const silent = micOf({ ...phoneHere, mics: 0, choose: vi.fn() });
     expect(silent?.title).toMatch(/no phone mic is listening/);
     expect(silent?.className).toMatch(/amber/);
-    expect(silent?.menu?.choices[0]?.description).toMatch(/No phone mic is listening/);
-    const heard = composerActions(model({ ...listening, mics: 1 })).find((a) => a.key === "dictation-target");
+    expect(silent?.menu?.choices[0]?.unavailable).toMatch(/No phone mic is listening/);
+    // This device's mic needs no phone.
+    expect(silent?.menu?.choices[1]?.unavailable).toBeUndefined();
+    const heard = micOf({ ...phoneHere, mics: 1, choose: vi.fn() });
     expect(heard?.title).toMatch(/a phone mic is listening/);
     expect(heard?.className).not.toMatch(/amber/);
+    expect(heard?.menu?.choices[0]?.unavailable).toBeUndefined();
+  });
+
+  it("shows this device's mic dictating here, and says so where a browser cannot", () => {
+    const device = { ...noDevice, here: true, listening: true };
+    const live = micOf({ ...phoneHere, here: false, device, choose: vi.fn() });
+    expect(live?.menu?.value).toBe("device");
+    expect(live?.title).toBe("This device's mic dictates into this composer");
+    expect(live?.className).toMatch(/red/);
+    const unsupported = micOf({ ...phoneHere, device: { ...noDevice, supported: false }, choose: vi.fn() });
+    expect(unsupported?.menu?.choices[1]?.unavailable).toBe("This browser has no speech recognition");
   });
 
   it("is not there for a session dictation cannot reach", () => {
     expect(composerActions(model(null)).some((action) => action.key === "dictation-target")).toBe(false);
+  });
+});
+
+describe("choosing between the phone and this device", () => {
+  class FakeRecognizer {
+    static made: FakeRecognizer[] = [];
+    lang = "";
+    continuous = false;
+    interimResults = false;
+    onstart: (() => void) | null = null;
+    onresult = null;
+    onerror = null;
+    onend: (() => void) | null = null;
+    started = false;
+    aborted = false;
+    constructor() {
+      FakeRecognizer.made.push(this);
+    }
+    start() {
+      this.started = true;
+    }
+    abort() {
+      this.aborted = true;
+    }
+  }
+
+  afterEach(() => resetDeviceMic());
+
+  it("takes the phone off this session when this device's mic is chosen, and back", async () => {
+    const fetch = setUp();
+    FakeRecognizer.made = [];
+    vi.stubGlobal("webkitSpeechRecognition", FakeRecognizer);
+    const { result } = renderHook(() => useDictationTarget("a", true));
+    act(() => FakeEventSource.open[0]!.say("a"));
+    await act(async () => result.current.choose("device"));
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({ sessionId: null });
+    expect(FakeRecognizer.made[0]?.started).toBe(true);
+    expect(result.current.device).toMatchObject({ here: true, listening: false });
+    await act(async () => result.current.choose("here"));
+    expect(FakeRecognizer.made[0]?.aborted).toBe(true);
+    expect(result.current.device.here).toBe(false);
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({ sessionId: "a" });
+  });
+
+  it("stops both with stop", async () => {
+    setUp();
+    FakeRecognizer.made = [];
+    vi.stubGlobal("webkitSpeechRecognition", FakeRecognizer);
+    const { result } = renderHook(() => useDictationTarget("a", true));
+    act(() => result.current.choose("device"));
+    await act(async () => result.current.choose("stop"));
+    expect(FakeRecognizer.made[0]?.aborted).toBe(true);
+    expect(result.current.device.here).toBe(false);
   });
 });

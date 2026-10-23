@@ -1,12 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
 import {
   EMPTY_HISTORY,
   recordEdit,
   redoEdit,
   undoEdit,
   undoKey,
+  useComposerUndo,
   type UndoHistory,
-} from "@/features/session-view/composer/composerUndo";
+} from "@/features/session-view/composer/band/composerUndo";
 
 /** Types `text` one character at a time from `start`, with no pause. */
 function typed(history: UndoHistory, start: string, text: string, at: number): UndoHistory {
@@ -64,5 +66,21 @@ describe("the composer's own undo", () => {
     expect(key("y", { ctrlKey: true })).toBe("redo");
     expect(key("z")).toBeNull();
     expect(key("z", { metaKey: true, altKey: true })).toBeNull();
+  });
+});
+
+describe("adding to the field twice before it renders", () => {
+  it("builds the second on the first, and undoes them one at a time", () => {
+    const onChange = vi.fn();
+    const { result } = renderHook(() => useComposerUndo("", onChange));
+    act(() => {
+      const undo = result.current;
+      undo.change(`${undo.current()}first phrase`);
+      undo.change(`${undo.current()} second phrase`);
+      expect(onChange).toHaveBeenLastCalledWith("first phrase second phrase");
+      const key = { key: "z", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, preventDefault() {} };
+      undo.onKeyDown(key as never);
+      expect(onChange).toHaveBeenLastCalledWith("first phrase");
+    });
   });
 });
