@@ -85,8 +85,8 @@ export function SessionModal({
     [],
   );
   const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
-  const contextFork = context.onForkFromMessage;
-  const forkFromMessage = useMemo(
+  const contextFork = context.onForkFromFeed;
+  const forkFromFeed = useMemo(
     () =>
       contextFork === undefined || botId === undefined
         ? contextFork
@@ -203,7 +203,7 @@ export function SessionModal({
           <FilePathOpenerContext.Provider value={viewer.opener}>
             <SessionView
               {...context}
-              {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
+              {...(forkFromFeed === undefined ? {} : { onForkFromFeed: forkFromFeed })}
               projectPath={project.projectPath}
               session={session}
               controlsHost={controlsHost}

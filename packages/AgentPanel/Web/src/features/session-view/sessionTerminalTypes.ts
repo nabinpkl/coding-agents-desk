@@ -27,6 +27,14 @@ export interface AgentTerminalComposer {
  * one to whichever row it has open, and the shell builds all of it once. Split out so a surface
  * that renders sessions can take "the context" as a single prop instead of restating nine.
  */
+/** A fork asked for from a session's transcript, and where in it: a message, or a passage to ask about. */
+export type FeedForkRequest = {
+  session: SessionSummary;
+  projectPath: string;
+  /** The Bot whose card asked, which the fork then lands on as a card. Absent off the canvas. */
+  botId?: string;
+} & ({ message: { eventId: string; text: string } } | { ask: { quote: string } });
+
 export interface SessionViewContext {
   feed: SidecarDataSource;
   host: HostActionsClient;
@@ -55,20 +63,15 @@ export interface SessionViewContext {
    */
   tasksHost: HTMLElement | null;
   /**
-   * Branches a session from one of its messages, or absent on a surface with nowhere to put a fork.
+   * Branches a session from its transcript, or absent on a surface with nowhere to put a fork:
+   * from one of its messages, or to answer a question about a passage the reader selected.
    *
-   * Carries the session and its directory as well as the message, because the surface that acts on
-   * it holds none of the three: a canvas has several sessions open at once, the row that asked is
-   * inside whichever one the reader was reading, and the fork's proposed name is numbered against
-   * the titles already in that directory.
+   * Carries the session and its directory as well as where it was asked from, because the surface
+   * that acts on it holds none of them: a canvas has several sessions open at once, the row that
+   * asked is inside whichever one the reader was reading, and the fork's proposed name is numbered
+   * against the titles already in that directory.
    */
-  onForkFromMessage?: (request: {
-    session: SessionSummary;
-    projectPath: string;
-    message: { eventId: string; text: string };
-    /** The Bot whose card asked, which the fork then lands on as a card. Absent off the canvas. */
-    botId?: string;
-  }) => void;
+  onForkFromFeed?: (request: FeedForkRequest) => void;
   /**
    * Leaves Claude's guess at the next prompt out of the composer: no placeholder guess, no Tab to
    * take it, no key for it on the phone's keyboard bar. For a surface where the guess gives away

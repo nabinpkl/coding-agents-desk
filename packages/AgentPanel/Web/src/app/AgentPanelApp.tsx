@@ -226,7 +226,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     windowComposers,
     compact: chrome.compact,
     tasksHost,
-    onForkFromMessage: commands.forkFromMessage,
+    onForkFromFeed: commands.forkFromFeed,
     hidePromptSuggestions: canvas === "branches",
   });
 

@@ -11,8 +11,7 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import type { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import type { WindowComposerClient } from "@/features/window-composer/WindowComposerClient";
 import type { EventMode } from "@/features/activity-feed/data-source/AgentDataSource";
-import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
+import type { FeedForkRequest, SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 
 export function buildSessionViewContext(input: {
   feed: SidecarDataSource;
@@ -26,13 +25,8 @@ export function buildSessionViewContext(input: {
   compact: boolean;
   /** Where the background-tasks panel renders, or null to render it in place. */
   tasksHost: HTMLElement | null;
-  /** Branches a Claude session from one of its messages; absent where there is no canvas. */
-  onForkFromMessage?: (request: {
-    session: SessionSummary;
-    projectPath: string;
-    message: { eventId: string; text: string };
-    botId?: string;
-  }) => void;
+  /** Branches a Claude session from its transcript; absent where there is no canvas. */
+  onForkFromFeed?: (request: FeedForkRequest) => void;
   /** Leaves Claude's guess at the next prompt out of every composer on this surface. */
   hidePromptSuggestions?: boolean;
 }): SessionViewContext {
@@ -46,7 +40,7 @@ export function buildSessionViewContext(input: {
     windowComposers: input.windowComposers,
     compact: input.compact,
     tasksHost: input.tasksHost,
-    ...(input.onForkFromMessage === undefined ? {} : { onForkFromMessage: input.onForkFromMessage }),
+    ...(input.onForkFromFeed === undefined ? {} : { onForkFromFeed: input.onForkFromFeed }),
     ...(input.hidePromptSuggestions ? { hidePromptSuggestions: true } : {}),
   };
 }

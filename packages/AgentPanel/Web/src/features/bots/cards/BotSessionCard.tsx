@@ -174,10 +174,10 @@ export function BotSessionCard({
     [],
   );
   const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
-  // A fork from one of this card's messages names this card's Bot, so it opens as a card beside
-  // this one rather than in place of the canvas.
-  const contextFork = sessionContext.onForkFromMessage;
-  const forkFromMessage = useMemo(
+  // A fork from this card's transcript names this card's Bot, so it opens as a card beside this
+  // one rather than in place of the canvas.
+  const contextFork = sessionContext.onForkFromFeed;
+  const forkFromFeed = useMemo(
     () =>
       contextFork === undefined
         ? undefined
@@ -454,7 +454,7 @@ export function BotSessionCard({
               <FilePathOpenerContext.Provider value={code.opener}>
                 <SessionView
                   {...sessionContext}
-                  {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
+                  {...(forkFromFeed === undefined ? {} : { onForkFromFeed: forkFromFeed })}
                   projectPath={bot.environment.path}
                   session={session}
                   controlsHost={controlsHost}

@@ -41,6 +41,9 @@ export interface DraftChoices {
   worktree: boolean;
 }
 
+/** The question a fork asked to explain a passage starts with, ready to send as it is. */
+const ASK_QUESTION = "What does this mean?";
+
 /** What each harness does with a draft, said where it is chosen. */
 const HARNESS_DESCRIPTIONS: Record<NewSessionHarness, string> = {
   "claude-sdk": "Claude through the Agent SDK runner.",
@@ -80,15 +83,20 @@ export function BotSessionDraftCard({
   const [task, setTask] = useState(draft.task);
   // Seeded with the message a fork from a message starts before, as Claude's own rewind puts it
   // back in the composer: what a reader wants from forking there is usually to send it differently.
-  const [brief, setBrief] = useState(fork?.from?.text ?? "");
+  // A fork that asks about a passage starts with the question most of them are.
+  const [brief, setBrief] = useState(fork?.from?.text ?? (fork?.ask ? ASK_QUESTION : ""));
   const [harness, setHarness] = useState<NewSessionHarness>(draft.harness);
   const [worktree, setWorktree] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const card = useRef<HTMLLIElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
   // Brought into view as it appears: beside its source, which can be at the edge of the canvas.
+  // The caret goes after a seeded question, so adding to it is typing on.
   useMountEffect(() => {
     card.current?.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    const end = field.current?.value.length ?? 0;
+    field.current?.setSelectionRange(end, end);
   });
 
   const choices: MenuChoice<NewSessionHarness>[] = HARNESSES.map((option) => ({
@@ -109,7 +117,8 @@ export function BotSessionDraftCard({
   // transcript its card has none: started bare, it would sit behind the runner's log with nowhere
   // to type. A terminal fork can be typed into in its pane, and opencode starts on the handover. A
   // fresh session waits for its first message whatever it runs in, so none is started empty.
-  const needsMessage = (!fork || harness === "claude-sdk") && !brief.trim();
+  // A question fork is nothing without its question.
+  const needsMessage = (!fork || harness === "claude-sdk" || fork.ask !== undefined) && !brief.trim();
 
   const start = async () => {
     if (pending || needsMessage) return;
@@ -196,6 +205,11 @@ export function BotSessionDraftCard({
               Starts just before &ldquo;<span className="text-foreground">{fork.from.text}</span>&rdquo;
             </p>
           ) : null}
+          {fork?.ask ? (
+            <p className="line-clamp-4">
+              Answers a question about &ldquo;<span className="text-foreground">{fork.ask.quote}</span>&rdquo;
+            </p>
+          ) : null}
           {error ? (
             <p role="alert" className="text-destructive">
               {error}
@@ -205,13 +219,14 @@ export function BotSessionDraftCard({
         <div className="shrink-0 border-t border-border p-2">
           <div className="rounded-xl border session-view-field shadow-xs transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25">
             <textarea
+              ref={field}
               autoFocus
               value={brief}
               onChange={(event) => setBrief(event.target.value)}
               onKeyDown={onKeyDown}
               disabled={pending}
               rows={3}
-              placeholder="Its first message"
+              placeholder={fork?.ask ? "Your question" : "Its first message"}
               aria-label={`The ${noun}'s first message`}
               className="block max-h-40 min-h-12 w-full resize-none bg-transparent px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />

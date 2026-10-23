@@ -70,14 +70,14 @@ describe("SessionModal's Move to canvas", () => {
 });
 
 describe("SessionModal for a Bot's session", () => {
-  it("names the Bot on a fork from one of its messages, so the fork lands on that Bot", () => {
-    const onForkFromMessage = vi.fn();
-    const withFork = { onForkFromMessage } as unknown as SessionViewContext;
+  it("names the Bot on a fork from its transcript, so the fork lands on that Bot", () => {
+    const onForkFromFeed = vi.fn();
+    const withFork = { onForkFromFeed } as unknown as SessionViewContext;
     render(<SessionModal context={withFork} project={project} session={session} onClose={() => {}} botId="bot-1" />);
 
-    (viewProps.current!.onForkFromMessage as (request: object) => void)({ index: 4 });
+    (viewProps.current!.onForkFromFeed as (request: object) => void)({ index: 4 });
 
-    expect(onForkFromMessage).toHaveBeenCalledWith({ index: 4, botId: "bot-1" });
+    expect(onForkFromFeed).toHaveBeenCalledWith({ index: 4, botId: "bot-1" });
   });
 });
 

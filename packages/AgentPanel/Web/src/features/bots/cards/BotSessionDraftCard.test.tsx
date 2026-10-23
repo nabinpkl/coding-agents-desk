@@ -165,3 +165,38 @@ describe("a fresh session's draft card", () => {
     expect(onStart).not.toHaveBeenCalled();
   });
 });
+
+describe("a draft card that asks about a passage", () => {
+  const asking: SessionDraft = {
+    key: "session-draft:ask",
+    botId: "bot-1",
+    fork: { session: SOURCE, projectPath: "/repo", botId: "bot-1", ask: { quote: "the rewind proves the row" } },
+    task: "ask",
+    harness: "claude",
+  };
+
+  it("shows the passage and starts with the question, ready to send as it is", async () => {
+    const { onStart } = renderCard({ fresh: asking });
+    expect(screen.getByText("the rewind proves the row")).toBeDefined();
+    const field = screen.getByLabelText<HTMLTextAreaElement>("The fork's first message");
+    expect(field.value).toBe("What does this mean?");
+    // The caret after it, so adding to the question is typing on.
+    expect(field.selectionStart).toBe(field.value.length);
+    fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
+    await waitFor(() =>
+      expect(onStart).toHaveBeenCalledWith({
+        task: "ask",
+        brief: "What does this mean?",
+        harness: "claude",
+        worktree: false,
+      }),
+    );
+  });
+
+  it("will not start without a question, even in its terminal", () => {
+    const { onStart } = renderCard({ fresh: asking });
+    fireEvent.change(screen.getByLabelText("The fork's first message"), { target: { value: "  " } });
+    expect(screen.getByRole("button", { name: "Start the fork" })).toBeDisabled();
+    expect(onStart).not.toHaveBeenCalled();
+  });
+});

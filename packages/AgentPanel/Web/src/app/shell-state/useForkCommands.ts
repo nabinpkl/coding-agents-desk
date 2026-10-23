@@ -11,6 +11,7 @@ import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
 import type { SessionDraft } from "@/features/bots/cards/BotSessionDraftCard";
+import type { FeedForkRequest } from "@/features/session-view/sessionTerminalTypes";
 
 export function useForkCommands(
   feeds: BotFeeds,
@@ -54,7 +55,7 @@ export function useForkCommands(
         setForkRequest(request);
         return;
       }
-      addDraft({ botId, fork: request, task: "", harness: "claude" });
+      addDraft({ botId, fork: request, task: request.ask ? "ask" : "", harness: "claude" });
     },
     [addDraft],
   );
@@ -74,28 +75,33 @@ export function useForkCommands(
   );
 
   /**
-   * The same dialog, opened from a message rather than from a roster row.
+   * The same fork, asked for from the transcript rather than from a roster row: from one of its
+   * messages, or to answer a question about a passage the reader selected.
    *
    * On a canvas card the card says which Bot it is, and the fork lands on that Bot as a card beside
-   * its source. The full-width thread view has no Bot to name, so a fork asked for there goes
-   * through the session endpoint and lands in the catalog on its own.
+   * its source. The full-width thread view has no Bot to name, so a fork from a message asked for
+   * there goes through the session endpoint and lands in the catalog on its own. A question has no
+   * such route: it forks the whole session, and a whole fork lands only on a Bot.
    */
-  const forkFromMessage = useCallback(
-    (request: {
-      session: SessionSummary;
-      projectPath: string;
-      message: { eventId: string; text: string };
-      botId?: string;
-    }) => {
-      if (request.session.source !== "claude") return;
+  const forkFromFeed = useCallback(
+    (request: FeedForkRequest) => {
+      const { session, projectPath, botId } = request;
+      if (session.source !== "claude") return;
+      if ("ask" in request && botId === undefined) {
+        setBotCommandError({
+          session: null,
+          message: "Could not ask about the passage: a fork that answers a question opens on a Bot's card",
+        });
+        return;
+      }
       askFork({
-        session: request.session,
-        projectPath: request.projectPath,
-        ...(request.botId === undefined ? {} : { botId: request.botId }),
-        from: request.message,
+        session,
+        projectPath,
+        ...(botId === undefined ? {} : { botId }),
+        ...("ask" in request ? { ask: request.ask } : { from: request.message }),
       });
     },
-    [askFork],
+    [askFork, setBotCommandError],
   );
 
   /**
@@ -214,7 +220,7 @@ export function useForkCommands(
     forkRequest,
     setForkRequest,
     forkSession,
-    forkFromMessage,
+    forkFromFeed,
     forkFromLastMessage,
     forkFromLastCompaction,
     startFork,

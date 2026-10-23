@@ -9,6 +9,7 @@ import type {
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentSessionControlState } from "@/features/activity-feed/data-source/AgentDataSource";
+import { SelectionAsk } from "@/features/activity-feed/SelectionAsk";
 import { ActivityFeed, EmptyFeed } from "@/features/activity-feed/ActivityFeed";
 import { SESSION_MEASURE_CLASS } from "@/features/activity-feed/blocks/ActivityEventHeading";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
@@ -83,7 +84,7 @@ function SessionViewContent({
   compact,
   tasksHost,
   onAcceptFiles,
-  onForkFromMessage,
+  onForkFromFeed,
   hidePromptSuggestions = false,
   onAttachSession,
   externalError = null,
@@ -144,20 +145,27 @@ function SessionViewContent({
 }) {
   const { source, sessionId, capabilities } = session;
   /**
-   * The message fork, bound to this session, or undefined when it cannot be offered.
+   * The transcript's two forks, bound to this session, or undefined when they cannot be offered:
+   * from a message, and to ask about a selected passage.
    *
    * Claude only, decided here rather than in the row: `--fork-session` is a Claude CLI flag, and
    * Codex's `resume` has no fork, so a Codex source would be silently resumed into the transcript
    * it was supposed to branch away from. The row's own test is a different one -- whether a person
    * wrote that line -- and neither can stand in for the other.
    */
-  const forkFromMessage = useMemo(
+  const feedForks = useMemo(
     () =>
-      onForkFromMessage === undefined || source !== "claude"
+      onForkFromFeed === undefined || source !== "claude"
         ? undefined
-        : (message: { eventId: string; text: string }) => onForkFromMessage({ session, projectPath, message }),
-    [onForkFromMessage, projectPath, session, source],
+        : {
+            fromMessage: (message: { eventId: string; text: string }) =>
+              onForkFromFeed({ session, projectPath, message }),
+            askAbout: (quote: string) => onForkFromFeed({ session, projectPath, ask: { quote } }),
+          },
+    [onForkFromFeed, projectPath, session, source],
   );
+  // The transcript's box, held as state so the selection button attaches once it is there.
+  const [feedBox, setFeedBox] = useState<HTMLDivElement | null>(null);
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
   const commands = useSessionCommands(feed, session);
   /**
@@ -348,7 +356,11 @@ function SessionViewContent({
         {/* ActivityFeed remains the thread's only scroll owner: the bands below it are outside its
           box, so sticky transcript headers and virtualization read the same scrollTop whether this
           view is the whole page or a card. */}
-        <div key={`${sessionId}:${eventMode}:${listed}`} className="min-h-0 flex-1 overflow-hidden session-view-ground">
+        <div
+          key={`${sessionId}:${eventMode}:${listed}`}
+          ref={setFeedBox}
+          className="min-h-0 flex-1 overflow-hidden session-view-ground"
+        >
           {listed ? (
             <ActivityFeed
               source={source}
@@ -364,11 +376,12 @@ function SessionViewContent({
               onSessionModel={setSessionModel}
               onOpenQuestion={setOpenQuestion}
               queuedPrompts={queuedPrompts}
-              {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
+              {...(feedForks === undefined ? {} : { onForkFromMessage: feedForks.fromMessage })}
             />
           ) : (
             <EmptyFeed />
           )}
+          {feedForks ? <SelectionAsk within={feedBox} onAsk={feedForks.askAbout} /> : null}
         </div>
         {capabilities.supportsExtensionUi ? (
           <ExtensionUISurface

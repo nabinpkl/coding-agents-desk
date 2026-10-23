@@ -31,6 +31,11 @@ export interface ForkRequest {
    * it lands on against this string rather than trusting a count.
    */
   from?: { eventId: string; text: string };
+  /**
+   * The passage a reader selected to ask about: the fork is the whole session, told that its one
+   * job is to answer a question about this text. Only a fork onto a Bot carries one.
+   */
+  ask?: { quote: string };
 }
 
 /**

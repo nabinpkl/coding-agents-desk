@@ -13,6 +13,31 @@ import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import type { DraftChoices, SessionDraft } from "@/features/bots/cards/BotSessionDraftCard";
 import { harnessStart } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
+/**
+ * What a fork asked to answer a question about a passage is sent as its first turn: what it is
+ * for, the passage, then the reader's question.
+ *
+ * It holds the whole conversation and no sense that the conversation is borrowed, so this is the
+ * moment to say the work in it is not its own. Said a turn later, it has already had a turn to
+ * carry on where the session it came from left off.
+ */
+export function askAboutPrompt(quote: string, question: string): string {
+  return [
+    "You are a fork of the conversation above, started only to answer a question about one passage in it.",
+    "Answer the question and stop. You may read files and search to answer it, but change nothing, and do " +
+      "not carry on with the conversation's work: the session you were forked from carries on without you.",
+    "",
+    "The passage:",
+    "",
+    quote
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n"),
+    "",
+    question.trim(),
+  ].join("\n");
+}
+
 export function useSessionDrafts(
   feeds: BotFeeds,
   roster: {
@@ -50,7 +75,8 @@ export function useSessionDrafts(
       const { botId, fork } = draft;
       const noun = fork ? "fork" : "session";
       const feed = feeds.forBot(botId);
-      const brief = choices.brief.trim() ? choices.brief : undefined;
+      const typed = choices.brief.trim() ? choices.brief : undefined;
+      const brief = typed !== undefined && fork?.ask ? askAboutPrompt(fork.ask.quote, typed) : typed;
       try {
         if (choices.harness === "opencode") {
           // The card offers opencode only for a whole fork; a fresh one is started by the dialog.
