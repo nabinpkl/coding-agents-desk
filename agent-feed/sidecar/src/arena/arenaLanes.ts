@@ -33,6 +33,7 @@ export function newLaneRecords(folder: string, lanes: readonly CheckedLane[], fi
       filesRead: [],
       filesWritten: [],
       outsideReached: [],
+      answer: null,
       gitDiff: null,
     };
   });

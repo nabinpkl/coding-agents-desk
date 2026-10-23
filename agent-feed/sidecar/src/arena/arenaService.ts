@@ -39,9 +39,10 @@ import { claimRunFolder, nextRunName, releaseRunFolder, runNameFor } from "@/are
 import { ArenaStore } from "@/arena/arenaStore";
 import { LIVE_WORKTREE_STEPS, undoWorktrees, type ArenaWorktreeSteps } from "@/arena/arenaWorktrees";
 import { StartLine, type ContestantDrivers, type ContestantResume } from "@/arena/contestants/contestantDriver";
+import { passText } from "@/arena/contestants/laneStance";
 import { killTmuxSession } from "@/terminal/tmux/tmuxSessions";
-import { ArenaNextPromptError, nextPromptContestants } from "@/arena/arenaTurns";
-import { driveContestant } from "@/arena/arenaDrive";
+import { ArenaNextPromptError, nextPromptContestants, passLanes } from "@/arena/arenaTurns";
+import { driveContestant, type DriveTurn } from "@/arena/arenaDrive";
 import { checkLanes, checkRunRequest, promptProblem } from "@/arena/arenaRequest";
 import { LANE_FOLDERS_PATTERN, newLaneRecords } from "@/arena/arenaLanes";
 import { MANAGER_FOLDER, type ArenaManagers } from "@/arena/manager/arenaManagers";
@@ -163,7 +164,7 @@ export class ArenaService {
       this.lines.set(run.runId, line);
       this.drives.set(
         run.runId,
-        picked.map(({ record, resume }) => this.driveOne(run, record, drivers, line, resume ?? undefined)),
+        picked.map(({ record, resume }) => this.driveOne(run, record, drivers, line, resume ? { resume } : {})),
       );
     }
   }
@@ -339,42 +340,71 @@ export class ArenaService {
   }
 
   /**
+   * Passes one lane's latest answer to a lane of the other stance, as that lane's next turn: a for
+   * lane's answer to an against lane to critique, or an against lane's critique to a for lane to
+   * weigh (`passText`). The run's prompt and round stay as they are; only the lane passed to moves.
+   */
+  passAnswer(runId: string, raw: unknown): ArenaRunSummary {
+    const run = this.registry.get(runId);
+    if (!run) throw new ArenaRunNotFoundError(`no arena run "${runId}"`);
+    const { from, to } = asRunError(() => passLanes(run, raw));
+    const text = passText(from, to, from.answer!);
+    const tooLong = promptProblem(text);
+    if (tooLong) throw new ArenaBadRequestError(`${from.contestantId}'s answer is too long to pass: ${tooLong}`);
+    this.continueLanes(run, [to], text);
+    return runSummary(run);
+  }
+
+  /**
    * One more prompt for every contestant with a session to continue. A terminals contestant goes
    * back to a start line in the pane it has, as one picked back up after a restart does, so every
    * lane is typed the prompt together; a headless one is driven again into its session.
    */
   private startNextRound(run: ArenaRunRecord, prompt: string): void {
-    let continuing: ArenaContestantRecord[];
-    try {
-      continuing = nextPromptContestants(run);
-    } catch (error) {
-      if (!(error instanceof ArenaNextPromptError)) throw error;
-      throw error.busy ? new ArenaRunBusyError(error.message) : new ArenaBadRequestError(error.message);
-    }
+    const continuing = asRunError(() => nextPromptContestants(run));
+    this.continueLanes(run, continuing, null, prompt);
+  }
+
+  /**
+   * Drives the `continuing` lanes again in the sessions they have: with the run's next `prompt` (a round, which
+   * moves the run's prompt and round), or with `sent` as it is (a pass, which moves neither).
+   *
+   * A pass is typed from a start line of its own. A sidecar that restarts in the moment between that
+   * line letting the lane go and the text reaching its pane picks the lane back up on the run's
+   * prompt instead; the moment is the lane's composer being found, well under a second.
+   */
+  private continueLanes(
+    run: ArenaRunRecord,
+    continuing: ArenaContestantRecord[],
+    sent: string | null,
+    prompt?: string,
+  ): void {
     const terminals = run.mode === "terminals";
     const drivers = terminals ? this.terminalDrivers : this.drivers;
     if (!drivers) throw new ArenaBadRequestError("this machine has no tmux to drive a terminals run in");
     this.registry.updateRun(run.runId, (one) => {
-      one.prompt = prompt;
-      one.round += 1;
+      if (prompt !== undefined) {
+        one.prompt = prompt;
+        one.round += 1;
+      }
       for (const contestant of continuing) {
         contestant.status = terminals ? "starting" : "preparing";
         contestant.closedAt = null;
         contestant.error = null;
       }
     });
-    const line = terminals ? new StartLine(continuing.length, prompt) : null;
+    const turn = sent === null ? {} : { sent };
+    const line = terminals ? new StartLine(continuing.length, sent ?? prompt!) : null;
     if (line) this.lines.set(run.runId, line);
     this.drives.set(
       run.runId,
       continuing.map((record) =>
         terminals
           ? this.driveOne(run, record, drivers, line, {
-              pane: record.tmuxSession!,
-              sessionId: record.sessionId!,
-              prompted: false,
+              ...turn,
+              resume: { pane: record.tmuxSession!, sessionId: record.sessionId!, prompted: false },
             })
-          : this.driveOne(run, record, drivers, null, undefined, record.sessionId!),
+          : this.driveOne(run, record, drivers, null, { ...turn, continues: record.sessionId! }),
       ),
     );
   }
@@ -434,8 +464,7 @@ export class ArenaService {
     record: ArenaContestantRecord,
     drivers: ContestantDrivers,
     startLine: StartLine | null,
-    resume?: ContestantResume,
-    continues?: string,
+    turn: DriveTurn = {},
   ): Promise<void> {
     const steps = {
       registry: this.registry,
@@ -443,6 +472,16 @@ export class ArenaService {
       worktrees: this.worktrees,
       turnTimeoutMs: this.turnTimeoutMs,
     };
-    return driveContestant(steps, run, record, drivers, startLine, resume, continues);
+    return driveContestant(steps, run, record, drivers, startLine, turn);
+  }
+}
+
+/** Runs a check of a run's next turn, as the error the routes map: busy is 409, the rest 400. */
+function asRunError<T>(check: () => T): T {
+  try {
+    return check();
+  } catch (error) {
+    if (!(error instanceof ArenaNextPromptError)) throw error;
+    throw error.busy ? new ArenaRunBusyError(error.message) : new ArenaBadRequestError(error.message);
   }
 }

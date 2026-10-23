@@ -6,6 +6,9 @@
 // so a duel is a conversation held with every lane at once rather than one question. The facts a
 // lane shows are the whole conversation's: what each turn read, wrote and reached outside its
 // worktree is added to what the turns before it did, and the diff is the worktree as it now stands.
+//
+// A pass is the one turn that goes to a single lane: another lane's latest answer, sent across
+// stances (`laneStance.ts` words it). It is checked here like a prompt, and waits for the same thing.
 
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 import type { ArenaContestantRecord, ArenaRunRecord } from "@/arena/arenaRun";
@@ -71,4 +74,64 @@ export function factsAfterTurn(
     filesWritten: [...new Set([...record.filesWritten, ...turn.filesWritten])],
     outsideReached: [...record.outsideReached, ...reached.filter((reach) => !seen.has(`${reach.how}\0${reach.path}`))],
   };
+}
+
+/**
+ * The text a turn ended with, read off its events: what the lane said after its last tool call, or
+ * everything it said in the turn when it said nothing after one. Null when it said nothing.
+ *
+ * The turn starts after the last prompt a person (or a pass) gave it. Claude's events are its whole
+ * transcript and flag that prompt `humanTurn`; when no event carries the flag, a user event with
+ * text stands in for it, which is what a turn's own events hold.
+ */
+export function lastAnswer(events: readonly ActivityEvent[]): string | null {
+  const flagged = events.some((event) => event.humanTurn === true);
+  const isPrompt = (event: ActivityEvent): boolean =>
+    event.type === "user" && (flagged ? event.humanTurn === true : event.blocks.some((block) => block.kind === "text"));
+  const start = events.findLastIndex(isPrompt) + 1;
+  const turn = events.slice(start);
+  const afterTools =
+    turn.findLastIndex((event) =>
+      event.blocks.some((block) => block.kind === "tool_use" || block.kind === "tool_result"),
+    ) + 1;
+  const said = (from: number): string[] =>
+    turn
+      .slice(from)
+      .filter((event) => event.type === "assistant")
+      .flatMap((event) => event.blocks)
+      .flatMap((block) => (block.kind === "text" && block.text?.trim() ? [block.text.trim()] : []));
+  const tail = said(afterTools);
+  const answer = (tail.length > 0 ? tail : said(0)).join("\n\n");
+  return answer || null;
+}
+
+/**
+ * The two lanes a pass names, or why it cannot go now: both must be lanes of the run, of different
+ * stances; the one passed from must have an answer and the one passed to a session to continue;
+ * and, as for a prompt, every lane must have settled.
+ */
+export function passLanes(
+  run: ArenaRunRecord,
+  raw: unknown,
+): { from: ArenaContestantRecord; to: ArenaContestantRecord } {
+  const { from: fromId, to: toId } = (raw ?? {}) as { from?: unknown; to?: unknown };
+  const lane = (id: unknown, role: string): ArenaContestantRecord => {
+    const found = run.contestants.find((one) => one.contestantId === id);
+    if (!found)
+      throw new ArenaNextPromptError(`the lane to pass ${role} names "${String(id)}", which this run has not`, false);
+    return found;
+  };
+  const from = lane(fromId, "from");
+  const to = lane(toId, "to");
+  if (from.stance === to.stance) {
+    throw new ArenaNextPromptError("a pass goes between a lane for the prompt and a lane against it", false);
+  }
+  if (run.contestants.some(isLiveContestant)) {
+    throw new ArenaNextPromptError("the lanes are still on their last turn; pass once they settle", true);
+  }
+  if (from.answer === null) throw new ArenaNextPromptError(`${from.contestantId} has no answer to pass yet`, false);
+  if (to.sessionId === null || (run.mode === "terminals" && to.tmuxSession === null)) {
+    throw new ArenaNextPromptError(`${to.contestantId} has no session to continue`, false);
+  }
+  return { from, to };
 }

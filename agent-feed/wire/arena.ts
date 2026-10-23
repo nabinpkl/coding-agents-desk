@@ -158,6 +158,11 @@ export interface ArenaContestantDetail extends ArenaContestantSummary {
    * says one happened, and whether it was into a rival's worktree.
    */
   outsideReached: ArenaOutsideReach[];
+  /**
+   * The text its latest turn ended with: what it said after its last tool call, or all it said in
+   * the turn when it said nothing after one. Null before its first turn closes. What a pass sends.
+   */
+  answer: string | null;
   /** `git diff <baseRef>` in the contestant's worktree at close, bounded in size. Null while
    * the contestant runs, and for one that failed before its turn closed. Untracked files a
    * contestant left are not in it; `filesWritten` is where they are still named. */
@@ -223,6 +228,18 @@ export interface ArenaCreateRunRequest {
  */
 export interface ArenaAddLanesRequest {
   contestants: ArenaLaneRequest[];
+}
+
+/**
+ * `POST /api/arena/runs/:id/pass`: one lane's latest answer, sent to a lane of the other stance as
+ * its next turn. Against gets a for lane's answer to critique; for gets an against lane's critique
+ * to weigh. Taken once every lane of the run has settled.
+ */
+export interface ArenaPassRequest {
+  /** The lane whose answer is passed, by its contestant id (`c1`). */
+  from: string;
+  /** The lane it is passed to; its stance must differ from `from`'s. */
+  to: string;
 }
 
 /** `POST /api/arena/runs/:id/prompt`: the prompt a terminals run's open lanes wait for. Given once. */

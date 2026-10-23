@@ -181,3 +181,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0149 | Panel state shared across the tree lives in zustand, and reaches the canvas cards through context                  | accepted                         | 2026-10-20 |
 | ADR-0150 | The speech process speaks with Phonon, streamed from the Mac's GPU                                               | accepted                         | 2026-10-22 |
 | ADR-0151 | An arena lane may argue against the prompt instead of doing it                                                   | accepted                         | 2026-10-23 |
+| ADR-0152 | An arena pass sends one lane's answer to a lane on the other side                                                | accepted                         | 2026-10-23 |

@@ -91,6 +91,7 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
       filesRead: stringArray(c.filesRead),
       filesWritten: stringArray(c.filesWritten),
       outsideReached: reachArray(c.outsideReached),
+      answer: typeof c.answer === "string" ? c.answer : null,
       gitDiff: null,
     };
   });

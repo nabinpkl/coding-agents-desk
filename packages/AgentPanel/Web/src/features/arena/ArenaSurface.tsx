@@ -21,6 +21,7 @@ import {
   fetchArenaRunDetail,
   fetchArenaRuns,
   parseRunsStreamFrame,
+  passArenaAnswer,
   sendArenaPrompt,
   STREAM_PATH,
 } from "@/features/arena/arenaRunsSource";
@@ -198,6 +199,20 @@ export function ArenaSurface({
     [transport, selectedRunId],
   );
 
+  const passAnswer = useCallback(
+    async (from: string, to: string): Promise<void> => {
+      if (!selectedRunId) return;
+      setProblem(null);
+      const answer = await passArenaAnswer(transport, selectedRunId, { from, to });
+      if ("message" in answer) {
+        setProblem(answer.message);
+        return;
+      }
+      setRuns((current) => current.map((run) => (run.runId === answer.run.runId ? answer.run : run)));
+    },
+    [transport, selectedRunId],
+  );
+
   const tearDown = useCallback(async () => {
     if (!selectedRunId) return;
     setDeleting(true);
@@ -310,6 +325,7 @@ export function ArenaSurface({
               onToggleRail={toggleRail}
               onDelete={() => void tearDown()}
               onSendPrompt={sendPrompt}
+              onPass={passAnswer}
             />
           ) : runsRead ? (
             <p className="px-5 py-8 text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">

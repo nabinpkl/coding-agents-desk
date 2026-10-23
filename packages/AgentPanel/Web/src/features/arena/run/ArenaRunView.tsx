@@ -33,6 +33,7 @@ import { DiffLane } from "@/features/arena/run/ArenaDiffs";
 import { ArenaFilesMatrix } from "@/features/arena/run/ArenaFilesMatrix";
 import { ArenaCodeButton } from "@/features/arena/code/ArenaCodeButton";
 import { ArenaLaneFacts } from "@/features/arena/run/ArenaLaneFacts";
+import { ArenaPassButtons } from "@/features/arena/run/ArenaPassButtons";
 import { SessionLane, useRunSessions } from "@/features/arena/run/ArenaSessionLanes";
 import { ArenaManagerWindow, ManagerSwitch } from "@/features/arena/manager/ArenaManagerWindow";
 import { lineupKind } from "@/features/arena/ArenaNewRun";
@@ -59,6 +60,7 @@ export function ArenaRunView({
   onToggleRail,
   onDelete,
   onSendPrompt,
+  onPass,
 }: {
   run: ArenaRunSummary;
   /** The facts, which arrive on their own request; null until they have. */
@@ -78,6 +80,8 @@ export function ArenaRunView({
   onDelete: () => void;
   /** Gives a run whose lanes are open its prompt; answers the sidecar's refusal, or null. */
   onSendPrompt: (prompt: string) => Promise<string | null>;
+  /** Passes one lane's latest answer to a lane of the other stance; a refusal shows as `problem`. */
+  onPass: (from: string, to: string) => Promise<void>;
 }) {
   const [promptOpen, setPromptOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
@@ -273,14 +277,17 @@ export function ArenaRunView({
                   now={now}
                   controlsRef={view === "sessions" ? controlsHosts.refFor(contestant.contestantId) : undefined}
                   browse={
-                    <ArenaCodeButton
-                      transport={transport}
-                      place={{ runId: run.runId, contestantId: contestant.contestantId }}
-                      label={`Browse ${contestant.contestantId}'s worktree`}
-                      title={`${run.name} · ${contestant.contestantId} ${SOURCE_LABEL[contestant.source]}`}
-                      path={contestant.worktreePath}
-                      className="size-8"
-                    />
+                    <>
+                      <ArenaPassButtons contestant={contestant} lanes={contestants} onPass={onPass} />
+                      <ArenaCodeButton
+                        transport={transport}
+                        place={{ runId: run.runId, contestantId: contestant.contestantId }}
+                        label={`Browse ${contestant.contestantId}'s worktree`}
+                        title={`${run.name} · ${contestant.contestantId} ${SOURCE_LABEL[contestant.source]}`}
+                        path={contestant.worktreePath}
+                        className="size-8"
+                      />
+                    </>
                   }
                 />
               ))}

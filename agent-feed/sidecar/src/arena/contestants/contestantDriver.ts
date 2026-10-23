@@ -13,7 +13,7 @@ import type { ActivityEvent, TokenUsage } from "@/transcripts/transcriptTypes";
 
 /** One contestant's drive, as the run plans it. Same shape for every harness. */
 export interface ContestantPlan {
-  /** What the lane is sent, its stance's words already around the run's prompt. */
+  /** What the lane is sent: the run's prompt in its stance's words, or a pass's note and answer. */
   prompt: string;
   /** Which side the lane takes; a driver reads it only for the tools an against lane runs without. */
   stance: ArenaLaneStance;

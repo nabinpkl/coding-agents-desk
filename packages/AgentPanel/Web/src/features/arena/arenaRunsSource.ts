@@ -20,6 +20,7 @@ import {
   type ArenaManagerSummary,
   type ArenaNewRunDefaults,
   type ArenaOutsideReach,
+  type ArenaPassRequest,
   type ArenaRunDetail,
   type ArenaRunMode,
   type ArenaRunSummary,
@@ -135,6 +136,7 @@ export function parseRunDetail(value: unknown): ArenaRunDetail | null {
       filesRead: stringArrayOf(c.filesRead),
       filesWritten: stringArrayOf(c.filesWritten),
       outsideReached: reachesOf(c.outsideReached),
+      answer: typeof c.answer === "string" ? c.answer : null,
       gitDiff: typeof c.gitDiff === "string" ? c.gitDiff : null,
     };
     return detail;
@@ -239,7 +241,23 @@ export async function sendArenaPrompt(
   runId: string,
   prompt: string,
 ): Promise<{ run: ArenaRunSummary } | { message: string }> {
-  const response = await transport.request("POST", `${RUNS_PATH}/${runId}/prompt`, { body: { prompt } });
+  return runAnswer(await transport.request("POST", `${RUNS_PATH}/${runId}/prompt`, { body: { prompt } }));
+}
+
+/**
+ * Passes lane `from`'s latest answer to lane `to`, of the other stance, as its next turn. The
+ * failure carries the sidecar's reason: a lane still on its turn, or a lane with nothing to pass.
+ */
+export async function passArenaAnswer(
+  transport: AgentHttpTransport,
+  runId: string,
+  pass: ArenaPassRequest,
+): Promise<{ run: ArenaRunSummary } | { message: string }> {
+  return runAnswer(await transport.request("POST", `${RUNS_PATH}/${runId}/pass`, { body: pass }));
+}
+
+/** A run the sidecar answered a change with, or its reason for refusing it. */
+function runAnswer(response: { status: number; body: string }): { run: ArenaRunSummary } | { message: string } {
   if (response.status !== 200) return { message: failureMessage(response.body, response.status) };
   try {
     const run = parseRunSummary(JSON.parse(response.body));

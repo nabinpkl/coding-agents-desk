@@ -1,12 +1,13 @@
 // `/api/arena/*` -- one prompt fanned out to contestants, and the facts each left behind.
 //
-// Eight answers: POST makes a run, GET lists them, GET on a run id answers its facts, DELETE
+// Nine answers: POST makes a run, GET lists them, GET on a run id answers its facts, DELETE
 // tears a settled one down, `stream` pushes the whole status list whenever any run moves,
 // `new-run` says what a run asked for with nothing filled in would get here (the modes this
 // machine has, the arena home, the next free name), and POST on a run's `prompt` gives it its
 // next prompt: the first, to a terminals run whose lanes wait for it, or the next, to every
 // contestant once the last prompt has settled; POST on a run's `contestants` adds lanes to a
-// terminals run before its first prompt, which is how a run's manager starts the lanes it planned.
+// terminals run before its first prompt, which is how a run's manager starts the lanes it planned;
+// and POST on a run's `pass` sends one lane's latest answer to a lane of the other stance.
 // The service owns every state change; this module only matches paths, checks shapes and maps
 // the service's errors onto the statuses the panel's own client reads.
 
@@ -26,6 +27,7 @@ const NEW_RUN_ROUTE = "/api/arena/new-run";
 const RUN_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})$/;
 const RUN_PROMPT_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})\/prompt$/;
 const RUN_LANES_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})\/contestants$/;
+const RUN_PASS_ROUTE = /^\/api\/arena\/runs\/([0-9a-f-]{36})\/pass$/;
 
 export function createArenaRoutes(service: ArenaService): RouteHandler {
   return (request, url, server) => {
@@ -54,6 +56,12 @@ export function createArenaRoutes(service: ArenaService): RouteHandler {
     if (promptRunId) {
       if (request.method !== "POST") return methodNotAllowed(request.method);
       return sendPrompt(service, promptRunId, request, url.pathname);
+    }
+
+    const passRunId = RUN_PASS_ROUTE.exec(url.pathname)?.[1];
+    if (passRunId) {
+      if (request.method !== "POST") return methodNotAllowed(request.method);
+      return passAnswer(service, passRunId, request, url.pathname);
     }
 
     const lanesRunId = RUN_LANES_ROUTE.exec(url.pathname)?.[1];
@@ -106,6 +114,24 @@ async function sendPrompt(service: ArenaService, runId: string, request: Request
     if (error instanceof ArenaRunNotFoundError) return notFound(path);
     if (error instanceof ArenaBadRequestError) return errorResponse("arena-bad-request", error.message, 400);
     // The lanes are still on the last prompt: a conflict with the run's state, not a bad request.
+    if (error instanceof ArenaRunBusyError) return errorResponse("arena-run-busy", error.message, 409);
+    return internal(error);
+  }
+}
+
+async function passAnswer(service: ArenaService, runId: string, request: Request, path: string): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse("arena-bad-request", "a pass request must be JSON", 400);
+  }
+  try {
+    return jsonResponse(service.passAnswer(runId, body));
+  } catch (error) {
+    if (error instanceof ArenaRunNotFoundError) return notFound(path);
+    if (error instanceof ArenaBadRequestError) return errorResponse("arena-bad-request", error.message, 400);
+    // A lane is still on its last turn: a conflict with the run's state, not a bad request.
     if (error instanceof ArenaRunBusyError) return errorResponse("arena-run-busy", error.message, 409);
     return internal(error);
   }

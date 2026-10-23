@@ -112,7 +112,9 @@ export function renderManagerBrief(
     "A lane's stance is `for` unless it says otherwise. An `against` lane is given the same prompt with a note " +
       "telling it to argue that the task should not be done, or not this way, and it edits no file: its answer " +
       "is its case, not a diff. It never sees the other lanes' work. Add one when the reader wants the idea " +
-      "itself challenged; read its case as advocacy for one side, not as a verdict.",
+      "itself challenged; read its case as advocacy for one side, not as a verdict. Once lanes on both sides " +
+      "have answered, a pass sends one lane's latest answer to a lane of the other side as its next turn: a " +
+      "for lane's answer to an against lane to critique, or that critique back to the for lane to weigh.",
     "",
     `Agent Desk rewrites this file and the files beside it whenever the run changes, so read them again before ` +
       `each answer. This one is as of ${new Date(now).toISOString()}.`,
@@ -184,6 +186,13 @@ export function renderManagerBrief(
     `curl -sS -X POST ${runApi}/prompt ${json} --data-binary @- <<'JSON'`,
     '{"prompt":"The task, word for word as the lanes should read it."}',
     "JSON",
+    "```",
+    "",
+    "Pass one lane's latest answer to a lane of the other stance, once every lane has settled; only the lane " +
+      "passed to takes a turn:",
+    "",
+    "```sh",
+    `curl -sS -X POST ${runApi}/pass ${json} -d '{"from":"c1","to":"c2"}'`,
     "```",
     "",
     "Models: a `claude` lane takes an alias (`opus`, `sonnet`, `haiku`) or a full model id. An `opencode` lane " +

@@ -222,6 +222,7 @@ export type {
   ArenaAddLanesRequest,
   ArenaNewRunDefaults,
   ArenaOutsideReach,
+  ArenaPassRequest,
   ArenaPromptRequest,
   ArenaRunDetail,
   ArenaRunMode,

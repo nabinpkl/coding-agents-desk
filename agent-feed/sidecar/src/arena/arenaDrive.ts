@@ -4,6 +4,7 @@
 // decision: the service decides who is driven and when, and this drives one of them and writes
 // down each state it passes through.
 
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import type { ArenaContestantRecord, ArenaRunRecord, ArenaRunRegistry } from "@/arena/arenaRun";
 import type { ArenaStore } from "@/arena/arenaStore";
@@ -16,7 +17,7 @@ import {
   type ContestantResume,
   type StartLine,
 } from "@/arena/contestants/contestantDriver";
-import { factsAfterTurn } from "@/arena/arenaTurns";
+import { factsAfterTurn, lastAnswer } from "@/arena/arenaTurns";
 import { promptForStance } from "@/arena/contestants/laneStance";
 
 /** What a turn writes to and reads from: the service's own, handed over. */
@@ -25,6 +26,19 @@ export interface ArenaDriveSteps {
   store: ArenaStore;
   worktrees: ArenaWorktreeSteps;
   turnTimeoutMs: number;
+}
+
+/** What kind of turn a drive is, past a first one: picked back up, continued, or a pass. */
+export interface DriveTurn {
+  /** A terminals contestant picked back up from its pane. */
+  resume?: ContestantResume;
+  /** The headless session a later turn continues. */
+  continues?: string;
+  /**
+   * The text to send as it is, for a pass (`passText`). Absent, the lane is sent the run's prompt in
+   * its stance's words.
+   */
+  sent?: string;
 }
 
 /**
@@ -40,9 +54,10 @@ export async function driveContestant(
   record: ArenaContestantRecord,
   drivers: ContestantDrivers,
   startLine: StartLine | null,
-  resume?: ContestantResume,
-  continues?: string,
+  turn: DriveTurn = {},
 ): Promise<void> {
+  const { resume, continues, sent } = turn;
+  const toSend = (prompt: string): string => sent ?? promptForStance(record.stance, prompt);
   const mark = (apply: (contestant: ArenaContestantRecord, now: number) => void): void => {
     steps.registry.updateContestant(run.runId, record.contestantId, apply);
   };
@@ -71,11 +86,11 @@ export async function driveContestant(
       })
     : null;
   // An against lane is told its stance with every prompt, whether a terminal waits for it at the
-  // start line or the plan carries it.
+  // start line or the plan carries it; a pass is sent as its note was written.
   const terminal = atLine
     ? {
         ...atLine.terminal,
-        ready: async () => promptForStance(record.stance, await atLine.terminal.ready()),
+        ready: async () => toSend(await atLine.terminal.ready()),
       }
     : undefined;
   try {
@@ -83,13 +98,14 @@ export async function driveContestant(
     // createRun refused every source without a driver, so this is a broken invariant.
     if (!drive) throw new Error(`no driver wired for source "${record.source}"`);
     const plan: ContestantPlan = {
-      prompt: promptForStance(record.stance, run.prompt),
+      prompt: toSend(run.prompt),
       stance: record.stance,
       worktreePath: record.worktreePath,
       model: record.model,
       // One per prompt, not per contestant: a harness deduplicates a send by it, so a later
-      // prompt under the first one's id would be refused as the same command sent again.
-      requestId: `${run.runId}:${record.contestantId}:${run.round}`,
+      // prompt under the first one's id would be refused as the same command sent again. A pass
+      // leaves the round where it was, so each has an id of its own.
+      requestId: `${run.runId}:${record.contestantId}:${run.round}${sent === undefined ? "" : `:pass-${randomUUID()}`}`,
       turnTimeoutMs: steps.turnTimeoutMs,
       ...(terminal ? { terminal } : {}),
       ...(continues ? { continues } : {}),
@@ -116,6 +132,7 @@ export async function driveContestant(
       contestant.contextTokens = result.usage?.current ?? null;
       contestant.costUsd = result.usage?.cost ?? null;
       Object.assign(contestant, facts);
+      contestant.answer = lastAnswer(result.events);
       contestant.gitDiff = bounded;
     });
   } catch (error) {

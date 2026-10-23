@@ -43,6 +43,8 @@ export interface ArenaContestantRecord {
   filesWritten: string[];
   /** Where outside its worktree its tools reached, read off its events at close. */
   outsideReached: ArenaOutsideReach[];
+  /** What its latest turn ended with (`lastAnswer`), kept so it can be passed to another lane. */
+  answer: string | null;
   /** In memory while the sidecar runs; on disk in the store once the contestant has closed. */
   gitDiff: string | null;
 }
@@ -132,6 +134,7 @@ export function runDetail(
         filesRead: [...record.filesRead],
         filesWritten: [...record.filesWritten],
         outsideReached: record.outsideReached.map((reach) => ({ ...reach })),
+        answer: record.answer,
         gitDiff: record.gitDiff ?? storedDiff(record),
       };
       return detail;

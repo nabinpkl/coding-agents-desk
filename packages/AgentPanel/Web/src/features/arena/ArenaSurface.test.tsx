@@ -104,6 +104,11 @@ function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]
         const prompt = (requestOptions?.body as { prompt: string }).prompt;
         return { status: 200, body: JSON.stringify({ ...((options.runs?.[0] as object) ?? run()), prompt }) };
       }
+      if (method === "POST" && path.endsWith("/pass")) {
+        posted.push(requestOptions?.body);
+        postedTo.push(path);
+        return { status: 200, body: JSON.stringify((options.runs?.[0] as object) ?? run()) };
+      }
       if (method === "POST") {
         posted.push(requestOptions?.body);
         postedTo.push(path);
@@ -349,6 +354,22 @@ describe("ArenaSurface", () => {
     await waitFor(() => expect(postedTo).toEqual(["/api/arena/runs/11111111-1111-4111-8111-111111111111/prompt"]));
     expect(posted[0]).toEqual({ prompt: "now add tests" });
     await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(""));
+  });
+
+  test("a lane with an answer passes it to the lane on the other side; one with none cannot yet", async () => {
+    const sides = run({
+      contestants: [
+        contestant({ answer: "One loader, one manifest." }),
+        contestant({ contestantId: "c2", stance: "against", sessionId: "ses-two", answer: null }),
+      ],
+    });
+    const { transport, posted, postedTo } = harness({ runs: [sides], detail: sides });
+    mount(transport);
+    await openRun("say one word");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Pass c2's answer to c1" }).disabled).toBe(true);
+    screen.getByRole("button", { name: "Pass c1's answer to c2" }).click();
+    await waitFor(() => expect(postedTo).toEqual(["/api/arena/runs/11111111-1111-4111-8111-111111111111/pass"]));
+    expect(posted[0]).toEqual({ from: "c1", to: "c2" });
   });
 
   test("the next prompt cannot be sent while a lane is still on the last one", async () => {

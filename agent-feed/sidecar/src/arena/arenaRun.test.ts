@@ -26,6 +26,7 @@ const contestant = (over: Partial<ArenaContestantRecord> = {}): ArenaContestantR
   filesRead: [],
   filesWritten: [],
   outsideReached: [],
+  answer: null,
   gitDiff: null,
   ...over,
 });
