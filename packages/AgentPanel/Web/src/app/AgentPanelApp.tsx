@@ -19,7 +19,7 @@ import { buildSessionViewContext } from "@/app/shell-state/sessionViewContext";
 import { sidebarProps } from "@/app/shell-state/sidebar/sidebarProps";
 import { BotCanvas } from "@/features/bots/canvas/BotCanvas";
 import { BranchCanvas } from "@/features/branches/BranchCanvas";
-import type { PanelCanvas } from "@/features/branches/branchBots";
+import { canvasShareMenu, type PanelCanvas } from "@/features/branches/branchBots";
 import { CanvasShell, type CanvasActions, type CanvasCards } from "@/features/bots/canvas/canvasShell";
 import { createCanvasStore } from "@/features/bots/canvas/canvasStore";
 import { FatherHome } from "@/app/FatherHome";
@@ -252,6 +252,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     onReorderSessions: commands.reorderBotSessions,
     onToggleSession: roster.toggleCanvasSession,
     onCloseNewSession: commands.closeNewSession,
+    canvasShareFor: canvasShareMenu(canvas, roster.setBotCanvas),
   };
   const canvasCards: CanvasCards = {
     sessionContextFor: (botId) => shellMachines.contextFor(sessionViewContext, botId),

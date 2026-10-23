@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowRightLeft,
+  Columns2,
   Crown,
   EyeOff,
   GitBranch,
@@ -34,6 +35,7 @@ export function SessionRowMenu({
   onSetFather,
   onClearFather,
   onRemoveFromCanvas,
+  canvasShare,
   onArchive,
 }: {
   label: string;
@@ -117,6 +119,11 @@ export function SessionRowMenu({
    */
   onRemoveFromCanvas?: () => void;
   /**
+   * Shows the session on the other canvas as well, Feed and Branches, or back on this one only;
+   * the label says which. Absent off the canvas, and on a card with no Branches record to change.
+   */
+  canvasShare?: { label: string; onSelect: () => void };
+  /**
    * Files the session away on its machine, which hides it from every surface until it is
    * unarchived from the Sessions list. Absent on a row with no session behind it.
    */
@@ -173,6 +180,8 @@ export function SessionRowMenu({
   if (onRemoveFromCanvas) {
     items.push({ label: "Remove from canvas", icon: EyeOff, onSelect: onRemoveFromCanvas });
   }
+  // Beside it, because it is about the same thing: which canvases show this session.
+  if (canvasShare) items.push({ label: canvasShare.label, icon: Columns2, onSelect: canvasShare.onSelect });
   // Last, because it is the widest of the takings-away: not off this Bot or this canvas but off
   // every surface, until the Sessions list's Archived toggle gives it back.
   if (onArchive) items.push({ label: "Archive session", icon: Archive, onSelect: onArchive });

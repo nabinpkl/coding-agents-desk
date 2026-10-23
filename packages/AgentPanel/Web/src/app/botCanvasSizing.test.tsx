@@ -297,6 +297,8 @@ describe("App shell", () => {
         "Move right",
         "Remove from bot",
         "Remove from canvas",
+        // A session on the Feed alone, so the menu offers it to Branches too.
+        "Show on Branches too",
         "Archive session",
       ]);
       await act(async () => {

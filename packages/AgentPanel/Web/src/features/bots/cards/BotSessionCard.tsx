@@ -66,6 +66,7 @@ export function BotSessionCard({
   onAttachSession,
   onDetach,
   onRemoveFromCanvas,
+  canvasShare,
   onMaximize,
   isFather,
   onSetFather,
@@ -115,15 +116,13 @@ export function BotSessionCard({
   handover?: { to: HandoverDestination; onSelect: () => void };
   /** Absent on a Codex session, whose title this panel does not own. */
   onRename?: () => void;
-  /**
-   * Takes a session one of this session's own slash commands made -- `/new`, `/fork` -- and puts
-   * it on this Bot's canvas. Bound to the Bot by the canvas above, which is the only thing that
-   * knows which Bot this session belongs to.
-   */
+  /** Puts a session this one's `/new` or `/fork` made on this Bot's canvas; bound to the Bot above. */
   onAttachSession?: (session: AgentSessionDescriptor) => void | Promise<void>;
   onDetach: () => void;
   /** Takes this card off the canvas. The Bot keeps the session, and the sidebar still lists it. */
   onRemoveFromCanvas: () => void;
+  /** Shows it on the other canvas too, or back on this one only. Absent where neither applies. */
+  canvasShare?: { label: string; onSelect: () => void };
   /** Opens this session in the modal over the canvas. The card stays as it was, open or shut. */
   onMaximize: () => void;
   /**
@@ -174,8 +173,7 @@ export function BotSessionCard({
     [],
   );
   const drop = useFileDropTarget<HTMLDivElement>(acceptFiles);
-  // A fork from this card's transcript names this card's Bot, so it opens as a card beside this
-  // one rather than in place of the canvas.
+  // A fork from this transcript names this card's Bot, so it opens beside this card, not over the canvas.
   const contextFork = sessionContext.onForkFromFeed;
   const forkFromFeed = useMemo(
     () =>
@@ -415,6 +413,7 @@ export function BotSessionCard({
                 onMoveLater={canMoveLater ? () => onMoveBySteps(1) : undefined}
                 onDetach={onDetach}
                 onRemoveFromCanvas={onRemoveFromCanvas}
+                canvasShare={canvasShare}
                 onArchive={() => archive.run(session, true)}
                 isFather={isFather}
                 onSetFather={onSetFather}

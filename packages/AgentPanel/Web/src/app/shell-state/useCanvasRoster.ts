@@ -492,5 +492,6 @@ export function useCanvasRoster(
     moveSessionToCanvas,
     moveListedSessionToCanvas,
     toggleBotOnCanvas,
+    setBotCanvas,
   };
 }

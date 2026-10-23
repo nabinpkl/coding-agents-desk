@@ -62,6 +62,8 @@ export interface CanvasActions {
   onToggleSession: (key: string) => void;
   /** Takes a started session's card away. The tmux session keeps running. */
   onCloseNewSession: (sessionId: string) => void;
+  /** The ⋮ item that shows a session on the other canvas too, or back on this one only. */
+  canvasShareFor: (bot: BotView, session: BotSessionRef) => { label: string; onSelect: () => void } | undefined;
 }
 
 /** What every card reads about the canvas as a whole, rather than about its own Bot. */

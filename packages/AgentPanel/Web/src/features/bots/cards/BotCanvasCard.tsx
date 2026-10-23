@@ -110,6 +110,7 @@ export function BotCanvasCard({
     onReorderSessions,
     onToggleSession,
     onCloseNewSession,
+    canvasShareFor,
   } = useCanvasActions();
   const cards = useCanvasCards();
   const { botError, detachedSessionKeys, openKeys, sessionDrafts } = cards;
@@ -392,6 +393,7 @@ export function BotCanvasCard({
                       onAttachSession={attachSessionToBot(bot)}
                       onDetach={() => onDetachSession(bot, session)}
                       onRemoveFromCanvas={() => onRemoveSessionFromCanvas(session)}
+                      canvasShare={canvasShareFor(bot, session)}
                       onMaximize={() => onMaximizeSession(bot, session)}
                       isFather={isFatherSession(bot, session)}
                       onSetFather={() => onSetFatherSession(bot, session)}

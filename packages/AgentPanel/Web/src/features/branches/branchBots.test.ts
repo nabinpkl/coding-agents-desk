@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { FIXTURE_SESSIONS } from "@/app/fake-sidecar/fixtureData";
-import { botsOnBranches, botsOnFeed, branchesWithSession, feedHiddenSessionKeys } from "@/features/branches/branchBots";
+import {
+  botsOnBranches,
+  botsOnFeed,
+  branchesWithSession,
+  canvasShareChoice,
+  feedHiddenSessionKeys,
+} from "@/features/branches/branchBots";
 
 function bot(botId: string, sessions: SessionSummary[], extra: Partial<BotView> = {}): BotView {
   return {
@@ -91,5 +97,50 @@ describe("botsOnFeed", () => {
     const plain = bot("plain", [first]);
     expect(botsOnFeed([plain])[0]).toBe(plain);
     expect(feedHiddenSessionKeys([plain]).size).toBe(0);
+  });
+});
+
+describe("canvasShareChoice", () => {
+  const alan: BotSessionRef = { source: "claude", sessionId: "alan" };
+  const felix: BotSessionRef = { source: "claude", sessionId: "felix" };
+  const frank: BotSessionRef = { source: "claude", sessionId: "frank" };
+
+  it("offers a Feed session to Branches as well, putting a Bot not on Branches there", () => {
+    expect(canvasShareChoice(bot("b", []), frank, "bots")).toEqual({
+      label: "Show on Branches too",
+      command: { canvases: { branches: { sessionRefs: [frank] } } },
+    });
+    const onBranches = bot("b", [], { canvases: { branches: { sessionRefs: [alan], exclusiveSessionRefs: [felix] } } });
+    expect(canvasShareChoice(onBranches, frank, "bots")!.command).toEqual({
+      canvases: { branches: { sessionRefs: [alan, frank], exclusiveSessionRefs: [felix] } },
+    });
+  });
+
+  it("takes a session shown on both off Branches again, from the Feed", () => {
+    const both = bot("b", [], {
+      canvases: { branches: { sessionRefs: [alan, frank], exclusiveSessionRefs: [felix] } },
+    });
+    expect(canvasShareChoice(both, frank, "bots")).toEqual({
+      label: "Show on Feed only",
+      command: { canvases: { branches: { sessionRefs: [alan], exclusiveSessionRefs: [felix] } } },
+    });
+  });
+
+  it("on Branches, shows a Branches-only session on the Feed too, and keeps a shared one to Branches", () => {
+    const record = bot("b", [], {
+      canvases: { branches: { sessionRefs: [alan, felix], exclusiveSessionRefs: [felix] } },
+    });
+    expect(canvasShareChoice(record, felix, "branches")).toEqual({
+      label: "Show on Feed too",
+      command: { canvases: { branches: { sessionRefs: [alan, felix] } } },
+    });
+    expect(canvasShareChoice(record, alan, "branches")).toEqual({
+      label: "Keep on Branches only",
+      command: { canvases: { branches: { sessionRefs: [alan, felix], exclusiveSessionRefs: [felix, alan] } } },
+    });
+  });
+
+  it("offers nothing on Branches for a session its Bot does not list there", () => {
+    expect(canvasShareChoice(bot("b", []), frank, "branches")).toBeNull();
   });
 });

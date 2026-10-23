@@ -83,3 +83,74 @@ export function branchesWithSession(bot: BotView, ref: BotSessionRef): SetBotCan
     },
   };
 }
+
+/** The ⋮ item that moves a session between the two canvases, and what choosing it sends. */
+export interface CanvasShareChoice {
+  label: string;
+  command: SetBotCanvasCommand;
+}
+
+/**
+ * What the ⋮ on a session's card offers about the other canvas, seen from the one it is on.
+ *
+ * A session lives on one canvas by default: begun on the Feed it is not on Branches, begun on
+ * Branches it is kept off the Feed. This is the one way to show it on both, and back.
+ *
+ * - On the Feed: "Show on Branches too" adds it to the Bot's Branches list (adding the Bot to
+ *   Branches if it was not there), and "Show on Feed only" takes it off that list again.
+ * - On Branches: "Show on Feed too" takes it off the Branches-only list, and "Keep on Branches
+ *   only" puts it back on.
+ *
+ * Both lists are replaced whole on the record, so each is rebuilt from the one the Bot holds now.
+ */
+export function canvasShareChoice(bot: BotView, ref: BotSessionRef, canvas: PanelCanvas): CanvasShareChoice | null {
+  const plain = ({ source, sessionId }: BotSessionRef): BotSessionRef => ({ source, sessionId });
+  const same = (each: BotSessionRef) => each.source === ref.source && each.sessionId === ref.sessionId;
+  const membership = bot.canvases?.branches;
+  const listed = (membership?.sessionRefs ?? []).map(plain);
+  const only = (membership?.exclusiveSessionRefs ?? []).map(plain);
+  const branches = (sessionRefs: BotSessionRef[], exclusiveSessionRefs: BotSessionRef[]): SetBotCanvasCommand => ({
+    canvases: { branches: { sessionRefs, ...(exclusiveSessionRefs.length === 0 ? {} : { exclusiveSessionRefs }) } },
+  });
+  const onBranches = listed.some(same);
+  if (canvas === "bots") {
+    return onBranches
+      ? {
+          label: "Show on Feed only",
+          command: branches(
+            listed.filter((each) => !same(each)),
+            only.filter((each) => !same(each)),
+          ),
+        }
+      : { label: "Show on Branches too", command: branches([...listed, plain(ref)], only) };
+  }
+  // A card on Branches is one its Bot lists there; anything else has no Branches record to change.
+  if (!onBranches) return null;
+  return only.some(same)
+    ? {
+        label: "Show on Feed too",
+        command: branches(
+          listed,
+          only.filter((each) => !same(each)),
+        ),
+      }
+    : { label: "Keep on Branches only", command: branches(listed, [...only, plain(ref)]) };
+}
+
+/**
+ * The ⋮ item for a session's card on `canvas`, bound to the command that sends it: what the canvas
+ * hands its cards, so a card needs to know neither which canvas it is on nor how a Bot is changed.
+ */
+export function canvasShareMenu(
+  canvas: PanelCanvas,
+  setBotCanvas: (botId: string, command: SetBotCanvasCommand, session: string | null) => Promise<boolean>,
+) {
+  return (bot: BotView, ref: BotSessionRef): { label: string; onSelect: () => void } | undefined => {
+    const choice = canvasShareChoice(bot, ref, canvas);
+    if (!choice) return undefined;
+    return {
+      label: choice.label,
+      onSelect: () => void setBotCanvas(bot.botId, choice.command, `${ref.source}:${ref.sessionId}`),
+    };
+  };
+}
