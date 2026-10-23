@@ -184,11 +184,10 @@ export function useSidebarChrome({ canvasOnly = false }: { canvasOnly?: boolean 
     });
   }, []);
 
+  /** The Canvas tab's Sessions view is on screen, grouped or not: where a title search is typed. */
+  const canvasSessionsShowing = sidebarMode === "canvas" && sidebarPreferences.canvasView === "sessions";
   /** The Canvas tab's flat sessions list is on screen, so the inventory stream should carry it. */
-  const recentSessionsShowing =
-    sidebarMode === "canvas" &&
-    sidebarPreferences.canvasView === "sessions" &&
-    !sidebarPreferences.canvasSessionsGrouped;
+  const recentSessionsShowing = canvasSessionsShowing && !sidebarPreferences.canvasSessionsGrouped;
 
   return {
     canvasOnly,
@@ -215,5 +214,6 @@ export function useSidebarChrome({ canvasOnly = false }: { canvasOnly?: boolean 
     changeCanvasView,
     changeCanvasSessionsGrouped,
     recentSessionsShowing,
+    canvasSessionsShowing,
   };
 }

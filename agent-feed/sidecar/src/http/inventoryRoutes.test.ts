@@ -199,6 +199,43 @@ test("the recent list is every project's sessions, newest first, and a change mo
   await leave();
 });
 
+test("a title search narrows the recent list before it is cut, so an old match is found", async () => {
+  state.watcherState = "live";
+  await projectWithSession("alpha", "11111111-1111-1111-1111-111111111111");
+  await projectWithSession("beta", "22222222-2222-2222-2222-222222222222");
+  await projectWithSession("gamma", "33333333-3333-3333-3333-333333333333");
+  // The match is the OLDEST, so a cut of one taken before the search would never reach it.
+  for (const [sessionId, title, at] of [
+    ["11111111-1111-1111-1111-111111111111", "Fix the Login redirect", 1_000],
+    ["22222222-2222-2222-2222-222222222222", "Login page copy", 2_000],
+    ["33333333-3333-3333-3333-333333333333", "Unrelated", 3_000],
+  ] as const) {
+    Object.assign(state.sessions.get(sessionKey("claude", sessionId))!, { title, lastEventAt: at });
+  }
+
+  // Every word, in any order, ignoring case; padding around the query is not part of it.
+  const response = await open(`?recent=1&q=${encodeURIComponent("  login FIX ")}`);
+  const { take, leave } = streamReader(response);
+  const found = (await take(2))[1] as RecentSessionsPayload;
+  expect(found.recent.map((row) => row.title)).toEqual(["Fix the Login redirect"]);
+  expect(found.more).toBeFalse();
+  await leave();
+
+  const broader = await open("?recent=1&q=login");
+  const broaderReader = streamReader(broader);
+  const page = (await broaderReader.take(2))[1] as RecentSessionsPayload;
+  expect(page.recent.map((row) => row.title)).toEqual(["Login page copy"]);
+  expect(page.more).toBeTrue();
+  await broaderReader.leave();
+
+  // A title falls back to the opening prompt, and the search matches what the row shows.
+  const prompt = await open("?recent=5&q=gamma");
+  const promptReader = streamReader(prompt);
+  const none = (await promptReader.take(2))[1] as RecentSessionsPayload;
+  expect(none.recent).toEqual([]);
+  await promptReader.leave();
+});
+
 test("security reviews are held out of the recent list and counted, and sent only when asked for", async () => {
   state.watcherState = "live";
   await projectWithSession("alpha", "11111111-1111-1111-1111-111111111111");

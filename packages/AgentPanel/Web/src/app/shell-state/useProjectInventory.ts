@@ -11,6 +11,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { ProjectSummary, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { useTimeout } from "@/hooks/useInterval";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
 
@@ -30,6 +31,12 @@ function retryDelayMs(attempt: number): number {
 /** How many of the most recently changed sessions the flat list asks for at a time. */
 export const RECENT_SESSIONS_PAGE = 30;
 
+/**
+ * How long typing has to pause before a title search reopens the stream. Each change of the query
+ * is a new stream, so one per keystroke would open and drop a connection per letter.
+ */
+export const SESSION_SEARCH_PAUSE_MS = 300;
+
 export function useProjectInventory(
   feed: SidecarDataSource,
   /** Directories to watch beyond the expanded ones; see the caller for what adds one. */
@@ -42,6 +49,12 @@ export function useProjectInventory(
    * orders the flat one, so the panel neither holds every project's sessions nor sorts them.
    */
   recentWanted = false,
+  /**
+   * Whether the Sessions view a title search belongs to is on screen, grouped or not. A search
+   * typed there is answered by the flat list even while the view is grouped, because the grouped
+   * view holds only the projects that are expanded, and a search is for finding the rest.
+   */
+  searchable = false,
 ) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   // Every expanded project's sessions, owned here because they arrive on the same
@@ -59,7 +72,15 @@ export function useProjectInventory(
   const [expandedProjectPaths, setExpandedProjectPaths] = useState<Set<string>>(new Set());
   const [recentLimit, setRecentLimit] = useState(RECENT_SESSIONS_PAGE);
   const [recent, setRecent] = useState<RecentSessionsPayload | null>(null);
-  const recentCount = recentWanted ? recentLimit : undefined;
+  // The title search: what the field shows, and what the stream was last asked for once typing
+  // paused. Clearing the field applies at once, since there is nothing to wait for.
+  const [recentQuery, setRecentQuery] = useState("");
+  const [settledQuery, setSettledQuery] = useState("");
+  const typedQuery = recentQuery.trim();
+  useTimeout(() => setSettledQuery(typedQuery), typedQuery === "" ? null : SESSION_SEARCH_PAUSE_MS, typedQuery);
+  if (typedQuery === "" && settledQuery !== "") setSettledQuery("");
+  const searching = searchable && settledQuery !== "";
+  const recentCount = recentWanted || searching ? recentLimit : undefined;
   // How many held-out security reviews the flat list asks for: none while their row is folded,
   // because a folded row draws only the count the stream sends anyway.
   const [reviewsOpen, setReviewsOpen] = useState(false);
@@ -106,7 +127,7 @@ export function useProjectInventory(
   const deliveredInventory = useRef(false);
 
   useSubscription(
-    `${sourceKey(feed)}:${retryNonce}:${recentCount}:${reviewCount}:${subscribedProjectPaths.join("\u0000")}`,
+    `${sourceKey(feed)}:${retryNonce}:${recentCount}:${reviewCount}:${searching ? settledQuery : ""}:${subscribedProjectPaths.join("\u0000")}`,
     () => {
       // Not on every resubscribe: expanding a project reopens this stream, and a sidebar
       // that flipped back to "Loading projects" each time a row was unfolded would be
@@ -151,6 +172,7 @@ export function useProjectInventory(
         onError,
         recentCount,
         reviewCount,
+        searching ? settledQuery : "",
       );
       return () => {
         if (timer !== undefined) clearTimeout(timer);
@@ -207,6 +229,14 @@ export function useProjectInventory(
   }, []);
 
   const showMoreRecent = useCallback(() => setRecentLimit((count) => count + RECENT_SESSIONS_PAGE), []);
+  // A new search starts at the first page: the pages a reader opened belonged to the last one.
+  const changeRecentQuery = useCallback(
+    (query: string) => {
+      setRecentQuery(query);
+      setRecentLimit(RECENT_SESSIONS_PAGE);
+    },
+    [setRecentQuery, setRecentLimit],
+  );
   const toggleRecentReviews = useCallback(() => setReviewsOpen((open) => !open), []);
   const showMoreRecentReviews = useCallback(() => setReviewLimit((count) => count + RECENT_SESSIONS_PAGE), []);
 
@@ -215,6 +245,10 @@ export function useProjectInventory(
     sessionsByProject,
     recent,
     showMoreRecent,
+    recentQuery,
+    changeRecentQuery,
+    /** A title search is what the flat list is showing, rather than the newest sessions. */
+    searching,
     recentReviewsOpen: reviewsOpen,
     toggleRecentReviews,
     showMoreRecentReviews,

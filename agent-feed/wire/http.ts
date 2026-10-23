@@ -43,6 +43,7 @@ export interface RecentSession extends SessionSummary {
 /**
  * The inventory stream's cross-project list: unarchived sessions, most recently changed first,
  * cut at the `recent` the surface asked for. `more` says the catalog holds sessions past the cut.
+ * With `q`, only sessions whose row title holds every word of it, matched before the cut.
  *
  * Security reviews are held out of `recent` and counted in `securityReviews`, because they arrive
  * one per commit and would otherwise be most of every page. Its `recent` is cut at the `reviews`

@@ -144,6 +144,33 @@ export function sessionCapabilities(
 }
 
 /**
+ * The title a session's row shows: whatever the source calls the session, then its opening
+ * prompt, then its id. The prompt fallback exists because a titleless session would otherwise
+ * render as a UUID; the id is the last resort and its appearance in the list is the
+ * standing signal that a source stopped answering.
+ */
+export function sessionTitle(session: Session): string {
+  return compactTitle(session.title) ?? compactTitle(session.firstPrompt) ?? session.sessionId;
+}
+
+/**
+ * A test for whether a session's row title holds every word of `query`, ignoring case.
+ *
+ * Words rather than one substring, so "login fix" finds "fix the login redirect". Matched against
+ * the title the row shows (`sessionTitle`), so a search never finds a row by text the reader
+ * cannot see on it. An empty query matches everything. Built once per query, because it runs on
+ * every session of every catalog broadcast.
+ */
+export function titleMatcher(query: string): (session: Session) => boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return () => true;
+  return (session) => {
+    const title = sessionTitle(session).toLowerCase();
+    return words.every((word) => title.includes(word));
+  };
+}
+
+/**
  * One session's row, from the record the catalog already holds.
  *
  * Nothing here touches the disk. That is the whole point: this used to walk the
@@ -152,11 +179,6 @@ export function sessionCapabilities(
  * its transcripts end to end and took seven seconds. Both of those facts now ride the
  * session record, put there by the bounded metadata read that discovered the session,
  * so listing is a projection rather than a scan.
- *
- * Title precedence: whatever the source calls the session, then its opening prompt,
- * then its id. The prompt fallback exists because a titleless session would otherwise
- * render as a UUID; the id is the last resort and its appearance in the list is the
- * standing signal that a source stopped answering.
  */
 export function summarizeSession(
   session: Session,
@@ -177,7 +199,7 @@ export function summarizeSession(
     // Trimmed here and not only where the record was built, because not every record
     // is built here: a Pi session registered by its backend arrives with whatever
     // title that backend chose, and a row is not the place to find that out.
-    title: compactTitle(session.title) ?? compactTitle(session.firstPrompt) ?? session.sessionId,
+    title: sessionTitle(session),
     lastEventAt,
     activity: summaryActivity(session, live),
     capabilities: sessionCapabilities(session.source, session.sessionId, resolveAgentSession),
@@ -248,17 +270,24 @@ export interface SessionCut {
  * walk rather than stopping at the cut, because the review row shows a count, and a count is a
  * walk; it costs two prefix comparisons per session. Records, not summaries -- the stream compares
  * the cut before deciding whether to summarize it at all.
+ *
+ * `titleQuery` narrows the whole walk to sessions whose title matches (`titleMatcher`) BEFORE the
+ * cut, so a search finds a session however far behind the first page it sits, and the review count
+ * becomes the count of matching reviews.
  */
 export function mostRecentSessions(
   snapshot: Session[],
   limit: number,
   reviewLimit = 0,
+  titleQuery = "",
 ): SessionCut & { reviews: SessionCut & { all: Session[] } } {
   const sessions: Session[] = [];
   const reviews: Session[] = [];
   let more = false;
+  const matches = titleMatcher(titleQuery);
   for (const session of snapshot) {
     if (sessionArchivedAt(session) !== undefined) continue;
+    if (!matches(session)) continue;
     if (sessionAutomation(session) === "security-review") reviews.push(session);
     else if (sessions.length === limit) more = true;
     else sessions.push(session);

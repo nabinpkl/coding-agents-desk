@@ -179,6 +179,11 @@ export function sidebarProps({
       onGroupedChange: chrome.changeCanvasSessionsGrouped,
       recent: recentWithout(inventory.recent, offFeed),
       onShowMore: inventory.showMoreRecent,
+      search: {
+        query: inventory.recentQuery,
+        onQueryChange: inventory.changeRecentQuery,
+        active: inventory.searching,
+      },
       reconnecting: inventory.reconnecting,
       reviews: {
         open: inventory.recentReviewsOpen,

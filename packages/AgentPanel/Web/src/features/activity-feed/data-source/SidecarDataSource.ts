@@ -99,7 +99,8 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
    * `recent` asks the same stream for that many of the most recently changed sessions across
    * every project as well, ordered by the sidecar (`RecentSessionsPayload`), delivered to
    * `onRecent`. Security reviews are held out of that list and counted; `reviews` asks for that
-   * many of them, which is none while their row is folded.
+   * many of them, which is none while their row is folded. `recentQuery` narrows both to sessions
+   * whose title holds every word of it, matched before the cut, so a search reaches past the page.
    */
   subscribeInventory(
     projectPaths: readonly string[],
@@ -111,11 +112,13 @@ export class SidecarDataSource extends SidecarBots implements AgentDataSource {
     onError?: (reason: string) => void,
     recent?: number,
     reviews = 0,
+    recentQuery = "",
   ): () => void {
     const query = [
       ...projectPaths.map((path) => `projectPath=${encodeURIComponent(path)}`),
       ...(recent === undefined ? [] : [`recent=${recent}`]),
       ...(recent === undefined || reviews === 0 ? [] : [`reviews=${reviews}`]),
+      ...(recent === undefined || recentQuery === "" ? [] : [`q=${encodeURIComponent(recentQuery)}`]),
     ].join("&");
     return this.transport.subscribe(query ? `/api/inventory/stream?${query}` : "/api/inventory/stream", {
       onMessage: (payload) => {

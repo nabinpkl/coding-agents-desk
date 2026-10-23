@@ -68,6 +68,18 @@ function requestedReviews(url: URL): number {
 }
 
 /**
+ * The words the recent list's titles must hold (`q`), or "" for no search.
+ *
+ * Capped, because it is matched against every session on every catalog broadcast for as long as
+ * the stream is open, and nobody types a title longer than this into a search box.
+ */
+const MAX_TITLE_QUERY = 200;
+
+function requestedTitleQuery(url: URL): string {
+  return (url.searchParams.get("q") ?? "").trim().slice(0, MAX_TITLE_QUERY);
+}
+
+/**
  * What a list of session rows depends on, flattened for comparison.
  *
  * The catalog broadcasts on any change to any source, so most ticks change nothing
@@ -106,6 +118,7 @@ async function inventoryStream(
   const projectPaths = await requestedProjects(url);
   const recentCount = requestedRecent(url);
   const reviewCount = requestedReviews(url);
+  const titleQuery = requestedTitleQuery(url);
   return startServerSentEventStream(request, server, (write) => {
     let projectsFingerprint: string | null = null;
     const sessionFingerprints = new Map<string, string>();
@@ -141,7 +154,7 @@ async function inventoryStream(
     // of its front and one string. A session that changes moves to the top of it here, because
     // the snapshot it is cut from is already in `lastEventAt` order.
     const pushRecent = (sessions: Session[], count: number): void => {
-      const cut = mostRecentSessions(sessions, count, reviewCount);
+      const cut = mostRecentSessions(sessions, count, reviewCount, titleQuery);
       const live = cut.reviews.all.filter(
         (session) => summaryActivity(session, resolveAgentSession?.(session.source, session.sessionId)) === "live",
       ).length;

@@ -1,5 +1,10 @@
 // The Canvas tab's Sessions view: every session on this machine, grouped under its project or
-// listed flat with the most recently changed first.
+// listed flat with the most recently changed first, and searched by title.
+//
+// A search is answered by the sidecar over the whole catalog, not by filtering the rows held here:
+// the flat list holds one page, and a filter over that page would miss every older session
+// without saying so. While a search is showing, the list is the flat one whichever way the view is
+// set, because the grouped view holds only the projects that are expanded.
 //
 // The flat list is ordered by the sidecar, not here. It arrives on the inventory stream already cut
 // and sorted (`RecentSessionsPayload`), and a session that changes moves to its top on the next
@@ -7,8 +12,8 @@
 // session: a row subscribes to no thread, and picking one opens it in the modal, which is where
 // its transcript stream opens.
 
-import { FolderTree, MessageSquare, Plus } from "lucide-react";
-import { useMemo } from "react";
+import { FolderTree, MessageSquare, Plus, Search, X } from "lucide-react";
+import { useId, useMemo } from "react";
 import type { ProjectSummary, RecentSession, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
 import { SecurityReviewFold } from "@/features/sidebar/session-list/SecurityReviewSessions";
@@ -41,6 +46,11 @@ export interface CanvasSessions {
   recent: RecentSessionsPayload | null;
   /** Asks the stream for the next page of the flat list. */
   onShowMore: () => void;
+  /**
+   * The title search. `query` is what the field shows; `active` is that the flat list is the
+   * answer to it, which it becomes once typing pauses, so the list does not change per letter.
+   */
+  search: { query: string; onQueryChange: (query: string) => void; active: boolean };
   /** The stream dropped after delivering; the list shown is the last one it sent. */
   reconnecting: boolean;
   /**
@@ -83,8 +93,9 @@ export function CanvasSessionsList({ list, sessions }: { list: ProjectListProps;
           Group by project
         </button>
       </div>
+      <SessionSearchField search={sessions.search} />
       {sessions.reconnecting ? <SidebarReconnecting /> : null}
-      {sessions.grouped ? (
+      {sessions.grouped && !sessions.search.active ? (
         <ProjectSessionList
           {...list}
           selectedProjectPath={sessions.modalSelection?.projectPath ?? null}
@@ -110,7 +121,10 @@ function RecentSessionList({ list, sessions }: { list: ProjectListProps; session
   if (list.error) return <SidebarError message={`Sessions unavailable: ${list.error}`} retrying={list.retrying} />;
   if (list.loading || !sessions.recent) return <SidebarStatus>Loading sessions…</SidebarStatus>;
   const { recent, securityReviews } = sessions.recent;
-  if (recent.length === 0 && securityReviews.count === 0) return <SidebarStatus>No sessions yet</SidebarStatus>;
+  const searched = sessions.search.active ? sessions.search.query.trim() : "";
+  if (recent.length === 0 && securityReviews.count === 0) {
+    return <SidebarStatus>{searched ? `No session titled “${searched}”` : "No sessions yet"}</SidebarStatus>;
+  }
 
   const row = (session: RecentSession) => {
     // The project list and this cut come off one catalog snapshot, and the stream writes the
@@ -133,7 +147,15 @@ function RecentSessionList({ list, sessions }: { list: ProjectListProps; session
 
   return (
     <>
-      <ul role="list" aria-label="Sessions, most recently changed first" className="pb-1">
+      <ul
+        role="list"
+        aria-label={
+          searched
+            ? `Sessions titled “${searched}”, most recently changed first`
+            : "Sessions, most recently changed first"
+        }
+        className="pb-1"
+      >
         {recent.map(row)}
       </ul>
       {sessions.recent.more ? <ShowMore onClick={sessions.onShowMore} /> : null}
@@ -157,6 +179,49 @@ function RecentSessionList({ list, sessions }: { list: ProjectListProps; session
         ) : null}
       </SecurityReviewFold>
     </>
+  );
+}
+
+function SessionSearchField({ search }: { search: CanvasSessions["search"] }) {
+  const id = useId();
+  return (
+    <div className="flex items-center gap-2 border-b border-border/80 pl-3 pr-1 transition-colors focus-within:bg-muted/40">
+      <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <label className="sr-only" htmlFor={id}>
+        Search sessions by title
+      </label>
+      <input
+        id={id}
+        type="search"
+        value={search.query}
+        onChange={(event) => search.onQueryChange(event.target.value)}
+        onKeyDown={(event) => {
+          // Escape empties the field before it does anything else, the way a browser's own find bar
+          // does; on an empty field it is left to whatever holds the sidebar.
+          if (event.key !== "Escape" || search.query === "") return;
+          event.preventDefault();
+          event.stopPropagation();
+          search.onQueryChange("");
+        }}
+        placeholder="Search titles"
+        autoComplete="off"
+        spellCheck={false}
+        enterKeyHint="search"
+        className="min-h-10 w-full min-w-0 bg-transparent text-(length:--agent-panel-fs-sidebar-body,15px) outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
+      />
+      {/* Its slot is the field's height either way, so the row does not move when it appears. */}
+      {search.query !== "" ? (
+        <button
+          type="button"
+          onClick={() => search.onQueryChange("")}
+          aria-label="Clear search"
+          title="Clear search"
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70"
+        >
+          <X className="size-4" aria-hidden />
+        </button>
+      ) : null}
+    </div>
   );
 }
 

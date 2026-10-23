@@ -44,6 +44,7 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
     onGroupedChange: () => {},
     recent: null,
     onShowMore: () => {},
+    search: { query: "", onQueryChange: () => {}, active: false },
     reconnecting: false,
     reviews: { open: false, onToggle: () => {}, onShowMore: () => {} },
     onNewSession: () => {},
@@ -190,6 +191,57 @@ describe("the Canvas tab's Sessions view", () => {
   it("says it is loading until the first page arrives, rather than saying there are none", () => {
     render(<CanvasSessionsList list={list} sessions={sessions({ recent: null })} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading sessions");
+  });
+
+  it("hands every edit of the title search up, and Escape or the clear button empty it", () => {
+    const onQueryChange = vi.fn();
+    const { rerender } = render(
+      <CanvasSessionsList list={list} sessions={sessions({ search: { query: "", onQueryChange, active: false } })} />,
+    );
+    const field = screen.getByRole("searchbox", { name: "Search sessions by title" });
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+    fireEvent.change(field, { target: { value: "login" } });
+    expect(onQueryChange).toHaveBeenLastCalledWith("login");
+
+    rerender(
+      <CanvasSessionsList
+        list={list}
+        sessions={sessions({ search: { query: "login", onQueryChange, active: false } })}
+      />,
+    );
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(onQueryChange).toHaveBeenLastCalledWith("");
+    onQueryChange.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(onQueryChange).toHaveBeenCalledWith("");
+  });
+
+  it("answers a search with the flat list even while grouped, and says when nothing matched", () => {
+    const search = { query: "login", onQueryChange: () => {}, active: true };
+    const found = { recent: [row("b", "Fix login", oss.projectPath, 3)], more: false, securityReviews: NO_REVIEWS };
+    const { rerender } = render(
+      <CanvasSessionsList list={list} sessions={sessions({ grouped: true, search, recent: found })} />,
+    );
+    expect(screen.queryByRole("list", { name: "Projects" })).toBeNull();
+    const results = screen.getByRole("list", { name: "Sessions titled “login”, most recently changed first" });
+    expect(within(results).getByRole("button", { name: /^Fix login/ })).toBeInTheDocument();
+
+    rerender(
+      <CanvasSessionsList
+        list={list}
+        sessions={sessions({ grouped: true, search, recent: { ...found, recent: [] } })}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("No session titled “login”");
+
+    // Typed but not yet settled: the grouped view stays as it was rather than changing per letter.
+    rerender(
+      <CanvasSessionsList
+        list={list}
+        sessions={sessions({ grouped: true, search: { ...search, active: false }, recent: null })}
+      />,
+    );
+    expect(screen.getByRole("list", { name: "Projects" })).toBeInTheDocument();
   });
 
   it("switches between grouped and flat from its toggle", () => {

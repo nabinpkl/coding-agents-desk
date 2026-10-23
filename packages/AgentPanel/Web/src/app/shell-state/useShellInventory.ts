@@ -33,12 +33,15 @@ export function useShellInventory({
   startedSessions,
   /** Whether the flat, most-recently-changed sessions list is on screen. See `useProjectInventory`. */
   recentWanted,
+  /** Whether the Sessions view a title search is typed in is on screen. See `useProjectInventory`. */
+  searchable,
 }: {
   feed: SidecarDataSource;
   botMachines: ReadonlyMap<string, BotMachine>;
   picker: { botId: string; projectPath: string } | null;
   startedSessions: readonly { botId?: string; projectPath: string }[];
   recentWanted: boolean;
+  searchable: boolean;
 }) {
   // Null unless the open picker's Bot is on a machine other than the one this shell is pointed at.
   const pickerPeer = useMemo(() => {
@@ -70,7 +73,13 @@ export function useShellInventory({
   // Read once, at mount. Storage is written on every selection, so re-reading it later would race
   // the write the shell just made.
   const [rememberedSelection] = useState(loadSelection);
-  const inventory = useProjectInventory(feed, extraProjectPaths, rememberedSelection?.projectPath, recentWanted);
+  const inventory = useProjectInventory(
+    feed,
+    extraProjectPaths,
+    rememberedSelection?.projectPath,
+    recentWanted,
+    searchable,
+  );
 
   /**
    * The sessions each directory holds, as the DIALOGS see it.
