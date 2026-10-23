@@ -13,6 +13,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantStatus,
   type ArenaContestantSummary,
+  type ArenaLaneStance,
   type ArenaManagerSummary,
   type ArenaOutsideReach,
   type ArenaRunDetail,
@@ -26,6 +27,7 @@ export interface ArenaContestantRecord {
   source: ArenaContestantSource;
   /** The model it was asked to run, or null for its harness's default. */
   model: string | null;
+  stance: ArenaLaneStance;
   /** The session this contestant is, once its driver has one; null until then. */
   sessionId: string | null;
   worktreePath: string;
@@ -80,6 +82,7 @@ export function contestantSummary(record: ArenaContestantRecord): ArenaContestan
     contestantId: record.contestantId,
     source: record.source,
     model: record.model,
+    stance: record.stance,
     sessionId: record.sessionId,
     worktreePath: record.worktreePath,
     tmuxSession: record.tmuxSession,

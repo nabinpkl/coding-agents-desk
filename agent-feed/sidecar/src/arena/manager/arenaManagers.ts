@@ -26,6 +26,7 @@ import type { AgentSessionDescriptor, ArenaContestantSource } from "@agentdesk/a
 import type { OpencodePermissionRule } from "@/agents/opencode/opencodeSessionCreate";
 import type { ArenaContestantRecord, ArenaRunRecord, ArenaRunRegistry } from "@/arena/arenaRun";
 import { claudeContestantArgv } from "@/arena/contestants/claudeContestant";
+import { CLAUDE_EDIT_TOOLS } from "@/arena/contestants/laneStance";
 import { LIVE_TERMINAL_STEPS } from "@/arena/contestants/terminalContestants";
 import { briefFileName, renderManagerBrief, renderTranscriptFile } from "@/arena/manager/managerBrief";
 import { claudeBinary } from "@/config/configBinaries";
@@ -48,12 +49,6 @@ export const MANAGER_OPENCODE_RULES: readonly OpencodePermissionRule[] = [
   { action: "edit", resource: "*", effect: "deny" },
   { action: "shell", resource: "*", effect: "ask" },
 ];
-
-/**
- * Claude's tools a manager runs without: it changes the run through the API, never a file. Removed
- * from its context rather than refused at the call, so it never spends a turn trying one.
- */
-export const MANAGER_CLAUDE_WITHOUT: readonly string[] = ["Edit", "Write", "NotebookEdit"];
 
 /** What starting an opencode manager needs of the serve: a session created holding rules. */
 export interface ManagerOpencodeBackend {
@@ -186,17 +181,15 @@ export class ArenaManagers {
         const binary = this.claude.binary !== undefined ? this.claude.binary : claudeBinary();
         if (!binary) throw new Error("no claude CLI on this machine: install it, or set AGENT_FEED_CLAUDE_PATH");
         sessionId = this.newSessionId();
-        const command = [
-          ...claudeContestantArgv({
-            binary,
-            sessionId,
-            model: this.claude.model,
-            effort: this.claude.effort,
-            interactive: { name: title },
-          }),
-          "--disallowedTools",
-          MANAGER_CLAUDE_WITHOUT.join(","),
-        ];
+        // It changes the run through the API, never a file.
+        const command = claudeContestantArgv({
+          binary,
+          sessionId,
+          model: this.claude.model,
+          effort: this.claude.effort,
+          interactive: { name: title },
+          without: CLAUDE_EDIT_TOOLS,
+        });
         pane = await this.steps.startClaude({ cwd: manager.folder, sessionId, title, command });
       } else {
         sessionId = await this.steps.openOpencode(`${runId}:manager`, manager.folder);

@@ -10,7 +10,7 @@ import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ArenaContestantSummary, ArenaRunSummary } from "@agentdesk/agent-feed-wire";
 import { basename, formatAgo } from "@/features/arena/run/arenaFacts";
-import { BUTTON, FOCUS, isLive, SOURCE_INITIAL, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
+import { BUTTON, FOCUS, isLive, laneLabel, SOURCE_INITIAL, TEXT } from "@/features/arena/arenaVocabulary";
 
 const CHIP_INK: Record<ArenaContestantSummary["status"], string> = {
   preparing: "border-border text-muted-foreground",
@@ -83,7 +83,7 @@ export function ArenaRunRail({
                       {run.contestants.map((contestant) => (
                         <span
                           key={contestant.contestantId}
-                          title={`${contestant.contestantId} · ${SOURCE_LABEL[contestant.source]} · ${contestant.status}`}
+                          title={`${contestant.contestantId} · ${laneLabel(contestant)} · ${contestant.status}`}
                           className={`inline-flex size-5 items-center justify-center rounded-sm border font-mono text-[11px] leading-none ${CHIP_INK[contestant.status]}`}
                         >
                           {SOURCE_INITIAL[contestant.source]}

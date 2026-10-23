@@ -23,6 +23,7 @@ import {
   claudeContestantArgv,
   factsFromClaudeTranscript,
   readClaudeTranscript,
+  withoutForStance,
 } from "@/arena/contestants/claudeContestant";
 import {
   driveOpencodeTurn,
@@ -263,6 +264,7 @@ async function startClaudeContestant(
     model: options.model,
     effort: options.effort,
     interactive: { name: terminal.label },
+    ...withoutForStance(plan),
   });
   const pane = await steps.startClaude({ cwd: plan.worktreePath, sessionId, title: terminal.label, command });
   terminal.onPane(pane, sessionId);

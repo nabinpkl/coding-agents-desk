@@ -20,7 +20,7 @@
 import type { ReactNode } from "react";
 import type { ArenaContestantDetail } from "@agentdesk/agent-feed-wire";
 import { diffStat, elapsedMs, formatDuration, formatTokens } from "@/features/arena/run/arenaFacts";
-import { SOURCE_LABEL, StatusMark, TEXT } from "@/features/arena/arenaVocabulary";
+import { laneLabel, StatusMark, TEXT } from "@/features/arena/arenaVocabulary";
 
 const BAR_INK: Record<ArenaContestantDetail["status"], string> = {
   preparing: "bg-muted-foreground",
@@ -54,12 +54,12 @@ export function ArenaLaneFacts({
   const settled = contestant.status === "closed" || contestant.status === "failed";
   return (
     <section
-      aria-label={`${contestant.contestantId} ${SOURCE_LABEL[contestant.source]} facts`}
+      aria-label={`${contestant.contestantId} ${laneLabel(contestant)} facts`}
       className="relative flex min-w-0 flex-col gap-1 bg-background px-3 pt-2 pb-2.5"
     >
       <header className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
         <h3 className={`${TEXT.title} font-semibold text-foreground`}>
-          <span className="font-mono">{contestant.contestantId}</span> {SOURCE_LABEL[contestant.source]}
+          <span className="font-mono">{contestant.contestantId}</span> {laneLabel(contestant)}
         </h3>
         <StatusMark status={contestant.status} />
         <span className="ml-auto flex flex-wrap items-center gap-1">

@@ -9,6 +9,7 @@ const contestant = (over: Partial<ArenaContestantRecord> = {}): ArenaContestantR
   contestantId: "c1",
   source: "claude",
   model: null,
+  stance: "for",
   sessionId: "s1",
   worktreePath: "/arena/run/c1",
   tmuxSession: "pane-c1",

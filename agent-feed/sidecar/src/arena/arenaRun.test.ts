@@ -13,6 +13,7 @@ const contestant = (over: Partial<ArenaContestantRecord> = {}): ArenaContestantR
   contestantId: "c1",
   source: "opencode",
   model: null,
+  stance: "for",
   sessionId: null,
   worktreePath: "/nowhere/c1",
   tmuxSession: null,

@@ -218,6 +218,7 @@ export type {
   ArenaManagerStatus,
   ArenaManagerSummary,
   ArenaLaneRequest,
+  ArenaLaneStance,
   ArenaAddLanesRequest,
   ArenaNewRunDefaults,
   ArenaOutsideReach,

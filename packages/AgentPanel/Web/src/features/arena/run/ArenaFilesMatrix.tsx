@@ -10,7 +10,7 @@
 
 import type { ArenaContestantDetail, ArenaOutsideReach } from "@agentdesk/agent-feed-wire";
 import { fileMatrix, type FileRow, type FileTouch } from "@/features/arena/run/arenaFacts";
-import { isLive, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
+import { isLive, laneLabel, TEXT } from "@/features/arena/arenaVocabulary";
 
 const TOUCH: Record<FileTouch, { word: string; ink: string }> = {
   read: { word: "read", ink: "border-border text-foreground" },
@@ -51,7 +51,7 @@ export function ArenaFilesMatrix({ contestants }: { contestants: readonly ArenaC
                 scope="col"
                 className={`min-w-28 pb-2 pr-4 text-left ${TEXT.meta} font-medium text-muted-foreground`}
               >
-                <span className="font-mono">{contestant.contestantId}</span> {SOURCE_LABEL[contestant.source]}
+                <span className="font-mono">{contestant.contestantId}</span> {laneLabel(contestant)}
               </th>
             ))}
           </tr>

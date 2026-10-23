@@ -77,6 +77,8 @@ function parseRun(value: unknown, at: number): ArenaRunRecord {
       contestantId,
       source,
       model: typeof c.model === "string" ? c.model : null,
+      // A lane stored before stances took the prompt as given, which is what `for` is.
+      stance: c.stance === "against" ? "against" : "for",
       sessionId: typeof c.sessionId === "string" ? c.sessionId : null,
       worktreePath,
       tmuxSession: typeof c.tmuxSession === "string" ? c.tmuxSession : null,

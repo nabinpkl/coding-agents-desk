@@ -8,12 +8,15 @@
 // The terminals mode added a third and fourth driver and one optional member, `terminal`,
 // rather than a second contract: a pane is how the turn is driven, not what the run records.
 
-import type { ArenaContestantSource } from "@agentdesk/agent-feed-wire";
+import type { ArenaContestantSource, ArenaLaneStance } from "@agentdesk/agent-feed-wire";
 import type { ActivityEvent, TokenUsage } from "@/transcripts/transcriptTypes";
 
 /** One contestant's drive, as the run plans it. Same shape for every harness. */
 export interface ContestantPlan {
+  /** What the lane is sent, its stance's words already around the run's prompt. */
   prompt: string;
+  /** Which side the lane takes; a driver reads it only for the tools an against lane runs without. */
+  stance: ArenaLaneStance;
   worktreePath: string;
   /** The model the lane was asked to run, or null for its harness's default. */
   model: string | null;

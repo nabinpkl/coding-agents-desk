@@ -16,6 +16,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantDetail,
   type ArenaContestantStatus,
+  type ArenaLaneStance,
   type ArenaManagerSummary,
   type ArenaNewRunDefaults,
   type ArenaOutsideReach,
@@ -41,10 +42,12 @@ function contestantSummaryOf(value: unknown): ArenaRunSummary["contestants"][num
   if (typeof c.contestantId !== "string" || typeof c.worktreePath !== "string") return null;
   if (!STATUSES.includes(c.status as ArenaContestantStatus)) return null;
   if (c.source !== "opencode" && c.source !== "claude") return null;
+  if (c.stance !== "for" && c.stance !== "against") return null;
   return {
     contestantId: c.contestantId,
     source: c.source,
     model: typeof c.model === "string" ? c.model : null,
+    stance: c.stance,
     sessionId: typeof c.sessionId === "string" ? c.sessionId : null,
     worktreePath: c.worktreePath,
     tmuxSession: typeof c.tmuxSession === "string" ? c.tmuxSession : null,
@@ -201,8 +204,8 @@ export async function createArenaRun(
     /** Empty for a new repository of the run's own. */
     repoPath: string;
     mode: ArenaRunMode;
-    /** Each lane's harness and the model it names, empty for the harness's default. */
-    contestants: readonly { source: ArenaContestantSource; model: string }[];
+    /** Each lane's harness, the model it names (empty for the harness's default), and its stance. */
+    contestants: readonly { source: ArenaContestantSource; model: string; stance: ArenaLaneStance }[];
     /** The manager's harness, or null for none; with one, a terminals run may name no lanes. */
     manager: ArenaContestantSource | null;
   },
@@ -213,7 +216,11 @@ export async function createArenaRun(
       prompt: request.prompt,
       repoPath: request.repoPath,
       mode: request.mode,
-      contestants: request.contestants.map(({ source, model }) => ({ source, model: model.trim() || null })),
+      contestants: request.contestants.map(({ source, model, stance }) => ({
+        source,
+        model: model.trim() || null,
+        stance,
+      })),
       manager: request.manager,
     },
   });

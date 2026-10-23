@@ -13,6 +13,7 @@ import type { AgentHttpTransport, TransportResponse } from "@/features/activity-
 
 const contestant = (over: Record<string, unknown> = {}) => ({
   contestantId: "c1",
+  stance: "for",
   source: "opencode",
   sessionId: null,
   worktreePath: "/arena/11111111-1111-4111-8111-111111111111/c1",
@@ -139,17 +140,17 @@ describe("requests", () => {
       repoPath: "/repos/one",
       mode: "terminals",
       contestants: [
-        { source: "opencode", model: "" },
-        { source: "claude", model: " sonnet " },
-        { source: "opencode", model: "opencode/big-pickle" },
+        { source: "opencode", model: "", stance: "for" },
+        { source: "claude", model: " sonnet ", stance: "against" },
+        { source: "opencode", model: "opencode/big-pickle", stance: "for" },
       ],
       manager: null,
     });
     expect("run" in answer && answer.run.runId).toBe(run().runId);
     expect((calls[0]?.body as { contestants: unknown[] }).contestants).toEqual([
-      { source: "opencode", model: null },
-      { source: "claude", model: "sonnet" },
-      { source: "opencode", model: "opencode/big-pickle" },
+      { source: "opencode", model: null, stance: "for" },
+      { source: "claude", model: "sonnet", stance: "against" },
+      { source: "opencode", model: "opencode/big-pickle", stance: "for" },
     ]);
   });
 
@@ -163,7 +164,7 @@ describe("requests", () => {
       prompt: "",
       repoPath: "/x",
       mode: "headless",
-      contestants: [{ source: "opencode", model: "" }],
+      contestants: [{ source: "opencode", model: "", stance: "for" }],
       manager: null,
     });
     expect("message" in answer && answer.message).toBe("a run needs a prompt");
@@ -224,7 +225,7 @@ describe("the terminals mode", () => {
       prompt: "p",
       repoPath: "",
       mode: "terminals",
-      contestants: [{ source: "claude", model: "" }],
+      contestants: [{ source: "claude", model: "", stance: "for" }],
       manager: "claude",
     });
     expect(calls[0]?.body).toMatchObject({ name: "duel", repoPath: "", mode: "terminals", manager: "claude" });

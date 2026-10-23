@@ -23,22 +23,34 @@
 // Each lane may name the model it runs; left empty, the harness's default. Both pick it in the
 // menu the composer's model switcher opens: an opencode lane from the serve's own list, a Claude
 // lane from the CLI's aliases or a full model id typed into the menu.
+//
+// Each lane also takes a side. A lane for the prompt does it; a lane against it is given the same
+// prompt and argues that it should not be done, editing no file (ADR-0151). For and against sets
+// up the usual pair: two lanes on the first lane's harness and model, one on each side.
 
-import { useId, useState, type KeyboardEvent } from "react";
-import { ChevronDown, Plus, X } from "lucide-react";
+import { useId, type KeyboardEvent } from "react";
+import { Plus, X } from "lucide-react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import type { OpencodeModel } from "@/features/activity-feed/data-source/SidecarAgentSessions";
-import { OpencodeModelsDialog, OpencodeModelsHost } from "@/features/bots/dialogs/OpencodeModelsDialog";
-import type { ArenaContestantSource, ArenaNewRunDefaults, ArenaRunMode } from "@agentdesk/agent-feed-wire";
+import type {
+  ArenaContestantSource,
+  ArenaLaneStance,
+  ArenaNewRunDefaults,
+  ArenaRunMode,
+} from "@agentdesk/agent-feed-wire";
+import { LaneModel } from "@/features/arena/ArenaLaneModel";
 import {
+  BUTTON,
   FIELD,
   FOCUS,
   ICON_BUTTON,
   MAXIMUM_CONTESTANTS,
   MODE_LABEL,
   PRIMARY_BUTTON,
+  SEGMENT,
   SOURCE_LABEL,
   SOURCES,
+  STANCE_LABEL,
+  STANCES,
   TEXT,
 } from "@/features/arena/arenaVocabulary";
 
@@ -47,6 +59,7 @@ export interface ArenaLaneDraft {
   source: ArenaContestantSource;
   /** As typed; empty for the harness's default. */
   model: string;
+  stance: ArenaLaneStance;
 }
 
 export interface ArenaDraft {
@@ -65,8 +78,8 @@ export const EMPTY_DRAFT: ArenaDraft = {
   prompt: "",
   repoPath: "",
   lineup: [
-    { source: "opencode", model: "" },
-    { source: "claude", model: "" },
+    { source: "opencode", model: "", stance: "for" },
+    { source: "claude", model: "", stance: "for" },
   ],
   mode: "terminals",
   manager: "claude",
@@ -75,17 +88,22 @@ export const EMPTY_DRAFT: ArenaDraft = {
 const RUN_MODES: readonly ArenaRunMode[] = ["terminals", "headless"];
 const MANAGERS: readonly (ArenaContestantSource | null)[] = ["claude", "opencode", null];
 
-/** A lane as a reader names it: its harness, and its model when it runs one of its own. */
-function laneName(lane: { source: ArenaContestantSource; model: string | null }): string {
+/** A lane in a lineup, as both a draft and a run's contestants carry it. */
+type LineupLane = { source: ArenaContestantSource; model: string | null; stance: ArenaLaneStance };
+
+/** A lane as a reader names it: its harness, its model when it runs one of its own, and "against". */
+function laneName(lane: LineupLane): string {
   const model = lane.model?.trim();
-  return model ? `${SOURCE_LABEL[lane.source]} ${model}` : SOURCE_LABEL[lane.source];
+  const named = model ? `${SOURCE_LABEL[lane.source]} ${model}` : SOURCE_LABEL[lane.source];
+  return lane.stance === "against" ? `${named} against` : named;
 }
 
 /**
  * What kind of comparison a lineup is, in the words a reader would use for it: identical lanes
- * measure variance, anything else is a bake-off between the harnesses or models it names.
+ * measure variance, a lineup with a lane against the prompt is for and against, and anything else
+ * is a bake-off between the harnesses or models it names.
  */
-export function lineupKind(lineup: readonly { source: ArenaContestantSource; model: string | null }[]): string {
+export function lineupKind(lineup: readonly LineupLane[]): string {
   if (lineup.length === 0) return "No lanes yet";
   if (lineup.length === 1) return `A single ${laneName(lineup[0]!)} run`;
   const counts = new Map<string, number>();
@@ -93,7 +111,8 @@ export function lineupKind(lineup: readonly { source: ArenaContestantSource; mod
     counts.set(laneName(lane), (counts.get(laneName(lane)) ?? 0) + 1);
   }
   if (counts.size === 1) return `Variance · ${lineup.length} × ${[...counts.keys()][0]}`;
-  return `Bake-off · ${[...counts].map(([name, count]) => `${count} ${name}`).join(" vs ")}`;
+  const kind = lineup.some((lane) => lane.stance === "against") ? "For and against" : "Bake-off";
+  return `${kind} · ${[...counts].map(([name, count]) => `${count} ${name}`).join(" vs ")}`;
 }
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -139,6 +158,15 @@ export function ArenaNewRun({
   const setLineup = (lineup: ArenaLaneDraft[]) => onDraft({ ...draft, lineup });
   const setLane = (index: number, lane: Partial<ArenaLaneDraft>) =>
     setLineup(draft.lineup.map((one, at) => (at === index ? { ...one, ...lane } : one)));
+  // One lane does the task and one argues against it, on the same harness and model, so the two
+  // differ only in which side they were told to take.
+  const forAndAgainst = () => {
+    const base = draft.lineup[0] ?? { source: "claude", model: "", stance: "for" };
+    setLineup([
+      { ...base, stance: "for" },
+      { ...base, stance: "against" },
+    ]);
+  };
 
   const submitOnChord = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canStart) {
@@ -202,13 +230,23 @@ export function ArenaNewRun({
       </div>
 
       <fieldset className="flex flex-col gap-2">
-        <legend className={`mb-2 ${TEXT.meta} font-medium text-muted-foreground`}>Lanes</legend>
+        <legend className={`mb-2 flex w-full items-center justify-between gap-3 ${TEXT.meta} font-medium`}>
+          <span className="text-muted-foreground">Lanes</span>
+          <button
+            type="button"
+            title="One lane does the task and one argues against it, on the first lane's harness and model"
+            onClick={forAndAgainst}
+            className={`${BUTTON} min-h-8 px-2.5 ${TEXT.meta}`}
+          >
+            For and against
+          </button>
+        </legend>
         <div
           role="group"
           aria-label="Contestants"
           className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-2"
         >
-          {draft.lineup.map(({ source, model }, index) => (
+          {draft.lineup.map(({ source, model, stance }, index) => (
             <div key={index} className="flex flex-col gap-2 rounded-lg border border-border bg-card p-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className={`font-mono ${TEXT.meta} text-muted-foreground`}>c{index + 1}</span>
@@ -238,9 +276,30 @@ export function ArenaNewRun({
                     // A model is one harness's name for it: another harness would be handed a name it
                     // does not know, so a lane that changes harness goes back to the default.
                     onClick={() => setLane(index, option === source ? {} : { source: option, model: "" })}
-                    className={`min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm ${FOCUS}`}
+                    className={SEGMENT}
                   >
                     {SOURCE_LABEL[option]}
+                  </button>
+                ))}
+              </div>
+              <div
+                role="radiogroup"
+                aria-label={`Contestant ${index + 1} stance`}
+                className="grid grid-cols-2 gap-0.5 rounded-md bg-muted/50 p-0.5"
+              >
+                {STANCES.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={stance === option}
+                    title={
+                      option === "against" ? "Argues that the prompt should not be done, and edits no file" : undefined
+                    }
+                    onClick={() => setLane(index, { stance: option })}
+                    className={SEGMENT}
+                  >
+                    {STANCE_LABEL[option]}
                   </button>
                 ))}
               </div>
@@ -259,7 +318,10 @@ export function ArenaNewRun({
               aria-label="Add a contestant"
               title="Add a contestant"
               onClick={() =>
-                setLineup([...draft.lineup, draft.lineup[draft.lineup.length - 1] ?? { source: "opencode", model: "" }])
+                setLineup([
+                  ...draft.lineup,
+                  draft.lineup[draft.lineup.length - 1] ?? { source: "opencode", model: "", stance: "for" },
+                ])
               }
               className={`flex min-h-[5.5rem] items-center justify-center gap-1.5 rounded-lg border border-dashed border-border ${TEXT.meta} text-muted-foreground transition-colors duration-150 hover:border-ring hover:bg-muted hover:text-foreground active:bg-accent ${FOCUS}`}
             >
@@ -344,113 +406,5 @@ export function ArenaNewRun({
         </p>
       ) : null}
     </section>
-  );
-}
-
-/** The lane model control's look. */
-const MODEL_CONTROL = `min-h-8 w-full rounded-md border border-input bg-background px-2 py-1 font-mono ${TEXT.meta} text-foreground transition-colors ${FOCUS}`;
-
-/**
- * What a Claude lane offers: the CLI's own aliases, which follow each family's latest model, so
- * the list does not age with every release. A full model id is typed into the menu's filter.
- */
-const CLAUDE_MODELS: readonly OpencodeModel[] = [
-  ["best", "Best available"],
-  ["fable", "Fable"],
-  ["opus", "Opus"],
-  ["sonnet", "Sonnet"],
-  ["haiku", "Haiku"],
-  ["opusplan", "Opus to plan, Sonnet to build"],
-].map(([modelID, name]) => ({
-  providerID: "claude",
-  modelID: modelID!,
-  name: name!,
-  contextLimit: null,
-  inputCost: null,
-  outputCost: null,
-}));
-
-/**
- * A lane's model: a button naming it, which opens the model menu under it, and a clear that puts
- * the lane back on its harness's default. An opencode lane's menu is the serve's own list, read when
- * it opens; a Claude lane's is the CLI's aliases, and takes a full id typed into its filter.
- */
-function LaneModel({
-  feed,
-  source,
-  lane,
-  model,
-  onModel,
-}: {
-  feed: SidecarDataSource;
-  source: ArenaContestantSource;
-  lane: number;
-  /** As the harness spells it (`providerID/modelID` for opencode); empty for the default. */
-  model: string;
-  onModel: (model: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const close = () => setOpen(false);
-  const label = `Contestant ${lane}'s model`;
-  return (
-    <div className="relative flex items-center gap-1">
-      <button
-        type="button"
-        aria-label={`Contestant ${lane} model`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        title={model || "The harness's default model"}
-        onClick={() => setOpen((was) => !was)}
-        // The border, not the fill, answers the pointer: a filled hover held the muted
-        // "Default model" under 4.5:1.
-        className={`${MODEL_CONTROL} flex min-w-0 items-center gap-1 text-left hover:border-ring aria-expanded:border-ring`}
-      >
-        <span className={`min-w-0 flex-1 truncate ${model ? "" : "text-muted-foreground"}`}>
-          {model || "Default model"}
-        </span>
-        <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-      </button>
-      {model ? (
-        <button
-          type="button"
-          aria-label={`Contestant ${lane} on the default model`}
-          title="Back to the default model"
-          onClick={() => onModel("")}
-          className={`${ICON_BUTTON} size-8`}
-        >
-          <X aria-hidden className="size-4" />
-        </button>
-      ) : null}
-      {open && source === "opencode" ? (
-        <OpencodeModelsHost
-          feed={feed}
-          current={model || null}
-          initialFilter=""
-          label={label}
-          placement="below"
-          onClose={close}
-          onSwitch={async (providerID, modelID) => onModel(`${providerID}/${modelID}`)}
-        />
-      ) : null}
-      {open && source === "claude" ? (
-        <OpencodeModelsDialog
-          models={CLAUDE_MODELS}
-          current={model ? `claude/${model}` : null}
-          initialFilter=""
-          label={label}
-          listLabel="Claude's model aliases"
-          placement="below"
-          onClose={close}
-          onSwitch={async ({ modelID }) => {
-            onModel(modelID);
-            close();
-          }}
-          onCustom={async (text) => {
-            onModel(text);
-            close();
-          }}
-        />
-      ) : null}
-    </div>
   );
 }

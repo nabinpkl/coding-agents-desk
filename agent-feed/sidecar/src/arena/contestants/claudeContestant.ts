@@ -14,7 +14,9 @@
 //     tool a reader's own session has (ADR-0139). The worktree-scoped rules ADR-0130 added were
 //     never a wall -- Bash was always unscoped, and Claude's own refusal invites trying another
 //     tool, which a contestant did with `cat` -- so they went, and what a contestant reached
-//     outside its worktree is a fact read off its events instead (`outsideReaches`).
+//     outside its worktree is a fact read off its events instead (`outsideReaches`). The one
+//     exception is a lane against the prompt, which runs without the tools that edit a file
+//     (`withoutForStance`, ADR-0151): a role, not a wall, since its shell is left as it is.
 //   - `--session-id` is accepted and names the transcript that lands at
 //     `~/.claude/projects/<slug>/<id>.jsonl`, so the id is chosen here rather than
 //     discovered, and the session is in the catalog from the moment the file exists. The
@@ -30,6 +32,7 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { ContestantPlan, ContestantResult } from "@/arena/contestants/contestantDriver";
+import { CLAUDE_EDIT_TOOLS } from "@/arena/contestants/laneStance";
 import { claudeBinary } from "@/config/configBinaries";
 import { claudeTranscriptPath } from "@/tasks/taskIdentity";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
@@ -57,12 +60,15 @@ export function claudeContestantArgv(options: {
   interactive?: { name: string };
   /** A later prompt of the run: the session is resumed rather than created under this id. */
   resume?: boolean;
+  /** Tools the session runs without, taken out of its context (`--disallowedTools`). */
+  without?: readonly string[];
 }): string[] {
   const argv = options.interactive
     ? [options.binary, "--session-id", options.sessionId, "-n", options.interactive.name]
     : [options.binary, "--print", options.resume ? "--resume" : "--session-id", options.sessionId];
   if (options.model) argv.push("--model", options.model);
   if (options.effort) argv.push("--effort", options.effort);
+  if (options.without?.length) argv.push("--disallowedTools", options.without.join(","));
   return argv;
 }
 
@@ -156,6 +162,7 @@ export async function runClaudeContestant(
     model: options.model,
     effort: options.effort,
     resume: plan.continues !== undefined,
+    ...withoutForStance(plan),
   });
   const spawn = options.spawn ?? spawnClaude;
   const child = await spawn(argv, plan.worktreePath, plan.prompt);
@@ -182,6 +189,11 @@ export async function runClaudeContestant(
   const text = await (options.readTranscript ?? readClaudeTranscript)(sessionId);
   const { events, usage } = factsFromClaudeTranscript(text);
   return { sessionId, events, usage };
+}
+
+/** The tools a lane runs without for its stance: an against lane edits nothing. */
+export function withoutForStance(plan: Pick<ContestantPlan, "stance">): { without?: readonly string[] } {
+  return plan.stance === "against" ? { without: CLAUDE_EDIT_TOOLS } : {};
 }
 
 /** A closed turn with no transcript is a broken harness, not an empty turn: it fails loud. */

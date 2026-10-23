@@ -14,6 +14,8 @@ import {
   type OpencodeTurnOutcome,
 } from "@/arena/contestants/opencodeContestant";
 import type { TimelineEnvelope } from "@agentdesk/agent-feed-wire";
+import type { OpencodePermissionRule } from "@/agents/opencode/opencodeSessionCreate";
+import { AGAINST_OPENCODE_RULES } from "@/arena/contestants/laneStance";
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 import { drained, settleOnFakeTime } from "@/testing/until";
 
@@ -46,7 +48,7 @@ function fakeBackend(options: {
   usage?: { current: number; limit: number | null; updatedAt: number; cost?: number } | null;
 }) {
   const sent: { sessionId: string; text: string; delivery: string }[] = [];
-  const created: { projectPath: string }[] = [];
+  const created: { projectPath: string; permissions?: readonly OpencodePermissionRule[] }[] = [];
   const switched: string[] = [];
   const subscriptions: ((envelope: TimelineEnvelope) => void)[] = [];
   const backend: OpencodeContestantBackend = {
@@ -54,8 +56,8 @@ function fakeBackend(options: {
       switched.push(`${sessionId}:${providerID}/${modelID}`);
       return { requestId: "r", delivery: "immediate" };
     },
-    async createSession(_requestId, projectPath) {
-      created.push({ projectPath });
+    async createSession(_requestId, projectPath, { permissions } = {}) {
+      created.push(permissions ? { projectPath, permissions } : { projectPath });
       return {
         sessionId: options.sessionId ?? "ses-arena",
         source: "opencode",
@@ -98,6 +100,7 @@ function fakeBackend(options: {
 
 const plan = {
   prompt: "say one word",
+  stance: "for" as const,
   worktreePath: "/nowhere/c1",
   model: null as string | null,
   requestId: "run-1:c1",
@@ -250,6 +253,13 @@ describe("runOpencodeContestant", () => {
     const { backend, created } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
     await runOpencodeContestant(backend, plan, fakeServe(SUCCEEDED).options);
     expect(created).toEqual([{ projectPath: plan.worktreePath }]);
+  });
+
+  test("an against lane's session holds one rule of its own: it edits no file", async () => {
+    const { backend, created } = fakeBackend({ envelopes: [envelope({ runState: "idle" })] });
+    await runOpencodeContestant(backend, { ...plan, stance: "against" }, fakeServe(SUCCEEDED).options);
+    expect(created).toEqual([{ projectPath: plan.worktreePath, permissions: AGAINST_OPENCODE_RULES }]);
+    expect(AGAINST_OPENCODE_RULES).toEqual([{ action: "edit", resource: "*", effect: "deny" }]);
   });
 
   test("a send that fails surfaces as itself, with the subscription released", async () => {

@@ -11,6 +11,7 @@ import {
 
 const contestant = (over: Partial<ArenaContestantDetail> = {}): ArenaContestantDetail => ({
   contestantId: "c1",
+  stance: "for",
   source: "opencode",
   model: null,
   sessionId: "s1",

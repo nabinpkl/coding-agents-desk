@@ -37,6 +37,7 @@ const run = (over: Partial<ArenaRunRecord> = {}): ArenaRunRecord => ({
       contestantId: "c1",
       source: "opencode",
       model: null,
+      stance: "for",
       sessionId: "ses-1",
       worktreePath: "/nowhere/c1",
       tmuxSession: null,

@@ -12,6 +12,7 @@ import { ArenaRunRegistry } from "@/arena/arenaRun";
 import { ArenaStore } from "@/arena/arenaStore";
 import type { ContestantDriver, ContestantDrivers, ContestantResume } from "@/arena/contestants/contestantDriver";
 import type { ArenaContestantSummary, ArenaCreateRunRequest } from "@agentdesk/agent-feed-wire";
+import { promptForStance } from "@/arena/contestants/laneStance";
 import { drained, until } from "@/testing/until";
 
 const roots: string[] = [];
@@ -225,6 +226,26 @@ describe("lanes opened before the prompt", () => {
     await until(() => contestants(service).every((c) => c.status === "closed"), "both to close");
     expect([claude.prompted(), opencode.prompted()]).toEqual(["say one word", "say one word"]);
     expect(service.listRuns()[0]?.prompt).toBe("say one word");
+  });
+
+  // The stance rides what the start line hands the lane, so a lane opened before its prompt is told
+  // it as surely as one prompted up front, and the lane doing the task is handed the prompt alone.
+  test("an against lane is handed the prompt inside its stance note; the other lane, the prompt alone", async () => {
+    const claude = controllableDriver("c1");
+    const opencode = controllableDriver("c2");
+    const { service } = await arena({ terminalDrivers: { claude: claude.drive, opencode: opencode.drive } });
+    const run = await service.createRun(
+      request({ prompt: "", contestants: [{ source: "claude" }, { source: "opencode", stance: "against" }] }),
+    );
+    expect(run.contestants.map((c) => c.stance)).toEqual(["for", "against"]);
+    claude.load("ready");
+    opencode.load("ready");
+    await until(() => contestants(service).every((c) => c.status === "ready"), "both lanes ready");
+    service.sendPrompt(run.runId, "add a cache");
+    await until(() => contestants(service).every((c) => c.status === "closed"), "both to close");
+    expect(claude.prompted()).toBe("add a cache");
+    expect(opencode.prompted()).toBe(promptForStance("against", "add a cache"));
+    expect(service.listRuns()[0]?.prompt).toBe("add a cache");
   });
 
   // A run never ends: each prompt after the first waits for every lane to settle, then goes into

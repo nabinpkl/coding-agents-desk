@@ -24,16 +24,23 @@
 //
 // The session is a plain one, run as the serve's own `build` agent under its own rules, as any
 // session the panel makes is (ADR-0139). What the contestant reached outside its worktree is a
-// fact read off its events at close (`outsideReaches`), not something refused.
+// fact read off its events at close (`outsideReaches`), not something refused. A lane against the
+// prompt holds one rule of its own, no edit of any file (ADR-0151).
 
 import type { AgentCommandReceipt, AgentSessionDescriptor, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import type { ContestantPlan, ContestantResult } from "@/arena/contestants/contestantDriver";
 import { readOpencodeTail } from "@/agents/opencode/opencodeHistory";
+import type { OpencodePermissionRule } from "@/agents/opencode/opencodeSessionCreate";
+import { AGAINST_OPENCODE_RULES } from "@/arena/contestants/laneStance";
 import type { ActivityEvent, TokenUsage } from "@/transcripts/transcriptTypes";
 
 /** What driving one contestant needs of an opencode backend. */
 export interface OpencodeContestantBackend {
-  createSession(requestId: string, projectPath: string): Promise<AgentSessionDescriptor>;
+  createSession(
+    requestId: string,
+    projectPath: string,
+    options?: { permissions?: readonly OpencodePermissionRule[] },
+  ): Promise<AgentSessionDescriptor>;
   send(sessionId: string, requestId: string, text: string, delivery: "next"): Promise<AgentCommandReceipt>;
   subscribe(
     sessionId: string,
@@ -153,7 +160,11 @@ export async function openOpencodeContestant(
   backend: OpencodeContestantBackend,
   plan: ContestantPlan,
 ): Promise<string> {
-  const descriptor = await backend.createSession(plan.requestId, plan.worktreePath);
+  const descriptor = await backend.createSession(
+    plan.requestId,
+    plan.worktreePath,
+    plan.stance === "against" ? { permissions: AGAINST_OPENCODE_RULES } : {},
+  );
   if (plan.model) {
     const slash = plan.model.indexOf("/");
     if (slash < 1) throw new OpencodeContestantError(`the model "${plan.model}" is not "provider/model"`);

@@ -71,6 +71,7 @@ export function renderManagerBrief(
       contestant.contestantId,
       contestant.source,
       contestant.model ?? "default",
+      contestant.stance,
       contestant.status,
       duration(contestant),
       contestant.costUsd === null ? "-" : `$${contestant.costUsd.toFixed(4)}`,
@@ -108,6 +109,11 @@ export function renderManagerBrief(
       "harness on several models compares models, several identical lanes measure variance. Then add the lanes " +
       "and give them the prompt, unless the reader asked to see the plan first.",
     "",
+    "A lane's stance is `for` unless it says otherwise. An `against` lane is given the same prompt with a note " +
+      "telling it to argue that the task should not be done, or not this way, and it edits no file: its answer " +
+      "is its case, not a diff. It never sees the other lanes' work. Add one when the reader wants the idea " +
+      "itself challenged; read its case as advocacy for one side, not as a verdict.",
+    "",
     `Agent Desk rewrites this file and the files beside it whenever the run changes, so read them again before ` +
       `each answer. This one is as of ${new Date(now).toISOString()}.`,
     "",
@@ -143,8 +149,8 @@ export function renderManagerBrief(
             "Files written, not in its diff. Why a lane failed, and where it reached outside its worktree, " +
             "are at the top of its transcript file.",
           "",
-          "| Lane | Harness | Model | Status | Time | Cost | Context tokens | Files written | Diff | Outside its worktree |",
-          "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+          "| Lane | Harness | Model | Stance | Status | Time | Cost | Context tokens | Files written | Diff | Outside its worktree |",
+          "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
           ...rows.map((row) => `| ${row} |`),
           "",
           ...where,
@@ -164,10 +170,10 @@ export function renderManagerBrief(
     "```",
     "",
     "Add lanes, before the first prompt only. Each opens in its own terminal and waits for that prompt; leave " +
-      "`model` out for the harness's default:",
+      "`model` out for the harness's default, and `stance` out for a lane that does the task:",
     "",
     "```sh",
-    `curl -sS -X POST ${runApi}/contestants ${json} -d '{"contestants":[{"source":"claude","model":"sonnet"},{"source":"opencode","model":"<providerID>/<modelID>"}]}'`,
+    `curl -sS -X POST ${runApi}/contestants ${json} -d '{"contestants":[{"source":"claude","model":"sonnet"},{"source":"opencode","model":"<providerID>/<modelID>"},{"source":"claude","stance":"against"}]}'`,
     "```",
     "",
     "Give every lane the prompt: the first once the lanes are added (it is typed into each once all are up), " +
@@ -205,7 +211,7 @@ export function renderManagerBrief(
  * with the nonce struck from all of it first, so nothing inside can close the tag early.
  */
 export function renderTranscriptFile(
-  contestant: Pick<ArenaContestantRecord, "contestantId" | "source" | "error" | "outsideReached">,
+  contestant: Pick<ArenaContestantRecord, "contestantId" | "source" | "stance" | "error" | "outsideReached">,
   transcript: string | { problem: string },
   nonce: string,
 ): string {
@@ -218,7 +224,7 @@ export function renderTranscriptFile(
     typeof transcript === "string" ? transcript : `No transcript could be rendered: ${transcript.problem}`,
   ].join("\n");
   return [
-    `# ${contestant.contestantId} (${contestant.source})`,
+    `# ${contestant.contestantId} (${contestant.source}${contestant.stance === "against" ? ", against" : ""})`,
     "",
     `<transcript-${nonce}>`,
     inside.split(nonce).join("[removed]"),

@@ -11,9 +11,10 @@
 // provider quota are as good as any for layout, and free. The debug browser must be started with
 // `--ignore-certificate-errors` when the origin's certificate names a host other than 127.0.0.1.
 
-const ORIGIN = process.env.ARENA_PANEL_ORIGIN ?? 'https://127.0.0.1:5174';
-const LONG_PROMPT = `${'Refactor the widget module so every exported constant is documented. '.repeat(6)}` +
-  'antidisestablishmentarianism-and-a-very-long-unbroken-identifier-to-test-wrapping-behaviour';
+const ORIGIN = process.env.ARENA_PANEL_ORIGIN ?? "https://127.0.0.1:5174";
+const LONG_PROMPT =
+  `${"Refactor the widget module so every exported constant is documented. ".repeat(6)}` +
+  "antidisestablishmentarianism-and-a-very-long-unbroken-identifier-to-test-wrapping-behaviour";
 
 /** Clicks the newest run whose row (its name, then its prompt) holds `head`, then waits for its lanes. */
 function openRun(head) {
@@ -46,75 +47,91 @@ export default async function ({ page, sweep }) {
     await page.waitFor(`document.querySelector('nav[aria-label="Arena runs"] li')`, { timeout: 20000 });
   };
   await fresh();
-  await sweep('composer, default lineup');
+  await sweep("composer, default lineup");
 
-  await sweep('composer, four lanes and a long draft', {
+  await sweep("composer, four lanes and a long draft", {
     setup: async () => {
       // Each state puts the page where it needs it: the switcher pass clicks through every
       // switcher after a state, the app's own tabs included, and one of those leaves a terminal
       // overlay open over whatever comes next.
       await fresh();
-      await page.click('text=New run');
+      await page.click("text=New run");
       await page.settle();
-      await page.click('text=Add a contestant');
-      await page.click('text=Add a contestant');
+      await page.click("text=Add a contestant");
+      await page.click("text=Add a contestant");
       await page.fill('textarea[aria-label="Prompt every contestant gets"]', LONG_PROMPT);
-      await page.fill('input[aria-label="Repository the contestants work in"]', `/Users/somebody/${'deeply/nested/'.repeat(6)}repository`);
+      await page.fill(
+        'input[aria-label="Repository the contestants work in"]',
+        `/Users/somebody/${"deeply/nested/".repeat(6)}repository`,
+      );
     },
   });
 
-  await sweep('three-lane run, sessions', {
+  // One lane doing the task and three arguing against it: every lane card holds the stance switch,
+  // and the preset sits in the Lanes heading above a full grid.
+  await sweep("composer, for and against, four lanes", {
+    setup: async () => {
+      await fresh();
+      await page.click("text=New run");
+      await page.settle();
+      await page.click("text=For and against");
+      await page.click("text=Add a contestant");
+      await page.click("text=Add a contestant");
+    },
+  });
+
+  await sweep("three-lane run, sessions", {
     // The activity feed pins the turn's prompt over the top of a transcript scrolled past it
     // (ActivityFeed's absolute header); that layering is the feed's on purpose, on every surface
     // that renders a session, and is left out of this state's judgment.
-    ignore: '.absolute.inset-x-0.top-0.z-20',
+    ignore: ".absolute.inset-x-0.top-0.z-20",
     setup: async () => {
       await fresh();
-      await page.waitFor(openRun('Read README.md'), { timeout: 10000 });
+      await page.waitFor(openRun("Read README.md"), { timeout: 10000 });
       await page.sleep(2500);
     },
   });
 
-  await sweep('three-lane run, files', {
+  await sweep("three-lane run, files", {
     setup: async () => {
       await fresh();
-      await page.waitFor(openRun('Read README.md'), { timeout: 10000 });
-      await page.evaluate(chooseView('Files'));
+      await page.waitFor(openRun("Read README.md"), { timeout: 10000 });
+      await page.evaluate(chooseView("Files"));
       await page.settle();
     },
   });
 
-  await sweep('three-lane run, diffs', {
+  await sweep("three-lane run, diffs", {
     setup: async () => {
       await fresh();
-      await page.waitFor(openRun('Read README.md'), { timeout: 10000 });
-      await page.evaluate(chooseView('Diffs'));
+      await page.waitFor(openRun("Read README.md"), { timeout: 10000 });
+      await page.evaluate(chooseView("Diffs"));
       await page.sleep(1200);
     },
   });
 
   // Seed: one run in the Terminals mode whose prompt starts "Reply with exactly", closed, with
   // its panes still open (they last until the run is deleted).
-  await sweep('terminals run, sessions', {
+  await sweep("terminals run, sessions", {
     // xterm draws each lane's pane at the pane's own width and scales its type to fit; what is
     // inside it is the harness's screen, not this page's layout.
-    ignore: '.absolute.inset-x-0.top-0.z-20, .xterm',
+    ignore: ".absolute.inset-x-0.top-0.z-20, .xterm",
     setup: async () => {
       await fresh();
-      await page.waitFor(openRun('with exactly the word'), { timeout: 10000 });
-      await page.evaluate(chooseView('Sessions'));
+      await page.waitFor(openRun("with exactly the word"), { timeout: 10000 });
+      await page.evaluate(chooseView("Sessions"));
       await page.sleep(3000);
     },
   });
 
   // The same run with its judge open: the verifier's form leaves the judge at its default, Claude,
   // so the run it keeps has one. The window floats over the lanes' corner; its pane is xterm's.
-  await sweep('terminals run, judge open', {
-    ignore: '.absolute.inset-x-0.top-0.z-20, .xterm',
+  await sweep("terminals run, judge open", {
+    ignore: ".absolute.inset-x-0.top-0.z-20, .xterm",
     setup: async () => {
       await fresh();
-      await page.waitFor(openRun('with exactly the word'), { timeout: 10000 });
-      await page.evaluate(chooseView('Sessions'));
+      await page.waitFor(openRun("with exactly the word"), { timeout: 10000 });
+      await page.evaluate(chooseView("Sessions"));
       await page.evaluate(`(() => {
         const judge = [...document.querySelectorAll('button')].find((one) => one.textContent.trim() === 'Judge');
         if (!judge) throw new Error('no judge switch on this run');
@@ -128,21 +145,21 @@ export default async function ({ page, sweep }) {
 
   // Seed: any Terminals-mode run with its lanes open and no prompt yet. The lanes take the height
   // under the header, so each composer and its pane sit on screen with the empty feed above them.
-  await sweep('terminals run waiting for its prompt, sessions', {
-    ignore: '.xterm',
+  await sweep("terminals run waiting for its prompt, sessions", {
+    ignore: ".xterm",
     setup: async () => {
       await fresh();
-      await page.waitFor(openRun('Waiting for a prompt'), { timeout: 10000 });
-      await page.evaluate(chooseView('Sessions'));
+      await page.waitFor(openRun("Waiting for a prompt"), { timeout: 10000 });
+      await page.evaluate(chooseView("Sessions"));
       await page.sleep(3000);
     },
   });
 
-  await sweep('one-lane failed run, sessions', {
+  await sweep("one-lane failed run, sessions", {
     setup: async () => {
       await fresh();
-      await page.waitFor(openRun('Volume run 1'), { timeout: 10000 });
-      await page.evaluate(chooseView('Sessions'));
+      await page.waitFor(openRun("Volume run 1"), { timeout: 10000 });
+      await page.evaluate(chooseView("Sessions"));
       await page.sleep(1500);
     },
   });

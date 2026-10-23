@@ -17,6 +17,7 @@ import {
   type StartLine,
 } from "@/arena/contestants/contestantDriver";
 import { factsAfterTurn } from "@/arena/arenaTurns";
+import { promptForStance } from "@/arena/contestants/laneStance";
 
 /** What a turn writes to and reads from: the service's own, handed over. */
 export interface ArenaDriveSteps {
@@ -69,13 +70,21 @@ export async function driveContestant(
         },
       })
     : null;
-  const terminal = atLine?.terminal;
+  // An against lane is told its stance with every prompt, whether a terminal waits for it at the
+  // start line or the plan carries it.
+  const terminal = atLine
+    ? {
+        ...atLine.terminal,
+        ready: async () => promptForStance(record.stance, await atLine.terminal.ready()),
+      }
+    : undefined;
   try {
     const drive: ContestantDriver | undefined = drivers[record.source];
     // createRun refused every source without a driver, so this is a broken invariant.
     if (!drive) throw new Error(`no driver wired for source "${record.source}"`);
     const plan: ContestantPlan = {
-      prompt: run.prompt,
+      prompt: promptForStance(record.stance, run.prompt),
+      stance: record.stance,
       worktreePath: record.worktreePath,
       model: record.model,
       // One per prompt, not per contestant: a harness deduplicates a send by it, so a later

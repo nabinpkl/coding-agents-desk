@@ -6,6 +6,7 @@ import {
   ARENA_LIVE_STATUSES,
   type ArenaContestantSource,
   type ArenaContestantStatus,
+  type ArenaLaneStance,
   type ArenaRunMode,
 } from "@agentdesk/agent-feed-wire";
 
@@ -21,6 +22,18 @@ export const SOURCE_INITIAL: Record<ArenaContestantSource, string> = {
 };
 
 export const SOURCES = Object.keys(SOURCE_LABEL) as ArenaContestantSource[];
+
+export const STANCE_LABEL: Record<ArenaLaneStance, string> = {
+  for: "For",
+  against: "Against",
+};
+
+export const STANCES = Object.keys(STANCE_LABEL) as ArenaLaneStance[];
+
+/** A lane's harness, and its stance when it argues against the prompt rather than doing it. */
+export function laneLabel(lane: { source: ArenaContestantSource; stance: ArenaLaneStance }): string {
+  return lane.stance === "against" ? `${SOURCE_LABEL[lane.source]} · against` : SOURCE_LABEL[lane.source];
+}
 
 export const MODE_LABEL: Record<ArenaRunMode, string> = {
   terminals: "Terminals",
@@ -53,6 +66,9 @@ export const PRIMARY_BUTTON = `inline-flex min-h-9 items-center justify-center g
 
 /** An icon-only action; its name rides `aria-label` and `title`, never a visible word. */
 export const ICON_BUTTON = `inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-accent disabled:pointer-events-none disabled:opacity-40 ${FOCUS}`;
+
+/** One option of a segmented control (a harness, a stance, a mode): rest, hover, checked and focus. */
+export const SEGMENT = `min-h-8 rounded-[5px] px-2 ${TEXT.meta} font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm ${FOCUS}`;
 
 export const FIELD = `w-full rounded-md border border-input bg-background px-3 py-2 ${TEXT.body} text-foreground placeholder:text-muted-foreground transition-colors focus-visible:border-ring ${FOCUS}`;
 

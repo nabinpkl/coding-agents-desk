@@ -26,7 +26,7 @@ import { awaitedSession } from "@/features/session-view/awaitedSession";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
+import { laneLabel, TEXT } from "@/features/arena/arenaVocabulary";
 import { useStateFor } from "@/hooks/state/useStateFor";
 import { useSubscription } from "@/hooks/useSubscription";
 import { sourceKey } from "@/query/panelQuery";
@@ -104,7 +104,7 @@ export function SessionLane({
     [],
   );
   const drop = useFileDropTarget<HTMLElement>(acceptFiles);
-  const label = `${contestant.contestantId} ${SOURCE_LABEL[contestant.source]}`;
+  const label = `${contestant.contestantId} ${laneLabel(contestant)}`;
   // A terminal contestant's session from the moment it has an id: its pane is already running it.
   const awaited = useMemo(
     () =>

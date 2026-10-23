@@ -5,7 +5,12 @@
 // that touch the disk -- whether a named repository is one, whether the run's name is free --
 // stay with the service, which owns the disk.
 
-import type { ArenaContestantSource, ArenaCreateRunRequest, ArenaRunMode } from "@agentdesk/agent-feed-wire";
+import type {
+  ArenaContestantSource,
+  ArenaCreateRunRequest,
+  ArenaLaneStance,
+  ArenaRunMode,
+} from "@agentdesk/agent-feed-wire";
 import type { ContestantDrivers } from "@/arena/contestants/contestantDriver";
 
 /** The most contestants one run may fan out to; past this a run stops being watchable. */
@@ -29,6 +34,7 @@ export interface CheckedLane {
   source: ArenaContestantSource;
   /** Null for the harness's own default. */
   model: string | null;
+  stance: ArenaLaneStance;
 }
 
 /**
@@ -43,7 +49,7 @@ export function checkLanes(raw: unknown, drivers: ContestantDrivers, already = 0
   }
   const lanes: CheckedLane[] = [];
   for (const [index, lane] of raw.entries()) {
-    const { source, model } = (lane ?? {}) as { source?: unknown; model?: unknown };
+    const { source, model, stance } = (lane ?? {}) as { source?: unknown; model?: unknown; stance?: unknown };
     // Named, not looked up: `drivers` is an object, and "toString" would find its prototype's.
     if ((source !== "opencode" && source !== "claude") || !Object.hasOwn(drivers, source)) {
       return {
@@ -57,7 +63,10 @@ export function checkLanes(raw: unknown, drivers: ContestantDrivers, already = 0
     if (source === "opencode" && named && !named.includes("/")) {
       return { problem: `contestant ${index} is opencode, whose model is named "provider/model", not "${named}"` };
     }
-    lanes.push({ source, model: named || null });
+    if (stance !== undefined && stance !== "for" && stance !== "against") {
+      return { problem: `contestant ${index} names stance "${String(stance)}", which is neither "for" nor "against"` };
+    }
+    lanes.push({ source, model: named || null, stance: stance ?? "for" });
   }
   return lanes;
 }

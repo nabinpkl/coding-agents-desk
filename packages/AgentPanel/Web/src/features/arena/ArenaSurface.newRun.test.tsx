@@ -31,6 +31,7 @@ vi.mock("@git-diff-view/file", () => ({
 
 const contestant = (over: Record<string, unknown> = {}) => ({
   contestantId: "c1",
+  stance: "for",
   source: "opencode",
   sessionId: "ses-one",
   worktreePath: "/arena/11111111-1111-4111-8111-111111111111/c1",
@@ -150,8 +151,8 @@ describe("ArenaSurface new run", () => {
     const body = posted[0] as { prompt: string; contestants: unknown[] };
     expect(body.prompt).toBe("count to three");
     expect(body.contestants).toEqual([
-      { source: "opencode", model: null },
-      { source: "claude", model: null },
+      { source: "opencode", model: null, stance: "for" },
+      { source: "claude", model: null, stance: "for" },
     ]);
     await screen.findByRole("tablist", { name: "Compare by" });
   });
@@ -170,6 +171,27 @@ describe("ArenaSurface new run", () => {
 
     screen.getByLabelText("Remove contestant 1").click();
     await waitFor(() => expect(screen.queryByRole("radiogroup", { name: "Contestant 4 harness" })).toBeNull());
+  });
+
+  test("For and against makes two lanes on the first lane's harness, one doing it, one arguing against it", async () => {
+    const { transport, posted } = harness();
+    mount(transport);
+    screen.getByRole("button", { name: "For and against" }).click();
+    await waitFor(() => expect(screen.getByText("For and against · 1 OpenCode vs 1 OpenCode against")).toBeTruthy());
+    const second = screen.getByRole("radiogroup", { name: "Contestant 2 stance" });
+    expect(second.querySelector("[aria-checked=true]")?.textContent).toBe("Against");
+
+    // A lane's stance is its own switch too: the second lane turned back makes a variance run.
+    within(second).getByRole("radio", { name: "For" }).click();
+    await waitFor(() => expect(screen.getByText("Variance · 2 × OpenCode")).toBeTruthy());
+    within(second).getByRole("radio", { name: "Against" }).click();
+    await waitFor(() => expect(screen.getByText("For and against · 1 OpenCode vs 1 OpenCode against")).toBeTruthy());
+    screen.getByRole("button", { name: /Open lanes/ }).click();
+    await waitFor(() => expect(posted.length).toBe(1));
+    expect((posted[0] as { contestants: unknown[] }).contestants).toEqual([
+      { source: "opencode", model: null, stance: "for" },
+      { source: "opencode", model: null, stance: "against" },
+    ]);
   });
 
   test("a blank form opens lanes: the next name, a repository of the run's own, no prompt yet", async () => {
@@ -254,6 +276,7 @@ describe("ArenaSurface new run", () => {
     expect((posted[0] as { contestants: unknown[] }).contestants[0]).toEqual({
       source: "opencode",
       model: "opencode/big-pickle",
+      stance: "for",
     });
   });
 

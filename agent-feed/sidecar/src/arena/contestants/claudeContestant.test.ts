@@ -9,6 +9,7 @@ import {
   claudeContestantArgv,
   factsFromClaudeTranscript,
   runClaudeContestant,
+  withoutForStance,
   type SpawnedClaude,
 } from "@/arena/contestants/claudeContestant";
 import { filesFromEvents } from "@/arena/arenaFacts";
@@ -65,6 +66,7 @@ function fakeChild(options: { code?: number; stderr?: string; hang?: boolean } =
 
 const basePlan = {
   prompt: "say one word",
+  stance: "for" as const,
   worktreePath: "/arena/run/c1",
   model: null,
   requestId: "run-1:c1",
@@ -83,6 +85,19 @@ describe("claudeContestantArgv", () => {
       "--effort",
       "low",
     ]);
+  });
+
+  test("an against lane runs without the tools that edit a file, whichever mode drives it", () => {
+    const against = { ...basePlan, stance: "against" as const };
+    expect(claudeContestantArgv({ binary: "/bin/claude", sessionId: SESSION, ...withoutForStance(against) })).toEqual([
+      "/bin/claude",
+      "--print",
+      "--session-id",
+      SESSION,
+      "--disallowedTools",
+      "Edit,Write,NotebookEdit",
+    ]);
+    expect(withoutForStance(basePlan)).toEqual({});
   });
 
   test("leaves model and effort to the CLI when none is configured", () => {

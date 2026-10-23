@@ -67,6 +67,7 @@ function planWith(log: string[], over: Partial<ContestantPlan> = {}): Contestant
   return {
     // Empty, as a run that opened its lanes before its prompt has it: the line carries the prompt.
     prompt: "",
+    stance: "for",
     worktreePath: "/arena/run/c1",
     model: null,
     requestId: "run-1:c1",

@@ -26,6 +26,7 @@ vi.mock("@git-diff-view/file", () => ({
 
 const contestant = (over: Record<string, unknown> = {}) => ({
   contestantId: "c1",
+  stance: "for",
   source: "opencode",
   sessionId: "ses-one",
   worktreePath: "/arena/11111111-1111-4111-8111-111111111111/c1",

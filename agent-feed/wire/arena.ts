@@ -32,6 +32,14 @@ export type ArenaContestantSource = "opencode" | "claude";
 export type ArenaRunMode = "terminals" | "headless";
 
 /**
+ * Which side of the prompt a lane takes. A `for` lane does what the prompt asks, as every lane
+ * did before stances. An `against` lane is given the same prompt and argues that it should not be
+ * done, or not this way: it is told so with every prompt, cannot edit a file, and never sees
+ * another lane's work, so what it argues against is the idea, not one lane's attempt at it.
+ */
+export type ArenaLaneStance = "for" | "against";
+
+/**
  * Where a contestant stands. `starting` and `ready` are the terminals mode's own: the pane is up
  * and its harness is still loading (or waiting on the reader, say at a folder-trust question), and
  * then it can take the prompt and is waiting for the rest of the run to be able to as well.
@@ -50,6 +58,7 @@ export interface ArenaContestantSummary {
    * `provider/model` for opencode), or null for the harness's own default.
    */
   model: string | null;
+  stance: ArenaLaneStance;
   /** The session this contestant is, once its backend has made one; null until then. */
   sessionId: string | null;
   worktreePath: string;
@@ -128,6 +137,8 @@ export interface ArenaLaneRequest {
   source: ArenaContestantSource;
   /** As the harness spells it; `provider/model` for opencode. Absent or null for its default. */
   model?: string | null;
+  /** Absent for `for`. */
+  stance?: ArenaLaneStance;
 }
 
 /** Facts a contestant left behind, read on demand. */

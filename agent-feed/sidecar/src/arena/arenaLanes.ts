@@ -20,6 +20,7 @@ export function newLaneRecords(folder: string, lanes: readonly CheckedLane[], fi
       contestantId,
       source: lane.source,
       model: lane.model,
+      stance: lane.stance,
       sessionId: null,
       worktreePath: join(folder, contestantId),
       tmuxSession: null,

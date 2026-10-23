@@ -12,6 +12,7 @@ import { ArenaRunRegistry, type ArenaRunRecord } from "@/arena/arenaRun";
 import { ArenaStore } from "@/arena/arenaStore";
 import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
 import type { ContestantDriver, ContestantDrivers } from "@/arena/contestants/contestantDriver";
+import { promptForStance } from "@/arena/contestants/laneStance";
 import type { ArenaCreateRunRequest, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
 import { until } from "@/testing/until";
@@ -288,6 +289,33 @@ test("a headless run's next prompt continues each session, and its facts add to 
   expect(registry.get(summary.runId)?.contestants[0]?.filesWritten).toEqual(["/repo/turn1.ts", "/repo/turn2.ts"]);
 });
 
+// A headless lane's stance rides its plan, every round: the prompt inside the note, and the stance
+// itself for the driver, which takes an against lane's editing tools away.
+test("an against lane is sent the prompt inside its stance note, every prompt of the run", async () => {
+  const sent: string[] = [];
+  const claude: ContestantDriver = async (plan) => {
+    sent.push(`${plan.stance}: ${plan.prompt}`);
+    plan.onSessionId(`claude-${plan.stance}`);
+    return { sessionId: `claude-${plan.stance}`, events: [], usage: null };
+  };
+  const { arena, registry } = await service({ claude });
+  const summary = await arena.createRun(
+    request({ contestants: [{ source: "claude" }, { source: "claude", stance: "against" }] }),
+  );
+  await whenContestantsSettle(registry);
+  arena.sendPrompt(summary.runId, "and now the tests");
+  await whenContestantsSettle(registry);
+  expect(sent.sort()).toEqual(
+    [
+      "for: say one word",
+      `against: ${promptForStance("against", "say one word")}`,
+      "for: and now the tests",
+      `against: ${promptForStance("against", "and now the tests")}`,
+    ].sort(),
+  );
+  expect(arena.runDetailFor(summary.runId)?.contestants.map((one) => one.stance)).toEqual(["for", "against"]);
+});
+
 test("one run duels both harnesses, each contestant driven by the driver its source names", async () => {
   const { arena, registry } = await service();
   const summary = await arena.createRun(request({ contestants: [{ source: "opencode" }, { source: "claude" }] }));
@@ -386,6 +414,9 @@ test("refuses a request no run could be made of, naming what was wrong", async (
   await expect(arena.createRun(request({ repoPath: "relative/path" }))).rejects.toThrow("absolute");
   await expect(arena.createRun(request({ contestants: [] }))).rejects.toThrow("at least one contestant");
   await expect(arena.createRun(request({ contestants: [{ source: "pi" }] }))).rejects.toThrow("cannot drive");
+  await expect(arena.createRun(request({ contestants: [{ source: "claude", stance: "neutral" }] }))).rejects.toThrow(
+    'names stance "neutral"',
+  );
 });
 
 test("a worktree failure leaves no run behind and undoes the worktrees it made", async () => {
