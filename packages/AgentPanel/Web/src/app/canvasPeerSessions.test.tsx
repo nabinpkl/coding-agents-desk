@@ -177,4 +177,27 @@ describe("the Sessions view on two machines", () => {
     expect(mac.subscriptions.some((each) => each.path.includes("sid-new"))).toBe(false);
     unmount();
   });
+
+  it("keeps an open session's window on its name when the other machine renames it", () => {
+    const { mac, oracle, unmount } = setup();
+    const noReviews = { count: 0, live: 0, recent: [], more: false };
+    fireEvent.click(screen.getByRole("button", { name: "Group by project" }));
+    act(() => {
+      mac.deliver("recent=", { recent: [], more: false, securityReviews: noReviews });
+      oracle.deliver("recent=", { projects: [RAGS] });
+      oracle.deliver("recent=", { recent: [OLIVE], more: false, securityReviews: noReviews });
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Olive on oracle/ }));
+    expect(screen.getByRole("dialog", { name: "Olive on oracle" })).toBeInTheDocument();
+
+    // Nothing the panel follows lists its folder, so the window reads it on oracle while it is open.
+    act(() =>
+      oracle.deliver(`projectPath=${encodeURIComponent(RAGS.projectPath)}`, {
+        projectPath: RAGS.projectPath,
+        sessions: [{ ...OLIVE, title: "Olive, renamed" }],
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Olive, renamed" })).toBeInTheDocument();
+    unmount();
+  });
 });

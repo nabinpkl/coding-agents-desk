@@ -10,7 +10,7 @@ import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { SessionCardMeta } from "@/features/bots/session-cards/SessionCardMeta";
-import { SessionCardName, sessionOrigin } from "@/features/bots/session-cards/SessionCardName";
+import { SessionCardName, sessionOrigin } from "@/features/bots/session-cards/SessionOriginMark";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import type { HandoverDestination } from "@/features/bots/sessionHandover";

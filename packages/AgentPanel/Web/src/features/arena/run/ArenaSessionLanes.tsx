@@ -22,7 +22,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { ArenaContestantDetail, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { awaitedSession } from "@/features/session-view/awaitedSession";
+import { awaitedSession } from "@/features/session-view/modal/awaitedSession";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
