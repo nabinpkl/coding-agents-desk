@@ -1,4 +1,4 @@
-// A test of the spoken audio channel: play the sidecar's one-minute stream, then lock the phone.
+// A test of the spoken audio channel: play the sidecar's hour-long stream, then lock the phone.
 //
 // The question it answers is whether an iPhone keeps playing a live stream from the panel installed
 // to its Home Screen once the screen locks, which the evidence leaves open. So the player lives
@@ -33,8 +33,15 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** A playback position as a listener counts it: `12m 35s`. */
+function position(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const rest = totalSeconds % 60;
+  return minutes === 0 ? `${rest}s` : `${minutes}m ${rest}s`;
+}
+
 function at(element: HTMLAudioElement): string {
-  return `${Math.round(element.currentTime)}s`;
+  return position(Math.round(element.currentTime));
 }
 
 function stopAudioTest(): void {
@@ -63,7 +70,7 @@ function startAudioTest(): void {
     const second = Math.round(element.currentTime);
     if (!mine() || second === shownSecond) return;
     shownSecond = second;
-    publish({ active: true, status: `playing at ${second}s` });
+    publish({ active: true, status: `playing at ${position(second)}` });
   });
   element.addEventListener("waiting", () => {
     if (mine()) publish({ active: true, status: `waiting for audio at ${at(element)}` });
@@ -122,7 +129,7 @@ export function AudioTestMenuItem() {
           <Volume2 className="size-4 shrink-0" aria-hidden />
         )}
         <span className="min-w-0 flex-1 truncate">{test.active ? "Stop audio test" : "Test audio stream"}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">1 min</span>
+        <span className="shrink-0 text-xs text-muted-foreground">1 hr</span>
       </button>
       {test.status ? (
         <p role="status" className="border-t border-border px-3 py-1.5 text-xs break-words text-muted-foreground">

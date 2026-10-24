@@ -20,16 +20,18 @@ const AFCONVERT_BINARY = "/usr/bin/afconvert";
 /** 32 kbit/s: about 4 KB a second whatever is being said, and plenty for one voice. */
 const BITS_PER_SECOND = 32_000;
 
-/** Same text, same audio: kept for the process, and dropped on a failure so a retry runs again. */
-const spoken = new Map<string, Promise<Uint8Array>>();
-
 async function run(argv: string[]): Promise<void> {
   const child = Bun.spawn(argv, { stdout: "ignore", stderr: "pipe" });
   const [diagnostic, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
   if (code !== 0) throw new Error(`${argv[0]} exited ${code}: ${diagnostic.trim() || "no message"}`);
 }
 
-async function runSay(text: string): Promise<Uint8Array> {
+/**
+ * `text` spoken as ADTS bytes, made fresh each call: a channel's lines are rarely said twice, so a
+ * cache would only grow. `say`'s own embedded commands work in it: `[[slnc 500]]` is half a second
+ * of silence.
+ */
+export async function speakToAdts(text: string): Promise<Uint8Array> {
   const directory = await mkdtemp(join(tmpdir(), "agentdesk-say-"));
   const spokenPcm = join(directory, "speech.aiff");
   const output = join(directory, "speech.aac");
@@ -53,17 +55,4 @@ async function runSay(text: string): Promise<Uint8Array> {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
-}
-
-/**
- * `text` spoken as ADTS bytes. `say`'s own embedded commands work in it: `[[slnc 500]]` is half a
- * second of silence.
- */
-export function speakToAdts(text: string): Promise<Uint8Array> {
-  const known = spoken.get(text);
-  if (known) return known;
-  const running = runSay(text);
-  spoken.set(text, running);
-  running.catch(() => spoken.delete(text));
-  return running;
 }

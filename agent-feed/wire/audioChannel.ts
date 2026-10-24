@@ -5,7 +5,7 @@
 // start on a locked screen. So the sidecar keeps one stream playing, silence between messages.
 
 /**
- * `GET /api/audio/test-stream`: a one-minute AAC (ADTS) stream, paced in real time, with spoken
- * messages part-way through. It exists to learn whether a locked iPhone keeps playing it.
+ * `GET /api/audio/test-stream`: an hour of AAC (ADTS), paced in real time, saying its own position
+ * every five seconds. It exists to learn whether a locked iPhone keeps playing it, and for how long.
  */
 export const AUDIO_TEST_STREAM_ROUTE = "/api/audio/test-stream";
