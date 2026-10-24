@@ -236,7 +236,7 @@ describe("App shell", () => {
     expect(transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions")).toHaveLength(1);
     unmount();
   });
-  it("forks into opencode as a handover, attached to the Bot under its anchor", async () => {
+  it("forks into opencode as a handover, attached to the Bot and left for opencode to title", async () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -254,7 +254,6 @@ describe("App shell", () => {
       status: 200,
       body: JSON.stringify({ bot: BOT_WITH_ONE_SESSION }),
     });
-    transport.responses.set("POST /api/sessions/opencode/oc-1/bracket", { status: 200, body: "{}" });
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
@@ -264,18 +263,18 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start the fork" }));
 
     await waitFor(() => {
-      expect(
-        transport.requests.find((request) => request.path === "/api/sessions/opencode/oc-1/bracket")?.body,
-      ).toEqual({ task: "" });
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toMatchObject({
+        sessionRefs: [{ source: "opencode", sessionId: "oc-1" }],
+      });
     });
     expect(
       transport.requests.find((request) => request.path === "/api/agent-sessions/opencode/handover")?.body,
     ).toMatchObject({ sessionId: "sid-claude-01", message: "carry on in opencode" });
-    expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toMatchObject({
-      sessionRefs: [{ source: "opencode", sessionId: "oc-1" }],
-    });
     // Started, so its draft is gone; the attached session arrives on the Bot's stream as any does.
     await waitFor(() => expect(screen.queryByRole("region", { name: /Fork of/ })).toBeNull());
+    // No task was typed, so it is not named: opencode titles a session from the handover only while
+    // it has no name, and the Bot's title queue then puts the anchor in front of that title.
+    expect(transport.requests.some((request) => request.path.endsWith("/bracket"))).toBe(false);
     unmount();
   });
 
