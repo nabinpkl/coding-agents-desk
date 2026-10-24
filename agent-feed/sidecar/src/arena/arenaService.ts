@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import type {
   ArenaCreateRunRequest,
+  ArenaFolderCheck,
   ArenaNewRunDefaults,
   ArenaRunDetail,
   ArenaRunMode,
@@ -117,6 +118,11 @@ export class ArenaService {
     return this.terminalDrivers ? ["terminals", "headless"] : ["headless"];
   }
 
+  /** What a run would make of each folder: a repository, a plain folder to make one of, or neither. */
+  inspectFolders(paths: readonly string[]): Promise<ArenaFolderCheck[]> {
+    return Promise.all(paths.map((path) => this.worktrees.inspectFolder(path)));
+  }
+
   /** What a run asked for with nothing filled in would get here, right now. */
   newRunDefaults(): ArenaNewRunDefaults {
     const nextName = nextRunName(
@@ -191,11 +197,10 @@ export class ArenaService {
     );
     if ("problem" in naming) throw new ArenaBadRequestError(naming.problem);
     const { name, folderName } = naming;
-    // No repository named means the run gets one of its own, made in its folder below.
-    if (namedRepo) {
-      if (!isAbsolute(namedRepo)) throw new ArenaBadRequestError(`repoPath must be absolute: "${namedRepo}"`);
-      await this.worktrees.assertRepository(namedRepo);
-    }
+    // No repository named means the run gets one of its own, made in its folder below; a plain
+    // folder named is made one there too, with its files as the base (ADR-0153).
+    const named = namedRepo ? await this.worktrees.inspectFolder(namedRepo) : null;
+    if (named?.problem) throw new ArenaBadRequestError(`"${namedRepo}" ${named.problem}`);
 
     const runId = this.newRunId();
     if (!/^[0-9a-f-]{36}$/.test(runId)) {
@@ -223,6 +228,13 @@ export class ArenaService {
           path: folder,
           message: name,
           worktreeFolders: [LANE_FOLDERS_PATTERN, MANAGER_FOLDER],
+        });
+      } else if (!named?.repository) {
+        // Left a repository if a worktree then fails: it holds the reader's files, and is theirs.
+        await this.worktrees.initRepository({
+          path: repoPath,
+          message: `${name}: the folder as found`,
+          worktreeFolders: [],
         });
       }
       for (const record of records) {

@@ -75,8 +75,15 @@ export function claudeSessionPaneName(sessionId: string): string {
  * the only way to recognise the session before its first turn has written anything.
  *
  * `-n` sets the ADDRESS as well as the title: it is written to the session registry as `name`,
- * which is what other agents can send to. A session started without one is indistinguishable
- * from every other in a listing.
+ * which is what other agents can send to. A session started without one goes by its directory's
+ * name and a suffix (`agent-desk-92`), which tells it from nothing else in a listing.
+ *
+ * `unnamed` leaves `-n` off anyway, for a session whose name is to come from Claude. Claude titles a
+ * session from its first prompt only when it was given no name: measured 2026-10-23 on 2.1.310,
+ * an unnamed session had its AI title in the transcript beside that prompt, long before the turn
+ * ended, and one started as `-n Gloria` never got one. A Bot launch with no task is the caller
+ * (`botSessionLaunch.ts`), and its title queue gives the session its name once Claude has titled
+ * it. `title` then names only the pane.
  *
  * The prompt is a positional argument, which is how the CLI takes a first turn. `startClaudeSession`
  * delivers it through a file (`firstTurnFromFile`) rather than on tmux's command line, which caps
@@ -87,8 +94,14 @@ export function claudeSessionPaneName(sessionId: string): string {
  * from `configClaudeLaunch.ts`: the permission flags, so a session opens in one mode however it was
  * started, and the mods it loads.
  */
-export function newClaudeSessionCommand(options: { sessionId: string; title: string; prompt?: string }): string[] {
-  const command = ["claude", ...claudeLaunchArgs, "--session-id", options.sessionId, "-n", options.title];
+export function newClaudeSessionCommand(options: {
+  sessionId: string;
+  title: string;
+  unnamed?: boolean;
+  prompt?: string;
+}): string[] {
+  const command = ["claude", ...claudeLaunchArgs, "--session-id", options.sessionId];
+  if (!options.unnamed) command.push("-n", options.title);
   if (options.prompt) command.push(options.prompt);
   return command;
 }
@@ -257,6 +270,8 @@ export async function startClaudeSession(options: {
   cwd: string;
   sessionId: string;
   title: string;
+  /** Started with no `-n`, for Claude to title; see `newClaudeSessionCommand`. */
+  unnamed?: boolean;
   prompt?: string;
   /**
    * The argv to run instead of `newClaudeSessionCommand`'s, for a caller whose session is started

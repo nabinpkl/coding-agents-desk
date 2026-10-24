@@ -37,7 +37,9 @@ function fakeWorktrees() {
   const pruned: string[] = [];
   return {
     steps: {
-      async assertRepository() {},
+      async inspectFolder(path: string) {
+        return { path, repository: true, problem: null };
+      },
       async initRepository(options: { path: string; message: string; worktreeFolders: readonly string[] }) {
         initialized.push(options);
       },

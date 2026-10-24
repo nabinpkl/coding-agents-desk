@@ -16,6 +16,7 @@ import {
   type ArenaContestantSource,
   type ArenaContestantDetail,
   type ArenaContestantStatus,
+  type ArenaFolderCheck,
   type ArenaLaneStance,
   type ArenaManagerSummary,
   type ArenaNewRunDefaults,
@@ -30,6 +31,7 @@ import type { AgentHttpTransport } from "@/features/activity-feed/transport/Agen
 const RUNS_PATH = "/api/arena/runs";
 const STREAM_PATH = "/api/arena/runs/stream";
 const NEW_RUN_PATH = "/api/arena/new-run";
+const FOLDERS_PATH = "/api/arena/folders";
 
 const STATUSES: readonly ArenaContestantStatus[] = [...ARENA_LIVE_STATUSES, "closed", "failed"];
 
@@ -283,6 +285,28 @@ export async function fetchArenaNewRunDefaults(transport: AgentHttpTransport): P
   } catch {
     return null;
   }
+}
+
+/**
+ * What a run would make of each folder: a repository, a plain folder it makes one of, or a refusal
+ * with its reason (ADR-0153). Throws with the sidecar's reason when it does not answer.
+ */
+export async function inspectArenaFolders(
+  transport: AgentHttpTransport,
+  paths: readonly string[],
+): Promise<ArenaFolderCheck[]> {
+  const response = await transport.request("POST", FOLDERS_PATH, { body: { paths } });
+  if (response.status !== 200) throw new Error(failureMessage(response.body, response.status));
+  const folders = (JSON.parse(response.body) as { folders?: unknown }).folders;
+  if (!Array.isArray(folders)) throw new Error("the sidecar answered folders this panel could not read");
+  return folders.filter(
+    (folder): folder is ArenaFolderCheck =>
+      typeof folder === "object" &&
+      folder !== null &&
+      typeof (folder as ArenaFolderCheck).path === "string" &&
+      typeof (folder as ArenaFolderCheck).repository === "boolean" &&
+      ((folder as ArenaFolderCheck).problem === null || typeof (folder as ArenaFolderCheck).problem === "string"),
+  );
 }
 
 /** Tears a finished run down; a busy run answers 409 and keeps its own message. */

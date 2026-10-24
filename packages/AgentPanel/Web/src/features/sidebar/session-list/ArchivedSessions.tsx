@@ -110,11 +110,7 @@ export function ArchivedSessions({
                     <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
                       {title}
                     </span>
-                    <SessionMeta
-                      source={session.source}
-                      lastEventAt={session.lastEventAt}
-                      activity={session.activity}
-                    />
+                    <SessionMeta source={session.source} activity={session.activity} />
                   </span>
                   <button
                     type="button"

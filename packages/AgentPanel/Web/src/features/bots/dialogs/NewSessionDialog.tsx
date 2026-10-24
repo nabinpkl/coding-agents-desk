@@ -1,6 +1,6 @@
 // A session on no Bot: which directory, which harness, what it is called, and what it starts on.
 //
-// Beside the Bot dialogs because it is built from their parts -- the directory column the Bot
+// Beside the Bot dialogs because it is built from their parts -- the project picker the Bot
 // creator binds with, and the harness choice the session picker offers -- and is the same act
 // without the Bot. The session can be put on one afterwards, from the modal it opens in.
 
@@ -8,12 +8,10 @@ import { LoaderCircle, SquareTerminal, X } from "lucide-react";
 import { useCallback, useRef, type SubmitEvent } from "react";
 import type { ProjectSummary, StartSessionCommand } from "@agentdesk/agent-feed-wire";
 import type { BotMachine } from "@/features/bots/botMachines";
-import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
+import { ProjectPicker } from "@/features/project-picker/ProjectPicker";
 import { HARNESSES, harnessStart, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
 import { useModal } from "@/hooks/dom/overlays";
 import { useStateFor } from "@/hooks/state/useStateFor";
-
-const NO_CLAIMS: ReadonlySet<string> = new Set();
 
 export function NewSessionDialog({
   open,
@@ -102,14 +100,12 @@ export function NewSessionDialog({
         </header>
 
         <form onSubmit={submit} className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)]">
-          <BotDirectoryColumn
+          <ProjectPicker
             machines={[machine]}
             machine={machine}
-            onMachine={() => {}}
             projects={projects}
             loading={loading}
             error={null}
-            claimed={NO_CLAIMS}
             selectedPath={selectedPath}
             onSelect={(path) => {
               setSelectedPath(path);
@@ -117,6 +113,7 @@ export function NewSessionDialog({
             }}
             browse={browse}
             createFolder={createFolder}
+            className="min-h-0 overflow-y-auto border-b border-border md:border-r md:border-b-0"
           />
 
           <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-4">

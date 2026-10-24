@@ -1,9 +1,7 @@
 // The vocabulary a message thread reads in: what state a thread is in, and how old it is.
 //
-// Two things this owns that the rest of the panel also owns, so they are one idea here rather
-// than two: the delivery states as the owner reads them, and the local time format. `SessionMeta`
-// is the other reader of the time format, and a message row that formatted its clock differently
-// from every session row beside it would be teaching a second thing.
+// The delivery states as the owner reads them, as one idea here rather than one per row that
+// shows them, and the local time a message row prints.
 
 import type { Message } from "@agentdesk/agent-feed-wire";
 
@@ -65,7 +63,7 @@ export function isCancellable(thread: Message[]): boolean {
   return threadState(thread) === "waiting";
 }
 
-/** Local time, the same format `SessionMeta` prints, so one clock is learned once. */
+/** Local time, hours and minutes. */
 export function messageTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }

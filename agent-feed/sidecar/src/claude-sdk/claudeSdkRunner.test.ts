@@ -77,6 +77,29 @@ describe("the options a plan comes to", () => {
     expect(options.allowDangerouslySkipPermissions).toBeUndefined();
     expect(options.extraArgs).toEqual({ name: "Probe session" });
   });
+
+  test("a session started with no name gives the CLI none, so Claude titles it", async () => {
+    const { name: _name, ...unnamed } = PLAN;
+    const options = new ClaudeSdkRunner(unnamed, () => {
+      throw new Error("unused");
+    }).options();
+    expect(options.extraArgs).toBeUndefined();
+    const argv = [
+      "--session",
+      "s",
+      "--cwd",
+      "/tmp",
+      "--start",
+      "new",
+      "--permission-mode",
+      "auto",
+      "--claude",
+      "/c",
+      "--socket-dir",
+      "/x",
+    ];
+    expect((await planFromArguments(argv)).plan.name).toBeUndefined();
+  });
 });
 
 describe("the choices a launch carries", () => {

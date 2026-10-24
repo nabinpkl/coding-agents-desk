@@ -3,7 +3,12 @@ import type { BotRecord } from "@agentdesk/agent-feed-wire";
 import type { PushPayload } from "@/push/pushSender";
 import type { ReminderStore, StoredReminder } from "@/push/speechReminders";
 import { drained } from "@/testing/until";
-import { curatingBot, startTurnFinishedNotifier, turnFinishedPayload } from "@/push/turnFinishedNotifier";
+import {
+  curatingBot,
+  questionPayload,
+  startTurnFinishedNotifier,
+  turnFinishedPayload,
+} from "@/push/turnFinishedNotifier";
 import type { Session } from "@/transcripts/transcriptTypes";
 
 function bot(fields: Partial<BotRecord> & Pick<BotRecord, "name" | "sessionRefs">): BotRecord {
@@ -92,7 +97,12 @@ describe("turn-finished notifier", () => {
     expect(pushed).toEqual([]);
     await elapse();
     expect(pushed).toEqual([
-      { title: "Alpha", body: "Finished: Fix the scroll", url: "/?entry=feed&view=canvas", tag: "turn:claude:s1:42" },
+      {
+        title: "Alpha · Fix the scroll",
+        body: "Finished its turn",
+        url: "/?entry=feed&view=canvas",
+        tag: "turn:claude:s1:42",
+      },
     ]);
   });
 
@@ -309,11 +319,31 @@ describe("curatingBot and the payload", () => {
     expect(curatingBot([father], "claude:f")?.name).toBe("Dad");
   });
 
-  test("the body falls back to the first prompt, then to a plain line, and stays short", () => {
+  test("the title names the session after its Bot, by its title, else its anchor", () => {
+    const anchored = bot({ ...ALPHA, sessionAnchors: { "claude:s1": "Alan" } });
+    const titled = session("s1", true, { title: " Alan (fix\nthe scroll) " });
+    expect(turnFinishedPayload(anchored, titled).title).toBe("Alpha · Alan (fix the scroll)");
+    expect(turnFinishedPayload(anchored, session("s1", true)).title).toBe("Alpha · Alan");
+    expect(turnFinishedPayload(ALPHA, session("s1", true)).title).toBe("Alpha");
+    const asking = session("s1", false, {
+      title: "Alan (fix the scroll)",
+      spokenStatus: { from: "question", at: 1, lines: [{ kind: "waiting", text: "Rebuild now?" }] },
+    });
+    expect(questionPayload(anchored, asking)).toMatchObject({
+      title: "Alpha · Alan (fix the scroll)",
+      body: "Asks: Rebuild now?",
+    });
+  });
+
+  test("the body falls back to the first prompt of an untitled session, then to a plain line, and stays short", () => {
     expect(turnFinishedPayload(ALPHA, session("s1", true, { firstPrompt: "  look\nat this " })).body).toBe(
       "Finished: look at this",
     );
+    // A titled session is named in the title already.
+    expect(turnFinishedPayload(ALPHA, session("s1", true, { title: "Fix", firstPrompt: "look" })).body).toBe(
+      "Finished its turn",
+    );
     expect(turnFinishedPayload(ALPHA, session("s1", true)).body).toBe("Finished its turn");
-    expect(turnFinishedPayload(ALPHA, session("s1", true, { title: "x".repeat(300) })).body).toHaveLength(140);
+    expect(turnFinishedPayload(ALPHA, session("s1", true, { firstPrompt: "x".repeat(300) })).body).toHaveLength(140);
   });
 });

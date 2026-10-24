@@ -139,6 +139,7 @@ const botCatalog: BotRegistryCatalog = {
       ? {
           projectPath: session.project,
           summary: summarizeSession(session, describeAgentSession),
+          ...(session.title ? {} : { untitled: true as const }),
           ...(session.transcriptPath ? { transcriptPath: session.transcriptPath } : {}),
         }
       : undefined;

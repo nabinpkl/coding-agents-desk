@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, type ChangeEvent, type SubmitEvent } from
 import type { AddBotCommand, BotView, ProjectSummary } from "@agentdesk/agent-feed-wire";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
 import { type BotMachine } from "@/features/bots/botMachines";
-import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
+import { ProjectPicker } from "@/features/project-picker/ProjectPicker";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";
 import { useModal } from "@/hooks/dom/overlays";
 import { useDomSync } from "@/hooks/dom/useDomSync";
@@ -205,7 +205,7 @@ export function BotCreatorDialog({
         </header>
 
         <form onSubmit={submit} className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)]">
-          <BotDirectoryColumn
+          <ProjectPicker
             machines={machines}
             machine={machine}
             onMachine={(next) => {
@@ -218,7 +218,9 @@ export function BotCreatorDialog({
             projects={machineProjects}
             loading={machineProjectsLoading}
             error={peerProjects.error}
-            claimed={claimedDirectories}
+            describe={(path) =>
+              claimedDirectories.has(path) ? { note: "already assigned to a Bot", refused: true } : null
+            }
             selectedPath={selectedPath}
             onSelect={(path) => {
               setSelectedPath(path);
@@ -226,6 +228,7 @@ export function BotCreatorDialog({
             }}
             browse={browse}
             createFolder={createFolder}
+            className="min-h-0 overflow-y-auto border-b border-border md:border-r md:border-b-0"
           />
 
           <div className="min-h-0 overflow-y-auto p-4">

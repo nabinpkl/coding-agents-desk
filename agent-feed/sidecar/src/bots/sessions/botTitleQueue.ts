@@ -6,6 +6,13 @@
 // start with their name. This closes that gap for good rather than in a pass somebody has to
 // remember to run.
 //
+// It is also how a Bot session launched with no task gets its name at all. That one starts
+// unnamed so that Claude titles it from the first prompt (`botSessionLaunch.ts`), and this renames
+// it to `Aaron (Claude's title)` once the title is in its transcript. Only a title the session has
+// of its own is read, given or Claude's. A session with neither is left alone: the catalog shows
+// its first prompt in that slot, and bracketing that would lock the prompt in as the name, since
+// a name given beats a title Claude writes a moment later.
+//
 // It is a queue in the sense that matters and not a stored one: what is owed is derived from the
 // store and the catalog every time (a session whose title is not its anchor's shape), so there is
 // no second record to drift. What is kept in memory is only WHEN each session was last asked, so
@@ -22,41 +29,11 @@
 // Per machine, because the store is: each sidecar keeps its own Bots' titles and no other.
 
 import type { BotSessionRef, SourceId } from "@agentdesk/agent-feed-wire";
-import {
-  backfillTaskText,
-  formatBotSessionTitle,
-  isPoolAnchor,
-  parseBotSessionTitle,
-  refuseTaskText,
-} from "@agentdesk/agent-feed-wire";
 import type { BotStore, StoredBotSnapshot } from "@/bots/botStore";
 import { sessionKey } from "@/bots/botIdempotency";
 import type { BotRegistryCatalog } from "@/bots/botTypes";
-import { spentAnchors } from "@/bots/sessions/botSessionLaunch";
+import { anchoredTitle, spentAnchors } from "@/bots/sessions/botSessionLaunch";
 import { allocateAnchors, type BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
-import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
-
-/**
- * The title a session should wear under its anchor, read off the title it wears now.
- *
- * Already in this anchor's shape reads back as its task, and so does a title made under any other
- * pool name: a session that moved to a new name keeps what it was doing, rather than wearing its
- * old name as the task. (A title that is itself a pool name, `Maple`, reads as one and starts
- * bare; rare enough to accept.) Anything else sheds the previous era's
- * trailing suffixes (`(fork 3)`) and becomes the task whole, so a hand-typed `/rename` survives as
- * the bracket rather than being thrown away. A task that cannot bracket, or would make the title
- * too long, is dropped and the session starts bare: the anchor is the half that matters.
- */
-export function anchoredTitle(anchor: string, current: string): { title: string; dropped?: string } {
-  const parsed = parseBotSessionTitle(current);
-  const rawTask = parsed.anchor === anchor || isPoolAnchor(parsed.anchor) ? parsed.task : backfillTaskText(current);
-  const fits = rawTask && !refuseTaskText(rawTask) && !sessionTitleRefusal(formatBotSessionTitle(anchor, rawTask));
-  const task = fits ? rawTask : "";
-  return {
-    title: formatBotSessionTitle(anchor, task),
-    ...(rawTask && !task ? { dropped: rawTask } : {}),
-  };
-}
 
 export interface BotTitleQueueOptions {
   store: BotStore;
@@ -212,7 +189,8 @@ export class BotTitleQueue {
   private async keep(ref: BotSessionRef, anchor: string, justStarted: boolean): Promise<void> {
     if (!this.options.renamable(ref.source)) return;
     const resolved = this.options.catalog.resolveSession(ref);
-    if (!resolved) return;
+    // No title of its own yet: asked again when the catalog next moves, which its title will.
+    if (!resolved || resolved.untitled) return;
     const key = sessionKey(ref);
     const { title, dropped } = anchoredTitle(anchor, resolved.summary.title);
     if (resolved.summary.title === title) {

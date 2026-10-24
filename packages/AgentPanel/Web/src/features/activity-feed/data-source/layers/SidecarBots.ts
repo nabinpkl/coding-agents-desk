@@ -53,10 +53,10 @@ export class SidecarBots extends SidecarBotDirectory {
   /**
    * The directories inside one directory, for choosing a Bot's own.
    *
-   * Here rather than only on `WorkspaceIdeClient` because a Bot can be created on any machine the
-   * canvas reads, and the picker has to list the directories of the machine the reader chose. The
-   * route is the IDE's -- one server-side folder picker, since nothing in the web platform hands a
-   * page an absolute path -- and it is confined to home by the sidecar.
+   * On the machine's data source because the project picker lists the directories of the machine
+   * the reader chose: a Bot can be created on any machine the canvas reads. The route is the IDE's
+   * workspace route -- one server-side folder picker, since nothing in the web platform hands a page
+   * an absolute path -- and it is confined to home by the sidecar.
    *
    * A null path means "start where the sidecar starts", which is that machine's home directory. The
    * panel cannot know what that is, and guessing it here would be a second place holding the answer.
@@ -69,10 +69,8 @@ export class SidecarBots extends SidecarBotDirectory {
   /**
    * Make a folder on this machine, for the same picker `browseDirectories` serves.
    *
-   * On this layer rather than only on `WorkspaceIdeClient` because that client belongs to the IDE
-   * and a Bot can be created on any machine the canvas reads: the folder a reader makes while
-   * naming a Bot has to land on the machine they picked, which is the whole reason this browse is
-   * here rather than there.
+   * On the machine's data source for the same reason as the browse: the folder a reader makes in
+   * the project picker has to land on the machine they picked.
    */
   async createDirectory(path: string, name: string): Promise<WorkspaceBrowseListing> {
     const created = parse<WorkspaceFolderCreated>(

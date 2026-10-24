@@ -89,9 +89,11 @@ export function useSessionDrafts(
             sessionRefs: [{ source: "opencode", sessionId: started.sessionId }],
             after: { source: "claude", sessionId: fork.session.sessionId },
           });
-          // Always, as a fresh opencode session's is: the attach spent the Bot's anchor, and this is
-          // what puts it on the session, with the task bracketed after it when there is one.
-          await feed.setSessionTask("opencode", started.sessionId, choices.task.trim());
+          // Named only when a task was typed, as a fresh opencode session is (`useBotCommands.ts`).
+          // With none, opencode titles it from the handover it was just sent, and the Bot's title
+          // queue puts the anchor the attach spent in front of that title.
+          const task = choices.task.trim();
+          if (task) await feed.setSessionTask("opencode", started.sessionId, task);
           openStartedSession(botId, { source: "opencode", sessionId: started.sessionId });
         } else {
           const { claudeMode } = harnessStart(choices.harness);

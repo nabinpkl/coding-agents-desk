@@ -161,6 +161,11 @@ export function useBotCommands(
    * fresh Claude session this one is in the catalog the moment the serve creates it, so it attaches
    * at once and opens as an ordinary card -- no stand-in card waiting on a first turn. Naming comes
    * after the attach because the anchor it brackets onto is spent BY the attach.
+   *
+   * Named only when a task was typed. With none it is left unnamed, because opencode titles a
+   * session from its first prompt only while it has no name (measured 2026-10-23 on 2.0.30: named
+   * before that prompt, it kept the name; unnamed, it was titled a second after it), and the Bot's
+   * title queue then puts the anchor in front of opencode's title.
    */
   const startOpencodeSession = useCallback(
     async (bot: BotView, task: string) => {
@@ -171,7 +176,7 @@ export function useBotCommands(
         await feed.addBotSessions(bot.botId, { sessionRefs: [{ source: "opencode", sessionId: created.sessionId }] });
         putBotOnCanvas(bot.botId);
         setCanvasOpenKeys((current) => new Set(current).add(`opencode:${created!.sessionId}`));
-        await feed.setSessionTask("opencode", created.sessionId, task);
+        if (task.trim()) await feed.setSessionTask("opencode", created.sessionId, task.trim());
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         // Said in terms of how far it got: a session that exists but is not on the Bot, or is on it

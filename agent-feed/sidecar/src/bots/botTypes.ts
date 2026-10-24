@@ -12,6 +12,11 @@ export type BotActor = { kind: "user" } | { kind: "agent"; session: BotSessionRe
 export interface ResolvedBotSession {
   projectPath: string;
   summary: SessionSummary;
+  /**
+   * The session has no title of its own yet, neither given nor written by Claude, so
+   * `summary.title` is its first prompt or its id: what a row shows, never a name to keep.
+   */
+  untitled?: true;
   /** The transcript on disk, which a fork from one of its messages counts back through. */
   transcriptPath?: string;
 }

@@ -16,7 +16,9 @@
 
 import { appendFile, mkdir, stat } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
+import type { ArenaFolderCheck } from "@agentdesk/agent-feed-wire";
 import { readWorktree } from "@/git/worktree";
 
 /** A worktree step could not be done, with a reason worth putting in front of the reader. */
@@ -33,22 +35,47 @@ async function runGit(args: string[], cwd: string): Promise<{ code: number; out:
 }
 
 /**
- * That `repoPath` is a git work tree, or a loud refusal naming the path.
+ * What a run would make of `path`: a repository it fans worktrees out of, a plain folder it makes a
+ * repository of first, or a problem it refuses the run over (ADR-0153).
  *
- * The only claim the arena makes about a target repo before fanning contestants into worktrees
- * of it; a non-repository would otherwise fail one contestant at a time, mid-run, with git's
- * own stderr -- which names the worktree and not the decision that made it.
+ * Read off the filesystem, not git, because the new-run form asks it of every project at once: a
+ * folder is in a repository when it or a folder above it holds `.git` (a folder, or the file a
+ * worktree or submodule keeps). A `.git` git cannot read still fails the run, at its first worktree,
+ * with git's own reason.
+ *
+ * A plain folder is made a repository only inside `home`, the same root the folder browser is
+ * confined to: a request names any path, and `git init` writes into the folder it names.
  */
-export async function assertGitRepository(repoPath: string): Promise<void> {
-  const inside = await runGit(["rev-parse", "--is-inside-work-tree"], repoPath);
-  if (inside.code !== 0) {
-    throw new ArenaWorktreeError(`"${repoPath}" is not a git repository: ${inside.err || inside.out}`);
+export async function inspectArenaFolder(path: string, home: string = homedir()): Promise<ArenaFolderCheck> {
+  const refused = (problem: string): ArenaFolderCheck => ({ path, repository: false, problem });
+  if (!isAbsolute(path)) return refused("is not an absolute path");
+  let resolved: string;
+  try {
+    resolved = await realpath(path);
+    if (!(await stat(resolved)).isDirectory()) return refused("is not a folder");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // macOS keeps a few home folders (Downloads, Desktop, Documents) from a process it was not
+    // asked to let in: that is not a folder that is missing.
+    if (code === "ENOENT" || code === "ENOTDIR") return refused("does not exist");
+    if (code === "EPERM" || code === "EACCES") return refused("cannot be read by the sidecar");
+    return refused(`cannot be read: ${error instanceof Error ? error.message : String(error)}`);
   }
+  for (let folder = resolved; ; folder = dirname(folder)) {
+    if (await pathExists(join(folder, ".git"))) return { path, repository: true, problem: null };
+    if (dirname(folder) === folder) break;
+  }
+  const root = await realpath(home);
+  if (resolved !== root && !resolved.startsWith(`${root}/`)) {
+    return refused("is not a git repository, and is outside the home folder, where a run makes none");
+  }
+  return { path, repository: false, problem: null };
 }
 
 /**
- * Makes `path`, an empty folder, the new repository of a run that named none: `git init`, the
- * contestants' worktree folders kept out of its own status, and one empty commit for every
+ * Makes `path` a repository for a run: the run's own empty folder when it named none, or a plain
+ * folder it named (ADR-0153). `git init`, the contestants' worktree folders kept out of its own
+ * status, and one commit of whatever the folder holds -- nothing, for the run's own -- for every
  * contestant to start at.
  *
  * The commit is the arena's, and is made the same way on every machine: its own author, no
@@ -65,6 +92,9 @@ export async function initRunRepository(options: {
   // A git whose init template has no `info/` still reads the exclude file once it is there.
   await mkdir(join(path, ".git", "info"), { recursive: true });
   await appendFile(join(path, ".git", "info", "exclude"), worktreeFolders.map((folder) => `/${folder}/\n`).join(""));
+  const added = await runGit(["add", "-A"], path);
+  if (added.code !== 0)
+    throw new ArenaWorktreeError(`git add in ${path} failed: ${added.err || added.out || added.code}`);
   const commit = await runGit(
     [
       "-c",
@@ -166,7 +196,7 @@ export async function captureWorktreeDiff(options: { worktreePath: string; ref: 
 
 /** These steps, as the arena service takes them; injected so its tests can fake git. */
 export interface ArenaWorktreeSteps {
-  assertRepository(repoPath: string): Promise<void>;
+  inspectFolder(path: string): Promise<ArenaFolderCheck>;
   initRepository(options: { path: string; message: string; worktreeFolders: readonly string[] }): Promise<void>;
   add(options: { repoPath: string; path: string; ref: string }): Promise<void>;
   remove(options: { repoPath: string; path: string }): Promise<void>;
@@ -176,7 +206,7 @@ export interface ArenaWorktreeSteps {
 
 /** The steps over this machine's git. */
 export const LIVE_WORKTREE_STEPS: ArenaWorktreeSteps = {
-  assertRepository: assertGitRepository,
+  inspectFolder: (path) => inspectArenaFolder(path),
   initRepository: initRunRepository,
   add: addContestantWorktree,
   remove: removeContestantWorktree,

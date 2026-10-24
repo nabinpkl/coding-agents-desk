@@ -89,13 +89,29 @@ function bounded(body: string): string {
   return body.length > BODY_LIMIT ? `${body.slice(0, BODY_LIMIT - 1)}…` : body;
 }
 
-/** A finished turn: its first status line when it closed with a block, otherwise what it was about. */
+function oneLine(text: string | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Who a notification is from: the Bot, then the session as its card names it (its title, else its
+ * anchor), since one Bot can hold dozens of sessions. The spoken form is `speakerName`.
+ */
+function notificationTitle(bot: Pick<BotRecord, "name" | "sessionAnchors">, session: Session): string {
+  const name = oneLine(session.title) || oneLine(bot.sessionAnchors?.[sessionKey(session)]);
+  return name ? `${bot.name} · ${name}` : bot.name;
+}
+
+/**
+ * A finished turn: its first status line when it closed with a block. Otherwise its first prompt,
+ * when it has no title to be named by yet, or a plain line: the title already says what it is.
+ */
 export function turnFinishedPayload(bot: BotRecord, session: Session): PushPayload {
-  const label = (session.title ?? session.firstPrompt ?? "").replace(/\s+/g, " ").trim();
+  const prompt = oneLine(session.title) ? "" : oneLine(session.firstPrompt);
   const first = session.spokenStatus?.from === "block" ? session.spokenStatus.lines[0] : undefined;
-  const body = first ? statusLineText(first) : label ? `Finished: ${label}` : "Finished its turn";
+  const body = first ? statusLineText(first) : prompt ? `Finished: ${prompt}` : "Finished its turn";
   return {
-    title: bot.name,
+    title: notificationTitle(bot, session),
     body: bounded(body),
     url: "/?entry=feed&view=canvas",
     tag: `turn:${sessionKey(session)}:${session.lastEventAt}`,
@@ -106,7 +122,7 @@ export function turnFinishedPayload(bot: BotRecord, session: Session): PushPaylo
 export function questionPayload(bot: BotRecord, session: Session): PushPayload {
   const asked = session.spokenStatus?.lines[0]?.text ?? "a question";
   return {
-    title: bot.name,
+    title: notificationTitle(bot, session),
     body: bounded(`Asks: ${asked}`),
     url: "/?entry=feed&view=canvas",
     tag: `question:${sessionKey(session)}:${session.spokenStatus?.at ?? 0}`,

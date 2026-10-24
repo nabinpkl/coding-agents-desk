@@ -60,10 +60,8 @@ export default async function ({ page, sweep }) {
       await page.click("text=Add a contestant");
       await page.click("text=Add a contestant");
       await page.fill('textarea[aria-label="Prompt every contestant gets"]', LONG_PROMPT);
-      await page.fill(
-        'input[aria-label="Repository the contestants work in"]',
-        `/Users/somebody/${"deeply/nested/".repeat(6)}repository`,
-      );
+      // A search that matches nothing: the repository picker's empty answer in place of its list.
+      await page.fill('input[aria-label="Search projects"]', `no-such-${"deeply-nested-".repeat(6)}repository`);
     },
   });
 

@@ -1,11 +1,11 @@
-// The line under a canvas session's title: what it is doing, then where and when.
+// The line under a canvas session's title: what it is doing, then where.
 //
-// The sidebar's `SessionMeta` spends this line on the provider's name, the time and the activity
-// in words. A card is narrow, and the most useful thing it can say under the title is what the
-// session said it set out to do -- the `<task-state>` block it opened its last piece of handed-over
-// work with -- so the rest gives up room: the provider shrinks to a letter whose hue still names
-// it, the activity is left to the face beside the title (a green ring while live, sleeping Zs while
-// cold, `SessionAvatar`), and the time goes last, where a column of cards lines it up.
+// A card is narrow, and the most useful thing it can say under the title is what the session said
+// it set out to do -- the `<task-state>` block it opened its last piece of handed-over work with --
+// so the rest gives up room: the provider shrinks to a letter whose hue still names it, and the
+// activity is left to the face beside the title (a green ring while live, sleeping Zs while cold,
+// `SessionAvatar`). It carries no time, on the owner's word (2026-10-23), and neither do the
+// sidebar's session rows (`SessionMeta`).
 //
 // The task is a control of its own: it opens the whole goal and the decisions under it, which is
 // the reason the block exists -- seeing how the session set out without reading its transcript.
@@ -38,20 +38,17 @@ const HOVER_GRACE_MS = 150;
 
 export function SessionCardMeta({
   source,
-  lastEventAt,
   activity,
   worktree,
   taskState,
   spokenStatus,
 }: {
   source: string;
-  lastEventAt: number;
   activity: Bin;
   worktree?: { path: string; branch: string | null };
   taskState?: SessionSummary["taskState"];
   spokenStatus?: SessionSummary["spokenStatus"];
 }) {
-  const time = new Date(lastEventAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
       <SourceBadge source={source} />
@@ -60,7 +57,6 @@ export function SessionCardMeta({
       {worktree ? <WorktreeChip worktree={worktree} /> : null}
       {/* The face says it; a screen reader, which is not shown the face, still hears it here. */}
       <span className="sr-only">{activity}</span>
-      <span className="shrink-0 tabular-nums">{time}</span>
     </div>
   );
 }

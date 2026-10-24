@@ -84,6 +84,8 @@ export interface SessionLauncher {
     cwd: string;
     sessionId: string;
     title: string;
+    /** Started with no name, for Claude to title; `title` then names only its pane. */
+    unnamed?: boolean;
     prompt?: string;
     mode?: ClaudeRunMode;
   }): Promise<{ tmuxSession: string }>;
@@ -148,6 +150,11 @@ export interface SessionLaunchPlan {
    */
   anchor?: MessageAnchor;
   title: string;
+  /**
+   * A fresh session started with no name, so Claude titles it from its first prompt
+   * (`newClaudeSessionCommand` has the measurement). Never a fork: Claude does not title one.
+   */
+  unnamed?: boolean;
   prompt?: string;
   worktree?: { branch?: string };
   /** The terminal UI unless this says `"sdk"` (ADR-0143). */
@@ -203,6 +210,7 @@ export async function launchSession(
         cwd,
         sessionId,
         title: plan.title,
+        ...(plan.unnamed ? { unnamed: true } : {}),
         prompt: plan.prompt,
         ...(plan.claudeMode === undefined ? {} : { mode: plan.claudeMode }),
       });

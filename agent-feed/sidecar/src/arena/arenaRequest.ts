@@ -5,6 +5,7 @@
 // that touch the disk -- whether a named repository is one, whether the run's name is free --
 // stay with the service, which owns the disk.
 
+import { isAbsolute } from "node:path";
 import type {
   ArenaContestantSource,
   ArenaCreateRunRequest,
@@ -96,6 +97,7 @@ export function checkRunRequest(
   const tooLong = promptProblem(prompt);
   if (tooLong) return { problem: tooLong };
   const namedRepo = typeof request.repoPath === "string" ? request.repoPath.trim() : "";
+  if (namedRepo && !isAbsolute(namedRepo)) return { problem: `repoPath must be absolute: "${namedRepo}"` };
   const baseRef = typeof request.baseRef === "string" && request.baseRef.trim() ? request.baseRef.trim() : "HEAD";
 
   const mode: ArenaRunMode = request.mode ?? machine.modes[0]!;

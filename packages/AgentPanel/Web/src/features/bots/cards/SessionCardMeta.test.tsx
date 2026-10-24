@@ -1,4 +1,4 @@
-// The line under a canvas session's title: its task first, the provider as a letter, time last.
+// The line under a canvas session's title: its task first, the provider as a letter, no time.
 
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
@@ -11,7 +11,6 @@ describe("SessionCardMeta", () => {
     render(
       <SessionCardMeta
         source="claude"
-        lastEventAt={AT}
         activity="ready"
         spokenStatus={{
           from: "block",
@@ -36,7 +35,6 @@ describe("SessionCardMeta", () => {
     render(
       <SessionCardMeta
         source="claude"
-        lastEventAt={AT}
         activity="ready"
         spokenStatus={{ from: "question", at: AT, lines: [{ kind: "waiting", text: "Rebuild now?" }] }}
       />,
@@ -48,7 +46,6 @@ describe("SessionCardMeta", () => {
     render(
       <SessionCardMeta
         source="claude"
-        lastEventAt={AT}
         activity="ready"
         taskState={{ task: "close idle opencode panes", lines: ["dry run first"], at: AT }}
       />,
@@ -69,7 +66,6 @@ describe("SessionCardMeta", () => {
       render(
         <SessionCardMeta
           source="claude"
-          lastEventAt={AT}
           activity="ready"
           taskState={{ task: "close idle opencode panes", lines: ["dry run first"], at: AT }}
         />,
@@ -100,7 +96,6 @@ describe("SessionCardMeta", () => {
     const { container } = render(
       <SessionCardMeta
         source="claude"
-        lastEventAt={AT}
         activity="ready"
         taskState={{ task: "close idle opencode panes", lines: ["dry run first"], at: AT }}
       />,
@@ -117,15 +112,14 @@ describe("SessionCardMeta", () => {
   });
 
   it("names the provider by a letter, still in full to a screen reader", () => {
-    render(<SessionCardMeta source="claude" lastEventAt={AT} activity="ready" />);
+    render(<SessionCardMeta source="claude" activity="ready" />);
     expect(screen.getByLabelText("Source: Claude").textContent).toBe("C");
   });
 
-  it("leaves the activity to the face, live and paused as well as cold, and puts the time last", () => {
+  it("leaves the activity to the face, live and paused as well as cold, and shows no time", () => {
     for (const activity of ["live", "paused", "cold"] as const) {
-      const { container, unmount } = render(<SessionCardMeta source="opencode" lastEventAt={AT} activity={activity} />);
-      const row = container.firstElementChild!;
-      expect(row.lastElementChild?.textContent).toMatch(/09:05|9:05/);
+      const { container, unmount } = render(<SessionCardMeta source="opencode" activity={activity} />);
+      expect(container.textContent).not.toMatch(/\d{1,2}:\d{2}/);
       expect(screen.getByText(activity).className).toContain("sr-only");
       unmount();
     }

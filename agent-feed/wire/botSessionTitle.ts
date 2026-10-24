@@ -4,9 +4,10 @@
 // below and stored on the Bot's record. It is never the Bot's name plus a number: numbers get
 // re-read as ranks and re-counted from titles, which is the collision this replaces. The bracket
 // holds the task (`Aaron (checkout flow)`), which the reader sets at launch and a Bot will later
-// rename itself as its work changes. The anchor is the stable half other surfaces can hold onto
-// while the bracket churns; the full title stays the `-n` name and the `/resume` title, so
-// nothing about addressing changes, only what the string is made of.
+// rename itself as its work changes; launched with none, it holds the title Claude wrote from the
+// first prompt, and a fork launched with none keeps its source's. The anchor is the stable half
+// other surfaces can hold onto while the bracket churns; the full title stays the `-n` name and
+// the `/resume` title, so nothing about addressing changes, only what the string is made of.
 //
 // Allocation is first-free over the names already stored, machine-wide: two Bots never hand out
 // the same anchor, and a freed name is never reused, so history cannot collide. ACROSS machines

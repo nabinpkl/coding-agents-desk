@@ -125,7 +125,7 @@ export async function planFromArguments(argv: string[]): Promise<{ plan: RunnerP
     plan: {
       sessionId: required("session", values.session),
       cwd: required("cwd", values.cwd),
-      name: required("name", values.name),
+      ...(values.name ? { name: values.name } : {}),
       start,
       permissionMode: permissionMode(values["permission-mode"]),
       allowBypass: values["allow-bypass"] === true,
@@ -172,7 +172,8 @@ async function main(): Promise<number> {
   };
   for (const signal of ["SIGHUP", "SIGTERM", "SIGINT"] as const) process.on(signal, () => stop(signal));
 
-  log(`${plan.start === "new" ? "starting" : "resuming"} ${plan.sessionId} "${plan.name}" in ${plan.cwd}`);
+  const called = plan.name === undefined ? "unnamed, for Claude to title" : `"${plan.name}"`;
+  log(`${plan.start === "new" ? "starting" : "resuming"} ${plan.sessionId} ${called} in ${plan.cwd}`);
   const chosen = [plan.choices.model, plan.choices.effort && `${plan.choices.effort} effort`]
     .filter(Boolean)
     .join(", ");

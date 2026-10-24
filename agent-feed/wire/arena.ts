@@ -242,6 +242,27 @@ export interface ArenaPassRequest {
   to: string;
 }
 
+/**
+ * `POST /api/arena/folders`: what a run would make of each folder, for the new-run form to say before
+ * the run is asked for (ADR-0153). At most 500 paths.
+ */
+export interface ArenaFoldersRequest {
+  paths: string[];
+}
+
+/** One folder as a run would take it. */
+export interface ArenaFolderCheck {
+  path: string;
+  /** In a git repository already. False for a plain folder, which a run makes one of. */
+  repository: boolean;
+  /** Why a run would refuse it ("does not exist", ...), read after the path; null when it would not. */
+  problem: string | null;
+}
+
+export interface ArenaFoldersResponse {
+  folders: ArenaFolderCheck[];
+}
+
 /** `POST /api/arena/runs/:id/prompt`: the prompt a terminals run's open lanes wait for. Given once. */
 export interface ArenaPromptRequest {
   prompt: string;
