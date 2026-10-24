@@ -250,8 +250,8 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
   let caption: string | null = null;
   let captionIsError = false;
   if (m.sdkBand) {
-    caption = m.sdkSession.error ?? (m.unavailable ? "This session is not running." : null);
-    captionIsError = m.sdkSession.error != null;
+    caption = m.sdkSession.error ?? (m.unavailable ? "This session is not running." : claudeCodeNeededText(m));
+    captionIsError = m.sdkSession.error != null || (!m.unavailable && caption !== null);
   } else if (m.windowBand) {
     caption = m.windowComposer.error ?? m.windowComposer.notice;
     captionIsError = m.windowComposer.error != null;
@@ -292,6 +292,17 @@ export function composerCaption(m: ComposerModel): { caption: string | null; cap
     caption = `${m.queued} queued${m.state.queue.steer ? `, ${m.state.queue.steer} steering` : ""}`;
   }
   return { caption, captionIsError };
+}
+
+/**
+ * Says so when the session runs a Claude Code older than the one the sidecar's Agent SDK was built
+ * for, which may not understand what the library sends. Updating it is the fix: the sidecar
+ * relaunches the session onto the new version once it is idle.
+ */
+function claudeCodeNeededText(m: ComposerModel): string | null {
+  const { claudeCodeVersion, claudeCodeNeeded } = m.sdkSession.state;
+  if (!claudeCodeVersion || !claudeCodeNeeded) return null;
+  return `This session runs Claude Code ${claudeCodeVersion}, older than the ${claudeCodeNeeded} the panel's Agent SDK is built for. Update Claude Code, and the session moves to it once idle.`;
 }
 
 export function composerSectionLabel(m: ComposerModel): string {

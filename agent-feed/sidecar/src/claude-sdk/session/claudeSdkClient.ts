@@ -6,8 +6,9 @@
 // as soon as it reconnects, which is what lets this process restart on every save while a question
 // waits (ADR-0143, ADR-0144).
 //
-// A runner whose build is not what is on disk now is stale: told to `onStale` on every change of
-// its state, which relaunches it once the session is idle.
+// A runner whose build is not what is on disk now is stale, and so is one whose `claude` is not the
+// version installed now: told to `onStale` on every change of its state, which relaunches it once
+// the session is idle.
 //
 // A runner that is not there yet is waited for by watching the socket directory, not polled: its
 // socket appearing is the event. One watch for the directory, opened once and never closed, the
@@ -33,6 +34,8 @@ import {
 import { sdkModels, SdkSession } from "@/claude-sdk/session/claudeSdkSession";
 import type { SessionCommand, SessionReply } from "@/claude-sdk/session/claudeSdkCommands";
 import { config } from "@/config/config";
+import { installedClaudeVersion } from "@/config/configBinaries";
+import { claudeDiffersFromInstalled } from "@/claude-sdk/session/claudeCodeVersions";
 import { privateSocketDirectory } from "@/claude-sdk/claudeSdkRunnerServer";
 import type { ClaudeSdkLiveFeed } from "@/claude-sdk/session/claudeSdkLiveFeed";
 
@@ -108,6 +111,8 @@ export class ClaudeSdkClient {
     private readonly onStale: StaleRunner | null = null,
     /** What a runner started now would report; read from disk on each introduction by default. */
     private readonly currentBuild: () => string = runnerBuild,
+    /** The CLI version a runner started now would run, read on every change of a runner's state. */
+    private readonly installedClaude: () => string | null = installedClaudeVersion,
   ) {}
 
   /**
@@ -471,7 +476,8 @@ export class ClaudeSdkClient {
 
   private publish(connection: Connection): void {
     for (const listener of connection.listeners) listener(connection.state);
-    if (connection.stale) this.onStale?.(this, connection.sessionId, connection.state);
+    const claude = claudeDiffersFromInstalled(connection.state.claudeCodeVersion, this.installedClaude());
+    if (connection.stale || claude) this.onStale?.(this, connection.sessionId, connection.state);
   }
 
   /** One watch on the socket directory, so a runner that starts later is noticed when it does. */

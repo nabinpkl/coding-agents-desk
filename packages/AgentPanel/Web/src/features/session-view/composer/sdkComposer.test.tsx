@@ -28,6 +28,7 @@ const LIVE: ClaudeSdkSessionState = {
   pending: [],
   backgroundTasks: 0,
   claudeCodeVersion: "2.1.302",
+  claudeCodeNeeded: null,
   model: "claude-opus-5-5",
   models: [
     { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", description: "" },
@@ -247,6 +248,20 @@ describe("the SDK band's actions", () => {
       caption: "That request is no longer waiting.",
       captionIsError: true,
     });
+  });
+
+  it("says when the session's Claude Code is older than the Agent SDK is built for, and nothing otherwise", () => {
+    const behind = composerCaption(sdkModel(handle({ claudeCodeVersion: "2.1.200", claudeCodeNeeded: "2.1.302" })));
+    expect(behind.captionIsError).toBe(true);
+    expect(behind.caption).toBe(
+      "This session runs Claude Code 2.1.200, older than the 2.1.302 the panel's Agent SDK is built for. Update Claude Code, and the session moves to it once idle.",
+    );
+    expect(composerCaption(sdkModel())).toEqual({ caption: null, captionIsError: false });
+    // A refusal from the runner is the more urgent line.
+    expect(
+      composerCaption(sdkModel(handle({ claudeCodeVersion: "2.1.200", claudeCodeNeeded: "2.1.302" }, { error: "No." })))
+        .caption,
+    ).toBe("No.");
   });
 });
 

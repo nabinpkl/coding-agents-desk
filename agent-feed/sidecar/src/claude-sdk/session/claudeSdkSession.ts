@@ -27,6 +27,7 @@ import {
   type SidecarToRunner,
 } from "@/claude-sdk/claudeSdkProtocol";
 import type { PromptImage, SessionCommand, SessionReply } from "@/claude-sdk/session/claudeSdkCommands";
+import { claudeCodeNeeded } from "@/claude-sdk/session/claudeCodeVersions";
 
 /** What the runner is to be sent for a command, or why it is refused without asking. */
 export type CommandPlan =
@@ -153,6 +154,7 @@ export class SdkSession {
       pending: [...this.pending.values()],
       backgroundTasks: this.backgroundTasks,
       claudeCodeVersion: this.claudeCodeVersion,
+      claudeCodeNeeded: claudeCodeNeeded(this.claudeCodeVersion),
       // Before init names them, and with nothing chosen, the CLI's own word on what it would send.
       model: this.model ?? this.applied.model ?? null,
       models: this.models,

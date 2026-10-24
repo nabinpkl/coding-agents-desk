@@ -261,6 +261,31 @@ describe("a runner on older code", () => {
     await session.stop();
   });
 
+  test("so is one whose claude is not the version installed now, and one whose claude is goes unmarked", async () => {
+    for (const [installed, marked] of [
+      ["2.1.303", true],
+      ["2.1.302", false],
+    ] as const) {
+      const session = await runnerFor();
+      let stale = 0;
+      const client = new ClaudeSdkClient(
+        work,
+        quiet,
+        null,
+        () => void (stale += 1),
+        undefined,
+        () => installed,
+      );
+      const connected = await stateWhere(client, session.sessionId, (state) => state.connected);
+      const told = stateWhere(client, session.sessionId, (state) => state.claudeCodeVersion === "2.1.302");
+      session.fake().send({ type: "system", subtype: "init", permissionMode: "auto", claude_code_version: "2.1.302" });
+      (await told).stop();
+      expect(stale > 0).toBe(marked);
+      connected.stop();
+      await session.stop();
+    }
+  });
+
   test("one speaking an older protocol reads as not connected, and is said to be stale", async () => {
     const sessionId = "aaaaaaaa-bbbb-4ccc-8ddd-666666666666";
     const path = runnerSocketPath(work, sessionId);

@@ -90,6 +90,12 @@ export interface ClaudeSdkSessionState {
   backgroundTasks: number;
   /** The CLI version the runner's `claude` reported at start, when it has. */
   claudeCodeVersion: string | null;
+  /**
+   * The CLI version the sidecar's Agent SDK was built for, when `claudeCodeVersion` is older than
+   * it; null when it is not, or either is unknown. The panel says so, since an older CLI may not
+   * understand what the library sends.
+   */
+  claudeCodeNeeded: string | null;
   /** The model the session is answering with, as the CLI names it (`claude-opus-5-5`), once known. */
   model: string | null;
   /** The models this `claude` offers, from the SDK's `supportedModels()`; empty until it answers. */
@@ -156,6 +162,7 @@ export const DISCONNECTED_CLAUDE_SDK_STATE: ClaudeSdkSessionState = {
   pending: [],
   backgroundTasks: 0,
   claudeCodeVersion: null,
+  claudeCodeNeeded: null,
   model: null,
   models: [],
   queued: [],

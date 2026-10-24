@@ -20,6 +20,7 @@ const IDLE_RUNNER: ClaudeSdkSessionState = {
   pending: [],
   backgroundTasks: 0,
   claudeCodeVersion: "2.1.302",
+  claudeCodeNeeded: null,
   model: null,
   models: [],
   queued: [],
@@ -51,6 +52,7 @@ function steps(options: {
   runner?: Partial<ClaudeSdkSessionState>;
   leavesAfter?: number;
   respawnFails?: boolean;
+  installed?: string;
 }) {
   const done: string[] = [];
   let looks = 0;
@@ -89,6 +91,7 @@ function steps(options: {
       ...(choices?.effort ? [choices.effort] : []),
     ],
     sleep: async () => {},
+    installedClaude: () => options.installed ?? null,
   };
   return { done, steps: fake };
 }
@@ -258,7 +261,25 @@ describe("relaunching a stale runner", () => {
     );
     expect(outcome).toEqual({ ok: true });
     expect(done).toEqual(["read choices", "stop runner", `respawn %7 /elsewhere runner ${ID} haiku max`]);
-    expect(lines).toEqual([`${ID}: relaunching its stale runner while it is idle`]);
+    expect(lines).toEqual([
+      `${ID}: relaunching its stale runner while it is idle: its runner's code is older than what is on disk`,
+    ]);
+  });
+
+  test("says when it is the Claude Code that is behind, rather than the runner's code", async () => {
+    const { steps: s } = steps({ rows: [row({ entrypoint: "sdk-cli" })], pane: RUNNER_PANE, installed: "2.1.303" });
+    const lines: string[] = [];
+    await relaunchStaleRunner(
+      {} as ClaudeSdkClient,
+      ID,
+      IDLE_RUNNER,
+      s,
+      () => 0,
+      (line) => void lines.push(line),
+    );
+    expect(lines).toEqual([
+      `${ID}: relaunching its stale runner while it is idle: it runs Claude Code 2.1.302 and 2.1.303 is installed`,
+    ]);
   });
 
   test("including one nothing has been sent since it started", async () => {

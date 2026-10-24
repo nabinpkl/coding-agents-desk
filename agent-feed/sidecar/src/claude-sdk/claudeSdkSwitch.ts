@@ -29,6 +29,8 @@ import type { ClaudeSdkClient } from "@/claude-sdk/session/claudeSdkClient";
 import { resumeCommandFor } from "@/claude-sdk/claudeSdkLaunch";
 import { isClaudeSdkRunnerCommand, type RunnerChoices } from "@/claude-sdk/claudeSdkProtocol";
 import type { SessionReply } from "@/claude-sdk/session/claudeSdkCommands";
+import { claudeDiffersFromInstalled } from "@/claude-sdk/session/claudeCodeVersions";
+import { installedClaudeVersion } from "@/config/configBinaries";
 
 export type SwitchRefusal =
   /** No process holds the session; opening it starts it, in the mode it last ran in. */
@@ -67,6 +69,8 @@ export interface SwitchSteps {
     options: { sessionId: string; cwd: string; title: string; choices?: RunnerChoices },
   ): string[];
   sleep(ms: number): Promise<void>;
+  /** The CLI version a runner started now would run, or null when the install does not say. */
+  installedClaude(): string | null;
 }
 
 /** How long the old process gets to write its exit records and leave before the switch gives up. */
@@ -272,7 +276,11 @@ async function relaunchFromRow(
     return null;
   }
   const title = row.name ?? findSession("claude", sessionId)?.title ?? sessionId;
-  log(`${sessionId}: relaunching its stale runner while it is idle`);
+  const installed = steps.installedClaude();
+  const why = claudeDiffersFromInstalled(state.claudeCodeVersion, installed)
+    ? `it runs Claude Code ${state.claudeCodeVersion} and ${installed} is installed`
+    : "its runner's code is older than what is on disk";
+  log(`${sessionId}: relaunching its stale runner while it is idle: ${why}`);
   return restartRunner({ sessionId, cwd: row.cwd, title }, steps).then((outcome) => {
     if (outcome.ok) relaunching.delete(sessionId);
     else log(`${sessionId}: not relaunched: ${outcome.message}`);
@@ -309,5 +317,6 @@ export function liveSwitchSteps(client: ClaudeSdkClient): SwitchSteps {
     respawn: respawnTmuxPane,
     resumeCommand: resumeCommandFor,
     sleep: (ms) => Bun.sleep(ms),
+    installedClaude: installedClaudeVersion,
   };
 }
