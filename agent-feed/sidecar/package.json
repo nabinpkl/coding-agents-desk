@@ -6,7 +6,7 @@
   "scripts": {
     "build": "bun build --compile src/server.ts --outfile dist/agent-feed-sidecar",
     "build:mcp": "bun build --compile src/mcpMain.ts --outfile dist/agent-feed-relay-mcp",
-    "test": "bun test",
+    "test": "bun test --parallel",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -139,7 +139,9 @@ place allowed a timer.
 A fixed wait is a guess about how fast the machine is, and it loses on a busy one. Measured that
 day: run beside the panel's suite, two tests that waited 10ms for the Bot registry failed; under
 `bun test --parallel` a different test failed on each run; and 107 of the suite's 2,284 tests took
-37 of its 45 seconds, most of them sitting out timers. With the waits gone the suite ran in 23s.
+37 of its 45 seconds, most of them sitting out timers. With the waits gone the suite ran in 23s, and
+`bun run test` now runs it as `bun test --parallel` in 13 to 22s: each file in a worker process of its
+own, isolated, so a test cannot lean on what another file left behind.
 
 - **Something will happen**: `await until(() => condition, "what you are waiting for")`. It polls,
   returns as soon as the condition holds, and fails naming what never came.
