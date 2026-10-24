@@ -190,7 +190,7 @@ They are easy to infer backwards from the shape of the tree.
   `roster.openSessionOnCanvas` instead.
 - **The current iteration is Canvas and its session cards; the sidebar's Sessions tab is dormant**
   (recorded 2026-09-15, on the owner's word). Sessions are read, driven and judged on a Canvas
-  session card (`features/bots/cards/BotSessionCard.tsx`), at `?entry=feed&view=canvas`. The
+  session card (`features/bots/session-cards/BotSessionCard.tsx`), at `?entry=feed&view=canvas`. The
   Sessions tab (`AgentSidebarMode` `"sessions"`, its `ProjectSidebarItem` list) and the full-width
   thread view it opens in the main column (`displayedThread` in `app/AgentPanelApp.tsx`) are still
   wired in and still look current: a selected session renders there with its composer and its

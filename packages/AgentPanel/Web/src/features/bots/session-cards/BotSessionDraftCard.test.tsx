@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import { BotSessionDraftCard, type SessionDraft } from "@/features/bots/cards/BotSessionDraftCard";
+import { BotSessionDraftCard, type SessionDraft } from "@/features/bots/session-cards/BotSessionDraftCard";
 
 const SOURCE = {
   source: "claude",

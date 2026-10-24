@@ -10,7 +10,7 @@ import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
 import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
-import type { SessionDraft } from "@/features/bots/cards/BotSessionDraftCard";
+import type { SessionDraft } from "@/features/bots/session-cards/BotSessionDraftCard";
 import type { FeedForkRequest } from "@/features/session-view/sessionTerminalTypes";
 
 export function useForkCommands(

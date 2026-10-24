@@ -9,7 +9,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
-import { SessionCardMeta } from "@/features/bots/cards/SessionCardMeta";
+import { SessionCardMeta } from "@/features/bots/session-cards/SessionCardMeta";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import type { HandoverDestination } from "@/features/bots/sessionHandover";

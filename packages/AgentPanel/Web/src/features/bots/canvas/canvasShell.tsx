@@ -13,8 +13,8 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { AgentSessionDescriptor, BotSessionRef, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
-import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import type { SessionDraftControls } from "@/features/bots/cards/BotSessionDraftCard";
+import type { NewBotSession } from "@/features/bots/session-cards/BotNewSessionCard";
+import type { SessionDraftControls } from "@/features/bots/session-cards/BotSessionDraftCard";
 import type { BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { CanvasStoreContext, type CanvasStore } from "@/features/bots/canvas/canvasStore";
 

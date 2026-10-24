@@ -9,8 +9,8 @@
 import { useCallback, useState } from "react";
 import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
-import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import type { DraftChoices, SessionDraft } from "@/features/bots/cards/BotSessionDraftCard";
+import type { NewBotSession } from "@/features/bots/session-cards/BotNewSessionCard";
+import type { DraftChoices, SessionDraft } from "@/features/bots/session-cards/BotSessionDraftCard";
 import { harnessStart } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
 /**
