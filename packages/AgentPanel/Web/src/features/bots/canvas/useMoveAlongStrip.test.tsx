@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
+import { carryClasses, carryStyle, useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 
 /** Five cards 100 wide, 12 apart, in a scroller 300 wide that can scroll 400 more. */
 const CARD = 100;
@@ -137,5 +137,15 @@ describe("useMoveAlongStrip", () => {
     }
     expect(shallow.scrolled()).toBeGreaterThan(0);
     expect(deep.scrolled()).toBeGreaterThan(shallow.scrolled() * 3);
+  });
+
+  it("moves a card by `translate`, so the carried card's lift does not scale the distance moved", () => {
+    expect(carryStyle(0)).toEqual({});
+    expect(carryStyle(3000)).toEqual({ translate: "3000px 0" });
+    expect(carryClasses(true)).toContain("scale-[1.02]");
+    expect(carryClasses(true)).toContain("opacity-70");
+    // The cards stepping aside slide; the carried one does not, since it tracks the hand.
+    expect(carryClasses(false)).toContain("transition-[translate,scale]");
+    expect(carryClasses(true)).not.toContain("translate");
   });
 });

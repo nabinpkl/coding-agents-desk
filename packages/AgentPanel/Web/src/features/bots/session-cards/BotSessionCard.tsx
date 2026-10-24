@@ -25,6 +25,7 @@ import { SessionLogButton } from "@/features/bots/code/SessionLogButton";
 import { useSessionCode } from "@/features/bots/code/useSessionCode";
 import { useRevealWhenAsked } from "@/features/bots/canvas/canvasStore";
 import { useCarryGesture } from "@/features/bots/canvas/useCarryGesture";
+import { carryClasses, carryStyle } from "@/features/bots/canvas/useMoveAlongStrip";
 
 /**
  * One of a Bot's sessions, which is a Bot one level down.
@@ -228,16 +229,9 @@ export function BotSessionCard({
       // Scrolls to this card when the sidebar's "Show on canvas" asks for it (`canvasStore`), and
       // the scroll margin stops it short of the canvas's edge rather than flush against it.
       ref={reveal}
-      // Carried, it is drawn over the cards it passes and see-through, so the gap it would drop
-      // into shows beneath it.
-      className={`shrink-0 scroll-mx-8 scroll-my-4 ${lifted ? "z-10 opacity-70" : ""}`}
-      style={{
-        width: open ? resize.width : CLOSED_SESSION_WIDTH,
-        transform: offset === 0 ? undefined : `translateX(${offset}px)`,
-        // The carried card tracks the pointer exactly; the ones stepping aside for it are the only
-        // thing that should look like it is moving.
-        transition: lifted ? undefined : "transform 150ms ease",
-      }}
+      // Carried or stepping aside, it looks as the Bot cards in the strip do (`carryClasses`).
+      className={`shrink-0 scroll-mx-8 scroll-my-4 ${carryClasses(lifted)}`}
+      style={{ width: open ? resize.width : CLOSED_SESSION_WIDTH, ...carryStyle(offset) }}
     >
       <div
         // `relative` so this card is what the session's tasks panel is positioned against. That

@@ -34,6 +34,7 @@ describe("useCarryGesture", () => {
     vi.useFakeTimers();
     HTMLElement.prototype.setPointerCapture = vi.fn();
     HTMLElement.prototype.releasePointerCapture = vi.fn();
+    Object.defineProperty(navigator, "vibrate", { value: vi.fn(), configurable: true });
   });
   afterEach(() => {
     cleanup();
@@ -50,6 +51,8 @@ describe("useCarryGesture", () => {
     fireEvent.pointerUp(handle, { pointerId: 1, pointerType: "mouse", clientX: 110, clientY: 10 });
     fireEvent.click(handle);
     expect(calls).toEqual(["start 100", "move 110", "end", "click true"]);
+    // A mouse is already moving when it carries, so there is no pick-up to announce.
+    expect(navigator.vibrate).not.toHaveBeenCalled();
   });
 
   it("picks a card up under a finger held still, and stops the page scrolling while it carries", () => {
@@ -64,6 +67,7 @@ describe("useCarryGesture", () => {
 
     vi.advanceTimersByTime(1);
     expect(calls).toEqual(["start 100", "move 104"]);
+    expect(navigator.vibrate).toHaveBeenCalledWith(10);
     expect(touchMoveScrolls(handle)).toBe(false);
     fireEvent.pointerMove(handle, { pointerId: 2, pointerType: "touch", clientX: 300, clientY: 14 });
     fireEvent.pointerUp(handle, { pointerId: 2, pointerType: "touch", clientX: 300, clientY: 14 });

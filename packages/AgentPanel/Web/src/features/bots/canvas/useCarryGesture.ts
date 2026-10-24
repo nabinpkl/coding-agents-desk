@@ -120,6 +120,9 @@ export function useCarryGesture<E extends HTMLElement>({
           hold.current = null;
           if (press.current !== held) return;
           lift(held);
+          // Felt as well as seen where the browser allows it. iOS gives a page no vibration at all,
+          // so there the card lifting under the finger (`carryClasses`) is the whole of it.
+          if ("vibrate" in navigator) navigator.vibrate(10);
           // Where the finger is now, which may be a few pixels from where it landed.
           onMove(latestX.current);
         }, CARRY_HOLD_MS);

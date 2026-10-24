@@ -27,7 +27,7 @@ import { useCanvasActions, useCanvasCards } from "@/features/bots/canvas/canvasS
 import { useCanvasStore } from "@/features/bots/canvas/canvasStore";
 import { reorderSessionRefs, standingAfter } from "@/features/bots/cards/botSessionOrder";
 import { isFatherSession } from "@/features/bots/botRosterOrder";
-import { useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
+import { carryClasses, carryStyle, useMoveAlongStrip } from "@/features/bots/canvas/useMoveAlongStrip";
 import { reachMilestone } from "@/features/telemetry/pageMilestones";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { useDomSync } from "@/hooks/dom/useDomSync";
@@ -253,9 +253,9 @@ export function BotCanvasCard({
   // twice, faintly over its whole body and unmistakably on one edge, and the sessions inside it
   // repeat the second half verbatim.
   const surface = hue === undefined ? "bg-card" : "bot-surface bot-rail";
-  // A card being carried says something about right now, which outranks saying whose it is. It is
-  // see-through as well, so the cards it passes over, and the gap it would drop into, show beneath.
-  const edge = lifted ? "z-10 border-primary opacity-70 shadow-xl" : hue === undefined ? "border-border" : "";
+  // A card being carried says something about right now, which outranks saying whose it is. The rest
+  // of how it looks carried is the strip's (`carryClasses`), the same for a session inside it.
+  const edge = lifted ? "border-primary shadow-xl" : hue === undefined ? "border-border" : "";
   return (
     // Width always, height only while it holds the open session: closed, a card is as tall as its
     // own roster and a remembered height would be empty space. The card is a ROW -- its content
@@ -264,7 +264,7 @@ export function BotCanvasCard({
     // land on the transcript's scrollbar.
     <li
       ref={card}
-      className={`flex shrink-0 overflow-hidden rounded-xl border ${surface} ${edge}`}
+      className={`flex shrink-0 overflow-hidden rounded-xl border ${surface} ${edge} ${carryClasses(lifted)}`}
       style={{
         ...botSurfaceStyle(hue),
         // Inline because Tailwind's `border` sets all four widths from the utility layer, which
@@ -278,10 +278,7 @@ export function BotCanvasCard({
         // into empty space the moment the sessions carried their own. A narrow panel is not an
         // exception -- the strip scrolls, so a phone crawls sideways across a card the same way a
         // Mac does, rather than having one pinned to its width.
-        transform: offset === 0 ? undefined : `translateX(${offset}px)`,
-        // The carried card tracks the pointer exactly; the ones stepping aside for it are the only
-        // thing that should look like it is moving.
-        transition: lifted ? undefined : "transform 150ms ease",
+        ...carryStyle(offset),
       }}
     >
       <div className="flex min-w-0 flex-1 flex-col">

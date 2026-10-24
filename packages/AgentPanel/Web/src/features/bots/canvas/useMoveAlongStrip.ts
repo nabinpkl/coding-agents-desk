@@ -4,7 +4,7 @@
 // laid-out boxes, and the only thing it knows about what is in them is that they must not be
 // re-parented. That constraint is the reason the whole thing exists as transforms; see below.
 
-import { useRef, useState } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { STRIP_GAP } from "@/features/bots/cards/botCanvasCards";
 import { effectiveScale } from "@/features/bots/canvas/useCanvasZoom";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
@@ -52,6 +52,33 @@ export interface StripMove {
 export const STRIP_FIXED = "data-strip-fixed";
 
 /**
+ * Where a card in the strip is drawn during a move: `offsetOf` its laid-out place.
+ *
+ * The `translate` property rather than `transform`, because the lift below is the `scale` property,
+ * and the individual properties compose the move after the scale. Under `transform` the scale would
+ * apply to the distance moved too, and a card carried 3,000px at 1.02 would sit 60px from the hand.
+ */
+export function carryStyle(offset: number): CSSProperties {
+  return offset === 0 ? {} : { translate: `${offset}px 0` };
+}
+
+/**
+ * How a card in the strip looks during a move.
+ *
+ * Carried, it is drawn over the cards it passes, see-through so the gap it would drop into shows
+ * beneath it, and lifted a little with a small overshoot. The lift is what a finger that has just
+ * held still sees before it moves: the card coming up under it says the long press took. The
+ * carried card itself never slides, since it tracks the hand exactly; the cards stepping aside for
+ * it are the only thing that should look like it is moving. Motion is dropped for a reader who has
+ * asked for less, and the lift stays.
+ */
+export function carryClasses(lifted: boolean): string {
+  return lifted
+    ? "z-10 opacity-70 scale-[1.02] motion-safe:transition-[scale] motion-safe:duration-200 motion-safe:ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+    : "motion-safe:transition-[translate,scale] motion-safe:duration-150 motion-safe:ease-out";
+}
+
+/**
  * Carrying one card along the strip and dropping it somewhere else in the order.
  *
  * Everything moves by TRANSFORM and nothing is re-parented, which is not a rendering preference: a
@@ -67,7 +94,7 @@ export const STRIP_FIXED = "data-strip-fixed";
  * rather than being carried back with the strip.
  *
  * Two coordinate systems meet here and the canvas's zoom mode is what makes the difference visible.
- * A rect is what the card is DRAWN at; a `translateX` inside the strip is applied in the strip's
+ * A rect is what the card is DRAWN at; a `translate` inside the strip is applied in the strip's
  * own laid-out space, before the scale. So every measurement taken off a rect is divided back into
  * layout space, and the scale is read once at the same moment the positions are, for the same
  * reason. With the mode off it is exactly 1 and every division below is a no-op.
