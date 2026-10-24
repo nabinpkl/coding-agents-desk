@@ -2,7 +2,8 @@
 // the client when the sidecar ends a stream badly, and what reaches the sidecar when the client
 // leaves. Each test stands up a throwaway upstream and a server that does nothing but proxy to it.
 
-import { createServer, request, type Server } from "node:http";
+import { createServer, request, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { connect as connectHttp2, createServer as createHttp2Server } from "node:http2";
 import type { AddressInfo } from "node:net";
 import { afterEach, expect, test } from "vitest";
 import { proxyToSidecar } from "@/app/dev-server/sidecarProxy";
@@ -97,4 +98,45 @@ test("a client that leaves a stream takes the sidecar's end of it down", async (
   outgoing.on("error", () => {});
   outgoing.end();
   await closed;
+});
+
+// What a `bun --watch` reload does to a send still uploading, over HTTP/2 as the dev origin speaks
+// it. The proxy answered 502 and stopped reading, the client's upload stalled on flow control, and
+// a browser holds the answer until its upload is done: a phone's send button spun for good.
+test("a sidecar that goes away mid-upload is answered 502, and the client's upload is let finish", async () => {
+  const upstreamPort = await listen(
+    createServer((incoming) => {
+      let received = 0;
+      incoming.on("data", (chunk: Buffer) => {
+        received += chunk.length;
+        if (received >= 64 * 1024) incoming.socket.destroy();
+      });
+    }),
+  );
+  const front = createHttp2Server((incoming, outgoing) => {
+    proxyToSidecar(
+      "127.0.0.1",
+      upstreamPort,
+      incoming.url,
+      incoming as unknown as IncomingMessage,
+      outgoing as unknown as ServerResponse,
+    );
+  });
+  await new Promise<void>((resolve) => front.listen(0, "127.0.0.1", resolve));
+  const session = connectHttp2(`http://127.0.0.1:${(front.address() as AddressInfo).port}`);
+  try {
+    const stream = session.request({ ":method": "POST", ":path": "/api/prompt" });
+    const status = new Promise<unknown>((resolve) => stream.on("response", (headers) => resolve(headers[":status"])));
+    const closed = new Promise<number>((resolve) => stream.on("close", () => resolve(stream.rstCode ?? -1)));
+    stream.on("error", () => {});
+    stream.resume();
+    // Well past one stream window, so the upload cannot finish unless the proxy keeps reading.
+    stream.end(Buffer.alloc(1024 * 1024, 97));
+
+    expect(await status).toBe(502);
+    expect(await closed).toBe(0);
+  } finally {
+    session.destroy();
+    await new Promise((resolve) => front.close(resolve));
+  }
 });

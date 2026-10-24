@@ -90,6 +90,12 @@ export function proxyToSidecar(
   upstream.on("error", () => {
     if (!response.headersSent) response.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
     if (!response.writableEnded) response.end("session sidecar unreachable\n");
+    // The rest of the client's body is read and dropped. A sidecar that goes away mid-upload (a
+    // `bun --watch` reload) leaves it with nothing reading it, so the client's upload stalls on flow
+    // control and a browser waits for it to finish before it reports the answer: measured, a fetch
+    // through this proxy was still pending after fifteen seconds, which on the phone is a send
+    // button spinning for good. A phone's slow uplink is what makes that window wide.
+    request.resume();
   });
   response.on("close", () => {
     if (!response.writableEnded) upstream.destroy();
