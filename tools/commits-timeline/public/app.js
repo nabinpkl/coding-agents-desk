@@ -14,9 +14,13 @@ const els = {
   range: document.getElementById("range"),
   figures: document.getElementById("figures"),
   theme: document.getElementById("theme"),
-  volume: document.getElementById("volume"),
-  months: document.getElementById("volume-months"),
-  clearWeek: document.getElementById("clear-week"),
+  chartFigure: document.getElementById("chart-figure"),
+  chartLabel: document.getElementById("chart-label"),
+  granularity: document.getElementById("granularity"),
+  chart: document.getElementById("chart"),
+  months: document.getElementById("chart-months"),
+  readout: document.getElementById("chart-readout"),
+  clearRange: document.getElementById("clear-range"),
   q: document.getElementById("q"),
   kinds: document.getElementById("kinds"),
   status: document.getElementById("status"),
@@ -26,9 +30,9 @@ const els = {
   flash: document.getElementById("flash"),
 };
 
-const state = { query: "", kinds: new Set(), week: null };
+const state = { query: "", kinds: new Set(), unit: "day", range: null };
 let commits = [];
-let weeks = [];
+let buckets = { day: [], week: [] };
 let groups = [];
 let groupCursor = 0;
 
@@ -57,20 +61,24 @@ function weekStartOf(day) {
   return new Date(stamp - offset * DAY).toISOString().slice(0, 10);
 }
 
-function shortWeek(day) {
+function shortDate(day) {
   const date = new Date(utcDay(day));
   return `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}`;
 }
+
+const monthOf = (day) => new Date(utcDay(day)).getUTCMonth();
 
 /* --- filtering ---------------------------------------------------------- */
 
 function applyFilters() {
   const terms = state.query.toLowerCase().split(/\s+/).filter(Boolean);
-  const week = state.week;
+  const range = state.range;
   const kinds = state.kinds;
 
   return commits.filter((commit) => {
-    if (week && commit.week !== week) return false;
+    if (range) {
+      if (range.unit === "day" ? commit.day !== range.key : commit.week !== range.key) return false;
+    }
     if (kinds.size && !kinds.has(commit.family)) return false;
     if (!terms.length) return true;
     const haystack =
@@ -104,50 +112,78 @@ function renderMast(data) {
   );
 }
 
-function computeWeeks() {
-  if (!commits.length) return [];
-  const counts = new Map();
-  for (const commit of commits) counts.set(commit.week, (counts.get(commit.week) ?? 0) + 1);
+// One bucket per day and one per week, gaps included: the chart's job is to show the quiet stretches
+// as well as the busy ones, so a day with nothing is a one-pixel tick rather than a missing column.
+function buildBuckets() {
+  if (!commits.length) return { day: [], week: [] };
 
-  // From the week strings themselves, not from the array's ends: the strip should cover the whole
-  // history whatever order the log arrives in.
-  const starts = commits.map((commit) => commit.week).sort();
-  const list = [];
-  for (let stamp = utcDay(starts[0]); stamp <= utcDay(starts.at(-1)); stamp += 7 * DAY) {
-    const week = new Date(stamp).toISOString().slice(0, 10);
-    list.push({ week, count: counts.get(week) ?? 0 });
+  const dayCounts = new Map();
+  const weekCounts = new Map();
+  for (const commit of commits) {
+    dayCounts.set(commit.day, (dayCounts.get(commit.day) ?? 0) + 1);
+    weekCounts.set(commit.week, (weekCounts.get(commit.week) ?? 0) + 1);
   }
-  return list;
+
+  const dayKeys = commits.map((commit) => commit.day).sort();
+  const days = [];
+  for (let stamp = utcDay(dayKeys[0]); stamp <= utcDay(dayKeys.at(-1)); stamp += DAY) {
+    const key = new Date(stamp).toISOString().slice(0, 10);
+    const count = dayCounts.get(key) ?? 0;
+    days.push({ key, count, tip: `${formatDay(key)} · ${count} commit${count === 1 ? "" : "s"}` });
+  }
+
+  const weekKeys = commits.map((commit) => commit.week).sort();
+  const weeks = [];
+  for (let stamp = utcDay(weekKeys[0]); stamp <= utcDay(weekKeys.at(-1)); stamp += 7 * DAY) {
+    const key = new Date(stamp).toISOString().slice(0, 10);
+    const count = weekCounts.get(key) ?? 0;
+    weeks.push({ key, count, tip: `Week of ${shortDate(key)} · ${count} commit${count === 1 ? "" : "s"}` });
+  }
+
+  return { day: days, week: weeks };
 }
 
-function renderVolume() {
-  const max = Math.max(1, ...weeks.map((week) => week.count));
-  els.volume.replaceChildren(
-    ...weeks.map(({ week, count }) => {
-      const bar = document.createElement("button");
-      bar.type = "button";
-      bar.className = "volume-bar";
-      const percent = Math.round((count / max) * 1000) / 10;
-      // A quiet week still gets two pixels, and the percentage is not rounded up to match it, so
-      // one commit never reads as tall as a dozen.
-      bar.style.setProperty("--h", `max(2px, ${percent}%)`);
-      bar.setAttribute("aria-pressed", String(state.week === week));
-      bar.setAttribute("aria-label", `Week of ${shortWeek(week)}: ${count} commit${count === 1 ? "" : "s"}`);
-      bar.title = `Week of ${shortWeek(week)} · ${count} commit${count === 1 ? "" : "s"}`;
-      if (!count) {
-        bar.classList.add("is-empty");
-        bar.disabled = true;
-        bar.tabIndex = -1;
-      }
-      bar.dataset.week = week;
-      return bar;
-    }),
-  );
+function renderChart() {
+  const list = buckets[state.unit];
+  const max = Math.max(1, ...list.map((bucket) => bucket.count));
+  const selected = state.range?.unit === state.unit ? state.range.key : null;
+
+  const bars = list.map((bucket) => {
+    const bar = document.createElement("button");
+    bar.type = "button";
+    bar.className = "chart-bar";
+    bar.dataset.key = bucket.key;
+    bar.dataset.tip = bucket.tip;
+    const percent = Math.round((bucket.count / max) * 1000) / 10;
+    // A quiet day still draws, and the percentage is not rounded up to match it, so one commit
+    // never reads as tall as a dozen.
+    bar.style.setProperty("--h", bucket.count ? `max(2px, ${percent}%)` : "1px");
+    bar.setAttribute("aria-pressed", String(selected === bucket.key));
+    bar.setAttribute("aria-label", bucket.tip);
+    bar.tabIndex = -1;
+    if (!bucket.count) {
+      bar.classList.add("is-empty");
+      bar.disabled = true;
+    }
+    return bar;
+  });
+
+  // One tab stop for the whole chart, arrows to walk it: a hundred and fifty buttons in the tab
+  // order would be worse than none. The selected bucket takes the stop when there is one.
+  const stop = bars.find((bar) => bar.dataset.key === selected && !bar.disabled) ?? bars.find((bar) => !bar.disabled);
+  if (stop) stop.tabIndex = 0;
+
+  els.chart.replaceChildren(...bars);
+  els.chartFigure.classList.toggle("is-day", state.unit === "day");
+  els.chartFigure.classList.toggle("is-week", state.unit === "week");
+  els.chartLabel.textContent = `Commits per ${state.unit}`;
+  els.readout.hidden = true;
+  els.clearRange.hidden = state.range === null;
   renderMonths();
-  els.clearWeek.hidden = state.week === null;
+
   requestAnimationFrame(() => {
     markAllScrollables();
-    if (state.week === null) els.volume.scrollLeft = els.volume.scrollWidth;
+    if (!state.range) els.chart.scrollLeft = els.chart.scrollWidth;
   });
 }
 
@@ -158,22 +194,23 @@ function markScrollable(element) {
 }
 
 function markAllScrollables() {
-  for (const element of [els.volume, els.kinds]) markScrollable(element);
+  for (const element of [els.chart, els.kinds]) markScrollable(element);
 }
 
 function renderMonths() {
+  const list = buckets[state.unit];
   const spans = [];
   let column = 1;
-  for (const { week } of weeks) {
-    const month = new Date(utcDay(week)).getUTCMonth();
+  for (const bucket of list) {
+    const month = monthOf(bucket.key);
     const last = spans.at(-1);
     if (last?.month === month) last.count += 1;
     else spans.push({ month, count: 1, start: column });
     column += 1;
   }
   // One grid column per bar, and each label spans its own run of them, so the labels line up with
-  // the strip above however many weeks the history has.
-  els.months.style.gridTemplateColumns = `repeat(${weeks.length}, minmax(0, 1fr))`;
+  // the chart above however many buckets the history has.
+  els.months.style.gridTemplateColumns = `repeat(${list.length}, minmax(0, 1fr))`;
   els.months.replaceChildren(
     ...spans.map(({ month, count, start }) => {
       const span = document.createElement("span");
@@ -182,6 +219,16 @@ function renderMonths() {
       return span;
     }),
   );
+}
+
+function showReadout(bar) {
+  const chart = els.chart.getBoundingClientRect();
+  const rect = bar.getBoundingClientRect();
+  els.readout.textContent = bar.dataset.tip;
+  els.readout.hidden = false;
+  const width = els.readout.offsetWidth;
+  const center = rect.left - chart.left + rect.width / 2;
+  els.readout.style.left = `${Math.round(Math.min(Math.max(center, width / 2 + 1), chart.width - width / 2 - 1))}px`;
 }
 
 function renderKinds() {
@@ -204,16 +251,20 @@ function renderKinds() {
   requestAnimationFrame(markAllScrollables);
 }
 
+function rangeLabel(range) {
+  return `${range.unit} of ${shortDate(range.key)}`;
+}
+
 function renderStatus(shown) {
   const total = commits.length;
-  const filtered = state.query !== "" || state.kinds.size > 0 || state.week !== null;
+  const filtered = state.query !== "" || state.kinds.size > 0 || state.range !== null;
   if (!filtered) {
     // The masthead already carries the totals; saying them twice is noise.
     els.status.replaceChildren();
     return;
   }
   const parts = [`Showing ${number.format(shown)} of ${number.format(total)} commits`];
-  if (state.week) parts.push(`week of ${shortWeek(state.week)}`);
+  if (state.range) parts.push(rangeLabel(state.range));
   els.status.innerHTML =
     `<span>${parts.join(" · ")}</span>` + `<button class="link-button" type="button" data-clear>Clear filters</button>`;
 }
@@ -328,11 +379,33 @@ function onSearch() {
 function clearFilters() {
   state.query = "";
   state.kinds.clear();
-  state.week = null;
+  state.range = null;
   els.q.value = "";
   for (const chip of els.kinds.querySelectorAll(".chip")) chip.setAttribute("aria-pressed", "false");
-  renderVolume();
+  renderChart();
   renderTimeline();
+}
+
+function setUnit(unit) {
+  if (unit === state.unit) return;
+  state.unit = unit;
+  // The selection names a bucket that no longer exists in the other view, so it goes with it.
+  if (state.range && state.range.unit !== unit) state.range = null;
+  for (const button of els.granularity.querySelectorAll("button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.unit === unit));
+  }
+  renderChart();
+  renderTimeline();
+}
+
+function moveChartFocus(step) {
+  const bars = [...els.chart.querySelectorAll(".chart-bar")].filter((bar) => !bar.disabled);
+  if (!bars.length) return;
+  const current = bars.indexOf(document.activeElement);
+  const next = step === "home" ? 0 : step === "end" ? bars.length - 1 : (current + step + bars.length) % bars.length;
+  for (const bar of bars) bar.tabIndex = -1;
+  bars[next].tabIndex = 0;
+  bars[next].focus();
 }
 
 function bindEvents() {
@@ -348,17 +421,44 @@ function bindEvents() {
     renderTimeline();
   });
 
-  els.volume.addEventListener("click", (event) => {
-    const bar = event.target.closest(".volume-bar");
+  els.granularity.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-unit]");
+    if (button) setUnit(button.dataset.unit);
+  });
+
+  els.chart.addEventListener("click", (event) => {
+    const bar = event.target.closest(".chart-bar");
     if (!bar || bar.disabled) return;
-    state.week = state.week === bar.dataset.week ? null : bar.dataset.week;
-    renderVolume();
+    const same = state.range?.unit === state.unit && state.range.key === bar.dataset.key;
+    state.range = same ? null : { unit: state.unit, key: bar.dataset.key };
+    renderChart();
     renderTimeline();
   });
 
-  els.clearWeek.addEventListener("click", () => {
-    state.week = null;
-    renderVolume();
+  els.chart.addEventListener("pointerover", (event) => {
+    const bar = event.target.closest(".chart-bar");
+    if (bar) showReadout(bar);
+  });
+  els.chart.addEventListener("pointerleave", () => {
+    els.readout.hidden = true;
+  });
+  els.chart.addEventListener("focusin", (event) => {
+    const bar = event.target.closest(".chart-bar");
+    if (bar) showReadout(bar);
+  });
+  els.chart.addEventListener("focusout", () => {
+    els.readout.hidden = true;
+  });
+  els.chart.addEventListener("keydown", (event) => {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
+    if (step === null && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    moveChartFocus(step ?? (event.key === "Home" ? "home" : "end"));
+  });
+
+  els.clearRange.addEventListener("click", () => {
+    state.range = null;
+    renderChart();
     renderTimeline();
   });
 
@@ -472,10 +572,10 @@ async function boot() {
     day: dayOf(commit.date),
     week: weekStartOf(dayOf(commit.date)),
   }));
-  weeks = computeWeeks();
+  buckets = buildBuckets();
 
   renderMast(data);
-  renderVolume();
+  renderChart();
   renderKinds();
   renderTimeline();
 

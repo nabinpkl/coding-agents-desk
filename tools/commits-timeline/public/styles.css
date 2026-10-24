@@ -61,7 +61,7 @@ body {
 /* --- masthead ------------------------------------------------------------ */
 
 .mast,
-.volume,
+.chart,
 .controls,
 .status,
 main,
@@ -137,43 +137,57 @@ h1 {
   height: 16px;
 }
 
-/* --- volume strip -------------------------------------------------------- */
+/* --- activity chart ------------------------------------------------------ */
 
-.volume {
-  padding: 0 20px 6px;
+.chart {
+  margin-block: 0;
+  padding: 2px 20px 6px;
 }
-.volume-head {
+.chart-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
-.volume-label {
+.chart-label {
   font: 11px/1 var(--mono);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
-.volume-bars {
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.chart-wrap {
+  position: relative;
+}
+.chart-bars {
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 56px;
+  height: 84px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   overscroll-behavior-x: contain;
 }
-.volume-bars::-webkit-scrollbar {
+/* A day is one thin column per bucket; a week has room for air. */
+.chart.is-day .chart-bars,
+.chart.is-day .chart-months {
+  gap: 1px;
+}
+.chart-bars::-webkit-scrollbar {
   display: none;
 }
-.volume-bars.is-scrollable {
+.chart-bars.is-scrollable {
   mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
 }
-.volume-bar {
+.chart-bar {
   flex: 1 1 0;
-  min-width: 5px;
+  min-width: 2px;
   height: var(--h);
   padding: 0;
   border: 0;
@@ -182,25 +196,39 @@ h1 {
   cursor: pointer;
   transition: background 120ms ease;
 }
-.volume-bar:hover {
+.chart-bar:hover {
   background: var(--ink-2);
 }
-.volume-bar:focus-visible {
+.chart-bar:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
-.volume-bar[aria-pressed="true"] {
+.chart-bar[aria-pressed="true"] {
   background: var(--accent);
 }
-.volume-bar[aria-pressed="true"]:hover {
+.chart-bar[aria-pressed="true"]:hover {
   background: var(--accent);
 }
-.volume-bar.is-empty {
+.chart-bar.is-empty {
   background: var(--line);
   cursor: default;
 }
+.chart-readout {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 11px/1.4 var(--mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
 
-.volume-months {
+.chart-months {
   display: grid;
   gap: 2px;
   margin-top: 5px;
@@ -209,9 +237,40 @@ h1 {
   text-transform: uppercase;
   color: var(--ink-3);
 }
-.volume-months span {
+.chart-months span {
   overflow: hidden;
   white-space: nowrap;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.segmented button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: 11px/1 var(--mono);
+  cursor: pointer;
+}
+.segmented button + button {
+  border-left: 1px solid var(--line-strong);
+}
+.segmented button:hover:not([aria-pressed="true"]) {
+  background: var(--surface);
+  color: var(--ink);
+}
+.segmented button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.segmented button[aria-pressed="true"] {
+  background: var(--surface-2);
+  color: var(--ink);
 }
 
 .link-button {
@@ -632,8 +691,22 @@ main {
     width: 38px;
     height: 38px;
   }
-  .volume {
+  .chart {
     padding-inline: 14px;
+  }
+  .chart-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chart-bars {
+    height: 64px;
+  }
+  .chart-controls {
+    gap: 10px;
+  }
+  .segmented button {
+    height: 28px;
+    padding: 0 10px;
   }
   .controls {
     padding: 10px 14px;

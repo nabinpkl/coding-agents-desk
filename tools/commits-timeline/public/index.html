@@ -23,13 +23,22 @@
       <button class="icon-button" id="theme" type="button" aria-label="Switch theme"></button>
     </header>
 
-    <figure class="volume">
-      <figcaption class="volume-head">
-        <span class="volume-label">Commits per week</span>
-        <button class="link-button" id="clear-week" type="button" hidden>Show every week</button>
+    <figure class="chart is-day" id="chart-figure">
+      <figcaption class="chart-head">
+        <span class="chart-label" id="chart-label">Commits per day</span>
+        <div class="chart-controls">
+          <button class="link-button" id="clear-range" type="button" hidden>Show all commits</button>
+          <div class="segmented" id="granularity" role="group" aria-label="Chart granularity">
+            <button type="button" data-unit="day" aria-pressed="true">Day</button>
+            <button type="button" data-unit="week" aria-pressed="false">Week</button>
+          </div>
+        </div>
       </figcaption>
-      <div class="volume-bars" id="volume"></div>
-      <div class="volume-months" id="volume-months" aria-hidden="true"></div>
+      <div class="chart-wrap">
+        <div class="chart-bars" id="chart"></div>
+        <output class="chart-readout" id="chart-readout" hidden></output>
+      </div>
+      <div class="chart-months" id="chart-months" aria-hidden="true"></div>
     </figure>
 
     <section class="controls" id="controls" aria-label="Filters">

@@ -1,8 +1,8 @@
 # Commit timeline
 
-A single static page that plots this repository's own history: weekly commit volume, then every
-commit newest-first, grouped by day, filtered by kind, week or free-text search. Each row expands to
-its full message, refs and line counts, with the sha copyable.
+A single static page that plots this repository's own history: a chart of commits over time (per day
+or per week), then every commit newest-first, grouped by day, filtered by kind, bucket or free-text
+search. Each row expands to its full message, refs and line counts, with the sha copyable.
 
 ```
 just commits-timeline          # generate the data and serve it on http://127.0.0.1:4290
@@ -29,6 +29,11 @@ auth boundary, the same way the panel's dev origin works, and `tailscale serve` 
 `git log --no-merges` for the current checkout, both the message pass and the `--numstat` pass, so
 the timeline reflects what is on disk rather than a cached export. Merge commits are left out
 because they carry no diff of their own; the branch landings are already in the history they joined.
+
+The chart counts commits per calendar day or per week (Monday start), one bucket per day including
+the quiet ones, and clicking a bar filters the list to that day or week. The two views share the
+filter state; a selection made in one view is dropped when you switch, because the bucket it names
+does not exist in the other.
 
 Each subject's conventional-commit prefix becomes its kind (`feat`, `fix`, `docs`, ...). A prefix
 outside the filter row's set keeps its own word in the tag and is counted under `other` for
