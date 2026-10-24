@@ -10,7 +10,7 @@
 
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { LoaderCircle, SquareTerminal } from "lucide-react";
-import { useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { useCanvasZoom } from "@/features/bots/canvas/useCanvasZoom";
 import { TerminalParentCard } from "@/features/terminal/canvas/strip/TerminalParentCard";
@@ -21,6 +21,7 @@ import {
 } from "@/features/terminal/canvas/terminalGroups";
 import { TERMINAL_ZOOM_STORAGE } from "@/features/terminal/canvas/terminalCanvasPreferences";
 import { useTerminalCanvasScroll } from "@/features/terminal/canvas/useTerminalCanvasScroll";
+import { useStrandedSidewaysWheel } from "@/hooks/dom/useStrandedSidewaysWheel";
 
 export function TerminalCanvas({
   grouping,
@@ -110,6 +111,20 @@ export function TerminalCanvas({
   canvasZoom: { mode: boolean; room: number };
 }) {
   const scroller = useRef<HTMLDivElement | null>(null);
+  // The scroller as an element too, for the listener below: it is not drawn while the placeholder
+  // shows, so a listener attached through the ref alone would never find it.
+  const [scrollerNode, setScrollerNode] = useState<HTMLDivElement | null>(null);
+  const attachScroller = useCallback(
+    (node: HTMLDivElement | null) => {
+      scroller.current = node;
+      setScrollerNode(node);
+    },
+    [scroller, setScrollerNode],
+  );
+  // A terminal bigger than its tile scrolls inside the tile, and the browser hands a sideways swipe
+  // with any up-or-down drift the tile can use to it, which cannot use the sideways part when only
+  // the height overflows. The strip takes that part.
+  useStrandedSidewaysWheel(scrollerNode);
   const strip = useRef<HTMLUListElement | null>(null);
   const all = [...grouping.parents, ...grouping.residue];
   const standing = all.filter((parent) => !hiddenMachines.has(parent.machineId ?? ""));
@@ -279,7 +294,7 @@ export function TerminalCanvas({
         </button>
       </div>
       <div
-        ref={scroller}
+        ref={attachScroller}
         onScroll={rememberScroll}
         style={zoom.scrollerStyle}
         className="mx-4 h-full min-h-0 flex-1 overflow-auto overscroll-contain"
