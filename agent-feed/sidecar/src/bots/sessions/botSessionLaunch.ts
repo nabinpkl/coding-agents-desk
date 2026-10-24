@@ -6,7 +6,15 @@
 // at construction so both halves write through the same store.
 
 import type { BotRecord, BotSessionRef, StartedSession } from "@agentdesk/agent-feed-wire";
-import { firstFreeAnchor, formatBotSessionTitle, refuseTaskText, taskFromText } from "@agentdesk/agent-feed-wire";
+import {
+  backfillTaskText,
+  firstFreeAnchor,
+  formatBotSessionTitle,
+  isPoolAnchor,
+  parseBotSessionTitle,
+  refuseTaskText,
+  taskFromText,
+} from "@agentdesk/agent-feed-wire";
 import { anchorPool } from "@/config/configAnchors";
 import { WorktreeError } from "@/git/worktree";
 import {
@@ -64,7 +72,7 @@ export class BotSessionStarter {
    */
   async launchOrExplain(
     bot: BotRecord,
-    launch: NormalizedLaunch,
+    launch: StartingLaunch,
     newSessionId: () => string = this.newSessionId,
   ): Promise<StartedSession> {
     try {
@@ -91,7 +99,7 @@ export class BotSessionStarter {
    */
   async launchSession(
     bot: BotRecord,
-    launch: NormalizedLaunch,
+    launch: StartingLaunch,
     newSessionId: () => string = this.newSessionId,
   ): Promise<StartedSession> {
     // A fork runs where its source runs unless it asked for a tree of its own, so a fork of a
@@ -110,6 +118,7 @@ export class BotSessionStarter {
           ...(launch.from === undefined ? {} : { from: launch.from.sessionId }),
           ...(anchor === undefined ? {} : { anchor }),
           title: launch.title,
+          ...(launch.unnamed ? { unnamed: true } : {}),
           ...(launch.prompt === undefined ? {} : { prompt: launch.prompt }),
           ...(launch.worktree === undefined ? {} : { worktree: launch.worktree }),
           ...(launch.claudeMode === undefined ? {} : { claudeMode: launch.claudeMode }),
@@ -171,14 +180,7 @@ export class BotSessionStarter {
   async launchFirstSession(bot: BotRecord, launch: NormalizedLaunch): Promise<StartedSession> {
     const sessionId = this.newSessionId();
     const anchor = await this.reserveAnchor(bot.botId, `claude:${sessionId}`);
-    return this.launchOrExplain(
-      bot,
-      {
-        ...launch,
-        title: composeAnchoredTitle(anchor, launch.title),
-      },
-      () => sessionId,
-    );
+    return this.launchOrExplain(bot, { ...launch, ...this.startingTitle(anchor, launch) }, () => sessionId);
   }
 
   /**
@@ -223,8 +225,16 @@ export class BotSessionStarter {
         value: { bot: updated, anchor },
       };
     });
-    const title = composeAnchoredTitle(reserved.anchor, launch.title);
-    return this.launchSession(reserved.bot, { ...launch, title }, () => sessionId);
+    return this.launchSession(
+      reserved.bot,
+      { ...launch, ...this.startingTitle(reserved.anchor, launch) },
+      () => sessionId,
+    );
+  }
+
+  /** `startingTitle`, with a fork's source read from the catalog. */
+  private startingTitle(anchor: string, launch: NormalizedLaunch): { title: string; unnamed?: boolean } {
+    return startingTitle(anchor, launch, launch.from ? this.catalog.resolveSession(launch.from) : undefined);
   }
 
   /**
@@ -288,6 +298,59 @@ export class BotSessionStarter {
       };
     });
   }
+}
+
+/** A launch with the name it starts under decided: `title`, or none at all when `unnamed`. */
+type StartingLaunch = NormalizedLaunch & { unnamed?: boolean };
+
+/**
+ * The name a Bot session starts under, and whether it starts under one at all.
+ *
+ * A task typed at launch is the bracket, `Aaron (checkout flow)`, as it always was. With none, a
+ * fresh session starts UNNAMED: Claude writes a title of its own from the first prompt only for a
+ * session given no name (`newClaudeSessionCommand` has the measurement, terminal and SDK alike),
+ * and the title queue then renames it to `Aaron (Claude's title)`, which it can do mid-turn. Until
+ * then the anchor is what its pane and its card are called, and the session answers to its
+ * directory's name.
+ *
+ * A fork with none takes its source's task under its own anchor. Claude never titles a fork (it
+ * carries its source's title records through a turn on another subject, measured the same day), so
+ * a fork started unnamed would only answer to its source's name until the queue caught up, and the
+ * queue would land on this same title.
+ */
+function startingTitle(
+  anchor: string,
+  launch: NormalizedLaunch,
+  source: ResolvedBotSession | undefined,
+): { title: string; unnamed?: boolean } {
+  if (taskFromText(launch.title, anchor)) return { title: composeAnchoredTitle(anchor, launch.title) };
+  if (!launch.from) return { title: anchor, unnamed: true };
+  return { title: source && !source.untitled ? anchoredTitle(anchor, source.summary.title).title : anchor };
+}
+
+/**
+ * The title a session should wear under its anchor, read off the title it wears now.
+ *
+ * Already in this anchor's shape reads back as its task, and so does a title made under any other
+ * pool name: a session that moved to a new name keeps what it was doing, rather than wearing its
+ * old name as the task. (A title that is itself a pool name, `Maple`, reads as one and starts
+ * bare; rare enough to accept.) Anything else sheds the previous era's trailing suffixes
+ * (`(fork 3)`) and becomes the task whole, so Claude's own title and a hand-typed `/rename` both
+ * survive as the bracket rather than being thrown away. A task that cannot bracket, or would make
+ * the title too long, is dropped and the session starts bare: the anchor is the half that matters.
+ *
+ * Shared by the title queue, which keeps every session in this shape, and a fork, which starts in
+ * it from its source's title.
+ */
+export function anchoredTitle(anchor: string, current: string): { title: string; dropped?: string } {
+  const parsed = parseBotSessionTitle(current);
+  const rawTask = parsed.anchor === anchor || isPoolAnchor(parsed.anchor) ? parsed.task : backfillTaskText(current);
+  const fits = rawTask && !refuseTaskText(rawTask) && !sessionTitleRefusal(formatBotSessionTitle(anchor, rawTask));
+  const task = fits ? rawTask : "";
+  return {
+    title: formatBotSessionTitle(anchor, task),
+    ...(rawTask && !task ? { dropped: rawTask } : {}),
+  };
 }
 
 /** The `-n` title a Bot session starts under: its allocated anchor, bracketed with its task. */

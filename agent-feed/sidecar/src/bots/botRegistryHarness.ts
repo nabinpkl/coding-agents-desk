@@ -27,6 +27,7 @@ export interface LaunchRecord {
   sessionId: string;
   forkId?: string;
   title: string;
+  unnamed?: boolean;
   prompt?: string;
   brief?: string;
   mode?: string;

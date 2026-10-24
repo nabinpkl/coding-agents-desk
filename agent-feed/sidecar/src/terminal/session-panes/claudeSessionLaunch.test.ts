@@ -62,6 +62,18 @@ test("no prompt means no trailing argument, not an empty one", () => {
   ]);
 });
 
+test("an unnamed session gets no `-n`, so Claude titles it from its first prompt", () => {
+  // The title stays the pane's name; the CLI is given none, because it writes a title of its own
+  // only for a session it was not given a name for.
+  expect(newClaudeSessionCommand({ sessionId: "abc", title: "Aaron", unnamed: true, prompt: "fix it" })).toEqual([
+    "claude",
+    ...permission,
+    "--session-id",
+    "abc",
+    "fix it",
+  ]);
+});
+
 test("a hostile prompt arrives as exactly one argument, through the shells tmux uses", async () => {
   const directory = await mkdtemp(join(tmpdir(), "agentdesk-launch-"));
   directories.push(directory);

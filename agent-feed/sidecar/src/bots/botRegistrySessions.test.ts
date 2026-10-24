@@ -343,9 +343,11 @@ test("refuses to fork a session the Bot does not hold", async () => {
   ).rejects.toThrow(BotNotFoundError);
 });
 
-test("an omitted title starts bare under the next free anchor", async () => {
+test("an omitted title starts unnamed under the next free anchor, for Claude to title", async () => {
   // The anchor is spent from the slot counter, not counted from titles, so two launches in one
-  // moment cannot preview the same name and a deleted session's number is never reused.
+  // moment cannot preview the same name and a deleted session's number is never reused. It is not
+  // passed as the name: Claude titles only a session given none, and the title queue then wears
+  // that title under the anchor. The anchor names the pane and the card until it does.
   const { launched, launcher } = recordingLauncher();
   const { project, registry } = await fixture(launcher);
   const bot = await addBot(
@@ -366,6 +368,7 @@ test("an omitted title starts bare under the next free anchor", async () => {
       cwd: project,
       sessionId: "started-1",
       title: "Aaron",
+      unnamed: true,
       prompt: undefined,
     },
   ]);

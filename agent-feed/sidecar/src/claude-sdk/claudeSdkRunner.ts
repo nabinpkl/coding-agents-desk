@@ -25,8 +25,11 @@ import type { RunnerCallback, RunnerChoices, RunnerRecord, RunnerReply } from "@
 export interface RunnerPlan {
   sessionId: string;
   cwd: string;
-  /** The session's name: its title and its registry address, the way `-n` sets both. */
-  name: string;
+  /**
+   * The session's name: its title and its registry address, the way `-n` sets both. Absent for a
+   * fresh session left for Claude to title from its first prompt, which it does only unnamed.
+   */
+  name?: string;
   start: "new" | "resume" | "fork";
   /** For a fork: the session it branches from, and the record its history is cut at, if any. */
   forkFrom?: string;
@@ -176,8 +179,9 @@ export class ClaudeSdkRunner {
       // written to no transcript, so this is the only way an SDK session's composer can offer it.
       promptSuggestions: true,
       // `-n`: the title and the registry name a terminal session gets, on a resume too, where the
-      // SDK would otherwise derive a name from the directory (measured 2026-10-17).
-      extraArgs: { name: plan.name },
+      // SDK would otherwise derive a name from the directory (measured 2026-10-17). Left off only
+      // for a fresh session Claude is to title, which goes by that directory name until it has.
+      ...(plan.name === undefined ? {} : { extraArgs: { name: plan.name } }),
       canUseTool: this.canUseTool,
     };
   }

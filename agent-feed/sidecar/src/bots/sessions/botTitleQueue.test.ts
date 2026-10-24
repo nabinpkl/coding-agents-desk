@@ -3,7 +3,8 @@
 import { afterEach, expect, test } from "bun:test";
 import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
-import { anchoredTitle, BotTitleQueue } from "@/bots/sessions/botTitleQueue";
+import { anchoredTitle } from "@/bots/sessions/botSessionLaunch";
+import { BotTitleQueue } from "@/bots/sessions/botTitleQueue";
 import { drained } from "@/testing/until";
 
 const { addBot, addSessions, catalog, fixture, notifyCatalog, sessions, summary } = botRegistryHarness();
@@ -143,6 +144,30 @@ test("a refused rename waits for the session to move, then is asked again", asyn
   await queue.settled();
   expect(asked).toEqual(["Aaron (pi session)", "Aaron (pi session)", "Aaron (pi session)"]);
   expect(sessions.get("pi:session-1")!.summary.title).toBe("Aaron (pi session)");
+});
+
+test("a session with no title of its own waits for Claude's, which becomes its task", async () => {
+  const { project, claudeRef, registry, store } = await fixture();
+  const bot = await addBot(registry, { requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [claudeRef] }, { kind: "user" });
+  // As the catalog reads a session launched unnamed whose transcript holds its first prompt and not
+  // yet the title Claude writes beside it: the row shows the prompt, which is no name to keep.
+  sessions.set("claude:session-3", {
+    projectPath: project,
+    summary: { ...summary(claudeRef), title: "Write a story about a lighthouse keeper", lastEventAt: 2 },
+    untitled: true,
+  });
+
+  const asked: string[] = [];
+  const { queue } = startQueue(store, async (_at, title) => {
+    asked.push(title);
+  });
+  await queue.settled();
+  expect(asked).toEqual([]);
+
+  moved(project, claudeRef, "Lighthouse keeper who repairs clocks", 3);
+  await queue.settled();
+  expect(asked).toEqual(["Aaron (Lighthouse keeper who repairs clocks)"]);
 });
 
 test("a sent rename is not sent twice, and a later hand rename is wrapped again", async () => {

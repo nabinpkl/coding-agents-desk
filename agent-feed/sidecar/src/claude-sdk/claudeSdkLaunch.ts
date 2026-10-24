@@ -66,6 +66,8 @@ export function claudeSdkRunnerCommand(options: {
   sessionId: string;
   cwd: string;
   title: string;
+  /** A fresh session given no name, for Claude to title (`newClaudeSessionCommand` has why). */
+  unnamed?: boolean;
   start: "new" | "resume" | "fork";
   /** For a fork: the session it branches from, and the record to cut that history at. */
   forkFrom?: string;
@@ -85,8 +87,7 @@ export function claudeSdkRunnerCommand(options: {
     options.sessionId,
     "--cwd",
     options.cwd,
-    "--name",
-    options.title,
+    ...(options.unnamed && options.start === "new" ? [] : ["--name", options.title]),
     "--start",
     options.start,
     "--permission-mode",
@@ -116,6 +117,7 @@ export async function startClaudeSdkSession(options: {
   cwd: string;
   sessionId: string;
   title: string;
+  unnamed?: boolean;
   prompt?: string;
 }): Promise<StartedClaudeSession> {
   const pane = claudeSessionPaneName(options.sessionId);

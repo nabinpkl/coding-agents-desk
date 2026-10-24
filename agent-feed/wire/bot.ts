@@ -167,8 +167,10 @@ export interface BotSnapshot {
 export interface BotLaunchCommand {
   /**
    * What the session is working on. The `-n` title is composed from it: the session's allocated
-   * anchor first, this text bracketed after (`Aaron (Checkout flow)`). Omitted starts bare under
-   * the anchor. The anchor is spent from the machine-wide pool at launch, so this never names it.
+   * anchor first, this text bracketed after (`Aaron (Checkout flow)`). Omitted, a fresh session
+   * starts unnamed and takes the title Claude writes from its first prompt (`Aaron (Fix the
+   * login redirect)`), and a fork takes its source's task. The anchor is spent from the
+   * machine-wide pool at launch, so this never names it.
    */
   title?: string;
   /**

@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { BotForbiddenError, BotLaunchError, type BotSessionLauncher } from "@/bots/botRegistry";
 import { botRegistryHarness, type LaunchRecord } from "@/bots/botRegistryHarness";
 
-const { addBot, addSessions, fixture, recordingLauncher } = botRegistryHarness();
+const { addBot, addSessions, fixture, recordingLauncher, sessions, summary } = botRegistryHarness();
 
 test("creating a Bot with launch starts a session in its directory and attaches it", async () => {
   const { launched, launcher } = recordingLauncher();
@@ -22,13 +22,15 @@ test("creating a Bot with launch starts a session in its directory and attaches 
     { kind: "user" },
   );
 
-  // The title is the first free anchor, bare: names come from the pool, never from the Bot.
+  // The first free anchor, which names the pane: names come from the pool, never from the Bot. With
+  // no task the session is started unnamed, so Claude titles it from that prompt.
   expect(launched).toEqual([
     {
       kind: "start",
       cwd: project,
       sessionId: "started-1",
       title: "Aaron",
+      unnamed: true,
       prompt: "Familiarize yourself with the repo.",
     },
   ]);
@@ -63,6 +65,32 @@ test("a launch title brackets as the task after the allocated anchor, and a prom
       title: "Aaron (familiarization)",
       prompt: undefined,
     },
+  ]);
+});
+
+test("a fork with no task keeps its source's task under its own anchor, since Claude never titles one", async () => {
+  const { launched, launcher } = recordingLauncher();
+  const { project, claudeRef, registry } = await fixture(launcher);
+  const bot = await addBot(registry, { requestId: "add", name: "AD bot", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [claudeRef] }, { kind: "user" });
+  // The source as the title queue left it: its anchor, and the title Claude wrote for it.
+  sessions.set("claude:session-3", {
+    projectPath: project,
+    summary: { ...summary(claudeRef), title: "Aaron (Lighthouse keeper who repairs clocks)" },
+  });
+  await registry.addSessions(bot.botId, { requestId: "fork", launch: { from: claudeRef } }, { kind: "user" });
+  // A source with no title of its own has nothing to carry over, so its fork starts bare.
+  sessions.set("claude:session-3", {
+    projectPath: project,
+    summary: { ...summary(claudeRef), title: "Write a story about a lighthouse keeper" },
+    untitled: true,
+  });
+  await registry.addSessions(bot.botId, { requestId: "fork-2", launch: { from: claudeRef } }, { kind: "user" });
+
+  // Named at birth either way: a fork started unnamed would answer to its source's name until renamed.
+  expect(launched.map(({ kind, title, unnamed }) => ({ kind, title, unnamed }))).toEqual([
+    { kind: "fork", title: "Adam (Lighthouse keeper who repairs clocks)", unnamed: undefined },
+    { kind: "fork", title: "Alan", unnamed: undefined },
   ]);
 });
 

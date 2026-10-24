@@ -188,8 +188,9 @@ export function normalizeBracketCommand(value: unknown): NormalizedBracket {
  *
  * The title is validated by the same rule a rename obeys, because it is the same field: `-n`
  * writes the composed title to the session registry, and a line break in it would split the
- * argument rather than the name. Omitted starts bare under the allocated anchor. The anchor
- * itself is spent at launch time and never arrives over this wire.
+ * argument rather than the name. Omitted, the session takes Claude's own title or its fork
+ * source's task under the allocated anchor (`botSessionLaunch.ts`). The anchor itself is spent
+ * at launch time and never arrives over this wire.
  */
 function normalizeLaunch(value: unknown): NormalizedLaunch | undefined {
   if (value === undefined) return undefined;
@@ -270,7 +271,7 @@ export function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
  * A launch on an existing Bot.
  *
  * The title is task text, never the anchor: the anchor is spent at launch time and this
- * normalizer cannot know it yet. Omitted starts bare.
+ * normalizer cannot know it yet. Omitted, the launch decides the name (`botSessionLaunch.ts`).
  */
 /**
  * A Bot edit: every field optional, at least one required.
