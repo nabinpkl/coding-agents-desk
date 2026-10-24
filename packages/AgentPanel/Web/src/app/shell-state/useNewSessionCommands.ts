@@ -54,17 +54,19 @@ export function useNewSessionCommands(
 
   /**
    * A chat with no project: the Chat box holds only the first message, and sending it is what
-   * makes the chat's folder and starts it, through the SDK. Throws for the box to show beside the
-   * message it leaves in place.
+   * makes the chat's folder and starts it, through the SDK, on the machine the box picked. Throws
+   * for the box to show beside the message it leaves in place.
    */
   const [chatOpen, setChatOpen] = useState(false);
   const startChat = useCallback(
-    async (prompt: string) => {
-      const session = await feed.startScratchSession({ prompt });
-      setStarted({ ...session, sdk: true });
+    async (prompt: string, machine?: BotMachine) => {
+      const elsewhere = machine && machine.feed !== feed ? machine : undefined;
+      const session = await (elsewhere?.feed ?? feed).startScratchSession({ prompt });
+      if (elsewhere) noteListed(elsewhere, [session]);
+      setStarted({ ...session, sdk: true, ...(elsewhere ? { machine: machineKey(elsewhere) } : {}) });
       setChatOpen(false);
     },
-    [feed],
+    [feed, noteListed],
   );
   const openChat = useCallback(() => setChatOpen(true), []);
   const closeChat = useCallback(() => setChatOpen(false), []);
