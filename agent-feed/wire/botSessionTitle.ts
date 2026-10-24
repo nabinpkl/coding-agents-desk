@@ -349,3 +349,16 @@ export function taskFromText(text: string, anchor: string): string {
 export function backfillTaskText(oldTitle: string): string {
   return oldTitle.replace(/(\s+\([^()]*\))+\s*$/, "").trim();
 }
+
+/**
+ * The task a title carries, read the same way whoever is about to wear it.
+ *
+ * A title made under `anchor`, or under any pool name, reads back as its bracket: a session that
+ * moves to a new name keeps what it was doing rather than wearing its old name as the task. Any
+ * other title is the task whole, less the previous era's trailing suffixes. Unchecked: the caller
+ * decides what a task that cannot bracket costs.
+ */
+export function titleTask(title: string, anchor?: string): string {
+  const parsed = parseBotSessionTitle(title);
+  return parsed.anchor === anchor || isPoolAnchor(parsed.anchor) ? parsed.task : backfillTaskText(title);
+}

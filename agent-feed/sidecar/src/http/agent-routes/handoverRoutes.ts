@@ -15,9 +15,9 @@
 // What the two directions do NOT share is how the successor is made, and the asymmetry is the
 // whole reason this file has two handlers instead of one with a flag:
 //
-//   to opencode  the serve has a create call and a prompt call, so it is `createSession` then
-//                `send` on the registered backend, and the two calls are what the single route
-//                makes atomic from the panel's side.
+//   to opencode  the serve has a create call and a prompt call, so it is `createSession`, a
+//                rename, then `send` on the registered backend, and those calls are what the
+//                single route makes atomic from the panel's side.
 //   to Claude    there is no API at all. `ClaudeLiveBackend` is registered but read-only and
 //                throws on both. A Claude session is a tmux pane, so the successor is
 //                `launchSession`, and create-plus-first-prompt is literally one argv -- which
@@ -48,7 +48,7 @@ import {
 } from "@/transcripts/sessionHandover";
 import { LIVE_SESSION_LAUNCHER, launchSession, type SessionLauncher } from "@/transcripts/session-ops/forkSession";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
-import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
+import { refuseTaskText, titleTask, type BotSessionRef } from "@agentdesk/agent-feed-wire";
 import type { AgentBackend } from "@/agents/agentBackend";
 import { jsonResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
@@ -234,11 +234,18 @@ async function readHandover(source: string, sessionId: string, actions: Handover
  */
 export const MAX_HANDOVER_PROMPT = process.platform === "linux" ? 128 * 1024 - 1 : 512 * 1024;
 
+/** The opencode backend surface a handover needs; the rename is opencode's own, not `AgentBackend`'s. */
+interface OpencodeHandoverBackend {
+  createSession: AgentBackend["createSession"];
+  renameSession(sessionId: string, title: string): Promise<void>;
+  send: AgentBackend["send"];
+}
+
 /**
  * Start an opencode session carrying a Claude session's context.
  *
  * Claude only as the source: any other is rejected rather than rendered by a rule written for
- * Claude records.
+ * Claude records. `task` names the successor; without one it is named after its source's task.
  */
 export async function handoverToOpencode(
   request: Request,
@@ -253,24 +260,73 @@ export async function handoverToOpencode(
     if (!requestId || !sessionId) {
       return errorResponse("invalid-request", "requestId and sessionId are required", 400, requestId ?? undefined);
     }
-    const backend = resolveBackend("opencode");
+    const backend = resolveBackend("opencode") as unknown as OpencodeHandoverBackend | undefined;
     if (!backend) return errorResponse("unknown-source", `agent source "opencode" is not registered`, 404, requestId);
     const read = await readSessionHandover("claude", sessionId, actions);
     if (!read.ok) return errorResponse(read.code, read.message, read.status, requestId);
     const { session: source, handover } = read;
+    // After the render, as the Claude direction's title is, and before anything is made.
+    const named = handoverTask(body.task, source.title);
+    if ("refusal" in named) return errorResponse("invalid-request", `task: ${named.refusal}`, 400, requestId);
     const prompt = buildHandoverPrompt({ source: "claude", sessionId, handover, message });
     const created = await backend.createSession(`${requestId}-create`, source.project);
+    const title = named.task ? await nameSuccessor(backend, created.sessionId, named.task) : null;
     await backend.send(created.sessionId, `${requestId}-send`, prompt, "next");
     await carryLog(actions.bots, { source: "claude", sessionId }, { source: "opencode", sessionId: created.sessionId });
     return jsonResponse(
       {
-        session: created,
+        session: title ? { ...created, title } : created,
         handover: { turnCount: handover.turnCount, chars: prompt.length, lossy: handover.lossy },
       },
       201,
     );
   } catch (error) {
     return routeError(error);
+  }
+}
+
+/**
+ * What the opencode successor is called before its first prompt: the task the reader typed, or
+ * else the one its source's title carries, so a handover keeps what it was doing the way a Claude
+ * fork does (`startingTitle` in `botSessionLaunch.ts`). Empty when there is neither, and opencode
+ * then titles the session itself from the handover.
+ *
+ * Before the prompt, because opencode titles a session from its first prompt only while it has no
+ * name (measured 2026-10-23 on 2.0.30: named first, a session kept its name for a minute; unnamed,
+ * it was titled about a second after its prompt), so a name put on afterwards races that title.
+ * The task alone rather than the source's whole title: a Bot that attaches the successor brackets
+ * the task under the anchor it spends, and until then a copy of `Aaron (...)` reads as a second
+ * Aaron.
+ *
+ * A typed task that cannot bracket is refused, since the reader can fix it. A borrowed one that
+ * cannot is dropped, as the title queue drops one, and opencode titles the session instead.
+ */
+function handoverTask(requested: unknown, sourceTitle: string | undefined): { task: string } | { refusal: string } {
+  const typed = typeof requested === "string" ? requested.trim() : "";
+  if (typed) {
+    const refusal = refuseTaskText(typed) ?? sessionTitleRefusal(typed);
+    return refusal ? { refusal } : { task: typed };
+  }
+  const borrowed = sourceTitle ? titleTask(sourceTitle) : "";
+  return { task: borrowed && !refuseTaskText(borrowed) && !sessionTitleRefusal(borrowed) ? borrowed : "" };
+}
+
+/**
+ * Names the successor, answering the name it took or null when the serve refused it. A refusal is
+ * logged rather than answered, as a log that could not be carried is: the handover is the result
+ * and its name is not, and an unnamed successor is titled by opencode from the handover instead.
+ */
+async function nameSuccessor(
+  backend: OpencodeHandoverBackend,
+  sessionId: string,
+  task: string,
+): Promise<string | null> {
+  try {
+    await backend.renameSession(sessionId, task);
+    return task;
+  } catch (error) {
+    console.error("Handover could not name the opencode session", error);
+    return null;
   }
 }
 

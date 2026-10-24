@@ -236,7 +236,13 @@ describe("App shell", () => {
     expect(transport.requests.filter((request) => request.path === "/api/bots/bot-1/sessions")).toHaveLength(1);
     unmount();
   });
-  it("forks into opencode as a handover, attached to the Bot and left for opencode to title", async () => {
+  // The sidecar names the handover before its first prompt (by the task, or else by its source's),
+  // so the panel sends the task along and renames nothing afterwards: a rename after the attach
+  // would race the Bot's title queue putting the anchor in front of the name the sidecar gave it.
+  it.each([
+    ["no task", "", {}],
+    ["a typed task", "Check the clocks", { task: "Check the clocks" }],
+  ])("forks into opencode as a handover with %s, attached to the Bot and renamed by nothing", async (_, task, sent) => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
@@ -257,6 +263,7 @@ describe("App shell", () => {
 
     fireEvent.click(canvas().getByRole("button", { name: "Actions for Session Claude 01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Fork session" }));
+    fireEvent.change(screen.getByLabelText("Task, bracketed after the name"), { target: { value: task } });
     fireEvent.change(screen.getByLabelText("The fork's first message"), { target: { value: "carry on in opencode" } });
     fireEvent.click(screen.getByRole("button", { name: /Runs in Claude Code/ }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: /opencode/ }));
@@ -269,11 +276,9 @@ describe("App shell", () => {
     });
     expect(
       transport.requests.find((request) => request.path === "/api/agent-sessions/opencode/handover")?.body,
-    ).toMatchObject({ sessionId: "sid-claude-01", message: "carry on in opencode" });
+    ).toEqual({ requestId: expect.any(String), sessionId: "sid-claude-01", message: "carry on in opencode", ...sent });
     // Started, so its draft is gone; the attached session arrives on the Bot's stream as any does.
     await waitFor(() => expect(screen.queryByRole("region", { name: /Fork of/ })).toBeNull());
-    // No task was typed, so it is not named: opencode titles a session from the handover only while
-    // it has no name, and the Bot's title queue then puts the anchor in front of that title.
     expect(transport.requests.some((request) => request.path.endsWith("/bracket"))).toBe(false);
     unmount();
   });
