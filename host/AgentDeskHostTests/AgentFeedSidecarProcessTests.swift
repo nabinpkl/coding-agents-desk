@@ -320,6 +320,69 @@ struct AgentFeedSidecarProcessTests {
         #expect(try String(contentsOf: target, encoding: .utf8) == "untouched\n")
     }
 
+    /// A sidecar started with its log at `path`, waited on until it is ready.
+    private func startedSidecar(logAt path: String) async throws -> (AgentFeedSidecarProcess, URL) {
+        let port = try freePort()
+        setenv("AGENTDESK_AGENT_FEED_SIDECAR_LOG", path, 1)
+        let stubURL = try makeStubBinary(port: port)
+        let sidecar = makeSidecar(binaryURL: stubURL, port: port)
+        sidecar.start()
+        let deadline = Date().addingTimeInterval(6)
+        while sidecar.baseURL == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return (sidecar, stubURL)
+    }
+
+    private func scratchDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-feed-sidecar-log-dir-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    @Test func aNamedPipeLeftAtTheLogsNameDoesNotStallTheStart() async throws {
+        // Opening a FIFO for writing blocks until something reads it, so this would hang forever.
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fifo = directory.appendingPathComponent("sidecar.log")
+        #expect(mkfifo(fifo.path, 0o644) == 0)
+        defer { unsetenv("AGENTDESK_AGENT_FEED_SIDECAR_LOG") }
+
+        let (sidecar, stubURL) = try await startedSidecar(logAt: fifo.path)
+        defer {
+            sidecar.stop()
+            try? FileManager.default.removeItem(at: stubURL)
+        }
+        #expect(sidecar.baseURL != nil)
+    }
+
+    @Test func theLogIsPrivateToThisUserWhetherNewOrOlder() async throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        defer { unsetenv("AGENTDESK_AGENT_FEED_SIDECAR_LOG") }
+        func mode(_ url: URL) throws -> Int {
+            (try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? -1
+        }
+
+        let fresh = directory.appendingPathComponent("fresh.log")
+        let (first, firstStub) = try await startedSidecar(logAt: fresh.path)
+        defer {
+            first.stop()
+            try? FileManager.default.removeItem(at: firstStub)
+        }
+        #expect(try mode(fresh) == 0o600)
+
+        let older = directory.appendingPathComponent("older.log")
+        #expect(FileManager.default.createFile(atPath: older.path, contents: Data(), attributes: [.posixPermissions: 0o644]))
+        let (second, secondStub) = try await startedSidecar(logAt: older.path)
+        defer {
+            second.stop()
+            try? FileManager.default.removeItem(at: secondStub)
+        }
+        #expect(try mode(older) == 0o600)
+    }
+
     @Test func spawnedChildInheritsPath() async throws {
         let port = try freePort()
         // The stub writes its own PATH to a temp file on startup. If

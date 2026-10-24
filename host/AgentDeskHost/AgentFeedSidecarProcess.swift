@@ -52,6 +52,12 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // else has since closed and reused does. That killed a whole test run once, over a diagnostics
     // file. Negative when there is no file.
     private var outputFD: Int32 = -1
+    // Which file `outputFD` was opened on. Checked before every write and close, because a raw
+    // descriptor number can be closed by someone else and handed to a different file, socket or
+    // pipe, and then a write lands in that and a close takes it from its owner. This host's tests
+    // have been seen doing exactly that to descriptors they did not own.
+    private var outputIdentity: (device: dev_t, inode: ino_t)?
+    private var outputPath: String?
     private var outputFileBytes: UInt64 = 0
     // Invalidates a health monitor belonging to an earlier spawn. Each spawn takes the next
     // generation, so a tick scheduled before a restart finds its generation stale and stops
@@ -193,11 +199,18 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         outputBuffer = ""
         openOutputFile()
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
+            // A plain read, not `availableData`: that RAISES an Objective-C exception when the
+            // descriptor has been closed under the handler, which Swift cannot catch and which
+            // aborts the whole process. A read reports the same failure as a return value.
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            let count = Darwin.read(handle.fileDescriptor, &buffer, buffer.count)
+            // Interrupted: the descriptor is still readable, so the handler fires again.
+            if count < 0, errno == EINTR { return }
+            guard count > 0 else {
                 handle.readabilityHandler = nil
                 return
             }
+            let data = Data(buffer[0..<count])
             self?.queue.async { [weak self] in
                 self?.consumeOutput(data)
             }
@@ -485,16 +498,21 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
 
     /// Opens the diagnostics file for appending, or nil when it is not a plain file this user made.
     ///
-    /// The directory it lives in is writable by every login session, so anyone could leave a symlink
-    /// or a hard link at this name, and an append would then land in whatever it points at. Hence no
-    /// following of a final symlink, creation that must be new, and a check on the descriptor itself
-    /// that it is a regular file, ours, with one name. Append-only, so a truncate never leaves a
-    /// stale offset; close-on-exec, so the sidecar it spawns does not inherit the descriptor.
-    private static func openOwnedAppendFile(_ path: String) -> Int32? {
-        let flags = O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW
+    /// The directory it lives in is writable by every login session, so the name is not ours to
+    /// trust. Anyone could leave a symlink or a hard link there, and an append would land in
+    /// whatever it points at; or a named pipe, which blocks an open for writing until something
+    /// reads it, and would stall the sidecar's start. Hence no following of a final symlink, a
+    /// non-blocking open, creation that must be new, and a check on the descriptor itself that it is
+    /// a regular file, ours, with one name. The log names sessions and what they were doing, so it
+    /// is private to this user: created 0600, and an older one made 0644 is narrowed.
+    ///
+    /// Append-only, so a truncate never leaves a stale offset; close-on-exec, so the sidecar it
+    /// spawns does not inherit the descriptor.
+    private static func openOwnedAppendFile(_ path: String) -> (fd: Int32, device: dev_t, inode: ino_t)? {
+        let flags = O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
         var fd = Darwin.open(path, flags)
         if fd < 0, errno == ENOENT {
-            fd = Darwin.open(path, flags | O_CREAT | O_EXCL, 0o644)
+            fd = Darwin.open(path, flags | O_CREAT | O_EXCL, 0o600)
         }
         guard fd >= 0 else { return nil }
         var info = stat()
@@ -506,12 +524,25 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             errno = EPERM
             return nil
         }
-        return fd
+        if info.st_mode & 0o077 != 0 { _ = fchmod(fd, 0o600) }
+        return (fd, info.st_dev, info.st_ino)
+    }
+
+    /// True while `outputFD` is still the file it was opened on.
+    private func ownsOutputFile() -> Bool {
+        guard outputFD >= 0, let identity = outputIdentity else { return false }
+        var info = stat()
+        return fstat(outputFD, &info) == 0 && info.st_dev == identity.device && info.st_ino == identity.inode
     }
 
     private func closeOutputFile() {
-        if outputFD >= 0 { Darwin.close(outputFD) }
+        // Only a descriptor that is still ours is closed. One that has been taken is forgotten, not
+        // closed: its number now belongs to someone else.
+        if ownsOutputFile() { Darwin.close(outputFD) }
         outputFD = -1
+        outputIdentity = nil
+        // Closed on purpose, so a late line queued behind the close does not reopen it.
+        outputPath = nil
     }
 
     private func openOutputFile() {
@@ -523,11 +554,13 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             try FileManager.default.createDirectory(
                 atPath: directory, withIntermediateDirectories: true
             )
-            guard let fd = Self.openOwnedAppendFile(path) else {
+            guard let opened = Self.openOwnedAppendFile(path) else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EPERM)
             }
-            outputFD = fd
-            outputFileBytes = UInt64(max(0, lseek(fd, 0, SEEK_END)))
+            outputFD = opened.fd
+            outputPath = path
+            outputIdentity = (opened.device, opened.inode)
+            outputFileBytes = UInt64(max(0, lseek(opened.fd, 0, SEEK_END)))
             // Every spawn is a boundary somebody reading this file backwards needs to see: it is
             // the line that says the sidecar they are reading is not the one that failed.
             appendToOutputFile("=== host spawned sidecar port=\(port) reloadsOnEdit=\(launch.reloadsOnEdit)")
@@ -539,7 +572,27 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     }
 
     private func appendToOutputFile(_ line: String) {
-        guard outputFD >= 0 else { return }
+        if !ownsOutputFile() {
+            // Taken from under us: closed by something else, and its number handed to another file
+            // or pipe. Not closed here, since the number is no longer ours. The log is reopened by
+            // path instead, so one such event costs a line and not every line after it.
+            if outputFD >= 0 {
+                var info = stat()
+                let seen = fstat(outputFD, &info) == 0
+                logger.error(
+                    """
+                    sidecar output file descriptor \(self.outputFD, privacy: .public) is no longer the log: \
+                    fstat \(seen ? "ok" : "errno \(errno)", privacy: .public) \
+                    mode \(seen ? String(info.st_mode, radix: 8) : "-", privacy: .public); reopening it
+                    """)
+            }
+            outputFD = -1
+            outputIdentity = nil
+            guard let path = outputPath, let reopened = Self.openOwnedAppendFile(path) else { return }
+            outputFD = reopened.fd
+            outputIdentity = (reopened.device, reopened.inode)
+            outputFileBytes = UInt64(max(0, lseek(reopened.fd, 0, SEEK_END)))
+        }
         // Truncate rather than rotate. Its neighbour reached 42MB; keeping one bounded file beats
         // a rotation scheme nobody asked for, and losing old lines matters less than the file
         // still being there for the failure being investigated now.
@@ -553,12 +606,13 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         if written == data.count {
             outputFileBytes += UInt64(written)
         } else {
-            // One failed write is not worth a log line per line of output. Forget the descriptor so
-            // the next spawn opens a fresh one rather than retrying a broken one forever. It is NOT
-            // closed: a write fails like this when the descriptor is no longer ours, and closing a
-            // number that may now belong to someone else is the crash this replaced. One leaked
-            // descriptor on a rare failure costs less than that.
+            // Forget the descriptor; the next line reopens the file by path. It is NOT closed: a
+            // write fails like this when the descriptor is no longer ours, and closing a number
+            // that may now belong to someone else is the crash this replaced. One leaked descriptor
+            // on a rare failure costs less than that.
+            logger.error("sidecar output write failed: wrote \(written, privacy: .public) of \(data.count, privacy: .public), errno \(errno, privacy: .public)")
             outputFD = -1
+            outputIdentity = nil
         }
     }
 
