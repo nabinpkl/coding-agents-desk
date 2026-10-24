@@ -49,3 +49,8 @@ for example `--history main` or `--history upstream/main..main`. Every blob, pat
 commit identity reachable in that range is checked against both rule sets, and gitleaks is run over
 the same commits when it is installed. There is no baseline here: a history about to be published has
 to come up empty. It needs the denylist.
+
+gitleaks reads `.gitleaks.toml` at the repository root: its default rules, plus one exception per
+value that looks like a secret and is not one (a placeholder key in a test, a checksum, a public
+manifest key). Each exception names its file and its exact value, so the same value elsewhere, or a
+different value in that file, is still reported. Add one only after reading the line it is on.

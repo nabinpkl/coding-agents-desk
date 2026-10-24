@@ -1,0 +1,70 @@
+# gitleaks, as `just public-scan --history` runs it (tools/public-scan): every default rule, and an
+# exception for each value that looks like a secret and is not one. Each exception names the one
+# file the value is in and the value itself, so the same string anywhere else, or a different value
+# in that file, is still reported. Reviewed 2026-10-24, when these were the only findings in the
+# history. Add a value here only after reading the line it is on.
+
+title = "agent-desk"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "a placeholder key in a test, sixteen hex bytes counting up"
+condition = "AND"
+paths = ['''^agent-feed/sidecar/src/input/claudeSessionInbox\.test\.ts$''']
+regexes = ['''^0123456789abcdef0123456789abcdef$''']
+
+[[allowlists]]
+description = "an Anthropic API beta header name, in a fixture and its test"
+condition = "AND"
+paths = [
+  '''^agent-feed/sidecar/src/live/claudeLiveBackend\.test\.ts$''',
+  '''^agent-feed/sidecar/src/live/fixtures/claudeLiveFixture\.ts$''',
+]
+regexes = ['''^interleaved-thinking-2025-05-14$''']
+
+[[allowlists]]
+description = "a session id in the recorded Codex capture"
+condition = "AND"
+paths = ['''^agent-feed/sidecar/src/live/fixtures/codexDesktopLiveFixture\.jsonl$''']
+regexes = ['''^019fe292-5466-7393-b931-8bf0c2cece82$''']
+
+[[allowlists]]
+description = "a made-up web push auth secret in a test"
+condition = "AND"
+paths = ['''^agent-feed/sidecar/src/push/pushRoutes\.test\.ts$''']
+regexes = ['''^tBHItJI5svbpez7KI4CCXg$''']
+
+[[allowlists]]
+description = "a made-up bearer token in a shell command the labeller is tested on"
+condition = "AND"
+paths = ['''^agent-feed/sidecar/src/summary/shellLabels\.test\.ts$''']
+regexes = ['''^abc123XYZtoken$''']
+
+[[allowlists]]
+description = "the browser extension's manifest key: a public key, which fixes the extension's id"
+condition = "AND"
+paths = ['''^chrome-extension/manifest\.json$''']
+regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApLIf''']
+
+[[allowlists]]
+description = "the CryptoKit type name P256.Signing.PrivateKey, in host tests"
+condition = "AND"
+paths = [
+  '''^host/AgentDeskHostTests/PairingTests\.swift$''',
+  '''^host/AgentDeskHostTests/SessionAuthenticatorTests\.swift$''',
+]
+regexes = ['''^P256\.Signing\.PrivateKey$''']
+
+[[allowlists]]
+description = "two assignments in the vendored, minified xterm.js"
+condition = "AND"
+paths = ['''^terminal/vendor/xterm/package/lib/xterm\.js$''']
+regexes = ['''^t\.TwoKeyMap=void$''', '''^t\.Sequencer=t\.Throttler=void$''']
+
+[[allowlists]]
+description = "the SHA-256 checksum of a downloaded voice model file"
+condition = "AND"
+paths = ['''^tools/prepare-voice-zipa-model\.py$''']
+regexes = ['''^f8e042a0c9130532b22d03ec7cae2f75a23fbec70c450c31a8efb51787b2b8fe$''']
