@@ -1,4 +1,4 @@
-// The Canvas tab's two views: the Bots on the canvas, and every session on this machine.
+// The Canvas tab's two views: the Bots on the canvas, and every session on every machine.
 //
 // The second exists so a session no Bot holds can be read without leaving the canvas. Picking one
 // opens it in a modal over the strip rather than in the main column, which is the canvas's and

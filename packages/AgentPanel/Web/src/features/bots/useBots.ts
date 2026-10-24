@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
 import {
   indexBotMachines,
@@ -51,8 +51,21 @@ export interface BotRosterState {
    * `machineIndex`.
    */
   machineOf: (botId: string) => BotMachine | undefined;
-  /** The same, for a command addressed at a session rather than at the Bot holding it. */
+  /**
+   * The same, for a command addressed at a session rather than at the Bot holding it: the Bot's
+   * machine, else the machine whose Sessions list showed it (`noteListed`).
+   */
   machineOfSession: (ref: BotSessionRef) => BotMachine | undefined;
+  /**
+   * Records that a machine's Sessions list holds these sessions. Called by the lists as rows arrive.
+   *
+   * A session on no Bot used to be the shell's own machine's by definition, because the only list
+   * that showed one was that machine's. The Sessions view lists every machine's now, and a session
+   * picked there is renamed, forked and moved onto the canvas by commands handed a `SessionSummary`
+   * and nothing else (`botFeeds.forSession`), which would otherwise all reach the shell's machine
+   * and come back "no such session".
+   */
+  noteListed: (machine: { readonly id?: string }, sessions: readonly BotSessionRef[]) => void;
   /** The roster as it stands when called, for a command that has to look past its own Bot. */
   botsNow: () => readonly BotView[];
   /** Nothing has arrived and nothing has failed: the canvas has no answer yet, good or bad. */
@@ -184,9 +197,26 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
   // which is the correct answer for a Bot that moved between the two.
   const committed = useLatestRef(machineIndex);
   const machineOf = useCallback((botId: string) => committed.current.bot.get(botId), [committed]);
+  // Which machine listed each session, by `source:sessionId`, as a machine key: written as rows
+  // arrive and read when a command runs, so nothing renders from it. A key rather than the machine,
+  // so a data source swapped in under the same id is the one a command reaches.
+  const listedOn = useRef(new Map<string, string>());
+  const noteListed = useCallback(
+    (machine: { readonly id?: string }, sessions: readonly BotSessionRef[]) => {
+      for (const session of sessions)
+        listedOn.current.set(`${session.source}:${session.sessionId}`, machineKey(machine));
+    },
+    [listedOn],
+  );
   const machineOfSession = useCallback(
-    (ref: BotSessionRef) => committed.current.session.get(`${ref.source}:${ref.sessionId}`),
-    [committed],
+    (ref: BotSessionRef) => {
+      const key = `${ref.source}:${ref.sessionId}`;
+      const held = committed.current.session.get(key);
+      if (held) return held;
+      const listed = listedOn.current.get(key);
+      return listed === undefined ? undefined : machinesRef.current.find((machine) => machineKey(machine) === listed);
+    },
+    [committed, listedOn, machinesRef],
   );
   const botsNow = useCallback(() => committed.current.bots, [committed]);
   const machineErrors = useMemo(
@@ -204,6 +234,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
     machineIndex,
     machineOf,
     machineOfSession,
+    noteListed,
     botsNow,
     loading: snapshots.size === 0 && errors.size === 0,
     error:

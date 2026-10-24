@@ -27,6 +27,11 @@ interface SelectedThread {
  */
 interface ModalThread extends SelectedThread {
   botId?: string;
+  /**
+   * The machine whose Sessions list it was picked from, by `machineKey`, when that is not the one
+   * the shell is pointed at and no Bot names one: what the modal reads it from.
+   */
+  machine?: string;
 }
 
 export function useThreadSelection({
@@ -134,8 +139,8 @@ export function useThreadSelection({
   );
 
   const openSessionInModal = useCallback(
-    (project: ProjectSummary, session: SessionSummary) => {
-      setModalThread({ project, session });
+    (project: ProjectSummary, session: SessionSummary, machine?: string) => {
+      setModalThread(machine === undefined ? { project, session } : { project, session, machine });
       setHoverPreviewOpen(false);
       if (usesModalSidebar) setSidebarOpen(false);
     },

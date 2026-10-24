@@ -145,6 +145,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
   // Which directories are watched, and which machine answers for each: see `useShellInventory`.
   const { inventory, dialogSessionsByProject, rememberedSelection } = useShellInventory({
     feed,
+    machines: shellMachines,
     botMachines: botsState.machineIndex.bot,
     picker: botSessionPicker ? { botId: botSessionPicker.botId, projectPath: botSessionPicker.environment.path } : null,
     startedSessions,
@@ -329,6 +330,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
             context: sessionViewContext,
             onClose: thread.closeSessionModal,
             contextFor: (botId) => shellMachines.contextFor(sessionViewContext, botId),
+            contextOn: (key) => shellMachines.contextOn(sessionViewContext, key),
             canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveSessionToCanvas },
             faces: sidebar.canvasSessions.faces,
           }}

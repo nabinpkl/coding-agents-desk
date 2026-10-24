@@ -13,7 +13,8 @@ import type { useShellInventory } from "@/app/shell-state/useShellInventory";
 import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import type { useBotCommands } from "@/app/shell-state/useBotCommands";
 import type { ShellMachines } from "@/app/shell-state/useBotMachines";
-import { botsOnShownMachines, machineIsHidden } from "@/features/bots/botMachines";
+import { botsOnShownMachines, machineIsHidden, machineKey } from "@/features/bots/botMachines";
+import { mergeRecentSessions } from "@/features/sidebar/session-list/machineSessions";
 import { botSessionFaces } from "@/features/bots/avatar/botSessionFaces";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
@@ -65,6 +66,15 @@ export function sidebarProps({
   // Over every Bot, because the Feed's roster has already dropped these sessions. Left out of the
   // Sessions view as well as the cards: a row there would open a card the Feed does not draw.
   const offFeed = canvas === "bots" ? feedHiddenSessionKeys(machines.colourBots) : new Set<string>();
+  // The flat list is every machine's at once, each cut at the page this machine's was.
+  const merged = mergeRecentSessions(
+    [
+      { recent: inventory.recent },
+      ...inventory.peers.map((peer) => ({ key: machineKey(peer.machine), recent: peer.recent })),
+    ],
+    inventory.asked.recent ?? 0,
+    inventory.asked.reviews,
+  );
   return {
     mode: chrome.sidebarMode,
     onModeChange: chrome.changeSidebarMode,
@@ -173,18 +183,36 @@ export function sidebarProps({
         ? {
             projectPath: thread.modalThread.project.projectPath,
             sessionKey: `${thread.modalThread.session.source}:${thread.modalThread.session.sessionId}`,
+            ...(thread.modalThread.machine === undefined ? {} : { machine: thread.modalThread.machine }),
           }
         : null,
       grouped: chrome.sidebarPreferences.canvasSessionsGrouped,
       onGroupedChange: chrome.changeCanvasSessionsGrouped,
-      recent: recentWithout(inventory.recent, offFeed),
+      recent: recentWithout(merged?.recent ?? null, offFeed),
+      recentMachines: merged?.machineOf ?? new Map<string, string>(),
+      // The machine the shell is pointed at, named only where another machine's list is beside it.
+      home: machines.all.find((machine) => machine.feed === feed)?.label ?? "This machine",
+      peers: inventory.peers.map((peer) => ({
+        key: machineKey(peer.machine),
+        label: peer.machine.label,
+        list: {
+          projects: peer.projects,
+          sessionsByProject: withoutSessions(peer.sessionsByProject, offFeed),
+          archiving: peer.archiving,
+          loading: peer.loading,
+          error: peer.error,
+          retrying: peer.retrying,
+          expandedProjectPaths: peer.expandedProjectPaths,
+          onToggleProject: (projectPath: string) => inventory.togglePeerProject(machineKey(peer.machine), projectPath),
+        },
+      })),
       onShowMore: inventory.showMoreRecent,
       search: {
         query: inventory.recentQuery,
         onQueryChange: inventory.changeRecentQuery,
         active: inventory.searching,
       },
-      reconnecting: inventory.reconnecting,
+      reconnecting: inventory.reconnecting || inventory.peers.some((peer) => peer.reconnecting),
       reviews: {
         open: inventory.recentReviewsOpen,
         onToggle: inventory.toggleRecentReviews,

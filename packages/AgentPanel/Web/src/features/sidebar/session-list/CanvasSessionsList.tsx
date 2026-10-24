@@ -1,5 +1,9 @@
-// The Canvas tab's Sessions view: every session on this machine, grouped under its project or
+// The Canvas tab's Sessions view: every machine's sessions, grouped under their projects or
 // listed flat with the most recently changed first, and searched by title.
+//
+// Grouped, each machine is a section of its own projects, because a project is a directory on one
+// machine. Flat, the machines are one list (`mergeRecentSessions`), and a row from another machine
+// names it beside its project. A row opens, moves and archives on the machine it came from.
 //
 // A search is answered by the sidecar over the whole catalog, not by filtering the rows held here:
 // the flat list holds one page, and a filter over that page would miss every older session
@@ -13,7 +17,7 @@
 // its transcript stream opens.
 
 import { FolderTree, MessageSquare, Plus, Search, X } from "lucide-react";
-import { useId, useMemo } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import type { ProjectSummary, RecentSession, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
 import { SecurityReviewFold } from "@/features/sidebar/session-list/SecurityReviewSessions";
@@ -32,18 +36,32 @@ type ProjectListProps = Omit<
   "selectedProjectPath" | "selectedSessionKey" | "onSelectSession" | "pi" | "canvasMove" | "faces"
 >;
 
+/** Another machine's sessions, listed beside the ones of the machine the shell is pointed at. */
+export interface MachineSessions {
+  /** The machine's key (`machineKey`), which a row of it hands back when it is opened. */
+  key: string;
+  label: string;
+  list: ProjectListProps;
+}
+
 export interface CanvasSessions {
-  /** Opens a session in a modal over the canvas. */
-  onOpen: (project: ProjectSummary, session: SessionSummary) => void;
+  /** Opens a session in a modal over the canvas; `machine` names another machine's row. */
+  onOpen: (project: ProjectSummary, session: SessionSummary, machine?: string) => void;
   canvasMove: SessionCanvasMove;
   /** The face each Bot's session wears, so its row reads as the session on that Bot's card. */
   faces: SessionFaces;
   /** The session that modal is showing, so its row reads as the one picked. */
-  modalSelection: { projectPath: string; sessionKey: string } | null;
+  modalSelection: { projectPath: string; sessionKey: string; machine?: string } | null;
   grouped: boolean;
   onGroupedChange: (grouped: boolean) => void;
-  /** The flat list's current page, or null while it is grouped or has not arrived yet. */
+  /** The flat list's current page, every machine's, or null while it is grouped or has not arrived. */
   recent: RecentSessionsPayload | null;
+  /** Which other machine each of those rows is from, by `source:sessionId`. */
+  recentMachines: ReadonlyMap<string, string>;
+  /** The machine the shell is pointed at, which names its section when there are others. */
+  home: string;
+  /** Every other machine, in the canvas's order; empty when there is one. */
+  peers: readonly MachineSessions[];
   /** Asks the stream for the next page of the flat list. */
   onShowMore: () => void;
   /**
@@ -96,14 +114,7 @@ export function CanvasSessionsList({ list, sessions }: { list: ProjectListProps;
       <SessionSearchField search={sessions.search} />
       {sessions.reconnecting ? <SidebarReconnecting /> : null}
       {sessions.grouped && !sessions.search.active ? (
-        <ProjectSessionList
-          {...list}
-          selectedProjectPath={sessions.modalSelection?.projectPath ?? null}
-          selectedSessionKey={sessions.modalSelection?.sessionKey ?? null}
-          onSelectSession={sessions.onOpen}
-          canvasMove={sessions.canvasMove}
-          faces={sessions.faces}
-        />
+        <GroupedSessionList list={list} sessions={sessions} />
       ) : (
         <RecentSessionList list={list} sessions={sessions} />
       )}
@@ -111,42 +122,129 @@ export function CanvasSessionsList({ list, sessions }: { list: ProjectListProps;
   );
 }
 
-function RecentSessionList({ list, sessions }: { list: ProjectListProps; sessions: CanvasSessions }) {
-  const archive = useSessionArchiveCommand(list.archiving?.setArchived);
-  const projects = useMemo(
-    () => new Map(list.projects.map((project) => [project.projectPath, project])),
-    [list.projects],
+/** Each machine's projects, under its name once there is more than one machine. */
+function GroupedSessionList({ list, sessions }: { list: ProjectListProps; sessions: CanvasSessions }) {
+  const machineList = (machine: string | undefined, of: ProjectListProps) => {
+    const selection = sessions.modalSelection?.machine === machine ? sessions.modalSelection : null;
+    return (
+      <ProjectSessionList
+        {...of}
+        selectedProjectPath={selection?.projectPath ?? null}
+        selectedSessionKey={selection?.sessionKey ?? null}
+        onSelectSession={(project, session) =>
+          machine === undefined ? sessions.onOpen(project, session) : sessions.onOpen(project, session, machine)
+        }
+        canvasMove={sessions.canvasMove}
+        faces={sessions.faces}
+      />
+    );
+  };
+  if (sessions.peers.length === 0) return machineList(undefined, list);
+  return (
+    <>
+      <MachineSection label={sessions.home}>{machineList(undefined, list)}</MachineSection>
+      {sessions.peers.map((peer) => (
+        <MachineSection key={peer.key} label={peer.label}>
+          {machineList(peer.key, peer.list)}
+        </MachineSection>
+      ))}
+    </>
   );
+}
+
+function MachineSection({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <section aria-labelledby={id} className="border-b border-border/80 last:border-b-0">
+      <h3
+        id={id}
+        className="border-b border-border/80 bg-muted/40 px-3 py-1.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-semibold text-muted-foreground"
+      >
+        {label}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function RecentSessionList({ list, sessions }: { list: ProjectListProps; sessions: CanvasSessions }) {
+  const peerOf = (session: SessionSummary) => {
+    const key = sessions.recentMachines.get(`${session.source}:${session.sessionId}`);
+    return key === undefined ? undefined : sessions.peers.find((peer) => peer.key === key);
+  };
+  // One command for the list, so its pending and failed rows are one, sent to the row's machine.
+  const homeArchiving = list.archiving;
+  const archive = useSessionArchiveCommand(
+    homeArchiving
+      ? (session, archived) => {
+          const peer = peerOf(session);
+          const archiving = peer ? peer.list.archiving : homeArchiving;
+          if (!archiving) return Promise.reject(new Error("that machine's list offers no archiving"));
+          return archiving.setArchived(session, archived);
+        }
+      : undefined,
+  );
+  // By machine key, and the shell's own under `undefined`: the Mac's key is the empty string, and it
+  // is a peer whenever the tab bar points the shell at another machine.
+  const projects = useMemo(
+    () =>
+      new Map(
+        [{ key: undefined as string | undefined, list }, ...sessions.peers].map((machine) => [
+          machine.key,
+          new Map(machine.list.projects.map((project) => [project.projectPath, project])),
+        ]),
+      ),
+    [list, sessions.peers],
+  );
+  // A machine that never answered says so here; one that answered and dropped is the chip's.
+  const unreachable = sessions.peers
+    .filter((peer) => peer.list.error)
+    .map((peer) => (
+      <SidebarError
+        key={peer.key}
+        message={`${peer.label}: sessions unavailable: ${peer.list.error}`}
+        retrying={peer.list.retrying}
+      />
+    ));
 
   if (list.error) return <SidebarError message={`Sessions unavailable: ${list.error}`} retrying={list.retrying} />;
   if (list.loading || !sessions.recent) return <SidebarStatus>Loading sessions…</SidebarStatus>;
   const { recent, securityReviews } = sessions.recent;
   const searched = sessions.search.active ? sessions.search.query.trim() : "";
   if (recent.length === 0 && securityReviews.count === 0) {
-    return <SidebarStatus>{searched ? `No session titled “${searched}”` : "No sessions yet"}</SidebarStatus>;
+    return (
+      <>
+        {unreachable}
+        <SidebarStatus>{searched ? `No session titled “${searched}”` : "No sessions yet"}</SidebarStatus>
+      </>
+    );
   }
 
   const row = (session: RecentSession) => {
     // The project list and this cut come off one catalog snapshot, and the stream writes the
-    // project list first, so a row's project is always known by the time the row is.
-    const project = projects.get(session.projectPath);
+    // project list first, so a row's project is always known by the time the row is. Each
+    // machine's stream does, so a row's project is looked up on its own machine.
+    const peer = peerOf(session);
+    const project = projects.get(peer?.key)?.get(session.projectPath);
     if (!project) return null;
+    const projectName = project.displayName || session.projectPath;
     return (
       <SessionRow
         key={`${session.source}:${session.sessionId}`}
         session={session}
         selectedSessionKey={sessions.modalSelection?.sessionKey ?? null}
-        onSelect={() => sessions.onOpen(project, session)}
+        onSelect={() => (peer ? sessions.onOpen(project, session, peer.key) : sessions.onOpen(project, session))}
         canvasMove={sessions.canvasMove}
         faces={sessions.faces}
         archive={list.archiving ? archive : undefined}
-        project={project.displayName || session.projectPath}
+        project={peer ? `${peer.label} · ${projectName}` : projectName}
       />
     );
   };
 
   return (
     <>
+      {unreachable}
       <ul
         role="list"
         aria-label={

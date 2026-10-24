@@ -23,7 +23,7 @@ import { botFeeds, machineKey, machinesAreMixed, type BotFeeds, type BotMachine 
 import { useBots, type BotRosterState } from "@/features/bots/useBots";
 import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { botsOnBranches, botsOnFeed, type PanelCanvas } from "@/features/branches/branchBots";
-import type { BotView } from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, BotView } from "@agentdesk/agent-feed-wire";
 
 /** One machine's pair of window composers. Bound to a source, so shared across its sessions. */
 export interface MachineComposers {
@@ -88,6 +88,13 @@ export interface ShellMachines {
    * read from and whose windows it composes into.
    */
   contextFor(base: SessionViewContext, botId: string): SessionViewContext;
+  /** The same for a session on no Bot, pointed at the machine whose Sessions list it was picked from. */
+  contextOn(base: SessionViewContext, key: string): SessionViewContext;
+  /**
+   * Records that a machine's Sessions list holds these sessions, so a command addressed at one of
+   * them (`feeds.forSession`) goes to that machine. Called by the lists as their rows arrive.
+   */
+  noteListed(machine: { readonly id?: string }, sessions: readonly BotSessionRef[]): void;
 }
 
 export function useBotMachines(
@@ -179,6 +186,17 @@ export function useBotMachines(
     [all],
   );
 
+  // The shell's own context when the session is on the machine the shell is pointed at, so the
+  // ordinary single-machine panel hands every card the same object it always did.
+  const onMachine = (base: SessionViewContext, machine: BotMachine | undefined): SessionViewContext => {
+    if (!machine || machine.feed === feed) return base;
+    return {
+      ...base,
+      feed: machine.feed,
+      windowComposers: composersByMachine.get(machineKey(machine)) ?? composers,
+    };
+  };
+
   return {
     all,
     roster,
@@ -199,19 +217,17 @@ export function useBotMachines(
     },
     known: machines === undefined || machines.length > 0,
     contextFor(base, botId) {
-      const machine = index.bot.get(botId);
-      // The shell's own context when the Bot is on the machine the shell is pointed at, so the
-      // ordinary single-machine panel hands every card the same object it always did.
-      //
-      // And the same for a Bot no roster claims, which is the choice `botFeeds.forSession` makes for
-      // a session on no Bot. It cannot be reached from a rendered card anyway: a card exists
-      // because a roster produced it.
-      if (!machine || machine.feed === feed) return base;
-      return {
-        ...base,
-        feed: machine.feed,
-        windowComposers: composersByMachine.get(machineKey(machine)) ?? composers,
-      };
+      // The shell's own context for a Bot no roster claims, which is the choice `botFeeds.forSession`
+      // makes for a session on no Bot. It cannot be reached from a rendered card anyway: a card
+      // exists because a roster produced it.
+      return onMachine(base, index.bot.get(botId));
     },
+    contextOn(base, key) {
+      return onMachine(
+        base,
+        all.find((machine) => machineKey(machine) === key),
+      );
+    },
+    noteListed: everyBot.noteListed,
   };
 }

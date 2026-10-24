@@ -43,6 +43,9 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
     grouped: false,
     onGroupedChange: () => {},
     recent: null,
+    recentMachines: new Map(),
+    home: "mac",
+    peers: [],
     onShowMore: () => {},
     search: { query: "", onQueryChange: () => {}, active: false },
     reconnecting: false,
@@ -259,6 +262,106 @@ describe("the Canvas tab's Sessions view", () => {
     rerender(<CanvasSessionsList list={list} sessions={sessions({ grouped: false, onGroupedChange })} />);
     fireEvent.click(screen.getByRole("button", { name: "Group by project" }));
     expect(onGroupedChange).toHaveBeenLastCalledWith(true);
+  });
+});
+
+describe("another machine's sessions in the Sessions view", () => {
+  const rags: ProjectSummary = {
+    projectPath: "/home/ubuntu/rags",
+    displayName: "rags",
+    sourceCounts: { claude: 1 },
+    sessionCount: 1,
+    lastEventAt: 5,
+  };
+  const olive = row("o", "Olive", rags.projectPath, 5);
+  function oracle(overrides: Partial<CanvasSessions["peers"][number]["list"]> = {}) {
+    return {
+      key: "oracle",
+      label: "oracle",
+      list: {
+        ...list,
+        projects: [rags],
+        archiving: { archivedByProject: new Map(), setArchived: vi.fn() },
+        ...overrides,
+      },
+    };
+  }
+  const homeArchiving = { archivedByProject: new Map(), setArchived: vi.fn() };
+
+  it("lists them among this machine's, newest first, each naming its machine, and opens one there", () => {
+    const onOpen = vi.fn();
+    const recent = { recent: [olive, row("b", "Brian", oss.projectPath, 3)], more: false, securityReviews: NO_REVIEWS };
+    render(
+      <CanvasSessionsList
+        list={list}
+        sessions={sessions({ onOpen, recent, recentMachines: new Map([["claude:o", "oracle"]]), peers: [oracle()] })}
+      />,
+    );
+
+    const rows = within(screen.getByRole("list", { name: "Sessions, most recently changed first" })).getAllByRole(
+      "button",
+      { name: /^(Olive|Brian)/ },
+    );
+    expect(rows[0]).toHaveTextContent("oracle · rags");
+    expect(rows[1]).toHaveTextContent("oss-agent");
+    expect(rows[1]).not.toHaveTextContent("oracle");
+    fireEvent.click(rows[0]!);
+    expect(onOpen).toHaveBeenCalledWith(rags, olive, "oracle");
+    fireEvent.click(rows[1]!);
+    expect(onOpen).toHaveBeenLastCalledWith(oss, expect.objectContaining({ sessionId: "b" }));
+  });
+
+  it("archives a row on the machine it came from", () => {
+    const setArchived = vi.fn().mockResolvedValue(undefined);
+    const peer = oracle({ archiving: { archivedByProject: new Map(), setArchived } });
+    const recent = { recent: [olive], more: false, securityReviews: NO_REVIEWS };
+    render(
+      <CanvasSessionsList
+        list={{ ...list, archiving: homeArchiving }}
+        sessions={sessions({ recent, recentMachines: new Map([["claude:o", "oracle"]]), peers: [peer] })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Olive" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive session" }));
+    expect(setArchived).toHaveBeenCalledWith(olive, true);
+    expect(homeArchiving.setArchived).not.toHaveBeenCalled();
+  });
+
+  it("groups each machine's projects under its name, and opens a row on its own machine", () => {
+    const onOpen = vi.fn();
+    const onToggleProject = vi.fn();
+    const peer = oracle({
+      onToggleProject,
+      expandedProjectPaths: new Set([rags.projectPath]),
+      sessionsByProject: new Map([[rags.projectPath, [olive]]]),
+    });
+    render(<CanvasSessionsList list={list} sessions={sessions({ grouped: true, onOpen, peers: [peer] })} />);
+
+    const mac = within(screen.getByRole("region", { name: "mac" }));
+    expect(mac.getByText("oss-agent")).toBeInTheDocument();
+    expect(mac.queryByText("rags")).toBeNull();
+    const there = within(screen.getByRole("region", { name: "oracle" }));
+    fireEvent.click(there.getByRole("button", { name: /^rags/ }));
+    expect(onToggleProject).toHaveBeenCalledWith(rags.projectPath);
+    fireEvent.click(there.getByRole("button", { name: /^Olive/ }));
+    expect(onOpen).toHaveBeenCalledWith(rags, olive, "oracle");
+  });
+
+  it("names no machine while there is only one", () => {
+    render(<CanvasSessionsList list={list} sessions={sessions({ grouped: true })} />);
+    expect(screen.queryByRole("region", { name: "mac" })).toBeNull();
+  });
+
+  it("says which machine is not answering, and lists the rest", () => {
+    const recent = { recent: [row("b", "Brian", oss.projectPath, 3)], more: false, securityReviews: NO_REVIEWS };
+    render(
+      <CanvasSessionsList
+        list={list}
+        sessions={sessions({ recent, peers: [oracle({ error: "connection refused", retrying: true })] })}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("oracle: sessions unavailable: connection refused");
+    expect(screen.getByRole("button", { name: /^Brian/ })).toBeInTheDocument();
   });
 });
 
