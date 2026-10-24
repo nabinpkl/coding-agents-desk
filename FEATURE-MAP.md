@@ -1,7 +1,7 @@
 # Feature map
 
 Which parts of this tree are the current path, which are finished, and which solve the same
-problem a different way. Written 2026-09-05 against `bf4dc7f9`.
+problem a different way. Written 2026-09-05 against `69a67d9e`.
 
 `docs/PRD.md` says what is being built. `docs/SPEC.md` says how it is built. `AGENTS.md` says how to
 work here. This file exists because neither of those tells you that a directory you are reading was

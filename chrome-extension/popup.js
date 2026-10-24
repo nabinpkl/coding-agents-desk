@@ -13,7 +13,7 @@ const fidelityBox = document.getElementById('fidelity');
 // Which build is loaded (ADR-0043 versioning). The marketing version always comes from the manifest;
 // the exact git identity comes from build-info.json, which `just ext-stamp` regenerates and reload
 // picks up (an unpacked extension runs whatever is on disk, so the sha is the only reliable "which
-// build" signal). Reads as "v0.2.0 (128) 4ba5e8a"; a yellow "dirty" marks uncommitted edits at stamp
+// build" signal). Reads as "v0.2.0 (128) 348d54d"; a yellow "dirty" marks uncommitted edits at stamp
 // time. Unstamped (no build-info.json) shows just the manifest version.
 async function renderVersion() {
   const ver = chrome.runtime.getManifest().version;

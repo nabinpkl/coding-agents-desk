@@ -1,6 +1,6 @@
 # Cluster ledger (archived)
 
-> Retired 2026-09-09, the day its branch merged as `841058f9`. All 10 tasks are D, and the ceiling
+> Retired 2026-09-09, the day its branch merged as `e5adc32a`. All 10 tasks are D, and the ceiling
 > is gated: check 7 of `tools/agent-feed-fitness.sh` fails a directory holding more than twelve
 > source files, and `tools/git-hooks/pre-commit` asks the same at commit time. No ID travels
 > forward.
@@ -21,7 +21,7 @@
 ## Done
 
 Every directory in both live TypeScript trees is at twelve source files or under, and the ceiling
-is now gated. Nine directories were over on `79f79128`; the worst held 36. Nothing changed but
+is now gated. Nine directories were over on `a6335e5c`; the worst held 36. Nothing changed but
 import lines: no file was split, merged, renamed, or edited for any other reason, and no route
 path, wire field, storage key, CSS class or exported prop moved.
 
@@ -70,7 +70,7 @@ The gate landed last, green the day it landed:
   silently-broken tests during R1.
 
 The three-file floor is deliberately NOT gated. `AGENTS.md` was amended during this arc
-(`6299e55d`) to say why: it governs the moment you are splitting, and says nothing about a
+(`80315310`) to say why: it governs the moment you are splitting, and says nothing about a
 directory that is simply small. Five directories are under three and all five are correct --
 `screen-viewer` is a whole surface that is one file, `src/types` is shared types.
 
@@ -97,9 +97,9 @@ The rule, in four lines:
 
 Nothing changes but import lines. No file is split, merged, renamed, or edited for any other
 reason. `features/desktop-viewer` is the worked example: 53 files, now 5 with seven directories
-beside it (`79f79128`).
+beside it (`a6335e5c`).
 
-Measured on `79f79128`, `source files (all files) path`, worst first. That is the task order.
+Measured on `a6335e5c`, `source files (all files) path`, worst first. That is the task order.
 
 | Task | Directory | Source (all) | State |
 |---|---|---|---|
@@ -390,7 +390,7 @@ symlinks `$(git rev-parse --git-common-dir)/hooks/pre-commit` at the MAIN checko
 on `main` -- not the edited copy sitting beside you. The new rule starts firing when this branch
 lands. Verify a hook edit by running the file directly, which is what was done above.
 
-The floor is not gated, per `AGENTS.md` as amended at `6299e55d`.
+The floor is not gated, per `AGENTS.md` as amended at `80315310`.
 
 ## Decisions
 
@@ -400,16 +400,16 @@ its callers.
 
 ### `origin/dir-clustering` was replaced rather than continued
 
-The remote branch already held a run at this: `c53375c1` a ledger, `5cf77225` the desktop-viewer
-grouping, `30ced4e2` a fix to it. All three sit on `d75ccace`, which is BEFORE the import-alias
-migration (`6a4d2182`), so that branch still writes `../../..` everywhere and its fitness gate has
-no check 6. Its grouping is not lost: `79f79128` on `main` is the same work replayed on top of the
+The remote branch already held a run at this: `794febf3` a ledger, `e785ba7c` the desktop-viewer
+grouping, `e3fa4278` a fix to it. All three sit on `6b47d065`, which is BEFORE the import-alias
+migration (`7dbbccc5`), so that branch still writes `../../..` everywhere and its fitness gate has
+no check 6. Its grouping is not lost: `a6335e5c` on `main` is the same work replayed on top of the
 migration, and says so in its own message. The remote branch is a snapshot of a tree that no longer
 exists, and rebasing onto it would have handed this branch 69 renames of files whose contents no
 longer match anything -- a large conflict for nothing gained.
 
-So this run restarts from `79f79128` and takes none of that branch's content. It keeps all of its
-history: the stale tip `30ced4e2` is merged in with `-s ours`, which records it as an ancestor and
+So this run restarts from `a6335e5c` and takes none of that branch's content. It keeps all of its
+history: the stale tip `e3fa4278` is merged in with `-s ours`, which records it as an ancestor and
 changes not one byte of the tree, so the push is an ordinary fast-forward and nothing on the remote
 is discarded. The alternative was a force-push, which reaches the same tree by throwing the old
 commits away; there is no reason to destroy history that costs nothing to carry. The second

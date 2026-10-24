@@ -28,7 +28,7 @@ has `.suspended` / `.resuming`, resume tokens carry an expiry, and `PairingClien
 
 That criterion has never been met, and could not have been. Two reasons, both measured:
 
-- **Nothing could detect the switch.** `git grep NWPathMonitor` at `b734e5e9~1` returns nothing:
+- **Nothing could detect the switch.** `git grep NWPathMonitor` at `7783246e~1` returns nothing:
   before ADR-0088's telemetry landed, the codebase had no network-path awareness at all. Resume
   was wired to `applicationWillEnterForeground` and to the media channel reporting `.failed`.
   During a network change the app never leaves the foreground, so the only live trigger is the
@@ -101,7 +101,7 @@ acts as a control.
 **Four of the five are live on the client in this phase.** `stall` is defined and tested but
 unfed, because the comparison that makes it trustworthy -- client silence measured against the
 host's own quiet period -- needs a number only the host has. Feeding it client-side from the
-arrival gap alone would reintroduce exactly the false positive fixed in `ef649c86`, where a calm
+arrival gap alone would reintroduce exactly the false positive fixed in `5ea66dda`, where a calm
 screen reads as a stall. The host already evaluates it correctly in
 `MediaQualityController.clientLinkStalled`, and the arrival gap it uses is already on the wire,
 so the signal is measurable in this phase even though it does not flow through the detector.
@@ -150,7 +150,7 @@ so losing it costs a log line and nothing else.
 Two secondary findings from the same run:
 
 - **The host's degradation machinery works.** `reason=freeze`, four `stall-recovery`, six
-  `no-ack-at-cap`, and a drop to rung 3. The stall detector fixed in `ef649c86` ran live for the
+  `no-ack-at-cap`, and a drop to rung 3. The stall detector fixed in `5ea66dda` ran live for the
   first time and did not produce the calm-screen false positive it was fixed for. What is
   missing is a handover trigger, not stall awareness.
 - **This freeze was one-directional, unlike the 16:53 incident.** 67 of 82 client reports still

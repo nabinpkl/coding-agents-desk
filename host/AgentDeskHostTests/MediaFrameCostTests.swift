@@ -4,7 +4,7 @@ import Testing
 @testable import AgentDeskHost
 
 /// The live delta-frame wire-cost EWMA that turns a bitrate into a cadence. The floor work
-/// (cb74f8bf) proved cadence must be sized from measured frame cost; this is that measurement
+/// (3fde94c1) proved cadence must be sized from measured frame cost; this is that measurement
 /// made continuous, so it has to ignore keyframes (session-start events two orders of
 /// magnitude off) and track only what a delta of the current content costs.
 struct MediaFrameCostTests {

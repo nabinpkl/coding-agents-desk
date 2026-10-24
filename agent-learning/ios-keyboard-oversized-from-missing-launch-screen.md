@@ -76,4 +76,4 @@ R12 keyboard slice in agent-desk. The client was a from-scratch UIKit app with n
 - Install-time cache suspected → added `just client-reinstall` recipe.
 - Accessory bar over-redesigned → reverted and added live tunings sliders.
 
-Tunings sliders proved the accessory bar reacted to settings while the alphabetic keys did not. That ruled out everything inside the view hierarchy and pointed at the system keyboard process being sized wrong. Grep for launch-screen artefacts came up empty, fix was one Info.plist line. See commit `7454efe`.
+Tunings sliders proved the accessory bar reacted to settings while the alphabetic keys did not. That ruled out everything inside the view hierarchy and pointed at the system keyboard process being sized wrong. Grep for launch-screen artefacts came up empty, fix was one Info.plist line. See commit `b4c1e3e`.

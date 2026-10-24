@@ -39,7 +39,7 @@ What this actually breaks, observed rather than imagined:
     ignoring anything you staged for them. If you staged part of a file and then kept editing it,
     the whole current file is what lands.
   - **And a pathspec is not enough when the peer is inside the same FILE.** That is the case that
-    produced `9d286227` below: the paths named were this session's own, and one of them was a file
+    produced `d737b46f` below: the paths named were this session's own, and one of them was a file
     a peer was mid-edit in, so their three functions came along with it. A pathspec bounds which
     files land, never which HUNKS. So before naming a shared hub -- `AGENTS.md`, `wire/index.ts`,
     a barrel, a route table -- read `git diff -- <that file>` and check every added line is yours.
@@ -67,7 +67,7 @@ What this actually breaks, observed rather than imagined:
       commit as the next command. Everything else can be staged minutes earlier without cost.
   - `git add -A` and `git commit -a` remain out of the question for the older reason: they sweep up
     whoever is mid-edit in the worktree as well.
-  - This is not hypothetical in either direction. On the same night, commit `9d286227` swept up THIS
+  - This is not hypothetical in either direction. On the same night, commit `d737b46f` swept up THIS
     session's uncommitted `tmuxSessions.ts` and landed three unrelated exports under a message about
     composer cursor reading. The code survived; the history is now wrong about who added what and
     why, and that is not fixable on a shared branch without a rewrite nobody should do.

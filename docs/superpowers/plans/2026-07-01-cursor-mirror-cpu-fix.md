@@ -10,7 +10,7 @@
 
 ## Root cause (why ours spikes and theirs does not)
 
-`CursorMonitor.tick()` (`CursorMonitor.swift:81`) runs at 20 Hz (`interval = 0.05`) and, **every tick unconditionally**, calls `sample.image.tiffRepresentation` (rasterize + TIFF-encode the cursor) then `SHA256(tiff)` — purely to detect whether the cursor changed. The `hash != lastHash` dedup happens *after* that work. So ~99% of ticks re-encode + hash an image that did not change and throw the result away. Profiled leaf self-time (crisp-off, sha 546b088): `CursorMonitor.tick` + `hash` + sampler closure ≈ 10%+ of on-CPU, plus its share of the `AccelerateCrypto_SHA256_compress` / vImage / objc churn. It is **steady and content-independent** — the same cost whether the screen is busy or idle.
+`CursorMonitor.tick()` (`CursorMonitor.swift:81`) runs at 20 Hz (`interval = 0.05`) and, **every tick unconditionally**, calls `sample.image.tiffRepresentation` (rasterize + TIFF-encode the cursor) then `SHA256(tiff)` — purely to detect whether the cursor changed. The `hash != lastHash` dedup happens *after* that work. So ~99% of ticks re-encode + hash an image that did not change and throw the result away. Profiled leaf self-time (crisp-off, sha 00d94e8): `CursorMonitor.tick` + `hash` + sampler closure ≈ 10%+ of on-CPU, plus its share of the `AccelerateCrypto_SHA256_compress` / vImage / objc churn. It is **steady and content-independent** — the same cost whether the screen is busy or idle.
 
 TeamViewer/AnyDesk gate the encode on a cheap OS cursor-change counter; steady-state cost is one integer read. This plan adopts that.
 

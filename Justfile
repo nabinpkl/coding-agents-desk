@@ -836,7 +836,7 @@ agent-webview-dev-status port=agent_panel_dev_port:
     #!/usr/bin/env bash
     set -euo pipefail
     ORIGIN="$(just agent-webview-dev-origin '{{port}}')"
-    # Probed on the inventory stream, which carries the whole surface's data since 469e7938
+    # Probed on the inventory stream, which carries the whole surface's data since e6837cdb
     # put it on one connection. That commit removed /api/projects, which this probed until
     # it started reporting a dead sidecar at a stack that was serving perfectly.
     #

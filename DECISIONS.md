@@ -30,7 +30,7 @@ the dead per-recipe `AGENTDESK_DOM_MIRROR_ENABLED=1` injection in `host-run`/`ho
 `.dom` lane broke device pairing (a fresh pair failed at the QUIC handshake with `-9858` / POSIX 50
 ENETDOWN). That conclusion was **wrong -- a confound**. The `-9858` is literally "network is down": it was
 a **transient tailnet path instability** during a no-WiFi / flaky-network window, and it self-heals once the
-path is healthy. The bisection that seemed to implicate DOM (a0f5a44/DOM-off worked, HEAD/DOM-on failed) had
+path is healthy. The bisection that seemed to implicate DOM (66cafe1/DOM-off worked, HEAD/DOM-on failed) had
 the network changing underneath it -- DOM-off happened to be tested on a good path, DOM-on on a bad one. On
 a healthy path, **DOM-on pairs reliably** (verified on-device: 4/4 fresh pairs `session ready` +
 `media state=connected` with `AGENTDESK_DOM_MIRROR_ENABLED=1`). So the default was **restored to on**.

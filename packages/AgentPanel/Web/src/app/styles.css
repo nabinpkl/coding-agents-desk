@@ -642,7 +642,7 @@
        fallback, and is untouched. Threading a prop through `SessionView` instead would put a Bot's
        canvas in the signature of a view that knows nothing about Bots.
 
-       The interior was neutral for one commit (`7b6289e8`), on the argument that a wash under the
+       The interior was neutral for one commit (`4b9f7b48`), on the argument that a wash under the
        panel's densest text reads as the ground being off-colour rather than as this session's
        colour. That argument is about a WHISPER, which is what the interior carried then -- 0.022
        against the fill's 0.090 in dark, so the bar was four times the colour of the body under it

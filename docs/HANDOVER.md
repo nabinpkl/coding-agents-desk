@@ -1,6 +1,6 @@
 # Handover: Desktop park live tiles
 
-Written 2026-08-25. Branch `main`, HEAD `b241d3fa`, everything committed and pushed.
+Written 2026-08-25. Branch `main`, HEAD `776c73b5`, everything committed and pushed.
 
 Runtime update, 2026-08-28: the build-path instructions below are historical. ADR-0113 installs
 the helper with `just grid-encoder-install` into the durable Application Support runtime; compiling
@@ -53,7 +53,7 @@ arc if it reopens.
 
 Read `AGENTS.md` first for how to work in this repo. This file covers only the
 arc that just happened and what it left behind. Previous handovers are preserved
-in this file's git history; the one before this is `55155019` (2026-08-01,
+in this file's git history; the one before this is `47d5f9b6` (2026-08-01,
 quality ladder R231 and the R230 black screen), and section "Still open from the
 previous handover" below carries forward the part of it that is not done.
 
@@ -85,7 +85,7 @@ it.
 just client-install
 ```
 
-Why it cannot be avoided: commit `b241d3fa` sets
+Why it cannot be avoided: commit `776c73b5` sets
 `WKWebViewConfiguration.allowsInlineMediaPlayback`, which defaults to `false` on
 iPhone (`true` on iPad). A page's `playsinline` attribute is honored only if the
 container already permits inline playback, so without this the iPhone hands any
@@ -223,7 +223,7 @@ speaks only in standard RTCP.
 
 ## Still open from the previous handover (different arc, not touched here)
 
-The 2026-08-01 handover (`git show 55155019:HANDOVER.md`) flagged **R230, the
+The 2026-08-01 handover (`git show 47d5f9b6:HANDOVER.md`) flagged **R230, the
 post-handover black screen**, as root-caused but unfixed, and nothing in this
 arc went near it. Preserved here so it does not get lost behind a newer
 document:

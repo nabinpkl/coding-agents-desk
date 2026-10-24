@@ -666,7 +666,7 @@ Run:
 tools/owned-media-diagnostics-summary.sh /tmp/agentdesk-client-console.log
 ```
 
-Expected improvements versus the `aee5994` baseline:
+Expected improvements versus the `5e8c006` baseline:
 
 - Motion budget count is nonzero during scroll.
 - Large motion frames shrink. Target: fewer frames over 64 packets and no repeated 128 plus packet motion frames outside keyframes.

@@ -115,7 +115,7 @@ function treeVersion(): string | null {
  *
  * A function rather than a constant because the answer changes. `define` below substitutes one
  * reading at config load, which is exact for a bundled build and is only the last server restart
- * under `vite dev` -- measured 2026-09-14, the panel showed `f2dffa6+` while HEAD was `7373cec`
+ * under `vite dev` -- measured 2026-09-14, the panel showed `7e8c84d+` while HEAD was `2cff18c`
  * and the tree was clean. The route serves this per request so a live tab reads the tree instead
  * of the restart, and `panelBuild.ts` carries which of the two each surface is looking at.
  *

@@ -62,4 +62,4 @@ If all three are clean and the cursor still steps, the residual is geometric: pe
 
 ## Real-world incident this came from
 
-iPhone trackpad zone driving the Mac cursor via CGEvent. Cursor visibly stepped at 2x speed even after exhaustive curve tuning. The first two findings (per-sample velocity, MainActor hop) accounted for ~95% of the symptom. The Delta-field cleanup didn't change behaviour but eliminated a comment block that had been actively misleading future-me about what was driving the curve. See commits `463a796` (per-coalesced-touch deltas), `1e7228e` (off-MainActor dispatch), `161ab7e` (drop dead Delta writes).
+iPhone trackpad zone driving the Mac cursor via CGEvent. Cursor visibly stepped at 2x speed even after exhaustive curve tuning. The first two findings (per-sample velocity, MainActor hop) accounted for ~95% of the symptom. The Delta-field cleanup didn't change behaviour but eliminated a comment block that had been actively misleading future-me about what was driving the curve. See commits `30cd87c` (per-coalesced-touch deltas), `d7899b3` (off-MainActor dispatch), `e377ecf` (drop dead Delta writes).

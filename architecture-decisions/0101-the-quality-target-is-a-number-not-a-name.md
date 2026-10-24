@@ -10,7 +10,7 @@ supersedes: ADR-0033 (rung ladder), ADR-0098 (rung-quantized descent targets)
 
 The adaptive media-quality controller (ADR-0033) chose targets from a fixed ladder of named
 rungs (native, lossControl, capacity1, capacity2, survival, emergency), each pairing a bitrate
-with an fps. Measured on LTE (2026-08-15, after the ADR-0098/0100 fixes and the cb74f8bf floor
+with an fps. Measured on LTE (2026-08-15, after the ADR-0098/0100 fixes and the 3fde94c1 floor
 work), the residual failures were all quantization artifacts of that ladder:
 
 - **No step below the bottom.** `at-emergency-floor` fired in 126 windows and
@@ -22,7 +22,7 @@ work), the residual failures were all quantization artifacts of that ladder:
   whose true capacity sat between two rungs was representable by neither, so `sentKbps` ran
   p90 359 against a link delivering 186.
 - **Rung fps was configured, not derived**, so every rung's cadence had to be re-tuned by
-  hand whenever the content's frame cost drifted (the exact scar cb74f8bf fixed once, for one
+  hand whenever the content's frame cost drifted (the exact scar 3fde94c1 fixed once, for one
   rung, by measurement).
 
 The encoder side was already continuous: `AverageBitRate`/`DataRateLimits` are cheap live
@@ -32,7 +32,7 @@ from adaptation entirely. The ladder existed only inside `MediaQualityController
 ## Decision Drivers
 
 - The controller must be able to land where the link measurably is, not at the nearest name.
-- A target must carry its cadence in bytes by construction (cb74f8bf, generalized).
+- A target must carry its cadence in bytes by construction (3fde94c1, generalized).
 - ADR-0098's descent-signal ordering and reason-code telemetry must survive unchanged — that
   legibility is what made this arc debuggable.
 - The measurement loop must never starve itself (a 0 target stops acks, which stops the
@@ -49,7 +49,7 @@ from adaptation entirely. The ladder existed only inside `MediaQualityController
 
 Chose **Option A**. B and C both keep the structural defect (a finite set of named points on
 a continuous axis) and the hand-tuned fps pairings that drift from content cost; B had already
-been done twice (ADR-0098 budgets, cb74f8bf floor) and drifted twice.
+been done twice (ADR-0098 budgets, 3fde94c1 floor) and drifted twice.
 
 The shape, in `MediaQualityController`:
 
@@ -65,7 +65,7 @@ The shape, in `MediaQualityController`:
   link time per step) and moves `target × upStep` (1.15) toward the ceiling.
 - **fps is derived, never chosen**: `fps = clamp(kbps / (8 × frameBytesTarget) × 1000, 1, 30)`
   where `frameBytesTarget = (delta-frame EWMA ?? seed 10KB) × 1.3 headroom`. The EWMA is
-  measured live from every sent delta frame (`deltaFrameBytesEwma`, commit 7d5969c6).
+  measured live from every sent delta frame (`deltaFrameBytesEwma`, commit 8a77fa1c).
   Keyframes are excluded: they are session-start events (ADR-0100).
 - **lossControl is folded in.** The old rung cut bitrate while holding 30fps (more, smaller
   frames); loss is now just another descent trigger, so a lossy link gets fewer frames at the

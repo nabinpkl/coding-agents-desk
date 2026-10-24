@@ -257,7 +257,7 @@ enum Config {
         defaultValue: 10_000
     )
     // ADR-0101: the budget a frame gets over its measured EWMA cost when the cadence is
-    // derived (fps = bitrate / (ewma * headroom)). The cb74f8bf floor lesson, generalized: a
+    // derived (fps = bitrate / (ewma * headroom)). The 3fde94c1 floor lesson, generalized: a
     // cadence must fit the frames ABOVE the mean too, or the ones the mean hides queue. 1.3
     // puts the p50 delta (4.8KB) well inside a budget derived from the mean.
     static let ownedMediaFrameBytesHeadroom = positiveDouble(

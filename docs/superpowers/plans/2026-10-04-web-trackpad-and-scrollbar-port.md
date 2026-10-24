@@ -109,7 +109,7 @@ Legend: **Same**, **Different** (with how), **Missing**.
 | T4 | Same | `pointerAccelerationGain` in `tileViewportMath.ts`. |
 | T5 | Missing | No speed or acceleration settings. |
 | T6 | Different | The tap counts as long as the finger never moved 3px. UIKit's tap allows more movement **(UIKit, unverified: about 10pt)**. A sloppy tap that clicks on the phone becomes a tiny move on the web. |
-| T7 | Different | `armTouchHold`: 500ms hold (not 250), 3px slop, then `mouse-down`. Movement while held stays **accelerated**, where Swift sends 1:1. The web adds a priming ring at 150ms and a halo. Commit `40334544` explains the 500ms but it was never felt on a phone. |
+| T7 | Different | `armTouchHold`: 500ms hold (not 250), 3px slop, then `mouse-down`. Movement while held stays **accelerated**, where Swift sends 1:1. The web adds a priming ring at 150ms and a halo. Commit `6f384d09` explains the 500ms but it was never felt on a phone. |
 | T8 | Missing | No drag edge auto-pan. |
 | T9 | Missing, and the wire cannot carry it | `DesktopControlInput` has no system-command input. A three-finger swipe on iOS Chrome may also be taken by the OS (three-finger undo). |
 | T10 | Missing on touch | `click` with `button: "right"` exists on the wire, but only a real mouse button can send it. |
@@ -263,7 +263,7 @@ Steps 1-6 need no wire change and no native build. Step 8 is the only one that t
 
 1. **Hold to drag: 250ms, then 1:1, everywhere.** The pad and the picture both press after 250ms
    held still, and the drag motion is unaccelerated (finger delta x tuning). This replaces the
-   web's 500ms accelerated hold from `40334544`. The priming-ring delay (150ms) is re-derived
+   web's 500ms accelerated hold from `6f384d09`. The priming-ring delay (150ms) is re-derived
    against 250ms in step 5.
 2. **Two fingers on the picture stay local** (pinch and pan). P3 remains a deliberate divergence;
    remote scrolling is the strip's and the puck's job.

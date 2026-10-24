@@ -20,7 +20,7 @@ window, which matters most for Debug and for localized/static screens.
 - Debug host: ~101% CPU, `extractTileWithHash` the dominant leaf (4 threads pegged).
 - Release host: ~32% CPU, `videotoolbox` (HEVC encode) dominant, `extractTileWithHash` already 0 samples. `observe()` unconditionally hashed the full surface (~290 tiles at 128px grid) every crisp window regardless of what changed.
 
-## After gating (Release, sha 970c1ac)
+## After gating (Release, sha 096517b)
 
 Scenario: heavily-churning capture (the Claude Code TUI + terminal being
 captured animate the whole screen constantly — the adversarial case for gating,
@@ -122,7 +122,7 @@ Levers, corrected: (1) crisp convert — convert only damaged sub-regions instea
 the whole frame; (2) the floor — batch datagram packetization / relax pacing
 wakeups, and reduce per-frame drain overhead / capture rate at rest.
 
-## Unit D landed: sub-region render into a fast malloc buffer (sha 97ab460)
+## Unit D landed: sub-region render into a fast malloc buffer (sha 964080c)
 
 Lever (1) is now implemented. `processCrisp` renders **only the grid-aligned damage
 bbox** (or the full frame on realloc) into a persistent `malloc` buffer via
@@ -158,7 +158,7 @@ frame, and the hash is off fast memory. On a localized-change desktop `renderReg
 converts a small bbox and `reconcile` visits a handful of tiles, so both costs fall
 proportionally; that case is not measurable from inside the captured animating session.
 
-## Clean-gate crisp-OFF decomposition (sha 546b088, AGENTDESK_OWNED_MEDIA_CRISP_ENABLED=0)
+## Clean-gate crisp-OFF decomposition (sha 00d94e8, AGENTDESK_OWNED_MEDIA_CRISP_ENABLED=0)
 
 Added a first-class `AGENTDESK_OWNED_MEDIA_CRISP_ENABLED` master flag (replaces the
 min-interval hack). With it off, `processCrisp`/`processCrispDamage` are skipped at the
@@ -202,7 +202,7 @@ Takeaways:
   both crisp and the video feed shrink, leaving the send path + cursor poll as the dominant
   at-rest floor.
 
-## CursorMonitor seed-gating landed (sha a8223d3)
+## CursorMonitor seed-gating landed (sha 373c518)
 
 The steady crisp-off floor's top *content-independent* eater was `CursorMonitor`: it
 re-encoded the cursor to TIFF and SHA256-hashed it every 20Hz tick just to detect change.
@@ -226,7 +226,7 @@ cursor changes (the cursor changed a few times in the window), so it is cheaper,
 Regression is unit-locked by `constantSeedSkipsImageFingerprint` (static cursor ⇒ sampler
 touched once over 100 ticks). ~5-8 points off the crisp-off floor.
 
-## Lean floor: crisp OFF + thumbnails OFF + cursor-out-of-video (sha 984e4e8)
+## Lean floor: crisp OFF + thumbnails OFF + cursor-out-of-video (sha 57f051d)
 
 Everything reducible disabled at once, to isolate the irreducible streaming floor:
 `AGENTDESK_OWNED_MEDIA_CRISP_ENABLED=0`, `AGENTDESK_SPACE_THUMBNAILS_ENABLED=0`, and the

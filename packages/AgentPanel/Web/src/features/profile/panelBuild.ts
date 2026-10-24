@@ -13,7 +13,7 @@
 //     because the bundle is frozen. Under a dev server it is not: `define` is substituted once,
 //     when Vite loads its config, so the constant names the last SERVER RESTART and nothing else.
 //     Measured 2026-09-14, and it is why the id is re-read from the server rather than trusted:
-//     the chip read `f2dffa6+` while HEAD was `7373cec` and the tree was clean, two commits later.
+//     the chip read `7e8c84d+` while HEAD was `2cff18c` and the tree was clean, two commits later.
 //   - CONNECTEDNESS is what carries freshness. A tab still attached to the dev server is current
 //     by construction -- Vite pushes each change, and a module with no HMR boundary
 //     (`activityFeedLayout.ts`, say) makes it send a full reload. A tab that lost the socket is

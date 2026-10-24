@@ -125,7 +125,7 @@ final class DomMirrorClient: @unchecked Sendable {
     //
     // ADR-0047 scroll diagnostic: each send logs `waitedUs` (time it sat behind the prior send in the
     // serialized chain) and `sendUs` (the QUIC write itself). Under a 60Hz scroll drag, a growing
-    // waitedUs means the serialization -- the a0f5a44 fix -- is the head-of-line bottleneck (frames
+    // waitedUs means the serialization -- the 66cafe1 fix -- is the head-of-line bottleneck (frames
     // backing up faster than the stream drains); a growing sendUs means the QUIC write is the cost.
     private func enqueueSend(_ payload: Data, label: String) {
         let enqueuedNs = DispatchTime.now().uptimeNanoseconds

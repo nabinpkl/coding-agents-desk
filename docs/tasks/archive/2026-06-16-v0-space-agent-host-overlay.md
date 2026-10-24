@@ -227,7 +227,7 @@ R2        2026-05-20  committed   iOS client Xcode skeleton (bundled with R7)
 R3        2026-05-20  committed   Justfile with configurable iOS test destination
 R4        2026-05-20  committed   Xcode automatic free signing on both projects
 R5        2026-05-20  committed   LaunchAgent plist install via LaunchAgentInstaller
-D6        2026-05-20  committed   on-device launch confirmed (HANDOVER refresh, commit 1e2a913)
+D6        2026-05-20  committed   on-device launch confirmed (HANDOVER refresh, commit 5a78ff3)
 D7        2026-05-20  committed   S1 QR pairing host + client per ADR-0002 (#3)
 D8.1      2026-05-20  committed   ADR-0003 session establishment accepted; SPEC updated in same change
 D8.2      2026-05-20  committed   SessionAuthenticator on host with first-frame dispatcher

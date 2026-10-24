@@ -76,7 +76,7 @@ pinch:
   the pinch/two-finger pan take over.
 
 `handleVideoTouchScroll` is otherwise unchanged: it still primes on `.began`
-from content-view-space coords (the `2f0d1b2` fix) and clears
+from content-view-space coords (the `dbee771` fix) and clears
 `pendingCursorRetarget`.
 
 ## Why no wire or host change

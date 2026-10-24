@@ -149,7 +149,7 @@ public final class LinkChangeDetector: @unchecked Sendable {
     /// a calm screen does not register as a link change.
     ///
     /// Unfed in Phase 1. Both numbers exist only on the host, and deriving it client-side from
-    /// the arrival gap alone would reintroduce the false positive fixed in `ef649c86`, where a
+    /// the arrival gap alone would reintroduce the false positive fixed in `5ea66dda`, where a
     /// quiet host reads as a stalled link. Wired in Phase 3 with the host-side liveness work.
     public func noteStall(gapMs: Double, hostQuietMs: Double) {
         let event = LinkChangeEvent(

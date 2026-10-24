@@ -236,7 +236,7 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   reverse lookup keys exact Unicode scalar sequences, so all 392 model logits retain their original
   token IDs; the generator pins the transformed resource hash and the regression test covers that
   exact pair.
-- iOS 26.5 simulator verification at exact client build `6fa76a77` then fixed the post-inference
+- iOS 26.5 simulator verification at exact client build `97b39568` then fixed the post-inference
   crash on Core ML's padded `[1, 199, 392]` output. The analyzer now reads logits by logical
   coordinates instead of passing stride-derived storage offsets to the bounded `NSNumber`
   subscript, and a custom-stride regression test pins that case. All three saved synthetic smoke
@@ -355,7 +355,7 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - A caught phoneme-analysis result now advances the live host cache immediately. An OOM or other hard
   termination remains uncatchable in-process; the next launch records the prior unclean run and
   MetricKit crash metadata, then announces both after reconnect.
-- Manual iOS 26.5 simulator verification at `5f5f986b` observed all six rail controls, including the
+- Manual iOS 26.5 simulator verification at `bab11df9` observed all six rail controls, including the
   terminal button, before the first video frame. The deterministic test pattern and real
   ScreenCaptureKit source then both rendered visibly. This run also caught and fixed the rail-first
   late-mount regression that had left the video sink at zero extent while frames still decoded.
@@ -629,7 +629,7 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   dictionary asset, adjacent chunk merging, multiple independent lossless recordings, sample seeding
   and audio format, per-recording deletion, and the two-level three-card UI contract. The correction
   passed `just check-all`: 583 host tests and 425 client tests, plus all package, web, and Rust gates.
-- Manually verified the committed `b7d8a9a4` host and client on iPhone 17 / iOS 26.5 with
+- Manually verified the committed `acf71533` host and client on iPhone 17 / iOS 26.5 with
   `voice-passage-sample.yaml`. A fresh reanalysis was observed from start through saved completion,
   retained 27 raw-audio phones and 29 reference phones with no phone-analysis failure, replayed the
   saved sample to completion, and returned to the recordings library. The analyzed CAF retained
@@ -652,7 +652,7 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - `just check-all` passed with 583 host tests, 428 client tests, and every package, web, and Rust
   gate. The final alignment self-review added nearest-anchor coverage and the client suite then passed
   with 429 tests across 50 suites.
-- Manually verified the committed `086befa8` host and client on iPhone 17 / iOS 26.5 with
+- Manually verified the committed `7e3566c8` host and client on iPhone 17 / iOS 26.5 with
   `voice-passage-sample.yaml`. Reanalysis completed, saved-recording playback completed, and the app
   returned to the recordings library without exiting. The screenshot shows transcript-word phone
   groups flowing inline and wrapping only at available-width boundaries, with no fixed groups per
@@ -1495,7 +1495,7 @@ D211 acts on it. A link change arms recovery and sends a keyframe request; unans
 past a 2s grace declares the session dead and re-dials. Both conditions are load-bearing:
 firing on the change alone would tear down healthy sessions on transparent tailnet route
 switches, and firing on silence alone would reconnect a merely idle session -- the calm-screen
-false positive from `ef649c86`, worse here because acting on it drops a live session. The
+false positive from `5ea66dda`, worse here because acting on it drops a live session. The
 keyframe request is the probe that tells those apart. D210 makes a control send that never
 leaves the device say so, which is how the probe's own failure becomes visible.
 
@@ -1532,7 +1532,7 @@ ran ~244KB, so the Phase 2 keyframe probe is far too expensive to use as a poll.
 echo rather than a reused keyframe request.
 
 Two side findings from D208 worth keeping. The host's degradation machinery works -- `freeze`,
-`stall-recovery`, `no-ack-at-cap`, and a drop to rung 3, with the `ef649c86` stall fix running
+`stall-recovery`, `no-ack-at-cap`, and a drop to rung 3, with the `5ea66dda` stall fix running
 live and not producing its old calm-screen false positive. And this freeze was one-directional:
 67 of 82 client reports still arrived while `datagramsReceived` stayed 0, so the uplink survived
 and Phase 2 can plausibly signal over it.
@@ -2028,14 +2028,14 @@ default, unlike Claude.
   run had no way to say.
   Verified: `just sim-test` green, 706 tests, 8 new. NOT verified on hardware, and the wedge this
   targets has an undetermined cause, so the detector is sound and the remedy is a hypothesis.
-- D267. Authorized device run on the physical iPhone, host and client both at `7cd6fc38`, and the
+- D267. Authorized device run on the physical iPhone, host and client both at `bcbf0751`, and the
   first hardware evidence for D265. The background half is CONFIRMED: the console caught
   `requires-flush-changed detail=true` with `status=failed`, `displayedFrame=none` and
   AVFoundation `-11847 Operation Interrupted` (OSStatus `-12084`) -- the decoder being reclaimed,
   exactly as D265 argued from the code -- immediately followed by `detail=false`, the flag going
   back down, with `enqueued=1531` identical either side. No frame was enqueued between them, which
   rules out the in-decode recovery path and leaves `noteDecoderInvalidated` as the only flusher.
-  The same pull holds an old-build run (`53e8d083`) with the same background and foreground and
+  The same pull holds an old-build run (`88ef1f9a`) with the same background and foreground and
   zero `videoDecoderInvalidated`, so this is a before/after rather than a reading.
   The run also found a bug in D265. The client recorded three `foreground-resume` requests with
   `discardingReferences=true`; the host recorded NONE. Cause: background stops the transport but

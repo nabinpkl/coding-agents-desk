@@ -54,6 +54,6 @@ retain zoom, and a different document starts at fit-width.
 | D88 | 2026-07-17 | done | Word page geometry now opens fit-width and buttons or pinch scale the nested DOCX reader itself. |
 
 The viewer tests, `just check`, iOS application build, and focused iOS test build are green. The
-current `e7af127` build was installed and the real Assurance report was visually verified at fit-width
+current `ff8da2f` build was installed and the real Assurance report was visually verified at fit-width
 and below-fit overview zoom on the iOS simulator. R86 remains open for pinch, zoomed panning, and
 same-file refresh.

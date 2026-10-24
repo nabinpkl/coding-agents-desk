@@ -8,7 +8,7 @@ import AgentDeskWire
 // below its floor, so a bloated queue logged `at-emergency-floor` 126 times in one session with
 // nowhere left to go. Bitrate moves continuously in [floorKbps, ceilingKbps]; fps is DERIVED
 // from bitrate through the measured delta-frame cost, so every target carries its cadence in
-// bytes by construction (the cb74f8bf floor lesson, generalized); resolution never moves
+// bytes by construction (the 3fde94c1 floor lesson, generalized); resolution never moves
 // (ADR-0100).
 struct MediaQualityTarget: Equatable, Sendable {
     let bitrateKbps: Int
@@ -503,7 +503,7 @@ struct MediaQualityController {
     }
 
     /// The cadence a bitrate can actually carry: budget bytes-per-second over the per-frame
-    /// cost, clamped to [1, ceiling]. "A target carries its cadence in bytes" (cb74f8bf) made
+    /// cost, clamped to [1, ceiling]. "A target carries its cadence in bytes" (3fde94c1) made
     /// continuous -- there is no fps knob left to mis-set against the budget.
     private func derivedFps(forKbps kbps: Int) -> Int {
         let bytesPerSecond = Double(max(1, kbps)) * 1_000.0 / 8.0
@@ -1144,7 +1144,7 @@ struct QuicSessionHostMediaState {
     // only one it was told.
     private(set) var deliveryEstimator: LinkDeliveryEstimator
     // What a delta frame of THIS content actually costs on the wire, smoothed. The floor work
-    // (cb74f8bf) sized cadence from an offline measurement of this number (p50 4.8KB, mean
+    // (3fde94c1) sized cadence from an offline measurement of this number (p50 4.8KB, mean
     // 7.7KB); tracking it live is what lets a cadence be derived instead of configured. Delta
     // frames only: keyframes are session-start events (ADR-0100) and two orders of magnitude
     // off the cost this describes. nil until the first delta is sent.

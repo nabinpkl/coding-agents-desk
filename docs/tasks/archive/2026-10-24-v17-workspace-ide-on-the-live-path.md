@@ -282,8 +282,8 @@ Chrome for Testing checks the task names. Commit and push per repo policy.
 
 ## Checks every task re-runs (Chrome for Testing, scripts in the session scratchpad until promoted)
 
-- Scrolling up through a page load keeps the top row where it was (the paging check from b3cb20b3).
+- Scrolling up through a page load keeps the top row where it was (the paging check from db570676).
 - A wheel scroll up through one card gives the same sequence of sticky bars as before the task.
-- The six-card render and CPU probe does not regress against 7d42ae41. Measured 2026-10-06 with
+- The six-card render and CPU probe does not regress against 1724d4b8. Measured 2026-10-06 with
   all five tasks in, six cards scrolling for 20s: renderer 29.4% of a core against main's 32.7%,
   508 React commits against 493, the same 302 row renders.

@@ -6,7 +6,7 @@ Revision: 2 (reuse-based architecture after codebase mapping)
 
 ## Problem
 
-Under the current `alwaysVideo` media path, text is never pixel-perfect. Every region rides a lossy video codec, so static text reads soft. The adaptive ladder (ADR-0033) is smoothness-first: on a constrained link it spends raster resolution before fps, so the link settles at a reduced-resolution rung and text stays blurry even when nothing is moving. Recent staged-recovery work (commit 4341115) made the ladder climb back out of emergency, but the rung it climbs back to is still resolution-reduced, so the symptom (no crisp text after settling) persists. Raster downscale is the wrong lever for crispness; it is a smoothness lever.
+Under the current `alwaysVideo` media path, text is never pixel-perfect. Every region rides a lossy video codec, so static text reads soft. The adaptive ladder (ADR-0033) is smoothness-first: on a constrained link it spends raster resolution before fps, so the link settles at a reduced-resolution rung and text stays blurry even when nothing is moving. Recent staged-recovery work (commit daf186a) made the ladder climb back out of emergency, but the rung it climbs back to is still resolution-reduced, so the symptom (no crisp text after settling) persists. Raster downscale is the wrong lever for crispness; it is a smoothness lever.
 
 The insight that reframes the fix: at rest, crisp is nearly free. A static screen at full resolution costs one keyframe, then inter-frames collapse to almost nothing. The expensive thing is full resolution during motion. So crispness should be priced against motion, not against link capacity, and it should be delivered by a separate mechanism from the video carrier.
 
@@ -75,7 +75,7 @@ Residual window: a bounded interval equal to the revert command's stream latency
 
 ## Interaction with the existing ladder
 
-The ladder (ADR-0033) is untouched and keeps managing video smoothness. Because crispness no longer needs the high-resolution rungs, the ladder can stay smoothness-first without costing legibility. The 4341115 staged-recovery work remains valid; it now governs only the video carrier.
+The ladder (ADR-0033) is untouched and keeps managing video smoothness. Because crispness no longer needs the high-resolution rungs, the ladder can stay smoothness-first without costing legibility. The daf186a staged-recovery work remains valid; it now governs only the video carrier.
 
 ## SSOT note (surfaced debt)
 

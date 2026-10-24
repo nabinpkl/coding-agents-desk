@@ -18,7 +18,7 @@ delta costs:
 | Panel handler per delta | `onLiveTail`: `liveRows` only | `onEvent`: a new `events` map, `retireLiveRows` over every event, and `buildFeedLayout` over the whole session in `useFeedRows` |
 
 The per-delta writer is `OpencodeSessionPool.streamPart`, which calls `mapper.sync([message])`
-on every `session.text.*` / `session.reasoning.*` delta with no coalescing (since dd9d8ed1,
+on every `session.text.*` / `session.reasoning.*` delta with no coalescing (since d7c6a369,
 2026-09-25). On a long session every word rebuilds the feed's layout.
 
 What this cost first was scroll: content growing on every frame snapped the follower on every

@@ -30,4 +30,4 @@ Restore the macOS-only donor Git experience required by ADR-0054 without adding 
 | --- | --- | --- | --- |
 | D1-D4 | 2026-07-18 | done | Donor Git navigation is restored around one root-confined live status snapshot. |
 | D5 | 2026-07-18 | done | Six focused tests, all 537 host tests, diff hygiene, and final cross-file self-review are green. |
-| D6 | 2026-07-18 | done | Release build `7c0ea0f` passed live AX and window-scoped screenshot verification: one changed file, Source Control and Explorer selection, changed-file opening, and breadcrumb `.gitkeep  M` decoration. |
+| D6 | 2026-07-18 | done | Release build `c8950fd` passed live AX and window-scoped screenshot verification: one changed file, Source Control and Explorer selection, changed-file opening, and breadcrumb `.gitkeep  M` decoration. |

@@ -12,7 +12,7 @@ import type { PanelBuild } from "@/features/profile/panelBuild";
 
 function build(overrides: Partial<PanelBuild> = {}): PanelBuild {
   return {
-    id: "7373cec+",
+    id: "2cff18c+",
     connected: true,
     live: true,
     mode: "auto",

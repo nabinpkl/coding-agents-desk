@@ -65,25 +65,25 @@ describe("panel build id", () => {
 
   it("reads the tree from the dev server rather than trusting what was compiled in", async () => {
     // The measurement this exists for: `define` substitutes one reading when Vite loads its
-    // config, so the compiled constant names the last server restart. It read `f2dffa6+` while
-    // HEAD was `7373cec` and the tree was clean, two commits later.
+    // config, so the compiled constant names the last server restart. It read `7e8c84d+` while
+    // HEAD was `2cff18c` and the tree was clean, two commits later.
     const server = devServer();
-    const { asked } = serveBuild("7373cec");
+    const { asked } = serveBuild("2cff18c");
     const { result } = renderHook(() => usePanelBuild(server.hooks));
 
     expect(asked).toEqual([PANEL_BUILD_ROUTE]);
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
   });
 
   it("re-reads on every applied update, which is when the tree can have moved", async () => {
     const server = devServer();
-    const { asked } = serveBuild("7373cec");
+    const { asked } = serveBuild("2cff18c");
     const { result } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
-    serveBuild("2ec54a0+");
+    serveBuild("8b04310+");
     act(() => server.emit("vite:afterUpdate"));
-    await waitFor(() => expect(result.current.id).toBe("2ec54a0+"));
+    await waitFor(() => expect(result.current.id).toBe("8b04310+"));
     expect(asked).toEqual([PANEL_BUILD_ROUTE]);
   });
 
@@ -119,27 +119,27 @@ describe("dev server connection", () => {
 
   it("goes stale when the page stops hearing from the dev server, and back on reconnect", async () => {
     const server = devServer();
-    serveBuild("7373cec");
+    serveBuild("2cff18c");
     const { result } = renderHook(() => usePanelBuild(server.hooks));
     // Settle the mount read first, so its state lands inside the test rather than after it.
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
     expect(result.current.connected).toBe(true);
     act(() => server.emit("vite:ws:disconnect"));
     expect(result.current.connected).toBe(false);
 
     // Coming back re-reads too: the tree is exactly what may have moved while the page was deaf.
-    serveBuild("723fcbe");
+    serveBuild("a40196a");
     act(() => server.emit("vite:ws:connect"));
     expect(result.current.connected).toBe(true);
-    await waitFor(() => expect(result.current.id).toBe("723fcbe"));
+    await waitFor(() => expect(result.current.id).toBe("a40196a"));
   });
 
   it("stops listening to the publisher too when the row unmounts", async () => {
     const server = devServer();
-    serveBuild("7373cec");
+    serveBuild("2cff18c");
     const { result, unmount } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
     expect(server.listening(PANEL_PUBLISH_EVENT)).toBe(1);
     unmount();
@@ -148,9 +148,9 @@ describe("dev server connection", () => {
 
   it("stops listening when the row unmounts", async () => {
     const server = devServer();
-    serveBuild("7373cec");
+    serveBuild("2cff18c");
     const { result, unmount } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
     expect(server.listening("vite:ws:disconnect")).toBe(1);
     expect(server.listening("vite:afterUpdate")).toBe(1);
@@ -167,7 +167,7 @@ describe("work the dev server is holding", () => {
   it("reads what is held and why from the same route as the build", async () => {
     const server = devServer();
     serveReport({
-      build: "7373cec+",
+      build: "2cff18c+",
       held: ["ActivityBlockViews.tsx", "panelBuild.ts"],
       blocked: "ActivityBlockViews.tsx: Unexpected end of file (line 412)",
       sidecars: [],
@@ -180,13 +180,13 @@ describe("work the dev server is holding", () => {
 
   it("takes a pushed report without asking again", async () => {
     const server = devServer();
-    const { asked } = serveReport({ build: "7373cec" });
+    const { asked } = serveReport({ build: "2cff18c" });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
     act(() =>
       server.emit(PANEL_PUBLISH_EVENT, {
-        build: "7373cec+",
+        build: "2cff18c+",
         held: ["main.tsx"],
         blocked: "main.tsx: Syntax Error",
         sidecars: [],
@@ -203,7 +203,7 @@ describe("work the dev server is holding", () => {
   it("carries what each machine's supervisor is holding", async () => {
     const server = devServer();
     serveReport({
-      build: "7373cec",
+      build: "2cff18c",
       sidecars: [
         { machine: "oracle", held: true, blocked: "sessionRoutes.ts: Syntax Error", mode: "auto", behind: false },
       ],
@@ -217,10 +217,10 @@ describe("work the dev server is holding", () => {
 
   it("reads a sidecar report that is not the contract as no supervisor at all", async () => {
     const server = devServer();
-    serveReport({ build: "7373cec", sidecars: "not a list" as never });
+    serveReport({ build: "2cff18c", sidecars: "not a list" as never });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
 
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
     expect(result.current.sidecars).toEqual([]);
   });
 
@@ -245,18 +245,18 @@ describe("choosing when updates arrive", () => {
 
   it("knows it has one the moment it is wired to a server, before the first answer", async () => {
     const server = devServer();
-    serveReport({ build: "7373cec" });
+    serveReport({ build: "2cff18c" });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
     // Derived rather than fetched: a state that started false would flicker the control off on
     // every mount.
     expect(result.current.live).toBe(true);
     // Settle the mount read so its state lands inside the test rather than after it.
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
   });
 
   it("reads the mode off the same report as everything else", async () => {
     const server = devServer();
-    serveReport({ build: "7373cec", mode: "manual", held: ["main.tsx"] });
+    serveReport({ build: "2cff18c", mode: "manual", held: ["main.tsx"] });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
     await waitFor(() => expect(result.current.mode).toBe("manual"));
   });
@@ -265,17 +265,17 @@ describe("choosing when updates arrive", () => {
     // A report that lost this field should leave the panel updating, not silently stop showing the
     // reader their own edits.
     const server = devServer();
-    serveReport({ build: "7373cec", mode: "sometimes" as never });
+    serveReport({ build: "2cff18c", mode: "sometimes" as never });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
     expect(result.current.mode).toBe("auto");
   });
 
   it("tells the server, and takes the answer rather than asking again", async () => {
     const server = devServer();
-    const { asked } = serveReport({ build: "7373cec", mode: "manual" });
+    const { asked } = serveReport({ build: "2cff18c", mode: "manual" });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
     act(() => result.current.setMode("manual"));
     await waitFor(() => expect(result.current.mode).toBe("manual"));
@@ -289,9 +289,9 @@ describe("choosing when updates arrive", () => {
 
   it("asks for what is waiting without leaving manual", async () => {
     const server = devServer();
-    const { asked } = serveReport({ build: "7373cec", mode: "manual" });
+    const { asked } = serveReport({ build: "2cff18c", mode: "manual" });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
     act(() => result.current.apply());
     await waitFor(() =>
@@ -304,9 +304,9 @@ describe("choosing when updates arrive", () => {
 
   it("restarts the sidecars as its own command, apart from applying", async () => {
     const server = devServer();
-    const { asked } = serveReport({ build: "7373cec", mode: "manual" });
+    const { asked } = serveReport({ build: "2cff18c", mode: "manual" });
     const { result } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
     act(() => result.current.restartSidecars());
     await waitFor(() =>
@@ -328,14 +328,14 @@ describe("choosing when updates arrive", () => {
         const method = init?.method ?? "GET";
         asked.push({ url: String(input), method });
         if (method === "POST") return new Response("no", { status: 400 });
-        return new Response(JSON.stringify({ build: "7373cec", mode: "auto" }), {
+        return new Response(JSON.stringify({ build: "2cff18c", mode: "auto" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
       }),
     );
     const { result } = renderHook(() => usePanelBuild(server.hooks));
-    await waitFor(() => expect(result.current.id).toBe("7373cec"));
+    await waitFor(() => expect(result.current.id).toBe("2cff18c"));
 
     act(() => result.current.setMode("manual"));
     await waitFor(() => expect(asked).toHaveLength(3));
