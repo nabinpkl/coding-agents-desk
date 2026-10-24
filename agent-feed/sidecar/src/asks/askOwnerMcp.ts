@@ -38,13 +38,13 @@ const STALL_MS = 60_000;
 const REFUSALS_BEFORE_STOP = 3;
 
 const DESCRIPTION = [
-  "Ask the owner, the owner, up to five questions and wait for the answers.",
-  "Use this ONLY when the owner, or the brief you were given, tells you to ask the owner or to use ask_owner;",
-  "otherwise ask with AskUserQuestion as usual.",
+  "Ask the owner, the person you work for, up to five questions and wait for the answers.",
+  "Use this ONLY when the owner, or the brief you were given, tells you to ask them (by their name or as",
+  "the owner) or to use ask_owner; otherwise ask with AskUserQuestion as usual.",
   'Each question is answered by picking one option ("single"), any of them ("multi"), or in words',
   '("text", which has no options). An option can carry a description, a preformatted preview, and a',
-  'noteLabel such as "Why?" that invites a note on it. the owner can always add a note or answer in words.',
-  "the owner answers when they see it, which can take a long time. If the call moves to the background,",
+  'noteLabel such as "Why?" that invites a note on it. The owner can always add a note or answer in words.',
+  "The owner answers when they see it, which can take a long time. If the call moves to the background,",
   "stop and wait for its result. Never call ask_owner again while one is waiting, and do not ask the",
   "same questions again after the owner closes them without answering.",
 ].join(" ");
@@ -156,7 +156,7 @@ async function readVerdict(body: ReadableStream<Uint8Array>, heard: () => void):
 
 /** The answers as the model reads them: each question, then what the owner said. */
 export function answeredText(questions: AskOwnerCall["questions"], answers: readonly AskOwnerAnswer[]): string {
-  const lines = ["the owner answered:"];
+  const lines = ["The owner answered:"];
   for (const answer of answers) {
     const asked = questions.find((each) => each.id === answer.id);
     lines.push(`- ${answer.id}: ${asked?.question ?? ""}`);
@@ -169,8 +169,8 @@ export function answeredText(questions: AskOwnerCall["questions"], answers: read
 }
 
 const DISMISSED =
-  "the owner closed these questions without answering. Do not ask them again on your own: carry on with " +
-  "what you have, or say in your reply what you still need from the owner.";
+  "The owner closed these questions without answering. Do not ask them again on your own: carry on with " +
+  "what you have, or say in your reply what you still need from them.";
 
 export function createAskOwnerMcpServer(deps: AskOwnerDependencies): McpServer {
   const server = new McpServer({ name: ASK_OWNER_SERVER, version: "0.1.0" });

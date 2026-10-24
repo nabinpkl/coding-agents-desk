@@ -11,8 +11,8 @@ export function AskOwnerCard({ model }: { model: AskOwnerModel }) {
   const only = call.questions.length === 1 ? call.questions[0] : undefined;
   return (
     <QuestionFrame
-      label="Claude asks the owner"
-      name="Claude's question for the owner"
+      label="Claude asks you"
+      name="Claude's question for you"
       questions={call.questions}
       answered={model.answered}
       pending={model.pending}

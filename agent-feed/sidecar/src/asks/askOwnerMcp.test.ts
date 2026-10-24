@@ -111,7 +111,7 @@ test("tells the model each answer under its question", () => {
     ]),
   ).toBe(
     [
-      "the owner answered:",
+      "The owner answered:",
       "- auth: Which auth method?",
       '  - chose "OAuth", with the note: we use Google',
       "- name: What should it be called?",
