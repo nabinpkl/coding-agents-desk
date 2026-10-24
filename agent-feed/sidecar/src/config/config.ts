@@ -10,7 +10,7 @@ import {
   integerEnvironment,
   urlEnvironment,
 } from "@/config/configEnvironment";
-import { botsPath, sessionArchivePath, webPushPath } from "@/config/configStores";
+import { botsPath, sessionArchivePath, webPushPath, webPushSenderPath } from "@/config/configStores";
 import { composerHandlesPath, composerImageDirectory } from "@/config/configComposer";
 import { contextWindowEnvironment, contextWindowIn } from "@/config/contextWindows";
 import { ripgrepBinary, tmuxBinary, yabaiBinary } from "@/config/configBinaries";
@@ -126,6 +126,11 @@ export const config = {
   // Web push (`push/`). The subject is the contact a push service may use about this sender; Apple
   // refuses a localhost one, so it is a public URL rather than this machine's name.
   webPushSubject: process.env.AGENT_FEED_WEB_PUSH_SUBJECT?.trim() || "https://github.com/nabinpkl/agent-desk",
+  webPushSenderPath,
+  // A push when a Claude session in a Bot finishes its turn (`push/turnFinishedNotifier.ts`), sent
+  // only once the turn has stayed closed this long: a turn that opens again inside it sends nothing.
+  pushTurnFinished: booleanEnvironment("AGENT_FEED_PUSH_TURN_FINISHED", true),
+  pushQuietMs: integerEnvironment("AGENT_FEED_PUSH_QUIET_MS", 10_000, 0, 10 * 60_000),
   claudeLiveEnabled: booleanEnvironment("AGENT_FEED_CLAUDE_LIVE_ENABLED", true),
   claudeLiveReconnectMs: integerEnvironment("AGENT_FEED_CLAUDE_LIVE_RECONNECT_MS", 1000, 50, 60_000),
   claudeLiveReconnectMaxMs: integerEnvironment("AGENT_FEED_CLAUDE_LIVE_RECONNECT_MAX_MS", 30_000, 1_000, 5 * 60_000),

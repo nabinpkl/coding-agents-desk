@@ -92,6 +92,7 @@ import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpenco
 import { createHubRoutes } from "@/messaging/hubRoutes";
 import { createPushRoutes } from "@/push/pushRoutes";
 import { startLiveTurnFinishedNotifier } from "@/push/liveTurnFinished";
+import { startLiveTurnFinishedNotifier } from "@/push/liveTurnFinished";
 import { sendPush } from "@/push/pushSender";
 import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
@@ -147,6 +148,8 @@ const botCatalog: BotRegistryCatalog = {
 const botRegistry = new BotRegistry(botStore, botCatalog);
 // Closes Claude sessions that are off the canvas and have gone quiet; see the module for the rules.
 startLiveIdleSessionSweep(botStore);
+// A push to every subscribed device when a Claude session in a Bot finishes its turn.
+startLiveTurnFinishedNotifier(botStore);
 // A push to every subscribed device when a Claude session in a Bot finishes its turn.
 startLiveTurnFinishedNotifier(botStore);
 // Asked now rather than at the first launch, which would otherwise wait on the user's ~/.zshrc.

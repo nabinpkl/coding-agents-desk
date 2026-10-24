@@ -27,3 +27,6 @@ export const sessionArchivePath = resolve(
 export const webPushPath = resolve(
   process.env.AGENT_FEED_WEB_PUSH_PATH?.trim() || join(storeDirectory, "web-push.json"),
 );
+
+/** Which sidecar sends the notifications this machine raises on its own (`push/pushSenderLease.ts`). */
+export const webPushSenderPath = `${webPushPath}.sender`;

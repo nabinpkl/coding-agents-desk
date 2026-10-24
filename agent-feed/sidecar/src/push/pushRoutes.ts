@@ -18,14 +18,9 @@ import {
 } from "@agentdesk/agent-feed-wire";
 import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
-import type { PushOutcome, PushPayload, PushSubscriptionKeys, VapidKeys } from "@/push/pushSender";
-import {
-  addSubscription,
-  ensureVapidKeys,
-  parseSubscription,
-  readPushState,
-  removeSubscriptions,
-} from "@/push/pushStore";
+import { pushToAll, type PushSend } from "@/push/pushFanout";
+import type { PushPayload } from "@/push/pushSender";
+import { addSubscription, ensureVapidKeys, parseSubscription } from "@/push/pushStore";
 
 /** Apple (Safari and Home Screen web apps), Google (Chrome), Mozilla, Microsoft. */
 const PUSH_SERVICE_HOSTS = ["push.apple.com", "fcm.googleapis.com", "push.services.mozilla.com", "notify.windows.com"];
@@ -44,12 +39,7 @@ export function isPushServiceEndpoint(endpoint: string): boolean {
 export type PushRouteOptions = {
   path: string;
   subject: string;
-  send: (
-    subscription: PushSubscriptionKeys,
-    payload: PushPayload,
-    vapid: VapidKeys,
-    subject: string,
-  ) => Promise<PushOutcome>;
+  send: PushSend;
   now?: () => Date;
 };
 
@@ -70,32 +60,16 @@ async function subscribe(request: Request, options: PushRouteOptions): Promise<R
 }
 
 async function sendTest(options: PushRouteOptions): Promise<Response> {
-  const state = await readPushState(options.path);
-  if (!state || state.subscriptions.length === 0) {
-    return errorResponse("no_subscriptions", "no device has allowed notifications yet", 409);
-  }
   const payload: PushPayload = {
     title: "AgentDesk",
     body: `Test notification from ${hostname()}`,
     url: "/?entry=feed&view=canvas",
     tag: "push-test",
   };
-  // Settled rather than all: one device whose push service cannot be reached must not cost the
-  // others their report, or the cleanup of the ones a service called gone. Each is one request with
-  // no retry; a failure is reported as status 0 and the next send tries again.
-  const settled = await Promise.allSettled(
-    state.subscriptions.map((subscription) => options.send(subscription, payload, state.vapid, options.subject)),
-  );
-  const outcomes = settled.map((result, index): PushOutcome => {
-    if (result.status === "fulfilled") return result.value;
-    const endpoint = state.subscriptions[index]?.endpoint ?? "";
-    console.warn(`[push] sending to ${new URL(endpoint).host} failed`, result.reason);
-    return { endpoint, status: 0, gone: false };
-  });
-  await removeSubscriptions(
-    options.path,
-    outcomes.filter((outcome) => outcome.gone).map((outcome) => outcome.endpoint),
-  );
+  const outcomes = await pushToAll(options.path, payload, options.subject, options.send);
+  if (outcomes.length === 0) {
+    return errorResponse("no_subscriptions", "no device has allowed notifications yet", 409);
+  }
   const answer: PushTestResponse = {
     sent: outcomes.map((outcome) => ({
       host: new URL(outcome.endpoint).host,
