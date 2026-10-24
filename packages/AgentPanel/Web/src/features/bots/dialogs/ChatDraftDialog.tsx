@@ -136,8 +136,7 @@ export function ChatDraftDialog({
         </header>
         <section className="flex min-h-0 flex-1 flex-col justify-end bg-background" aria-label="New chat">
           {/* What sending does, in the space the transcript will fill. Said because none of it can
-              be seen from here: where the chat runs, that nothing exists until the message is sent,
-              and the keys, which have no control of their own. */}
+              be seen from here: where the chat runs, and that nothing exists until it is sent. */}
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-y-auto px-6 py-8 text-center">
             <span className="flex size-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
               <MessagesSquare className="size-8" aria-hidden />
@@ -146,11 +145,6 @@ export function ChatDraftDialog({
             <p className="m-0 max-w-sm text-balance text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
               Your first message starts Claude in a new folder made for this chat alone
               {machines.length > 1 ? ` on ${machine.label}` : ""}. Nothing is created until you send it.
-            </p>
-            <p className="m-0 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
-              <kbd className="rounded border border-border px-1 font-sans text-[11px] leading-4">Enter</kbd> sends,{" "}
-              <kbd className="rounded border border-border px-1 font-sans text-[11px] leading-4">Shift</kbd>+
-              <kbd className="rounded border border-border px-1 font-sans text-[11px] leading-4">Enter</kbd> adds a line
             </p>
           </div>
           {/* The width the session view gives its message box, so the field stays put on send. */}
