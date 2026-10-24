@@ -1,7 +1,7 @@
 // Text to speech with macOS's own `say`, and samples to AAC in ADTS framing with `afconvert`.
 //
 // Both ship with macOS, so the sidecar speaks with no dependency and no network. Speaking and
-// encoding are two steps so noise can be mixed into the samples between them (`pcmAudio.ts`).
+// encoding are two steps so a message can be mixed into the noise between them (`noiseBed.ts`).
 //
 // Encoded at a constant bitrate, not by `say` itself. `say` writes ADTS directly, but variable
 // bitrate (it ignores `--bit-rate`), and silence then costs 11 bytes a frame: a stream of it
@@ -21,14 +21,6 @@ const AFCONVERT_BINARY = "/usr/bin/afconvert";
 
 /** 32 kbit/s: about 4 KB a second whatever is being said, and plenty for one voice. */
 const BITS_PER_SECOND = 32_000;
-
-/**
- * Frames dropped from each end of an encoding. An encoder's first frames ramp up from nothing and
- * its last one flushes, so pieces encoded apart dipped where they met: under steady noise, a gap
- * of quiet at every join. Speech starts and ends in its own silence, so nothing said is lost.
- */
-const TRIM_START_FRAMES = 3;
-const TRIM_END_FRAMES = 2;
 
 async function run(argv: string[]): Promise<void> {
   const child = Bun.spawn(argv, { stdout: "ignore", stderr: "pipe" });
@@ -54,8 +46,11 @@ export function speakToSamples(text: string): Promise<Int16Array> {
   });
 }
 
-/** `samples` as ADTS frames, with each end trimmed so pieces encoded apart join cleanly. */
-export function encodeToAdts(samples: Int16Array): Promise<AdtsFrame[]> {
+/**
+ * `samples` as ADTS frames, all of them: the encoder's own delay and ramp included, which a caller
+ * that splices encodings together accounts for (`noiseBed.ts`).
+ */
+export function encodeAdtsFrames(samples: Int16Array): Promise<AdtsFrame[]> {
   return inScratchDirectory(async (directory) => {
     const input = join(directory, "samples.wav");
     const output = join(directory, "samples.aac");
@@ -63,7 +58,6 @@ export function encodeToAdts(samples: Int16Array): Promise<AdtsFrame[]> {
     // `-s 0` is the constant-bitrate strategy.
     const encoding = ["-f", "adts", "-d", "aac", "-b", String(BITS_PER_SECOND), "-s", "0"];
     await run([AFCONVERT_BINARY, ...encoding, input, output]);
-    const frames = splitAdtsFrames(new Uint8Array(await readFile(output)));
-    return frames.slice(TRIM_START_FRAMES, Math.max(TRIM_START_FRAMES, frames.length - TRIM_END_FRAMES));
+    return splitAdtsFrames(new Uint8Array(await readFile(output)));
   });
 }

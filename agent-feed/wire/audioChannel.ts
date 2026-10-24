@@ -5,10 +5,11 @@
 // start on a locked screen. So the sidecar keeps one stream playing, silence between messages.
 
 /**
- * `GET /api/audio/stream?listener=<id>&noise=<level>`: AAC (ADTS), paced in real time, a bed of white
- * noise at `level` (0 is silence) with agents' messages over it, for as long as the listener stays.
+ * `GET /api/audio/stream?listener=<id>&noise=<level>&color=<color>`: AAC (ADTS), paced in real time,
+ * a bed of noise in `color` at `level` (0 is silence) with agents' messages over it, for as long as
+ * the listener stays.
  *
- * `listener` names the device, so its noise level can change without reconnecting and two
+ * `listener` names the device, so its noise can change without reconnecting and two
  * connections from one device (a phone probes a stream before playing it) count as one listener.
  * Resuming is connecting again.
  */
@@ -18,12 +19,21 @@ export const AUDIO_STREAM_ROUTE = "/api/audio/stream";
 export const AUDIO_NOISE_LEVEL_MAX = 10;
 
 /**
- * `POST /api/audio/noise`: set a listening device's noise level, heard once what the stream has
- * already sent ahead has played. 404 when that device has no stream open.
+ * The noise a device can pick. White is even across every pitch, a hiss. Pink falls off as pitch
+ * rises, which the ear hears as even: rain, a radio between stations. Brown falls off faster still:
+ * a low rumble, surf.
+ */
+export const AUDIO_NOISE_COLORS = ["white", "pink", "brown"] as const;
+
+export type AudioNoiseColor = (typeof AUDIO_NOISE_COLORS)[number];
+
+/**
+ * `POST /api/audio/noise`: set a listening device's noise level, color or both, heard once what the
+ * stream has already sent ahead has played. 404 when that device has no stream open.
  */
 export const AUDIO_NOISE_ROUTE = "/api/audio/noise";
 
-export type AudioNoiseRequest = { listener: string; level: number };
+export type AudioNoiseRequest = { listener: string; level?: number; color?: AudioNoiseColor };
 
 /**
  * `POST /api/audio/speak`: say `text` on every audio stream open now, at its next gap. How an agent

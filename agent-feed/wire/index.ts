@@ -367,12 +367,14 @@ export type { PushKeyResponse, PushTestResponse } from "./webPush.ts";
 export { PUSH_KEY_ROUTE, PUSH_SUBSCRIPTIONS_ROUTE, PUSH_TEST_ROUTE } from "./webPush.ts";
 export type {
   AudioListenersResponse,
+  AudioNoiseColor,
   AudioNoiseRequest,
   AudioSpeakRequest,
   AudioSpeakResponse,
 } from "./audioChannel.ts";
 export {
   AUDIO_LISTENERS_ROUTE,
+  AUDIO_NOISE_COLORS,
   AUDIO_NOISE_LEVEL_MAX,
   AUDIO_NOISE_ROUTE,
   AUDIO_SPEAK_MAX_CHARS,

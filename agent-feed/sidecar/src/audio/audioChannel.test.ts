@@ -5,67 +5,64 @@ import {
   AUDIO_SPEAK_MAX_CHARS,
   AUDIO_SPEAK_ROUTE,
 } from "@agentdesk/agent-feed-wire";
-import type { AdtsFrame } from "@/audio/adtsFrames";
 import { createAudioChannel, createAudioChannelRoutes, speakableText } from "@/audio/audioChannel";
+import { SAMPLE_RATE } from "@/audio/pcmAudio";
 
-/** One frame per level a message was mixed at, its bytes the level's loudest sample, so a test can read back which mix it got. */
-function fakeSpeech() {
+/** Speech that is two seconds of nothing, recording what it was asked to say. */
+function fakeSpeak() {
   const said: string[] = [];
-  const mixes: number[] = [];
-  return {
-    said,
-    mixes,
-    speak: (text: string) => {
-      said.push(text);
-      return Promise.resolve(new Int16Array(4));
-    },
-    encode: (samples: Int16Array) => {
-      const loudest = Math.max(...samples.map(Math.abs));
-      mixes.push(loudest);
-      const frame: AdtsFrame = { bytes: new Uint8Array([loudest & 0xff]), durationMs: 46.4 };
-      return Promise.resolve([frame, frame]);
-    },
+  const speak = (text: string) => {
+    said.push(text);
+    return Promise.resolve(new Int16Array(2 * SAMPLE_RATE));
   };
+  return { said, speak };
 }
 
-/** Noise at full swing, so a level's mix is told apart by its loudest sample. */
-const loudest = () => 1;
+const PINK_3 = { level: 3, color: "pink" } as const;
 
 describe("the audio channel", () => {
-  test("speaks once, mixes once per level in use, and gives each device its own level's mix", async () => {
-    const speech = fakeSpeech();
-    const channel = createAudioChannel(speech, loudest);
-    const heard = new Map<string, AdtsFrame[][]>([
-      ["phone", []],
-      ["mac", []],
-    ]);
-    channel.listen("phone", 5, (frames) => heard.get("phone")?.push(frames));
-    channel.listen("mac", 0, (frames) => heard.get("mac")?.push(frames));
+  test("speaks a message once and hands its samples to every stream of every device", async () => {
+    const { said, speak } = fakeSpeak();
+    const channel = createAudioChannel(speak);
+    const heard: Int16Array[] = [];
+    channel.listen("phone", PINK_3, (speech) => heard.push(speech));
+    channel.listen("phone", PINK_3, (speech) => heard.push(speech));
+    channel.listen("mac", { level: 0, color: "white" }, (speech) => heard.push(speech));
 
-    expect(await channel.say("Build finished.")).toEqual({ listeners: 2, durationMs: 93 });
-    expect(speech.said).toEqual(["Build finished."]);
-    expect(speech.mixes.toSorted((a, b) => a - b)).toEqual([0, 2458]); // 0.3 * (5/10)^2 of 32767, rounded
-    expect(heard.get("mac")?.[0]?.[0]?.bytes[0]).toBe(0);
-    expect(heard.get("phone")?.[0]?.[0]?.bytes[0]).toBe(2458 & 0xff);
+    expect(await channel.say("Build finished.")).toEqual({ listeners: 2, durationMs: 2000 });
+    expect(said).toEqual(["Build finished."]);
+    expect(heard.length).toBe(3);
+    expect(new Set(heard).size).toBe(1);
   });
 
   test("counts a device once however many streams it has open, and lets it go with the last", () => {
-    const channel = createAudioChannel(fakeSpeech(), loudest);
-    const probe = channel.listen("phone", 3, () => {});
-    const playing = channel.listen("phone", 3, () => {});
+    const channel = createAudioChannel(fakeSpeak().speak);
+    const probe = channel.listen("phone", PINK_3, () => {});
+    const playing = channel.listen("phone", PINK_3, () => {});
     expect(channel.listening()).toBe(1);
     probe();
     expect(channel.listening()).toBe(1);
-    expect(channel.level("phone")).toBe(3);
+    expect(channel.noise("phone")).toEqual(PINK_3);
     playing();
     expect(channel.listening()).toBe(0);
-    expect(channel.setLevel("phone", 4)).toBe(false);
+    expect(channel.setNoise("phone", { level: 4 })).toBe(false);
+  });
+
+  test("changes a device's level and color apart, and keeps levels to whole steps from 0 to 10", () => {
+    const channel = createAudioChannel(fakeSpeak().speak);
+    channel.listen("phone", PINK_3, () => {});
+    channel.setNoise("phone", { color: "brown" });
+    expect(channel.noise("phone")).toEqual({ level: 3, color: "brown" });
+    channel.setNoise("phone", { level: 7.4 });
+    expect(channel.noise("phone")).toEqual({ level: 7, color: "brown" });
+    channel.setNoise("phone", { level: 99 });
+    expect(channel.noise("phone").level).toBe(10);
   });
 
   test("with nobody listening it says so and speaks nothing", async () => {
-    const speech = fakeSpeech();
-    expect(await createAudioChannel(speech, loudest).say("Anyone?")).toEqual({ listeners: 0, durationMs: 0 });
-    expect(speech.said).toEqual([]);
+    const { said, speak } = fakeSpeak();
+    expect(await createAudioChannel(speak).say("Anyone?")).toEqual({ listeners: 0, durationMs: 0 });
+    expect(said).toEqual([]);
   });
 
   test("an agent's text cannot carry say's own [[commands]]", () => {
@@ -84,41 +81,41 @@ describe("the channel's routes", () => {
   };
 
   test("speak answers how many devices it reached, and refuses with nobody listening", async () => {
-    const speech = fakeSpeech();
-    const channel = createAudioChannel(speech, loudest);
+    const { said, speak } = fakeSpeak();
+    const channel = createAudioChannel(speak);
     expect((await call(channel, AUDIO_SPEAK_ROUTE, { text: "Hello?" }))?.status).toBe(409);
-    expect(speech.said).toEqual([]);
-    channel.listen("phone", 0, () => {});
+    expect(said).toEqual([]);
+    channel.listen("phone", PINK_3, () => {});
     const response = await call(channel, AUDIO_SPEAK_ROUTE, { text: "Tests are green." });
     expect(response?.status).toBe(200);
-    expect(await response?.json()).toEqual({ listeners: 1, durationMs: 93 });
+    expect(await response?.json()).toEqual({ listeners: 1, durationMs: 2000 });
   });
 
   test("speak refuses a message with nothing to say, or too much, rather than cutting it", async () => {
-    const channel = createAudioChannel(fakeSpeech(), loudest);
-    channel.listen("phone", 0, () => {});
+    const channel = createAudioChannel(fakeSpeak().speak);
+    channel.listen("phone", PINK_3, () => {});
     expect((await call(channel, AUDIO_SPEAK_ROUTE, "not json"))?.status).toBe(400);
     expect((await call(channel, AUDIO_SPEAK_ROUTE, { text: " [[ ]] " }))?.status).toBe(400);
     expect((await call(channel, AUDIO_SPEAK_ROUTE, { words: "hi" }))?.status).toBe(400);
     expect((await call(channel, AUDIO_SPEAK_ROUTE, { text: "a".repeat(AUDIO_SPEAK_MAX_CHARS + 1) }))?.status).toBe(413);
   });
 
-  test("noise sets a listening device's level, and only a listening one's", async () => {
-    const channel = createAudioChannel(fakeSpeech(), loudest);
+  test("noise changes a listening device's level or color, and only a listening one's", async () => {
+    const channel = createAudioChannel(fakeSpeak().speak);
     expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone", level: 4 }))?.status).toBe(404);
-    channel.listen("phone", 2, () => {});
-    expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone", level: 7.4 }))?.status).toBe(204);
-    expect(channel.level("phone")).toBe(7);
-    expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone", level: 99 }))?.status).toBe(204);
-    expect(channel.level("phone")).toBe(10);
+    channel.listen("phone", PINK_3, () => {});
+    expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone", color: "brown", level: 5 }))?.status).toBe(204);
+    expect(channel.noise("phone")).toEqual({ level: 5, color: "brown" });
+    expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone", color: "blue" }))?.status).toBe(400);
     expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone" }))?.status).toBe(400);
+    expect(channel.noise("phone")).toEqual({ level: 5, color: "brown" });
   });
 
   test("listeners counts the devices listening now", async () => {
-    const channel = createAudioChannel(fakeSpeech(), loudest);
+    const channel = createAudioChannel(fakeSpeak().speak);
     const count = async () => (await call(channel, AUDIO_LISTENERS_ROUTE))?.json();
     expect(await count()).toEqual({ listeners: 0 });
-    const leave = channel.listen("phone", 0, () => {});
+    const leave = channel.listen("phone", PINK_3, () => {});
     expect(await count()).toEqual({ listeners: 1 });
     leave();
     expect(await count()).toEqual({ listeners: 0 });

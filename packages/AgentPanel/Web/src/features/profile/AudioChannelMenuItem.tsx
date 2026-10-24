@@ -1,16 +1,17 @@
 // The Profile menu's audio channel entries: listen to what agents say, pause and resume, stop, and
-// how loud the bed of noise under them is on this device.
+// which bed of noise plays under them on this device, and how loud.
 //
 // The player itself is `audioChannelPlayer.ts`, outside React, so listening outlives this menu; the
 // menu reads where it got to when it is opened again.
 
 import { useSyncExternalStore } from "react";
 import { Pause, Play, Square, Volume2 } from "lucide-react";
-import { AUDIO_NOISE_LEVEL_MAX } from "@agentdesk/agent-feed-wire";
+import { AUDIO_NOISE_COLORS, AUDIO_NOISE_LEVEL_MAX } from "@agentdesk/agent-feed-wire";
 import {
   audioChannelState,
   pauseListening,
   resumeListening,
+  setNoiseColor,
   setNoiseLevel,
   startListening,
   stopListening,
@@ -58,6 +59,23 @@ export function AudioChannelMenuItem() {
         />
         <span className="w-6 shrink-0 text-right tabular-nums">{channel.noise === 0 ? "off" : channel.noise}</span>
       </label>
+      <div role="radiogroup" aria-label="Noise color" className="flex gap-1 border-t border-border px-3 py-2">
+        {AUDIO_NOISE_COLORS.map((color) => (
+          <button
+            key={color}
+            type="button"
+            role="radio"
+            aria-checked={channel.color === color}
+            onClick={() => setNoiseColor(color)}
+            className="flex-1 rounded-md border border-border px-2 py-1 text-xs capitalize transition-colors
+              hover:bg-accent hover:text-accent-foreground active:bg-accent/80 focus-visible:outline-2
+              focus-visible:outline-offset-1 focus-visible:outline-primary aria-checked:border-primary
+              aria-checked:bg-primary aria-checked:text-primary-foreground"
+          >
+            {color}
+          </button>
+        ))}
+      </div>
       {channel.status ? (
         <p role="status" className="border-t border-border px-3 py-1.5 text-xs break-words text-muted-foreground">
           {channel.status}

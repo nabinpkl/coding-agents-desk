@@ -1,6 +1,6 @@
 // The audio channel's player: one `<audio>` element on the sidecar's stream, outside React.
 //
-// The stream is a bed of white noise, at the level this device picks, with agents' messages over
+// The stream is a bed of noise, in the color and at the level this device picks, with agents' messages over
 // it (`POST /api/audio/speak` on the sidecar). The noise is mixed on the sidecar, not here: iOS
 // ignores a page setting an element's volume, and a page's own Web Audio is suspended once the
 // screen locks, which is exactly when this has to keep playing.
@@ -12,7 +12,14 @@
 // The stream is live, so pausing drops the connection, and resuming connects again: whatever was
 // said while paused was said to nobody here, and the sidecar did not count this phone as listening.
 
-import { AUDIO_NOISE_LEVEL_MAX, AUDIO_NOISE_ROUTE, AUDIO_STREAM_ROUTE } from "@agentdesk/agent-feed-wire";
+import {
+  AUDIO_NOISE_COLORS,
+  AUDIO_NOISE_LEVEL_MAX,
+  AUDIO_NOISE_ROUTE,
+  AUDIO_STREAM_ROUTE,
+  type AudioNoiseColor,
+  type AudioNoiseRequest,
+} from "@agentdesk/agent-feed-wire";
 
 /**
  * How long playback may sit still, with audio in hand and not paused, before it counts as taken.
@@ -39,11 +46,35 @@ const MEDIA_ERRORS: Record<number, string> = {
 
 export type AudioChannelPhase = "idle" | "starting" | "playing" | "paused";
 
-export type AudioChannelState = { phase: AudioChannelPhase; status: string | null; noise: number };
+export type AudioChannelState = {
+  phase: AudioChannelPhase;
+  status: string | null;
+  noise: number;
+  color: AudioNoiseColor;
+};
 
-/** Where this device's noise level is remembered. A convenience: a missing value means the default. */
+/** Where this device's noise is remembered. A convenience: a missing value means the default. */
 const NOISE_STORAGE_KEY = "agentdesk.audioChannel.noiseLevel";
+const COLOR_STORAGE_KEY = "agentdesk.audioChannel.noiseColor";
 const DEFAULT_NOISE = 3;
+const DEFAULT_COLOR: AudioNoiseColor = "pink";
+
+function storedColor(): AudioNoiseColor {
+  try {
+    const stored = localStorage.getItem(COLOR_STORAGE_KEY);
+    return AUDIO_NOISE_COLORS.find((color) => color === stored) ?? DEFAULT_COLOR;
+  } catch {
+    return DEFAULT_COLOR;
+  }
+}
+
+function remember(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Not remembered, which only costs the default next time.
+  }
+}
 
 function storedNoise(): number {
   try {
@@ -72,7 +103,7 @@ let listeningSince = 0;
 /** How long after that the current connection was made; the element's own clock starts at 0. */
 let joinedAfterMs = 0;
 let watchdog: ReturnType<typeof setInterval> | null = null;
-let current: AudioChannelState = { phase: "idle", status: null, noise: storedNoise() };
+let current: AudioChannelState = { phase: "idle", status: null, noise: storedNoise(), color: storedColor() };
 const listeners = new Set<() => void>();
 
 function publish(phase: AudioChannelPhase, status: string): void {
@@ -148,7 +179,8 @@ function startWatchdog(audio: HTMLAudioElement): void {
 function connect(audio: HTMLAudioElement): void {
   joinedAfterMs = Date.now() - listeningSince;
   // A fresh address each time (`at`) also keeps anything between here and the sidecar from caching it.
-  audio.src = `${AUDIO_STREAM_ROUTE}?listener=${LISTENER_ID}&noise=${current.noise}&at=${Date.now()}`;
+  const noise = `noise=${current.noise}&color=${current.color}`;
+  audio.src = `${AUDIO_STREAM_ROUTE}?listener=${LISTENER_ID}&${noise}&at=${Date.now()}`;
   publish("starting", "connecting");
   startWatchdog(audio);
   audio.play().then(
@@ -248,27 +280,37 @@ export function stopListening(): void {
 }
 
 /**
- * Sets this device's noise level, remembered for next time. While connected the sidecar switches
- * at once, and it is heard once what the stream sent ahead has played, about six seconds.
+ * Tells the sidecar about a noise change while connected; it switches at once, and the change is
+ * heard once what the stream sent ahead has played, about six seconds. Not connected, the next
+ * connection carries it.
  */
-export function setNoiseLevel(level: number): void {
-  const noise = clampNoise(level);
-  current = { ...current, noise };
+function sendNoise(change: Omit<AudioNoiseRequest, "listener">): void {
   for (const listener of listeners) listener();
-  try {
-    localStorage.setItem(NOISE_STORAGE_KEY, String(noise));
-  } catch {
-    // Not remembered, which only costs the default next time.
-  }
   if (current.phase !== "playing" && current.phase !== "starting") return;
+  const request: AudioNoiseRequest = { listener: LISTENER_ID, ...change };
   void fetch(AUDIO_NOISE_ROUTE, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ listener: LISTENER_ID, level: noise }),
+    body: JSON.stringify(request),
   }).then(
     (response) => {
-      if (!response.ok) console.warn(`[audio] noise level ${noise} refused: ${response.status}`);
+      if (!response.ok) console.warn(`[audio] noise change ${JSON.stringify(change)} refused: ${response.status}`);
     },
-    (error: unknown) => console.warn("[audio] noise level not sent", error),
+    (error: unknown) => console.warn("[audio] noise change not sent", error),
   );
+}
+
+/** Sets this device's noise level, remembered for next time. */
+export function setNoiseLevel(level: number): void {
+  const noise = clampNoise(level);
+  current = { ...current, noise };
+  remember(NOISE_STORAGE_KEY, String(noise));
+  sendNoise({ level: noise });
+}
+
+/** Sets this device's noise color, remembered for next time. */
+export function setNoiseColor(color: AudioNoiseColor): void {
+  current = { ...current, color };
+  remember(COLOR_STORAGE_KEY, color);
+  sendNoise({ color });
 }

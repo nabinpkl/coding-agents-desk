@@ -1,13 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  clampNoiseLevel,
-  noiseAmplitude,
-  readWav,
-  SAMPLE_RATE,
-  silentSamples,
-  withNoise,
-  writeWav,
-} from "@/audio/pcmAudio";
+import { clampNoiseLevel, noiseAmplitude, readWav, writeWav } from "@/audio/pcmAudio";
 
 describe("samples for the audio channel", () => {
   test("a WAV written here reads back as the same samples", () => {
@@ -34,12 +26,5 @@ describe("samples for the audio channel", () => {
     expect(noiseAmplitude(0)).toBe(0);
     expect(noiseAmplitude(5)).toBeCloseTo(0.075);
     expect(noiseAmplitude(10)).toBeCloseTo(0.3);
-  });
-
-  test("noise is added under what is there and clipped, not wrapped, at full scale", () => {
-    expect(withNoise(new Int16Array([7]), 0)).toEqual(new Int16Array([7]));
-    expect([...withNoise(new Int16Array([100, 32_000, -32_000]), 10, () => 1)]).toEqual([9930, 32_767, -22_170]);
-    expect([...withNoise(new Int16Array([-32_000]), 10, () => 0)]).toEqual([-32_768]);
-    expect(silentSamples(2).length).toBe(2 * SAMPLE_RATE);
   });
 });

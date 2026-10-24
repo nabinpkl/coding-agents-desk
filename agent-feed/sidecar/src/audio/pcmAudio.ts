@@ -1,8 +1,5 @@
 // Raw audio for the channel: 16-bit mono samples at the rate `say` speaks, read from and written to
-// WAV, with white noise made and mixed under speech.
-//
-// The noise is mixed here, into the samples, before anything is encoded, so it runs on under a
-// voice rather than cutting out while an agent speaks, the way static stays under a radio voice.
+// WAV, and how loud each noise level is. The noise itself is `noiseColors.ts`.
 
 import { AUDIO_NOISE_LEVEL_MAX } from "@agentdesk/agent-feed-wire";
 
@@ -80,24 +77,4 @@ export function writeWav(samples: Int16Array): Uint8Array {
   view.setUint32(40, samples.length * 2, true);
   samples.forEach((sample, index) => view.setInt16(44 + index * 2, sample, true));
   return bytes;
-}
-
-/**
- * `samples` with white noise at `level` added under them, clipped to 16 bits. `random` is the
- * source of the noise, injected so a test can pin it.
- */
-export function withNoise(samples: Int16Array, level: number, random: () => number = Math.random): Int16Array {
-  const amplitude = noiseAmplitude(level) * 32_767;
-  if (amplitude === 0) return samples;
-  const mixed = new Int16Array(samples.length);
-  for (let index = 0; index < samples.length; index += 1) {
-    const value = (samples[index] ?? 0) + (random() * 2 - 1) * amplitude;
-    mixed[index] = Math.max(-32_768, Math.min(32_767, Math.round(value)));
-  }
-  return mixed;
-}
-
-/** `seconds` of nothing, to make a stretch of noise from. */
-export function silentSamples(seconds: number): Int16Array {
-  return new Int16Array(Math.round(seconds * SAMPLE_RATE));
 }
