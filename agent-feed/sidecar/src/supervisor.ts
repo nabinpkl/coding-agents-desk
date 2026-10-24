@@ -11,6 +11,10 @@
 // it typechecks with no error the running tree did not already have (`typecheck.ts`).
 // `supervisorGate.ts` holds the decisions; this holds the processes, the watcher and the parser.
 //
+// It runs a second child beside the sidecar: the audio process (`audio/audioServer.ts`), which holds
+// the channel's listeners. That one is replaced only when a file IT is built from changes, so a
+// listener's stream outlives the sidecar's restarts, which every save anywhere else in the tree is.
+//
 // Everything it says goes to stdout, which the host writes to the sidecar's own log file, because
 // `log show` answers nothing in this session and a supervisor whose reasoning is unreadable after
 // the fact is indistinguishable from one that is not running. It also heartbeats its state onto the
@@ -35,13 +39,16 @@ import {
   type SupervisorState,
 } from "@/supervisor/supervisorGate";
 import { declaredPackages, linkFailure } from "@/supervisor/supervisorLinks";
+import { superviseChild } from "@/supervisor/supervisedChild";
 import { ownSources } from "@/supervisor/supervisorSources";
-import { stopChild } from "@/supervisor/supervisorStop";
 import { createTypeBaseline, describeTypeError } from "@/supervisor/typecheck";
 import { watchTree } from "@/transcripts/catalog/watchTree";
 
 /** The sidecar itself, a sibling of this file: one argument for the host to get wrong, not two. */
 const SERVER = new URL("./server.ts", import.meta.url).pathname;
+
+/** The audio process, which holds the channel's listeners (`audio/audioServer.ts`). */
+const AUDIO_SERVER = new URL("./audio/audioServer.ts", import.meta.url).pathname;
 
 /** The tree this watches, which is everything the sidecar can import. */
 const SOURCE = dirname(SERVER);
@@ -75,6 +82,15 @@ const IMPORTED_OUTSIDE = [join(dirname(SOURCE), "mods", "agentdesk-hub", "hooks"
 const OWN = ownSources(new URL(import.meta.url).pathname, SOURCE);
 
 /**
+ * The files the audio process is built from, and the one wire file it takes its shapes from, which
+ * it imports by package name and so is not in the import graph. A change to any of these replaces
+ * it; a change anywhere else leaves its listeners alone. Recomputed each time it is replaced, since
+ * that is when its imports can have changed.
+ */
+const AUDIO_WIRE = join(WIRE, "audioChannel.ts");
+let audioSources = ownSources(AUDIO_SERVER, SOURCE);
+
+/**
  * How long writes are collected before anything is decided about them.
  *
  * An editor writing a file produces more than one event, and a tool rewriting several files
@@ -103,12 +119,6 @@ function quietWindow(raw: string | undefined): number {
 
 /** How often a whole tree waiting out that window is asked again. */
 const QUIET_TICK_MS = 250;
-
-/** After a child that died on its own, so a crash loop does not spin the machine. */
-const BACKOFF_MS = [500, 1_000, 2_000, 5_000, 10_000];
-
-/** Long enough to count as "it ran", which is what resets the backoff. */
-const SETTLED_MS = 10_000;
 
 /** Matches the sidecar board's own heartbeat, and the panel ages this out at three misses. */
 const HEARTBEAT_MS = 5_000;
@@ -147,45 +157,13 @@ function publish(state: SupervisorState = published): void {
 }
 
 // ---------------------------------------------------------------------------
-// The sidecar process
+// The processes
 
-let child: ReturnType<typeof Bun.spawn> | undefined;
-/** Set while a restart is deliberate, so the exit it causes is not read as a crash. */
-let replacing = false;
-let crashes = 0;
+const sidecar = superviseChild("sidecar", SERVER, say);
+const audio = superviseChild("audio process", AUDIO_SERVER, say);
 let stopping = false;
-
-function startSidecar(): void {
-  const startedAt = Date.now();
-  // stdio inherited: the host is already reading this process's output into the sidecar's log, and
-  // a second copy through here would only add a layer that can drop lines.
-  const spawned = Bun.spawn({
-    cmd: [process.execPath, SERVER],
-    stdio: ["ignore", "inherit", "inherit"],
-  });
-  child = spawned;
-  say(`sidecar started, pid ${spawned.pid}`);
-
-  void spawned.exited.then((code) => {
-    if (child !== spawned) return;
-    child = undefined;
-    if (stopping) return;
-    if (replacing) {
-      replacing = false;
-      startSidecar();
-      return;
-    }
-    // Nobody asked for this. A sidecar that exits on its own has either crashed or been killed by
-    // hand, and both want it back.
-    if (Date.now() - startedAt > SETTLED_MS) crashes = 0;
-    const wait = BACKOFF_MS[Math.min(crashes, BACKOFF_MS.length - 1)] ?? 10_000;
-    crashes += 1;
-    say(`sidecar exited with ${code}; starting it again in ${wait}ms`);
-    setTimeout(() => {
-      if (!stopping && !child) startSidecar();
-    }, wait);
-  });
-}
+/** Set once a file the audio process is built from has moved, and cleared by replacing it. */
+let audioStale = false;
 
 /**
  * What taking the tree means, which depends on whose code moved.
@@ -198,25 +176,16 @@ function takeTheTree(reason: string): void {
   // The tree being taken is the one the last check read, so its errors are the running sidecar's
   // from here on and hold nothing.
   acceptTyped?.();
-  if (!selfStale) {
-    replaceSidecar(reason);
+  if (selfStale) {
+    leave(`${reason}; one of them is this supervisor's own, so it is leaving for a newer one`);
     return;
   }
-  leave(`${reason}; one of them is this supervisor's own, so it is leaving for a newer one`);
-}
-
-function replaceSidecar(reason: string): void {
-  if (!child) {
-    say(`${reason}; nothing running, starting the sidecar`);
-    startSidecar();
-    return;
+  sidecar.replace(reason);
+  if (audioStale) {
+    audioStale = false;
+    audioSources = ownSources(AUDIO_SERVER, SOURCE);
+    audio.replace(`${reason}; one of them is the audio process's own`);
   }
-  say(`${reason}; replacing the sidecar`);
-  replacing = true;
-  // SIGTERM first: the sidecar closes its listeners and lets go of the port, which is what the next
-  // one needs in the half-second before it binds. SIGKILL only if it cannot, or the replacement
-  // would wait on its exit forever.
-  stopChild(child, say);
 }
 
 const gate = createSupervisorGate(
@@ -342,6 +311,7 @@ let selfStale = false;
 function noteChange(path: string): void {
   if (!judgesFile(path)) return;
   if (OWN.has(path)) selfStale = true;
+  if (audioSources.has(path) || path === AUDIO_WIRE) audioStale = true;
   pending.add(path);
   clearTimeout(settle);
   settle = setTimeout(() => {
@@ -426,23 +396,21 @@ function leave(why: string): void {
   clearInterval(requests);
   say(why);
   clearSupervisorDescriptor();
-  if (!child) process.exit(0);
-  // The child holds the port, so leaving before it is gone hands the next launch a bound port --
-  // and a child that outlives this is an orphan nothing will ever stop. So this waits for the exit,
-  // and `stopChild` makes sure there is one, escalating inside the two seconds the host allows
-  // before it kills this process. The timer is only for a child the kernel cannot reap, which
-  // SIGKILL does not fix either. A supervisor killed with SIGKILL cannot do even this, which is
-  // why `host-login` reclaims the sidecar ports before it starts anything.
-  stopChild(child, say);
-  void child.exited.then(() => process.exit(0));
+  // The children hold the ports, so leaving before they are gone hands the next launch bound ports
+  // -- and a child that outlives this is an orphan nothing will ever stop. So this waits for both
+  // exits, and `stopChild` makes sure there are some, escalating inside the two seconds the host
+  // allows before it kills this process. The timer is only for a child the kernel cannot reap,
+  // which SIGKILL does not fix either. A supervisor killed with SIGKILL cannot do even this, which
+  // is why `host-login` reclaims the sidecar's and the audio process's ports before it starts.
+  void Promise.all([sidecar.stop(), audio.stop()]).then(() => process.exit(0));
   setTimeout(() => process.exit(0), 2_000);
 }
 
-process.on("SIGTERM", () => leave("SIGTERM; stopping the sidecar"));
-process.on("SIGINT", () => leave("SIGINT; stopping the sidecar"));
-process.on("SIGHUP", () => leave("SIGHUP; stopping the sidecar"));
+process.on("SIGTERM", () => leave("SIGTERM; stopping the sidecar and the audio process"));
+process.on("SIGINT", () => leave("SIGINT; stopping the sidecar and the audio process"));
+process.on("SIGHUP", () => leave("SIGHUP; stopping the sidecar and the audio process"));
 
-say(`supervising ${SERVER}, and watching ${OWN.size} files of its own`);
+say(`supervising ${SERVER} and ${AUDIO_SERVER}, and watching ${OWN.size} files of its own`);
 // A fresh supervisor is a fresh decision. Whatever a panel asked of the last one is forgotten here,
 // so a request left over from yesterday cannot silently freeze this machine's sidecar.
 clearSupervisorRequest();
@@ -451,7 +419,8 @@ const heartbeat = setInterval(() => publish(), HEARTBEAT_MS);
 heartbeat.unref?.();
 const requests = setInterval(readRequest, REQUEST_POLL_MS);
 requests.unref?.();
-startSidecar();
+sidecar.start();
+audio.start();
 startWatching();
 // The tree the first sidecar is reading, whose errors are where the comparison starts.
 void typed();

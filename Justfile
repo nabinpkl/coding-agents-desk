@@ -2077,6 +2077,9 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
         [ "${#STRANGER_PORT_PIDS[@]}" -gt 0 ] && kill -9 "${STRANGER_PORT_PIDS[@]}" 2>/dev/null || true
     fi
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
+    # The audio process beside it, on the sidecar's port plus one (`audio/audioConfig.ts`): a
+    # supervisor killed outright leaves it holding that port as surely as it leaves the sidecar.
+    sh tools/reclaim-port.sh "agent-feed audio" "$((FEEDPORT + 1))"
     sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
     sh tools/reclaim-port.sh "voice server" "$VOICEBACKENDPORT"
     sleep 1
@@ -2284,6 +2287,9 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
         [ "${#STRANGER_PORT_PIDS[@]}" -gt 0 ] && kill -9 "${STRANGER_PORT_PIDS[@]}" 2>/dev/null || true
     fi
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
+    # The audio process beside it, on the sidecar's port plus one (`audio/audioConfig.ts`): a
+    # supervisor killed outright leaves it holding that port as surely as it leaves the sidecar.
+    sh tools/reclaim-port.sh "agent-feed audio" "$((FEEDPORT + 1))"
     sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
     sh tools/reclaim-port.sh "voice server" "$VOICEBACKENDPORT"
     sleep 1
@@ -2389,6 +2395,9 @@ host-login:
     # Measured while building this recipe: an orphaned bundled sidecar held 7682 while `bun --watch`
     # ran alongside it, and `/api/workspace/list` answered 404 with both of them up.
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
+    # The audio process beside it, on the sidecar's port plus one (`audio/audioConfig.ts`): a
+    # supervisor killed outright leaves it holding that port as surely as it leaves the sidecar.
+    sh tools/reclaim-port.sh "agent-feed audio" "$((FEEDPORT + 1))"
     sh tools/reclaim-port.sh "voice sidecar" "${AGENTDESK_VOICE_SIDECAR_PORT:-7692}"
     if [ -s '{{host_stdio}}' ]; then
         tail -c '{{host_stdio_keep_bytes}}' '{{host_stdio}}' > '{{host_stdio}}.prev' 2>/dev/null || true

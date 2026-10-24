@@ -100,7 +100,7 @@ function pacedStream(listener: string, noise: DeviceNoise, label: string, stoppe
     const atFrame = bedFrame + SPLICE_AHEAD_FRAMES;
     const frames = spliceMessage(bed, atFrame, speech, encodeAdtsFrames);
     // Handled here as well as where it is spliced, so a failure while it waits, or for a listener
-    // who has left, is not an unhandled rejection, which takes the whole sidecar down.
+    // who has left, is not an unhandled rejection, which takes the whole process down.
     frames.catch(() => {});
     splice = { atFrame, frames };
   };

@@ -49,6 +49,14 @@ with no rebuild, no reinstall, and no re-pair.
   stripped of the PATH that would find a Homebrew install. Every fallback -- no `bun`, unreadable
   entry, non-executable `bun` -- serves the bundled binary and **logs why**, since silently serving
   the frozen one is indistinguishable from an edit that did nothing.
+- **The supervisor runs a second child, the audio process** (`audio/audioServer.ts`, loopback, the
+  sidecar's port plus one: 7683 beside 7682, 7783 beside 7782). It holds the audio channel's
+  listeners, and is replaced only when a file in ITS import graph changes, or
+  `agent-feed/wire/audioChannel.ts`: a save anywhere else replaces the sidecar and leaves a listener's
+  stream playing. The panel's dev server sends `/api/audio/*` to it directly rather than through the
+  sidecar, which would put the sidecar back in the stream's path; the sidecar forwards the same
+  paths for agents that call it (`audio/audioForward.ts`). It stops when the supervisor leaves, and
+  the launch recipes reclaim its port beside the sidecar's.
 - **The supervisor replaces ITSELF when its own source moves**, by leaving: the host restarts it on
   termination within about a second, and a peer's watcher checks after every ship. Every other way
   of doing it either abandons the running sidecar or races the parent into two supervisors on one

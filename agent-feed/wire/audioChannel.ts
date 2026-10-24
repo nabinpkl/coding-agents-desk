@@ -1,8 +1,9 @@
-// A spoken audio channel from the sidecar to the panel (`agent-feed/sidecar/src/audio/`).
+// A spoken audio channel from the Mac to the panel and Agent Radio, served by the audio process
+// (`agent-feed/sidecar/src/audio/audioServer.ts`), which outlives the sidecar's restarts.
 //
 // One long-lived audio stream rather than a clip per message: a phone starts playback only from a
 // tap, and a clip that ends can let iOS close the audio session, after which the next one does not
-// start on a locked screen. So the sidecar keeps one stream playing, silence between messages.
+// start on a locked screen. So the audio process keeps one stream playing, noise between messages.
 
 /**
  * `GET /api/audio/stream?listener=<id>&noise=<level>&color=<color>`: AAC (ADTS), paced in real time,

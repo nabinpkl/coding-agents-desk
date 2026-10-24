@@ -107,7 +107,7 @@ export function createAudioChannel(speak: ChannelSpeak = speakToSamples) {
 
 export type AudioChannel = ReturnType<typeof createAudioChannel>;
 
-/** The sidecar's one channel, which every stream and the routes share. */
+/** The audio process's one channel, which every stream and the routes share. */
 export const audioChannel = createAudioChannel();
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {

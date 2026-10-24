@@ -1,6 +1,6 @@
 // Text to speech with macOS's own `say`, and samples to AAC in ADTS framing with `afconvert`.
 //
-// Both ship with macOS, so the sidecar speaks with no dependency and no network. Speaking and
+// Both ship with macOS, so the audio process speaks with no dependency and no network. Speaking and
 // encoding are two steps so a message can be mixed into the noise between them (`noiseBed.ts`).
 //
 // Encoded at a constant bitrate, not by `say` itself. `say` writes ADTS directly, but variable
@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { splitAdtsFrames, type AdtsFrame } from "@/audio/adtsFrames";
 import { readWav, SAMPLE_RATE, writeWav } from "@/audio/pcmAudio";
 
-/** System binaries at a fixed path on every Mac; absolute because the sidecar's PATH is stripped. */
+/** System binaries at a fixed path on every Mac; absolute because the host strips its children's PATH. */
 const SAY_BINARY = "/usr/bin/say";
 const AFCONVERT_BINARY = "/usr/bin/afconvert";
 

@@ -24,6 +24,7 @@ import { panelReact } from "./src/app/dev-server/panelReact";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { createTypeHolds, dependentsOf, resend } from "./src/app/dev-server/typeHolds";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
+import { AUDIO_HOST, AUDIO_PORT_OFFSET } from "../../../agent-feed/sidecar/src/audio/audioConfig";
 import { sourceSignature, sourceVersion } from "../../../agent-feed/sidecar/src/sourceVersion";
 import { writePanelActivity } from "../../../agent-feed/sidecar/src/supervisor/supervisorBoard";
 import { createTypeBaseline, describeTypeError } from "../../../agent-feed/sidecar/src/supervisor/typecheck";
@@ -311,6 +312,13 @@ function panelSessions(): Plugin {
       server.middlewares.use((request, response, next) => {
         const url = request.url ?? "";
         const path = url.split("?")[0] ?? "";
+        // The audio channel goes to its own process, not the sidecar: a listener's stream passing
+        // through the sidecar would end every time the sidecar is replaced, which is every save
+        // in its tree. The audio process outlives those (`audio/audioServer.ts`).
+        if (path.startsWith("/api/audio/")) {
+          proxyToSidecar(AUDIO_HOST, defaultSidecar.port + AUDIO_PORT_OFFSET, url, request, response);
+          return;
+        }
         // The default session -- the one this server runs beside -- answers on `/api` directly.
         // Handled here rather than by `server.proxy` because that option costs the whole origin
         // its HTTP/2 (see `defaultSidecar`), and this plugin already proxies the other sessions.
