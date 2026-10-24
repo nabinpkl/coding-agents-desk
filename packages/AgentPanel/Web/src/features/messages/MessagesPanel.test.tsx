@@ -118,7 +118,7 @@ describe("MessagesPanel", () => {
     const threads = await screen.findByRole("list", { name: "Message threads" });
     expect(within(threads).getByText("OpenCode session")).toBeTruthy();
     // The runtime comes from the address prefix, and uses the badge the session rows already use.
-    expect(within(threads).getByText("OpenCode")).toBeTruthy();
+    expect(within(threads).getByLabelText("Source: OpenCode")).toBeTruthy();
     expect(within(threads).getByText("fix the header")).toBeTruthy();
     expect(within(threads).getByText("waiting for a live session")).toBeTruthy();
   });
@@ -175,7 +175,7 @@ describe("MessagesPanel", () => {
     // A thread is named for the session it reached, and badged for the runtimes of the Bot that
     // curates it. One Bot holding both runtimes is genuinely both, not a guess from the name.
     expect(within(threads).getByText("An opencode run")).toBeTruthy();
-    expect(within(threads).getByText("Claude")).toBeTruthy();
+    expect(within(threads).getByLabelText("Source: Claude")).toBeTruthy();
   });
 
   /** The picker's trigger, which stands in for the `<select>` the tests used to drive. */

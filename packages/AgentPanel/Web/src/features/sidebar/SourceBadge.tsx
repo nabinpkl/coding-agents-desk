@@ -1,7 +1,11 @@
-/** One or two letters for a row with no room for the name; the hue still says which. */
+/**
+ * One or two letters wherever the badge is drawn; the hue says which provider at a glance, and the
+ * full name is in the tooltip and read to a screen reader. The name in full cost a row's title its
+ * room, in a sidebar where the title is what a reader scans for.
+ */
 const SHORT_LABELS: Record<string, string> = { claude: "C", opencode: "O", codex: "Cx", pi: "Pi" };
 
-export function SourceBadge({ source, short = false }: { source: string; short?: boolean }) {
+export function SourceBadge({ source }: { source: string }) {
   const label =
     source === "claude"
       ? "Claude"
@@ -12,7 +16,7 @@ export function SourceBadge({ source, short = false }: { source: string; short?:
           : source === "opencode"
             ? "OpenCode"
             : source;
-  const shown = short ? (SHORT_LABELS[source] ?? label) : label;
+  const shown = SHORT_LABELS[source] ?? label;
   const cls =
     source === "claude"
       ? "bg-violet-500/20 text-violet-500 dark:text-violet-400"
@@ -26,6 +30,7 @@ export function SourceBadge({ source, short = false }: { source: string; short?:
   return (
     <span
       aria-label={`Source: ${label}`}
+      title={label}
       // `font-medium`, not semibold. This badge is metadata about a row -- which provider the
       // session belongs to -- and it was the heaviest thing in that row: 11px but bold, uppercase,
       // monospaced, tracked out, on a saturated fill, against a 13px title. Every one of those is

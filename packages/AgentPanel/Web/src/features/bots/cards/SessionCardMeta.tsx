@@ -46,7 +46,7 @@ export function SessionCardMeta({
   const time = new Date(lastEventAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
-      <SourceBadge source={source} short />
+      <SourceBadge source={source} />
       {taskState ? <TaskButton taskState={taskState} /> : <span className="flex-1" />}
       {worktree ? <WorktreeChip worktree={worktree} /> : null}
       {/* The face says it; a screen reader, which is not shown the face, still hears it here. */}

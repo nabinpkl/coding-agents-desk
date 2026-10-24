@@ -175,9 +175,9 @@ describe("App shell", () => {
     expect(screen.getByText("Beta Project")).toBeInTheDocument();
 
     // Source badges -- Alpha has both claude and codex sessions
-    const claudeBadges = screen.getAllByText("Claude");
+    const claudeBadges = screen.getAllByLabelText("Source: Claude");
     expect(claudeBadges.length).toBeGreaterThanOrEqual(1);
-    const codexBadges = screen.getAllByText("Codex");
+    const codexBadges = screen.getAllByLabelText("Source: Codex");
     expect(codexBadges.length).toBeGreaterThanOrEqual(1);
 
     // Session counts
