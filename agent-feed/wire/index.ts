@@ -226,6 +226,7 @@ export type {
   ArenaFoldersRequest,
   ArenaFolderCheck,
   ArenaFoldersResponse,
+  ArenaMakeRepositoryRequest,
   ArenaPromptRequest,
   ArenaRunDetail,
   ArenaRunMode,

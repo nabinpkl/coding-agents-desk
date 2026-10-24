@@ -32,6 +32,7 @@ const RUNS_PATH = "/api/arena/runs";
 const STREAM_PATH = "/api/arena/runs/stream";
 const NEW_RUN_PATH = "/api/arena/new-run";
 const FOLDERS_PATH = "/api/arena/folders";
+const FOLDER_REPOSITORY_PATH = "/api/arena/folders/repository";
 
 const STATUSES: readonly ArenaContestantStatus[] = [...ARENA_LIVE_STATUSES, "closed", "failed"];
 
@@ -288,8 +289,8 @@ export async function fetchArenaNewRunDefaults(transport: AgentHttpTransport): P
 }
 
 /**
- * What a run would make of each folder: a repository, a plain folder it makes one of, or a refusal
- * with its reason (ADR-0153). Throws with the sidecar's reason when it does not answer.
+ * What a run would make of each folder: a repository, a plain folder the reader may make one of,
+ * or a refusal with its reason (ADR-0153, ADR-0154). Throws with the sidecar's reason when it does not answer.
  */
 export async function inspectArenaFolders(
   transport: AgentHttpTransport,
@@ -307,6 +308,16 @@ export async function inspectArenaFolders(
       typeof (folder as ArenaFolderCheck).repository === "boolean" &&
       ((folder as ArenaFolderCheck).problem === null || typeof (folder as ArenaFolderCheck).problem === "string"),
   );
+}
+
+/**
+ * Makes a plain folder a git repository, its files the first commit, on the reader's click
+ * (ADR-0154). Answers the folder as a run would now take it; throws with the sidecar's reason.
+ */
+export async function makeArenaRepository(transport: AgentHttpTransport, path: string): Promise<ArenaFolderCheck> {
+  const response = await transport.request("POST", FOLDER_REPOSITORY_PATH, { body: { path } });
+  if (response.status !== 200) throw new Error(failureMessage(response.body, response.status));
+  return JSON.parse(response.body) as ArenaFolderCheck;
 }
 
 /** Tears a finished run down; a busy run answers 409 and keeps its own message. */

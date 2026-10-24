@@ -1,5 +1,6 @@
 ---
-status: accepted
+status: superseded by ADR-0154
+superseded-by: ADR-0154
 date: 2026-10-23
 amends:
   - ADR-0127 a run's target is a git repository, asserted before any worktree
