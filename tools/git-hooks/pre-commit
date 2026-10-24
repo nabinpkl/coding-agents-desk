@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Refuses a commit that breaks any of the three rules the fitness gate enforces on the live
-# TypeScript trees: a file past 500 lines, a relative import, or a directory holding more than
-# twelve source files.
+# Refuses a commit that breaks any of the four rules the fitness gate enforces on the live
+# TypeScript trees: a file past 500 lines, a relative import, a directory holding more than twelve
+# source files, or a file oxfmt would rewrite.
 #
-# The same rules as checks 5, 6 and 7 in `tools/agent-feed-fitness.sh`, moved to the moment they
-# are cheap to obey. The gate is the authority and this is not a second opinion: same two trees,
-# same two extensions, same limits, same counting. If they ever disagree, the gate is right and
-# this is the bug.
+# The same rules as checks 5, 6, 7 and 9 in `tools/agent-feed-fitness.sh`, moved to the moment they
+# are cheap to obey. The gate is the authority and this is not a second opinion: same two trees
+# (and the wire, for formatting, as check 9 reads it), same two extensions, same limits, same
+# counting. If they ever disagree, the gate is right and this is the bug.
 #
 # Why both. The gate answers "is the tree under the cap", which is the question that matters and
 # the wrong moment to ask it: by the time `just check` says no, the file is written and splitting
@@ -27,7 +27,10 @@ LIMIT=500
 TREES="packages/AgentPanel/Web/src agent-feed/sidecar/src"
 
 staged="$(git diff --cached --name-only --diff-filter=ACMR -- $TREES | grep -E '\.tsx?$' || true)"
-[ -n "$staged" ] || exit 0
+# Formatting covers the wire as well, the trees `tools/format.sh` formats.
+FORMAT_TREES="$TREES agent-feed/wire"
+format_staged="$(git diff --cached --name-only --diff-filter=ACMR -- $FORMAT_TREES | grep -E '\.tsx?$' || true)"
+[ -n "$staged$format_staged" ] || exit 0
 
 # The three specifier forms this codebase writes, anchored or parenthesised so one quoted INSIDE a
 # string stays legal. Same expression as check 6 of the fitness gate, which is the authority.
@@ -82,7 +85,61 @@ while IFS= read -r dir; do
     fi
 done <<< "$(printf '%s\n' "$staged" | sed 's|/[^/]*$||' | sort -u)"
 
+# Check 9's rule: each staged file is as oxfmt writes it. Asked of the staged blob through oxfmt's
+# stdin, for the reason the line cap reads the index: the worktree may hold a peer's edit, or a
+# hunk this commit leaves out.
+#
+# Here because the gate asks it of the whole tree, which is the wrong moment and the wrong scope:
+# an unformatted file committed by one session turned every other session's `just check` red until
+# its author came back, twice on 2026-10-19. Checked rather than fixed: a hook that rewrote files
+# would rewrite the worktree under whoever else is editing them.
+#
+# oxfmt is the panel's dev dependency. A linked worktree may have no `node_modules`, so the main
+# checkout's copy serves it, read with this checkout's config.
+TOP="$(git rev-parse --show-toplevel)"
+MAIN="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+OXFMT=""
+for root in "$TOP" "$MAIN"; do
+    if [ -x "$root/packages/AgentPanel/Web/node_modules/.bin/oxfmt" ]; then
+        OXFMT="$root/packages/AgentPanel/Web/node_modules/.bin/oxfmt"
+        break
+    fi
+done
+unformatted=""
+unparsed=""
+if [ -n "$format_staged" ] && [ -n "$OXFMT" ]; then
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        # The trailing dot keeps a difference in trailing newlines, which `$(...)` would strip.
+        if formatted="$(git show ":$path" | "$OXFMT" -c "$TOP/.oxfmtrc.json" --stdin-filepath="$path" 2>/dev/null && printf .)"; then
+            [ "$formatted" = "$(git show ":$path" && printf .)" ] || unformatted="$unformatted  $path"$'\n'
+        else
+            unparsed="$unparsed  $path"$'\n'
+        fi
+    done <<< "$format_staged"
+fi
+
 status=0
+
+if [ -n "$format_staged" ] && [ -z "$OXFMT" ]; then
+    echo "pre-commit: oxfmt is not installed, so formatting cannot be checked." >&2
+    echo "pre-commit: run tools/format.sh --check once, which installs the panel's dependencies." >&2
+    status=1
+fi
+
+if [ -n "$unformatted" ]; then
+    echo "pre-commit: these staged files are not as oxfmt writes them:" >&2
+    printf '%s' "$unformatted" >&2
+    echo "pre-commit: run tools/format.sh with these paths, then stage them again. Name the files:" >&2
+    echo "pre-commit: with no paths it rewrites every file, a peer's half-finished edit included." >&2
+    status=1
+fi
+
+if [ -n "$unparsed" ]; then
+    echo "pre-commit: oxfmt could not parse these staged files; fix the syntax first:" >&2
+    printf '%s' "$unparsed" >&2
+    status=1
+fi
 
 if [ -n "$oversize" ]; then
     echo "pre-commit: these staged files are past the ${LIMIT}-line cap:" >&2

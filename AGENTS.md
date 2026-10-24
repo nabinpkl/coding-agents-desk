@@ -108,11 +108,13 @@ Minimum pass:
   `tools/agent-feed-fitness.sh` runs it over both live trees on every `just check`. Every rule is at
   zero, so a finding is always yours. A new rule lands only with its backlog cleared in the same
   change.
-- **So is formatting.** Run `tools/format.sh` before committing; check 9 fails on any file oxfmt
-  would change (`.oxfmtrc.json`, 120 columns). It is not run on save, because several sessions
-  edit this tree at once. A reflow can push a file past the 500-line cap, and it can move a lint
-  finding off the line its `oxlint-disable-next-line` names: split the file, or move the comment
-  onto the line the finding is now on.
+- **So is formatting.** Run `tools/format.sh <your files>` before committing: with no paths it
+  rewrites every file in the tree, a peer's half-finished edit included. The pre-commit hook refuses
+  a staged file oxfmt would change, and check 9 fails on any such file in the tree (`.oxfmtrc.json`,
+  120 columns). It is not run on save, because several sessions edit this tree at once. A reflow
+  can push a file past the 500-line cap, and it can move a lint finding off the line its
+  `oxlint-disable-next-line` names: split the file, or move the comment onto the line the finding
+  is now on.
 
 ## Rules that apply everywhere
 
