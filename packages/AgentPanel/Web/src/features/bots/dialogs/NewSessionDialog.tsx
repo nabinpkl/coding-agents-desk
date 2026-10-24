@@ -100,7 +100,9 @@ export function NewSessionDialog({
         if (event.target === event.currentTarget && !pending) onClose();
       }}
     >
-      <section className="flex max-h-[min(720px,92dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card text-foreground shadow-2xl">
+      {/* One height whatever the folder list holds: sized to its content, the box shrank around
+          "Loading projects…" when another machine was picked, and jumped as it re-centred. */}
+      <section className="flex h-[min(720px,92dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card text-foreground shadow-2xl">
         <header className="flex min-h-12 shrink-0 items-center border-b border-border px-4">
           <h2 id="new-session-title" className="min-w-0 flex-1 truncate text-base font-semibold">
             New session
