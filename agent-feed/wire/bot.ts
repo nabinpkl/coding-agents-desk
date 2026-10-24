@@ -66,6 +66,14 @@ export interface BotRecord {
    * them; the queue also keeps each session's title in its anchor's shape.
    */
   sessionAnchors?: Record<string, string>;
+  /**
+   * The agent log each session keeps, by `source:sessionId`: a path relative to the directory the
+   * session works in, under `.agents/agents-log/` (ADR-0147). One log per session.
+   *
+   * The session states it itself, through `POST /api/sessions/:source/:sessionId/log`, and a
+   * handover carries it to the successor. Detaching keeps the entry, as it keeps an anchor.
+   */
+  sessionLogs?: Record<string, string>;
   metadata: BotMetadata;
   grants: BotGrant[];
   createdAt: number;

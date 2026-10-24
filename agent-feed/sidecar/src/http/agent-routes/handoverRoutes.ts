@@ -48,6 +48,7 @@ import {
 } from "@/transcripts/sessionHandover";
 import { LIVE_SESSION_LAUNCHER, launchSession, type SessionLauncher } from "@/transcripts/session-ops/forkSession";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
+import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
 import type { AgentBackend } from "@/agents/agentBackend";
 import { jsonResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
@@ -115,6 +116,19 @@ export interface HandoverBots {
   /** Asked BEFORE anything starts, so a stale Bot id costs an error rather than a stray pane. */
   exists(botId: string): Promise<boolean>;
   attach(botId: string, ref: { source: "claude"; sessionId: string }): Promise<void>;
+  /**
+   * Gives the successor the agent log the source kept (ADR-0147), in either direction. A failure
+   * here is logged rather than answered: the successor is already running and is the result.
+   */
+  carryLog(from: BotSessionRef, to: BotSessionRef): Promise<void>;
+}
+
+async function carryLog(bots: HandoverBots | undefined, from: BotSessionRef, to: BotSessionRef): Promise<void> {
+  try {
+    await bots?.carryLog(from, to);
+  } catch (error) {
+    console.error("Handover could not carry the agent log", error);
+  }
 }
 
 export const LIVE_HANDOVER_ACTIONS: HandoverRouteActions = {
@@ -247,6 +261,7 @@ export async function handoverToOpencode(
     const prompt = buildHandoverPrompt({ source: "claude", sessionId, handover, message });
     const created = await backend.createSession(`${requestId}-create`, source.project);
     await backend.send(created.sessionId, `${requestId}-send`, prompt, "next");
+    await carryLog(actions.bots, { source: "claude", sessionId }, { source: "opencode", sessionId: created.sessionId });
     return jsonResponse(
       {
         session: created,
@@ -306,6 +321,7 @@ export async function handoverToClaude(
     }
     const started = await launchSession({ checkout: source.project, title, prompt }, actions.launch);
     if (botId !== null) await actions.bots!.attach(botId, { source: "claude", sessionId: started.sessionId });
+    await carryLog(actions.bots, { source: "opencode", sessionId }, { source: "claude", sessionId: started.sessionId });
     return jsonResponse(
       {
         session: started,

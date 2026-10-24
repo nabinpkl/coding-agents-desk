@@ -16,6 +16,8 @@ export interface SessionCode {
   /** Open, on a file the transcript named or on the folder (`file: null`); null while shut. */
   request: { file: FilePathTarget | null } | null;
   openFolder: () => void;
+  /** Opens this session's own viewer on one file, as its log button does. */
+  openFile: (file: FilePathTarget) => void;
   close: () => void;
   /**
    * What opens the paths its transcript names. For a session in a worktree, read against that
@@ -37,5 +39,11 @@ export function useSessionCode(session: SessionSummary, bot: BotView | undefined
     if (around !== null) return around;
     return directory === null ? null : { root: directory, open };
   }, [around, directory, root, setRequest]);
-  return { request, openFolder: () => setRequest({ file: null }), close: () => setRequest(null), opener };
+  return {
+    request,
+    openFolder: () => setRequest({ file: null }),
+    openFile: (file) => setRequest({ file }),
+    close: () => setRequest(null),
+    opener,
+  };
 }

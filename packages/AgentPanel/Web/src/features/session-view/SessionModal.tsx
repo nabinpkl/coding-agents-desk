@@ -15,6 +15,7 @@ import type { Bin, BotView, ProjectSummary, SessionSummary } from "@agentdesk/ag
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { FilePathOpenerContext } from "@/features/activity-feed/markdown/filePathLinks";
 import { SessionCodeButton, SessionCodeDialog } from "@/features/bots/code/SessionCodeButton";
+import { SessionLogButton } from "@/features/bots/code/SessionLogButton";
 import { useSessionCode } from "@/features/bots/code/useSessionCode";
 import { BotSessionMark } from "@/features/bots/avatar/BotSessionMark";
 import type { BotSessionFace } from "@/features/bots/avatar/botSessionFaces";
@@ -175,6 +176,7 @@ export function SessionModal({
           <div className="flex shrink-0 items-center gap-1">
             {/* `contents`, so what the session portals in lines up with the code button. */}
             <div ref={setControlsHost} className="contents" />
+            {code ? <SessionLogButton bot={code.bot} session={code.session} onOpen={viewer.openFile} /> : null}
             {code ? <SessionCodeButton bot={code.bot} session={code.session} onOpen={viewer.openFolder} /> : null}
           </div>
           <button

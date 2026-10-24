@@ -41,6 +41,7 @@ import { placementBot, placementDirectory, placementName } from "@/bots/sessions
 import { renameBracketTitle, type BotSessionRenamer } from "@/bots/sessions/botTitleNormalize";
 import { BotSessionRetirer, detachRefs } from "@/bots/sessions/botSessionRemoval";
 import { reorderRefs } from "@/bots/sessions/botSessionOrder";
+import { carrySessionLog, registerSessionLog, type RegisteredSessionLog } from "@/bots/sessions/botSessionLogs";
 import { normalizeBotCanvas, setBotCanvas } from "@/bots/botCanvas";
 import {
   BotConflictError,
@@ -357,6 +358,16 @@ export class BotRegistry {
   /** One session's bracket task: the completion path every `set_task` door forwards to. */
   async renameBracket(ref: BotSessionRef, task: string, renamer: BotSessionRenamer): Promise<RenamedBracket> {
     return renameBracketTitle(this.store, this.catalog, ref, task, renamer);
+  }
+
+  /** The agent log a session states it keeps (ADR-0147). See `botSessionLogs.ts`. */
+  async registerSessionLog(ref: BotSessionRef, path: string): Promise<RegisteredSessionLog> {
+    return registerSessionLog(this.store, this.catalog, ref, path);
+  }
+
+  /** And handing it to a handover's successor. */
+  async carrySessionLog(from: BotSessionRef, to: BotSessionRef): Promise<void> {
+    return carrySessionLog(this.store, from, to);
   }
 
   /**

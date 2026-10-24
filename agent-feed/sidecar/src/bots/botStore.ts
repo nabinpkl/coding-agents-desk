@@ -2,6 +2,7 @@ import chokidar, { type FSWatcher } from "chokidar";
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { BotRecord } from "@agentdesk/agent-feed-wire";
+import { isAgentLogPath } from "@/bots/sessions/botSessionLogs";
 import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
 import { acquireFileLock, writeJsonAtomically } from "@/config/lockedJsonFile";
 
@@ -59,6 +60,15 @@ function isSessionAnchors(value: unknown): value is Record<string, string> | und
   );
 }
 
+function isSessionLogs(value: unknown): value is Record<string, string> | undefined {
+  if (value === undefined) return true;
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key)) &&
+    Object.values(value).every((path) => isAgentLogPath(path))
+  );
+}
+
 function isBotRecord(value: unknown): value is BotRecord {
   if (!isRecord(value) || !isRecord(value.environment) || !isRecord(value.metadata) || !isRecord(value.createdBy)) {
     return false;
@@ -74,6 +84,7 @@ function isBotRecord(value: unknown): value is BotRecord {
     value.sessionRefs.every(isSessionRef) &&
     isSessionSlots(value.sessionSlots) &&
     isSessionAnchors(value.sessionAnchors) &&
+    isSessionLogs(value.sessionLogs) &&
     (value.nextSessionSlot === undefined ||
       (Number.isSafeInteger(value.nextSessionSlot) && Number(value.nextSessionSlot) >= 0)) &&
     isOptionalString(value.metadata.role) &&

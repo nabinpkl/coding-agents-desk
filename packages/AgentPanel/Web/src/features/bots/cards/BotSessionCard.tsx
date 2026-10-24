@@ -20,6 +20,7 @@ import { botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface"
 import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
 import { FilePathOpenerContext } from "@/features/activity-feed/markdown/filePathLinks";
 import { SessionCodeButton, SessionCodeDialog } from "@/features/bots/code/SessionCodeButton";
+import { SessionLogButton } from "@/features/bots/code/SessionLogButton";
 import { useSessionCode } from "@/features/bots/code/useSessionCode";
 
 /** How far a press has to travel before it stops being a click and becomes a carry. */
@@ -386,6 +387,7 @@ export function BotSessionCard({
               <span className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 @[560px]:order-none @[560px]:basis-auto @[560px]:pb-0">
                 {/* `contents`, so what the session portals in lines up with the code button. */}
                 <span ref={setControlsHost} className="contents" />
+                <SessionLogButton bot={bot} session={session} onOpen={code.openFile} />
                 <SessionCodeButton bot={bot} session={session} onOpen={code.openFolder} />
               </span>
             ) : null}

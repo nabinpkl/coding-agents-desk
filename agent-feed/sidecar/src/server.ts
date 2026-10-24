@@ -13,6 +13,7 @@ import { createAgentRoutes } from "@/http/agent-routes/agentRoutes";
 import { createStartSessionRoutes } from "@/http/agent-routes/startSessionRoutes";
 import { createScratchSessionRoutes } from "@/http/agent-routes/scratchSessionRoutes";
 import { createHandoverRoutes, LIVE_HANDOVER_ACTIONS } from "@/http/agent-routes/handoverRoutes";
+import { createAgentLogRoutes } from "@/http/agent-routes/agentLogRoutes";
 import { createOpencodeRoutes } from "@/http/agent-routes/opencodeRoutes";
 import { createBotRoutes } from "@/http/botRoutes";
 import { createCliSessionRoutes } from "@/http/session-routes/cliSessionRoutes";
@@ -90,6 +91,7 @@ import { HubClient, loadHubSettings } from "@/messaging/hubClient";
 import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpencode";
 import { createHubRoutes } from "@/messaging/hubRoutes";
 import { createPushRoutes } from "@/push/pushRoutes";
+import { startLiveTurnFinishedNotifier } from "@/push/liveTurnFinished";
 import { sendPush } from "@/push/pushSender";
 import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
@@ -145,6 +147,8 @@ const botCatalog: BotRegistryCatalog = {
 const botRegistry = new BotRegistry(botStore, botCatalog);
 // Closes Claude sessions that are off the canvas and have gone quiet; see the module for the rules.
 startLiveIdleSessionSweep(botStore);
+// A push to every subscribed device when a Claude session in a Bot finishes its turn.
+startLiveTurnFinishedNotifier(botStore);
 // Asked now rather than at the first launch, which would otherwise wait on the user's ~/.zshrc.
 void userShellPath();
 const agentTerminals = new AgentTerminalService(config.ptyManagerSocketPath, (source, sessionId) => {
@@ -268,6 +272,7 @@ const routes: RouteHandler[] = [
       attach: async (botId, ref) => {
         await botRegistry.attachStartedSession(botId, ref, { kind: "user" });
       },
+      carryLog: (from, to) => botRegistry.carrySessionLog(from, to),
     },
   }),
   createStartSessionRoutes(resolveBackend),
@@ -336,6 +341,8 @@ const routes: RouteHandler[] = [
   // Bot's, for the same reason forking moved off the Bot endpoint, and ahead of the catch-all
   // below for the same mechanical reason as the rest.
   createBracketRoutes(botRegistry, { renameSession }),
+  // And `/log`, the agent log a session states it keeps (ADR-0147), addressed the same way.
+  createAgentLogRoutes(botRegistry),
   // `/archive` and `/unarchive`, under `/api/sessions/` like the rest above.
   createSessionArchiveRoutes({ archive: sessionArchive, isRunning: liveSessionCheck(describeAgentSession) }),
   // A whole project folder: `/api/projects/archive`, `/unarchive` and `/archive-sessions`.
