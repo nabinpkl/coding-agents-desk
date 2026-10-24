@@ -13,6 +13,7 @@ import { canRenameSession } from "@/features/bots/sessionRename";
 import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { BotTerminalButton } from "@/features/bots/BotTerminalButton";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
+import { SessionOriginMark, sessionOrigin } from "@/features/bots/session-cards/SessionOriginMark";
 
 /**
  * One Bot in the sidebar's roster: its header, its sessions, and what it does with the ones that
@@ -172,6 +173,8 @@ export function BotRosterRow({
               does not hold in the other. Medium is the item-title weight here,
               a step under the Bot name's semibold above it. */}
           <span className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium">
+            {/* A fork's or a handover's mark, as its card draws it, for the same reason as the weight. */}
+            <SessionOriginMark origin={sessionOrigin(bot, session)} />
             {session.title || session.sessionId}
           </span>
           {/* Says this session has no card right now, in words the dimming

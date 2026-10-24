@@ -1,9 +1,9 @@
-// A session row's name, with the mark that says it was forked or handed over, naming its source.
+// The mark before a session's name that says it was forked or handed over, naming its source.
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
-import { SessionCardName, sessionOrigin } from "@/features/bots/session-cards/SessionCardName";
+import { SessionCardName, sessionOrigin } from "@/features/bots/session-cards/SessionOriginMark";
 
 function session(sessionId: string, title: string): SessionSummary {
   return { sessionId, source: "claude", title, lastEventAt: 1, activity: "ready" } as SessionSummary;
@@ -17,7 +17,7 @@ function bot(view: Partial<BotView>): BotView {
   return { sessions: [SOURCE, FORK, HANDED], sessionAnchors: { "claude:source": "Emma" }, ...view } as BotView;
 }
 
-describe("SessionCardName", () => {
+describe("SessionOriginMark", () => {
   it("marks a fork and a handover before the name, naming the source by its anchor", () => {
     const view = bot({
       sessionOrigins: {
@@ -33,7 +33,8 @@ describe("SessionCardName", () => {
     render(<SessionCardName title={FORK.title} origin={sessionOrigin(view, FORK)} />);
     // The title stays the anchor and the task: where it came from is the mark, not more words.
     expect(screen.getByText("Gina (tide pools)")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Forked from Emma" })).toBeInTheDocument();
+    // Named on hover too, which is how the sidebar's roster, whose row it can be hovered in, says it.
+    expect(screen.getByRole("img", { name: "Forked from Emma" }).getAttribute("title")).toBe("Forked from Emma");
   });
 
   it("falls back to the source's title, then to saying only that there was one", () => {

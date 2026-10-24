@@ -188,6 +188,19 @@ describe("BotSidebarPanel session rows", () => {
     expect(markOf("First session")).not.toBeNull();
   });
 
+  it("marks a forked session the way its card does, naming its source on hover", () => {
+    const forked = {
+      ...WORK,
+      sessionAnchors: { "claude:s-1": "Aaron" },
+      sessionOrigins: { "claude:s-2": { kind: "fork", from: { source: "claude", sessionId: "s-1" } } },
+    } as unknown as BotView;
+    panel({ detachedBotIds: new Set(), machineHiddenBotIds: new Set(), bots: [forked] });
+    const mark = within(rowOf("Second session")).getByRole("img", { name: "Forked from Aaron" });
+    expect(mark.getAttribute("title")).toBe("Forked from Aaron");
+    // Its source was started fresh, so it carries none.
+    expect(within(rowOf("First session")).queryByRole("img", { name: /from/ })).toBeNull();
+  });
+
   it("takes the colour off a session with no card, dims it, and says why", () => {
     panel({
       detachedBotIds: new Set(),
