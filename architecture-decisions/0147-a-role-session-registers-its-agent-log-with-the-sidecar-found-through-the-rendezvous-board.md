@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-19
 ---
 
@@ -113,13 +113,14 @@ read by the panel's dev server.
   a session's request to the bracket route. It would forward to this route, and the script would
   retire. The route is the base of both.
 
-### Open questions
+### Settled on acceptance
 
-- One log per session, or several. Drafted as one (a string per key); several would make the value a
-  list.
-- Whether the first version opens the code viewer on the file, as drafted, or a view of its own.
-- Whether to also stop the inherited `AGENT_FEED_HOST` and `AGENT_FEED_PORT` from going stale, or
-  leave them unused.
+- One log per session: the value is a single path per key. A session that needed two would make it a
+  list, and that is a new ADR.
+- The button opens the code viewer on the file. A view of its own waits until the code viewer is not
+  enough.
+- The inherited `AGENT_FEED_HOST` and `AGENT_FEED_PORT` are not fixed here. The script does not read
+  them, so they can go stale without breaking registration.
 
 ### Confirmation
 
