@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -93,6 +93,29 @@ describe("push routes", () => {
     expect(stored).toHaveLength(1);
     expect(stored[0]?.addedAt).toBe("2026-10-19T00:00:00.000Z");
     expect(stored[0]?.keys.auth).toBe("rotatedAuthSecret00000");
+  });
+
+  test("a device whose push service cannot be reached does not cost the others their send", async () => {
+    const { options, call } = await harness();
+    options.send = (subscription) =>
+      subscription.endpoint === CHROME
+        ? Promise.reject(new Error("socket timeout"))
+        : Promise.resolve({ endpoint: subscription.endpoint, status: 201, gone: false });
+    const routes = createPushRoutes(options);
+    await call("GET", PUSH_KEY_ROUTE);
+    await call("POST", PUSH_SUBSCRIPTIONS_ROUTE, { endpoint: APPLE, keys: KEYS });
+    await call("POST", PUSH_SUBSCRIPTIONS_ROUTE, { endpoint: CHROME, keys: KEYS });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const url = new URL(PUSH_TEST_ROUTE, "http://127.0.0.1");
+    const response = await routes(new Request(url.href, { method: "POST" }), url, undefined as never);
+    warn.mockRestore();
+    expect(await response?.json()).toEqual({
+      sent: [
+        { host: "web.push.apple.com", status: 201, gone: false },
+        { host: "fcm.googleapis.com", status: 0, gone: false },
+      ],
+    });
+    expect((await readPushState(options.path))?.subscriptions).toHaveLength(2);
   });
 
   test("a test push goes to every subscription and forgets the ones the service calls gone", async () => {

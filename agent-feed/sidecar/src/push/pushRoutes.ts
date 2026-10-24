@@ -80,9 +80,18 @@ async function sendTest(options: PushRouteOptions): Promise<Response> {
     url: "/?entry=feed&view=canvas",
     tag: "push-test",
   };
-  const outcomes = await Promise.all(
+  // Settled rather than all: one device whose push service cannot be reached must not cost the
+  // others their report, or the cleanup of the ones a service called gone. Each is one request with
+  // no retry; a failure is reported as status 0 and the next send tries again.
+  const settled = await Promise.allSettled(
     state.subscriptions.map((subscription) => options.send(subscription, payload, state.vapid, options.subject)),
   );
+  const outcomes = settled.map((result, index): PushOutcome => {
+    if (result.status === "fulfilled") return result.value;
+    const endpoint = state.subscriptions[index]?.endpoint ?? "";
+    console.warn(`[push] sending to ${new URL(endpoint).host} failed`, result.reason);
+    return { endpoint, status: 0, gone: false };
+  });
   await removeSubscriptions(
     options.path,
     outcomes.filter((outcome) => outcome.gone).map((outcome) => outcome.endpoint),

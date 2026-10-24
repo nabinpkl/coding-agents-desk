@@ -19,6 +19,12 @@ export type PushOutcome = { endpoint: string; status: number; gone: boolean };
 /** How long a push service holds a message for a device that is offline. */
 const TIME_TO_LIVE_SECONDS = 60 * 60;
 
+/**
+ * How long one POST to a push service may take. `web-push` sets no timeout of its own, so without
+ * this a connection that stalls holds the request, and whoever is waiting on it, for good.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
+
 export function generateVapidKeys(): VapidKeys {
   const { publicKey, privateKey } = webpush.generateVAPIDKeys();
   return { publicKey, privateKey };
@@ -41,6 +47,7 @@ export async function sendPush(
     const result = await webpush.sendNotification(subscription, JSON.stringify(payload), {
       TTL: TIME_TO_LIVE_SECONDS,
       urgency: "high",
+      timeout: REQUEST_TIMEOUT_MS,
       vapidDetails: { subject, publicKey: vapid.publicKey, privateKey: vapid.privateKey },
     });
     return { endpoint: subscription.endpoint, status: result.statusCode, gone: false };
