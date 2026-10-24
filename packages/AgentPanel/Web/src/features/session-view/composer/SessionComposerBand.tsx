@@ -335,19 +335,23 @@ export function SessionComposerBand({
                 title={
                   terminalComposer.shown
                     ? "Hide this session's screen and keep only the composer."
-                    : "Show this session's screen above the composer, so text typed here can be watched" +
-                      " arriving in the agent's own composer line."
+                    : `${model.runMode === "terminal" ? "Running in its terminal. " : ""}Show this session's screen` +
+                      " above the composer, so text typed here can be watched arriving in the agent's own composer line."
                 }
-                // Open is a solid fill, unlike any other state in the footer. It was the faint tint
-                // the run-mode toggle beside it uses when on, and the same grey as hovering, so on
-                // the Mac, with the pointer still over it after a click, open and shut looked alike.
+                // Two states, two looks. Open is a solid fill, unlike anything else in the footer.
+                // Shut over a session that runs in its terminal is the tint the run-mode toggle beside
+                // it wears for the SDK, so exactly one of the pair says which way the session runs.
+                // Open was that tint once too, and with the pointer still over it after a click on
+                // the Mac, open and shut looked alike.
                 className={`${COMPOSER_FOOTER_BUTTON_SHAPE} ${
                   terminalComposer.shown
                     ? "bg-primary text-primary-foreground hover:bg-primary/85 active:bg-primary/75"
-                    : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15"
+                    : model.runMode === "terminal"
+                      ? "bg-primary/10 text-primary hover:bg-primary/20 active:bg-primary/25"
+                      : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15"
                 }`}
               >
-                {/* The thing it opens: a terminal. The fill is what says whether it is open. */}
+                {/* The thing it opens: a terminal. The fill says it is open, the tint that it runs there. */}
                 <TerminalIcon className="size-3.5" aria-hidden />
               </button>
             ) : null}
