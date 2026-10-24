@@ -825,6 +825,24 @@ build-system-check:
     set -euo pipefail
     node --test tools/build-system/*.test.mjs
 
+# The shell scripts in `tools/` that drive host-run, the client install, the launch environment,
+# port and pid reclaiming, telemetry and TestFlight upload, each tested by its `-tests.sh` beside it,
+# plus the media architecture guard. Plain shell with stubbed commands, about 10s, nothing built, so
+# an edit to `tools/` runs these rather than every leg of the gate. `swift-check` runs them too.
+tools-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sh tools/media-architecture-guard.sh
+    sh tools/exact-executable-pids-tests.sh
+    sh tools/local-udp-port-pids-tests.sh
+    sh tools/reclaim-port-tests.sh
+    sh tools/host-run-lifecycle-tests.sh
+    sh tools/client-install-lifecycle-tests.sh
+    sh tools/launch-env-tests.sh
+    sh tools/hybrid-graphics-diagnostics-summary-tests.sh
+    sh tools/host-client-telemetry-tests.sh
+    sh tools/testflight-upload-tests.sh
+
 # The Swift capture-and-input helper the sidecar spawns for every desktop stream. It is compiled,
 # but it is on the current path, so unlike the rest of the Swift in this repo it belongs in the
 # fast gate. Compiles the helper and runs its input-controller and navigation suites.
@@ -1302,7 +1320,7 @@ dom-mirror-e2e: ext-stamp
 # simulator suite, and `just check-all` runs the lot.
 # Every leg of the current-path gate, run whatever changed. `check` runs only the legs a diff
 # can affect; this is the sweep, and what `check-all` builds on.
-check-legs: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder
+check-legs: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder tools-check
 
 # Only the legs the current diff can actually affect.
 #
@@ -1310,7 +1328,7 @@ check-legs: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness te
 # gate is; the typechecks are about a second each. The sidecar's figure is with `bun test --parallel`
 # (its package.json), after every sidecar test stopped waiting on the clock (check 10 of the fitness
 # gate): run one file at a time with its waits it was ~47s. The lever is still not running suites a
-# diff cannot reach. A sidecar-only change runs one leg instead of six.
+# diff cannot reach. A sidecar-only change runs one leg instead of seven.
 #
 # Conservative in one direction on purpose: a path no leg claims runs everything, because a
 # silently skipped leg is worse than a slow gate. Native paths are reported, never run -- they
@@ -1363,6 +1381,11 @@ check:
             tools/grid-encoder/*|tools/test-desktop-*.sh) add grid-encoder ;;
             # build-system-check owns the tests that drive these two scripts.
             tools/build-grid-encoder.sh|tools/swiftc-cached.sh) add grid-encoder; add build-system-check ;;
+            # Fitness runs on every gate, and these two are its own script and the formatter it calls.
+            tools/agent-feed-fitness.sh|tools/format.sh) ;;
+            # Any other script in `tools/` is tested by its own `-tests.sh`, not by the suites, so an
+            # edit there runs those rather than every leg.
+            tools/*) add tools-check ;;
             # Compiled into the helper from the host tree, so they are this gate's business too.
             host/AgentDeskHost/SkyLightSymbols.swift|host/AgentDeskHost/DockSwipeEvent.swift)
                 add grid-encoder; native="$native $path" ;;
@@ -1378,7 +1401,7 @@ check:
     if [ -n "$unclaimed" ]; then
         echo "check: no leg claims:$unclaimed" >&2
         echo "check: running every leg rather than guessing." >&2
-        legs="agent-feed-sidecar-check agent-panel-web-check terminal-web-check build-system-check grid-encoder"
+        legs="agent-feed-sidecar-check agent-panel-web-check terminal-web-check build-system-check grid-encoder tools-check"
     fi
     # Always, because it is two seconds and it reads across the host Swift, the panel Swift and
     # the wire at once: its inputs are too spread to map honestly.
@@ -1432,19 +1455,9 @@ check:
 # Split out of `just check` because compiling it dominates the wall clock of a gate that most
 # changes do not need. Run it when you edit host/, client/, terminal/, packages/*/Sources, or the
 # Justfile recipes that launch either app.
-swift-check variant="stable": ensure-agent-feed-sidecar-placeholder ensure-pty-runtime-placeholder workspace-ide-fitness
+swift-check variant="stable": ensure-agent-feed-sidecar-placeholder ensure-pty-runtime-placeholder workspace-ide-fitness tools-check
     #!/usr/bin/env bash
     set -euo pipefail
-    sh tools/media-architecture-guard.sh
-    sh tools/exact-executable-pids-tests.sh
-    sh tools/local-udp-port-pids-tests.sh
-    sh tools/reclaim-port-tests.sh
-    sh tools/host-run-lifecycle-tests.sh
-    sh tools/client-install-lifecycle-tests.sh
-    sh tools/launch-env-tests.sh
-    sh tools/hybrid-graphics-diagnostics-summary-tests.sh
-    sh tools/host-client-telemetry-tests.sh
-    sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
     (cd packages/KeyboardDictation && swift test)
     (cd packages/BrowserProjection && swift test)
