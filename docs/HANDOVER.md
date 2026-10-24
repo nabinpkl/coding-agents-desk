@@ -7,7 +7,7 @@ the helper with `just grid-encoder-install` into the durable Application Support
 to `.build` alone no longer updates it. Host launch recipes likewise use an installed app copy.
 Plain `just host-run` includes live panel recovery, live agent sidecar setup and helper installation.
 Read the current `AGENTS.md` runtime section and D277/R278/D279 in
-`tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md` (the retired root
+`docs/tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md` (the retired root
 ledger) before deployment.
 
 Staleness audit, 2026-09-09. Four things below are no longer true, measured rather than
@@ -23,7 +23,7 @@ rewritten; read it with these four corrections in hand.
   `features/desktop-viewer/tile-stream/`, `TileViewport.tsx` and `tileViewportMath.ts` in
   `features/desktop-viewer/tile-viewport/`. `DesktopParkModal.tsx` is where it was and has no
   transport toggle any more, that having gone with the MSE path. The rule and both records are in
-  `AGENTS.md` and `tasks/archive/2026-09-09-*`.
+  `AGENTS.md` and `docs/tasks/archive/2026-09-09-*`.
 - **Known open issue 1 is fixed.** The jsdom `localStorage` accessor failure that made
   `agent-panel-web-check` red is gone: measured 2026-09-09, `just agent-panel-web-check` is
   **98 files / 948 tests passing, exit 0**. So `just check` reaches Swift again and the advice to

@@ -9,7 +9,7 @@
 // this machine: every attempt fails TLS verification on a different package (`bun add` resolves
 // some manifests and rejects others on each run, while `npm view` against the same registry
 // succeeds). Working around that means disabling certificate verification or adding a second
-// lockfile, and both are worse than this. `TASKS.md` carries the swap; it is one file.
+// lockfile, and both are worse than this. `docs/TASKS.md` carries the swap; it is one file.
 //
 // What this costs against CodeMirror, so nobody discovers it as a surprise: no bracket matching,
 // no multiple cursors, no folding, and no virtualisation, so a very large file lays out all of its

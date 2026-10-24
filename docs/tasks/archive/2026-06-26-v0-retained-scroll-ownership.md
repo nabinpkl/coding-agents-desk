@@ -3,9 +3,9 @@
 `R<N>` = remaining. Flip to `D<N>` once landed and tests are green.
 
 Archived history:
-- `tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through packet repair.
-- `tasks/archive/2026-06-20-v0-owned-single-surface-media.md` carries the completed owned single-surface media ledger through motion budget scaling.
-- `tasks/archive/2026-06-20-v0-scroll-first-hybrid-retained-graphics.md` carries the first hybrid retained-graphics worktree through the initial graphics stream, compositor, HEVC bridge, and physical-run diagnosis.
+- `docs/tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through packet repair.
+- `docs/tasks/archive/2026-06-20-v0-owned-single-surface-media.md` carries the completed owned single-surface media ledger through motion budget scaling.
+- `docs/tasks/archive/2026-06-20-v0-scroll-first-hybrid-retained-graphics.md` carries the first hybrid retained-graphics worktree through the initial graphics stream, compositor, HEVC bridge, and physical-run diagnosis.
 
 ## Position
 

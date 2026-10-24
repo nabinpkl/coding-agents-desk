@@ -3,8 +3,8 @@
 `R<N>` = remaining. Flip to `D<N>` once landed and tests are green.
 
 Archived history:
-- `tasks/archive/2026-06-26-v0-retained-scroll-ownership.md` carries the closed retained-scroll / content-tile-cache ledger (R34-R80, TileCache-*), retired by the video-primary pivot (ADR-0026): tiles are demoted to an optional crisp-repair layer, the HEVC datagram carrier is the primary media path.
-- Earlier ledgers under `tasks/archive/` cover media-output friction, owned single-surface media, and the first hybrid retained-graphics worktree.
+- `docs/tasks/archive/2026-06-26-v0-retained-scroll-ownership.md` carries the closed retained-scroll / content-tile-cache ledger (R34-R80, TileCache-*), retired by the video-primary pivot (ADR-0026): tiles are demoted to an optional crisp-repair layer, the HEVC datagram carrier is the primary media path.
+- Earlier ledgers under `docs/tasks/archive/` cover media-output friction, owned single-surface media, and the first hybrid retained-graphics worktree.
 
 ## Position
 

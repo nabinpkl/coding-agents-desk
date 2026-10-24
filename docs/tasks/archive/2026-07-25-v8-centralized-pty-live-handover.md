@@ -6,7 +6,7 @@ not promote or discard it.
 
 `R<N>` = remaining. Flip to `D<N>` only after the complete slice has landed and its tests are green.
 This ledger continues from R100 in
-`tasks/archive/2026-07-23-v7-browser-projection-and-v8-terminal-workspace.md`.
+`docs/tasks/archive/2026-07-23-v7-browser-projection-and-v8-terminal-workspace.md`.
 
 ## Position
 

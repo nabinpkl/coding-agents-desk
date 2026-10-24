@@ -2,7 +2,7 @@
 
 `R<N>` = remaining. Flip to `D<N>` only after the complete slice has landed and its tests are green.
 This ledger continues from the archived v4 ledger
-(`tasks/archive/2026-07-12-v4-shared-workspace-reveal-shell.md`, through R57); v5 starts at R58.
+(`docs/tasks/archive/2026-07-12-v4-shared-workspace-reveal-shell.md`, through R57); v5 starts at R58.
 
 ## Position
 

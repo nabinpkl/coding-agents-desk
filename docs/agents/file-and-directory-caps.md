@@ -118,7 +118,7 @@ landed on the commit that brought the last one under, because a gate that fails 
 teaches everyone to route around it. Check 7 of `tools/agent-feed-fitness.sh` is the authority and
 `tools/git-hooks/pre-commit` asks the same at commit time.
 
-How both trees got here is in `tasks/archive/`: `2026-09-09-ts-500-line-cap.md` carries the
+How both trees got here is in `docs/tasks/archive/`: `2026-09-09-ts-500-line-cap.md` carries the
 concepts each split file divides on, and `2026-09-09-directory-twelve-file-ceiling.md` carries
 which directory became which. Read them before re-deciding one of those boundaries, not before an
 ordinary change.

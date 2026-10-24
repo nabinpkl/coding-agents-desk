@@ -1,7 +1,7 @@
 # TASKS: v4 shared workspace+files data model and the ported macOS reveal shell
 
 `R<N>` = remaining. Flip to `D<N>` once landed and tests are green. Continues the numbering from the
-archived v2/v3 ledger (`tasks/archive/v2-v3-workspace-consolidation.md`, R14-R35); v4 starts at R36.
+archived v2/v3 ledger (`docs/tasks/archive/v2-v3-workspace-consolidation.md`, R14-R35); v4 starts at R36.
 
 ## Position
 

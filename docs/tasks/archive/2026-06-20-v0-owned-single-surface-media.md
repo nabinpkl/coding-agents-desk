@@ -2,7 +2,7 @@
 
 `R<N>` = remaining. Flip to `D<N>` once the change has landed and tests are green.
 
-Archived history: `tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through the packet-repair slice.
+Archived history: `docs/tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through the packet-repair slice.
 
 ## Position
 

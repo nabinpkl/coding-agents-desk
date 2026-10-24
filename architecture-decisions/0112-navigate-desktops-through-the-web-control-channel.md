@@ -70,5 +70,5 @@ unplug recovery, and keyboard coexistence. TypeScript telemetry uses the existin
 
 ## Links
 
-- [First-party WebView desktop control](../SPEC.md#first-party-webview-desktop-control)
+- [First-party WebView desktop control](../docs/SPEC.md#first-party-webview-desktop-control)
 - [ADR-0109](0109-own-web-desktop-control-in-typescript.md)

@@ -3,8 +3,8 @@
 `R<N>` = remaining. Flip to `D<N>` once landed and tests are green.
 
 Archived history:
-- `tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through packet repair.
-- `tasks/archive/2026-06-20-v0-owned-single-surface-media.md` carries the completed owned single-surface media ledger through motion budget scaling.
+- `docs/tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through packet repair.
+- `docs/tasks/archive/2026-06-20-v0-owned-single-surface-media.md` carries the completed owned single-surface media ledger through motion budget scaling.
 
 ## Position
 

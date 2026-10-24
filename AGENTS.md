@@ -2,12 +2,12 @@
 
 `AGENTS.md` carries **how to operate inside this repo**: conventions, where things live, how decisions get recorded, how work is broken down. It does **not** carry product intent or implementation shape. Those have their own homes:
 
-- **`PRD.md`** what we are building and why. Source of truth for scope, non-goals, and the v0 acceptance test.
-- **`SPEC.md`** how v0 is built. Stack, module boundaries, wire shapes, performance budgets.
+- **`docs/PRD.md`** what we are building and why. Source of truth for scope, non-goals, and the acceptance test.
+- **`docs/SPEC.md`** how it is built. Stack, processes, module boundaries, contracts.
 - **`AGENTS.md`** (this file) how to work in the repo.
 - **`FEATURE-MAP.md`** which parts of the tree are the current path, which are dormant, and which solve one problem two ways. Read it before deciding where a change belongs.
 
-Before doing project work, read `FEATURE-MAP.md` first, then `PRD.md` and `SPEC.md` once. They are short on purpose.
+Before doing project work, read `FEATURE-MAP.md` first, then `docs/PRD.md` and `docs/SPEC.md` once. They are short on purpose.
 
 This file holds only what applies to every change. Everything else is next to the code it governs, or
 under `docs/agents/`, and is read when its situation comes up:
@@ -55,22 +55,23 @@ map exists to stop you getting wrong":
 - `packages/AgentPanel/Web/AGENTS.md`, `agent-feed/sidecar/AGENTS.md` the rules for working in those
   two trees. Each has a `CLAUDE.md` beside it that imports it.
 - `docs/agents/` operating detail by situation, indexed above.
-- `PRD.md` product intent.
-- `SPEC.md` technical shape for v0.
+- `docs/PRD.md` product intent.
+- `docs/SPEC.md` technical shape.
+- `docs/dormant-native-design.md` the native apps' PRD and SPEC as they stood on 2026-10-24, kept as a record.
 - `FEATURE-MAP.md` what is live, dormant, or superseded, and the parallel approaches that must not be conflated. Dated; re-derive it rather than trusting an old date (it carries the commands).
 - `docs/dormant-native.md` operating detail for the arcs that are no longer the path -- the iPhone app, host app build variants, on-device diagnostics, the simulator drives. A record to restore from, not a section to extend.
-- `README.md` external-facing one-pager. Points at `PRD.md`.
+- `README.md` external-facing one-pager. Points at `docs/PRD.md`. Beside it, for outside readers: `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md` and `THIRD_PARTY_NOTICES.md`.
 - `architecture-decisions/` one ADR per decision. `TEMPLATE.md` is the starting shape; `README.md` documents the index and lifecycle.
 - `mock-design/` Claude Design HTML/CSS/JS handoff bundle. **Reference for visual feel, not a v0 implementation target.** The mocked agent-native UX (per-agent carousel, reasoning ticker) is v1+, not v0.
-- `TASKS.md` the iteration ledger (the current one opened 2026-09-10). Retire a ledger to `tasks/archive/` when its arcs are done, before starting new ones, and carry any still-open task's ID forward unchanged.
+- `docs/TASKS.md` the iteration ledger (the current one opened 2026-09-10). Retire a ledger to `docs/tasks/archive/` when its arcs are done, before starting new ones, and carry any still-open task's ID forward unchanged.
 - `DECISIONS.md` load-bearing choices an agent made that no prompt or ADR dictated, with their evidence.
-- `HANDOVER.md` a handover note from 2026-08-25 for the desktop park live tiles; a record, not current instructions.
+- `docs/HANDOVER.md` a handover note from 2026-08-25 for the desktop park live tiles; a record, not current instructions.
 
 # How decisions get recorded
 
-- **Product-level scope decisions** edit `PRD.md`. Keep it short. If the change is large enough that it would invalidate published issues, note that in the commit and link the affected issues.
-- **Technical decisions that lock something in** write an ADR under `architecture-decisions/`. The first ADR (ADR-0001) records the stack choice in `SPEC.md`. Update `SPEC.md` to reference the ADR by number.
-- **Per-iteration plan and progress** go in `TASKS.md`. Do not duplicate ADR or PRD content there.
+- **Product-level scope decisions** edit `docs/PRD.md`. Keep it short. If the change is large enough that it would invalidate published issues, note that in the commit and link the affected issues.
+- **Technical decisions that lock something in** write an ADR under `architecture-decisions/`. The first ADR (ADR-0001) records the original native stack, which `docs/dormant-native-design.md` keeps. Update `docs/SPEC.md` to reference the ADR by number.
+- **Per-iteration plan and progress** go in `docs/TASKS.md`. Do not duplicate ADR or PRD content there.
 - **Anything inferable from reading the code** does not need a doc. Skip the ADR.
 
 # Subagents

@@ -38,8 +38,8 @@ if rg -n "${args[@]}" \
   client/AgentDeskClient \
   host/AgentDeskHostTests \
   client/AgentDeskClientTests \
-  SPEC.md \
-  PRD.md \
+  docs/SPEC.md \
+  docs/PRD.md \
   README.md \
   Justfile \
   .env.example \

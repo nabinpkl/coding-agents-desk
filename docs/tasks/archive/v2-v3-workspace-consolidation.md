@@ -17,7 +17,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 ## v2 Phase 0: consolidation decision (gate)
 
 - [x] D14. Accept `architecture-decisions/0052-agentdesk-owns-the-agent-workspace.md`, updating `PRD.md` and `SPEC.md` so AgentDesk owns workspace roots, macOS shell, local editing, AgentPanel, and authenticated iOS files.
-- [x] D15. Archive the completed terminal ledger under `tasks/archive/remote-swiftterm-terminal.md` and open this append-only consolidation ledger.
+- [x] D15. Archive the completed terminal ledger under `docs/tasks/archive/remote-swiftterm-terminal.md` and open this append-only consolidation ledger.
 
 ## v2 Phase 1: authoritative workspace and panel seams
 

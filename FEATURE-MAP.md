@@ -3,8 +3,8 @@
 Which parts of this tree are the current path, which are finished, and which solve the same
 problem a different way. Written 2026-09-05 against `bf4dc7f9`.
 
-`PRD.md` says what is being built. `SPEC.md` says how v0 was shaped. `AGENTS.md` says how to work
-here. This file exists because neither of those tells you that a directory you are reading was
+`docs/PRD.md` says what is being built. `docs/SPEC.md` says how it is built. `AGENTS.md` says how to
+work here. This file exists because neither of those tells you that a directory you are reading was
 superseded two months ago, and because several approaches to the same problem live side by side in
 one tree with nothing in the code saying which one is current.
 
@@ -110,10 +110,10 @@ app. The panel picks its transport by whether a native message handler is presen
 
 **Stale documents that read as current, and are not:**
 
-- `HANDOVER.md` is the 2026-08-25 desktop-park arc, already carrying a 2026-08-28 correction.
-- `TASKS.md` at the root is the v17 workspace-IDE arc, opened 2026-09-10. The one that headed a
-  July voice arc was retired on 2026-09-05 to
-  `tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md`, which names the single
+- `docs/HANDOVER.md` is the 2026-08-25 desktop-park arc, already carrying a 2026-08-28 correction.
+- `docs/TASKS.md` is the v17 workspace-IDE arc, opened 2026-09-10. The one that headed a July voice
+  arc was retired on 2026-09-05 to
+  `docs/tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md`, which names the single
   task still open (R278, a post-approval `just host-run` deployment check).
 
 When a ledger and `git log` disagree, `git log` wins.
@@ -151,8 +151,7 @@ They are easy to infer backwards from the shape of the tree.
 - **Pi is no longer used as a session provider here** (recorded 2026-09-13, on the owner's word).
   Sessions run in Claude and opencode (Codex is dormant too, below). The Pi provider is still
   wired in and still looks current: `PiAgentBackend` registers in `agent-feed/sidecar/src/server.ts`, Pi sessions still show in the
-  sidebar with a PI badge, and `PRD.md` and `SPEC.md` still describe Pi as the directly controlled
-  provider. Do not extend it, and do not treat a gap on a Pi row as a bug to fix -- its tool rows
+  sidebar with a PI badge. Do not extend it, and do not treat a gap on a Pi row as a bug to fix -- its tool rows
   carry no summary, for one. The Pi SDK itself is NOT dead: `summary/summaryRuntime.ts` runs the
   turn summarizer on `@earendil-works/pi-coding-agent` (the `summaryModel` in `/api/config`), so
   retiring Pi means removing the provider, not that dependency.
@@ -244,20 +243,6 @@ link is a hard constraint on everything else.
    measurements, is in `docs/agents/desktop-and-display.md`. It is the constraint that decides
    where the display holder must be installed and why changing the agent's desk is a sequence
    rather than a setting.
-
-## Sibling repositories
-
-Other checkouts under `~/projects` hold earlier or parallel takes on the same problem. They are not
-references; check anything taken from them against this map first.
-
-- `agent-desk-testflight-prev` no longer exists; removed 2026-09-11. It was never a sibling
-  repository at all -- it was a linked worktree of THIS checkout, detached at `2ef9e849`, which
-  is an ancestor of `main`, so the July snapshot it held is in this history and the 601MB on
-  disk was build output. `git worktree add --detach ../agent-desk-testflight-prev 2ef9e849`
-  brings it back.
-- `agent-workspace-ide` tombstoned 2026-07-10, "retired into AgentDesk".
-- `claude-mac-mouse` May, window and pointer control through CoreGraphics and Accessibility.
-- `deskzoom` no longer exists; absorbed here on 2026-09-05.
 
 ## Re-deriving this map when it goes stale
 

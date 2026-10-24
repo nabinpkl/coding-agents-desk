@@ -237,8 +237,9 @@ these:
 - **The Sessions and Bots views** of the Feed tab are dormant, replaced by Canvas.
 - **Voice input, browser projection and the DOM mirror** (`gesture-agent/`, `voice-assets/`,
   `chrome-extension/`, `dom-bridge/`, `packages/BrowserProjection/` and others) are dormant.
-- `PRD.md` and `SPEC.md` describe the native iPhone and Mac apps the project started as.
-  `HANDOVER.md`, `TASKS.md` and `tasks/` are working notes from earlier stretches of work.
+- The native iPhone and Mac apps' own requirements and design are kept in
+  `docs/dormant-native-design.md`. `docs/HANDOVER.md` and `docs/tasks/archive/` are working notes
+  from earlier stretches of work.
 
 ## Repository layout
 
@@ -251,7 +252,7 @@ these:
 | `tools/` | build and launch scripts, the capture helper, and the repository's checks |
 | `host/`, `client/`, `packages/`, `terminal/`, `deskzoom/` | the native Mac and iPhone apps, their Swift packages, the Rust terminal runtime, and a virtual display |
 | `architecture-decisions/` | one numbered record per decision |
-| `docs/` | how-to notes, most of them under `docs/agents/` |
+| `docs/` | [PRD.md](docs/PRD.md) (what AgentDesk is for), [SPEC.md](docs/SPEC.md) (how it is built), the iteration ledger `TASKS.md`, and how-to notes, most of them under `docs/agents/` |
 
 ## Development
 

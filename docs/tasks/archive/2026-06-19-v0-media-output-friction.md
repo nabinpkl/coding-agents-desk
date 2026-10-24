@@ -2,7 +2,7 @@
 
 `R<N>` = remaining. `D<N>` = done. Numbers are stable; retire dropped IDs in the promotion log, never reuse.
 
-Archived history: `tasks/archive/2026-06-16-v0-space-agent-host-overlay.md` carries the closed v0 work through Space Agent plus the first R24 capture.
+Archived history: `docs/tasks/archive/2026-06-16-v0-space-agent-host-overlay.md` carries the closed v0 work through Space Agent plus the first R24 capture.
 
 ## Position
 
