@@ -1,0 +1,24 @@
+{
+  "account": "0123456789abcdef0123456789abcdef",
+  "tokens": [
+    {
+      "name": "hub-mac",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "key": "CF_ACCESS_CLIENT_SECRET",
+      "file": "~/.config/agentdesk-relay/hub.env"
+    },
+    {
+      "name": "hub-panel",
+      "id": "00000000-0000-4000-8000-000000000002",
+      "key": "CF_ACCESS_CLIENT_SECRET",
+      "file": "~/.config/agentdesk-relay/panel.env"
+    },
+    {
+      "name": "hub-peer",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "key": "CF_ACCESS_CLIENT_SECRET",
+      "file": "/home/you/.config/agentdesk-relay/hub.env",
+      "host": "peer"
+    }
+  ]
+}

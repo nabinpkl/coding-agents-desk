@@ -18,7 +18,7 @@ server: auth/access-jwt → /mcp (MCP SDK) and /api/v1 (extension) → service �
 - `shared/`: wire types as zod schemas (`annotation.ts`, `send.ts`), zod-free enum vocabularies (`vocab.ts`, safe for the page bundle), and the Markdown brief (`brief.ts`).
 - `server/src/`: `config.ts` (env, fails at boot), `store/` (node:sqlite, migrations, the only code that touches SQL), `service/annotations.ts` (use cases and invariants), `auth/access-jwt.ts`, `hub.ts` (the agent hub client, behind an Access service token sent as headers), `mcp/` (tools and endpoint), `http/` (Hono app and REST routes), `main.ts`, `backup.ts`.
 - `extension/`: MV3. `src/background.ts` is the only code that talks to the server; `src/auth.ts` is the OAuth client; `src/content/` is picker, capture, panel view, and controller. There is no popup: the toolbar button toggles the in-page panel.
-- `deploy/`: Dockerfile, compose (server plus cloudflared), `.env.example`, `cloudflare.md` (resource ids, no secrets).
+- `deploy/`: Dockerfile, compose (server plus cloudflared), `.env.example`, `cloudflare.md` (the Cloudflare resources it needs, with no ids or secrets; a deployment keeps its own ids in the gitignored `cloudflare.private.md`).
 - `e2e/`: suite against the live edge, authenticated with the `annotator-e2e` service token.
 
 ## Rules that hold the design together

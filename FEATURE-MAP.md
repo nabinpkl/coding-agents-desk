@@ -106,8 +106,7 @@ app. The panel picks its transport by whether a native message handler is presen
   `host/AgentDeskHost/WorkspaceShell/Editor/FileViewer.swift` opens it.
 - `mock-design/` a visual reference from June, explicitly not an implementation target.
 - `spikes/`, `tests/`, `agent-learning/` experiments and one-off harnesses.
-- `ad` a June "agent say" Swift script at the root; `hooks.json.tmp` a temp file committed in July
-  and never cleaned up.
+- `ad` a June "agent say" Swift script at the root.
 
 **Stale documents that read as current, and are not:**
 

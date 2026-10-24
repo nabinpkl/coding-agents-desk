@@ -62,4 +62,4 @@ The server and a cloudflared tunnel run with docker compose on oracle (shipped t
 - `just backup`: consistent snapshot to `/data/backups/`.
 - `just check`: typecheck, tests, and extension build locally.
 
-Cloudflare resource ids and rotation steps are in `deploy/cloudflare.md`. The Managed OAuth spike findings are in `docs/spike.md`.
+The Cloudflare resources it needs and the rotation steps are in `deploy/cloudflare.md`; keep your own ids in `deploy/cloudflare.private.md`, which is gitignored. The Managed OAuth spike findings are in `docs/spike.md`.

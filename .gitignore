@@ -3,6 +3,17 @@
 .env.local
 *.p8
 
+# Personal and per-deployment values, kept beside the checked-in files that describe them but never
+# committed, because this repository is published: a deployment's real resource ids
+# (`cloudflare.private.md` beside each generic `cloudflare.md`), the hub's service-token table (its
+# shape is `service-tokens.example.json`), a secrets-manager workspace link, and the owner's own
+# Codex hooks and skill.
+*.private.md
+agent-feed/hub/deploy/service-tokens.json
+.infisical.json
+.codex/
+.agents/skills/create-skill/
+
 # macOS atomic-write temp artifacts
 .!*
 
