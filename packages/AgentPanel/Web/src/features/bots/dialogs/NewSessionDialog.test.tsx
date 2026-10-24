@@ -13,9 +13,17 @@ const GARDEN: ProjectSummary = {
 };
 const MAC = { label: "mac", feed: {} } as unknown as BotMachine;
 
-function dialog(onStart: (command: unknown) => Promise<void>) {
+function dialog(onStart: (command: unknown, machine: BotMachine) => Promise<void>, machines: BotMachine[] = [MAC]) {
   render(
-    <NewSessionDialog open machine={MAC} projects={[GARDEN]} loading={false} onClose={vi.fn()} onStart={onStart} />,
+    <NewSessionDialog
+      open
+      machines={machines}
+      machine={MAC}
+      projects={[GARDEN]}
+      loading={false}
+      onClose={vi.fn()}
+      onStart={onStart}
+    />,
   );
   return screen.getByRole("button", { name: "Start session" });
 }
@@ -31,12 +39,15 @@ it("starts only once it has a directory and a name, in the harness picked", asyn
   fireEvent.change(screen.getByLabelText("First message"), { target: { value: "Sort the beds\n" } });
   fireEvent.click(start);
   await waitFor(() =>
-    expect(onStart).toHaveBeenCalledWith({
-      source: "opencode",
-      projectPath: GARDEN.projectPath,
-      title: "Garden notes",
-      prompt: "Sort the beds\n",
-    }),
+    expect(onStart).toHaveBeenCalledWith(
+      {
+        source: "opencode",
+        projectPath: GARDEN.projectPath,
+        title: "Garden notes",
+        prompt: "Sort the beds\n",
+      },
+      MAC,
+    ),
   );
 });
 
@@ -49,13 +60,16 @@ it("starts a Claude session in its terminal, with its first message, when nothin
   fireEvent.change(screen.getByLabelText("First message"), { target: { value: "Sort the beds" } });
   fireEvent.click(start);
   await waitFor(() =>
-    expect(onStart).toHaveBeenCalledWith({
-      source: "claude",
-      claudeMode: "terminal",
-      projectPath: GARDEN.projectPath,
-      title: "Garden notes",
-      prompt: "Sort the beds",
-    }),
+    expect(onStart).toHaveBeenCalledWith(
+      {
+        source: "claude",
+        claudeMode: "terminal",
+        projectPath: GARDEN.projectPath,
+        title: "Garden notes",
+        prompt: "Sort the beds",
+      },
+      MAC,
+    ),
   );
 });
 
@@ -74,11 +88,14 @@ it("starts no Claude session without a first message, in either harness, and ope
   expect(start).toBeEnabled();
   fireEvent.click(start);
   await waitFor(() =>
-    expect(onStart).toHaveBeenCalledWith({
-      source: "opencode",
-      projectPath: GARDEN.projectPath,
-      title: "Garden notes",
-    }),
+    expect(onStart).toHaveBeenCalledWith(
+      {
+        source: "opencode",
+        projectPath: GARDEN.projectPath,
+        title: "Garden notes",
+      },
+      MAC,
+    ),
   );
 });
 
@@ -91,13 +108,16 @@ it("starts a Claude session through the SDK runner when that is the harness pick
   fireEvent.change(screen.getByLabelText("First message"), { target: { value: "Sort the beds" } });
   fireEvent.click(start);
   await waitFor(() =>
-    expect(onStart).toHaveBeenCalledWith({
-      source: "claude",
-      claudeMode: "sdk",
-      projectPath: GARDEN.projectPath,
-      title: "Garden notes",
-      prompt: "Sort the beds",
-    }),
+    expect(onStart).toHaveBeenCalledWith(
+      {
+        source: "claude",
+        claudeMode: "sdk",
+        projectPath: GARDEN.projectPath,
+        title: "Garden notes",
+        prompt: "Sort the beds",
+      },
+      MAC,
+    ),
   );
 });
 
@@ -113,4 +133,38 @@ it("keeps everything typed when the start is refused", async () => {
   expect(screen.getByLabelText("First message")).toHaveValue("Sort the beds");
   expect(screen.getByLabelText("Name")).toHaveValue("Garden notes");
   expect(start).toBeEnabled();
+});
+
+it("starts on another machine once it is picked, from that machine's folders", async () => {
+  const BEDS: ProjectSummary = { ...GARDEN, projectPath: "/home/ubuntu/beds", displayName: "beds" };
+  const subscribeInventory = vi.fn(
+    (
+      _paths: readonly string[],
+      handlers: { onProjects: (projects: ProjectSummary[], archived: ProjectSummary[]) => void },
+    ) => {
+      handlers.onProjects([BEDS], []);
+      return () => {};
+    },
+  );
+  const ORACLE = { id: "oracle", label: "oracle", feed: { subscribeInventory } } as unknown as BotMachine;
+  const onStart = vi.fn(async () => {});
+  const start = dialog(onStart, [MAC, ORACLE]);
+  // The panel's own machine first, read from what the app already holds.
+  expect(screen.getByRole("button", { name: "mac" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("radio", { name: /garden/ }));
+  expect(subscribeInventory).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "oracle" }));
+  // The folder picked on the Mac is not one oracle has.
+  expect(screen.queryByRole("radio", { name: /garden/ })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: /beds/ }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Beds" } });
+  fireEvent.change(screen.getByLabelText("First message"), { target: { value: "Sort them" } });
+  fireEvent.click(start);
+  await waitFor(() =>
+    expect(onStart).toHaveBeenCalledWith(
+      { source: "claude", claudeMode: "terminal", projectPath: BEDS.projectPath, title: "Beds", prompt: "Sort them" },
+      ORACLE,
+    ),
+  );
 });

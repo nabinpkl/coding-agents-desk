@@ -20,6 +20,8 @@ export const terminalPaneMock = {
   // the screen is more than the whole card.
   composerHasBasis: null as boolean | null,
   context: null as Record<string, unknown> | null,
+  /** The data source the non-composer pane was handed, which says which machine it attaches on. */
+  feed: null as unknown,
   onState: null as ((context: Record<string, unknown>, state: Record<string, unknown>) => void) | null,
 };
 
@@ -88,10 +90,12 @@ export async function activityFeedModule() {
 export function terminalPaneModule() {
   return {
     AgentTerminalPane: ({
+      feed,
       context,
       onState,
       heightBasis,
     }: {
+      feed?: unknown;
       context: Record<string, unknown>;
       onState: (context: Record<string, unknown>, state: Record<string, unknown>) => void;
       heightBasis?: HTMLElement | null;
@@ -104,6 +108,7 @@ export function terminalPaneModule() {
         terminalPaneMock.composerHasBasis = heightBasis instanceof HTMLElement;
       } else {
         terminalPaneMock.context = context;
+        terminalPaneMock.feed = feed;
         terminalPaneMock.onState = onState;
       }
       const provider = context.source === "claude" ? "Claude" : context.source === "codex" ? "Codex" : "Opencode";

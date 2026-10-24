@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { App } from "@/app/AgentPanelApp";
 import { deliverProjects, restoreViewport } from "@/app/agentPanelAppHarness";
+import { terminalPaneMock } from "@/app/agentPanelAppMocks";
 import { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { HostActionsClient } from "@/features/activity-feed/data-source/HostActionsClient";
 import { FakeHostBridge } from "@/features/activity-feed/data-source/HostBridge";
@@ -67,7 +68,7 @@ function setup() {
   deliverProjects(mac);
   fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
   fireEvent.click(within(screen.getByRole("tablist", { name: "Canvas views" })).getByRole("tab", { name: "Sessions" }));
-  return { mac, oracle, unmount };
+  return { mac, oracle, oracleFeed: machines[1]!.feed, unmount };
 }
 
 const inventoryStreams = (transport: FakeHttpTransport) =>
@@ -133,6 +134,47 @@ describe("the Sessions view on two machines", () => {
     });
     expect(oracle.requests.filter((each) => each.path === "/api/bots/placements")).toHaveLength(1);
     expect(mac.requests.some((each) => each.path === "/api/bots/placements")).toBe(false);
+    unmount();
+  });
+
+  it("starts a session on the other machine when New session picks it, and follows it there", async () => {
+    const { mac, oracle, oracleFeed, unmount } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog", { name: "New session" }));
+    fireEvent.click(dialog.getByRole("button", { name: "oracle" }));
+    act(() => oracle.deliver("/api/inventory/stream", { projects: [RAGS] }));
+    fireEvent.click(dialog.getByRole("radio", { name: /rags/ }));
+    fireEvent.change(dialog.getByLabelText("Name"), { target: { value: "Fresh on oracle" } });
+    fireEvent.change(dialog.getByLabelText("First message"), { target: { value: "Look around" } });
+    const started = {
+      sessionId: "sid-new",
+      source: "claude",
+      title: "Fresh on oracle",
+      projectPath: RAGS.projectPath,
+      tmuxSession: "t",
+    };
+    oracle.responses.set("POST /api/agent-sessions/start", { status: 200, body: JSON.stringify(started) });
+    await act(async () => {
+      fireEvent.click(dialog.getByRole("button", { name: "Start session" }));
+    });
+    expect(oracle.requests.some((each) => each.path === "/api/agent-sessions/start")).toBe(true);
+    expect(mac.requests.some((each) => each.path === "/api/agent-sessions/start")).toBe(false);
+    // Its box attaches to its terminal on oracle, and only oracle is asked about its folder.
+    expect(terminalPaneMock.context).toMatchObject({ kind: "tmux", session: "t" });
+    expect(terminalPaneMock.feed).toBe(oracleFeed);
+    const folder = `projectPath=${encodeURIComponent(RAGS.projectPath)}`;
+    expect(mac.subscriptions.some((each) => each.path.includes(folder))).toBe(false);
+
+    act(() =>
+      oracle.deliver(folder, {
+        projectPath: RAGS.projectPath,
+        sessions: [{ ...OLIVE, sessionId: "sid-new", title: "Fresh on oracle" }],
+      }),
+    );
+    // Listed: handed to the ordinary session window, which reads its transcript from oracle.
+    expect(screen.getByRole("dialog", { name: "Fresh on oracle" })).toBeInTheDocument();
+    expect(oracle.subscriptions.some((each) => each.path.includes("sid-new"))).toBe(true);
+    expect(mac.subscriptions.some((each) => each.path.includes("sid-new"))).toBe(false);
     unmount();
   });
 });

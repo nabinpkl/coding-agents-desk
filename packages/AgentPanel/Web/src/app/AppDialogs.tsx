@@ -94,7 +94,8 @@ export function AppDialogs({
    * catalog lists it, when `onListed` opens it in the session modal instead.
    */
   newSession: ReturnType<typeof useNewSessionCommands> & {
-    onListed: (project: ProjectSummary, session: SessionSummary) => void;
+    /** `machine` is the one it was started on, when that is not the one the panel points at. */
+    onListed: (project: ProjectSummary, session: SessionSummary, machine?: string) => void;
   };
   /**
    * The session opened in the modal, or null; mounted only while it is open. From the Canvas tab's
@@ -139,13 +140,20 @@ export function AppDialogs({
     const session = bot?.sessions.find((each) => sessionKey(each) === key);
     return bot && session ? { bot, session, feed: sessionModal.contextFor(bot.botId).feed } : undefined;
   })();
-  // The machine the Sessions view reads, which is the shell's: a new session starts where it will
-  // be listed.
+  // The machine the shell points at, which a new session starts on unless the dialog picks another.
   const shellFeed = sessionModal.context.feed;
   const shellMachine = useMemo(
     () => machines.find((machine) => machine.feed === shellFeed) ?? { label: "This machine", feed: shellFeed },
     [machines, shellFeed],
   );
+  // A started session's box reads from the machine it was started on: its terminal is there, and
+  // so is the catalog that will list it.
+  const startedOn = newSession.started?.machine;
+  const startedContext = newSession.started
+    ? startedOn === undefined
+      ? sessionModal.context
+      : sessionModal.contextOn(startedOn)
+    : null;
   // The picker's preview, same rule as the fork's.
   const pickerAnchor = botSessionPicker?.nextAnchor ?? "";
   // Each dialog behind its own boundary: they mount here, beside the canvas rather than inside any
@@ -203,6 +211,7 @@ export function AppDialogs({
       <PanelErrorBoundary surface="new session dialog" overlay onDismiss={newSession.closeDialog}>
         <NewSessionDialog
           open={newSession.dialogOpen}
+          machines={machines}
           machine={shellMachine}
           projects={projects}
           loading={inventoryLoading}
@@ -215,7 +224,7 @@ export function AppDialogs({
           <ChatDraftDialog onClose={newSession.closeChat} onStart={newSession.startChat} />
         </PanelErrorBoundary>
       ) : null}
-      {newSession.started ? (
+      {startedContext && newSession.started ? (
         <PanelErrorBoundary
           key={sessionKey(newSession.started)}
           surface="started session"
@@ -223,14 +232,15 @@ export function AppDialogs({
           onDismiss={newSession.clearStarted}
         >
           <StartedSessionModal
-            feed={shellFeed}
-            context={sessionModal.context}
+            feed={startedContext.feed}
+            context={startedContext}
             started={newSession.started}
             projects={projects}
             sessionsByProject={sessionsByProject}
             onListed={(project, session) => {
+              const machine = newSession.started?.machine;
               newSession.clearStarted();
-              newSession.onListed(project, session);
+              newSession.onListed(project, session, machine);
             }}
             onClose={newSession.clearStarted}
           />

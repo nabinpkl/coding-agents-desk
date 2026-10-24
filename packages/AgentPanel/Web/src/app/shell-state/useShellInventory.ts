@@ -15,12 +15,14 @@ import { useCallback, useMemo, useState } from "react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { loadSelection } from "@/features/sidebar/selectionStore";
-import type { BotMachine } from "@/features/bots/botMachines";
+import { machineKey, type BotMachine } from "@/features/bots/botMachines";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";
 import { useProjectInventory } from "@/app/shell-state/useProjectInventory";
 import { usePeerSessionLists } from "@/app/shell-state/sidebar/usePeerSessionLists";
 import type { ShellMachines } from "@/app/shell-state/useBotMachines";
 import type { SessionArchiving } from "@/features/sidebar/session-list/ArchivedSessions";
+
+const NO_PATHS: readonly string[] = [];
 
 export function useShellInventory({
   feed,
@@ -32,7 +34,8 @@ export function useShellInventory({
   picker,
   /**
    * Sessions this panel started that the catalog has not heard of yet, with the Bot that owns each.
-   * One with no Bot was started from the Sessions view, on the machine this shell reads.
+   * One with no Bot was started from the Sessions view, on the machine this shell reads unless it
+   * names another (`machineKey`).
    */
   startedSessions,
   /** Whether the flat, most-recently-changed sessions list is on screen. See `useProjectInventory`. */
@@ -44,7 +47,7 @@ export function useShellInventory({
   machines: Pick<ShellMachines, "all" | "noteListed">;
   botMachines: ReadonlyMap<string, BotMachine>;
   picker: { botId: string; projectPath: string } | null;
-  startedSessions: readonly { botId?: string; projectPath: string }[];
+  startedSessions: readonly { botId?: string; machine?: string; projectPath: string }[];
   recentWanted: boolean;
   searchable: boolean;
 }) {
@@ -54,8 +57,24 @@ export function useShellInventory({
     const machine = botMachines.get(picker.botId);
     return machine && machine.feed !== feed ? machine : null;
   }, [picker, botMachines, feed]);
-  const pickerPeerPaths = useMemo(() => (pickerPeer && picker ? [picker.projectPath] : []), [pickerPeer, picker]);
-  const peerInventory = useMachineInventory(pickerPeer, pickerPeerPaths);
+  // Else a session started from the Sessions view on another machine, whose directory is read THERE
+  // until the catalog lists it, so the box waiting for it can hand it over. One read at a time: a
+  // picker is a dialog and a started session's box is a modal, so the two do not ask at once.
+  const startedPeer = useMemo(() => {
+    const started = startedSessions.find((each) => each.machine !== undefined);
+    const machine = started && machines.all.find((each) => machineKey(each) === started.machine);
+    return started && machine && machine.feed !== feed ? { machine, path: started.projectPath } : null;
+  }, [startedSessions, machines.all, feed]);
+  const peerRead = useMemo(
+    () =>
+      pickerPeer && picker
+        ? { machine: pickerPeer, paths: [picker.projectPath] }
+        : startedPeer
+          ? { machine: startedPeer.machine, paths: [startedPeer.path] }
+          : null,
+    [pickerPeer, picker, startedPeer],
+  );
+  const peerInventory = useMachineInventory(peerRead?.machine ?? null, peerRead?.paths ?? NO_PATHS);
 
   /** The directories this machine's stream must watch beyond the ones the reader expanded. */
   const extraProjectPaths = useMemo(() => {
@@ -67,8 +86,10 @@ export function useShellInventory({
     // A started session's own directory, which is not always its Bot's: a session in a worktree is
     // listed under the worktree. Subscribed so the canvas sees it become a real session and stops
     // rendering the placeholder card, not so it can be attached -- the Bot did that when it started
-    // it. A session started on a peer is watched by that peer's own Bot stream instead.
+    // it. A session started on a peer is watched by that peer's own Bot stream instead, or, with no
+    // Bot, by the read above.
     for (const started of startedSessions) {
+      if (started.machine !== undefined) continue;
       const machine = started.botId === undefined ? undefined : botMachines.get(started.botId);
       if (!machine || machine.feed === feed) paths.push(started.projectPath);
     }
@@ -89,20 +110,21 @@ export function useShellInventory({
   /**
    * The sessions each directory holds, as the DIALOGS see it.
    *
-   * This machine's inventory with the open picker's peer directory laid over it. An overlay rather
-   * than a swap because the fork dialog reads the same map for a directory on this machine, and
-   * only one dialog is open at a time; the peer wins its own path for exactly as long as its picker
-   * is asking about it, which is the only window in which both could name it.
+   * This machine's inventory with the peer directory being read laid over it: the open picker's,
+   * or a started session's. An overlay rather than a swap because the fork dialog reads the same map
+   * for a directory on this machine, and only one dialog is open at a time; the peer wins its own
+   * path for exactly as long as it is being asked about, which is the only window in which both
+   * could name it.
    *
    * The sidebar and the thread deliberately keep reading `inventory.sessionsByProject` instead:
    * those are this machine's rows, and a peer's directory is not something either can select into.
    */
   const dialogSessionsByProject = useMemo<ReadonlyMap<string, SessionSummary[]>>(() => {
-    if (!pickerPeer) return inventory.sessionsByProject;
+    if (!peerRead) return inventory.sessionsByProject;
     const merged = new Map(inventory.sessionsByProject);
     for (const [path, sessions] of peerInventory.sessionsByProject) merged.set(path, sessions);
     return merged;
-  }, [inventory.sessionsByProject, pickerPeer, peerInventory.sessionsByProject]);
+  }, [inventory.sessionsByProject, peerRead, peerInventory.sessionsByProject]);
 
   /**
    * Archiving from the project list, on the machine the list is reading.

@@ -1,4 +1,5 @@
-// A session on no Bot: which directory, which harness, what it is called, and what it starts on.
+// A session on no Bot: which machine and directory, which harness, what it is called, and what it
+// starts on.
 //
 // Beside the Bot dialogs because it is built from their parts -- the project picker the Bot
 // creator binds with, and the harness choice the session picker offers -- and is the same act
@@ -8,29 +9,42 @@ import { LoaderCircle, SquareTerminal, X } from "lucide-react";
 import { useCallback, useRef, type SubmitEvent } from "react";
 import type { ProjectSummary, StartSessionCommand } from "@agentdesk/agent-feed-wire";
 import type { BotMachine } from "@/features/bots/botMachines";
+import { useMachineInventory } from "@/features/bots/useMachineInventory";
 import { ProjectPicker } from "@/features/project-picker/ProjectPicker";
 import { HARNESSES, harnessStart, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
 import { useModal } from "@/hooks/dom/overlays";
 import { useStateFor } from "@/hooks/state/useStateFor";
 
+const NO_PATHS: readonly string[] = [];
+
 export function NewSessionDialog({
   open,
-  machine,
+  machines,
+  machine: shellMachine,
   projects,
   loading,
   onClose,
   onStart,
 }: {
   open: boolean;
-  /** The machine the Sessions view reads, which is the one the session starts on. */
+  /** Every machine a session can start on. More than one puts a machine row above the folders. */
+  machines: readonly BotMachine[];
+  /** The machine the panel is pointed at, which it starts on unless another is picked. */
   machine: BotMachine;
+  /** `machine`'s projects, which the app already holds. */
   projects: ProjectSummary[];
   loading: boolean;
   onClose: () => void;
-  /** Starts it and closes this dialog, or throws for the reason to show here. */
-  onStart: (command: StartSessionCommand) => Promise<void>;
+  /** Starts it on `machine` and closes this dialog, or throws for the reason to show here. */
+  onStart: (command: StartSessionCommand, machine: BotMachine) => Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [machine, setMachine] = useStateFor<BotMachine>(open, () => shellMachine);
+  // Another machine's folders are read for as long as it is picked here; the panel's own machine's
+  // are already on the app's stream. By feed rather than by id: the panel can be pointed at a peer,
+  // and then the Mac, whose id is none, is the one that is not already read.
+  const onShell = machine.feed === shellMachine.feed;
+  const other = useMachineInventory(open && !onShell ? machine : null, NO_PATHS);
   const [selectedPath, setSelectedPath] = useStateFor<string | null>(open, () => null);
   // Claude in its terminal by default: remote control reaches only that mode. The SDK runner is a pick.
   const [harness, setHarness] = useStateFor<NewSessionHarness>(open, () => "claude");
@@ -57,12 +71,15 @@ export function NewSessionDialog({
     setPending(true);
     setError(null);
     try {
-      await onStart({
-        ...harnessStart(harness),
-        projectPath: selectedPath,
-        title: title.trim(),
-        ...(prompt.trim() ? { prompt } : {}),
-      });
+      await onStart(
+        {
+          ...harnessStart(harness),
+          projectPath: selectedPath,
+          title: title.trim(),
+          ...(prompt.trim() ? { prompt } : {}),
+        },
+        machine,
+      );
     } catch (reason) {
       // Every field stays as it was, the first message included, so a retry is one click.
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -101,11 +118,18 @@ export function NewSessionDialog({
 
         <form onSubmit={submit} className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)]">
           <ProjectPicker
-            machines={[machine]}
+            machines={machines}
             machine={machine}
-            projects={projects}
-            loading={loading}
-            error={null}
+            onMachine={(next) => {
+              setMachine(next);
+              // A directory belongs to one machine, so a selection cannot survive the move: keeping
+              // it would start the session in this machine's path on that one.
+              setSelectedPath(null);
+              setError(null);
+            }}
+            projects={onShell ? projects : other.projects}
+            loading={onShell ? loading : other.loading}
+            error={onShell ? null : other.error}
             selectedPath={selectedPath}
             onSelect={(path) => {
               setSelectedPath(path);

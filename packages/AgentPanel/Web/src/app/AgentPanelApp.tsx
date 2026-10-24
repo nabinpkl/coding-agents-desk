@@ -94,7 +94,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
     canvas,
   );
   const commands = useBotCommands(shellMachines.feeds, roster, chrome.setHoverPreviewOpen);
-  const newSession = useNewSessionCommands(feed);
+  const newSession = useNewSessionCommands(feed, shellMachines.noteListed);
   // The Branches tab draws its own copy of the canvas; see `canvas` above.
   const CanvasView = canvas === "branches" ? BranchCanvas : BotCanvas;
   // What the canvas is asked from outside it, made once for the life of this shell (`canvasStore`).
