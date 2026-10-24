@@ -483,6 +483,32 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         return "/Users/Shared/agentdesk/logs/\(NSUserName())-agent-feed-sidecar.log"
     }
 
+    /// Opens the diagnostics file for appending, or nil when it is not a plain file this user made.
+    ///
+    /// The directory it lives in is writable by every login session, so anyone could leave a symlink
+    /// or a hard link at this name, and an append would then land in whatever it points at. Hence no
+    /// following of a final symlink, creation that must be new, and a check on the descriptor itself
+    /// that it is a regular file, ours, with one name. Append-only, so a truncate never leaves a
+    /// stale offset; close-on-exec, so the sidecar it spawns does not inherit the descriptor.
+    private static func openOwnedAppendFile(_ path: String) -> Int32? {
+        let flags = O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW
+        var fd = Darwin.open(path, flags)
+        if fd < 0, errno == ENOENT {
+            fd = Darwin.open(path, flags | O_CREAT | O_EXCL, 0o644)
+        }
+        guard fd >= 0 else { return nil }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid(),
+            info.st_nlink == 1
+        else {
+            // A descriptor this call just opened, so closing it is not the stale-number hazard.
+            Darwin.close(fd)
+            errno = EPERM
+            return nil
+        }
+        return fd
+    }
+
     private func closeOutputFile() {
         if outputFD >= 0 { Darwin.close(outputFD) }
         outputFD = -1
@@ -497,10 +523,9 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             try FileManager.default.createDirectory(
                 atPath: directory, withIntermediateDirectories: true
             )
-            // Append-only, so a truncate by this process or another never leaves a stale offset,
-            // and close-on-exec, so the sidecar it spawns does not inherit the descriptor.
-            let fd = Darwin.open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
-            guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            guard let fd = Self.openOwnedAppendFile(path) else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EPERM)
+            }
             outputFD = fd
             outputFileBytes = UInt64(max(0, lseek(fd, 0, SEEK_END)))
             // Every spawn is a boundary somebody reading this file backwards needs to see: it is

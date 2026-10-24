@@ -288,6 +288,38 @@ struct AgentFeedSidecarProcessTests {
 
     // MARK: - Child inherits the parent environment (PATH not stripped)
 
+    @Test func aSymlinkLeftAtTheLogsNameIsNotWrittenThrough() async throws {
+        // The logs directory is writable by every login session, so the name is not ours to trust:
+        // an append through a planted symlink would land in whatever file it points at.
+        let port = try freePort()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-feed-sidecar-symlink-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let target = directory.appendingPathComponent("victim.txt")
+        try "untouched\n".write(to: target, atomically: true, encoding: .utf8)
+        let link = directory.appendingPathComponent("sidecar.log")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        setenv("AGENTDESK_AGENT_FEED_SIDECAR_LOG", link.path, 1)
+        defer { unsetenv("AGENTDESK_AGENT_FEED_SIDECAR_LOG") }
+
+        let stubURL = try makeStubBinary(port: port, extraLines: [
+            "print('a line only the child could have written', flush=True)",
+        ])
+        defer { try? FileManager.default.removeItem(at: stubURL) }
+        let sidecar = makeSidecar(binaryURL: stubURL, port: port)
+        defer { sidecar.stop() }
+        sidecar.start()
+
+        // The sidecar still runs: losing the diagnostics file must never cost the sidecar.
+        let deadline = Date().addingTimeInterval(6)
+        while sidecar.baseURL == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        #expect(sidecar.baseURL != nil)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "untouched\n")
+    }
+
     @Test func spawnedChildInheritsPath() async throws {
         let port = try freePort()
         // The stub writes its own PATH to a temp file on startup. If
