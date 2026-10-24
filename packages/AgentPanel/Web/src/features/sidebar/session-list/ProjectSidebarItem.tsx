@@ -338,7 +338,6 @@ export function SessionRow({
           </span>
           <SessionMeta
             source={session.source}
-            lastEventAt={session.lastEventAt}
             activity={session.activity}
             {...(project === undefined ? {} : { project })}
           />

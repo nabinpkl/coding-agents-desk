@@ -114,8 +114,8 @@ export function BotNewSessionCard({
                 <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
                   {session.title}
                 </span>
-                {/* Not `SessionMeta`: that reads a summary's timestamp and activity, and this
-                    session has neither yet. What it has instead is worth saying plainly, because
+                {/* Not `SessionCardMeta`: that reads a summary's activity, and this session has
+                    none yet. What it has instead is worth saying plainly, because
                     it explains why the card holds a terminal and nothing else. */}
                 <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
                   <SourceBadge source="claude" />

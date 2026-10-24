@@ -3,12 +3,12 @@ import type { Bin } from "@agentdesk/agent-feed-wire";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 
 /**
- * How a session reads at a glance: whether it is live, where it came from, when it last spoke.
+ * How a session reads at a glance: whether it is live and where it came from. No time, on the
+ * owner's word (2026-10-23), as on the canvas cards (`SessionCardMeta`).
  *
  * Extracted when the Bot canvas became the second surface to render it. The sidebar tree and the
  * canvas differ in density and in what wraps them, but the vocabulary a reader learns -- green
- * means live, the badge names the provider, the time is local -- has to be one thing, or the two
- * lists teach two.
+ * means live, the badge names the provider -- has to be one thing, or the two lists teach two.
  */
 export function ActivityDot({ activity, className = "" }: { activity: Bin; className?: string }) {
   return (
@@ -21,13 +21,11 @@ export function ActivityDot({ activity, className = "" }: { activity: Bin; class
 
 export function SessionMeta({
   source,
-  lastEventAt,
   activity,
   worktree,
   project,
 }: {
   source: string;
-  lastEventAt: number;
   activity: Bin;
   /**
    * The git worktree this session works in, when that is not the directory it is listed under.
@@ -40,7 +38,6 @@ export function SessionMeta({
   /** The project a row belongs to, on a list that does not group rows under their projects. */
   project?: string;
 }) {
-  const time = new Date(lastEventAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
     // `session-muted-ink` rather than `text-muted-foreground`, which is the same colour in every
     // place this renders except one: on a Bot card's session, where the card is on a lightness
@@ -50,8 +47,6 @@ export function SessionMeta({
     <span className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
       <SourceBadge source={source} />
       {project === undefined ? null : <span className="min-w-0 truncate">{project}</span>}
-      {/* Whole, never broken across lines: the project's name beside it is what gives way. */}
-      <span className="whitespace-nowrap">{time}</span>
       {/* Said by the mark the row opens with, a face's ring and Zs or the dot's green and grey,
           the way a canvas card leaves it to its face. A screen reader is shown neither. */}
       <span className="sr-only">{activity}</span>

@@ -359,7 +359,6 @@ export function BotSessionCard({
                 </span>
                 <SessionCardMeta
                   source={session.source}
-                  lastEventAt={session.lastEventAt}
                   activity={session.activity}
                   worktree={session.worktree}
                   taskState={session.taskState}
