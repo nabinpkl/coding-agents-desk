@@ -9,12 +9,16 @@
 // minute twelve was made at minute twelve. A listener who hears the count skip, or fall behind the
 // clock, has heard the stream stall.
 //
+// Messages an agent forwards (`POST /api/audio/speak`, `audioChannel.ts`) play at the next gap,
+// ahead of the count. A count line a message crowds out is dropped rather than said late.
+//
 // `from` is how a listener comes back after a pause or after another app took the audio: it joins
 // where the stream is now, not where it stopped, as a live channel would. The count it then speaks
 // is still the time since the test began, so the gap is heard rather than hidden.
 
 import { AUDIO_TEST_STREAM_ROUTE } from "@agentdesk/agent-feed-wire";
 import { splitAdtsFrames, type AdtsFrame } from "@/audio/adtsFrames";
+import { audioChannel, createAudioSpeakRoute, type AudioChannel } from "@/audio/audioChannel";
 import { speakToAdts } from "@/audio/speechAudio";
 import { errorResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
@@ -87,7 +91,13 @@ function seconds(ms: number): string {
  * still being spoken when its turn comes holds the stream until it is ready, which the lead covers.
  * A line that runs past the next one's turn pushes that one back; the turn after is on time again.
  */
-function pacedStream(gap: AdtsFrame, fromMs: number, label: string, stopped: AbortSignal): ReadableStream<Uint8Array> {
+function pacedStream(
+  gap: AdtsFrame,
+  fromMs: number,
+  label: string,
+  stopped: AbortSignal,
+  channel: AudioChannel,
+): ReadableStream<Uint8Array> {
   // The wall-clock moment stream position 0 had, or would have had for a listener joining late.
   let startedAt = 0;
   let connectedAt = 0;
@@ -95,6 +105,9 @@ function pacedStream(gap: AdtsFrame, fromMs: number, label: string, stopped: Abo
   let clockMs = Math.floor(fromMs / gap.durationMs) * gap.durationMs;
   let nextLine = Math.ceil(clockMs / LINE_EVERY_MS);
   const speaking = new Map<number, Promise<AdtsFrame[]>>();
+  // Forwarded messages waiting for this stream's next gap, oldest first.
+  const messages: AdtsFrame[][] = [];
+  const unlisten = channel.listen((frames) => messages.push(frames));
   const lineAt = (index: number) => index * LINE_EVERY_MS;
   const speakUpTo = (untilMs: number) => {
     for (let index = nextLine; lineAt(index) < LENGTH_MS && lineAt(index) <= untilMs; index += 1) {
@@ -111,6 +124,7 @@ function pacedStream(gap: AdtsFrame, fromMs: number, label: string, stopped: Abo
   const finish = (how: string) => {
     if (finished) return;
     finished = true;
+    unlisten();
     console.log(
       `[audio] ${label}: ${how} after ${seconds(Date.now() - connectedAt)}, at stream position ${seconds(clockMs)}`,
     );
@@ -132,45 +146,69 @@ function pacedStream(gap: AdtsFrame, fromMs: number, label: string, stopped: Abo
       });
     },
     async pull(controller) {
-      // A poll on the clock, justified: what decides when the next frame is due is time itself,
-      // and nothing else could announce it. Pull-driven, so a reader that stops pulling stops it.
-      for (;;) {
-        if (finished) return;
-        if (clockMs >= LENGTH_MS) {
-          finish("sent to the end");
-          controller.close();
-          return;
-        }
-        const dueMs = Date.now() - startedAt + LEAD_MS;
-        if (clockMs > dueMs) {
-          await Bun.sleep(Math.max(1, Math.min(TICK_MS, clockMs - dueMs)));
-          continue;
-        }
-        const chunk: Uint8Array[] = [];
-        while (clockMs <= dueMs && clockMs < LENGTH_MS) {
-          speakUpTo(clockMs + SPEAK_AHEAD_MS);
-          const line = clockMs >= lineAt(nextLine) ? speaking.get(nextLine) : undefined;
-          if (line) {
-            speaking.delete(nextLine);
-            nextLine += 1;
-            for (const frame of await line) {
-              chunk.push(frame.bytes);
-              clockMs += frame.durationMs;
-            }
-          } else {
-            chunk.push(gap.bytes);
-            clockMs += gap.durationMs;
-          }
-        }
-        if (finished) return;
-        controller.enqueue(concat(chunk));
-        return;
+      try {
+        await send(controller);
+      } catch (error) {
+        // A line that could not be spoken ends the stream; said here so the stream leaves the channel.
+        finish(`failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
       }
     },
     cancel() {
       finish("listener left (stream cancelled)");
     },
   });
+
+  async function send(controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> {
+    // A poll on the clock, justified: what decides when the next frame is due is time itself,
+    // and nothing else could announce it. Pull-driven, so a reader that stops pulling stops it.
+    for (;;) {
+      if (finished) return;
+      if (clockMs >= LENGTH_MS) {
+        finish("sent to the end");
+        controller.close();
+        return;
+      }
+      const dueMs = Date.now() - startedAt + LEAD_MS;
+      if (clockMs > dueMs) {
+        await Bun.sleep(Math.max(1, Math.min(TICK_MS, clockMs - dueMs)));
+        continue;
+      }
+      const chunk: Uint8Array[] = [];
+      while (clockMs <= dueMs && clockMs < LENGTH_MS) {
+        speakUpTo(clockMs + SPEAK_AHEAD_MS);
+        const message = messages.shift();
+        if (message) {
+          for (const frame of message) {
+            chunk.push(frame.bytes);
+            clockMs += frame.durationMs;
+          }
+          // Count lines whose turn came while the message played are dropped, not said late: a
+          // position said late is a wrong position, and glued to the message it reads as part of it.
+          while (lineAt(nextLine) < clockMs && lineAt(nextLine) < LENGTH_MS) {
+            speaking.delete(nextLine);
+            nextLine += 1;
+          }
+          continue;
+        }
+        const line = clockMs >= lineAt(nextLine) ? speaking.get(nextLine) : undefined;
+        if (line) {
+          speaking.delete(nextLine);
+          nextLine += 1;
+          for (const frame of await line) {
+            chunk.push(frame.bytes);
+            clockMs += frame.durationMs;
+          }
+        } else {
+          chunk.push(gap.bytes);
+          clockMs += gap.durationMs;
+        }
+      }
+      if (finished) return;
+      controller.enqueue(concat(chunk));
+      return;
+    }
+  }
 }
 
 async function serveTestStream(request: Request, url: URL): Promise<Response> {
@@ -188,14 +226,15 @@ async function serveTestStream(request: Request, url: URL): Promise<Response> {
   }
   // Which reader this is, for the log: a phone opens the same stream more than once while it probes.
   const label = `test stream ${request.headers.get("range") ?? "no range"} ${request.headers.get("user-agent")?.slice(0, 60) ?? ""}`;
-  return new Response(pacedStream(gap, fromMs, label, request.signal), {
+  return new Response(pacedStream(gap, fromMs, label, request.signal, audioChannel), {
     headers: { "content-type": "audio/aac", "cache-control": "no-store" },
   });
 }
 
 export function createAudioRoutes(): RouteHandler {
-  return (request, url) => {
+  const speak = createAudioSpeakRoute(audioChannel);
+  return (request, url, server) => {
     if (url.pathname === AUDIO_TEST_STREAM_ROUTE && request.method === "GET") return serveTestStream(request, url);
-    return undefined;
+    return speak(request, url, server);
   };
 }
