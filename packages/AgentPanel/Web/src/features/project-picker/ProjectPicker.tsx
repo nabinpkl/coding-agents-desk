@@ -1,5 +1,6 @@
 // Which project a thing starts in, and which machine that project is on: the one picker the new
-// session dialog, the Bot creator and the arena's new run all choose a directory with.
+// session dialog, the Bot creator, the arena's new run and the IDE's new workspace (through
+// `ProjectPickerDialog`) all choose a directory with.
 //
 // Two ways to answer, because there were two questions hiding in one list. The project list is
 // "which of the directories agents already work in", and it is the common case; the search over it

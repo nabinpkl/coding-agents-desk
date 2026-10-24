@@ -5,7 +5,7 @@
 // are CSS here, which is the whole reason the port was worth doing -- the layout is now something
 // a reader changes by saving a file.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { FolderPlus } from "lucide-react";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
@@ -16,7 +16,7 @@ import { PaneDivider } from "@/features/workspace-ide/PaneDivider";
 import { QuickOpen } from "@/features/workspace-ide/search/QuickOpen";
 import { useContentSearch } from "@/features/workspace-ide/search/useContentSearch";
 import { useSearchShortcuts } from "@/features/workspace-ide/search/useSearchShortcuts";
-import { FolderBrowser } from "@/features/project-picker/FolderBrowser";
+import { ProjectPickerDialog } from "@/features/project-picker/ProjectPickerDialog";
 import { WorkspaceSidebar } from "@/features/workspace-ide/sidebar/WorkspaceSidebar";
 import { WorkspaceIdeStatusBar } from "@/features/workspace-ide/WorkspaceIdeStatusBar";
 import { WorkspaceTerminal } from "@/features/workspace-ide/WorkspaceTerminal";
@@ -144,6 +144,24 @@ export function WorkspaceIdeSurface({ transport, feed }: { transport: AgentHttpT
     [ide, report],
   );
 
+  // A workspace is a project on the machine this tab reads: the same picker a new session uses,
+  // with the folders already open here refused.
+  const machine = useMemo(() => ({ label: "this machine", feed }), [feed]);
+  const picker = picking ? (
+    <ProjectPickerDialog
+      machine={machine}
+      title="Add a workspace"
+      confirmLabel="Add this folder"
+      describe={(path) =>
+        ide.workspaces.some((workspace) => workspace.root === path)
+          ? { note: "already a workspace", refused: true }
+          : null
+      }
+      onChoose={chooseWorkspace}
+      onCancel={() => setPicking(false)}
+    />
+  ) : null;
+
   const renameWorkspace = useCallback(
     (id: string, name: string) => {
       void ide.client.renameWorkspace(id, name).catch(report("Could not rename that workspace"));
@@ -199,14 +217,7 @@ export function WorkspaceIdeSurface({ transport, feed }: { transport: AgentHttpT
           </button>
           {ide.error ? <p className="m-0 text-sm text-destructive">{ide.error}</p> : null}
         </div>
-        {picking ? (
-          <FolderBrowser
-            browse={ide.client.browse.bind(ide.client)}
-            createFolder={ide.client.createFolder.bind(ide.client)}
-            onChoose={chooseWorkspace}
-            onCancel={() => setPicking(false)}
-          />
-        ) : null}
+        {picker}
       </div>
     );
   }
@@ -306,14 +317,7 @@ export function WorkspaceIdeSurface({ transport, feed }: { transport: AgentHttpT
         onToggleTerminal={() => ide.update({ terminalVisible: !preferences.terminalVisible })}
       />
 
-      {picking ? (
-        <FolderBrowser
-          browse={ide.client.browse.bind(ide.client)}
-          createFolder={ide.client.createFolder.bind(ide.client)}
-          onChoose={chooseWorkspace}
-          onCancel={() => setPicking(false)}
-        />
-      ) : null}
+      {picker}
 
       {quickOpen && ide.workspaceId ? (
         <QuickOpen

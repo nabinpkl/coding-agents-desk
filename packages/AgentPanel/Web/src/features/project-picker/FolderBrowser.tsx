@@ -1,5 +1,5 @@
 // Browsing the machine's folders, for the project picker (`ProjectPicker`) to choose one no catalog
-// knows yet, and for the IDE to register as a workspace.
+// knows yet, and to make a new one.
 //
 // This replaced a `window.prompt` asking for an absolute path, and taking typing away was half the
 // fix rather than all of it: on a phone that prompt asked a touch keyboard for `/Users/...` with no
