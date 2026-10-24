@@ -11,7 +11,7 @@ const GAP = 12;
 const VIEW = 300;
 const MAX_SCROLL = 400;
 
-function stage() {
+function stage(widths: number[] = [CARD, CARD, CARD, CARD, CARD]) {
   let scroll = 0;
   const scroller = document.createElement("div");
   Object.defineProperty(scroller, "scrollLeft", {
@@ -23,10 +23,13 @@ function stage() {
   scroller.getBoundingClientRect = () => ({ left: 0, right: VIEW, width: VIEW }) as DOMRect;
   const list = document.createElement("ul");
   list.getBoundingClientRect = () => ({ left: -scroll }) as DOMRect;
-  for (let index = 0; index < 5; index += 1) {
+  let laid = 0;
+  for (const width of widths) {
     const card = document.createElement("li");
-    card.getBoundingClientRect = () => ({ left: index * (CARD + GAP) - scroll, width: CARD }) as DOMRect;
+    const left = laid;
+    card.getBoundingClientRect = () => ({ left: left - scroll, width }) as DOMRect;
     list.append(card);
+    laid += width + GAP;
   }
   scroller.append(list);
   return { scroller, list, scrolled: () => scroll };
@@ -84,5 +87,55 @@ describe("useMoveAlongStrip", () => {
     expect(scrolled()).toBe(reached);
     // The pointer came back 140, and the strip it is over has moved on by what was scrolled.
     expect(result.current.offsetOf(0)).toBe(100 + reached);
+  });
+
+  it("moves a neighbour once the held card's leading edge passes its middle, whatever the held card's width", () => {
+    // A wide card beside two narrow ones: centre against centre, it had to travel half its own width
+    // too before the first narrow one moved, as if it needed room to fit in the gap.
+    const { scroller, list } = stage([300, 100, 100]);
+    const onDrop = vi.fn();
+    const { result } = renderHook(() =>
+      useMoveAlongStrip({ canvas: { current: scroller }, list: { current: list }, gap: GAP, onDrop }),
+    );
+    act(() => result.current.start(0, 150));
+    // Its right edge at 360, short of the narrow card's middle at 362.
+    act(() => result.current.to(210));
+    expect(result.current.offsetOf(1)).toBe(0);
+    act(() => result.current.to(213));
+    expect(result.current.offsetOf(1)).toBe(-(300 + GAP));
+    act(() => result.current.end());
+    expect(onDrop).toHaveBeenCalledWith(0, 1);
+
+    // And leftwards by its left edge: the last card's, at 424, passes the middle of the one before it
+    // at 362 after 63, where centre against centre needed 113.
+    act(() => result.current.start(2, 250));
+    act(() => result.current.to(189));
+    expect(result.current.offsetOf(1)).toBe(0);
+    act(() => result.current.to(187));
+    expect(result.current.offsetOf(1)).toBe(100 + GAP);
+  });
+
+  it("scrolls faster the deeper into the edge the hand goes", () => {
+    const shallow = stage();
+    const deep = stage();
+    for (const [world, x] of [
+      [shallow, VIEW - 50],
+      [deep, VIEW - 5],
+    ] as const) {
+      const { result } = renderHook(() =>
+        useMoveAlongStrip({
+          canvas: { current: world.scroller },
+          list: { current: world.list },
+          gap: GAP,
+          onDrop: vi.fn(),
+        }),
+      );
+      act(() => result.current.start(0, 50));
+      act(() => result.current.to(x));
+      act(() => vi.advanceTimersByTime(160));
+      act(() => result.current.end());
+    }
+    expect(shallow.scrolled()).toBeGreaterThan(0);
+    expect(deep.scrolled()).toBeGreaterThan(shallow.scrolled() * 3);
   });
 });

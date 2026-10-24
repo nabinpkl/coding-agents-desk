@@ -253,8 +253,9 @@ export function BotCanvasCard({
   // twice, faintly over its whole body and unmistakably on one edge, and the sessions inside it
   // repeat the second half verbatim.
   const surface = hue === undefined ? "bg-card" : "bot-surface bot-rail";
-  // A card being carried says something about right now, which outranks saying whose it is.
-  const edge = lifted ? "z-10 border-primary shadow-xl" : hue === undefined ? "border-border" : "";
+  // A card being carried says something about right now, which outranks saying whose it is. It is
+  // see-through as well, so the cards it passes over, and the gap it would drop into, show beneath.
+  const edge = lifted ? "z-10 border-primary opacity-70 shadow-xl" : hue === undefined ? "border-border" : "";
   return (
     // Width always, height only while it holds the open session: closed, a card is as tall as its
     // own roster and a remembered height would be empty space. The card is a ROW -- its content

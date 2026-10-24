@@ -9,9 +9,26 @@ import { STRIP_GAP } from "@/features/bots/cards/botCanvasCards";
 import { effectiveScale } from "@/features/bots/canvas/useCanvasZoom";
 import { useUnmountEffect } from "@/hooks/useMountEffect";
 
-/** How close to an edge a drag has to get before the strip scrolls itself, and how fast. */
+/** How close to an edge a drag has to get before the strip scrolls itself. */
 const EDGE_SCROLL_MARGIN = 56;
-const EDGE_SCROLL_STEP = 14;
+/**
+ * How fast it scrolls, in screen pixels a second: slowest just inside the margin, fastest at the edge
+ * and past it, so a hand chooses its speed by how far in it goes. The range the desktop viewer's touch
+ * drag pans across (`DRAG_EDGE_MINIMUM_SPEED`, `DRAG_EDGE_MAXIMUM_SPEED`).
+ */
+const EDGE_SCROLL_SLOWEST = 180;
+const EDGE_SCROLL_FASTEST = 1400;
+
+/** The scroll speed for a pointer at `clientX`, signed by direction, and 0 clear of both edges. */
+function edgeSpeed(clientX: number, box: { left: number; right: number }): number {
+  const intoRight = clientX - (box.right - EDGE_SCROLL_MARGIN);
+  const intoLeft = box.left + EDGE_SCROLL_MARGIN - clientX;
+  const depth = Math.max(intoRight, intoLeft);
+  if (depth <= 0) return 0;
+  const speed =
+    EDGE_SCROLL_SLOWEST + (EDGE_SCROLL_FASTEST - EDGE_SCROLL_SLOWEST) * Math.min(depth / EDGE_SCROLL_MARGIN, 1);
+  return intoRight > 0 ? speed : -speed;
+}
 
 export interface StripMove {
   /** The index being carried, or null when nothing is. */
@@ -83,7 +100,7 @@ export function useMoveAlongStrip({
   const latest = useRef(0);
   /** The scroller's offset when the drag began: the strip moved under the card by the difference. */
   const scrolledFrom = useRef(0);
-  /** Which way the edge is scrolling, in screen pixels a frame: 0 while the pointer is clear of both. */
+  /** How fast the edge is scrolling, in screen pixels a second: 0 while the pointer is clear of both. */
   const edge = useRef(0);
   const scrolling = useRef<number | null>(null);
   const [carried, setCarried] = useState<{ from: number; to: number; dx: number } | null>(null);
@@ -104,14 +121,19 @@ export function useMoveAlongStrip({
     // strip's own laid-out space together.
     const scrolled = (canvas.current?.scrollLeft ?? scrolledFrom.current) - scrolledFrom.current;
     const dx = (latest.current - pointer.current + scrolled) / scale.current;
-    const centre = held.left + dx + held.width / 2;
+    // The held card's LEADING edge against each other card's middle: its right edge for a card
+    // after it, its left edge for one before. Centre against centre made a wide card travel half its
+    // own width as well before a narrow neighbour moved, so it seemed to need room to fit in the gap;
+    // this way how far it goes depends only on the card being passed.
+    const left = held.left + dx;
+    const right = left + held.width;
     let to = from.current;
     for (let i = 0; i < cards.length; i += 1) {
       if (i === from.current) continue;
       const other = cards[i]!;
       const otherCentre = other.left + other.width / 2;
-      if (i > from.current && centre > otherCentre) to = Math.max(to, i);
-      if (i < from.current && centre < otherCentre) to = Math.min(to, i);
+      if (i > from.current && right > otherCentre) to = Math.max(to, i);
+      if (i < from.current && left < otherCentre) to = Math.min(to, i);
     }
     setCarried({ from: from.current, to, dx });
   };
@@ -141,13 +163,7 @@ export function useMoveAlongStrip({
     if (!scroller) return;
     // The edge test and the creep step stay in SCREEN pixels: the margin is how close a hand is to
     // the side of the panel, and `scrollLeft` moves the scroller, which is outside the transform.
-    const box = scroller.getBoundingClientRect();
-    edge.current =
-      clientX > box.right - EDGE_SCROLL_MARGIN
-        ? EDGE_SCROLL_STEP
-        : clientX < box.left + EDGE_SCROLL_MARGIN
-          ? -EDGE_SCROLL_STEP
-          : 0;
+    edge.current = edgeSpeed(clientX, scroller.getBoundingClientRect());
     if (edge.current === 0) {
       stopScrolling();
       return;
@@ -155,13 +171,23 @@ export function useMoveAlongStrip({
     if (scrolling.current !== null) return;
     // A loop rather than a scroll per pointer event, because holding a card still against the edge
     // is exactly how you reach a card that is off screen, and a still pointer sends no events. It
-    // reads the latest pointer and edge each frame, so a hand that moves along the edge is followed,
+    // reads the latest pointer and speed each frame, so a hand that moves along the edge is followed,
     // and it stops at the end of the strip, where there is nothing left to scroll to.
-    const creep = (): void => {
+    //
+    // By elapsed time rather than per frame, so the speed is the same on a 60Hz screen and a 120Hz
+    // one. Whole pixels at a time, with the fraction carried over: a browser may round a fractional
+    // `scrollLeft`, and a slow frame's two-thirds of a pixel would then never move it at all.
+    let last: number | null = null;
+    let owed = 0;
+    const creep = (now: number): void => {
       const node = canvas.current;
+      owed += (edge.current * (last === null ? 16 : now - last)) / 1000;
+      last = now;
+      const step = Math.trunc(owed);
+      owed -= step;
       const before = node?.scrollLeft;
-      if (node) node.scrollLeft += edge.current;
-      if (!node || node.scrollLeft === before) {
+      if (node && step !== 0) node.scrollLeft += step;
+      if (!node || (step !== 0 && node.scrollLeft === before)) {
         scrolling.current = null;
         return;
       }
