@@ -1,4 +1,4 @@
-appId: com.example.agentdesk.AgentDeskClient
+appId: ${APP_ID}
 ---
 # Switch to Workspace and open README.md into the editor.
 - extendedWaitUntil:

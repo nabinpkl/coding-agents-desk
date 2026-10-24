@@ -7,9 +7,11 @@ date: 2026-07-01
 
 ## Context and Problem Statement
 
-The iOS client already ships as two coexisting installs (`com.example.agentdesk.AgentDeskClient` and
+(`<prefix>` is the bundle prefix, `AGENTDESK_BUNDLE_PREFIX` in `.env` since the ids stopped being hardcoded.)
+
+The iOS client already ships as two coexisting installs (`<prefix>.AgentDeskClient` and
 `.dev`) that self-namespace at runtime from `Bundle.main.bundleIdentifier`. The macOS host had
-no such split: a single hardcoded `"com.example.agentdesk.AgentDeskHost"` constant served as the os_log
+no such split: a single hardcoded `"<prefix>.AgentDeskHost"` constant served as the os_log
 subsystem, the launchd label, and the dispatch-queue prefix, while the keychain service and the
 `~/Library/Application Support/AgentDesk` state root were fixed literals
 (`host/AgentDeskHost/Config.swift`). A second host build therefore collided on macOS TCC grants
@@ -67,7 +69,7 @@ in the Justfile, into a separate derived-data dir.
 `just check` and `just check dev` both build+test (each bundle id compiles). With both hosts
 running, `lsof -nP -iTCP -sTCP:LISTEN` shows stable on 41888/7682 and dev on 41988/7782, and
 `~/Library/Application Support/` holds both bundle-id trees. `log stream --predicate 'subsystem ==
-"com.example.agentdesk.AgentDeskHost.dev"'` shows only dev-host lines. Pairing the dev client to the dev host
+"<prefix>.AgentDeskHost.dev"'` shows only dev-host lines. Pairing the dev client to the dev host
 shows the client dialing the advertised 41988, not 41888.
 
 ## Links

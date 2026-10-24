@@ -13,12 +13,14 @@ const repo = join(here, '..');
 const extensionDirectory = join(repo, 'chrome-extension');
 const installer = join(repo, 'dom-bridge', 'install.mjs');
 const axDriver = join(repo, 'tools', 'agent-window-ax.swift');
-const bundleID = 'com.example.agentdesk.AgentDeskHost.dev';
+// The dev host this drives, and the stable one beside it: the Justfile exports both from .env.
+const bundleID = process.env.AGENTDESK_HOST_DEV_BUNDLE_ID;
+const stableBundleID = process.env.AGENTDESK_HOST_BUNDLE_ID;
 const supportDirectory = process.env.AGENTDESK_E2E_HOST_SUPPORT;
 const hostDerivedData = process.env.AGENTDESK_E2E_HOST_DERIVED_DATA;
 const preserveFocus = process.env.AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS === '1';
-if (!supportDirectory || !hostDerivedData) {
-  throw new Error('AGENTDESK_E2E_HOST_SUPPORT and AGENTDESK_E2E_HOST_DERIVED_DATA are required');
+if (!supportDirectory || !hostDerivedData || !bundleID || !stableBundleID) {
+  throw new Error('AGENTDESK_E2E_HOST_SUPPORT, AGENTDESK_E2E_HOST_DERIVED_DATA, AGENTDESK_HOST_DEV_BUNDLE_ID and AGENTDESK_HOST_BUNDLE_ID are required (run it with just browser-projection-e2e)');
 }
 
 const socketPath = join(supportDirectory, 'ad-dom-bridge.sock');
@@ -405,7 +407,7 @@ function stopHost() {
 function collectHostLog() {
   const capture = spawnSync('/usr/bin/log', [
     'show', '--last', '10m', '--style', 'compact',
-    '--predicate', 'subsystem == "com.example.agentdesk.AgentDeskHost.dev" OR subsystem == "com.example.agentdesk.AgentDeskHost"',
+    '--predicate', `subsystem == "${bundleID}" OR subsystem == "${stableBundleID}"`,
   ], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
   writeFileSync(join(artifacts, 'host.log'), capture.stdout || capture.stderr || 'no host log output');
 }

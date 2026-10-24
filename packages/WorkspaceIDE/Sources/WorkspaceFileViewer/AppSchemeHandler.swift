@@ -22,7 +22,7 @@ public final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private let root: URL
     private let resourceStore: WorkspaceFileResourceStore
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDesk.editor-viewer", category: "viewer")
+    private let logger = Logger(subsystem: "agentdesk.editor-viewer", category: "viewer")
 
     /// `root` is the directory every `app://` path resolves under (the bundled `viewer/`).
     public convenience init(root: URL) {

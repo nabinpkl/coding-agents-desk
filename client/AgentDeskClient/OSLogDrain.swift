@@ -77,7 +77,7 @@ final class OSLogDrain: @unchecked Sendable {
     static let shared = OSLogDrain()
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "oslog-drain")
-    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskClient.oslog-drain", qos: .utility)
+    private let queue = DispatchQueue(label: "\(Config.bundleIdentifier).oslog-drain", qos: .utility)
     private let diagnostics: ClientDiagnosticsStore
     private let subsystem: String
     /// Excluded from every query, or the store's own mirror of each recorded event would come

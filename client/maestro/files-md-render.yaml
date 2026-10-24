@@ -1,4 +1,4 @@
-appId: com.example.agentdesk.AgentDeskClient
+appId: ${APP_ID}
 ---
 # Phase G md-render check. WKWebView hides its a11y id from Maestro, so we drive + screenshot.
 - extendedWaitUntil:

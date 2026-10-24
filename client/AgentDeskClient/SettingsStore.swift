@@ -35,7 +35,7 @@ enum CursorDisplayMode: String, CaseIterable, Sendable {
 final class SettingsStore: @unchecked Sendable {
     static let shared = SettingsStore()
 
-    static let changedNotification = Notification.Name("com.example.agentdesk.AgentDeskClient.settingsChanged")
+    static let changedNotification = Notification.Name("\(Config.bundleIdentifier).settingsChanged")
 
     private let defaults: UserDefaults
 

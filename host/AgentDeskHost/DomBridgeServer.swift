@@ -30,7 +30,7 @@ final class DomBridgeServer: @unchecked Sendable {
     private let tokenURL: URL
     private let supportDirectory: URL
     private let probeLogURL: URL?
-    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.dom-bridge")
+    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).dom-bridge")
     private let activeFDLock = OSAllocatedUnfairLock<Int32>(initialState: -1)
     // `stopped` and the listen FD are read on the accept queue and written by stop() on the
     // caller's thread; guard both behind one lock so there is no torn access. A tiny inherent

@@ -16,7 +16,7 @@ public final class FolderWatch {
     private var pendingPaths: Set<String> = []
     private let debounce: TimeInterval
     private let onChange: ([String]) -> Void
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "folder-watch")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "folder-watch")
 
     public init(debounce: TimeInterval = 0.3, onChange: @escaping ([String]) -> Void) {
         self.debounce = debounce

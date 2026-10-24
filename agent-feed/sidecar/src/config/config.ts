@@ -193,12 +193,19 @@ export const config = {
   sessionArchivePath,
   webPushPath,
 
-  // The sidecar speaks the pty-manager protocol directly for Agent Feed terminals. The host
-  // launch recipes override this for the dev tier; the stable path is the from-source default
-  // so an already-running live sidecar can pick the feature up without a host rebuild.
+  // The sidecar speaks the pty-manager protocol directly for Agent Feed terminals. The host and
+  // its launch recipes set the socket; without them it is in the stable host's support folder,
+  // named by the bundle id the Justfile exports from .env, and by the host's own placeholder
+  // (Config.swift) when nothing set one.
   ptyManagerSocketPath: resolve(
     process.env.AGENT_FEED_PTY_MANAGER_SOCKET?.trim() ||
-      join(userHomeDirectory, "Library", "Application Support", "com.example.agentdesk.AgentDeskHost", "pty-manager.sock"),
+      join(
+        userHomeDirectory,
+        "Library",
+        "Application Support",
+        process.env.AGENTDESK_HOST_BUNDLE_ID?.trim() || "com.example.agentdesk.AgentDeskHost",
+        "pty-manager.sock",
+      ),
   ),
 
   // Desktop park. A window renders only while it is on the active Space and not

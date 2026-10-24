@@ -15,7 +15,7 @@ public final class InteractionPanelWebViewController: NSObject, WebPanelMessageS
 
     private let core: WebPanelWebViewController
     private let logger = Logger(
-        subsystem: "com.example.agentdesk.InteractionPanel",
+        subsystem: "agentdesk.InteractionPanel",
         category: "web-panel-request"
     )
 
@@ -42,7 +42,7 @@ public final class InteractionPanelWebViewController: NSObject, WebPanelMessageS
                 resourceRootDirectory: rootDirectory,
                 messageSink: nil,
                 additionalUserScripts: additionalUserScripts,
-                logSubsystem: "com.example.agentdesk.InteractionPanel"
+                logSubsystem: "agentdesk.InteractionPanel"
             )
         } catch {
             throw InitializationError.invalidRequestURL

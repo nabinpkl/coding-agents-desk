@@ -8,7 +8,7 @@ final class HTMLPreviewSurface: NSObject, WKNavigationDelegate {
 
     var onOpenFile: ((URL) -> Void)?
 
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "html-preview")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "html-preview")
     private var currentFile: URL?
     private var readRoot: URL?
 

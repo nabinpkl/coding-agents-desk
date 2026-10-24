@@ -22,7 +22,7 @@ public struct WorkspaceGitSnapshot: Sendable {
 /// Synchronous; the caller runs it off the main thread.
 public final class GitStatusReader: Sendable {
     private let gitPath: String
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "git-status")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "git-status")
 
     public init(gitPath: String = "/usr/bin/git") {
         self.gitPath = gitPath

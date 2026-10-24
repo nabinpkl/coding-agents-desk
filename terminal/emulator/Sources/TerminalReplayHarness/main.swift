@@ -194,7 +194,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             client: client,
             spawn: spawner,
             desktopPlacer: FrameOnlyTerminalWindowDesktopPlacer(),
-            loggerSubsystem: "com.example.agentdesk.AgentDeskTerminalReplayE2E"
+            loggerSubsystem: "agentdesk.TerminalReplayE2E"
         )
         registry = windowRegistry
         var summary = try await requireSession(named: sessionName)
@@ -416,7 +416,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             client: client,
             spawn: spawner,
             desktopPlacer: FrameOnlyTerminalWindowDesktopPlacer(),
-            loggerSubsystem: "com.example.agentdesk.AgentDeskTerminalReplayE2E"
+            loggerSubsystem: "agentdesk.TerminalReplayE2E"
         )
         registry = windowRegistry
         let retainedSource = try await requireSession(named: initial.sessionName)

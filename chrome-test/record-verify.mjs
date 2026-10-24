@@ -182,7 +182,7 @@ async function main() {
   try {
     nativeProbe = await sw.evaluate(() => new Promise((res) => {
       try {
-        const p = chrome.runtime.connectNative('com.example.agentdesk.agentdesk.dom_bridge');
+        const p = chrome.runtime.connectNative('agentdesk.dom_bridge');
         let done = false;
         const finish = (v) => { if (!done) { done = true; res(v); } };
         p.onDisconnect.addListener(() => finish('disconnect:' + (chrome.runtime.lastError && chrome.runtime.lastError.message)));

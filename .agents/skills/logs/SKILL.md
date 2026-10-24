@@ -53,18 +53,25 @@ just sim-fresh-install
 
 If the launch blocks by design, sample logs from another shell/thread, then terminate cleanly after the observation window.
 
+The host and client log under their bundle ids, which come from this checkout's `.env` (`AGENTDESK_BUNDLE_PREFIX`). Read them first; the commands below use them:
+
+```sh
+HOST_ID="$(just --evaluate host_bundle_id)"
+CLIENT_ID="$(just --evaluate client_bundle_id)"
+```
+
 Collect host media send evidence:
 
 ```sh
 /usr/bin/log show --last 5m --style compact \
-  --predicate 'subsystem == "com.example.agentdesk.AgentDeskHost" AND category == "owned-media"'
+  --predicate "subsystem == \"$HOST_ID\" AND category == \"owned-media\""
 ```
 
 Collect simulator client diagnostics OSLog. Include `--info`; `mediaSummary` is logged at info level:
 
 ```sh
 xcrun simctl spawn <UDID> log show --info --last 30m --style compact \
-  --predicate 'subsystem == "com.example.agentdesk.AgentDeskClient" AND category == "client-diagnostics"'
+  --predicate "subsystem == \"$CLIENT_ID\" AND category == \"client-diagnostics\""
 ```
 
 Collect simulator CoreMedia presentation evidence:
@@ -77,7 +84,7 @@ xcrun simctl spawn <UDID> log show --last 10m --style compact \
 Read simulator durable diagnostics directly:
 
 ```sh
-DATA="$(xcrun simctl get_app_container <UDID> com.example.agentdesk.AgentDeskClient data)"
+DATA="$(xcrun simctl get_app_container <UDID> "$CLIENT_ID" data)"
 jq -r 'select(.type == "mediaSummary" or .type == "mediaLinkHealthSummary" or .type == "videoRenderStall" or .type == "videoFrameDropped" or .type == "videoDecoderRecovered") | [.ts,.type,(.fields|tostring)] | @tsv' \
   "$DATA/Library/Application Support/AgentDesk/Diagnostics/current.ndjson"
 ```
@@ -97,7 +104,7 @@ For a user-run non-consoled physical session, collect after the fact:
 ```sh
 just client-diagnostics dev
 /usr/bin/log show --last 20m --style compact \
-  --predicate 'process == "AgentDeskHost" OR subsystem == "com.example.agentdesk.AgentDeskHost"'
+  --predicate "process == \"AgentDeskHost\" OR subsystem == \"$HOST_ID\""
 ```
 
 For an attached physical console run, preserve:

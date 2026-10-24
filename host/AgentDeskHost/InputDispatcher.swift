@@ -111,7 +111,7 @@ final class InputDispatcher: @unchecked Sendable {
     // work (popover redraws, signaling logs) and produced visible cursor
     // cadence stalls. CGEvent.post is itself thread-safe, so the only
     // reason to serialize is to keep our own state coherent.
-    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.input", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).input", qos: .userInteractive)
 
     init(
         eventPoster: @escaping EventPoster = { $0.post(tap: .cghidEventTap) },

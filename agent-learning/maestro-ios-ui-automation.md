@@ -35,7 +35,7 @@ Wire that into a `just` recipe so callers never see the hang. The agent-desk Jus
 `client/maestro/keyboard-up.yaml`:
 
 ```yaml
-appId: com.example.agentdesk.AgentDeskClient
+appId: ${APP_ID}   # just ui-flow passes the client bundle id from .env
 ---
 - launchApp:
     clearState: false

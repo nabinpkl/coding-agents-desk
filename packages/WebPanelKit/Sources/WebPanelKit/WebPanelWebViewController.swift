@@ -91,7 +91,7 @@ public final class WebPanelWebViewController: NSObject {
         messageSink: (any WebPanelMessageSink)?,
         additionalUserScripts: [WKUserScript] = [],
         additionalMessageHandlers: [String: WebPanelScriptMessageHandler] = [:],
-        logSubsystem: String = "com.example.agentdesk.WebPanelKit",
+        logSubsystem: String = "agentdesk.WebPanelKit",
         developmentOrigin: URL? = nil,
         loadsImmediately: Bool = true,
         hidesSystemKeyboardAccessory: Bool = false

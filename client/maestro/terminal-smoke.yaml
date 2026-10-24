@@ -1,4 +1,4 @@
-appId: com.example.agentdesk.AgentDeskClient
+appId: ${APP_ID}
 ---
 # `just terminal-smoke` rebuilds, updates in place, pairs, then runs this flow.
 - extendedWaitUntil:

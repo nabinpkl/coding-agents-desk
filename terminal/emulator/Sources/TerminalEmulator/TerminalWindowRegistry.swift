@@ -85,7 +85,7 @@ public final class TerminalWindowRegistry {
         client: any TerminalSessionListing,
         spawn: any TerminalExistingSessionSpawning,
         desktopPlacer: any TerminalWindowDesktopPlacing,
-        loggerSubsystem: String = "com.example.agentdesk.AgentDeskTerminalReplay"
+        loggerSubsystem: String = "agentdesk.TerminalReplay"
     ) {
         self.store = store
         self.client = client

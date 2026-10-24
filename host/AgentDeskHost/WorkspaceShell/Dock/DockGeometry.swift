@@ -54,7 +54,7 @@ final class DockGeometryMonitor {
 
     init(
         reader: DockGeometryReading = SystemDockGeometryReader(),
-        queue: DispatchQueue = DispatchQueue(label: "com.example.agentdesk.agentdesk.dock-geometry", qos: .utility)
+        queue: DispatchQueue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).dock-geometry", qos: .utility)
     ) {
         self.reader = reader
         self.queue = queue

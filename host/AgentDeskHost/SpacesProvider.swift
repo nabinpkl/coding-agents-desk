@@ -225,7 +225,7 @@ final class SpacesProvider {
     // Separate queue keeps the input stream flowing and still serializes
     // multiple overlapping jumps.
     private let switchQueue = DispatchQueue(
-        label: "com.example.agentdesk.agentdesk.spaces-switch",
+        label: "\(Config.dispatchQueuePrefix).spaces-switch",
         qos: .userInteractive
     )
     // Inter-cycle gap. Live HITL testing showed Dock accepts immediate

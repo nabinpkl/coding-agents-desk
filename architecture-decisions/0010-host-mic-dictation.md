@@ -54,7 +54,7 @@ The endpoint lives in `Config.transcriptionEndpoint`, overridable via `AGENTDESK
 ### Confirmation
 
 - `WAVEncoderTests` asserts the 44-byte header layout (RIFF/WAVE/fmt /data tags, sample rate, byte rate, block align, bits per sample, data size) for 16 kHz mono and that PCM samples are appended verbatim.
-- Live integration: with the transcription server on `:8000`, hold the bar's mic, speak, release; the transcript appears in the bar. Logged under subsystem `com.example.agentdesk.AgentDeskHost`, category `dictation` / `mic`.
+- Live integration: with the transcription server on `:8000`, hold the bar's mic, speak, release; the transcript appears in the bar. Logged under subsystem `<prefix>.AgentDeskHost`, category `dictation` / `mic`.
 - The capture path uses `AVAudioEngine`, never `AVAudioRecorder`; a code-review check that no file URL appears in the capture path keeps the in-memory constraint enforced.
 
 ## Pros and Cons of the Options

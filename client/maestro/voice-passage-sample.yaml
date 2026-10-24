@@ -1,7 +1,7 @@
 # Exercises the saved-audio Passage path without simulator microphone input.
 # The bundled sample is copied into the same persistent recording store as a
 # learner take, then replayed and reanalyzed through the raw Core ML model.
-appId: com.example.agentdesk.AgentDeskClient
+appId: ${APP_ID}
 ---
 - extendedWaitUntil:
     visible:

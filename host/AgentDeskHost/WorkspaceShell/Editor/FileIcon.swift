@@ -82,7 +82,7 @@ public enum FileIcon {
 
     // MARK: - Font + rendering
 
-    private static let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "file-icon")
+    private static let logger = Logger(subsystem: Config.logSubsystem, category: "file-icon")
     private static let pointSize: CGFloat = 13
     private static let boxSize = NSSize(width: 16, height: 16)
 

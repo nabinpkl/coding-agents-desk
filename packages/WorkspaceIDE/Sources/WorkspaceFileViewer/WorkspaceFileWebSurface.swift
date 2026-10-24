@@ -139,7 +139,7 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
     /// Fired when the SPA requests edit mode for a file.
     public var onEditRequest: ((URL) -> Void)?
 
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDesk.editor-viewer", category: "file-web-surface")
+    private let logger = Logger(subsystem: "agentdesk.editor-viewer", category: "file-web-surface")
     private let resourceStore: WorkspaceFileResourceStore
     private var state = FileWebSurfaceState()
 

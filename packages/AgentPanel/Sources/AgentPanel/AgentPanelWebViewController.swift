@@ -27,7 +27,7 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
         case invalidDevelopmentOrigin(String)
     }
 
-    private static let logSubsystem = "com.example.agentdesk.AgentPanel"
+    private static let logSubsystem = "agentdesk.AgentPanel"
 
     private let core: WebPanelWebViewController
     private let logger = Logger(subsystem: AgentPanelWebViewController.logSubsystem, category: "agent-panel")

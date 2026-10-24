@@ -24,7 +24,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const HOST_NAME = 'com.example.agentdesk.agentdesk.dom_bridge';
+const HOST_NAME = 'agentdesk.dom_bridge';
 
 const CHANNEL_DIRS = {
   chrome: join(homedir(), 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),

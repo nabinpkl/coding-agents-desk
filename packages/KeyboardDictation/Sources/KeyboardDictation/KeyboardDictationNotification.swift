@@ -2,8 +2,8 @@ import CoreFoundation
 import Foundation
 
 public enum KeyboardDictationNotification {
-    public static let command = "com.example.agentdesk.AgentDesk.keyboard-dictation.command"
-    public static let service = "com.example.agentdesk.AgentDesk.keyboard-dictation.service"
+    public static let command = "agentdesk.keyboard-dictation.command"
+    public static let service = "agentdesk.keyboard-dictation.service"
 
     public static func post(_ name: String) {
         CFNotificationCenterPostNotification(

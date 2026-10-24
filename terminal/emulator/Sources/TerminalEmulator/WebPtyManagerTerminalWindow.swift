@@ -18,7 +18,7 @@ final class WebPtyManagerTerminalWindow: NSObject,
     private let initialSessionName: String
     private let workspaceBackend: LocalTerminalWorkspaceBackend
     private let cwd: URL
-    private let logger = Logger(subsystem: "com.example.agentdesk.agent-workspace-ide", category: "terminal")
+    private let logger = Logger(subsystem: "agentdesk.workspace-ide", category: "terminal")
     private var closed = false
     private var frameChanged: ((CGRect) -> Void)?
     private var workspaceChanged: ((PtyTerminalWorkspaceState) -> Void)?

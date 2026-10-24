@@ -52,7 +52,7 @@ The one coherence-sensitive seam is scroll -> rest. The video's last frame and t
 
 ### Confirmation
 
-Host and client unit tests cover each revived unit: encoder keyframe/delta cadence and force-keyframe; datagram packetize/decode, fragmentation, MAC rejection; the client repair buffer's reassembly, resend-request, and deadline-expiry paths; the resend ring; the decode-by-display drop-pending-keyframe gate; and the handoff swap state machine's "do not reveal tiles until the post-motion refresh commits" rule. Device confirmation: over `com.example.agentdesk.AgentDeskHost` `owned-media`, a declared scroll plays as a smooth HEVC stream well under 2 Mbps (not `tiles-scroll-miss` at 90 to 145 KB); motion-stop sharpens to crisp tiles with no black gap and no stale jump; no multi-second head-of-line freeze.
+Host and client unit tests cover each revived unit: encoder keyframe/delta cadence and force-keyframe; datagram packetize/decode, fragmentation, MAC rejection; the client repair buffer's reassembly, resend-request, and deadline-expiry paths; the resend ring; the decode-by-display drop-pending-keyframe gate; and the handoff swap state machine's "do not reveal tiles until the post-motion refresh commits" rule. Device confirmation: over `<prefix>.AgentDeskHost` `owned-media`, a declared scroll plays as a smooth HEVC stream well under 2 Mbps (not `tiles-scroll-miss` at 90 to 145 KB); motion-stop sharpens to crisp tiles with no black gap and no stale jump; no multi-second head-of-line freeze.
 
 ## Pros and Cons of the Options
 

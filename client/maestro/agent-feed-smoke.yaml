@@ -1,4 +1,4 @@
-appId: com.example.agentdesk.AgentDeskClient
+appId: ${APP_ID}
 ---
 # Wait for the paired session UI (the Control/Agent surface toggle appears once connected).
 - extendedWaitUntil:

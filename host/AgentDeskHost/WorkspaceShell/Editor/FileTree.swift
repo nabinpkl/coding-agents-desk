@@ -74,7 +74,7 @@ public func sortedVisibleEntries(_ entries: [DirectoryEntry]) -> [DirectoryEntry
         }
 }
 
-private let fileTreeLogger = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "file-tree")
+private let fileTreeLogger = Logger(subsystem: Config.logSubsystem, category: "file-tree")
 
 /// The only I/O: read a directory's immediate entries. An unreadable directory surfaces
 /// loudly to the log and returns empty (one bad subtree shouldn't take down the pane).

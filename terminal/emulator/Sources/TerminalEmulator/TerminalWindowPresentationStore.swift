@@ -95,7 +95,7 @@ public final class TerminalWindowPresentationStore {
 
     public init(
         url: URL,
-        loggerSubsystem: String = "com.example.agentdesk.AgentDeskTerminalReplay"
+        loggerSubsystem: String = "agentdesk.TerminalReplay"
     ) {
         self.url = url
         descriptors = Self.read(url: url, loggerSubsystem: loggerSubsystem)

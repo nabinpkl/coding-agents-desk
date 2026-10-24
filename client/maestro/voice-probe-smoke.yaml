@@ -5,7 +5,7 @@
 # expected to be empty. That is not what this flow checks. It checks that the
 # AVAudioEngine tap, the buffer conversion, and the two analyzer passes complete
 # without terminating the app — the device failure this was written to chase.
-appId: com.example.agentdesk.AgentDeskClient
+appId: ${APP_ID}
 ---
 - assertVisible: "Voice"
 - tapOn: "Voice"

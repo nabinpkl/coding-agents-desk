@@ -22,7 +22,7 @@ importScripts(
   'source-viewport.js'
 );
 
-const NATIVE_HOST = 'com.example.agentdesk.agentdesk.dom_bridge';
+const NATIVE_HOST = 'agentdesk.dom_bridge';
 
 // A compressed+base64 batch line larger than this is split into chunk parts, each well under the
 // host's 2 MB newline-frame cap. ~15 MB of raw events is needed to reach this after deflate.

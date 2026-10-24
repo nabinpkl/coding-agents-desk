@@ -88,7 +88,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
     }
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: Config.diagnosticsLogCategory)
-    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskClient.diagnostics")
+    private let queue = DispatchQueue(label: "\(Config.bundleIdentifier).diagnostics")
     private let configuration: ClientDiagnosticsStoreConfiguration
     private let fileManager: FileManager
     private let nowMsProvider: @Sendable () -> Int

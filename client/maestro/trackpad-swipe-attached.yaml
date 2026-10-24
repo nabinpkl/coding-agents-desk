@@ -1,4 +1,4 @@
-appId: com.example.agentdesk.AgentDeskClient
+appId: ${APP_ID}
 ---
 - extendedWaitUntil:
     visible: "Trackpad"

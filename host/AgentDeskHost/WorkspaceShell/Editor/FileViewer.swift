@@ -25,7 +25,7 @@ public final class FileViewer: NSObject, FileViewing {
     private let unsupportedLabel = NSTextField(labelWithString: "")
     let viewerRoot: URL
     let notebookRunner: NotebookRunning?
-    let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "viewer")
+    let logger = Logger(subsystem: Config.logSubsystem, category: "viewer")
 
     /// Quiet window after the last keystroke before an edited buffer is autosaved to disk.
     private let saveDebounce: TimeInterval = 0.7
