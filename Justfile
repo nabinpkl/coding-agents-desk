@@ -619,6 +619,46 @@ agent-feed-fitness:
 public-scan *args:
     node '{{justfile_directory()}}/tools/public-scan/public-scan.mjs' "$@"
 
+# A timeline of this repository's own commits, as one static page. `tools/commits-timeline/README.md`
+# says what it renders and what it deliberately leaves out. The data is written under `.build/` and
+# never committed: it carries commit authors and messages, which belong to this checkout and not to
+# the public tree.
+#
+# Serves on loopback only. `commits-timeline-tailnet` is the one-time step that puts it on the
+# tailnet's HTTPS origin; the two are separate because `tailscale serve` is a machine-level setting
+# that outlives this process.
+commits-timeline:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    node tools/commits-timeline/generate.mjs
+    exec node tools/commits-timeline/serve.mjs
+
+# Registers whatever `commits-timeline` serves with tailscaled, on its own HTTPS port. Idempotent;
+# run it again after a reboot only if the tailnet's serve config was reset. The URL it publishes is
+# printed by `commits-timeline` itself, derived from `tailscale status` rather than written down.
+commits-timeline-tailnet:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    port="$(node -e 'import("./tools/commits-timeline/config.mjs").then((module) => console.log(module.PORT))')"
+    : "${port:?}"
+    tailscale serve --bg --https="$port" "http://127.0.0.1:$port"
+
+commits-timeline-stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The pid path lives in config.mjs so this recipe cannot drift from where the server writes it.
+    pid_file="$(node -e 'import("./tools/commits-timeline/config.mjs").then((module) => console.log(module.PID_FILE))')"
+    : "${pid_file:?}"
+    if [ ! -f "$pid_file" ]; then
+        echo "commits-timeline: nothing to stop"
+        exit 0
+    fi
+    pid="$(cat "$pid_file")"
+    : "${pid:?}"
+    kill "$pid" 2>/dev/null || true
+    rm -f "$pid_file"
+    echo "commits-timeline: stopped $pid"
+
 # The public repository is the remote `git config agentdesk.publicRemote` names. This refuses what
 # is not a fast-forward of its `main`, and the pre-push hook `git-hooks-install` links refuses any
 # other push there. `tools/publish.sh` says what each check is for, and
