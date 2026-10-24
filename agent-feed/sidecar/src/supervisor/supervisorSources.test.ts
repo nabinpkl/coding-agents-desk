@@ -26,7 +26,7 @@ afterEach(() => {
 
 test("follows local imports as far as they go", () => {
   const root = tree({
-    "supervisor.ts": 'import { a } from "@/gate";\nimport chokidar from "chokidar";\n',
+    "supervisor.ts": 'import { a } from "@/gate";\nimport pkg from "some-package";\n',
     "gate.ts": 'import { b } from "@/registry";\nexport const a = b;\n',
     "registry.ts": "export const b = 1;\n",
     // Watched by this process, but not part of it: replacing the child is what covers this one.
@@ -50,7 +50,7 @@ test("stops rather than looping when two files import each other", () => {
 
 test("ignores packages, which it could not replace itself over anyway", () => {
   const root = tree({
-    "supervisor.ts": 'import chokidar from "chokidar";\nimport { x } from "@agentdesk/agent-feed-wire";\n',
+    "supervisor.ts": 'import pkg from "some-package";\nimport { x } from "@agentdesk/agent-feed-wire";\n',
   });
   expect(ownSources(join(root, "supervisor.ts"), root).size).toBe(1);
 });

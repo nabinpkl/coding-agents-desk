@@ -5,9 +5,8 @@
 // sessions, `catalogViews.ts` folds them into what a reader is handed, and this attaches
 // the watchers and starts and stops the whole thing.
 
-import chokidar from "chokidar";
 import { watchTree, watchTreeEntries } from "@/transcripts/catalog/watchTree";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { config } from "@/config/config";
 import { state } from "@/transcripts/transcriptState";
 import type { SourceId } from "@/transcripts/transcriptTypes";
@@ -90,16 +89,20 @@ function attachSourceWatchers(): void {
 
   const databasePath = resolveStateDbPath();
   if (databasePath) {
-    const databaseWatcher = chokidar.watch([databasePath, `${databasePath}-wal`, `${databasePath}-shm`], {
-      ignoreInitial: true,
-      persistent: true,
-      awaitWriteFinish: false,
-    });
-    databaseWatcher.on("add", scheduleCodexReconcile);
-    databaseWatcher.on("change", scheduleCodexReconcile);
-    databaseWatcher.on("unlink", scheduleCodexReconcile);
-    databaseWatcher.on("error", (error) => {
-      console.error("agent feed Codex database watcher failed", error);
+    // The database's directory rather than its three files. SQLite creates and removes the `-wal`
+    // and `-shm` files as it works, and chokidar closed its watch on each one as it went: a Bun
+    // watch `close()` can wedge the process for good (`BotStore`'s `watcher`). A tree watch holds
+    // no watch per file, so a file going closes nothing.
+    const databaseFiles = new Set([databasePath, `${databasePath}-wal`, `${databasePath}-shm`]);
+    const databaseWatcher = watchTree({
+      root: dirname(databasePath),
+      depth: 0,
+      onPath: (path) => {
+        if (databaseFiles.has(path)) scheduleCodexReconcile();
+      },
+      onError: (error) => {
+        console.error("agent feed Codex database watcher failed", error);
+      },
     });
     state.sourceWatchers.push(databaseWatcher);
   }

@@ -7,9 +7,9 @@
 // object here because the three change together: a file lands, so git moves, so the tree's
 // decorations move, so every reader of that workspace needs a new projection.
 
-import chokidar, { type FSWatcher } from "chokidar";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import type { WorkspaceGitStatus, WorkspaceStreamEvent, WorkspaceSummary } from "@agentdesk/agent-feed-wire";
+import { PLATFORM_EVENT_SOURCE, type RepositoryEvents, repositoryEvents } from "@/workspace/repositoryEvents";
 import type { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { type DirectoryGitStatus, gitStatus } from "@/workspace/workspaceGit";
 import { isStorablePath } from "@/workspace/workspacePaths";
@@ -30,25 +30,23 @@ import { buildTree } from "@/workspace/workspaceTree";
  */
 const UNWATCHED = /(^|[\/\\])(\.git|node_modules|\.build|\.next|dist|target|\.venv)([\/\\]|$)/;
 
-/**
- * Every watch is exactly one directory deep, and this is the reason.
+/*
+ * What a workspace reports is the entries of the directories its tree draws -- the root and the
+ * ones a reader has expanded -- and nothing deeper. `buildTree` descends only into expanded
+ * directories, so a change inside a collapsed one has nowhere to be drawn. Watching what is drawn
+ * and drawing what is watched is one rule, not two.
  *
- * Measured 2026-09-10 on this repository, 31k files under a root chokidar was asked to watch
- * recursively: **54.4 seconds to `ready`, during which a 10ms interval fired twice where 5,440
- * firings were due.** The initial walk does not merely take a long time under Bun, it starves the
- * event loop for its whole duration -- so the sidecar answers nothing, the host's readiness probe
- * fails, and the host kills and respawns it into the same 54 seconds. One workspace in the roster
- * was enough to make the whole sidecar unusable.
+ * Never by walking the tree. Measured 2026-09-10 on this repository, 31k files under a root
+ * chokidar was asked to watch recursively: **54.4 seconds to `ready`, during which a 10ms interval
+ * fired twice where 5,440 firings were due**, so the sidecar failed its readiness probe and was
+ * respawned into the same 54 seconds. The events come from `repositoryEvents`, which walks nothing
+ * on either platform: one FSEvents watch per root on macOS, whose extra paths are dropped here, and
+ * one watch per drawn directory on Linux.
  *
- * The same root watched with `depth: 0` reaches `ready` in **12ms**, and adding 203 expanded
- * directories to it afterwards costs **2ms**. So the depth is not a tuning knob, it is what keeps
- * the process alive.
- *
- * It costs nothing in coverage, because the tree is lazy in exactly the same shape: `buildTree`
- * descends only into directories the reader has expanded, so a change inside a collapsed directory
- * has nowhere to be drawn. Watching what is drawn and drawing what is watched is one rule, not two.
+ * And never chokidar, which held a watch per FILE in each directory and closed it when the file
+ * went -- and a Bun watch `close()` can wedge the process for good (`BotStore`'s `watcher`). An
+ * editor's save is a temporary file made and removed, so that was a close on every save.
  */
-const WATCH_DEPTH = 0;
 
 /**
  * How long a burst of filesystem events is collected before it becomes one `changed`.
@@ -65,25 +63,18 @@ export class WorkspaceService {
   private readonly pendingChanges = new Map<string, Set<string>>();
   private readonly changeTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /**
-   * One watcher for the process, and a path is added to it once and never removed.
+   * One event source per workspace root, opened once and never closed, not even by `close`.
    *
-   * Bun's `fs.watch` makes every second watch on a path inert, so a watcher closed when its last
-   * reader leaves comes back dead for the next one (AGENTS.md, "under Bun, a watch you close
-   * poisons the NEXT watch"). Watched paths cost no measurable memory, so never removing one is
-   * the cheap half of that trade.
+   * Never closed because a Bun watch `close()` can park the main thread for good, and because Bun's
+   * `fs.watch` makes every second watch on a path inert (AGENTS.md, "under Bun, a watch you close
+   * poisons the NEXT watch"). A directory is added once and never removed: watched paths cost no
+   * measurable memory, so that is the cheap half of the trade.
    */
-  private watcher: FSWatcher | null = null;
+  private readonly rootEvents = new Map<string, RepositoryEvents>();
+  /** The directories whose entries are reported. See the note above `CHANGE_DEBOUNCE_MS`. */
   private readonly watchedPaths = new Set<string>();
-  /**
-   * Resolves when the watcher has finished its first pass and is reporting changes.
-   *
-   * `ignoreInitial` suppresses events for what was already there, so a file written between the
-   * watch starting and it becoming ready is reported by neither -- it is not new enough to be an
-   * event and not old enough to have been in the first pass. In production that window is the
-   * moment a workspace is added, before anyone is looking at it. In a test it is the difference
-   * between an assertion and a coin toss, which is what this exists for.
-   */
-  private watching: Promise<void> = Promise.resolve();
+  /** Set by `close`, which cannot close the watches, so their events stop here instead. */
+  private closed = false;
   /**
    * Each workspace's subscription to its repository's status, held only while a stream is open.
    *
@@ -117,11 +108,6 @@ export class WorkspaceService {
       this.watch(workspace);
       this.watchExpanded(workspace.id, this.sharedState.snapshot(workspace.id).expandedDirectoryPaths);
     }
-  }
-
-  /** Resolves once changes are being reported. See `watching`. */
-  async whenWatching(): Promise<void> {
-    await this.watching;
   }
 
   /**
@@ -214,7 +200,7 @@ export class WorkspaceService {
   }
 
   private watch(workspace: WorkspaceSummary): void {
-    this.watchPath(workspace.root);
+    this.watchPath(workspace.root, workspace.root);
   }
 
   /**
@@ -232,33 +218,32 @@ export class WorkspaceService {
     if (!workspace) return;
     for (const path of expandedPaths) {
       if (!isStorablePath(path)) continue;
-      this.watchPath(join(workspace.root, path));
+      this.watchPath(workspace.root, join(workspace.root, path));
     }
   }
 
-  /** Add one shallow watch, once. See `WATCH_DEPTH` for why a watch is never deep. */
-  private watchPath(absolutePath: string): void {
+  /** Report the entries of one more directory under `root`, once. See the note above `CHANGE_DEBOUNCE_MS`. */
+  private watchPath(root: string, absolutePath: string): void {
     if (this.watchedPaths.has(absolutePath)) return;
     if (UNWATCHED.test(absolutePath)) return;
     this.watchedPaths.add(absolutePath);
-    if (!this.watcher) {
-      // Created with the first real path rather than with `[]`: a chokidar watcher created empty
-      // never reaches `ready`, so one filled by `add` afterwards would hang instead of watching.
-      this.watcher = chokidar.watch(absolutePath, {
-        ignored: UNWATCHED,
-        ignoreInitial: true,
-        followSymlinks: false,
-        depth: WATCH_DEPTH,
-      });
-      const watcher = this.watcher;
-      this.watching = new Promise<void>((resolve) => watcher.once("ready", () => resolve()));
-      watcher.on("all", (_event, path) => this.recordChange(path));
-      watcher.on("error", (error) => {
-        console.error("workspace watch failed", error);
-      });
-      return;
+    let events = this.rootEvents.get(root);
+    if (!events) {
+      events = repositoryEvents(
+        PLATFORM_EVENT_SOURCE,
+        root,
+        (path) => this.heard(path),
+        (error) => console.error("workspace watch failed", error),
+      );
+      this.rootEvents.set(root, events);
     }
-    this.watcher.add(absolutePath);
+    events.addFolder(absolutePath);
+  }
+
+  /** A path changed on disk. Kept only if it is an entry of a directory the tree draws. */
+  private heard(path: string): void {
+    if (this.closed || UNWATCHED.test(path) || !this.watchedPaths.has(dirname(path))) return;
+    this.recordChange(path);
   }
 
   /**
@@ -293,14 +278,16 @@ export class WorkspaceService {
     await this.emitTree(id);
   }
 
-  /** Stops the process-wide watcher. For tests and shutdown, not for a departing reader. */
+  /**
+   * Stops reporting. For tests and shutdown, not for a departing reader. The watches stay open and
+   * their events are dropped, for the reason on `rootEvents`.
+   */
   async close(): Promise<void> {
+    this.closed = true;
     for (const timer of this.changeTimers.values()) clearTimeout(timer);
     this.changeTimers.clear();
     for (const follow of this.gitFollows.values()) follow.stop();
     this.gitFollows.clear();
-    await this.watcher?.close();
-    this.watcher = null;
     this.watchedPaths.clear();
   }
 }

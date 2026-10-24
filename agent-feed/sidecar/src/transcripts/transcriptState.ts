@@ -10,9 +10,8 @@ export interface OpenStream {
 export interface TranscriptState {
   sessions: Map<string, Session>;
   subscribers: Set<(snapshot: Session[]) => void>;
-  // Whatever a source needs to stop watching. Mixed on purpose: the corpora are tree watches
-  // costing a handful of descriptors each, while the Codex state database is three named files
-  // and stays on chokidar, where a per-file watch is the right size.
+  // Whatever a source needs to stop watching: tree watches costing a handful of descriptors each,
+  // the Codex state database's directory among them.
   sourceWatchers: { close(): Promise<void> }[];
   discoveryTimer: ReturnType<typeof setInterval> | null;
   watcherState: WatcherState;

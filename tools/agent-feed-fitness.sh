@@ -215,4 +215,18 @@ if [ -n "$timers$fixtures" ]; then
     fail "a sidecar test waits on the clock; wait for the condition with until/drained (src/testing/until.ts) or use fake timers"
 fi
 
+# 11. The sidecar does not use chokidar. It holds a native watch per FILE in a directory it watches
+#     and closes that watch when the file goes, and under Bun on macOS a watch `close()` can park the
+#     main thread on a lock the File Watcher thread is parked on too: the process then runs nothing
+#     again, timers included. Measured 2026-10-19 by sampling hung test runs, about one run in 400
+#     stopped inside chokidar's `_closeFile` for a lock file `BotStore` had just removed; the live
+#     sidecar wedged the same way on 2026-09-09 and 2026-10-02. Watch with `watchTree`
+#     (`src/transcripts/catalog/watchTree.ts`) or `repositoryEvents`, and never close the watch.
+chokidar="$(grep -rnE "['\"]chokidar['\"]" agent-feed/sidecar/src agent-feed/sidecar/package.json \
+    --include='*.ts' --include='*.tsx' --include='package.json' || true)"
+if [ -n "$chokidar" ]; then
+    printf '%s\n' "$chokidar" >&2
+    fail "the sidecar uses chokidar; watch with watchTree or repositoryEvents and never close the watch"
+fi
+
 echo "agent-feed-fitness: OK"

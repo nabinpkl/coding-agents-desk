@@ -171,7 +171,7 @@ watch, a stream the sidecar already publishes, the process that made the change 
 that. Poll only when nothing can tell you, and write down beside the timer why nothing could.
 
 **An event source still costs something, and this repo has paid for watches four times**: a
-chokidar walk that starved the event loop for 54 seconds (`WATCH_DEPTH` in
+chokidar walk that starved the event loop for 54 seconds (the note above `CHANGE_DEBOUNCE_MS` in
 `workspace/workspaceService.ts`), ~2,000 descriptors of per-file watches and the deadlock that came
 with them (`transcripts/catalog/watchTree.ts`), and, in the section above, Bun poisoning the next
 watch on a path you closed and per-file watches going minutes late in a long-lived process. So "use an
@@ -195,5 +195,6 @@ event" means one of the shapes that survived those, not a new watch per thing:
   `close()` can park the main thread on a lock the File Watcher thread is parked on, and the process
   runs nothing again, timers included (sampled 2026-10-19 in about one test run in 400; see
   `BotStore`'s `watcher`). Keep it for the life of the process and ignore its events instead. That
-  rules out chokidar on a directory whose files come and go: it holds a watch per file and closes it
-  when the file goes, which is a close you never wrote.
+  ruled out chokidar, which holds a watch per file and closes it when the file goes -- a close you
+  never wrote. Check 11 of `tools/agent-feed-fitness.sh` refuses it in the sidecar; watch with
+  `watchTree` or `repositoryEvents`.

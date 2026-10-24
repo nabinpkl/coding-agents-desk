@@ -37,7 +37,7 @@ async function scratch(prefix: string): Promise<string> {
  *
  * The events are collected rather than awaited one at a time because a save is several filesystem
  * events coalesced into one `changed`; a test that waited for the first one would be asserting on
- * whichever event chokidar happened to deliver first.
+ * whichever event the watch happened to deliver first.
  */
 async function serviceOver(project: string) {
   const state = await scratch("workspace-service-state-");
@@ -55,11 +55,48 @@ async function serviceOver(project: string) {
     if (event.type === "changed") changed.push([...event.changedPaths]);
     if (event.type === "git") git.push(event.status.entries.map((entry) => entry.relativePath));
   });
-  // A write before the watcher is ready is reported by nobody: too late for the first pass and
-  // too early to be an event. Waiting here is what makes the assertions below deterministic.
-  await service.whenWatching();
   return { service, shared, workspace, changed, git };
 }
+
+/**
+ * Writes `path` until `reported` says the write was seen. A new macOS watch misses what is written in
+ * its first moments, so the first write can fall into that gap. Not on every poll, because a burst is
+ * reported once it has gone quiet, and writes closer together than that would put the report off for
+ * as long as they kept coming. Each write differs, so git sees each as an edit.
+ */
+async function writeUntil(path: string, reported: () => boolean, what: string, budgetMs?: number): Promise<void> {
+  let wroteAt = 0;
+  await until(
+    async () => {
+      if (Date.now() - wroteAt > 300) {
+        await writeFile(path, `${Date.now()}\n`);
+        wroteAt = Date.now();
+      }
+      return reported();
+    },
+    what,
+    budgetMs,
+  );
+}
+
+/** Writes `name` in `project` until a `changed` names it. */
+async function writeUntilReported(project: string, name: string, changed: string[][]): Promise<void> {
+  const named = () => changed.some((paths) => paths.includes(name));
+  await writeUntil(join(project, name), named, `a change to ${name} to be reported`);
+}
+
+test("reports a change in a directory the tree draws, and none inside a collapsed one", async () => {
+  const project = await scratch("workspace-service-project-");
+  await mkdir(join(project, "src"), { recursive: true });
+  const { changed } = await serviceOver(project);
+  await writeUntilReported(project, "first.txt", changed);
+
+  // `src` is collapsed, so a write inside it has nowhere to be drawn. The marker after it in the
+  // root is reported only once everything before it has been dealt with.
+  await writeFile(join(project, "src", "hidden.ts"), "x");
+  await writeUntilReported(project, "marker.txt", changed);
+  expect(changed.flat()).not.toContain("src/hidden.ts");
+});
 
 test("a workspace root is watchable immediately, however large the tree beneath it", async () => {
   // The regression this pins: a recursive watch of a real repository took 54 seconds to become
@@ -110,24 +147,40 @@ test("an expanded path that could not have come from this tree is refused, not w
   expect(service.watchedDirectories).toEqual([project]);
 });
 
-test("the git status moves for an edit inside a collapsed directory", async () => {
-  // The listings are one directory deep, and the status used to be re-read only when one of them
-  // reported a change, so an agent editing `src/deep/file.ts` under a collapsed `src` left the
-  // source-control list stale until something at the top moved. The status now comes from the
-  // repository watch, which covers every directory git lists.
-  const project = await scratch("workspace-service-project-");
-  await mkdir(join(project, "src", "deep"), { recursive: true });
-  await writeFile(join(project, "src", "deep", "file.ts"), "one\n");
-  for (const args of [
-    ["init", "--initial-branch=main"],
-    ["-c", "user.email=t@example.com", "-c", "user.name=T", "add", "."],
-    ["-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-m", "first"],
-  ]) {
-    await Bun.spawn(["git", ...args], { cwd: project, stdout: "ignore", stderr: "ignore" }).exited;
-  }
-  const { service, git } = await serviceOver(project);
-  expect(service.watchedDirectories).toEqual([project]);
+/**
+ * How long git gets to answer. Longer than the usual budget because it is three git commands to set
+ * up and the repository watch's own git calls after the edit, and measured 2026-10-19 with eight
+ * copies of this file at once, the five seconds a test gets ran out in 17 of 400 runs of the code
+ * as it was before this budget existed.
+ */
+const GIT_BUDGET_MS = 15_000;
 
-  await writeFile(join(project, "src", "deep", "file.ts"), "two\n");
-  await until(() => git.some((paths) => paths.includes("src/deep/file.ts")), "git to be asked about the deep file");
-});
+test(
+  "the git status moves for an edit inside a collapsed directory",
+  async () => {
+    // The listings are one directory deep, and the status used to be re-read only when one of them
+    // reported a change, so an agent editing `src/deep/file.ts` under a collapsed `src` left the
+    // source-control list stale until something at the top moved. The status now comes from the
+    // repository watch, which covers every directory git lists.
+    const project = await scratch("workspace-service-project-");
+    await mkdir(join(project, "src", "deep"), { recursive: true });
+    await writeFile(join(project, "src", "deep", "file.ts"), "one\n");
+    for (const args of [
+      ["init", "--initial-branch=main"],
+      ["-c", "user.email=t@example.com", "-c", "user.name=T", "add", "."],
+      ["-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-m", "first"],
+    ]) {
+      await Bun.spawn(["git", ...args], { cwd: project, stdout: "ignore", stderr: "ignore" }).exited;
+    }
+    const { service, git } = await serviceOver(project);
+    expect(service.watchedDirectories).toEqual([project]);
+
+    await writeUntil(
+      join(project, "src", "deep", "file.ts"),
+      () => git.some((paths) => paths.includes("src/deep/file.ts")),
+      "git to be asked about the deep file",
+      GIT_BUDGET_MS,
+    );
+  },
+  GIT_BUDGET_MS + 5_000,
+);
