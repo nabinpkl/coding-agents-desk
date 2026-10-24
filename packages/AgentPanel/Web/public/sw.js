@@ -8,13 +8,19 @@ self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim(
 
 // Every push shows a notification: Chrome and iOS both penalise one that does not, and iOS can
 // withdraw the permission. Whether to notify at all is decided by the sidecar before it sends.
+//
+// `renotify` makes a notification that replaces one with the same tag alert again (banner and sound)
+// rather than update it silently. The sidecar gives each push its own tag, so this covers a repeat.
+// It needs a tag: `showNotification` throws on `renotify` without one.
 self.addEventListener("push", (event) => {
   const message = event.data ? event.data.json() : {};
   const title = typeof message.title === "string" ? message.title : "AgentDesk";
+  const tag = typeof message.tag === "string" && message.tag ? message.tag : undefined;
   event.waitUntil(
     self.registration.showNotification(title, {
       body: typeof message.body === "string" ? message.body : "",
-      tag: typeof message.tag === "string" ? message.tag : undefined,
+      tag,
+      renotify: tag !== undefined,
       icon: "icons/icon-192.png",
       data: { url: typeof message.url === "string" ? message.url : "/" },
     }),

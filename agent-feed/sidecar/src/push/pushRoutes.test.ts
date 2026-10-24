@@ -133,7 +133,9 @@ describe("push routes", () => {
         { host: "fcm.googleapis.com", status: 410, gone: true },
       ],
     });
-    expect(sent.map((entry) => entry.payload.tag)).toEqual(["push-test", "push-test"]);
+    expect(sent.map((entry) => entry.payload.tag)).toEqual(
+      Array(2).fill(`push-test:${Date.parse("2026-10-19T00:00:00Z")}`),
+    );
     expect((await readPushState(options.path))?.subscriptions.map((entry) => entry.endpoint)).toEqual([APPLE]);
   });
 });

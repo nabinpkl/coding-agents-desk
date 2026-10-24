@@ -14,7 +14,9 @@
 //   nothing: a queued prompt, an agent that carries straight on, a background job that wakes it.
 // - Background jobs are not tracked: an agent forgets to stop them often enough that waiting on
 //   one would hold the notification forever. A job that wakes the agent later starts a new turn,
-//   and that turn notifies again under the same tag, which replaces the earlier notification.
+//   and that turn notifies too.
+// - Each turn has its own tag, the session's plus the time the turn closed. One session finishes
+//   many tasks, and a notification that shares a tag with one still showing replaces it silently.
 // - Only sessions a Bot holds on the canvas, and Father sessions. This machine runs many sessions
 //   nobody curated (probes, workers, the security-review plugin's), and they would bury these.
 
@@ -58,7 +60,7 @@ export function turnFinishedPayload(bot: BotRecord, session: Session): PushPaylo
     title: bot.name,
     body: body.length > BODY_LIMIT ? `${body.slice(0, BODY_LIMIT - 1)}…` : body,
     url: "/?entry=feed&view=canvas",
-    tag: `turn:${sessionKey(session)}`,
+    tag: `turn:${sessionKey(session)}:${session.lastEventAt}`,
   };
 }
 

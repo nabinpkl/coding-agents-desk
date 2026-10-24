@@ -60,13 +60,13 @@ describe("turn-finished notifier", () => {
   test("an open turn that closes pushes once, after the quiet window", async () => {
     const { emit, elapse, pushed, timers } = harness();
     emit(session("s1", false));
-    emit(session("s1", true, { title: "Fix the scroll" }));
-    emit(session("s1", true, { title: "Fix the scroll" }));
+    emit(session("s1", true, { title: "Fix the scroll", lastEventAt: 42 }));
+    emit(session("s1", true, { title: "Fix the scroll", lastEventAt: 42 }));
     expect(timers).toHaveLength(1);
     expect(pushed).toEqual([]);
     await elapse();
     expect(pushed).toEqual([
-      { title: "Alpha", body: "Finished: Fix the scroll", url: "/?entry=feed&view=canvas", tag: "turn:claude:s1" },
+      { title: "Alpha", body: "Finished: Fix the scroll", url: "/?entry=feed&view=canvas", tag: "turn:claude:s1:42" },
     ]);
   });
 
@@ -96,6 +96,17 @@ describe("turn-finished notifier", () => {
     expect(pushed).toHaveLength(1);
   });
 
+  test("each turn of one session gets its own tag, so the second does not replace the first", async () => {
+    const { emit, elapse, pushed } = harness();
+    emit(session("s1", false));
+    emit(session("s1", true, { lastEventAt: 1 }));
+    await elapse();
+    emit(session("s1", false, { lastEventAt: 2 }));
+    emit(session("s1", true, { lastEventAt: 3 }));
+    await elapse();
+    expect(pushed.map((payload) => payload.tag)).toEqual(["turn:claude:s1:1", "turn:claude:s1:3"]);
+  });
+
   test("only Claude sessions a Bot holds on the canvas push", async () => {
     const bots = [
       bot({ name: "Off", offCanvas: true, sessionRefs: [{ source: "claude", sessionId: "s2" }] }),
@@ -113,7 +124,7 @@ describe("turn-finished notifier", () => {
     emit(...ids.map((id) => session(id, false)), session("op", false, { source: "opencode" }));
     emit(...ids.map((id) => session(id, true)), session("op", true, { source: "opencode" }));
     await elapse();
-    expect(pushed.map((payload) => payload.tag)).toEqual(["turn:claude:s3"]);
+    expect(pushed.map((payload) => payload.tag)).toEqual(["turn:claude:s3:0"]);
   });
 
   test("a process that does not hold the sender lease pushes nothing", async () => {

@@ -60,11 +60,13 @@ async function subscribe(request: Request, options: PushRouteOptions): Promise<R
 }
 
 async function sendTest(options: PushRouteOptions): Promise<Response> {
+  // Its own tag each time: one sharing a tag with a test still showing would replace it silently.
+  const sentAt = (options.now ?? (() => new Date()))().getTime();
   const payload: PushPayload = {
     title: "AgentDesk",
     body: `Test notification from ${hostname()}`,
     url: "/?entry=feed&view=canvas",
-    tag: "push-test",
+    tag: `push-test:${sentAt}`,
   };
   const outcomes = await pushToAll(options.path, payload, options.subject, options.send);
   if (outcomes.length === 0) {
