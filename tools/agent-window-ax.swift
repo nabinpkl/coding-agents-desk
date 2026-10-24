@@ -34,6 +34,8 @@ private enum DriverError: LocalizedError {
         switch self {
         case .usage(let message):
             return message
+        case .appNotRunning(let bundleID) where bundleID.isEmpty:
+            return "No bundle id: pass --bundle-id, or run through just, which exports AGENTDESK_HOST_DEV_BUNDLE_ID"
         case .appNotRunning(let bundleID):
             return "No running app found for bundle id \(bundleID)"
         case .elementNotFound(let description):
@@ -63,8 +65,11 @@ private enum Selector {
 }
 
 private struct CommonOptions {
+    // The dev host by default, as the Justfile names it (it exports AGENTDESK_HOST_DEV_BUNDLE_ID);
+    // `--bundle-id` or AGENTDESK_AX_BUNDLE_ID picks another app.
     var bundleID = ProcessInfo.processInfo.environment["AGENTDESK_AX_BUNDLE_ID"]
-        ?? "com.example.agentdesk.AgentDeskHost.dev"
+        ?? ProcessInfo.processInfo.environment["AGENTDESK_HOST_DEV_BUNDLE_ID"]
+        ?? ""
     var pid: pid_t?
     var windowIdentifier: String?
     var timeout: TimeInterval = 10

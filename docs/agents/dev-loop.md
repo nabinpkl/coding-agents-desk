@@ -81,7 +81,10 @@ with no rebuild, no reinstall, and no re-pair.
   sidecar 7682/7782, signaling 41888/41988, offer 41890/41990. Each is env-overridable. Identity is
   the bundle id, not a flag: logs, keychain, launchd registration and Application Support directory
   all derive from it, and the kill-before-relaunch step matches the variant's exact installed
-  executable rather than a bare `pkill -f AgentDeskHost`, which would kill both.
+  executable rather than a bare `pkill -f AgentDeskHost`, which would kill both. The ids are
+  `AGENTDESK_BUNDLE_PREFIX` plus a fixed name, from `.env` (a placeholder without it), and the
+  signing is `AGENTDESK_APPLE_TEAM_ID`'s, or ad-hoc without one; a team with the placeholder prefix
+  stops every recipe until the prefix is set. `.env.example` has both.
 
 ### A restart used to hand this Mac back the SHIPPED configuration
 
@@ -108,15 +111,15 @@ a healthy layer. The only record anywhere on the machine was one `reloadsOnEdit=
 So **this Mac's login launch belongs to the dev path**, installed once with `just dev-login-install`
 and reversed with `just dev-login-uninstall`:
 
-- **`com.example.agentdesk.AgentDeskHost.devlogin`** runs `tools/dev-login.sh` -> `just host-login`, which is
+- **`<host bundle id>.devlogin`** runs `tools/dev-login.sh` -> `just host-login`, which is
   `host-run`'s launch half with no build in it. A login that compiles is a login that can fail to
   produce a host at all.
-- **`com.example.agentdesk.AgentDeskHost.paneldev`** runs the Vite dev server in the foreground, `KeepAlive`.
+- **`<host bundle id>.paneldev`** runs the Vite dev server in the foreground, `KeepAlive`.
   It is a separate job rather than a child of the first because **launchd reaps a job's process
   group when the job exits**: measured, `agent-webview-dev-ensure` reported "serving at" from
   inside the login job and the port was empty seconds later. A server that must outlive its starter
   has to BE a job -- which is also how it earns a restart when Vite dies at 3am.
-- **`com.example.agentdesk.AgentDeskHost.remotesidecars`** runs `tools/remote-sidecar-login.sh` -> `just
+- **`<host bundle id>.remotesidecars`** runs `tools/remote-sidecar-login.sh` -> `just
   remote-sidecar-watch-all`, `KeepAlive`, a separate job for the same reason the panel's is. It
   reads the peers from `AGENTDESK_PANEL_REMOTE_SIDECARS` in `.env` -- the same string the panel
   resolves peers from -- and for each one keeps its sidecar RUNNING and its sources CURRENT.
@@ -128,7 +131,7 @@ and reversed with `just dev-login-uninstall`:
   answering `/api/config` the whole time. **A peer that answers tells you nothing about which code
   it is answering from**, which is why `remote-sidecar-status` now says so out loud. With no peers
   declared the job says so and idles, so installing it before there is a peer is harmless.
-- **`com.example.agentdesk.AgentDeskHost.proxyobserver`** runs `tools/proxy-observer-relay-login.sh` -> `just
+- **`<host bundle id>.proxyobserver`** runs `tools/proxy-observer-relay-login.sh` -> `just
   proxy-observer-relay`, `KeepAlive`, and it is the peers job's other half. A peer's sidecar mirrors
   Claude's live network traffic by subscribing to proxy-agent's observer API, which listens on THIS
   Mac's loopback and refuses anything whose `Host` is not a literal loopback address -- deliberate

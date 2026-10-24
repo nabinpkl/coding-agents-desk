@@ -18,10 +18,19 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const bundleId = process.env.AGENTDESK_HOST_BUNDLE_ID ?? "com.example.agentdesk.AgentDeskHost";
 const sidecar = process.env.AGENT_FEED_ORIGIN ?? "http://127.0.0.1:7682";
-const registry = process.env.AGENTDESK_HOST_WORKSPACES
-  ?? join(homedir(), "Library", "Application Support", bundleId, "workspaces.json");
+// The host keeps its registry under its own bundle id, which the Justfile derives from
+// AGENTDESK_BUNDLE_PREFIX and exports; AGENTDESK_HOST_WORKSPACES names the file directly instead.
+const registry = process.env.AGENTDESK_HOST_WORKSPACES ?? defaultRegistry();
+
+function defaultRegistry() {
+  const bundleId = process.env.AGENTDESK_HOST_BUNDLE_ID;
+  if (!bundleId) {
+    console.error("AGENTDESK_HOST_BUNDLE_ID is unset: run this through just, or set AGENTDESK_HOST_WORKSPACES");
+    process.exit(1);
+  }
+  return join(homedir(), "Library", "Application Support", bundleId, "workspaces.json");
+}
 
 if (!existsSync(registry)) {
   console.error(`no host registry at ${registry}`);

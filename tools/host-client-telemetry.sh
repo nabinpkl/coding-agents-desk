@@ -4,11 +4,12 @@ umask 077
 
 variant="${1:-stable}"
 case "$variant" in
+  # The Justfile derives both ids from AGENTDESK_BUNDLE_PREFIX and exports them to its recipes.
   stable)
-    bundle_id="com.example.agentdesk.AgentDeskHost"
+    bundle_id="${AGENTDESK_HOST_BUNDLE_ID:?unset; run this through just, which exports it}"
     ;;
   dev)
-    bundle_id="com.example.agentdesk.AgentDeskHost.dev"
+    bundle_id="${AGENTDESK_HOST_DEV_BUNDLE_ID:?unset; run this through just, which exports it}"
     ;;
   *)
     echo "variant must be stable or dev" >&2

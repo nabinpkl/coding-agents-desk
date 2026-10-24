@@ -3,6 +3,8 @@ set -eu
 
 client_log="${1:-/tmp/agentdesk-client-console.log}"
 host_window="${AGENTDESK_DIAG_HOST_LOG_WINDOW:-10m}"
+# The host's log subsystem is its bundle id, which the Justfile exports to its recipes.
+host_bundle_id="${AGENTDESK_HOST_BUNDLE_ID:?unset; run this through just, which exports it}"
 host_log="$(mktemp -t agentdesk-host-owned-media.XXXXXX)"
 trap 'rm -f "$host_log"' EXIT
 
@@ -13,7 +15,7 @@ else
 fi
 
 /usr/bin/log show --last "$host_window" --style compact --info --debug \
-    --predicate 'subsystem == "com.example.agentdesk.AgentDeskHost" && eventMessage CONTAINS "owned media"' \
+    --predicate "subsystem == \"$host_bundle_id\" && eventMessage CONTAINS \"owned media\"" \
     > "$host_log" 2>/dev/null || true
 
 echo "Owned media diagnostics summary"

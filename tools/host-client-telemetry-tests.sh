@@ -34,6 +34,7 @@ printf '%s\n' \
 AGENTDESK_HOST_CLIENT_TELEMETRY_ROOT="$root" \
 AGENTDESK_HOST_CLIENT_TELEMETRY_OUTPUT="$output" \
 AGENTDESK_HOST_CLIENT_TELEMETRY_SKIP_HOST_LOG=1 \
+AGENTDESK_HOST_BUNDLE_ID=com.example.agentdesk.AgentDeskHost \
   bash tools/host-client-telemetry.sh stable >/dev/null
 
 /usr/bin/python3 - "$output/incident-summary.json" <<'PY'

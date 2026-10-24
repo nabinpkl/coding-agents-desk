@@ -3,7 +3,8 @@
 #
 # Run from anywhere, as yourself: `tools/pf-tailnet-only-install.sh`
 # It re-execs under sudo (you type your password once), then:
-#   1. installs the anchor to /etc/pf.anchors/agentdesk-tailnet-only,
+#   1. installs root-owned copies of the anchor (/etc/pf.anchors/agentdesk-tailnet-only) and of
+#      the loader (/Library/PrivilegedHelperTools/agentdesk-pf-tailnet-only.sh),
 #   2. merges it into the running pf set WITHOUT flushing anything else,
 #   3. enables pf (no-op if already enabled),
 #   4. installs + bootstraps the boot-persistence LaunchDaemon,
@@ -18,16 +19,37 @@ fi
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 ANCHOR_SRC="$REPO/tools/pf-tailnet-only/anchor.conf"
 ANCHOR_DST="/etc/pf.anchors/agentdesk-tailnet-only"
-PLIST_SRC="$REPO/tools/pf-tailnet-only/com.example.agentdesk.agentdesk-pf.plist"
-PLIST_DST="/Library/LaunchDaemons/com.example.agentdesk.agentdesk-pf.plist"
+# The boot job runs as root, so everything it reads is a root-owned copy made here. Pointing it at
+# the checkout would let anything that can edit the checkout run as root at the next boot, and set
+# the firewall rules. /Library/PrivilegedHelperTools, not /usr/local, which Homebrew on Intel hands
+# to the user.
+HELPERS="/Library/PrivilegedHelperTools"
+LOADER_DST="$HELPERS/agentdesk-pf-tailnet-only.sh"
+LOG="/var/log/agentdesk-pf.log"
+LABEL="agentdesk.pf-tailnet-only"
+PLIST_DST="/Library/LaunchDaemons/$LABEL.plist"
 
-cp "$ANCHOR_SRC" "$ANCHOR_DST"
-chmod 644 "$ANCHOR_DST"
-# Loading lives in pf-tailnet-only.sh (the boot job runs the same file),
-# so install-time and boot-time can never drift apart.
-sh "$REPO/tools/pf-tailnet-only.sh"
+[ -d "$HELPERS" ] || install -d -o root -g wheel -m 755 "$HELPERS"
+install -o root -g wheel -m 644 "$ANCHOR_SRC" "$ANCHOR_DST"
+install -o root -g wheel -m 755 "$REPO/tools/pf-tailnet-only.sh" "$LOADER_DST"
+# Loading lives in the loader, and install time runs the same installed copy the boot job runs, so
+# the two can never drift apart.
+sh "$LOADER_DST" "$ANCHOR_DST"
 
-cp "$PLIST_SRC" "$PLIST_DST"
+# Re-applies the tailnet-only anchor at boot: anchor contents do not persist across restarts. The
+# plist is written here rather than checked in, and built with plutil; -create replaces a previous
+# copy.
+plutil -create xml1 "$PLIST_DST"
+plutil -insert Label -string "$LABEL" "$PLIST_DST"
+plutil -insert ProgramArguments -array "$PLIST_DST"
+plutil -insert ProgramArguments.0 -string /bin/sh "$PLIST_DST"
+plutil -insert ProgramArguments.1 -string "$LOADER_DST" "$PLIST_DST"
+plutil -insert ProgramArguments.2 -string "$ANCHOR_DST" "$PLIST_DST"
+plutil -insert RunAtLoad -bool true "$PLIST_DST"
+# Root writes the log, so it goes under /var/log: a fixed name in /tmp is a symlink anyone can plant.
+plutil -insert StandardOutPath -string "$LOG" "$PLIST_DST"
+plutil -insert StandardErrorPath -string "$LOG" "$PLIST_DST"
+plutil -lint "$PLIST_DST" >/dev/null
 chmod 644 "$PLIST_DST"
 launchctl bootout "system/$PLIST_DST" 2>/dev/null || true  # already loaded is fine
 launchctl bootstrap system "$PLIST_DST"

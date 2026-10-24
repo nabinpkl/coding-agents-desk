@@ -71,7 +71,7 @@ enum Config {
     }
 
     // Build tier, derived from the bundle id (not a runtime flag). The dev host
-    // (com.example.agentdesk.AgentDeskHost.dev) runs concurrently with the stable host, so
+    // (<bundle prefix>.AgentDeskHost.dev) runs concurrently with the stable host, so
     // every loopback port it binds must differ. The dev block is the stable port
     // + 100 so the two never overlap and the offset is obvious in `lsof`.
     enum Tier {
@@ -1362,10 +1362,11 @@ enum Config {
     // Identity root. Every per-install anchor (log subsystem, launchd label,
     // dispatch-queue prefix, keychain service, Application Support directory)
     // derives from the running bundle id, so the stable and experimental host
-    // variants (com.example.agentdesk.AgentDeskHost / .dev) self-namespace their logs,
+    // variants (<bundle prefix>.AgentDeskHost / .dev) self-namespace their logs,
     // credentials, launchd registration, and on-disk state without sharing any
     // of it. Mirrors the client (client/AgentDeskClient/Config.swift). The
-    // fallback covers the theoretical nil (never nil for a real app bundle).
+    // fallback covers the theoretical nil (never nil for a real app bundle), and is
+    // the project's own placeholder id rather than any one machine's.
     static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.agentdesk.AgentDeskHost"
     static let logSubsystem = bundleIdentifier
     static let launchAgentLabel = bundleIdentifier

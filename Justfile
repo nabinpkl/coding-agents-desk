@@ -10,12 +10,15 @@ set dotenv-load := true
 ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=latest")
 # Use the hardware UDID: Xcode requires it as the destination id, and
 # devicectl accepts the same value for install, launch, and diagnostics.
-ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "00000000-0000000000000000")
-# UDID of the iPhone simulator used for Maestro UI flows. Override via env.
-ios_sim_udid := env_var_or_default("AGENTDESK_IOS_SIM_UDID", "00000000-0000-4000-8000-000000000022")
+# Your devices are your own, so they come from `.env`. Unset, each default is an id no device has
+# that names the setting to fill: devicectl and simctl print the id they could not find, so a recipe
+# run without one fails saying what to set (`xcrun devicectl list devices`, `xcrun simctl list`).
+ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "set-AGENTDESK_IOS_DEVICE-in-.env")
+# UDID of the iPhone simulator used for Maestro UI flows.
+ios_sim_udid := env_var_or_default("AGENTDESK_IOS_SIM_UDID", "set-AGENTDESK_IOS_SIM_UDID-in-.env")
 # Second simulator for the dev client, so a full dev stack (dev host + dev client)
-# runs on its own sim beside the stable stack. Override via env.
-ios_sim_udid_dev := env_var_or_default("AGENTDESK_IOS_SIM_UDID_DEV", "00000000-0000-4000-8000-000000000023")
+# runs on its own sim beside the stable stack.
+ios_sim_udid_dev := env_var_or_default("AGENTDESK_IOS_SIM_UDID_DEV", "set-AGENTDESK_IOS_SIM_UDID_DEV-in-.env")
 iphone_log_archive := env_var_or_default("AGENTDESK_IPHONE_LOG_ARCHIVE", "/tmp/agentdesk-client.logarchive")
 iphone_log_minutes := env_var_or_default("AGENTDESK_IPHONE_LOG_MINUTES", "5")
 iphone_console_log := env_var_or_default("AGENTDESK_IPHONE_CONSOLE_LOG", "/tmp/agentdesk-client-console.log")
@@ -64,16 +67,24 @@ client_sim_app := derived_data + "/Build/Products/Debug-iphonesimulator/AgentDes
 host_build_app_release := derived_data + "/Build/Products/Release/AgentDeskHost.app"
 client_app_release := derived_data + "/Build/Products/Release-iphoneos/AgentDeskClient.app"
 client_sim_app_release := derived_data + "/Build/Products/Release-iphonesimulator/AgentDeskClient.app"
+# Every bundle id below is this prefix plus a fixed name, so one line of `.env` names all of a
+# machine's installs. The default is a placeholder that builds and runs on any Mac with ad-hoc
+# signing; signing with an Apple team needs a prefix of your own, because App IDs are unique across
+# every team (a shared default would be taken by whoever registered it first).
+bundle_prefix := env_var_or_default("AGENTDESK_BUNDLE_PREFIX", "com.example.agentdesk")
 # Two coexisting HOST installs mirroring the client: the stable daily-driver and
-# an experimental "dev" host under test. They differ by bundle id (com.example.agentdesk.
+# an experimental "dev" host under test. They differ by bundle id (<prefix>.
 # AgentDeskHost / .dev), so each self-namespaces its logs, keychain, Application
 # Support state, launchd label, and tier-derived ports (Config.tier) and can run
 # CONCURRENTLY. The dev host builds into a SEPARATE derived-data dir: both share
 # PRODUCT_NAME (AgentDeskHost.app) so they would otherwise clobber build output.
 # The installed path is how the kill step targets one variant without killing the
 # other (a bare `pkill -f AgentDeskHost` would kill both). Override ids via env.
-host_bundle_id := env_var_or_default("AGENTDESK_HOST_BUNDLE_ID", "com.example.agentdesk.AgentDeskHost")
-host_dev_bundle_id := env_var_or_default("AGENTDESK_HOST_DEV_BUNDLE_ID", "com.example.agentdesk.AgentDeskHost.dev")
+# Exported, so a script a recipe runs reads the same ids rather than keeping its own default.
+export AGENTDESK_HOST_BUNDLE_ID := env_var_or_default("AGENTDESK_HOST_BUNDLE_ID", bundle_prefix + ".AgentDeskHost")
+export AGENTDESK_HOST_DEV_BUNDLE_ID := env_var_or_default("AGENTDESK_HOST_DEV_BUNDLE_ID", AGENTDESK_HOST_BUNDLE_ID + ".dev")
+host_bundle_id := AGENTDESK_HOST_BUNDLE_ID
+host_dev_bundle_id := AGENTDESK_HOST_DEV_BUNDLE_ID
 host_dev_derived_data := derived_data + "-host-dev"
 host_dev_build_app := host_dev_derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 host_dev_build_app_release := host_dev_derived_data + "/Build/Products/Release/AgentDeskHost.app"
@@ -91,8 +102,8 @@ grid_encoder := shell('node tools/runtime-paths.mjs grid-encoder')
 # each other on disk. The dev bundle id is a HITL-provisioned App ID (AGENTS.md);
 # override either id via env. Most client recipes take a `variant` arg
 # ("stable" default | "dev"); thin `-dev` wrappers pass it.
-client_bundle_id := env_var_or_default("AGENTDESK_CLIENT_BUNDLE_ID", "com.example.agentdesk.AgentDeskClient")
-client_dev_bundle_id := env_var_or_default("AGENTDESK_CLIENT_DEV_BUNDLE_ID", "com.example.agentdesk.AgentDeskClient.dev")
+client_bundle_id := env_var_or_default("AGENTDESK_CLIENT_BUNDLE_ID", bundle_prefix + ".AgentDeskClient")
+client_dev_bundle_id := env_var_or_default("AGENTDESK_CLIENT_DEV_BUNDLE_ID", client_bundle_id + ".dev")
 dev_derived_data := derived_data + "-dev"
 client_dev_app := dev_derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
 client_sim_dev_app := dev_derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
@@ -130,7 +141,27 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 # client-initiated unpair (revoke frame).
 host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.7.0")
 client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.14.0")
-apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
+# The Apple Developer team that signs the native builds, from `.env`. Without one the Mac host and
+# the helpers sign ad-hoc, which needs no Apple account and runs on this Mac; the cost is that
+# macOS ties Screen Recording, Accessibility and keychain access to the signature, so each rebuild
+# asks for them again. A team gives the builds a stable identity, and an iPhone install needs one.
+apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "")
+# What the host and client builds pass to `xcodebuild` (all of them but the unsigned test run and
+# the IPA export, which takes its signing from the archive). The projects sign ad-hoc by default;
+# these two settings are read only by the app targets (see AGENTDESK_* in each project.pbxproj),
+# so a test target keeps the signing it declares.
+#
+# A team with the placeholder prefix is refused rather than built: Xcode's automatic signing would
+# register the placeholder's App IDs on that team's account. Every recipe stops until it is fixed,
+# because just evaluates this whether or not the recipe builds anything; the fix is one line of `.env`.
+xcode_signing := if apple_team_id == "" { "" } else if bundle_prefix == "com.example.agentdesk" { error("AGENTDESK_APPLE_TEAM_ID is set but AGENTDESK_BUNDLE_PREFIX is not. Signing with a team registers App IDs on it, and com.example.agentdesk is only a placeholder: set AGENTDESK_BUNDLE_PREFIX in .env to a reverse-DNS prefix of your own, or unset the team to sign ad-hoc.") } else { "AGENTDESK_APPLE_TEAM_ID='" + apple_team_id + "' AGENTDESK_CODE_SIGN_IDENTITY='Apple Development'" }
+# Every host and client build names its bundle id through the variable its project reads
+# (AGENTDESK_HOST_BUNDLE_ID, AGENTDESK_CLIENT_BUNDLE_ID), never through the project's placeholder, so
+# a build signed with a team is signed as the id this machine installs. Each recipe puts these right
+# after `-scheme`, ahead of its variant settings: xcodebuild takes the last value it is given, so a
+# dev variant's id still wins.
+xcode_host := "AGENTDESK_HOST_BUNDLE_ID='" + host_bundle_id + "' " + xcode_signing
+xcode_client := "AGENTDESK_CLIENT_BUNDLE_ID='" + client_bundle_id + "' " + xcode_signing
 # AgentDesk-owned source for transcript discovery, parsing, indexing, and feed
 # HTTP/SSE delivery.
 agent_feed_sidecar_dir := justfile_directory() + "/agent-feed/sidecar"
@@ -1279,14 +1310,14 @@ dom-mirror-e2e: ext-stamp
     PAIRURL='{{last_pair_url_path}}'
     cleanup() {
       kill "${SIMTEE_PID:-0}" 2>/dev/null || true
-      xcrun simctl terminate "$UDID" com.example.agentdesk.AgentDeskClient 2>/dev/null || true
+      xcrun simctl terminate "$UDID" '{{client_bundle_id}}' 2>/dev/null || true
       kill $(sh tools/exact-executable-pids.sh '{{host_app}}/Contents/MacOS/AgentDeskHost') 2>/dev/null || true
       for v in AGENTDESK_AUTO_APPROVE AGENTDESK_DEV_ITERATION_RUN AGENTDESK_DOM_MIRROR_ENABLED; do launchctl unsetenv "$v" 2>/dev/null || true; done
     }
     trap cleanup EXIT
 
     echo "== build + launch host with DOM mirror enabled =="
-    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost {{xcode_host}} -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
     kill $(sh tools/exact-executable-pids.sh '{{host_app}}/Contents/MacOS/AgentDeskHost') 2>/dev/null || true; sleep 1
     node tools/build-system/install-runtime.mjs host '{{host_build_app}}' '{{host_app}}' '{{host_bundle_id}}'
     just grid-encoder-install
@@ -1309,7 +1340,7 @@ dom-mirror-e2e: ext-stamp
     test -s "$PAIRURL" || { echo "host did not write pairing URL"; exit 1; }
     ( SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat "$PAIRURL")" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
         SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_PROBE_STDERR=1 \
-        xcrun simctl launch --console --terminate-running-process "$UDID" com.example.agentdesk.AgentDeskClient -agentDesk.domMirrorEnabled YES 2>&1 | tee "$CONSOLE" ) &
+        xcrun simctl launch --console --terminate-running-process "$UDID" '{{client_bundle_id}}' -agentDesk.domMirrorEnabled YES 2>&1 | tee "$CONSOLE" ) &
     SIMTEE_PID=$!
     echo "waiting for client to connect + open the .dom lane..."; sleep 10
 
@@ -1491,11 +1522,11 @@ swift-check variant="stable": ensure-agent-feed-sidecar-placeholder ensure-pty-r
     (cd terminal/pty-client-swift && swift test)
     (cd '{{pty_manager_dir}}' && cargo test)
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
+        DD='{{host_dev_derived_data}}'; EXTRA=(AGENTDESK_HOST_BUNDLE_ID='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; EXTRA=()
     fi
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} -collect-test-diagnostics never test
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost {{xcode_host}} -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} -collect-test-diagnostics never test
 
 # The voice arc's own gates: the phone-model mapping and calibration contracts, the evidence
 # summariser, and the gesture-agent Python suite. Dormant since 2026-08-14, and nothing on the
@@ -1514,7 +1545,7 @@ agent-terminal-integration-test:
     #!/usr/bin/env bash
     set -euo pipefail
     (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager --bin pty-vault)
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost \
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost {{xcode_host}} \
         -derivedDataPath '{{derived_data}}' test \
         -only-testing:AgentDeskHostTests/AgentSessionTerminalIntegrationTests
 
@@ -1534,7 +1565,7 @@ wire-test:
 # success, and on a test run stdout is the result. "Test run with N tests passed" is the whole
 # point of running this.
 sim-test: ensure-webview-placeholder voice-assets-stage-tests
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{sim_test_derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient {{xcode_client}} -derivedDataPath '{{sim_test_derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
 # Everything: the current-path gate, the native apps, the voice arc, and the client simulator
 # tests. Minutes, not seconds.
@@ -1711,7 +1742,7 @@ dev:
 # Truncates the file on each run so each session starts clean.
 host-logs:
     : > /tmp/agentdesk-host.log
-    log stream --predicate 'subsystem == "com.example.agentdesk.AgentDeskHost"' --info --style compact | tee -a /tmp/agentdesk-host.log
+    log stream --predicate 'subsystem == "{{host_bundle_id}}"' --info --style compact | tee -a /tmp/agentdesk-host.log
 
 # Pull recent iPhone unified logs for the client into a log archive, then
 # print the same filtered view back to the terminal. Device collection
@@ -1935,13 +1966,13 @@ proxy-observer-relay:
 
 # Who is watching a sidecar's displays and which grid-encoders are capturing for them. One login
 # session per sidecar; the registry entry names its port.
-webrtc-sessions user=env_var_or_default("USER", "dev"):
+webrtc-sessions user=env_var("USER"):
     curl -sf "http://127.0.0.1:$(jq -r .port /Users/Shared/agentdesk/sidecars/{{user}}.json)/api/park/webrtc/sessions" | jq .
 
 # End viewers and captures: everything by default, one viewer with `attempt=<id>`, one capture
 # with `pid=<pid>` (ids and pids from `just webrtc-sessions`). A viewer whose peer is closed
 # reconnects on its own; this is for a stuck stream, not a logout.
-webrtc-close user=env_var_or_default("USER", "dev") attempt="" pid="":
+webrtc-close user=env_var("USER") attempt="" pid="":
     #!/usr/bin/env bash
     set -euo pipefail
     PORT=$(jq -r .port /Users/Shared/agentdesk/sidecars/{{user}}.json)
@@ -1963,12 +1994,12 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
         DD='{{host_dev_derived_data}}'; BUILT_APP='{{host_dev_build_app}}'; APP='{{host_dev_app}}'; HOST_BID='{{host_dev_bundle_id}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792; VOICEBACKENDPORT=7793
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
-        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
+        EXTRA=(AGENTDESK_HOST_BUNDLE_ID='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; BUILT_APP='{{host_build_app}}'; APP='{{host_app}}'; HOST_BID='{{host_bundle_id}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692; VOICEBACKENDPORT=7693
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
-        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}')
+        EXTRA=()
     fi
     # Resolved here, above every reader, because the panel block below now needs the effective
     # value too: it tells the dev server which sidecar to proxy a browser tab to, and a tier
@@ -2063,7 +2094,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
           agent-feed-sidecar '{{agent_feed_sidecar_dir}}' '{{justfile_directory()}}/.build/js-dependencies'
     fi
     just prepare-pty-runtime "{{variant}}"
-    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost {{xcode_host}} -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
     node tools/build-system/install-runtime.mjs verify-host "$BUILT_APP" "$HOST_BID"
     just grid-encoder-install
     # Debug/Release share one durable install per bundle id. Exact matching cannot
@@ -2168,12 +2199,12 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
         DD='{{host_dev_derived_data}}'; BUILT_APP='{{host_dev_build_app_release}}'; APP='{{host_dev_app}}'; HOST_BID='{{host_dev_bundle_id}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792; VOICEBACKENDPORT=7793
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
-        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
+        EXTRA=(AGENTDESK_HOST_BUNDLE_ID='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; BUILT_APP='{{host_build_app_release}}'; APP='{{host_app}}'; HOST_BID='{{host_bundle_id}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692; VOICEBACKENDPORT=7693
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
-        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}')
+        EXTRA=()
     fi
     # Resolved here, above every reader, because the panel block below now needs the effective
     # value too: it tells the dev server which sidecar to proxy a browser tab to, and a tier
@@ -2275,7 +2306,7 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     # The cost is losing cross-file inlining, which was worth protecting only while the crisp tile
     # codec's per-byte loop was live. It is not: `crispTextOverlayEnabled` defaults to false and
     # `OwnedTileCodec.extractTileWithHash` has one caller behind that switch.
-    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" SWIFT_COMPILATION_MODE="${AGENTDESK_HOST_SWIFT_COMPILATION_MODE:-singlefile}" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost {{xcode_host}} -configuration Release -derivedDataPath "$DD" SWIFT_COMPILATION_MODE="${AGENTDESK_HOST_SWIFT_COMPILATION_MODE:-singlefile}" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
     node tools/build-system/install-runtime.mjs verify-host "$BUILT_APP" "$HOST_BID"
     just grid-encoder-install
     # Both build configurations publish to this variant's one installed app.
@@ -2706,10 +2737,10 @@ client-install variant="stable": build-agent-webview
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
     if [ "{{variant}}" = "dev" ]; then
-        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'generic/platform=iOS' AGENTDESK_GIT_SHA="$GIT_SHA" AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build
+        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient {{xcode_client}} -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'generic/platform=iOS' AGENTDESK_GIT_SHA="$GIT_SHA" AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build
         xcrun devicectl device install app --device {{ios_device}} '{{client_dev_app}}'
     else
-        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'generic/platform=iOS' AGENTDESK_GIT_SHA="$GIT_SHA" build
+        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient {{xcode_client}} -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'generic/platform=iOS' AGENTDESK_GIT_SHA="$GIT_SHA" build
         xcrun devicectl device install app --device {{ios_device}} '{{client_app}}'
     fi
 
@@ -2743,7 +2774,7 @@ client-reinstall variant="stable":
 # ships should be optimized across the module, and that build happens once per release rather
 # than once per idea.
 client-install-release: build-agent-webview
-    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'generic/platform=iOS' SWIFT_COMPILATION_MODE="${AGENTDESK_CLIENT_SWIFT_COMPILATION_MODE:-singlefile}" AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
+    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient {{xcode_client}} -configuration Release -derivedDataPath '{{derived_data}}' -destination 'generic/platform=iOS' SWIFT_COMPILATION_MODE="${AGENTDESK_CLIENT_SWIFT_COMPILATION_MODE:-singlefile}" AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
 # Historical recipe name retained for callers. Updates the stable Release app
@@ -3215,7 +3246,7 @@ motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
     PROFILE_LOG_MARKER="bitrateKbps=$PROFILE_BITRATE fps=$PROFILE_FPS resolutionScale=$PROFILE_SCALE_FORMATTED"
 
     echo "== [1/5] build host =="
-    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' PRODUCT_BUNDLE_IDENTIFIER='{{host_bundle_id}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost {{xcode_host}} -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
 
     echo "== [2/5] build + install client ($BID) =="
     just client-install {{variant}}
@@ -3224,12 +3255,12 @@ motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
     # Clear a stale host and any leftover capture stream from a crashed prior run.
     HOST_PIDS="$(sh tools/exact-executable-pids.sh "$HOST_BIN")"
     [ -z "$HOST_PIDS" ] || kill $HOST_PIDS
-    pkill -f 'log stream.*dev[.]dev[.]AgentDeskHost' 2>/dev/null || true
+    pkill -f 'log stream.*{{host_bundle_id}}' 2>/dev/null || true
     sleep 1
     # Start the os_log capture BEFORE launch so the listener/server-started lines land.
     node tools/build-system/install-runtime.mjs host '{{host_build_app}}' '{{host_app}}' '{{host_bundle_id}}' || exit 1
     just grid-encoder-install || exit 1
-    log stream --predicate 'subsystem == "com.example.agentdesk.AgentDeskHost"' --info --debug --style compact >"{{motion_host_oslog}}" 2>&1 &
+    log stream --predicate 'subsystem == "{{host_bundle_id}}"' --info --debug --style compact >"{{motion_host_oslog}}" 2>&1 &
     LOG_PID=$!
     sleep 1
     # `open --env` delivers config to the GUI app directly (no launchctl); --stdout/--stderr
@@ -3319,7 +3350,7 @@ client-sim-install variant="stable": build-agent-webview
         EXTRA=()
     fi
     xcrun simctl bootstatus "$SIM" -b >/dev/null
-    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath "$DD" -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" AGENTDESK_GIT_SHA="$GIT_SHA" ${EXTRA[@]+"${EXTRA[@]}"} build
+    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient {{xcode_client}} -configuration Debug -derivedDataPath "$DD" -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" AGENTDESK_GIT_SHA="$GIT_SHA" ${EXTRA[@]+"${EXTRA[@]}"} build
     xcrun simctl install "$SIM" "$APP"
 
 # Historical recipe name retained for callers. This now performs an in-place
@@ -3332,7 +3363,7 @@ client-sim-reinstall variant="stable":
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
 client-sim-install-release: build-agent-webview
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
+    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient {{xcode_client}} -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"
 
 client-sim-reinstall-release:
@@ -3554,12 +3585,11 @@ client-archive-release variant="stable":
     mkdir -p "$(dirname "$ARCHIVE")"
     echo "Archiving AgentDeskClient ({{variant}}) {{client_marketing_version}} ($BUILD_NUMBER) commit $GIT_SHA"
     xcodebuild -project client/AgentDeskClient.xcodeproj \
-        -scheme AgentDeskClient \
+        -scheme AgentDeskClient {{xcode_client}} \
         -derivedDataPath "$DD" \
         -configuration Release \
         -destination 'generic/platform=iOS' \
         -archivePath "$ARCHIVE" \
-        DEVELOPMENT_TEAM='{{apple_team_id}}' \
         MARKETING_VERSION='{{client_marketing_version}}' \
         CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
         AGENTDESK_GIT_SHA="$GIT_SHA" \

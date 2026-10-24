@@ -1,7 +1,17 @@
 # One named task surface. `just` lists recipes.
 
+# The repository's `.env`, which just finds in the parent directory: the identity settings below
+# are per machine, so they live there beside agent-desk's own (see the root `.env.example`).
+set dotenv-load := true
+
 app := "build/DeskZoom.app"
-sign_identity := env_var_or_default("DESKZOOM_SIGN_IDENTITY", "Apple Development: Owner Name (CERT000000)")
+# Ad-hoc by default, which needs no Apple account. macOS ties the Screen Recording grant to the
+# signature, so an ad-hoc bundle asks again after each rebuild; set DESKZOOM_SIGN_IDENTITY to your
+# Apple Development identity to keep it.
+sign_identity := env_var_or_default("DESKZOOM_SIGN_IDENTITY", "-")
+# The app's bundle id, and the root of its launchd label. A placeholder until set: an installed
+# display job is found by this label, so keep it once a job is installed under it.
+bundle_id := env_var_or_default("DESKZOOM_BUNDLE_ID", "com.example.deskzoom")
 
 default:
     @just --list
@@ -17,13 +27,14 @@ test:
 # Build plus tests; the pre-commit bar.
 check: build test
 
-# Wrap the binary in an .app bundle and sign it with a stable identity so the
-# Screen Recording grant survives rebuilds (TCC keys on signature + bundle id).
+# Wrap the binary in an .app bundle and sign it. TCC keys the Screen Recording grant on signature
+# plus bundle id, so a stable identity (DESKZOOM_SIGN_IDENTITY) is what makes it survive rebuilds.
 bundle: build
     rm -rf {{app}}
     mkdir -p {{app}}/Contents/MacOS
     cp .build/release/DeskZoom {{app}}/Contents/MacOS/DeskZoom
     cp Sources/DeskZoom/Info.plist {{app}}/Contents/Info.plist
+    plutil -replace CFBundleIdentifier -string "{{bundle_id}}" {{app}}/Contents/Info.plist
     plutil -replace CFBundleVersion -string "$(git rev-parse --short HEAD 2>/dev/null || echo uncommitted)" {{app}}/Contents/Info.plist
     codesign --force --sign "{{sign_identity}}" {{app}}
 
@@ -43,7 +54,7 @@ stop:
 
 # Forget the Screen Recording grant if TCC gets confused after re-signing.
 reset-tcc:
-    tccutil reset ScreenCapture com.example.deskzoom
+    tccutil reset ScreenCapture {{bundle_id}}
 
 # --- The always-on virtual display ---------------------------------------------------------
 #
@@ -52,7 +63,7 @@ reset-tcc:
 # runs for this: `Aqua` puts the job in the console GUI session, where CoreGraphics will accept
 # a display at all, and `KeepAlive` puts it back if it ever dies.
 
-display_label := "com.example.deskzoom.display"
+display_label := bundle_id + ".display"
 display_width := env_var_or_default("DESKZOOM_DISPLAY_WIDTH", "7680")
 display_height := env_var_or_default("DESKZOOM_DISPLAY_HEIGHT", "4320")
 display_plist := env_var("HOME") / "Library/LaunchAgents" / display_label + ".plist"

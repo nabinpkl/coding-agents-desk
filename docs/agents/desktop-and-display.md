@@ -7,7 +7,7 @@ Read this before touching `deskzoom/`, the grid-encoder, or driving the agent se
 
 - **The 8K desk is a process, and it lives in `deskzoom/`.** `deskzoom/.build/release/DeskZoom
   --display-only` creates one `CGVirtualDisplay` and holds it open; the display exists exactly as
-  long as that process does. `~/Library/LaunchAgents/com.example.deskzoom.display.plist` supervises it
+  long as that process does. `~/Library/LaunchAgents/<DESKZOOM_BUNDLE_ID>.display.plist` supervises it
   (`Aqua` session type, `KeepAlive`, `RunAtLoad`), installed by `just display-install` from
   `deskzoom/justfile`. Nothing else in this repo creates a display: end that process and every
   desktop stream has nothing left to show.
@@ -18,7 +18,7 @@ Read this before touching `deskzoom/`, the grid-encoder, or driving the agent se
   display landed on the console user's desktop with 29 modes and `agent` never saw it; called by the
   console user it works. Both accounts are admin and in `staff`, so permissions never entered into
   it. Put `agent` on the console and the roles flip exactly. The LaunchAgent therefore belongs to
-  whoever holds the console (today `dev`), not to the session that uses the desk.
+  whoever holds the console (the owner's own login), not to the session that uses the desk.
 - **An off-console session gets a frozen copy, taken when the session was created.** Screen Sharing
   hands a non-console session synthesised displays: copies of the console arrangement as it stood at
   session creation, one fixed mode each. Nothing added to the real arrangement later reaches it, and

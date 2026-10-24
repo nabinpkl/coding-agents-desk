@@ -49,7 +49,7 @@ assert_contains "$defaults" \
     "\"$(pwd)/agent-feed/wire\" \"$(pwd)/tools/runtime-paths.mjs\"" \
     'compiled sidecar hashing must include shared wire and runtime configuration'
 assert_contains "$stable_release" \
-    "APP='$(node tools/runtime-paths.mjs host-app "${AGENTDESK_HOST_BUNDLE_ID:-com.example.agentdesk.AgentDeskHost}")'" \
+    "APP='$(node tools/runtime-paths.mjs host-app "$(just --evaluate host_bundle_id)")'" \
     'Release launch must use the stable installed app'
 assert_contains "$stable_release" \
     'sh tools/local-udp-port-pids.sh "$SIGPORT"' \
@@ -82,7 +82,7 @@ assert_contains "$stable_release" \
 
 dev_debug="$(just --dry-run host-run-dev dev false 2>&1)"
 assert_contains "$dev_debug" \
-    "APP='$(node tools/runtime-paths.mjs host-app "${AGENTDESK_HOST_DEV_BUNDLE_ID:-com.example.agentdesk.AgentDeskHost.dev}")'" \
+    "APP='$(node tools/runtime-paths.mjs host-app "$(just --evaluate host_dev_bundle_id)")'" \
     'Debug launch must use the separate dev installed app'
 assert_contains "$dev_debug" \
     'sh tools/local-udp-port-pids.sh "$SIGPORT"' \
@@ -185,7 +185,7 @@ for recipe in dom-mirror-e2e motion-verify; do
         AGENT_FEED_GRID_ENCODER_PATH='/private/agentdesk lifecycle helper' \
         AGENTDESK_HOST_BUNDLE_ID='test.agentdesk.lifecycle' just --dry-run "$recipe" 2>&1)"
     assert_contains "$launch" \
-        "PRODUCT_BUNDLE_IDENTIFIER='test.agentdesk.lifecycle'" \
+        "AGENTDESK_HOST_BUNDLE_ID='test.agentdesk.lifecycle'" \
         "$recipe must build the same bundle identity it installs"
     assert_contains "$launch" \
         "--env 'AGENTDESK_RUNTIME_ROOT=/private/agentdesk lifecycle runtime'" \

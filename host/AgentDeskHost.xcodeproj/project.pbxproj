@@ -308,6 +308,9 @@
 		A00000000000000000000007 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				AGENTDESK_HOST_BUNDLE_ID = com.example.agentdesk.AgentDeskHost;
+				AGENTDESK_APPLE_TEAM_ID = "";
+				AGENTDESK_CODE_SIGN_IDENTITY = "-";
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -367,6 +370,9 @@
 		A00000000000000000000008 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				AGENTDESK_HOST_BUNDLE_ID = com.example.agentdesk.AgentDeskHost;
+				AGENTDESK_APPLE_TEAM_ID = "";
+				AGENTDESK_CODE_SIGN_IDENTITY = "-";
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -421,9 +427,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = AgentDeskHost/AgentDeskHost.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_IDENTITY = "$(AGENTDESK_CODE_SIGN_IDENTITY)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = TEAMID0000;
+				DEVELOPMENT_TEAM = "$(AGENTDESK_APPLE_TEAM_ID)";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentDeskHost/Info.plist;
@@ -432,7 +438,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskHost;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(AGENTDESK_HOST_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
 			};
@@ -443,9 +449,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = AgentDeskHost/AgentDeskHost.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_IDENTITY = "$(AGENTDESK_CODE_SIGN_IDENTITY)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = TEAMID0000;
+				DEVELOPMENT_TEAM = "$(AGENTDESK_APPLE_TEAM_ID)";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentDeskHost/Info.plist;
@@ -454,7 +460,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskHost;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(AGENTDESK_HOST_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
 			};
@@ -472,7 +478,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskHostTests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(AGENTDESK_HOST_BUNDLE_ID)Tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
 			};
@@ -490,7 +496,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskHostTests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(AGENTDESK_HOST_BUNDLE_ID)Tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
 			};
