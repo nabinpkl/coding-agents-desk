@@ -208,7 +208,9 @@ export function TerminalChildCard({
                 </span>
               )}
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
+                {/* A pixel over the item step, as in the roster: monospace at that step reads
+                    smaller than the sans session titles on the canvas. */}
+                <span className="block truncate font-mono text-[length:calc(var(--agent-panel-fs-sidebar-meta,13px)+1px)] font-medium text-foreground">
                   {session.name}
                 </span>
                 <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">

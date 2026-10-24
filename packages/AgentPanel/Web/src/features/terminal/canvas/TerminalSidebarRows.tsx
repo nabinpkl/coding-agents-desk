@@ -90,13 +90,9 @@ export function TerminalSidebarParent({
   return (
     <li className="border-b border-border/80">
       <div
-        // The same surface and rail its card wears, so one directory is one colour in both
-        // places -- and only while it has a card. Off the strip the header goes neutral and
-        // dim, and the EyeOff says so in words the dimming cannot.
-        className={`flex min-h-16 items-center gap-3 border-l-2 py-2 pr-2 pl-1 ${
-          hue !== undefined && !off ? "terminal-surface terminal-rail" : "border-transparent"
-        } ${off ? "opacity-55" : ""}`}
-        style={hue === undefined || off ? undefined : terminalParentStyle(hue)}
+        // A plain row: the directory's colour is on its mark alone. Off the strip the header
+        // dims, and the EyeOff says so in words the dimming cannot.
+        className={`flex min-h-16 items-center gap-3 py-2 pr-2 pl-1.5 ${off ? "opacity-55" : ""}`}
       >
         {/* The mark, not a dot: this directory's own face while faces are on, its initials on
             its own colour otherwise -- the same answer the Bot roster gives, one level up. */}
@@ -106,21 +102,23 @@ export function TerminalSidebarParent({
           <span
             aria-hidden
             className={`flex size-10 shrink-0 items-center justify-center rounded-full text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold ${
+              // Its card's fill and edge: the fill alone is the palest tint, which a plain row
+              // would swallow.
               hue !== undefined && !off
-                ? "terminal-surface text-foreground"
+                ? "terminal-surface border text-foreground"
                 : "border border-border bg-muted text-muted-foreground"
             }`}
+            style={hue === undefined || off ? undefined : terminalParentStyle(hue)}
           >
             {sessionInitials(leaf)}
           </span>
         )}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-semibold text-foreground">
+          <span className="block truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-medium text-foreground">
             {leaf}
           </span>
           <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
-            {machineLabel ? <span className="font-medium">{machineLabel}</span> : null}
-            {machineLabel ? " · " : ""}
+            {machineLabel ? `${machineLabel} · ` : ""}
             {parent.path ? <span className="font-mono">{parent.path}</span> : "sessions with no directory"}
             {live > 0 ? ` · ${live} watched` : ""}
           </span>
@@ -132,7 +130,7 @@ export function TerminalSidebarParent({
             disabled={adding}
             aria-label={`Start a shell in ${leaf}`}
             title="Start a shell"
-            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-background/70 disabled:cursor-wait disabled:opacity-50"
+            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-wait disabled:opacity-50"
           >
             <Plus className={`size-4 ${adding ? "animate-spin" : ""}`} aria-hidden />
           </button>
@@ -156,7 +154,7 @@ export function TerminalSidebarParent({
                 ? "Off the strip"
                 : "On the strip"
           }
-          className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-background/70 disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+          className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
         >
           {off ? <Eye className="size-4" aria-hidden /> : <EyeOff className="size-4" aria-hidden />}
         </button>
@@ -357,19 +355,16 @@ function TerminalSidebarChild({
   const faced = faces && faceRank !== undefined && shaded !== undefined;
   return (
     <li
-      // The same fill and rail its card wears, and only while it has one: the colour is what a
-      // card looks like, so a row with no card gives it up and goes neutral and dim.
-      className={`flex items-center border-l-2 pr-1.5 ${
-        shaded && !noCard ? "terminal-session-fill terminal-session-edge" : "border-transparent"
-      } ${noCard ? "opacity-55" : ""}`}
-      style={shaded}
+      // A plain row, as its parent's header is: the session's shade is on its mark alone. A row
+      // with no card dims.
+      className={`flex items-center pr-1.5 ${noCard ? "opacity-55" : ""}`}
     >
       <div className="min-w-0 flex-1">
         <button
           type="button"
           onClick={onSelect}
           aria-current={open ? "page" : undefined}
-          className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-2 pl-2 text-left text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
+          className="flex min-h-10 w-full min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-2 pl-2.5 text-left text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80"
         >
           {faced ? (
             // The live ring stays, because the face says which session this is and only the
@@ -387,12 +382,15 @@ function TerminalSidebarChild({
                   ? "terminal-session-accent text-foreground"
                   : "border border-border bg-muted text-muted-foreground"
               } ${session.attachedClients > 0 ? "ring-2 ring-green-500" : ""}`}
+              style={shaded && !noCard ? shaded : undefined}
             >
               {sessionInitials(session.name)}
             </span>
           )}
           <span className="min-w-0 flex-1">
-            <span className="block truncate font-mono text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium">
+            {/* A pixel over the item step: monospace at that step reads smaller than the sans
+                session titles on the canvas. Medium, as theirs are. */}
+            <span className="block truncate font-mono text-[length:calc(var(--agent-panel-fs-sidebar-meta,13px)+1px)] font-medium">
               {session.name}
             </span>
             <span className="block truncate text-(length:--agent-panel-fs-sidebar-chip,11px) text-muted-foreground">
