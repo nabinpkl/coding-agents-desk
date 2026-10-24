@@ -22,7 +22,7 @@
 
 ## Phase 1: ATC data-source extraction (ATC repo, no agent-desk dependency)
 
-Goal: funnel the dashboard's data hooks behind an injectable `AgentDataSource` so the same components can later be fed by the QUIC bridge instead of HTTP/SSE. Desktop dashboard stays behavior-identical on the HTTP path. Repo: `~/projects/atc/dashboard`.
+Goal: funnel the dashboard's data hooks behind an injectable `AgentDataSource` so the same components can later be fed by the QUIC bridge instead of HTTP/SSE. Desktop dashboard stays behavior-identical on the HTTP path. Repo: the ATC repository's `dashboard/`.
 
 This phase ships working software on its own: the dashboard keeps working, now with a swappable data source.
 
@@ -260,4 +260,4 @@ Goal: confirm the felt thesis on hardware. Gated on explicit go-ahead per the `A
 
 - Spec: `docs/superpowers/specs/2026-06-30-agent-feed-mobile-surface-design.md`
 - Wire-shape and ADR rules: `SPEC.md`, `AGENTS.md`
-- Reused engine and components: `~/projects/atc` (`dashboard/src/features/canvas`, `engine/src`)
+- Reused engine and components: the private ATC repository (`dashboard/src/features/canvas`, `engine/src`)

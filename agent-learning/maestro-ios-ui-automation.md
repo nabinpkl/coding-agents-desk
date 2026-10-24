@@ -52,7 +52,7 @@ appId: com.example.agentdesk.AgentDeskClient
 Run:
 
 ```bash
-maestro --udid 00000000-0000-4000-8000-000000000022 test client/maestro/keyboard-up.yaml
+maestro --udid "$AGENTDESK_IOS_SIM_UDID" test client/maestro/keyboard-up.yaml
 ```
 
 Or via the recipe:

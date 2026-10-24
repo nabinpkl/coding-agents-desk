@@ -85,8 +85,7 @@ it("refuses a browsed folder another Bot already holds, before the round trip", 
   // The registry refuses it too. Hearing that only after the whole form is filled in is the
   // difference this check makes.
   const { onSelect } = column({
-    describe: (path) =>
-      path === "/Users/dev/brand-new" ? { note: "already assigned to a Bot", refused: true } : null,
+    describe: (path) => (path === "/Users/dev/brand-new" ? { note: "already assigned to a Bot", refused: true } : null),
   });
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   await waitFor(() => screen.getByRole("button", { name: "Open brand-new" }));
@@ -119,7 +118,7 @@ it("says a machine with no projects can still be browsed", () => {
 it("narrows the projects to those holding every word searched, in the name or the path", () => {
   column();
   const search = screen.getByRole("searchbox", { name: "Search projects" });
-  fireEvent.change(search, { target: { value: "projects KUB" } });
+  fireEvent.change(search, { target: { value: "projects HARB" } });
   expect(screen.queryByRole("radio", { name: /agent-desk/ })).toBeNull();
   expect(screen.getByRole("radio", { name: /harbor/ })).toBeTruthy();
 

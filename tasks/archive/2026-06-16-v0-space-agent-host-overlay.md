@@ -8,7 +8,7 @@ v0 is one iteration. Acceptance is empirical, not duration-based: v0 ships when 
 
 D22 is host-local and does not replace the existing menu-bar pairing/status popover. The menu-bar app remains the server and status surface. Space Agent is a separate always-visible, draggable spaceship overlay that can expand an attached Spaces panel for the active display.
 
-R14 distribution remains captured and not active in this iteration. Apple Developer Program enrollment landed by 2026-05-23. Both projects sign with `Apple Development: Owner Name (CERT000000)` / team `TEAMID0000` (~1-year cert, no 7-day reinstall cadence). The remaining distribution items are Developer ID Application notarized DMG and iOS App Distribution / TestFlight.
+R14 distribution remains captured and not active in this iteration. Apple Developer Program enrollment landed by 2026-05-23. Both projects sign with the owner's `Apple Development` certificate and team (~1-year cert, no 7-day reinstall cadence). The remaining distribution items are Developer ID Application notarized DMG and iOS App Distribution / TestFlight.
 
 The first Space Agent slice kept module isolation before UI behaviour. The Space Agent shares neutral primitives (`SpacesProvider`, `SpaceThumbnailProvider`, `DesktopState`, `SpaceMetadata`), but its owner code lives under `host/AgentDeskHost/SpaceAgent/` so it can later move into a separate product shell.
 

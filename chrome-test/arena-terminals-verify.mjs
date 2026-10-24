@@ -45,7 +45,7 @@ async function playwrightRoot() {
     await import(`${fromNpm}/index.mjs`);
     return fromNpm;
   } catch {
-    const shim = execFileSync('cat', ['/Users/dev/Library/pnpm/bin/playwright']).toString();
+    const shim = execFileSync('cat', [join(homedir(), 'Library/pnpm/bin/playwright')]).toString();
     const target = /cmd-shim-target=(.*)\/cli\.js/.exec(shim)?.[1];
     if (!target) throw new Error('no global playwright found: set AGENTDESK_PLAYWRIGHT_ROOT');
     return target;

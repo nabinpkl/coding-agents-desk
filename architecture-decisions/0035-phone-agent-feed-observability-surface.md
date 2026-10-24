@@ -64,4 +64,4 @@ The wire types carry round-trip codec tests on both host and client (`AgentFeedW
 - SPEC: session input lane wire shapes; ADR-0030 (single QUIC session transport)
 - `docs/superpowers/specs/2026-06-30-agent-feed-mobile-surface-design.md`
 - PRD (scope reopened from "Not agent-native" to include the read-only agent feed)
-- ATC project: `~/projects/atc` (ATC ADR-0004 project world-context timeline)
+- ATC project: the private ATC repository (ATC ADR-0004 project world-context timeline)

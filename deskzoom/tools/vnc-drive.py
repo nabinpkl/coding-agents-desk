@@ -5,7 +5,7 @@ A viewer has to decode a video stream to show you anything. This sends input dir
 a picture only when you ask for one, so it stays usable on a machine that is thrashing or a link
 that is thin. It is not a replacement for a viewer; it is what you use when the viewer will not do.
 
-    python3 tools/vnc-drive.py [user] [host]
+    python3 tools/vnc-drive.py [user] [host]     (user defaults to the one running this)
 
 The password is read with getpass: never echoed, never stored, never placed in your shell history,
 and never passed through anything but this process. Type `help` once connected.
@@ -55,7 +55,7 @@ def main():
     if any(flag in sys.argv[1:] for flag in ("-h", "--help")):
         print(__doc__)
         return
-    user = sys.argv[1] if len(sys.argv) > 1 else "dev"
+    user = sys.argv[1] if len(sys.argv) > 1 else getpass.getuser()
     host = sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1"
     # Handed to the client directly rather than through the environment, so it never reaches a
     # child process, a log, or the shell that started this.

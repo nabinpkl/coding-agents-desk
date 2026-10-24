@@ -258,12 +258,12 @@ private struct StaticResolver: DNSResolving {
 struct TailnetServerTrustDelegateTests {
     @Test func recognizesTailnetCGNATLiterals() {
         #expect(TailnetServerTrustDelegate.isTailnetCGNAT("100.64.0.10"))
-        #expect(TailnetServerTrustDelegate.isTailnetCGNAT("100.100.1.1"))
+        #expect(TailnetServerTrustDelegate.isTailnetCGNAT("100.100.42.7"))
         #expect(TailnetServerTrustDelegate.isTailnetCGNAT("100.127.255.255"))
     }
 
     @Test func rejectsNonTailnetHosts() {
-        #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("mac.tail000000.ts.net"))
+        #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("mac.tail0000.ts.net"))
         #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("100.63.0.1"))
         #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("100.128.0.1"))
         #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("10.0.0.1"))

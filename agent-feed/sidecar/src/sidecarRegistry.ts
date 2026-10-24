@@ -49,8 +49,8 @@ export function announceDirectory(): string | null {
  * Announce this sidecar on the shared rendezvous board so any panel on the machine finds it without
  * being told a port. One file per login session, named by the account, refreshed on a heartbeat.
  *
- * The heartbeat, not a pid check, is how a reader tells a live sidecar from a crashed one: dev and
- * agent are different users, so a panel in one session cannot `kill -0` a pid in the other to test
+ * The heartbeat, not a pid check, is how a reader tells a live sidecar from a crashed one: the console
+ * user and agent are different users, so a panel in one session cannot `kill -0` a pid in the other to test
  * it. Age is the only cross-session liveness signal, and a clock shared by one machine makes it a
  * reliable one.
  *

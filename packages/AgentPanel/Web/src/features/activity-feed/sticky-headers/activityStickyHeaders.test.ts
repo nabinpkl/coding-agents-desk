@@ -96,12 +96,7 @@ describe("sticky user bar", () => {
     expect(selectUserBar(rows("user", "segment_event", "command", "segment_event"), layout, 360, STICKY_H, 0)).toEqual({
       row: 0,
     });
-    const pathFirst = [
-      said("hi"),
-      { kind: "segment_event" },
-      said("/Users/dev/x is wrong"),
-      { kind: "segment_event" },
-    ];
+    const pathFirst = [said("hi"), { kind: "segment_event" }, said("/Users/dev/x is wrong"), { kind: "segment_event" }];
     expect(selectUserBar(pathFirst, layout, 360, STICKY_H, 0)).toEqual({ row: 2 });
     const renamed = [said("hi"), { kind: "segment_event" }, said("/rename New title"), { kind: "segment_event" }];
     expect(selectUserBar(renamed, layout, 360, STICKY_H, 0)).toEqual({ row: 0 });

@@ -386,7 +386,7 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
 0. ~~**Spike: the unknowns.**~~ Done for the paths v1 needs. The opencode child identity probe
    returned no session metadata, which is why `hub_send` names its session and `hub_reply` does
    not. The Claude warning-through-tmux spike is not done and is not needed for v1.
-1. **Hub.** Done. Compose on oracle at `relay.example.com`, Access app `agent-hub`, three service
+1. **Hub.** Done. Compose on oracle at its own hostname (`relay.example.com` in the examples), Access app `agent-hub`, three service
    tokens, SQLite on a volume, remote tunnel ingress. Schema, stream, send and reply, delivery
    states, directory, loop guards, envelope refusal, requeue on a dropped stream, expiry. Verified
    with curl through the edge and from both machines' tokens.
@@ -415,7 +415,7 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
 
 ## Decisions for the owner
 
-All four are settled (2026-09-25): a new `relay.example.com` service on oracle; v1 is OpenCode only,
+All four are settled (2026-09-25): a new relay service on oracle; v1 is OpenCode only,
 so no Claude startup flag; peer messages carry colleague weight; A2H is the agent-desk panel only.
 
 Open (2026-10-16): whether Claude delivery moves to the mod in "Delivering into a Claude session

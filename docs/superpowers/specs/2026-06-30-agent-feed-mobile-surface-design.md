@@ -4,7 +4,7 @@
 
 ## Thesis
 
-The durable value of the sibling ATC project (`~/projects/atc`) turned out to be observability, not its orchestrator/worker model. The orchestrator chases the harness's worker improvements and always lags; the part that earns its keep is seeing both Claude and Codex agent threads, combined per project, in one place.
+The durable value of the sibling ATC project (a private sibling repository) turned out to be observability, not its orchestrator/worker model. The orchestrator chases the harness's worker improvements and always lags; the part that earns its keep is seeing both Claude and Codex agent threads, combined per project, in one place.
 
 This arc folds that observability into AgentDesk so the author can watch how agents are building a project from the phone, by natively scrolling crisp agent output, without switching apps. No screen-share of a terminal (mushy, locked to whatever Space the agent sits on); a real text surface decoupled from the Mac's active Space.
 
@@ -79,7 +79,7 @@ The native/web seam: **native owns "which surface am I on," React owns "which pr
 
 ## Component reuse and the extraction
 
-Verified against `~/projects/atc/dashboard`:
+Verified against the ATC repository's `dashboard/`:
 
 - The entire TCP coupling funnels through one module, `src/lib/engine.ts` (`engineHttp()` -> `http://<host>:7681`, `engineWs()` -> `ws://...`). Every `fetch`, `WebSocket`, and `EventSource` resolves through it. Inside the webview (`file://`, no reachable engine) all of those are dead, so the data layer, not the presentation layer, is what must change.
 - `MarkdownView({ content })` is pure presentation, props only. `DiffBlock` and the row renderers are presentation.
@@ -192,5 +192,5 @@ Renaming any of these requires an ADR, consistent with the wire-shape rule in `S
 
 - Product intent: `PRD.md` (edited as part of this work).
 - Technical shape and wire-shape rules: `SPEC.md` (references the new ADR).
-- ATC engine and components: `~/projects/atc` (`engine/src/sources`, `engine/src/digest.ts`, `dashboard/src/features/canvas`).
+- ATC engine and components: the private ATC repository (`engine/src/sources`, `engine/src/digest.ts`, `dashboard/src/features/canvas`).
 - ATC observability decision: ATC ADR-0004 (project world-context timeline).

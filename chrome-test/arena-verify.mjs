@@ -19,7 +19,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const ORIGIN = process.env.PANEL_ORIGIN;
@@ -44,7 +44,7 @@ async function playwrightRoot() {
     return fromNpm;
   } catch {
     // This machine's global is pnpm's; its store path is behind the bin shim's own words.
-    const shim = execFileSync('cat', ['/Users/dev/Library/pnpm/bin/playwright']).toString();
+    const shim = execFileSync('cat', [join(homedir(), 'Library/pnpm/bin/playwright')]).toString();
     const target = /cmd-shim-target=(.*)\/cli\.js/.exec(shim)?.[1];
     if (!target) throw new Error('no global playwright found: set AGENTDESK_PLAYWRIGHT_ROOT');
     return target;

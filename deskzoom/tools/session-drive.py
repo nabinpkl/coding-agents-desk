@@ -34,7 +34,7 @@ def until(predicate, timeout, step=0.15):
 
 def forget(path):
     """Best-effort remove. A marker is written by the OTHER session and owned by that user, so
-    dev cannot always unlink it; a stale one is harmless because every attempt uses a new nonce."""
+    this user cannot always unlink it; a stale one is harmless because every attempt uses a new nonce."""
     try:
         path.unlink()
     except OSError:
