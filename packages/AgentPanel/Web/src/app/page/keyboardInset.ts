@@ -1,4 +1,5 @@
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
+import { overlayHost } from "@/hooks/dom/overlays";
 import {
   bringsOwnKeys,
   keyboardBarHeight,
@@ -128,7 +129,7 @@ export function installKeyboardInset(): { remove(): void } {
       field
         ? {
             field,
-            host: field.closest<HTMLElement>("dialog[open]") ?? document.body,
+            host: overlayHost(field),
             viewport: {
               left: viewport?.offsetLeft ?? 0,
               bottom: viewportOffsetTop + viewportHeight,

@@ -94,6 +94,24 @@ describe("row menu placement", () => {
     expect(menu.parentElement).toBe(document.body);
   });
 
+  it("renders into an open dialog instead when its row is in one, such as the phone's drawer", () => {
+    // `showModal` lifts a dialog above anything the body can stack, and makes the rest of the page
+    // inert, so a menu in the body opened underneath the drawer and could not be pressed.
+    restore = stubRects(() => box({ top: 10, left: 10, width: 32, height: 32 }));
+    render(
+      <dialog open aria-label="Agent navigation">
+        <div data-testid="card" style={{ overflowY: "hidden" }}>
+          <RowMenu label="a row" items={[{ label: "Chat", icon: GitBranch, onSelect: vi.fn() }]} />
+        </div>
+      </dialog>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Actions for/ }));
+    const menu = screen.getByRole("menu");
+
+    expect(menu.parentElement).toBe(screen.getByRole("dialog", { name: "Agent navigation" }));
+    expect(menu.closest("[data-testid='card']")).toBeNull();
+  });
+
   it("keeps the card's height out of the placement, which is the whole point", () => {
     // The menu is 240 tall and the card is 120: there is no direction that fits INSIDE this card,
     // which is why the card cannot be what decides. The window has 558px below the row.

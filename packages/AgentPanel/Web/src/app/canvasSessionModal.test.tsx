@@ -8,6 +8,7 @@ import {
   BOT_WITH_ONE_SESSION,
   deliverProjects,
   deliverSessions,
+  installViewport,
   restoreViewport,
   setup,
 } from "@/app/agentPanelAppHarness";
@@ -94,5 +95,35 @@ describe("Canvas sessions view", () => {
     const second = setup();
     expect(canvasTab("Sessions")).toHaveAttribute("aria-selected", "true");
     second.unmount();
+  });
+
+  it("on the phone, opens Chat from the drawer's menu, with the drawer out of its way", async () => {
+    installViewport({ compact: true, hoverCapable: false });
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    const drawer = screen.getByRole("dialog", { name: "Agent navigation" });
+    // Choosing Canvas closes the drawer over it; open it again to reach the Sessions view.
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open agent navigation" }));
+    fireEvent.click(canvasTab("Sessions"));
+
+    fireEvent.click(within(drawer).getByRole("button", { name: "Actions for new sessions" }));
+    // In the drawer, not under it: a modal drawer covers the body and leaves it unpressable.
+    const menu = screen.getByRole("menu", { name: "Actions for new sessions" });
+    expect(drawer.contains(menu)).toBe(true);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Chat" }));
+
+    expect(drawer).not.toHaveAttribute("open");
+    const field = within(screen.getByRole("dialog", { name: "New chat" })).getByRole("textbox", {
+      name: "First message",
+    });
+    expect(field).toHaveFocus();
+    // The drawer hands focus back a frame after it closes, but not away from the field the box took.
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(field).toHaveFocus();
+    unmount();
   });
 });

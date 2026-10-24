@@ -359,25 +359,42 @@ export function AgentSidebarDialog({ open, triggerRef, onRequestClose, ...sideba
 
   const closeAndRestoreFocus = () => {
     onRequestClose();
-    globalThis.requestAnimationFrame?.(() => triggerRef.current?.focus());
+    // Only to a page that has lost it: what the drawer was closed FOR -- the Chat box -- has put
+    // the focus in its own field by now, and taking it back would drop the phone's keyboard.
+    globalThis.requestAnimationFrame?.(() => {
+      const holder = document.activeElement;
+      if (holder === null || holder === document.body || dialogRef.current?.contains(holder)) {
+        triggerRef.current?.focus();
+      }
+    });
   };
 
   // Showing a session on the canvas closes the drawer too: on the phone it covers the canvas, so
-  // a card brought into view behind it has not been shown to anyone.
+  // a card brought into view behind it has not been shown to anyone. So does starting one. New
+  // session is a dialog of its own and would stack above the drawer, but the Chat box is not: it
+  // opened under the drawer, behind a modal that leaves everything outside it unpressable.
   const { canvasSessions } = sidebarProps;
   const show = canvasSessions.canvasMove.onShow;
-  const closingCanvasSessions = show
-    ? {
-        ...canvasSessions,
-        canvasMove: {
+  const closingCanvasSessions = {
+    ...canvasSessions,
+    onNewSession: () => {
+      closeDialog();
+      canvasSessions.onNewSession();
+    },
+    onNewChat: () => {
+      closeDialog();
+      canvasSessions.onNewChat();
+    },
+    canvasMove: show
+      ? {
           ...canvasSessions.canvasMove,
           onShow: (session: SessionSummary) => {
             closeDialog();
             show(session);
           },
-        },
-      }
-    : canvasSessions;
+        }
+      : canvasSessions.canvasMove,
+  };
 
   // The drawer is the compact-layout agent navigation, so it only ever renders on the phone,
   // where it is also the one surface the app shell's safe-area padding cannot reach: `showModal`
