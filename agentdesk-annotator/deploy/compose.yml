@@ -47,3 +47,15 @@ services:
 
 volumes:
   annotator-data:
+
+# A fixed bridge name and subnet, so the host firewall's isolation rules
+# (/home/ubuntu/scripts/stack-isolation.sh, saved in /etc/iptables/rules.v4) keep
+# matching this stack across redeploys. Docker's default `br-<id>` changes every
+# time the network is recreated.
+networks:
+  default:
+    driver_opts:
+      com.docker.network.bridge.name: annotator0
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16
