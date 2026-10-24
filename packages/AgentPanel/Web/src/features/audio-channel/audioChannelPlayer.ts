@@ -2,7 +2,8 @@
 // process's stream, held by this module and handed state through `subscribeAudioChannel`.
 //
 // The stream is a bed of noise, in the color and at the level this device picks, with agents'
-// messages over it (`POST /api/audio/speak`). The noise is mixed by the audio process on the Mac,
+// messages over it at the voice level it picks (`POST /api/audio/speak`). Both are mixed by the
+// audio process on the Mac,
 // not here: iOS ignores a page setting an element's volume, and a page's own Web Audio is suspended
 // once the screen locks, which is exactly when this has to keep playing.
 //
@@ -15,12 +16,12 @@
 // listening. A stream that drops on its own is reconnected after a short wait, on the same element.
 
 import {
+  AUDIO_LEVEL_MAX,
+  AUDIO_MIX_ROUTE,
   AUDIO_NOISE_COLORS,
-  AUDIO_NOISE_LEVEL_MAX,
-  AUDIO_NOISE_ROUTE,
   AUDIO_STREAM_ROUTE,
   type AudioNoiseColor,
-  type AudioNoiseRequest,
+  type AudioMixRequest,
 } from "@agentdesk/agent-feed-wire";
 
 /**
@@ -53,13 +54,17 @@ export type AudioChannelState = {
   status: string | null;
   noise: number;
   color: AudioNoiseColor;
+  voice: number;
 };
 
-/** Where this device's noise is remembered. A convenience: a missing value means the default. */
+/** Where this device's mix is remembered. A convenience: a missing value means the default. */
 const NOISE_STORAGE_KEY = "agentdesk.audioChannel.noiseLevel";
 const COLOR_STORAGE_KEY = "agentdesk.audioChannel.noiseColor";
+const VOICE_STORAGE_KEY = "agentdesk.audioChannel.voiceLevel";
 const DEFAULT_NOISE = 3;
 const DEFAULT_COLOR: AudioNoiseColor = "pink";
+/** About as `say` speaks; 10 is the loudest that does not clip. */
+const DEFAULT_VOICE = 8;
 
 function storedColor(): AudioNoiseColor {
   try {
@@ -78,23 +83,22 @@ function remember(key: string, value: string): void {
   }
 }
 
-function storedNoise(): number {
+function storedLevel(key: string, fallback: number): number {
   try {
-    const stored = Number(localStorage.getItem(NOISE_STORAGE_KEY));
-    return localStorage.getItem(NOISE_STORAGE_KEY) !== null && Number.isFinite(stored)
-      ? clampNoise(stored)
-      : DEFAULT_NOISE;
+    const stored = localStorage.getItem(key);
+    const level = Number(stored);
+    return stored !== null && Number.isFinite(level) ? clampLevel(level) : fallback;
   } catch {
-    return DEFAULT_NOISE;
+    return fallback;
   }
 }
 
-function clampNoise(level: number): number {
-  return Math.min(AUDIO_NOISE_LEVEL_MAX, Math.max(0, Math.round(level)));
+function clampLevel(level: number): number {
+  return Math.min(AUDIO_LEVEL_MAX, Math.max(0, Math.round(level)));
 }
 
 /**
- * This device's name to the audio process, made once per page: it keeps the noise under
+ * This device's name to the audio process, made once per page: it keeps the mix under
  * it, and counts a phone's probe connection and its playing one as one listener.
  */
 const LISTENER_ID = crypto.randomUUID();
@@ -114,7 +118,13 @@ let watchdog: ReturnType<typeof setInterval> | null = null;
 const RECONNECT_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnects = 0;
-let current: AudioChannelState = { phase: "idle", status: null, noise: storedNoise(), color: storedColor() };
+let current: AudioChannelState = {
+  phase: "idle",
+  status: null,
+  noise: storedLevel(NOISE_STORAGE_KEY, DEFAULT_NOISE),
+  color: storedColor(),
+  voice: storedLevel(VOICE_STORAGE_KEY, DEFAULT_VOICE),
+};
 const listeners = new Set<() => void>();
 
 function publish(phase: AudioChannelPhase, status: string): void {
@@ -216,8 +226,8 @@ function startWatchdog(audio: HTMLAudioElement): void {
 function connect(audio: HTMLAudioElement, saying = "connecting"): void {
   joinedAfterMs = Date.now() - listeningSince;
   // A fresh address each time (`at`) also keeps anything between here and the Mac from caching it.
-  const noise = `noise=${current.noise}&color=${current.color}`;
-  audio.src = `${AUDIO_STREAM_ROUTE}?listener=${LISTENER_ID}&${noise}&at=${Date.now()}`;
+  const mix = `noise=${current.noise}&color=${current.color}&voice=${current.voice}`;
+  audio.src = `${AUDIO_STREAM_ROUTE}?listener=${LISTENER_ID}&${mix}&at=${Date.now()}`;
   publish("starting", saying);
   startWatchdog(audio);
   audio.play().then(
@@ -321,37 +331,45 @@ export function stopListening(): void {
 }
 
 /**
- * Tells the audio process about a noise change while connected; it switches at once, and the change is
- * heard once what the stream sent ahead has played, about six seconds. Not connected, the next
+ * Tells the audio process about a mix change while connected; it switches at once, and the change
+ * is heard once what the stream sent ahead has played, about six seconds. Not connected, the next
  * connection carries it.
  */
-function sendNoise(change: Omit<AudioNoiseRequest, "listener">): void {
+function sendMix(change: Omit<AudioMixRequest, "listener">): void {
   for (const listener of listeners) listener();
   if (current.phase !== "playing" && current.phase !== "starting") return;
-  const request: AudioNoiseRequest = { listener: LISTENER_ID, ...change };
-  void fetch(AUDIO_NOISE_ROUTE, {
+  const request: AudioMixRequest = { listener: LISTENER_ID, ...change };
+  void fetch(AUDIO_MIX_ROUTE, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(request),
   }).then(
     (response) => {
-      if (!response.ok) console.warn(`[audio] noise change ${JSON.stringify(change)} refused: ${response.status}`);
+      if (!response.ok) console.warn(`[audio] mix change ${JSON.stringify(change)} refused: ${response.status}`);
     },
-    (error: unknown) => console.warn("[audio] noise change not sent", error),
+    (error: unknown) => console.warn("[audio] mix change not sent", error),
   );
 }
 
 /** Sets this device's noise level, remembered for next time. */
 export function setNoiseLevel(level: number): void {
-  const noise = clampNoise(level);
+  const noise = clampLevel(level);
   current = { ...current, noise };
   remember(NOISE_STORAGE_KEY, String(noise));
-  sendNoise({ level: noise });
+  sendMix({ noise });
+}
+
+/** Sets this device's voice level, how loud messages are over the noise, remembered for next time. */
+export function setVoiceLevel(level: number): void {
+  const voice = clampLevel(level);
+  current = { ...current, voice };
+  remember(VOICE_STORAGE_KEY, String(voice));
+  sendMix({ voice });
 }
 
 /** Sets this device's noise color, remembered for next time. */
 export function setNoiseColor(color: AudioNoiseColor): void {
   current = { ...current, color };
   remember(COLOR_STORAGE_KEY, color);
-  sendNoise({ color });
+  sendMix({ color });
 }

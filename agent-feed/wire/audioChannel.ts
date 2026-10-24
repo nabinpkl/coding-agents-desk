@@ -6,18 +6,18 @@
 // start on a locked screen. So the audio process keeps one stream playing, noise between messages.
 
 /**
- * `GET /api/audio/stream?listener=<id>&noise=<level>&color=<color>`: AAC (ADTS), paced in real time,
- * a bed of noise in `color` at `level` (0 is silence) with agents' messages over it, for as long as
- * the listener stays.
+ * `GET /api/audio/stream?listener=<id>&noise=<level>&color=<color>&voice=<level>`: AAC (ADTS), paced
+ * in real time, a bed of noise with agents' messages over it, mixed as the device's `AudioMix` says,
+ * for as long as the listener stays.
  *
- * `listener` names the device, so its noise can change without reconnecting and two
- * connections from one device (a phone probes a stream before playing it) count as one listener.
- * Resuming is connecting again.
+ * `listener` names the device, so its mix can change without reconnecting and two connections from
+ * one device (a phone probes a stream before playing it) count as one listener. Resuming is
+ * connecting again.
  */
 export const AUDIO_STREAM_ROUTE = "/api/audio/stream";
 
-/** Noise levels run from 0, silence, to this. */
-export const AUDIO_NOISE_LEVEL_MAX = 10;
+/** Levels, noise and voice alike, run from 0, silence, to this. */
+export const AUDIO_LEVEL_MAX = 10;
 
 /**
  * The noise a device can pick. White is even across every pitch, a hiss. Pink falls off as pitch
@@ -29,12 +29,23 @@ export const AUDIO_NOISE_COLORS = ["white", "pink", "brown"] as const;
 export type AudioNoiseColor = (typeof AUDIO_NOISE_COLORS)[number];
 
 /**
- * `POST /api/audio/noise`: set a listening device's noise level, color or both, heard once what the
- * stream has already sent ahead has played. 404 when that device has no stream open.
+ * How one device hears the channel. Mixed on the Mac rather than on the device, because iOS ignores
+ * a page setting an element's volume, and a page's own Web Audio is suspended once the screen locks.
+ *
+ * - `noise`: the bed's level, 0 to `AUDIO_LEVEL_MAX`.
+ * - `color`: the bed's color.
+ * - `voice`: the messages' level, 0 to `AUDIO_LEVEL_MAX`. 8 is about as spoken, 10 the loudest that
+ *   does not clip.
  */
-export const AUDIO_NOISE_ROUTE = "/api/audio/noise";
+export type AudioMix = { noise: number; color: AudioNoiseColor; voice: number };
 
-export type AudioNoiseRequest = { listener: string; level?: number; color?: AudioNoiseColor };
+/**
+ * `POST /api/audio/mix`: change a listening device's mix, any part of it, heard once what the stream
+ * has already sent ahead has played. 404 when that device has no stream open.
+ */
+export const AUDIO_MIX_ROUTE = "/api/audio/mix";
+
+export type AudioMixRequest = { listener: string } & Partial<AudioMix>;
 
 /**
  * `POST /api/audio/speak`: say `text` on every audio stream open now, at its next gap. How an agent

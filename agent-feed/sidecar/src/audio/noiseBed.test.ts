@@ -60,6 +60,18 @@ describe("the noise bed", () => {
     expect(held(frames.at(-1))).toBe(held(bed.frames[(4 + frames.length - 1) % 10]));
   });
 
+  test("a message's voice is scaled by its gain, over noise that is not", async () => {
+    const bed = await countingBed(10, 2112);
+    const voice = new Int16Array(4 * FRAME_SAMPLES).fill(100);
+    const full = await spliceMessage(bed, 4, voice, delayingEncoder(2112), 1);
+    const half = await spliceMessage(bed, 4, voice, delayingEncoder(2112), 0.5);
+    const lift = (frames: AdtsFrame[]) =>
+      frames.map((frame, index) => (held(frame) ?? 0) - (held(bed.frames[(4 + index) % 10]) ?? 0));
+    expect(Math.max(...lift(full))).toBe(100);
+    expect(Math.max(...lift(half))).toBe(50);
+    expect(Math.min(...lift(half))).toBe(0);
+  });
+
   test("makes a loop from three copies and keeps the middle one", async () => {
     let encoded = 0;
     const bed = await makeNoiseBed(

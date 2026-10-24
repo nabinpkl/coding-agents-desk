@@ -58,9 +58,16 @@ export async function makeNoiseBed(
 
 /**
  * The frames that replace the bed's from `atFrame` (counted along the bed as it repeats) while
- * `speech` plays over it. The bed resumes after them at `atFrame + frames.length`.
+ * `speech` plays over it at `voiceGain` (1 is as spoken). The bed resumes after them at
+ * `atFrame + frames.length`.
  */
-export async function spliceMessage(bed: NoiseBed, atFrame: number, speech: Int16Array, encode: Encoder) {
+export async function spliceMessage(
+  bed: NoiseBed,
+  atFrame: number,
+  speech: Int16Array,
+  encode: Encoder,
+  voiceGain: number = 1,
+) {
   const loopLength = bed.samples.length;
   const kept = Math.ceil((speech.length + DELAY_ALLOWANCE) / FRAME_SAMPLES);
   const input = new Int16Array((LEAD_IN_FRAMES + kept + TAIL_FRAMES) * FRAME_SAMPLES);
@@ -69,8 +76,8 @@ export async function spliceMessage(bed: NoiseBed, atFrame: number, speech: Int1
   const voiceAt = LEAD_IN_FRAMES * FRAME_SAMPLES;
   for (let index = 0; index < input.length; index += 1) {
     const noise = bed.samples[(start + index) % loopLength] ?? 0;
-    const voice = index >= voiceAt ? (speech[index - voiceAt] ?? 0) : 0;
-    input[index] = Math.max(-32_768, Math.min(32_767, noise + voice));
+    const voice = index >= voiceAt ? (speech[index - voiceAt] ?? 0) * voiceGain : 0;
+    input[index] = Math.max(-32_768, Math.min(32_767, Math.round(noise + voice)));
   }
   const encoded = await encode(input);
   if (encoded.length < LEAD_IN_FRAMES + kept) {

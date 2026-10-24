@@ -5,13 +5,14 @@
 // player's state; nothing here is torn down while the page lives. The panel's Profile menu links
 // here rather than playing anything itself.
 
-import { AUDIO_NOISE_COLORS, AUDIO_NOISE_LEVEL_MAX } from "@agentdesk/agent-feed-wire";
+import { AUDIO_LEVEL_MAX, AUDIO_NOISE_COLORS } from "@agentdesk/agent-feed-wire";
 import {
   audioChannelState,
   pauseListening,
   resumeListening,
   setNoiseColor,
   setNoiseLevel,
+  setVoiceLevel,
   startListening,
   stopListening,
   subscribeAudioChannel,
@@ -24,6 +25,26 @@ function make<K extends keyof HTMLElementTagNameMap>(
   return Object.assign(document.createElement(tag), properties);
 }
 
+/**
+ * A labelled 0-to-10 slider row, and how to show a level on it. Voice and noise each get one, so
+ * the blend of the two can be tried a step at a time.
+ */
+function levelSlider(id: string, label: string, set: (level: number) => void) {
+  const slider = make("input", { type: "range", min: "0", max: String(AUDIO_LEVEL_MAX), step: "1", id });
+  slider.setAttribute("aria-label", `${label} level`);
+  slider.addEventListener("input", () => set(Number(slider.value)));
+  const readout = make("output");
+  readout.setAttribute("for", id);
+  const row = make("label", { className: "level" });
+  row.append(make("span", { textContent: label }), slider, readout);
+  const show = (level: number): void => {
+    slider.value = String(level);
+    slider.setAttribute("aria-valuetext", level === 0 ? "off" : `${level} of ${AUDIO_LEVEL_MAX}`);
+    readout.textContent = level === 0 ? "off" : String(level);
+  };
+  return { row, show };
+}
+
 function mount(root: HTMLElement): void {
   const status = make("p", { className: "status" });
   status.setAttribute("role", "status");
@@ -33,12 +54,8 @@ function mount(root: HTMLElement): void {
   const controls = make("div", { className: "controls" });
   controls.append(primary, stop);
 
-  const slider = make("input", { type: "range", min: "0", max: String(AUDIO_NOISE_LEVEL_MAX), step: "1", id: "noise" });
-  slider.setAttribute("aria-label", "Noise level");
-  const readout = make("output");
-  readout.setAttribute("for", "noise");
-  const noise = make("label", { className: "noise" });
-  noise.append(make("span", { textContent: "Noise" }), slider, readout);
+  const voice = levelSlider("voice", "Voice", setVoiceLevel);
+  const noise = levelSlider("noise", "Noise", setNoiseLevel);
 
   const colors = make("div", { className: "colors" });
   colors.setAttribute("role", "radiogroup");
@@ -59,9 +76,8 @@ function mount(root: HTMLElement): void {
     else startListening();
   });
   stop.addEventListener("click", stopListening);
-  slider.addEventListener("input", () => setNoiseLevel(Number(slider.value)));
 
-  root.append(status, controls, noise, colors);
+  root.append(status, controls, voice.row, noise.row, colors);
 
   const render = (): void => {
     const state = audioChannelState();
@@ -69,9 +85,8 @@ function mount(root: HTMLElement): void {
     primary.textContent = running ? "Pause" : state.phase === "paused" ? "Resume" : "Listen";
     stop.hidden = state.phase === "idle";
     status.textContent = state.status ?? "Not listening";
-    slider.value = String(state.noise);
-    slider.setAttribute("aria-valuetext", state.noise === 0 ? "off" : `${state.noise} of ${AUDIO_NOISE_LEVEL_MAX}`);
-    readout.textContent = state.noise === 0 ? "off" : String(state.noise);
+    voice.show(state.voice);
+    noise.show(state.noise);
     for (const { color, button } of colorButtons) button.setAttribute("aria-checked", String(state.color === color));
   };
   subscribeAudioChannel(render);

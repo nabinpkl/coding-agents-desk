@@ -1,32 +1,31 @@
 // The audio channel's stream: a bed of noise, and whatever agents say over it, for as long as
 // somebody listens.
 //
-//   GET /api/audio/stream?listener=<id>&noise=<level>&color=<color>  -> audio/aac, paced in real time
+//   GET /api/audio/stream?listener=<id>&noise=<level>&color=<color>&voice=<level>  -> audio/aac, paced
 //
 // One long-lived stream rather than a clip per message: a phone starts playback only from a tap,
 // and a clip that ends can let iOS close the audio session, after which the next one does not start
 // on a locked screen. So this never ends on its own; the listener ends it.
 //
-// The bed is the device's own noise (`POST /api/audio/noise` changes it, read here every tick), 0
-// being silence. A message (`POST /api/audio/speak`) is mixed into that noise where it will play
-// and spliced in, so the noise runs on under the voice with no seam (`noiseBed.ts`).
+// The bed is the device's own noise, and a message (`POST /api/audio/speak`) is mixed into it at the
+// device's own voice level where it will play and spliced in, so the noise runs on under the voice
+// with no seam (`noiseBed.ts`). `POST /api/audio/mix` changes either, read here every tick.
 //
 // Paced rather than sent as fast as it is read, so what the phone plays is what was said a moment
 // ago, not something it buffered minutes earlier. Silence is sent as real frames, not nothing: a
 // stream that sends nothing is one a player gives up on.
 
-import { AUDIO_STREAM_ROUTE, type AudioNoiseColor } from "@agentdesk/agent-feed-wire";
+import { AUDIO_STREAM_ROUTE, type AudioMix } from "@agentdesk/agent-feed-wire";
 import type { AdtsFrame } from "@/audio/adtsFrames";
 import {
   audioChannel,
   createAudioChannelRoutes,
-  DEFAULT_NOISE,
+  DEFAULT_MIX,
   isNoiseColor,
   type AudioChannel,
-  type DeviceNoise,
 } from "@/audio/audioChannel";
 import { noiseBed, spliceMessage, type NoiseBed } from "@/audio/noiseBed";
-import { clampNoiseLevel } from "@/audio/pcmAudio";
+import { clampLevel, voiceGain } from "@/audio/pcmAudio";
 import { encodeAdtsFrames } from "@/audio/speechAudio";
 import { errorResponse } from "@/http/protocol/httpResponses";
 import type { RouteHandler } from "@/http/protocol/route";
@@ -76,7 +75,7 @@ type Splice = { atFrame: number; frames: Promise<AdtsFrame[]> };
  * be mixed with exactly the noise it replaces, and the bed picks up after it where it would have
  * been.
  */
-function pacedStream(listener: string, noise: DeviceNoise, label: string, stopped: AbortSignal, channel: AudioChannel) {
+function pacedStream(listener: string, mix: AudioMix, label: string, stopped: AbortSignal, channel: AudioChannel) {
   let connectedAt = 0;
   let clockMs = 0;
   let bedFrame = 0;
@@ -84,7 +83,7 @@ function pacedStream(listener: string, noise: DeviceNoise, label: string, stoppe
   // Messages waiting their turn, oldest first, and the one being mixed in.
   const waiting: Int16Array[] = [];
   let splice: Splice | null = null;
-  const unlisten = channel.listen(listener, noise, (speech) => waiting.push(speech));
+  const unlisten = channel.listen(listener, mix, (speech) => waiting.push(speech));
   let finished = false;
   const finish = (how: string) => {
     if (finished) return;
@@ -98,7 +97,9 @@ function pacedStream(listener: string, noise: DeviceNoise, label: string, stoppe
     const speech = waiting.shift();
     if (!speech) return;
     const atFrame = bedFrame + SPLICE_AHEAD_FRAMES;
-    const frames = spliceMessage(bed, atFrame, speech, encodeAdtsFrames);
+    // The voice level as the device has it now, when the message is mixed.
+    const gain = voiceGain(channel.mix(listener).voice);
+    const frames = spliceMessage(bed, atFrame, speech, encodeAdtsFrames, gain);
     // Handled here as well as where it is spliced, so a failure while it waits, or for a listener
     // who has left, is not an unhandled rejection, which takes the whole process down.
     frames.catch(() => {});
@@ -116,8 +117,8 @@ function pacedStream(listener: string, noise: DeviceNoise, label: string, stoppe
         continue;
       }
       // Read each tick, so noise the device changes is heard from the next frames sent.
-      const { level, color } = channel.noise(listener);
-      const bed = await noiseBed(color, level);
+      const { noise, color } = channel.mix(listener);
+      const bed = await noiseBed(color, noise);
       if (finished) return;
       const chunk: Uint8Array[] = [];
       const append = (frame: AdtsFrame) => {
@@ -178,22 +179,25 @@ async function serveStream(request: Request, url: URL): Promise<Response> {
   // A stream with no name is its own listener: a probe from a shell, say.
   const listener = url.searchParams.get("listener") ?? crypto.randomUUID();
   if (!LISTENER_ID.test(listener)) return errorResponse("invalid_listener", "listener must be a plain id", 400);
-  const level = Number(url.searchParams.get("noise") ?? DEFAULT_NOISE.level);
-  if (!Number.isFinite(level)) return errorResponse("invalid_noise", "noise must be a level number", 400);
-  const colorParam = url.searchParams.get("color") ?? DEFAULT_NOISE.color;
-  if (!isNoiseColor(colorParam)) return errorResponse("invalid_noise", `no noise color "${colorParam}"`, 400);
-  const color: AudioNoiseColor = colorParam;
+  const noise = Number(url.searchParams.get("noise") ?? DEFAULT_MIX.noise);
+  const voice = Number(url.searchParams.get("voice") ?? DEFAULT_MIX.voice);
+  if (!Number.isFinite(noise) || !Number.isFinite(voice)) {
+    return errorResponse("invalid_mix", "noise and voice must be level numbers", 400);
+  }
+  const colorParam = url.searchParams.get("color") ?? DEFAULT_MIX.color;
+  if (!isNoiseColor(colorParam)) return errorResponse("invalid_mix", `no noise color "${colorParam}"`, 400);
+  const mix: AudioMix = { noise: clampLevel(noise), color: colorParam, voice: clampLevel(voice) };
   try {
     // Made before answering, so a broken encoder is a 500 rather than a stream that fails at once.
-    await noiseBed(color, clampNoiseLevel(level));
+    await noiseBed(mix.color, mix.noise);
   } catch (error) {
     return errorResponse("speech_failed", error instanceof Error ? error.message : String(error), 500);
   }
   // Which reader this is, for the log: a phone opens the same stream more than once while it probes.
   const range = request.headers.get("range") ?? "no range";
-  const label = `stream ${listener.slice(0, 8)} ${color} ${clampNoiseLevel(level)} ${range} ${request.headers.get("user-agent")?.slice(0, 60) ?? ""}`;
-  const noise: DeviceNoise = { level: clampNoiseLevel(level), color };
-  return new Response(pacedStream(listener, noise, label, request.signal, audioChannel), {
+  const agent = request.headers.get("user-agent")?.slice(0, 60) ?? "";
+  const label = `stream ${listener.slice(0, 8)} ${mix.color} noise ${mix.noise} voice ${mix.voice} ${range} ${agent}`;
+  return new Response(pacedStream(listener, mix, label, request.signal, audioChannel), {
     headers: { "content-type": "audio/aac", "cache-control": "no-store" },
   });
 }

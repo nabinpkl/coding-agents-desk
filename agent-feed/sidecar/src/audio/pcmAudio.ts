@@ -1,26 +1,43 @@
 // Raw audio for the channel: 16-bit mono samples at the rate `say` speaks, read from and written to
-// WAV, and how loud each noise level is. The noise itself is `noiseColors.ts`.
+// WAV, and how loud each level is, of noise and of voice. The noise itself is `noiseColors.ts`.
 
-import { AUDIO_NOISE_LEVEL_MAX } from "@agentdesk/agent-feed-wire";
+import { AUDIO_LEVEL_MAX } from "@agentdesk/agent-feed-wire";
 
 /** The rate `say` is asked for and everything here is made at. */
 export const SAMPLE_RATE = 22_050;
 
-/** The loudest noise, at level `AUDIO_NOISE_LEVEL_MAX`, as a fraction of full scale. */
+/** The loudest noise, at level `AUDIO_LEVEL_MAX`, as a fraction of full scale. */
 const NOISE_PEAK = 0.3;
 
-/** `level` as a whole step from 0 to `AUDIO_NOISE_LEVEL_MAX`. */
-export function clampNoiseLevel(level: number): number {
-  return Math.min(AUDIO_NOISE_LEVEL_MAX, Math.max(0, Math.round(level)));
+/**
+ * The voice's gain at level `AUDIO_LEVEL_MAX`. `say` peaks at about 0.69 of full scale (measured on
+ * a sentence, 2026-10-20), so 1.45 is as loud as it goes without clipping; level 8 is then about as
+ * spoken, the default.
+ */
+const VOICE_PEAK_GAIN = 1.45;
+
+/** `level` as a whole step from 0 to `AUDIO_LEVEL_MAX`. */
+export function clampLevel(level: number): number {
+  return Math.min(AUDIO_LEVEL_MAX, Math.max(0, Math.round(level)));
 }
 
 /**
- * A level's noise amplitude, 0 to 1 of full scale. Squared, because loudness is heard on a log
- * scale: a straight line put all the change in the first few steps.
+ * `level` as a share of the top one, squared, because loudness is heard on a log scale: a straight
+ * line put all the change in the first few steps.
  */
+function heardShare(level: number): number {
+  const step = clampLevel(level) / AUDIO_LEVEL_MAX;
+  return step * step;
+}
+
+/** A noise level's amplitude, 0 to 1 of full scale. */
 export function noiseAmplitude(level: number): number {
-  const step = clampNoiseLevel(level) / AUDIO_NOISE_LEVEL_MAX;
-  return NOISE_PEAK * step * step;
+  return NOISE_PEAK * heardShare(level);
+}
+
+/** A voice level's gain on what `say` spoke: 0 is silent, about 1 at level 8. */
+export function voiceGain(level: number): number {
+  return VOICE_PEAK_GAIN * heardShare(level);
 }
 
 /** The samples of a 16-bit PCM mono WAV, walking its chunks: `say` puts a padding chunk first. */

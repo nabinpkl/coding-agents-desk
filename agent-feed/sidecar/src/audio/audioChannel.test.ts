@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   AUDIO_LISTENERS_ROUTE,
-  AUDIO_NOISE_ROUTE,
+  AUDIO_MIX_ROUTE,
   AUDIO_SPEAK_MAX_CHARS,
   AUDIO_SPEAK_ROUTE,
 } from "@agentdesk/agent-feed-wire";
@@ -18,7 +18,7 @@ function fakeSpeak() {
   return { said, speak };
 }
 
-const PINK_3 = { level: 3, color: "pink" } as const;
+const PINK_3 = { noise: 3, color: "pink", voice: 8 } as const;
 
 describe("the audio channel", () => {
   test("speaks a message once and hands its samples to every stream of every device", async () => {
@@ -27,7 +27,7 @@ describe("the audio channel", () => {
     const heard: Int16Array[] = [];
     channel.listen("phone", PINK_3, (speech) => heard.push(speech));
     channel.listen("phone", PINK_3, (speech) => heard.push(speech));
-    channel.listen("mac", { level: 0, color: "white" }, (speech) => heard.push(speech));
+    channel.listen("mac", { noise: 0, color: "white", voice: 5 }, (speech) => heard.push(speech));
 
     expect(await channel.say("Build finished.")).toEqual({ listeners: 2, durationMs: 2000 });
     expect(said).toEqual(["Build finished."]);
@@ -42,21 +42,21 @@ describe("the audio channel", () => {
     expect(channel.listening()).toBe(1);
     probe();
     expect(channel.listening()).toBe(1);
-    expect(channel.noise("phone")).toEqual(PINK_3);
+    expect(channel.mix("phone")).toEqual(PINK_3);
     playing();
     expect(channel.listening()).toBe(0);
-    expect(channel.setNoise("phone", { level: 4 })).toBe(false);
+    expect(channel.setMix("phone", { noise: 4 })).toBe(false);
   });
 
-  test("changes a device's level and color apart, and keeps levels to whole steps from 0 to 10", () => {
+  test("changes any part of a device's mix alone, and keeps levels to whole steps from 0 to 10", () => {
     const channel = createAudioChannel(fakeSpeak().speak);
     channel.listen("phone", PINK_3, () => {});
-    channel.setNoise("phone", { color: "brown" });
-    expect(channel.noise("phone")).toEqual({ level: 3, color: "brown" });
-    channel.setNoise("phone", { level: 7.4 });
-    expect(channel.noise("phone")).toEqual({ level: 7, color: "brown" });
-    channel.setNoise("phone", { level: 99 });
-    expect(channel.noise("phone").level).toBe(10);
+    channel.setMix("phone", { color: "brown" });
+    expect(channel.mix("phone")).toEqual({ noise: 3, color: "brown", voice: 8 });
+    channel.setMix("phone", { noise: 7.4, voice: 2 });
+    expect(channel.mix("phone")).toEqual({ noise: 7, color: "brown", voice: 2 });
+    channel.setMix("phone", { voice: 99, noise: -1 });
+    expect(channel.mix("phone")).toEqual({ noise: 0, color: "brown", voice: 10 });
   });
 
   test("with nobody listening it says so and speaks nothing", async () => {
@@ -100,15 +100,16 @@ describe("the channel's routes", () => {
     expect((await call(channel, AUDIO_SPEAK_ROUTE, { text: "a".repeat(AUDIO_SPEAK_MAX_CHARS + 1) }))?.status).toBe(413);
   });
 
-  test("noise changes a listening device's level or color, and only a listening one's", async () => {
+  test("mix changes a listening device's noise, color or voice, and only a listening one's", async () => {
     const channel = createAudioChannel(fakeSpeak().speak);
-    expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone", level: 4 }))?.status).toBe(404);
+    expect((await call(channel, AUDIO_MIX_ROUTE, { listener: "phone", noise: 4 }))?.status).toBe(404);
     channel.listen("phone", PINK_3, () => {});
-    expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone", color: "brown", level: 5 }))?.status).toBe(204);
-    expect(channel.noise("phone")).toEqual({ level: 5, color: "brown" });
-    expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone", color: "blue" }))?.status).toBe(400);
-    expect((await call(channel, AUDIO_NOISE_ROUTE, { listener: "phone" }))?.status).toBe(400);
-    expect(channel.noise("phone")).toEqual({ level: 5, color: "brown" });
+    expect((await call(channel, AUDIO_MIX_ROUTE, { listener: "phone", color: "brown", voice: 5 }))?.status).toBe(204);
+    expect(channel.mix("phone")).toEqual({ noise: 3, color: "brown", voice: 5 });
+    expect((await call(channel, AUDIO_MIX_ROUTE, { listener: "phone", color: "blue" }))?.status).toBe(400);
+    expect((await call(channel, AUDIO_MIX_ROUTE, { listener: "phone", voice: "loud" }))?.status).toBe(400);
+    expect((await call(channel, AUDIO_MIX_ROUTE, { listener: "phone" }))?.status).toBe(400);
+    expect(channel.mix("phone")).toEqual({ noise: 3, color: "brown", voice: 5 });
   });
 
   test("listeners counts the devices listening now", async () => {

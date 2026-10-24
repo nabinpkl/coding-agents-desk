@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clampNoiseLevel, noiseAmplitude, readWav, writeWav } from "@/audio/pcmAudio";
+import { clampLevel, noiseAmplitude, readWav, voiceGain, writeWav } from "@/audio/pcmAudio";
 
 describe("samples for the audio channel", () => {
   test("a WAV written here reads back as the same samples", () => {
@@ -22,9 +22,17 @@ describe("samples for the audio channel", () => {
   });
 
   test("noise levels run 0 to 10, quietest is silence, and loudness grows by the square", () => {
-    expect([-3, 0, 4.6, 10, 40].map(clampNoiseLevel)).toEqual([0, 0, 5, 10, 10]);
+    expect([-3, 0, 4.6, 10, 40].map(clampLevel)).toEqual([0, 0, 5, 10, 10]);
     expect(noiseAmplitude(0)).toBe(0);
     expect(noiseAmplitude(5)).toBeCloseTo(0.075);
     expect(noiseAmplitude(10)).toBeCloseTo(0.3);
+  });
+
+  test("the voice is silent at 0, about as spoken at 8, and as loud as it goes unclipped at 10", () => {
+    expect(voiceGain(0)).toBe(0);
+    expect(voiceGain(8)).toBeCloseTo(0.93, 2);
+    expect(voiceGain(10)).toBeCloseTo(1.45);
+    // say peaks at about 0.69 of full scale, so the top level stays just inside it.
+    expect(0.69 * voiceGain(10)).toBeLessThan(1.01);
   });
 });
