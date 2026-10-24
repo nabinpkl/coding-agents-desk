@@ -24,8 +24,8 @@ import { HandoverDialog, type HandoverRequest } from "@/features/bots/dialogs/Ha
 import { BotSessionPickerDialog } from "@/features/bots/dialogs/BotSessionPickerDialog";
 import { NewSessionDialog } from "@/features/bots/dialogs/NewSessionDialog";
 import { ChatDraftDialog } from "@/features/bots/dialogs/ChatDraftDialog";
-import { SessionModal } from "@/features/session-view/SessionModal";
-import { StartedSessionModal } from "@/features/session-view/StartedSessionModal";
+import { LiveSessionModal } from "@/features/session-view/modal/LiveSessionModal";
+import { StartedSessionModal } from "@/features/session-view/modal/StartedSessionModal";
 import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 import { sessionKey } from "@/features/bots/cards/botCanvasCards";
@@ -154,6 +154,15 @@ export function AppDialogs({
       ? sessionModal.context
       : sessionModal.contextOn(startedOn)
     : null;
+  // The session window reads from the machine its session is on: its Bot's, or the one whose
+  // Sessions list it was picked from, or else the shell's.
+  const modalContext = sessionModal.thread
+    ? sessionModal.thread.botId !== undefined
+      ? sessionModal.contextFor(sessionModal.thread.botId)
+      : sessionModal.thread.machine !== undefined
+        ? sessionModal.contextOn(sessionModal.thread.machine)
+        : sessionModal.context
+    : null;
   // The picker's preview, same rule as the fork's.
   const pickerAnchor = botSessionPicker?.nextAnchor ?? "";
   // Each dialog behind its own boundary: they mount here, beside the canvas rather than inside any
@@ -246,21 +255,18 @@ export function AppDialogs({
           />
         </PanelErrorBoundary>
       ) : null}
-      {sessionModal.thread ? (
+      {sessionModal.thread && modalContext ? (
         <PanelErrorBoundary
           key={sessionKey(sessionModal.thread.session)}
           surface="session window"
           overlay
           onDismiss={sessionModal.onClose}
         >
-          <SessionModal
-            context={
-              sessionModal.thread.botId !== undefined
-                ? sessionModal.contextFor(sessionModal.thread.botId)
-                : sessionModal.thread.machine !== undefined
-                  ? sessionModal.contextOn(sessionModal.thread.machine)
-                  : sessionModal.context
-            }
+          <LiveSessionModal
+            bots={bots}
+            sessionsByProject={sessionsByProject}
+            machine={machines.find((machine) => machine.feed === modalContext.feed) ?? shellMachine}
+            context={modalContext}
             {...(sessionModal.thread.botId === undefined ? {} : { botId: sessionModal.thread.botId })}
             project={sessionModal.thread.project}
             session={sessionModal.thread.session}

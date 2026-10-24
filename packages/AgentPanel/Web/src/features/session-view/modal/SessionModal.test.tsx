@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CSSProperties } from "react";
 import type { BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { SessionModal } from "@/features/session-view/SessionModal";
+import { SessionModal } from "@/features/session-view/modal/SessionModal";
 import { setBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 
@@ -142,7 +142,9 @@ describe("SessionModal's code button", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Browse the code for Probe, in the feature worktree" }));
-    expect(await screen.findByRole("dialog", { name: "Rags · feature" })).toBeTruthy();
+    // The folder viewer is loaded when it is first opened (AGENTS.md, "What the page loads before it
+    // paints"), and compiling it on that first import took over a second on a loaded machine.
+    expect(await screen.findByRole("dialog", { name: "Rags · feature" }, { timeout: 5000 })).toBeTruthy();
     expect(botTree).toHaveBeenCalledWith("bot-1", [], { source: "claude", sessionId: "s-1" });
   });
 });

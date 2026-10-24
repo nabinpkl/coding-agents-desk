@@ -20,7 +20,7 @@ import type { ArenaManagerSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import type { ListedSession } from "@/features/arena/run/ArenaSessionLanes";
-import { awaitedSession } from "@/features/session-view/awaitedSession";
+import { awaitedSession } from "@/features/session-view/modal/awaitedSession";
 import { FOCUS, SOURCE_LABEL, TEXT } from "@/features/arena/arenaVocabulary";
 import { FloatingWindow } from "@/features/floating-window/FloatingWindow";
 import { floatingWindowPreferences } from "@/features/floating-window/floatingWindowPreferences";

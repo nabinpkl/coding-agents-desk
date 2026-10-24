@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
-import { StartedSessionModal, type StartedNewSession } from "@/features/session-view/StartedSessionModal";
+import { StartedSessionModal, type StartedNewSession } from "@/features/session-view/modal/StartedSessionModal";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 
 vi.mock("@/features/terminal/AgentTerminalPane", () => ({
@@ -10,7 +10,7 @@ vi.mock("@/features/terminal/AgentTerminalPane", () => ({
     <section aria-label="terminal">{`${context.kind}:${context.session}`}</section>
   ),
 }));
-vi.mock("@/features/session-view/SessionModal", () => ({
+vi.mock("@/features/session-view/modal/SessionModal", () => ({
   SessionModal: ({ session, listed }: { session: SessionSummary; listed: boolean }) => (
     <section aria-label="session view">{`${session.sessionId} listed:${listed}`}</section>
   ),

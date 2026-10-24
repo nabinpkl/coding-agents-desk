@@ -17,7 +17,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { BotSessionRef, StartSessionCommand } from "@agentdesk/agent-feed-wire";
-import type { StartedNewSession } from "@/features/session-view/StartedSessionModal";
+import type { StartedNewSession } from "@/features/session-view/modal/StartedSessionModal";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { machineKey, type BotMachine } from "@/features/bots/botMachines";
 
