@@ -11,7 +11,11 @@
 import { LayoutDashboard, LoaderCircle, X } from "lucide-react";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Bin, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { Bin, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import { FilePathOpenerContext } from "@/features/activity-feed/markdown/filePathLinks";
+import { SessionCodeButton, SessionCodeDialog } from "@/features/bots/code/SessionCodeButton";
+import { useSessionCode } from "@/features/bots/code/useSessionCode";
 import { BotSessionMark } from "@/features/bots/avatar/BotSessionMark";
 import type { BotSessionFace } from "@/features/bots/avatar/botSessionFaces";
 import { SessionView } from "@/features/session-view/SessionView";
@@ -36,6 +40,7 @@ export function SessionModal({
   onMoveToCanvas,
   botId,
   mark,
+  code,
   listed = true,
 }: {
   context: SessionViewContext;
@@ -58,6 +63,12 @@ export function SessionModal({
    * session no Bot holds, whose header opens with its title.
    */
   mark?: { face: BotSessionFace; activity: Bin };
+  /**
+   * The Bot that holds this session, its record of the session (which alone says whether it works
+   * in a worktree), and the machine that Bot is on: what the header's code button opens. Absent for
+   * a session no Bot holds.
+   */
+  code?: { bot: BotView; session: SessionSummary; feed: SidecarDataSource };
   /** False for a session the catalog has not listed yet; see `SessionView`'s prop of the name. */
   listed?: boolean;
 }) {
@@ -65,6 +76,7 @@ export function SessionModal({
   const closeButton = useRef<HTMLButtonElement>(null);
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
   const [tasksHost, setTasksHost] = useState<HTMLDivElement | null>(null);
+  const viewer = useSessionCode(code?.session ?? session, code?.bot);
   const [acceptFiles, setAcceptFiles] = useState<((files: readonly File[]) => void) | null>(null);
   // Wrapped, because the setter would take the accepting function as an updater.
   const takeAcceptFiles = useCallback(
@@ -160,7 +172,11 @@ export function SessionModal({
               Move to canvas
             </button>
           ) : null}
-          <div ref={setControlsHost} className="flex shrink-0 items-center gap-1" />
+          <div className="flex shrink-0 items-center gap-1">
+            {/* `contents`, so what the session portals in lines up with the code button. */}
+            <div ref={setControlsHost} className="contents" />
+            {code ? <SessionCodeButton bot={code.bot} session={code.session} onOpen={viewer.openFolder} /> : null}
+          </div>
           <button
             ref={closeButton}
             type="button"
@@ -181,16 +197,19 @@ export function SessionModal({
           </p>
         ) : null}
         <div className="relative min-h-0 flex-1 bg-background" {...drop.dropProps}>
-          <SessionView
-            {...context}
-            {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
-            projectPath={project.projectPath}
-            session={session}
-            controlsHost={controlsHost}
-            tasksHost={tasksHost}
-            onAcceptFiles={takeAcceptFiles}
-            listed={listed}
-          />
+          {/* The paths its transcript names open in the code viewer, read against its folder. */}
+          <FilePathOpenerContext.Provider value={viewer.opener}>
+            <SessionView
+              {...context}
+              {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
+              projectPath={project.projectPath}
+              session={session}
+              controlsHost={controlsHost}
+              tasksHost={tasksHost}
+              onAcceptFiles={takeAcceptFiles}
+              listed={listed}
+            />
+          </FilePathOpenerContext.Provider>
           <FileDropOverlay
             dragging={drop.dragging}
             refusal={acceptFiles === null ? "This session has no composer to drop into" : null}
@@ -198,6 +217,16 @@ export function SessionModal({
         </div>
         {/* `contents`, so the tasks panel positions against this box rather than the page. */}
         <div ref={setTasksHost} className="contents" />
+        {code && viewer.request ? (
+          <SessionCodeDialog
+            key={viewer.request.file ? `${viewer.request.file.path}:${viewer.request.file.line ?? ""}` : "folder"}
+            bot={code.bot}
+            feed={code.feed}
+            session={code.session}
+            file={viewer.request.file}
+            onClose={viewer.close}
+          />
+        ) : null}
       </div>
     </div>,
     document.body,

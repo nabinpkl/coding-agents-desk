@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CSSProperties } from "react";
-import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { SessionModal } from "@/features/session-view/SessionModal";
 import { setBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
@@ -106,5 +107,42 @@ describe("SessionModal's header face", () => {
   it("opens with the title alone for a session no Bot holds", () => {
     render(<SessionModal context={context} project={project} session={session} onClose={() => {}} />);
     expect(screen.getByRole("dialog").querySelector("header .bot-face")).toBeNull();
+  });
+});
+
+describe("SessionModal's code button", () => {
+  const bot = {
+    botId: "bot-1",
+    name: "Rags",
+    environment: { kind: "directory", path: "/projects/rags" },
+    environmentAvailability: "available",
+  } as BotView;
+  // The Bot's record of the session, which is the one that knows its worktree.
+  const held = { ...session, worktree: { path: "/projects/rags-feature", branch: "feature" } } as SessionSummary;
+
+  it("is absent for a session no Bot holds", () => {
+    render(<SessionModal context={context} project={project} session={session} onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: /^Browse the code/ })).toBeNull();
+  });
+
+  it("opens the worktree a Bot's session works in, from the Bot's machine", async () => {
+    const botTree = vi.fn(async (botId: string) => ({ botId, tree: [] }));
+    const feed = {
+      botTree,
+      subscribeBotGit: vi.fn(() => () => {}),
+      botContentUrl: () => null,
+    } as unknown as SidecarDataSource;
+    render(
+      <SessionModal
+        context={context}
+        project={project}
+        session={session}
+        onClose={() => {}}
+        code={{ bot, session: held, feed }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Browse the code for Probe, in the feature worktree" }));
+    expect(await screen.findByRole("dialog", { name: "Rags · feature" })).toBeTruthy();
+    expect(botTree).toHaveBeenCalledWith("bot-1", [], { source: "claude", sessionId: "s-1" });
   });
 });

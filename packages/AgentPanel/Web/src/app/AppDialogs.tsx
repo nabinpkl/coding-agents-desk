@@ -126,6 +126,17 @@ export function AppDialogs({
   const modalMark = sessionModal.thread
     ? botSessionMarkNow(sessionModal.faces, bots, sessionKey(sessionModal.thread.session))
     : undefined;
+  // What the modal's code button opens: the Bot it was maximized from, or else the first Bot that
+  // holds the session, with that Bot's own record of it, which alone carries its worktree.
+  const modalCode = (() => {
+    const thread = sessionModal.thread;
+    if (!thread) return undefined;
+    const key = sessionKey(thread.session);
+    const holds = (bot: BotView) => bot.sessions.some((each) => sessionKey(each) === key);
+    const bot = bots.find((each) => each.botId === thread.botId && holds(each)) ?? bots.find(holds);
+    const session = bot?.sessions.find((each) => sessionKey(each) === key);
+    return bot && session ? { bot, session, feed: sessionModal.contextFor(bot.botId).feed } : undefined;
+  })();
   // The machine the Sessions view reads, which is the shell's: a new session starts where it will
   // be listed.
   const shellFeed = sessionModal.context.feed;
@@ -241,6 +252,7 @@ export function AppDialogs({
             session={sessionModal.thread.session}
             onClose={sessionModal.onClose}
             {...(modalMark ? { mark: modalMark } : {})}
+            {...(modalCode ? { code: modalCode } : {})}
             {...(sessionModal.canvasMove.held.has(sessionKey(sessionModal.thread.session))
               ? {}
               : { onMoveToCanvas: sessionModal.canvasMove.onMove })}

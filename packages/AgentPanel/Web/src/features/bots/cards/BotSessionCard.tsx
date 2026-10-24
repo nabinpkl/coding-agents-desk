@@ -158,7 +158,7 @@ export function BotSessionCard({
    * session either belongs to. Given its own node inside the card, each lands over its own session.
    */
   const [tasksHost, setTasksHost] = useState<HTMLElement | null>(null);
-  const code = useSessionCode(session);
+  const code = useSessionCode(session, bot);
   /**
    * What this card's session does with a dropped image, published up from inside it.
    *

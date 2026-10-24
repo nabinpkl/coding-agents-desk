@@ -1,10 +1,11 @@
-// Whether a Bot's session card has its code viewer open, and on which file.
+// Whether a Bot's session has its code viewer open, and on which file: on its card, or in the
+// session modal it was maximized into.
 //
 // The card holds this rather than its button, because the viewer outlives the controls row: the
 // row goes when the card folds, and a viewer open over the canvas should not go with it.
 
 import { useContext, useMemo, useState } from "react";
-import type { SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import {
   FilePathOpenerContext,
   type FilePathOpener,
@@ -18,18 +19,23 @@ export interface SessionCode {
   close: () => void;
   /**
    * What opens the paths its transcript names. For a session in a worktree, read against that
-   * worktree and opened in this card's viewer; for one in the Bot's directory, the Bot card's own.
+   * worktree and opened in this viewer. For one in the Bot's directory, whatever opener is around it
+   * already (a Bot card's own), and where there is none, as in the modal, this viewer on the Bot's
+   * directory. Null with no Bot, or one whose directory is missing.
    */
   opener: FilePathOpener | null;
 }
 
-export function useSessionCode(session: SessionSummary): SessionCode {
+export function useSessionCode(session: SessionSummary, bot: BotView | undefined): SessionCode {
   const [request, setRequest] = useState<{ file: FilePathTarget | null } | null>(null);
-  const botOpener = useContext(FilePathOpenerContext);
+  const around = useContext(FilePathOpenerContext);
+  const directory = bot && bot.environmentAvailability !== "missing" ? bot.environment.path : null;
   const root = session.worktree?.path ?? null;
-  const opener = useMemo<FilePathOpener | null>(
-    () => (root === null ? botOpener : { root, open: (file) => setRequest({ file }) }),
-    [botOpener, root, setRequest],
-  );
+  const opener = useMemo<FilePathOpener | null>(() => {
+    const open = (file: FilePathTarget) => setRequest({ file });
+    if (root !== null) return { root, open };
+    if (around !== null) return around;
+    return directory === null ? null : { root: directory, open };
+  }, [around, directory, root, setRequest]);
   return { request, openFolder: () => setRequest({ file: null }), close: () => setRequest(null), opener };
 }

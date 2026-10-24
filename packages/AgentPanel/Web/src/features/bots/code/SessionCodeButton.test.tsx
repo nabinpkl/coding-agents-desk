@@ -74,9 +74,9 @@ it("opens a worktree session's transcript paths in its own viewer, and leaves th
     <FilePathOpenerContext.Provider value={botOpener}>{children}</FilePathOpenerContext.Provider>
   );
 
-  expect(renderHook(() => useSessionCode(inCheckout), { wrapper }).result.current.opener).toBe(botOpener);
+  expect(renderHook(() => useSessionCode(inCheckout, bot), { wrapper }).result.current.opener).toBe(botOpener);
 
-  const { result } = renderHook(() => useSessionCode(inWorktree), { wrapper });
+  const { result } = renderHook(() => useSessionCode(inWorktree, bot), { wrapper });
   expect(result.current.opener?.root).toBe("/projects/rags/.claude/worktrees/feature");
   expect(result.current.request).toBeNull();
   act(() => result.current.opener?.open({ path: "src/app.ts", line: 3 }));
@@ -86,4 +86,15 @@ it("opens a worktree session's transcript paths in its own viewer, and leaves th
   expect(result.current.request).toBeNull();
   act(() => result.current.openFolder());
   expect(result.current.request).toEqual({ file: null });
+});
+
+it("opens the Bot's directory in its own viewer where nothing around it opens paths, as in the modal", () => {
+  const { result } = renderHook(() => useSessionCode(inCheckout, bot));
+  expect(result.current.opener?.root).toBe("/projects/rags");
+  act(() => result.current.opener?.open({ path: "README.md", line: null }));
+  expect(result.current.request).toEqual({ file: { path: "README.md", line: null } });
+
+  const missing = { ...bot, environmentAvailability: "missing" } as BotView;
+  expect(renderHook(() => useSessionCode(inCheckout, missing)).result.current.opener).toBeNull();
+  expect(renderHook(() => useSessionCode(inCheckout, undefined)).result.current.opener).toBeNull();
 });
