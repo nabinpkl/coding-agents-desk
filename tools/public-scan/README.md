@@ -47,8 +47,8 @@ just public-scan --history <git rev-list arguments>
 
 for example `--history main` or `--history upstream/main..main`. Every blob, path, commit message and
 commit identity reachable in that range is checked against both rule sets, and gitleaks is run over
-the same commits when it is installed. There is no baseline here: a history about to be published has
-to come up empty. It needs the denylist.
+the same commits. There is no baseline here: a history about to be published has to come up empty.
+It needs the denylist and gitleaks, and refuses to run without either one.
 
 gitleaks reads `.gitleaks.toml` at the repository root: its default rules, plus one exception per
 value that looks like a secret and is not one (a placeholder key in a test, a checksum, a public
@@ -65,8 +65,8 @@ just publish
 
 It sends `main` to the remote that `git config agentdesk.publicRemote` names, and only after
 `--history` comes up clean over the commits that remote does not have yet (all of `main` the first
-time). It refuses on a machine without the denylist, and refuses anything that is not a
-fast-forward of the public `main`. `tools/publish.sh` says what each check is for.
+time). It refuses on a machine without the denylist or gitleaks, and refuses anything that is not
+a fast-forward of the public `main`. `tools/publish.sh` says what each check is for.
 
 The pre-push hook `tools/git-hooks/pre-push`, linked by `just git-hooks-install`, refuses every
 other push to that remote: a plain `git push`, a tag, another branch, a delete, a force-push, or a

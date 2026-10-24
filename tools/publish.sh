@@ -50,7 +50,8 @@ else
 fi
 
 echo "publish: scanning $count commit(s) for $remote, up to main at ${main:0:8}"
-node "$HERE/public-scan/public-scan.mjs" --history "$range" || die "the history scan did not come up clean; nothing was pushed"
+node "$HERE/public-scan/public-scan.mjs" --history "$range" ||
+    die "the history scan failed or found something (see above); nothing was pushed"
 
 AGENTDESK_PUBLISH_OID="$main" git -C "$ROOT" push "$remote" "$main:refs/heads/main"
 echo "publish: $remote's main is now ${main:0:8}"

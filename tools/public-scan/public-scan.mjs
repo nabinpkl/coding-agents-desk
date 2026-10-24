@@ -315,13 +315,16 @@ async function* readBlobs(root, shas) {
   if (code !== 0) throw new Error(`git cat-file --batch exited ${code}`);
 }
 
-function runGitleaks(root, revisions) {
-  const probe = spawnSync("gitleaks", ["version"]);
-  if (probe.error || probe.status !== 0) return null;
+function installed(command) {
+  const probe = spawnSync(command, ["version"]);
+  return !probe.error && probe.status === 0;
+}
+
+function runGitleaks(command, root, revisions) {
   const directory = mkdtempSync(join(tmpdir(), "public-scan-gitleaks-"));
   try {
     const report = join(directory, "report.json");
-    const result = spawnSync("gitleaks", ["git", "--no-banner", "--redact", "--report-format", "json",
+    const result = spawnSync(command, ["git", "--no-banner", "--redact", "--report-format", "json",
       "--report-path", report, "--log-opts", revisions.join(" "), root], { encoding: "utf8" });
     // 1 is gitleaks reporting findings; anything else is gitleaks failing to run.
     if (result.status !== 0 && result.status !== 1) throw new Error(`gitleaks failed: ${result.stderr.trim()}`);
@@ -333,10 +336,18 @@ function runGitleaks(root, revisions) {
 
 /**
  * Every blob, path, commit message and commit identity reachable from `revisions` (git rev-list
- * arguments, such as `main` or `upstream/main..main`), plus gitleaks over the same commits when it
- * is installed. No baseline: this is for a history about to be published, which must come up empty.
+ * arguments, such as `main` or `upstream/main..main`), plus gitleaks over the same commits. No
+ * baseline: this is for a history about to be published, which must come up empty.
+ *
+ * `gitleaks` is the command to run. Without it installed this throws before reading anything,
+ * because a history that passed without gitleaks would read as clean when half the check never ran.
+ * `false` leaves gitleaks out, which only the tests' fixture repositories do.
  */
-export async function runHistory({ root, rules, revisions, gitleaks = true }) {
+export async function runHistory({ root, rules, revisions, gitleaks = "gitleaks" }) {
+  if (gitleaks && !installed(gitleaks)) {
+    throw new Error(`a history check runs gitleaks over the same commits, and \`${gitleaks}\` is not installed ` +
+      "(brew install gitleaks); nothing was checked");
+  }
   const found = new Map();
   const pathOf = new Map();
   for (const line of git(root, ["rev-list", "--objects", ...revisions]).toString("utf8").split("\n")) {
@@ -373,12 +384,11 @@ export async function runHistory({ root, rules, revisions, gitleaks = true }) {
     for (const place of places.slice(0, SHOWN_PER_RULE)) out.push(`  ${place}`);
     if (places.length > SHOWN_PER_RULE) out.push(`  and ${places.length - SHOWN_PER_RULE} more`);
   }
-  const leaks = gitleaks ? runGitleaks(root, revisions) : [];
-  if (leaks === null) out.push("public-scan: gitleaks is not installed; secret shapes checked by secret-rules.txt only");
-  for (const leak of leaks ?? []) {
+  const leaks = gitleaks ? runGitleaks(gitleaks, root, revisions) : [];
+  for (const leak of leaks) {
     out.push(`public-scan: gitleaks ${leak.RuleID}  ${leak.File}:${leak.StartLine} @${leak.Commit.slice(0, 8)}`);
   }
-  const clean = found.size === 0 && (leaks ?? []).length === 0;
+  const clean = found.size === 0 && leaks.length === 0;
   out.push(clean
     ? `public-scan: history clean: ${blobs.length} blobs and their commits, ${rules.length} rules`
     : "public-scan: history is not clean; see above");

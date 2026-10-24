@@ -153,6 +153,18 @@ test("history mode finds what the tree no longer holds: old blobs, messages and 
   assert.doesNotMatch(range.out.join("\n"), /old\.txt|message/);
 });
 
+test("history mode refuses to run without gitleaks rather than pass without it", async (t) => {
+  const { dir, options } = await fixture(t);
+  await writeFile(join(dir, "fine.txt"), "nothing here\n");
+  git(dir, "add", "fine.txt", ".gitignore");
+  git(dir, "commit", "-q", "-m", "fine");
+  const { rules } = loadRules(options);
+  await assert.rejects(
+    runHistory({ root: dir, rules, revisions: ["main"], gitleaks: join(dir, "no-such-gitleaks") }),
+    /gitleaks over the same commits, and `.*no-such-gitleaks` is not installed/,
+  );
+});
+
 test("a clean history says so", async (t) => {
   const { dir, options } = await fixture(t);
   await writeFile(join(dir, "fine.txt"), "nothing here\n");
