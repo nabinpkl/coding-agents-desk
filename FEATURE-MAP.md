@@ -111,10 +111,12 @@ app. The panel picks its transport by whether a native message handler is presen
 **Stale documents that read as current, and are not:**
 
 - `docs/HANDOVER.md` is the 2026-08-25 desktop-park arc, already carrying a 2026-08-28 correction.
-- `docs/TASKS.md` is the v17 workspace-IDE arc, opened 2026-09-10. The one that headed a July voice
-  arc was retired on 2026-09-05 to
-  `docs/tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md`, which names the single
-  task still open (R278, a post-approval `just host-run` deployment check).
+- No ledger is open in `docs/TASKS.md` since 2026-10-24. The v17 workspace-IDE ledger, opened
+  2026-09-10, was retired that day to
+  `docs/tasks/archive/2026-10-24-v17-workspace-ide-on-the-live-path.md` with R11 and R12 still open.
+  The one before it, which headed a July voice arc, was retired on 2026-09-05 to
+  `docs/tasks/archive/2026-09-05-v15-voice-and-v16-typescript-desktop-control.md`, which names the
+  single task still open there (R278, a post-approval `just host-run` deployment check).
 
 When a ledger and `git log` disagree, `git log` wins.
 

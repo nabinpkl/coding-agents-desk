@@ -63,7 +63,7 @@ map exists to stop you getting wrong":
 - `README.md` external-facing one-pager. Points at `docs/PRD.md`. Beside it, for outside readers: `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md` and `THIRD_PARTY_NOTICES.md`.
 - `architecture-decisions/` one ADR per decision. `TEMPLATE.md` is the starting shape; `README.md` documents the index and lifecycle.
 - `mock-design/` Claude Design HTML/CSS/JS handoff bundle. **Reference for visual feel, not a v0 implementation target.** The mocked agent-native UX (per-agent carousel, reasoning ticker) is v1+, not v0.
-- `docs/TASKS.md` the iteration ledger (the current one opened 2026-09-10). Retire a ledger to `docs/tasks/archive/` when its arcs are done, before starting new ones, and carry any still-open task's ID forward unchanged.
+- `docs/TASKS.md` the iteration ledger (none is open since 2026-10-24; the file says where the last one went). Retire a ledger to `docs/tasks/archive/` when its arcs are done, before starting new ones, and carry any still-open task's ID forward unchanged.
 - `DECISIONS.md` load-bearing choices an agent made that no prompt or ADR dictated, with their evidence.
 - `docs/HANDOVER.md` a handover note from 2026-08-25 for the desktop park live tiles; a record, not current instructions.
 
