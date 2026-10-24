@@ -5,11 +5,14 @@
 //
 //   node tools/telemetry-replay.mjs list  [--since 2026-10-14T03:00] [--min-ms 3000] [--name Pageload] [--op pageload]
 //   node tools/telemetry-replay.mjs memory [--since 2026-10-14T03:00] [--source panel|sidecar]
+//   node tools/telemetry-replay.mjs reconnects [--since 2026-10-14T03:00] [--min-ms 3000]
 //   node tools/telemetry-replay.mjs trace <trace-id>
 //   node tools/telemetry-replay.mjs replay <trace-id> [--spotlight http://127.0.0.1:8969/stream]
 //
 // `list` prints one line per envelope that names a request or a load (its segment), newest last.
 // `memory` prints every memory reading, the panel's and the sidecar's, oldest first.
+// `reconnects` prints each time the panel's streams dropped and came back (`streamReconnects.ts`),
+// oldest first: how long, how many streams and tries, how long the page had slept, and the slowest.
 // `trace` prints every span of one trace, panel and sidecar together, as a tree timed from the
 // trace's start. `replay` sends that trace's envelopes to Spotlight, verbatim, to read there.
 
@@ -161,6 +164,56 @@ async function memory() {
   }
 }
 
+/** The device a panel transaction came from, by its user agent. */
+function deviceOf(payload) {
+  const agent = payload.request?.headers?.["User-Agent"] ?? "";
+  if (agent.includes("iPhone")) return "iphone";
+  if (agent.includes("Headless")) return "headless";
+  return agent.includes("Macintosh") ? "mac" : "-";
+}
+
+const seconds = (milliseconds) => `${(milliseconds / 1000).toFixed(1)}s`;
+
+/** One line per reconnect: its span's figures and the stream that took longest to come back. */
+async function reconnects() {
+  const since = option("--since", "");
+  const minMs = Number(option("--min-ms", "0"));
+  for await (const line of lines()) {
+    if (line.op !== "ui.stream.reconnect" || (since && line.at < since) || (line.durationMs ?? 0) < minMs) continue;
+    const parts = line.envelope.split("\n");
+    for (let at = 1; at + 1 < parts.length; at += 2) {
+      let header;
+      let payload;
+      try {
+        header = JSON.parse(parts[at]);
+        payload = JSON.parse(parts[at + 1]);
+      } catch {
+        continue;
+      }
+      if (header.type !== "transaction") continue;
+      const data = payload.contexts?.trace?.data ?? {};
+      const streams = (payload.spans ?? []).map((span) => ({
+        name: span.description,
+        ms: ms(span.timestamp - span.start_timestamp),
+        tries: span.data?.["stream.tries"],
+        outcome: span.data?.["stream.outcome"],
+      }));
+      const slowest = streams.sort((a, b) => b.ms - a.ms)[0];
+      const outcomes = ["back", "down", "closed"]
+        .filter((outcome) => data[`reconnect.${outcome}`] > 0)
+        .map((outcome) => `${data[`reconnect.${outcome}`]} ${outcome}`)
+        .join(", ");
+      const slept =
+        data["page.hidden_ms"] === undefined
+          ? "no wake yet"
+          : `woke ${seconds(data["page.since_wake_ms"])} before, after ${seconds(data["page.hidden_ms"])} hidden`;
+      console.log(
+        `${line.at}  ${deviceOf(payload).padEnd(8)} ${String(line.durationMs ?? "-").padStart(6)}ms  ${data["reconnect.streams"]} streams (${outcomes})  ${data["reconnect.tries"]} tries  ${data["reconnect.cause"]}  ${slept}${slowest ? `  slowest ${slowest.name} ${slowest.ms}ms, ${slowest.tries} tries, ${slowest.outcome}` : ""}`,
+      );
+    }
+  }
+}
+
 async function collect(traceId) {
   const envelopes = [];
   for await (const line of lines()) if (line.traceId === traceId) envelopes.push(line);
@@ -209,10 +262,10 @@ async function replay(traceId) {
   console.log(`sent ${envelopes.length} envelopes of trace ${traceId} to ${target}`);
 }
 
-const commands = { list, memory, trace: () => trace(rest[0]), replay: () => replay(rest[0]) };
-if (!commands[command] || (!["list", "memory"].includes(command) && !rest[0])) {
+const commands = { list, memory, reconnects, trace: () => trace(rest[0]), replay: () => replay(rest[0]) };
+if (!commands[command] || (!["list", "memory", "reconnects"].includes(command) && !rest[0])) {
   console.error(
-    "usage: telemetry-replay.mjs list [--since <iso>] [--min-ms <n>] [--name <text>] [--op <op>] | memory [--since <iso>] [--source panel|sidecar] | trace <trace-id> | replay <trace-id> [--spotlight <url>]",
+    "usage: telemetry-replay.mjs list [--since <iso>] [--min-ms <n>] [--name <text>] [--op <op>] | memory [--since <iso>] [--source panel|sidecar] | reconnects [--since <iso>] [--min-ms <n>] | trace <trace-id> | replay <trace-id> [--spotlight <url>]",
   );
   process.exit(2);
 }

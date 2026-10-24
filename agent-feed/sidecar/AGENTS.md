@@ -30,7 +30,9 @@ How the sidecar is launched and supervised on this Mac: `docs/agents/dev-loop.md
   `node tools/telemetry-replay.mjs list|trace|replay` searches the archive and sends an old trace
   back into Spotlight. Memory goes to the same archive (2026-10-22): the page's at each load's end
   and every twenty minutes (element count everywhere, JS heap in Chrome only), the sidecar's every
-  five minutes; `telemetry-replay.mjs memory` prints them. `npx @spotlightjs/spotlight` is the viewer, and it listens on EVERY
+  five minutes; `telemetry-replay.mjs memory` prints them. So do the panel's stream reconnects
+  (2026-10-24), one record per drop with each stream's tries and how long the page had slept;
+  `telemetry-replay.mjs reconnects` prints them. `npx @spotlightjs/spotlight` is the viewer, and it listens on EVERY
   interface with no option to narrow it, so run it by hand rather than leaving it up.
 
 ## A channel that is turned off without being awaited will race its own re-opening

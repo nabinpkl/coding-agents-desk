@@ -17,9 +17,9 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { BotSessionRef, ProjectSummary, RecentSessionsPayload, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { streamRetry, type StreamRetry } from "@/features/activity-feed/transport/streamRetry";
 import { machineFeedKey, machineKey, type BotMachine } from "@/features/bots/botMachines";
 import type { SessionArchiving } from "@/features/sidebar/session-list/ArchivedSessions";
-import { retryDelayMs } from "@/app/shell-state/useProjectInventory";
 import { useSubscription } from "@/hooks/useSubscription";
 
 /** One peer's Sessions list, ready to draw. */
@@ -114,8 +114,7 @@ export function usePeerSessionLists({
   useSubscription(signature, () => {
     let live = true;
     const stops = new Map<string, () => void>();
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const failures = new Map<string, number>();
+    const retries = new Map<string, StreamRetry>();
     const update = (key: string, change: (current: PeerState) => PeerState) =>
       setStates((previous) => new Map(previous).set(key, change(previous.get(key) ?? EMPTY)));
 
@@ -136,7 +135,7 @@ export function usePeerSessionLists({
         {
           onProjects: (projects, archived) => {
             if (!live) return;
-            failures.set(key, 0);
+            retries.get(key)?.succeeded();
             update(key, (current) => ({
               ...current,
               projects,
@@ -171,14 +170,7 @@ export function usePeerSessionLists({
           );
           stops.get(key)?.();
           stops.delete(key);
-          const attempt = failures.get(key) ?? 0;
-          failures.set(key, attempt + 1);
-          timers.set(
-            key,
-            setTimeout(() => {
-              if (live) open(machine);
-            }, retryDelayMs(attempt)),
-          );
+          retries.get(key)?.failed();
         },
         asked.recent,
         asked.reviews,
@@ -187,7 +179,15 @@ export function usePeerSessionLists({
       stops.set(key, stop);
     };
 
-    for (const machine of peers) open(machine);
+    for (const machine of peers) {
+      retries.set(
+        machineKey(machine),
+        streamRetry(`Sessions on ${machine.label}`, () => {
+          if (live) open(machine);
+        }),
+      );
+      open(machine);
+    }
     // A machine that went away takes its list with it.
     const present = new Set(peers.map(machineKey));
     setStates((previous) =>
@@ -198,7 +198,7 @@ export function usePeerSessionLists({
     return () => {
       live = false;
       for (const stop of stops.values()) stop();
-      for (const timer of timers.values()) clearTimeout(timer);
+      for (const retry of retries.values()) retry.stop();
     };
   });
 

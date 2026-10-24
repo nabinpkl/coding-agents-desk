@@ -80,24 +80,24 @@ describe("visibility subscriptions recover from failure", () => {
 
   it("backs off between attempts rather than asking once a second forever", () => {
     const { transport, unmount } = setup();
-    const current = () => transport.subscriptions.at(-1);
-    const attempts = [current()];
+    const inventory = () =>
+      transport.subscriptions.filter((subscription) => subscription.path.startsWith("/api/inventory/stream"));
     const failCurrent = () => {
       act(() => void transport.fail("/api/inventory/stream", "agent feed is not ready"));
     };
 
+    // Closed as it fails, and opened again a second later.
     failCurrent();
+    expect(inventory()).toHaveLength(0);
     act(() => void vi.advanceTimersByTime(1000));
-    attempts.push(current());
+    expect(inventory()).toHaveLength(1);
 
     // The second failure must wait longer than the first did.
     failCurrent();
     act(() => void vi.advanceTimersByTime(1000));
-    expect(current()).toBe(attempts[1]);
+    expect(inventory()).toHaveLength(0);
     act(() => void vi.advanceTimersByTime(1000));
-    attempts.push(current());
-
-    expect(new Set(attempts).size).toBe(3);
+    expect(inventory()).toHaveLength(1);
     unmount();
   });
 

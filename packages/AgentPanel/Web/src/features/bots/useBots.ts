@@ -8,12 +8,9 @@ import {
   mergeMachineBots,
   type BotMachine,
 } from "@/features/bots/botMachines";
+import { streamRetry, type StreamRetry } from "@/features/activity-feed/transport/streamRetry";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useSubscription } from "@/hooks/useSubscription";
-
-function retryDelay(attempt: number): number {
-  return Math.min(1_000 * 2 ** attempt, 15_000);
-}
 
 /** A machine whose Bot stream is failing. */
 export interface MachineError {
@@ -123,8 +120,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
   useSubscription(signature, () => {
     const current = machinesRef.current;
     const stops = new Map<string, () => void>();
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const failures = new Map<string, number>();
+    const retries = new Map<string, StreamRetry>();
     let live = true;
 
     const open = (machine: BotMachine): void => {
@@ -134,7 +130,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
         machine.feed.subscribeBots(
           (snapshot) => {
             if (!live) return;
-            failures.set(key, 0);
+            retries.get(key)?.succeeded();
             setSnapshots((previous) => new Map(previous).set(key, snapshot.bots));
             setErrors((previous) => {
               if (!previous.has(key)) return previous;
@@ -146,22 +142,23 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
           (reason) => {
             if (!live) return;
             setErrors((previous) => new Map(previous).set(key, reason));
-            const attempt = failures.get(key) ?? 0;
-            failures.set(key, attempt + 1);
             stops.get(key)?.();
             stops.delete(key);
-            timers.set(
-              key,
-              setTimeout(() => {
-                if (live) open(machine);
-              }, retryDelay(attempt)),
-            );
+            retries.get(key)?.failed();
           },
         ),
       );
     };
 
-    for (const machine of current) open(machine);
+    for (const machine of current) {
+      retries.set(
+        machineKey(machine),
+        streamRetry(`Bots on ${machine.label}`, () => {
+          if (live) open(machine);
+        }),
+      );
+      open(machine);
+    }
     // A machine that is no longer declared must take its Bots with it, or a peer removed from the
     // picker leaves a card on the canvas that nothing can ever act on.
     setSnapshots((previous) => withoutAbsent(previous, current));
@@ -170,7 +167,7 @@ export function useBots(machines: readonly BotMachine[]): BotRosterState {
     return () => {
       live = false;
       for (const stop of stops.values()) stop();
-      for (const timer of timers.values()) clearTimeout(timer);
+      for (const retry of retries.values()) retry.stop();
     };
   });
 
