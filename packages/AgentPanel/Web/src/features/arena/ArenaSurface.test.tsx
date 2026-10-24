@@ -60,8 +60,10 @@ const run = (over: Record<string, unknown> = {}) => ({
 });
 
 /** A transport that answers the arena's own routes and records what was asked of it. */
-function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[] } = {}) {
+function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]; deleteRefusals?: string[] } = {}) {
   const posted: unknown[] = [];
+  /** The runs asked to be deleted; each is refused with the next of `deleteRefusals` while any is left. */
+  const deleted: string[] = [];
   const postedTo: string[] = [];
   const asked: string[] = [];
   const transport: AgentHttpTransport = {
@@ -114,11 +116,19 @@ function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]
         postedTo.push(path);
         return { status: 201, body: JSON.stringify(run()) };
       }
+      if (method === "DELETE") {
+        deleted.push(path);
+        const refusal = options.deleteRefusals?.shift();
+        if (refusal) {
+          return { status: 409, body: JSON.stringify({ error: { code: "arena-run-busy", message: refusal } }) };
+        }
+        return { status: 200, body: JSON.stringify({ deleted: path.split("/").at(-1) }) };
+      }
       return { status: 404, body: "" };
     },
     subscribe: () => () => {},
   };
-  return { transport, posted, postedTo, asked };
+  return { transport, posted, postedTo, asked, deleted };
 }
 
 /**
@@ -370,6 +380,34 @@ describe("ArenaSurface", () => {
     screen.getByRole("button", { name: "Pass c1's answer to c2" }).click();
     await waitFor(() => expect(postedTo).toEqual(["/api/arena/runs/11111111-1111-4111-8111-111111111111/pass"]));
     expect(posted[0]).toEqual({ from: "c1", to: "c2" });
+  });
+
+  test("removing a run asks first, says what goes and what stays, and keeps a refusal in the question", async () => {
+    const { transport, deleted } = harness({ runs: [run()], deleteRefusals: ["run is adding lanes"] });
+    mount(transport);
+    await openRun("say one word");
+    screen.getByRole("button", { name: "Remove run" }).click();
+    const question = await screen.findByRole("dialog", { name: "Delete arena run 1?" });
+    // A named repository is left alone, and the question says so before anything is deleted.
+    expect(question.textContent).toContain("/repos/one is not touched");
+    expect(deleted).toEqual([]);
+
+    within(question).getByRole("button", { name: "Cancel" }).click();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deleted).toEqual([]);
+
+    screen.getByRole("button", { name: "Remove run" }).click();
+    within(await screen.findByRole("dialog"))
+      .getByRole("button", { name: "Delete run" })
+      .click();
+    // The sidecar refused: the question stays, with its reason, for a retry.
+    expect((await screen.findByRole("alert")).textContent).toBe("run is adding lanes");
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Delete run" }).click();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deleted).toEqual([
+      "/api/arena/runs/11111111-1111-4111-8111-111111111111",
+      "/api/arena/runs/11111111-1111-4111-8111-111111111111",
+    ]);
   });
 
   test("the next prompt cannot be sent while a lane is still on the last one", async () => {
