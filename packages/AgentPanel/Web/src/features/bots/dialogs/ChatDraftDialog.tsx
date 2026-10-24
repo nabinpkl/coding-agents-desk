@@ -6,23 +6,33 @@
 // reader sees the chat begin where they typed rather than one box closing and another opening.
 //
 // Beside `NewSessionDialog` because it is the same act with every choice made for the reader: no
-// folder, no harness, no name to pick.
+// folder, no harness, no name to pick. The one choice left is which machine, and only where there
+// is more than one: the panel's own unless another is picked in the header.
 
-import { ArrowUp, LoaderCircle, X } from "lucide-react";
+import { ArrowUp, LoaderCircle, MessagesSquare, X } from "lucide-react";
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { machineKey, type BotMachine } from "@/features/bots/botMachines";
 import { useMountEffect } from "@/hooks/useMountEffect";
 
 export function ChatDraftDialog({
+  machines,
+  machine: shellMachine,
   onClose,
   onStart,
 }: {
+  /** Every machine a chat can start on. More than one puts a choice in the header. */
+  machines: readonly BotMachine[];
+  /** The machine the panel is pointed at, which the chat starts on unless another is picked. */
+  machine: BotMachine;
   onClose: () => void;
-  /** Starts the chat and closes this box, or throws for the reason to show here. */
-  onStart: (prompt: string) => Promise<void>;
+  /** Starts the chat on `machine` and closes this box, or throws for the reason to show here. */
+  onStart: (prompt: string, machine: BotMachine) => Promise<void>;
 }) {
   const titleId = useId();
+  const machineLabel = useId();
   const field = useRef<HTMLTextAreaElement>(null);
+  const [machine, setMachine] = useState(shellMachine);
   const [prompt, setPrompt] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +53,7 @@ export function ChatDraftDialog({
     setPending(true);
     setError(null);
     try {
-      await onStart(prompt);
+      await onStart(prompt, machine);
     } catch (reason) {
       // The message stays in the field, so a retry is one keystroke.
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -84,6 +94,35 @@ export function ChatDraftDialog({
           >
             New chat
           </h2>
+          {machines.length > 1 ? (
+            <div role="group" aria-labelledby={machineLabel} className="flex shrink-0 items-center gap-1">
+              <span id={machineLabel} className="sr-only">
+                Machine
+              </span>
+              {machines.map((candidate) => {
+                const selected = candidate.feed === machine.feed;
+                return (
+                  <button
+                    key={machineKey(candidate)}
+                    type="button"
+                    aria-pressed={selected}
+                    disabled={pending}
+                    onClick={() => {
+                      setMachine(candidate);
+                      field.current?.focus();
+                    }}
+                    className={`min-h-8 cursor-pointer rounded-full border px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 ${
+                      selected
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80"
+                    }`}
+                  >
+                    {candidate.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={close}
@@ -96,6 +135,20 @@ export function ChatDraftDialog({
           </button>
         </header>
         <section className="flex min-h-0 flex-1 flex-col justify-end bg-background" aria-label="New chat">
+          {/* What sending does, in the space the transcript will fill. Said because none of it can
+              be seen from here: where the chat runs, and that nothing exists until it is sent. Not
+              which machine: the header's switch says that, and a name in this centred, balanced
+              sentence re-broke its lines on every switch, moving the words under the reader. */}
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-y-auto px-6 py-8 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+              <MessagesSquare className="size-8" aria-hidden />
+            </span>
+            <p className="m-0 text-base font-semibold text-foreground">Start a chat</p>
+            <p className="m-0 max-w-sm text-balance text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
+              Your first message starts Claude in a new folder made for this chat alone. Nothing is created until you
+              send it.
+            </p>
+          </div>
           {/* The width the session view gives its message box, so the field stays put on send. */}
           {error ? (
             <p

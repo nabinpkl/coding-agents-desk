@@ -82,6 +82,8 @@ export async function activityFeedModule() {
         </div>
       );
     },
+    // What a session the catalog has not listed yet shows in place of its feed.
+    EmptyFeed: ({ text = "no events" }: { text?: string }) => <div data-testid="empty-feed">{text}</div>,
   };
 }
 

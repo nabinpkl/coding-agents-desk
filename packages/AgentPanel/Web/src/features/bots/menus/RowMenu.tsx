@@ -2,7 +2,7 @@ import { EllipsisVertical, type LucideIcon } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { placePopup, triggerIsVisible, type Placement } from "@/features/bots/menus/anchoredPlacement";
-import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
+import { overlayHost, useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
 import { useDomSync } from "@/hooks/dom/useDomSync";
 import { useStateFor } from "@/hooks/state/useStateFor";
 
@@ -29,13 +29,16 @@ export interface RowMenuItem {
  * this did before -- only helps while ONE direction fits. On a card shorter than the menu neither
  * does, so the last items were unreachable on exactly the short cards a reader collapses a session
  * down to. Position `fixed` in the body is measured against the window, so the height of the thing
- * the row happens to be in stops being part of the answer.
+ * the row happens to be in stops being part of the answer. Inside an open `<dialog>` -- the phone's
+ * sidebar drawer -- it is rendered into that dialog instead (`overlayHost`).
  *
  * Deliberately NOT shared with the profile menu: that one roves the arrow keys across four entries
  * and anchors itself upward against the window's bottom edge, and neither applies to a row.
  */
 export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
   const [open, setOpen] = useState(false);
+  /** Where the menu is portalled, chosen as it opens: see `overlayHost`. */
+  const [host, setHost] = useState<HTMLElement | null>(null);
   /** Null until the layout pass has measured; the menu stays invisible until then. */
   // Dropped on close, so a menu reopened after the page moved is never placed from before.
   const [placement, setPlacement] = useStateFor<Placement | null>(open, () => null);
@@ -83,7 +86,10 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
       <button
         ref={trigger}
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => {
+          setHost(overlayHost(event.currentTarget));
+          setOpen((current) => !current);
+        }}
         // Named for its row, not just "More": a roster of eight would otherwise give a screen
         // reader eight identically named buttons with no way to tell which row it is on.
         aria-label={`Actions for ${label}`}
@@ -93,7 +99,7 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
       >
         <EllipsisVertical className="size-4" aria-hidden />
       </button>
-      {open
+      {open && host
         ? createPortal(
             <div
               ref={menu}
@@ -141,7 +147,7 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
                 </button>
               ))}
             </div>,
-            document.body,
+            host,
           )
         : null}
     </span>

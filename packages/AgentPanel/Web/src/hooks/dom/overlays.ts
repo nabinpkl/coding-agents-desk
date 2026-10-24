@@ -1,8 +1,24 @@
-// What every hand-placed menu, popover and modal in the panel needs while it is open: dismissal by
-// a press outside it, a placement that follows its anchor, and a `<dialog>` kept in step with an
-// `open` prop. One home for each, rather than the same effect written into every overlay.
+// What every hand-placed menu, popover and modal in the panel needs while it is open: the layer it
+// is drawn in, dismissal by a press outside it, a placement that follows its anchor, and a
+// `<dialog>` kept in step with an `open` prop. One home for each, rather than the same effect
+// written into every overlay.
 
 import { useEffect, useEffectEvent, useLayoutEffect, type DependencyList, type RefObject } from "react";
+
+/**
+ * Where a popup opened from `trigger` is portalled: the open `<dialog>` holding the trigger, else the
+ * page's body.
+ *
+ * The body is above every card, which is why popups are portalled at all, but not above a modal
+ * dialog: `showModal` puts the dialog in the top layer, over anything a z-index can reach, and makes
+ * everything outside it inert. A menu portalled to the body from inside the phone's sidebar drawer
+ * opened underneath the drawer and could not be pressed. Inside the dialog it is both above the
+ * dialog's content and part of what the dialog lets the reader touch. Asked when the popup opens,
+ * because a trigger moves between the drawer and the pinned sidebar as the window is resized.
+ */
+export function overlayHost(trigger: Element): HTMLElement {
+  return trigger.closest<HTMLElement>("dialog[open]") ?? document.body;
+}
 
 /**
  * While `open`, a press anywhere outside every one of `inside` calls `dismiss`. On `pointerdown`,

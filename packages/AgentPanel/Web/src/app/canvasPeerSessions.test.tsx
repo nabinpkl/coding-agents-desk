@@ -200,4 +200,40 @@ describe("the Sessions view on two machines", () => {
     expect(screen.getByRole("dialog", { name: "Olive, renamed" })).toBeInTheDocument();
     unmount();
   });
+
+  it("starts a chat on the other machine when the Chat box picks it, and follows it there", async () => {
+    const { mac, oracle, unmount } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for new sessions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Chat" }));
+    const box = within(screen.getByRole("dialog", { name: "New chat" }));
+    fireEvent.click(within(box.getByRole("group", { name: "Machine" })).getByRole("button", { name: "oracle" }));
+    fireEvent.change(box.getByRole("textbox", { name: "First message" }), { target: { value: "Plan the garden" } });
+    const scratch = "/home/ubuntu/.agentdesk/scratch/plan-the-garden-1a2b";
+    const started = {
+      sessionId: "sid-chat",
+      source: "claude",
+      title: "Plan the garden",
+      projectPath: scratch,
+      tmuxSession: "",
+    };
+    oracle.responses.set("POST /api/agent-sessions/start-scratch", { status: 200, body: JSON.stringify(started) });
+    await act(async () => {
+      fireEvent.click(box.getByRole("button", { name: "Send" }));
+    });
+    expect(oracle.requests.some((each) => each.path === "/api/agent-sessions/start-scratch")).toBe(true);
+    expect(mac.requests.some((each) => each.path === "/api/agent-sessions/start-scratch")).toBe(false);
+    // Its folder is read on oracle until the catalog lists the chat, never on this machine.
+    const folder = `projectPath=${encodeURIComponent(scratch)}`;
+    expect(mac.subscriptions.some((each) => each.path.includes(folder))).toBe(false);
+    act(() =>
+      oracle.deliver(folder, {
+        projectPath: scratch,
+        sessions: [{ ...OLIVE, sessionId: "sid-chat", title: "Plan the garden", projectPath: scratch }],
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Plan the garden" })).toBeInTheDocument();
+    expect(oracle.subscriptions.some((each) => each.path.includes("sid-chat"))).toBe(true);
+    expect(mac.subscriptions.some((each) => each.path.includes("sid-chat"))).toBe(false);
+    unmount();
+  });
 });

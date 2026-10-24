@@ -5,7 +5,7 @@
 // and that is a different thing from the Bot card that holds it.
 
 import { ChevronDown, Maximize2 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
@@ -24,9 +24,8 @@ import { SessionCodeButton, SessionCodeDialog } from "@/features/bots/code/Sessi
 import { SessionLogButton } from "@/features/bots/code/SessionLogButton";
 import { useSessionCode } from "@/features/bots/code/useSessionCode";
 import { useRevealWhenAsked } from "@/features/bots/canvas/canvasStore";
-
-/** How far a press has to travel before it stops being a click and becomes a carry. */
-const MOVE_THRESHOLD = 4;
+import { useCarryGesture } from "@/features/bots/canvas/useCarryGesture";
+import { carryClasses, carryStyle } from "@/features/bots/canvas/useMoveAlongStrip";
 
 /**
  * One of a Bot's sessions, which is a Bot one level down.
@@ -192,45 +191,23 @@ export function BotSessionCard({
   // no "among", and a rail down the only thing in a container draws a line between a group and
   // itself. The card keeps its shade either way, so it still reads as a card sitting on its Bot.
   const railed = shaded !== undefined && !solo;
-  // A press on this card's face is a click until it has travelled far enough to be a carry, the
-  // same threshold and for the same reason as the Bot header one level up: without it a hand that
-  // shifts two pixels while opening a session would reorder its Bot.
+  // A press on this card's face is a click until it has travelled far enough to be a carry, or, for a
+  // finger, held still long enough (`useCarryGesture`), the same as the Bot header one level up:
+  // without it a hand that shifts two pixels while opening a session would reorder its Bot.
   //
   // On the BUTTON rather than on the row around it, which is the difference from that header. The
   // face is the only part of this row that is not already a control -- the session's own controls
   // and its menu sit beside it -- so it is the one thing there is to grab, and capturing the
   // pointer on the element the click will be dispatched to is what keeps the click working at all.
-  const grab = useRef<{ pointerId: number; startX: number; carrying: boolean } | null>(null);
-  const carried = useRef(false);
-  const grabCard = (event: React.PointerEvent<HTMLButtonElement>): void => {
-    // Cleared on the way IN rather than after a carry, so a drag that ended somewhere else does not
-    // leave a flag behind to swallow the next tap.
-    carried.current = false;
-    grab.current = { pointerId: event.pointerId, startX: event.clientX, carrying: false };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
-  const carryCard = (event: React.PointerEvent<HTMLButtonElement>): void => {
-    const held = grab.current;
-    if (!held || held.pointerId !== event.pointerId) return;
-    if (!held.carrying) {
-      if (Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD) return;
-      held.carrying = true;
-      carried.current = true;
-      onMoveStart(held.startX);
-    }
-    onMoveBy(event.clientX);
-  };
-  const dropCard = (event: React.PointerEvent<HTMLButtonElement>): void => {
-    const held = grab.current;
-    if (!held || held.pointerId !== event.pointerId) return;
-    grab.current = null;
-    if (held.carrying) onMoveEnd();
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-  };
+  const { attach, handlers, carried } = useCarryGesture<HTMLButtonElement>({
+    onStart: onMoveStart,
+    onMove: onMoveBy,
+    onEnd: onMoveEnd,
+  });
   // A carry ends with a pointerup on this button, which the browser reports as a click; opening the
   // session there would mean every reorder also toggled the card it moved.
   const openUnlessCarried = (): void => {
-    if (carried.current) return;
+    if (carried()) return;
     onToggle();
   };
   const resize = useCardResize({
@@ -252,14 +229,9 @@ export function BotSessionCard({
       // Scrolls to this card when the sidebar's "Show on canvas" asks for it (`canvasStore`), and
       // the scroll margin stops it short of the canvas's edge rather than flush against it.
       ref={reveal}
-      className={`shrink-0 scroll-mx-8 scroll-my-4 ${lifted ? "z-10" : ""}`}
-      style={{
-        width: open ? resize.width : CLOSED_SESSION_WIDTH,
-        transform: offset === 0 ? undefined : `translateX(${offset}px)`,
-        // The carried card tracks the pointer exactly; the ones stepping aside for it are the only
-        // thing that should look like it is moving.
-        transition: lifted ? undefined : "transform 150ms ease",
-      }}
+      // Carried or stepping aside, it looks as the Bot cards in the strip do (`carryClasses`).
+      className={`shrink-0 scroll-mx-8 scroll-my-4 ${carryClasses(lifted)}`}
+      style={{ width: open ? resize.width : CLOSED_SESSION_WIDTH, ...carryStyle(offset) }}
     >
       <div
         // `relative` so this card is what the session's tasks panel is positioned against. That
@@ -330,18 +302,16 @@ export function BotSessionCard({
             <div className="relative flex min-h-11 min-w-0 flex-1 items-start gap-2 py-2 pr-2 pl-1 text-left">
               <button
                 type="button"
+                ref={attach}
                 onClick={openUnlessCarried}
-                onPointerDown={grabCard}
-                onPointerMove={carryCard}
-                onPointerUp={dropCard}
-                onPointerCancel={dropCard}
+                {...handlers}
                 aria-expanded={open}
                 aria-label={title}
                 title={origin?.text}
                 // `cursor-pointer` rather than the header's `cursor-grab`, because unlike that header
                 // this element's first job is opening the session; the grabbing cursor appears once a
                 // press is actually being held, which is when it says something true.
-                className="absolute inset-0 cursor-pointer outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 active:cursor-grabbing"
+                className="absolute inset-0 cursor-pointer outline-none transition-colors select-none [-webkit-touch-callout:none] hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/80 active:cursor-grabbing"
               />
               {/* The face, not a dot. A dot said live or not live and nothing about WHICH session
                   this was, so a Bot's roster opened with a column of identical marks. */}

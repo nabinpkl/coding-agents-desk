@@ -10,7 +10,7 @@ import {
   type RecipientGroup,
 } from "@/features/messages/hubRuntime";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
-import { useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
+import { overlayHost, useDismissOnOutsidePress, useOverlayPlacement } from "@/hooks/dom/overlays";
 import { useDomSync } from "@/hooks/dom/useDomSync";
 import { useStateFor } from "@/hooks/state/useStateFor";
 
@@ -125,12 +125,15 @@ interface SessionPickerProps {
  * remembers about a session -- its name, its Bot, its machine or its directory.
  *
  * Portalled into `document.body` and measured against the window, the same reasoning as `RowMenu`:
- * the rail is a resizable, clipping box, and a popup inside it would be cut off at its edge. Focus
+ * the rail is a resizable, clipping box, and a popup inside it would be cut off at its edge. Into
+ * the open `<dialog>` instead when the picker is in one, the phone's drawer (`overlayHost`). Focus
  * goes to the filter on open and back to the trigger on close, Escape closes without choosing, and
  * the arrow keys walk the visible rows with the active one scrolled into view.
  */
 export function SessionPicker({ entries, value, onChange }: SessionPickerProps) {
   const [open, setOpen] = useState(false);
+  /** Where the list is portalled, chosen as it opens: see `overlayHost`. */
+  const [host, setHost] = useState<HTMLElement | null>(null);
   // The filter, the highlighted row and the placement belong to one opening of the list.
   const [query, setQuery] = useStateFor(open, () => "");
   const [active, setActive] = useStateFor(open, () => 0);
@@ -265,7 +268,10 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
       <button
         ref={trigger}
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => {
+          setHost(overlayHost(event.currentTarget));
+          setOpen((current) => !current);
+        }}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -287,7 +293,7 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
         <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       </button>
 
-      {open
+      {open && host
         ? createPortal(
             <div
               ref={panel}
@@ -375,7 +381,7 @@ export function SessionPicker({ entries, value, onChange }: SessionPickerProps) 
                 ))}
               </div>
             </div>,
-            document.body,
+            host,
           )
         : null}
     </>

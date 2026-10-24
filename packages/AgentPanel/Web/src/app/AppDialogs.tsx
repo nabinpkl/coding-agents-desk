@@ -230,7 +230,12 @@ export function AppDialogs({
       </PanelErrorBoundary>
       {newSession.chatOpen ? (
         <PanelErrorBoundary surface="new chat" overlay onDismiss={newSession.closeChat}>
-          <ChatDraftDialog onClose={newSession.closeChat} onStart={newSession.startChat} />
+          <ChatDraftDialog
+            machines={machines}
+            machine={shellMachine}
+            onClose={newSession.closeChat}
+            onStart={newSession.startChat}
+          />
         </PanelErrorBoundary>
       ) : null}
       {startedContext && newSession.started ? (

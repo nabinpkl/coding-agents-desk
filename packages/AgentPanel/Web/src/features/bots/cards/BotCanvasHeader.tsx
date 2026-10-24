@@ -25,6 +25,7 @@ import { BotGitButton, BotGitUnavailable, gitHeaderAction } from "@/features/bot
 import { useBotGitStatus } from "@/features/bots/git/useBotGitStatus";
 import { BotTerminalButton, BotTerminalDialog } from "@/features/bots/BotTerminalButton";
 import { useNarrowHeader } from "@/features/bots/cards/useNarrowHeader";
+import { useCarryGesture } from "@/features/bots/canvas/useCarryGesture";
 
 /** The dialogs a narrow card opens from its more menu, where no button in the row owns them. */
 type HeaderDialog = "code" | "git" | "terminal";
@@ -113,35 +114,25 @@ export function BotCanvasHeader({
             : []),
           { label: "Open terminal", icon: Terminal, onSelect: () => setDialog("terminal") },
         ];
-  // A press on the header is a click until it has travelled far enough to be a carry. Without that
-  // threshold the header's own buttons would fire a move on every tap, and a hand that shifts two
-  // pixels while clicking "New session" would reorder the canvas.
-  const grab = useRef<{ pointerId: number; startX: number; carrying: boolean } | null>(null);
-  const MOVE_THRESHOLD = 4;
-  const grabHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
+  // A press on the header is a click until it has travelled far enough to be a carry, or, for a
+  // finger, held still long enough (`useCarryGesture`). Without that a hand that shifts two pixels
+  // while clicking "New session" would reorder the canvas, and a finger could not scroll it.
+  const { attach, handlers } = useCarryGesture<HTMLDivElement>({
+    onStart: onMoveStart,
+    onMove: onMoveBy,
+    onEnd: onMoveEnd,
     // Never from a control. The header holds the add button and the Bot's menu, and a drag that
     // began on either would swallow the press that was meant for it.
-    if ((event.target as HTMLElement).closest("button")) return;
-    grab.current = { pointerId: event.pointerId, startX: event.clientX, carrying: false };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
-  const carryHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const held = grab.current;
-    if (!held || held.pointerId !== event.pointerId) return;
-    if (!held.carrying) {
-      if (Math.abs(event.clientX - held.startX) < MOVE_THRESHOLD) return;
-      held.carrying = true;
-      onMoveStart(held.startX);
-    }
-    onMoveBy(event.clientX);
-  };
-  const dropHeader = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const held = grab.current;
-    if (!held || held.pointerId !== event.pointerId) return;
-    grab.current = null;
-    if (held.carrying) onMoveEnd();
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-  };
+    ignore: (target) => target.closest("button") !== null,
+  });
+  // One element, two readers: the width check holds a ref, the carry the element itself.
+  const attachHeader = useCallback(
+    (node: HTMLDivElement | null) => {
+      header.current = node;
+      attach(node);
+    },
+    [attach, header],
+  );
   return (
     <>
       {/* `w-0 min-w-full` is what stops the header deciding how wide the card is. A card is
@@ -153,15 +144,13 @@ export function BotCanvasHeader({
         measureable at all: its own box is the card's width rather than anything this row chose,
         which is the number `useNarrowHeader` reads. */}
       <div
-        ref={header}
+        ref={attachHeader}
         // No background of its own. It had `bg-card` from when the card was `bg-card`, which was
         // the same colour and so invisible; now that the card carries a hue, repainting the band
-        // that holds the Bot's name would be the one part of the card not wearing it.
-        className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border py-2 pr-3 pl-1 select-none active:cursor-grabbing"
-        onPointerDown={grabHeader}
-        onPointerMove={carryHeader}
-        onPointerUp={dropHeader}
-        onPointerCancel={dropHeader}
+        // that holds the Bot's name would be the one part of the card not wearing it. No iOS callout
+        // either: a held finger is how the card is picked up.
+        className="flex w-0 min-w-full shrink-0 cursor-grab items-center gap-3 border-b border-border py-2 pr-3 pl-1 select-none [-webkit-touch-callout:none] active:cursor-grabbing"
+        {...handlers}
       >
         <BotAvatar bot={bot} hue={hue} rank={rank} size="size-11" />
         <span className="min-w-0 flex-1">
