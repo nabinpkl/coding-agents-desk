@@ -18,10 +18,14 @@ import { loadSelection } from "@/features/sidebar/selectionStore";
 import type { BotMachine } from "@/features/bots/botMachines";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";
 import { useProjectInventory } from "@/app/shell-state/useProjectInventory";
+import { usePeerSessionLists } from "@/app/shell-state/sidebar/usePeerSessionLists";
+import type { ShellMachines } from "@/app/shell-state/useBotMachines";
 import type { SessionArchiving } from "@/features/sidebar/session-list/ArchivedSessions";
 
 export function useShellInventory({
   feed,
+  /** Every machine, for the Sessions view's other machines, and where their rows are recorded. */
+  machines,
   /** Which machine each Bot is on, as of this render: the reads below are decided while rendering. */
   botMachines,
   /** The Bot whose session picker is open, if one is. Its directory is what a peer read is FOR. */
@@ -37,6 +41,7 @@ export function useShellInventory({
   searchable,
 }: {
   feed: SidecarDataSource;
+  machines: Pick<ShellMachines, "all" | "noteListed">;
   botMachines: ReadonlyMap<string, BotMachine>;
   picker: { botId: string; projectPath: string } | null;
   startedSessions: readonly { botId?: string; projectPath: string }[];
@@ -102,8 +107,9 @@ export function useShellInventory({
   /**
    * Archiving from the project list, on the machine the list is reading.
    *
-   * The list is this machine's inventory, so this machine's feed answers for it; a Bot card or a
-   * roster row archives through its own machine's feed instead.
+   * This machine's list, so this machine's feed answers for it. Another machine's list in the
+   * Sessions view archives through that machine's feed (`usePeerSessionLists`), and a Bot card or a
+   * roster row through its own Bot's.
    */
   const setSessionArchived = useCallback(
     (session: SessionSummary, archived: boolean) => feed.setSessionArchived(session, archived),
@@ -133,5 +139,20 @@ export function useShellInventory({
     ],
   );
 
-  return { inventory: { ...inventory, archiving }, dialogSessionsByProject, rememberedSelection };
+  // The Sessions view lists every machine, so it reads the others while it is on screen. Asked what
+  // this machine's stream was asked, so the flat lists merge exactly (`mergeRecentSessions`).
+  const peerMachines = useMemo(() => machines.all.filter((machine) => machine.feed !== feed), [machines.all, feed]);
+  const peers = usePeerSessionLists({
+    peers: peerMachines,
+    showing: searchable,
+    flat: recentWanted,
+    asked: inventory.asked,
+    onListed: machines.noteListed,
+  });
+
+  return {
+    inventory: { ...inventory, archiving, peers: peers.lists, togglePeerProject: peers.toggleProject },
+    dialogSessionsByProject,
+    rememberedSelection,
+  };
 }

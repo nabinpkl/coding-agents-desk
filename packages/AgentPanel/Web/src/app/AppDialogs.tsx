@@ -101,10 +101,12 @@ export function AppDialogs({
    * Sessions view, or maximized from a Bot's card, which names its Bot.
    */
   sessionModal: {
-    thread: { project: ProjectSummary; session: SessionSummary; botId?: string } | null;
+    thread: { project: ProjectSummary; session: SessionSummary; botId?: string; machine?: string } | null;
     context: SessionViewContext;
     /** A Bot's session reads from that Bot's machine, the way its card does. */
     contextFor: (botId: string) => SessionViewContext;
+    /** And one picked from another machine's Sessions list reads from that machine, by its key. */
+    contextOn: (key: string) => SessionViewContext;
     onClose: () => void;
     /** Moves the session onto its directory's Bot. Not offered on a session a Bot already holds. */
     canvasMove: { held: ReadonlySet<string>; onMove: (session: SessionSummary) => Promise<void> };
@@ -243,9 +245,11 @@ export function AppDialogs({
         >
           <SessionModal
             context={
-              sessionModal.thread.botId === undefined
-                ? sessionModal.context
-                : sessionModal.contextFor(sessionModal.thread.botId)
+              sessionModal.thread.botId !== undefined
+                ? sessionModal.contextFor(sessionModal.thread.botId)
+                : sessionModal.thread.machine !== undefined
+                  ? sessionModal.contextOn(sessionModal.thread.machine)
+                  : sessionModal.context
             }
             {...(sessionModal.thread.botId === undefined ? {} : { botId: sessionModal.thread.botId })}
             project={sessionModal.thread.project}

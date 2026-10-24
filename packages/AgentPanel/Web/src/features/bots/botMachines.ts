@@ -242,8 +242,8 @@ export function botFeeds(
       return machine.feed;
     },
     forSession(ref) {
-      // Home when nothing claims it, which is a real case rather than a fallback: the sidebar's
-      // session list is this machine's inventory, and a session that is on no Bot at all is
+      // Home when nothing claims it, which is a real case rather than a fallback: a session on no
+      // Bot that no other machine's Sessions list has shown is one this machine listed, and is
       // addressed exactly the way it was before any of this existed.
       return machineOfSession(ref)?.feed ?? home;
     },

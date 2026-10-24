@@ -24,7 +24,7 @@ import { sourceKey } from "@/query/panelQuery";
  * Each attempt already costs the host's own readiness wait, so this is the pause
  * on top of that, not the whole cadence.
  */
-function retryDelayMs(attempt: number): number {
+export function retryDelayMs(attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 15000);
 }
 
@@ -249,6 +249,12 @@ export function useProjectInventory(
     changeRecentQuery,
     /** A title search is what the flat list is showing, rather than the newest sessions. */
     searching,
+    /**
+     * What the stream was asked for, which every other machine's Sessions list is asked for too:
+     * the flat list's page (undefined while no flat list is wanted), the security reviews' page,
+     * and the title search once typing paused.
+     */
+    asked: { recent: recentCount, reviews: reviewCount, query: searching ? settledQuery : "" },
     recentReviewsOpen: reviewsOpen,
     toggleRecentReviews,
     showMoreRecentReviews,

@@ -83,17 +83,15 @@ export function useSessionDrafts(
           if (!fork) return "opencode starts from the Add sessions dialog.";
           // opencode holds no Claude history, so its fork is a handover: the conversation rendered
           // as one first turn, the reader's words after it, attached as an ordinary reference.
-          const { session: started } = await feed.handoverToOpencode(fork.session.sessionId, brief);
+          // The sidecar names it before that turn, by the task typed or else its source's, the way
+          // a Claude fork starts; the Bot's title queue puts the anchor the attach spends in front.
+          const task = choices.task.trim() || undefined;
+          const { session: started } = await feed.handoverToOpencode(fork.session.sessionId, brief, task);
           // Beside its source, where its draft was; a Claude fork stands there without being told.
           await feed.addBotSessions(botId, {
             sessionRefs: [{ source: "opencode", sessionId: started.sessionId }],
             after: { source: "claude", sessionId: fork.session.sessionId },
           });
-          // Named only when a task was typed, as a fresh opencode session is (`useBotCommands.ts`).
-          // With none, opencode titles it from the handover it was just sent, and the Bot's title
-          // queue puts the anchor the attach spent in front of that title.
-          const task = choices.task.trim();
-          if (task) await feed.setSessionTask("opencode", started.sessionId, task);
           openStartedSession(botId, { source: "opencode", sessionId: started.sessionId });
         } else {
           const { claudeMode } = harnessStart(choices.harness);

@@ -246,11 +246,12 @@ export function BrowserSurfaces({
             it reads this origin directly rather than a sidecar, so there is nothing to point.
 
             It no longer points EVERYTHING, and the name says so. The Bot canvas reads every machine
-            at once -- a Bot is a directory and those are not all on one machine -- so this moves
-            the session list, the open thread, the terminals, the IDE and the desktop, and leaves
-            the canvas showing the lot. Called "session" before, which named neither the thing it
-            switches nor the thing it does not; the sidebar's Canvas roster carries the other half
-            of the sentence, a chip per machine with its count (`BotCanvasStatus`). */}
+            at once -- a Bot is a directory and those are not all on one machine -- and so does its
+            Sessions list, so this moves the open thread, the terminals, the IDE, the desktop and
+            where a new session starts, and leaves the canvas and its Sessions list showing the
+            lot. Called "session" before, which named neither the thing it switches nor the thing
+            it does not; the sidebar's Canvas roster carries the other half of the sentence, a chip
+            per machine with its count (`BotCanvasStatus`). */}
         {surface !== "screen" && sessions.length > 1 ? (
           <div
             role="group"
@@ -262,7 +263,7 @@ export function BrowserSurfaces({
                 <button
                   type="button"
                   aria-pressed={session.id === sessionId}
-                  title={`Point the session list, terminals, IDE and desktop at ${session.label}. The Bot canvas keeps showing every machine.`}
+                  title={`Point the terminals, IDE, desktop and new sessions at ${session.label}. The Bot canvas and its Sessions list keep showing every machine.`}
                   onClick={() => selectSession(session.id)}
                   className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary ${
                     session.id === sessionId

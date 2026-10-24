@@ -7,13 +7,11 @@
 
 import type { BotRecord, BotSessionRef, StartedSession } from "@agentdesk/agent-feed-wire";
 import {
-  backfillTaskText,
   firstFreeAnchor,
   formatBotSessionTitle,
-  isPoolAnchor,
-  parseBotSessionTitle,
   refuseTaskText,
   taskFromText,
+  titleTask,
 } from "@agentdesk/agent-feed-wire";
 import { anchorPool } from "@/config/configAnchors";
 import { WorktreeError } from "@/git/worktree";
@@ -340,11 +338,11 @@ function startingTitle(
  * the title too long, is dropped and the session starts bare: the anchor is the half that matters.
  *
  * Shared by the title queue, which keeps every session in this shape, and a fork, which starts in
- * it from its source's title.
+ * it from its source's title. The reading is `titleTask`, which a handover to opencode names its
+ * successor by too.
  */
 export function anchoredTitle(anchor: string, current: string): { title: string; dropped?: string } {
-  const parsed = parseBotSessionTitle(current);
-  const rawTask = parsed.anchor === anchor || isPoolAnchor(parsed.anchor) ? parsed.task : backfillTaskText(current);
+  const rawTask = titleTask(current, anchor);
   const fits = rawTask && !refuseTaskText(rawTask) && !sessionTitleRefusal(formatBotSessionTitle(anchor, rawTask));
   const task = fits ? rawTask : "";
   return {

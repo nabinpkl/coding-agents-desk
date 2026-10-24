@@ -134,7 +134,8 @@ export function useBotCommands(
           return;
         }
         // An opencode session is in the catalog the moment the serve creates it, so it attaches as
-        // an ordinary reference.
+        // an ordinary reference. The sidecar names it after its source's task before the handover
+        // is sent, and the Bot's title queue puts the anchor the attach spends in front.
         const { session: started } = await feed.handoverToOpencode(request.session.sessionId, message);
         await feed.addBotSessions(request.botId, {
           sessionRefs: [{ source: destination, sessionId: started.sessionId }],

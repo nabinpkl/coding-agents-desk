@@ -91,6 +91,7 @@ export {
   parseBotSessionTitle,
   refuseTaskText,
   taskFromText,
+  titleTask,
 } from "./botSessionTitle.ts";
 export { isSaidText } from "./saidText.ts";
 export { SCRATCH_BRIEF_LABEL, splitScratchBrief, withScratchBrief } from "./scratchBrief.ts";

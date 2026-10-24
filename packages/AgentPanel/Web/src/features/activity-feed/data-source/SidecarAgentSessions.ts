@@ -87,12 +87,14 @@ export class SidecarAgentSessions extends SidecarTerminals {
    *
    * One call for create plus first prompt, because the sidecar owns both halves and the panel
    * must never strand a created-but-never-prompted session between two calls. The message rides
-   * last in the prompt the new session receives. Answers with the new descriptor, which the
-   * caller attaches wherever the handover was asked from.
+   * last in the prompt the new session receives. `task` names the new session before that prompt;
+   * without one the sidecar names it after its source's task. Answers with the new descriptor,
+   * which the caller attaches wherever the handover was asked from.
    */
   async handoverToOpencode(
     sessionId: string,
     message?: string,
+    task?: string,
   ): Promise<{
     session: AgentSessionDescriptor;
     handover: { turnCount: number; chars: number; lossy: boolean };
@@ -102,7 +104,7 @@ export class SidecarAgentSessions extends SidecarTerminals {
       handover: { turnCount: number; chars: number; lossy: boolean };
     }>(
       await this.transport.request("POST", "/api/agent-sessions/opencode/handover", {
-        body: { requestId: crypto.randomUUID(), sessionId, ...(message ? { message } : {}) },
+        body: { requestId: crypto.randomUUID(), sessionId, ...(message ? { message } : {}), ...(task ? { task } : {}) },
       }),
     );
   }

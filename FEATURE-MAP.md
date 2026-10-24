@@ -203,7 +203,9 @@ They are easy to infer backwards from the shape of the tree.
   card renders that same component, so a transcript change lands on the card too, and retiring the
   tab means removing the tab and its main-column arm, not the view. Nor is the tab's project list
   (`ProjectSessionList`): since 2026-10-05 it is also the Canvas tab's Sessions view, which opens a
-  session in `SessionModal` over the canvas rather than in the main column.
+  session in `SessionModal` over the canvas rather than in the main column. Since 2026-10-24 that
+  view lists every machine's sessions, not the tab bar's one (`usePeerSessionLists`): each machine's
+  projects under its name, the flat list merged, and a row acting on the machine it came from.
 
 ## Approaches that solve the same problem, side by side
 
