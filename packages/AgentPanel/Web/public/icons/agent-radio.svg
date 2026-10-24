@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!--
+    Agent Radio's icon, the source the PNGs beside it are rendered from. The same family as the
+    panel's (a flat white glyph inside the same margins, about 104 to 408) on its own color, so the
+    two apps tell apart on a Home Screen at a glance. Full bleed: iOS rounds the corners itself.
+  -->
+  <rect width="512" height="512" fill="#1d4ed8" />
+  <g fill="none" stroke="#fafafa" stroke-width="30" stroke-linecap="round">
+    <path d="M312.57 199.43 A80 80 0 0 1 312.57 312.57" />
+    <path d="M199.43 199.43 A80 80 0 0 0 199.43 312.57" />
+    <path d="M354.99 157.01 A140 140 0 0 1 354.99 354.99" />
+    <path d="M157.01 157.01 A140 140 0 0 0 157.01 354.99" />
+  </g>
+  <circle cx="256" cy="256" r="34" fill="#fafafa" />
+</svg>
