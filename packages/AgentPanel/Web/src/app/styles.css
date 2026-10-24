@@ -202,6 +202,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-attention: var(--attention);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
@@ -264,6 +265,8 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  /* Text on a filled destructive button: the light red of the dark theme needs dark text. */
+  --destructive-foreground: oklch(0.985 0 0);
   /* A session that needs the person (its spoken status says `waiting`): amber, apart from the red
      of a failure, dark enough on white to read as text. */
   --attention: oklch(0.6 0.15 65);
@@ -302,6 +305,7 @@
     --accent: oklch(0.269 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
+    --destructive-foreground: oklch(0.205 0 0);
     --attention: oklch(0.8 0.15 75);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);

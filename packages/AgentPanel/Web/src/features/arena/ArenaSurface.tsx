@@ -34,6 +34,7 @@ import type { SessionViewContext } from "@/features/session-view/SessionView";
 import { keepTypingInSightWhileMounted } from "@/app/page/keyboardInset";
 import { sidecarWindowComposerClient } from "@/features/window-composer/WindowComposerClient";
 import { ArenaNewRun, EMPTY_DRAFT, type ArenaDraft } from "@/features/arena/ArenaNewRun";
+import { ConfirmDeleteDialog } from "@/features/confirm-delete/ConfirmDeleteDialog";
 import { ArenaRunRail } from "@/features/arena/ArenaRunRail";
 import { ArenaCodeButton } from "@/features/arena/code/ArenaCodeButton";
 import { ArenaRunView, type ArenaView } from "@/features/arena/run/ArenaRunView";
@@ -80,6 +81,9 @@ export function ArenaSurface({
   const [draft, setDraft] = useState<ArenaDraft>(EMPTY_DRAFT);
   const [starting, setStarting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // The run's delete waits on the reader's answer to the confirm dialog, which holds its failure.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteProblem, setDeleteProblem] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   // Null until the sidecar has said: the switch offers both modes meanwhile rather than greying
   // out one the machine may well have, and the sidecar refuses one it does not.
@@ -216,13 +220,14 @@ export function ArenaSurface({
   const tearDown = useCallback(async () => {
     if (!selectedRunId) return;
     setDeleting(true);
-    setProblem(null);
+    setDeleteProblem(null);
     const answer = await deleteArenaRun(transport, selectedRunId);
     setDeleting(false);
     if ("message" in answer) {
-      setProblem(answer.message);
+      setDeleteProblem(answer.message);
       return;
     }
+    setConfirmingDelete(false);
     showRun(null, { replace: true });
   }, [transport, selectedRunId, showRun]);
 
@@ -324,7 +329,10 @@ export function ArenaSurface({
               problem={problem}
               railOpen={railOpen}
               onToggleRail={toggleRail}
-              onDelete={() => void tearDown()}
+              onDelete={() => {
+                setDeleteProblem(null);
+                setConfirmingDelete(true);
+              }}
               onSendPrompt={sendPrompt}
               onPass={passAnswer}
             />
@@ -333,9 +341,45 @@ export function ArenaSurface({
               That run is no longer listed.
             </p>
           ) : null}
+          {selected ? (
+            <ConfirmDeleteDialog
+              open={confirmingDelete}
+              title={`Delete ${selected.name}?`}
+              confirmLabel="Delete run"
+              busy={deleting}
+              error={deleteProblem}
+              onConfirm={() => void tearDown()}
+              onCancel={() => setConfirmingDelete(false)}
+            >
+              <RunDeletion run={selected} />
+            </ConfirmDeleteDialog>
+          ) : null}
         </main>
       </div>
     </div>
+  );
+}
+
+/** What deleting a run takes with it, and what it leaves, for the confirm dialog. */
+function RunDeletion({ run }: { run: ArenaRunSummary }) {
+  return (
+    <>
+      <p className="m-0">
+        Its lanes&rsquo; folders in <span className="font-mono text-xs break-all">{run.folder}</span> go, with whatever
+        they changed, and so do the diffs and facts the arena kept for it.
+        {run.mode === "terminals" ? ` Its terminals${run.manager ? ", the manager's included," : ""} are closed.` : ""}
+      </p>
+      <p className="m-0 mt-2">
+        {run.repoCreated ? (
+          "Its own repository goes with it."
+        ) : (
+          <>
+            <span className="font-mono text-xs break-all">{run.repoPath}</span> is not touched.
+          </>
+        )}{" "}
+        The lanes&rsquo; sessions stay in their harness&rsquo;s history.
+      </p>
+    </>
   );
 }
 
