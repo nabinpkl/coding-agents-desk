@@ -84,6 +84,18 @@ function isSessionLogs(value: unknown): value is Record<string, string> | undefi
   );
 }
 
+function isSessionOrigins(value: unknown): boolean {
+  if (value === undefined) return true;
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key)) &&
+    Object.values(value).every(
+      (origin) =>
+        isRecord(origin) && (origin.kind === "fork" || origin.kind === "handover") && isSessionRef(origin.from),
+    )
+  );
+}
+
 function isBotRecord(value: unknown): value is BotRecord {
   if (!isRecord(value) || !isRecord(value.environment) || !isRecord(value.metadata) || !isRecord(value.createdBy)) {
     return false;
@@ -100,6 +112,7 @@ function isBotRecord(value: unknown): value is BotRecord {
     isSessionSlots(value.sessionSlots) &&
     isSessionAnchors(value.sessionAnchors) &&
     isSessionLogs(value.sessionLogs) &&
+    isSessionOrigins(value.sessionOrigins) &&
     (value.nextSessionSlot === undefined ||
       (Number.isSafeInteger(value.nextSessionSlot) && Number(value.nextSessionSlot) >= 0)) &&
     isOptionalString(value.metadata.role) &&

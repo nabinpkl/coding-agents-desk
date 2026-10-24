@@ -92,6 +92,13 @@ test("a fork with no task keeps its source's task under its own anchor, since Cl
     { kind: "fork", title: "Adam (Lighthouse keeper who repairs clocks)", unnamed: undefined },
     { kind: "fork", title: "Alan", unnamed: undefined },
   ]);
+  // Each is marked as a fork of its source, which its card draws as an icon; the source is not.
+  const record = (await registry.snapshot()).bots.find((one) => one.botId === bot.botId)!;
+  expect(Object.values(record.sessionOrigins ?? {})).toEqual([
+    { kind: "fork", from: claudeRef },
+    { kind: "fork", from: claudeRef },
+  ]);
+  expect(record.sessionOrigins?.["claude:session-3"]).toBeUndefined();
 });
 
 test("a launch can ask for SDK mode, and nothing that is neither mode", async () => {

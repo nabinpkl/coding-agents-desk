@@ -42,6 +42,7 @@ import { renameBracketTitle, type BotSessionRenamer } from "@/bots/sessions/botT
 import { BotSessionRetirer, detachRefs } from "@/bots/sessions/botSessionRemoval";
 import { reorderRefs } from "@/bots/sessions/botSessionOrder";
 import { carrySessionLog, registerSessionLog, type RegisteredSessionLog } from "@/bots/sessions/botSessionLogs";
+import { recordHandoverOrigin } from "@/bots/sessions/botSessionOrigins";
 import { normalizeBotCanvas, setBotCanvas } from "@/bots/botCanvas";
 import {
   BotConflictError,
@@ -368,6 +369,16 @@ export class BotRegistry {
   /** And handing it to a handover's successor. */
   async carrySessionLog(from: BotSessionRef, to: BotSessionRef): Promise<void> {
     return carrySessionLog(this.store, from, to);
+  }
+
+  /** Marks a handover's successor as one, for its card's icon. See `botSessionOrigins.ts`. */
+  async recordHandoverOrigin(from: BotSessionRef, to: BotSessionRef): Promise<void> {
+    return recordHandoverOrigin(this.store, from, to);
+  }
+
+  /** Spends this Bot's next anchor for a session about to start elsewhere, a handover's successor. */
+  async reserveAnchor(botId: string, ref: BotSessionRef): Promise<string> {
+    return this.starter.reserveAnchor(botId, sessionKey(ref));
   }
 
   /**

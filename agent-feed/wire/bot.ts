@@ -21,6 +21,16 @@ export interface BotSessionRef {
 }
 
 /**
+ * Where a session came from, when it was made from another one: a fork of it, or a handover of its
+ * context to the other harness. The card draws it as an icon before the name, so the title keeps
+ * only the anchor and the task.
+ */
+export interface BotSessionOrigin {
+  kind: "fork" | "handover";
+  from: BotSessionRef;
+}
+
+/**
  * A canvas a Bot can stand on besides the Feed's. The Feed canvas shows every Bot, as it always has,
  * less the sessions a Bot keeps exclusive to one of these; one of these shows only the Bots that name
  * it, with only the sessions they list for it.
@@ -92,6 +102,13 @@ export interface BotRecord {
    * handover carries it to the successor. Detaching keeps the entry, as it keeps an anchor.
    */
   sessionLogs?: Record<string, string>;
+  /**
+   * Where each session made from another came from, by `source:sessionId`. Absent for one started
+   * fresh or attached from outside. Written when the session is made: by the launch for a fork, and
+   * by the handover on every Bot that holds its source, ahead of the attach when the panel makes that
+   * one. Detaching keeps the entry, as it keeps an anchor.
+   */
+  sessionOrigins?: Record<string, BotSessionOrigin>;
   metadata: BotMetadata;
   grants: BotGrant[];
   createdAt: number;

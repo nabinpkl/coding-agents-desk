@@ -47,6 +47,7 @@ import {
   type RenderedHandover,
 } from "@/transcripts/sessionHandover";
 import { LIVE_SESSION_LAUNCHER, launchSession, type SessionLauncher } from "@/transcripts/session-ops/forkSession";
+import { anchoredTitle } from "@/bots/sessions/botSessionLaunch";
 import { sessionTitleRefusal } from "@/transcripts/session-ops/sessionTitle";
 import { refuseTaskText, titleTask, type BotSessionRef } from "@agentdesk/agent-feed-wire";
 import type { AgentBackend } from "@/agents/agentBackend";
@@ -121,13 +122,30 @@ export interface HandoverBots {
    * here is logged rather than answered: the successor is already running and is the result.
    */
   carryLog(from: BotSessionRef, to: BotSessionRef): Promise<void>;
+  /**
+   * Marks the successor as a handover of the source, on every Bot that holds the source, in either
+   * direction: its card draws an icon for it. Logged rather than answered, as the log's carry is.
+   */
+  recordOrigin(from: BotSessionRef, to: BotSessionRef): Promise<void>;
+  /** Spends the Bot's next anchor for a Claude successor before it starts, so it starts under it. */
+  reserveAnchor(botId: string, ref: { source: "claude"; sessionId: string }): Promise<string>;
 }
 
-async function carryLog(bots: HandoverBots | undefined, from: BotSessionRef, to: BotSessionRef): Promise<void> {
+/**
+ * What a successor takes from its source on the Bots: the agent log it kept, and the mark that it
+ * is a handover. Each failure is logged rather than answered: the successor is already running and
+ * is the result.
+ */
+async function recordSuccession(bots: HandoverBots | undefined, from: BotSessionRef, to: BotSessionRef): Promise<void> {
   try {
     await bots?.carryLog(from, to);
   } catch (error) {
     console.error("Handover could not carry the agent log", error);
+  }
+  try {
+    await bots?.recordOrigin(from, to);
+  } catch (error) {
+    console.error("Handover could not mark its successor as one", error);
   }
 }
 
@@ -272,7 +290,11 @@ export async function handoverToOpencode(
     const created = await backend.createSession(`${requestId}-create`, source.project);
     const title = named.task ? await nameSuccessor(backend, created.sessionId, named.task) : null;
     await backend.send(created.sessionId, `${requestId}-send`, prompt, "next");
-    await carryLog(actions.bots, { source: "claude", sessionId }, { source: "opencode", sessionId: created.sessionId });
+    await recordSuccession(
+      actions.bots,
+      { source: "claude", sessionId },
+      { source: "opencode", sessionId: created.sessionId },
+    );
     return jsonResponse(
       {
         session: title ? { ...created, title } : created,
@@ -355,12 +377,16 @@ export async function handoverToClaude(
     const read = await readSessionHandover("opencode", sessionId, actions);
     if (!read.ok) return errorResponse(read.code, read.message, read.status, requestId);
     const { session: source, handover } = read;
-    // Checked after the render rather than before it, so a session that cannot be handed over at
-    // all says so instead of complaining about the name it would have been given.
-    const title = handoverTitle(body.title, source.title);
-    const refusal = sessionTitleRefusal(title);
-    if (refusal) return errorResponse("invalid-request", `title: ${refusal}`, 400, requestId);
+    const requested = typeof body.title === "string" ? body.title.trim() : "";
     const botId = typeof body.botId === "string" && body.botId ? body.botId : null;
+    // Checked after the render rather than before it, so a session that cannot be handed over at
+    // all says so instead of complaining about the name it would have been given. On a Bot a
+    // requested title is the task its anchor brackets, so it is refused as a task.
+    const refusal =
+      botId === null
+        ? sessionTitleRefusal(handoverTitle(requested, source.title))
+        : requested && (refuseTaskText(requested) ?? sessionTitleRefusal(requested));
+    if (refusal) return errorResponse("invalid-request", `title: ${refusal}`, 400, requestId);
     if (botId !== null && !(await actions.bots?.exists(botId))) {
       return errorResponse("unknown-bot", `Bot "${botId}" was not found`, 404, requestId);
     }
@@ -375,9 +401,22 @@ export async function handoverToClaude(
         requestId,
       );
     }
-    const started = await launchSession({ checkout: source.project, title, prompt }, actions.launch);
+    const successorId = crypto.randomUUID();
+    const naming =
+      botId === null
+        ? { title: handoverTitle(requested, source.title) }
+        : await botStartingTitle(actions.bots!, botId, successorId, requested || (source.title ?? ""));
+    const started = await launchSession(
+      { checkout: source.project, ...naming, prompt },
+      actions.launch,
+      () => successorId,
+    );
     if (botId !== null) await actions.bots!.attach(botId, { source: "claude", sessionId: started.sessionId });
-    await carryLog(actions.bots, { source: "opencode", sessionId }, { source: "claude", sessionId: started.sessionId });
+    await recordSuccession(
+      actions.bots,
+      { source: "opencode", sessionId },
+      { source: "claude", sessionId: started.sessionId },
+    );
     return jsonResponse(
       {
         session: started,
@@ -391,15 +430,33 @@ export async function handoverToClaude(
 }
 
 /**
- * What to call the session that continues the work.
+ * What a Claude successor on a Bot starts under: the Bot's next anchor, spent now, bracketing the
+ * task `current` carries (the requested title, or else the source's), the way a fork starts
+ * (`startingTitle` in `botSessionLaunch.ts`). No `(handover)`: the card's icon says that. With no
+ * task to bracket it starts unnamed under the anchor, so Claude titles it from the handover and the
+ * Bot's title queue brackets that, as it does for a fresh launch with no task.
+ */
+async function botStartingTitle(
+  bots: HandoverBots,
+  botId: string,
+  sessionId: string,
+  current: string,
+): Promise<{ title: string; unnamed?: true }> {
+  const anchor = await bots.reserveAnchor(botId, { source: "claude", sessionId });
+  const { title } = anchoredTitle(anchor, current);
+  return title === anchor ? { title, unnamed: true } : { title };
+}
+
+/**
+ * What to call a successor started off any Bot, which has no anchor to start under.
  *
  * The source's own title with a suffix, so a roster shows the pair next to each other rather than
  * a name that says nothing about where it came from. Trimmed from the FRONT of the borrowed part
  * when it would run past the catalog's cap, because the suffix is the part that has to survive:
  * a title cut to exactly the source's own would read as a duplicate row.
  */
-function handoverTitle(requested: unknown, sourceTitle: string | undefined): string {
-  if (typeof requested === "string" && requested.trim()) return requested.trim();
+function handoverTitle(requested: string, sourceTitle: string | undefined): string {
+  if (requested) return requested;
   const suffix = " (handover)";
   const base = (sourceTitle ?? "").trim() || "opencode session";
   const room = SUMMARY_TITLE_CHARACTERS - suffix.length;

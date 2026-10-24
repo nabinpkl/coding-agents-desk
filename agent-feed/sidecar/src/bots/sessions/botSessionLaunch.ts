@@ -5,7 +5,7 @@
 // still read `this.store` and `this.catalog`: they are the registry's own, handed over
 // at construction so both halves write through the same store.
 
-import type { BotRecord, BotSessionRef, StartedSession } from "@agentdesk/agent-feed-wire";
+import type { BotRecord, BotSessionOrigin, BotSessionRef, StartedSession } from "@agentdesk/agent-feed-wire";
 import {
   firstFreeAnchor,
   formatBotSessionTitle,
@@ -28,6 +28,7 @@ import type { NormalizedLaunch } from "@/bots/botCommands";
 import { sessionKey } from "@/bots/botIdempotency";
 import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
 import { placeRefs } from "@/bots/sessions/botSessionOrder";
+import { forkOrigin, withSessionOrigin } from "@/bots/sessions/botSessionOrigins";
 import { BotInvalidError } from "@/bots/botTypes";
 import {
   BotConflictError,
@@ -177,7 +178,7 @@ export class BotSessionStarter {
    */
   async launchFirstSession(bot: BotRecord, launch: NormalizedLaunch): Promise<StartedSession> {
     const sessionId = this.newSessionId();
-    const anchor = await this.reserveAnchor(bot.botId, `claude:${sessionId}`);
+    const anchor = await this.reserveAnchor(bot.botId, `claude:${sessionId}`, forkOrigin(launch.from));
     return this.launchOrExplain(bot, { ...launch, ...this.startingTitle(anchor, launch) }, () => sessionId);
   }
 
@@ -211,11 +212,11 @@ export class BotSessionStarter {
       // the cards either side of it. The order itself is written by `recordStartedSession`.
       const backed = ensureSessionSlots(current, placeRefs(current.sessionRefs, [ref], after));
       const anchor = nextAnchor(spentAnchors(snapshot.bots));
-      const updated: BotRecord = {
-        ...current,
-        ...backed,
-        sessionAnchors: { ...(current.sessionAnchors ?? {}), [key]: anchor },
-      };
+      const updated = withSessionOrigin(
+        { ...current, ...backed, sessionAnchors: { ...(current.sessionAnchors ?? {}), [key]: anchor } },
+        key,
+        forkOrigin(launch.from),
+      );
       const bots = [...snapshot.bots];
       bots[index] = updated;
       return {
@@ -236,13 +237,14 @@ export class BotSessionStarter {
   }
 
   /**
-   * Spends the next free anchor for a session id that does not exist yet, and stores it.
+   * Spends the next free anchor for a session id that does not exist yet, and stores it, with
+   * where the session comes from when it is made from another.
    *
    * The launch that follows composes its title from the returned anchor, and the attach after
    * that finds the stored entry. A launch that never happens still spends its name, for the
    * reason `launchReservedSession` gives.
    */
-  async reserveAnchor(botId: string, key: string): Promise<string> {
+  async reserveAnchor(botId: string, key: string, origin?: BotSessionOrigin): Promise<string> {
     return this.store.mutate((snapshot) => {
       const index = snapshot.bots.findIndex((one) => one.botId === botId);
       if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
@@ -251,10 +253,11 @@ export class BotSessionStarter {
         return { snapshot, value: current.sessionAnchors[key] };
       }
       const anchor = nextAnchor(spentAnchors(snapshot.bots));
-      const updated: BotRecord = {
-        ...current,
-        sessionAnchors: { ...(current.sessionAnchors ?? {}), [key]: anchor },
-      };
+      const updated = withSessionOrigin(
+        { ...current, sessionAnchors: { ...(current.sessionAnchors ?? {}), [key]: anchor } },
+        key,
+        origin,
+      );
       const bots = [...snapshot.bots];
       bots[index] = updated;
       return {

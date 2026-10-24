@@ -280,6 +280,8 @@ const routes: RouteHandler[] = [
         await botRegistry.attachStartedSession(botId, ref, { kind: "user" });
       },
       carryLog: (from, to) => botRegistry.carrySessionLog(from, to),
+      recordOrigin: (from, to) => botRegistry.recordHandoverOrigin(from, to),
+      reserveAnchor: (botId, ref) => botRegistry.reserveAnchor(botId, ref),
     },
   }),
   createStartSessionRoutes(resolveBackend),

@@ -327,6 +327,7 @@ test("a handover to Claude puts the started session on the asking Bot, in the sa
   const started: { cwd: string; title: string; prompt?: string }[] = [];
   const attached: { botId: string; sessionId: string }[] = [];
   const carried: string[] = [];
+  const marked: string[] = [];
   const quiet = spyOn(console, "error").mockImplementation(() => {});
   try {
     const route = createHandoverRoutes(() => undefined, {
@@ -342,6 +343,10 @@ test("a handover to Claude puts the started session on the asking Bot, in the sa
           carried.push(`${from.source}:${from.sessionId} -> ${to.source}:${to.sessionId}`);
           throw new Error("store unavailable");
         },
+        recordOrigin: async (from, to) => {
+          marked.push(`${from.source}:${from.sessionId} -> ${to.source}:${to.sessionId}`);
+        },
+        reserveAnchor: async () => "Gina",
       },
     });
     const request = handoverRequest({ requestId: "r7", sessionId: OPENCODE_ID, botId: "bot-1" });
@@ -349,7 +354,10 @@ test("a handover to Claude puts the started session on the asking Bot, in the sa
     expect(response?.status).toBe(201);
     const body = (await response?.json()) as { session: { sessionId: string } };
     expect(attached).toEqual([{ botId: "bot-1", sessionId: body.session.sessionId }]);
+    // Under the anchor the Bot spent for it, with its source's task, and marked as a handover.
+    expect(started[0]!.title).toBe("Gina (Wire contract)");
     expect(carried).toEqual([`opencode:${OPENCODE_ID} -> claude:${body.session.sessionId}`]);
+    expect(marked).toEqual(carried);
     expect(quiet).toHaveBeenCalledWith("Handover could not carry the agent log", expect.any(Error));
 
     // A Bot that is gone is refused before anything starts, rather than leaving a pane behind.

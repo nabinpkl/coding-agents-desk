@@ -10,6 +10,7 @@ import type { AgentSessionDescriptor, BotView, SessionSummary } from "@agentdesk
 import { SessionView, type SessionViewContext } from "@/features/session-view/SessionView";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
 import { SessionCardMeta } from "@/features/bots/session-cards/SessionCardMeta";
+import { SessionCardName, sessionOrigin } from "@/features/bots/session-cards/SessionCardName";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SessionRowMenu } from "@/features/bots/menus/SessionRowMenu";
 import type { HandoverDestination } from "@/features/bots/sessionHandover";
@@ -135,6 +136,7 @@ export function BotSessionCard({
   onClearFather: () => void;
 }) {
   const title = session.title || session.sessionId;
+  const origin = sessionOrigin(bot, session);
   // Through this card's own machine, which is the one that holds the session and its archive.
   const archive = useSessionArchiveCommand(
     useCallback(
@@ -335,6 +337,7 @@ export function BotSessionCard({
                 onPointerCancel={dropCard}
                 aria-expanded={open}
                 aria-label={title}
+                title={origin?.text}
                 // `cursor-pointer` rather than the header's `cursor-grab`, because unlike that header
                 // this element's first job is opening the session; the grabbing cursor appears once a
                 // press is actually being held, which is when it says something true.
@@ -354,9 +357,7 @@ export function BotSessionCard({
                 className="pointer-events-none relative mt-0.5"
               />
               <div className="pointer-events-none relative min-w-0 flex-1">
-                <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
-                  {title}
-                </span>
+                <SessionCardName title={title} origin={origin} />
                 <SessionCardMeta
                   source={session.source}
                   activity={session.activity}

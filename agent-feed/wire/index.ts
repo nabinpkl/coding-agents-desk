@@ -119,6 +119,7 @@ export type {
   BotSessionsRetired,
   BotMetadata,
   BotRecord,
+  BotSessionOrigin,
   BotSessionRef,
   BotSnapshot,
   BotView,
