@@ -16,7 +16,7 @@ Skip ADRs for: renames, dependency bumps, bug fixes, minor refactors, anything i
 
 `NNNN-kebab-case-title.md`. Four-digit zero-padded, monotonically increasing. Numbers are never reused; if an ADR is dropped before acceptance, retire its number in the index with status `dropped`.
 
-The number is the stable handle. Cross-references from `docs/TASKS.md` and code comments use `ADR-NNNN`, never the path.
+The number is the stable handle. Cross-references from `TASKS.md` and code comments use `ADR-NNNN`, never the path.
 
 ## Status lifecycle
 
@@ -35,7 +35,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 2. Fill in Context, Decision Drivers, Considered Options, Decision Outcome, Consequences. Skip the Confirmation and Pros and Cons sections if they do not earn their place.
 3. Set `status: proposed` and today's date.
 4. Open the change. When merged with `status: accepted`, add a row to the index below.
-5. Reference the ADR from `docs/TASKS.md` and code comments as `ADR-NNNN`.
+5. Reference the ADR from `TASKS.md` and code comments as `ADR-NNNN`.
 
 ## Template provenance
 
