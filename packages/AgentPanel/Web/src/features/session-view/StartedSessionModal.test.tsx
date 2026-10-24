@@ -86,3 +86,13 @@ it("hands an SDK session over the same way once the catalog lists it", () => {
   modal(new Map([[STARTED.projectPath, [LISTED]]]), onListed, { ...STARTED, sdk: true });
   expect(onListed).toHaveBeenCalledWith(expect.objectContaining({ projectPath: STARTED.projectPath }), LISTED);
 });
+
+it("hands it over under the name it was started with when the catalog lists it before it is named", () => {
+  const onListed = vi.fn();
+  // A row with no name is titled with the session's id.
+  modal(new Map([[STARTED.projectPath, [{ ...LISTED, title: STARTED.sessionId }]]]), onListed);
+  expect(onListed).toHaveBeenCalledWith(expect.objectContaining({ projectPath: STARTED.projectPath }), {
+    ...LISTED,
+    title: "Garden notes",
+  });
+});

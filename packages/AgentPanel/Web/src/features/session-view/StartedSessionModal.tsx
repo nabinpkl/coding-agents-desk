@@ -76,9 +76,15 @@ export function StartedSessionModal({
     sessionsByProject
       .get(started.projectPath)
       ?.find((entry) => entry.source === started.source && entry.sessionId === started.sessionId) ?? null;
-  // The catalog listing it is what hands the session over to the ordinary session modal.
+  // The catalog listing it is what hands the session over to the ordinary session modal. With the
+  // name it was started under while the listing has none yet: opencode is created and then named,
+  // the catalog can list it in between, and a row with no name is titled with the session's id
+  // (`sessionTitle` in the sidecar). The window keeps the row it was handed, so it would otherwise
+  // stay titled with the id until reopened.
   useNotify(listed, (session) => {
-    if (session) onListed(projectOf(started, projects, session.lastEventAt), session);
+    if (!session) return;
+    const named = session.title && session.title !== session.sessionId;
+    onListed(projectOf(started, projects, session.lastEventAt), named ? session : { ...session, title: started.title });
   });
 
   // Focus moves in on open and back to whatever held it on close, the way a dialog's does.
