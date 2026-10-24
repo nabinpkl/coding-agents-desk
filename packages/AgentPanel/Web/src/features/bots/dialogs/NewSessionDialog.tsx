@@ -48,9 +48,14 @@ export function NewSessionDialog({
 
   if (!open) return null;
 
+  // Claude, either way it runs, starts only with its first turn: one started bare writes no
+  // transcript, so nothing can resume it. opencode keeps a session at its serve from the start.
+  const needsMessage = harness !== "opencode" && !prompt.trim();
+  const ready = Boolean(selectedPath) && Boolean(title.trim()) && !needsMessage;
+
   const submit = async (event: SubmitEvent) => {
     event.preventDefault();
-    if (pending || !selectedPath || !title.trim()) return;
+    if (pending || !selectedPath || !ready) return;
     setPending(true);
     setError(null);
     try {
@@ -157,8 +162,9 @@ export function NewSessionDialog({
                 onChange={(event) => setPrompt(event.target.value)}
                 rows={5}
                 maxLength={32_768}
+                required={harness !== "opencode"}
                 disabled={pending}
-                placeholder="Optional"
+                placeholder={harness === "opencode" ? "Optional" : undefined}
                 className="mt-1 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
               />
             </label>
@@ -178,7 +184,7 @@ export function NewSessionDialog({
               </button>
               <button
                 type="submit"
-                disabled={pending || !selectedPath || !title.trim()}
+                disabled={pending || !ready}
                 aria-busy={pending || undefined}
                 className="flex min-h-10 min-w-28 cursor-pointer items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
               >

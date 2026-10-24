@@ -40,18 +40,42 @@ it("starts only once it has a directory and a name, in the harness picked", asyn
   );
 });
 
-it("starts a Claude session through the SDK, with no first message, when nothing else is picked", async () => {
+it("starts a Claude session through the SDK, with its first message, when nothing else is picked", async () => {
   const onStart = vi.fn(async () => {});
   const start = dialog(onStart);
   expect(screen.getByRole("radio", { name: /Claude SDK/ })).toBeChecked();
   fireEvent.click(screen.getByRole("radio", { name: /garden/ }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Garden notes" } });
-  fireEvent.change(screen.getByLabelText("First message"), { target: { value: "   " } });
+  fireEvent.change(screen.getByLabelText("First message"), { target: { value: "Sort the beds" } });
   fireEvent.click(start);
   await waitFor(() =>
     expect(onStart).toHaveBeenCalledWith({
       source: "claude",
       claudeMode: "sdk",
+      projectPath: GARDEN.projectPath,
+      title: "Garden notes",
+      prompt: "Sort the beds",
+    }),
+  );
+});
+
+it("starts no Claude session without a first message, in either harness, and opencode without one", async () => {
+  const onStart = vi.fn(async () => {});
+  const start = dialog(onStart);
+  fireEvent.click(screen.getByRole("radio", { name: /garden/ }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Garden notes" } });
+  fireEvent.change(screen.getByLabelText("First message"), { target: { value: "   " } });
+  expect(start).toBeDisabled();
+  fireEvent.click(screen.getByRole("radio", { name: /Claude Code/ }));
+  expect(start).toBeDisabled();
+  fireEvent.submit(start.closest("form")!);
+  expect(onStart).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("radio", { name: /opencode/ }));
+  expect(start).toBeEnabled();
+  fireEvent.click(start);
+  await waitFor(() =>
+    expect(onStart).toHaveBeenCalledWith({
+      source: "opencode",
       projectPath: GARDEN.projectPath,
       title: "Garden notes",
     }),
@@ -64,12 +88,14 @@ it("starts a Claude session in its terminal UI when that is the harness picked",
   fireEvent.click(screen.getByRole("radio", { name: /garden/ }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Garden notes" } });
   fireEvent.click(screen.getByRole("radio", { name: /Claude Code/ }));
+  fireEvent.change(screen.getByLabelText("First message"), { target: { value: "Sort the beds" } });
   fireEvent.click(start);
   await waitFor(() =>
     expect(onStart).toHaveBeenCalledWith({
       source: "claude",
       projectPath: GARDEN.projectPath,
       title: "Garden notes",
+      prompt: "Sort the beds",
     }),
   );
 });
