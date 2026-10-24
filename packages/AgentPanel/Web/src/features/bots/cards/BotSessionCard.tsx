@@ -351,7 +351,6 @@ export function BotSessionCard({
                 // draws: one session looks like one session in both places, which is the whole
                 // reason the row and the card share a mark at all.
                 shut={!open}
-                sleeping
                 className="pointer-events-none relative mt-0.5"
               />
               <div className="pointer-events-none relative min-w-0 flex-1">

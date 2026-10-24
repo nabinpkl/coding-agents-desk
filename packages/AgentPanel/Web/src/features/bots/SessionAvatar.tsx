@@ -35,11 +35,16 @@ import { useBotFaces } from "@/features/bots/avatar/botFacesSwitch";
  * **Activity is a ring rather than a corner badge.** A badge would have to be ringed in whatever
  * is behind it to read as sitting ON the disc, and what is behind it here changes: a session's
  * titlebar is `session-view-header` when the card is open and the card's own shade when it is
- * closed. A ring needs no such agreement. Cold is left unmarked rather than given a grey ring,
- * because a grey ring would be the row's third neutral shape. Where the row no longer says "Cold"
- * in words -- a canvas card, whose second line now carries the session's task -- the face says it
- * instead, with `sleeping`: the sleeping Zs of a cartoon, a big one at the top corner of the head
- * and two smaller ones drifting up and away, mostly off the disc so they need no ring either.
+ * closed. A ring needs no such agreement. Cold takes no grey ring, because a grey ring would be the
+ * row's third neutral shape. It is said instead by the sleeping Zs of a cartoon, a big one at the
+ * top corner of the head and two smaller ones drifting up and away, mostly off the disc so they
+ * need no ring either.
+ *
+ * **The face carries all of it, wherever it is drawn.** Live is the ring, cold the Zs, anything
+ * else neither, on the card, in the roster, in the Sessions view and in the modal's header alike.
+ * The Zs were once something a caller asked for, and only the card did: the Sessions view took the
+ * face later, copied the roster's call, and drew a cold session as awake. One session reads as one
+ * session everywhere, so there is nothing here for a caller to opt into.
  */
 export function SessionAvatar({
   title,
@@ -47,7 +52,6 @@ export function SessionAvatar({
   shaded,
   rank,
   shut = false,
-  sleeping = false,
   className = "",
 }: {
   title: string;
@@ -87,12 +91,10 @@ export function SessionAvatar({
    * no eyes to close and a second treatment for one fact is a second thing to learn.
    */
   shut?: boolean;
-  /** Whether to mark a cold session on the face, for a row that does not say "Cold" in words. */
-  sleeping?: boolean;
   className?: string;
 }) {
   const faces = useBotFaces();
-  const asleep = sleeping && activity === "cold";
+  const asleep = activity === "cold";
   const mark = sessionMark({ faces, title, activity, shaded, rank, shut, className: asleep ? "" : className });
   if (!asleep) return mark;
   return (

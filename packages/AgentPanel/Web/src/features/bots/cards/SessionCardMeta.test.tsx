@@ -84,10 +84,13 @@ describe("SessionCardMeta", () => {
     expect(screen.getByLabelText("Source: Claude").textContent).toBe("C");
   });
 
-  it("leaves Cold to the face and puts the time last", () => {
-    const { container } = render(<SessionCardMeta source="opencode" lastEventAt={AT} activity="cold" />);
-    const row = container.firstElementChild!;
-    expect(row.lastElementChild?.textContent).toMatch(/09:05|9:05/);
-    expect(screen.getByText("Cold").className).toContain("sr-only");
+  it("leaves the activity to the face, live and paused as well as cold, and puts the time last", () => {
+    for (const activity of ["live", "paused", "cold"] as const) {
+      const { container, unmount } = render(<SessionCardMeta source="opencode" lastEventAt={AT} activity={activity} />);
+      const row = container.firstElementChild!;
+      expect(row.lastElementChild?.textContent).toMatch(/09:05|9:05/);
+      expect(screen.getByText(activity).className).toContain("sr-only");
+      unmount();
+    }
   });
 });

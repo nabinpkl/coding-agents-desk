@@ -4,8 +4,8 @@
 // in words. A card is narrow, and the most useful thing it can say under the title is what the
 // session said it set out to do -- the `<task-state>` block it opened its last piece of handed-over
 // work with -- so the rest gives up room: the provider shrinks to a letter whose hue still names
-// it, "Cold" moves onto the face as sleeping Zs (`SessionAvatar`'s `sleeping`), and the time goes
-// last, where a column of cards lines it up.
+// it, the activity is left to the face beside the title (a green ring while live, sleeping Zs while
+// cold, `SessionAvatar`), and the time goes last, where a column of cards lines it up.
 //
 // The task is a control of its own: it opens the whole goal and the decisions under it, which is
 // the reason the block exists -- seeing how the session set out without reading its transcript.
@@ -49,8 +49,8 @@ export function SessionCardMeta({
       <SourceBadge source={source} short />
       {taskState ? <TaskButton taskState={taskState} /> : <span className="flex-1" />}
       {worktree ? <WorktreeChip worktree={worktree} /> : null}
-      {/* Cold is on the face; a screen reader still hears it here, where it used to be said. */}
-      {activity === "cold" ? <span className="sr-only">Cold</span> : <span className="capitalize">{activity}</span>}
+      {/* The face says it; a screen reader, which is not shown the face, still hears it here. */}
+      <span className="sr-only">{activity}</span>
       <span className="shrink-0 tabular-nums">{time}</span>
     </div>
   );
