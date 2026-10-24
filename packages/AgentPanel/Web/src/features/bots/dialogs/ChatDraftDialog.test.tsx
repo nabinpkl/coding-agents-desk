@@ -79,17 +79,14 @@ describe("the Chat box", () => {
     await waitFor(() => expect(onStart).toHaveBeenCalledWith("Plan the garden", ORACLE));
   });
 
-  it("says what sending does, naming the machine once there is a choice of one", () => {
-    const { rerender } = render(
-      <ChatDraftDialog machines={[MAC]} machine={MAC} onClose={() => {}} onStart={async () => {}} />,
-    );
-    const said = () => screen.getByText(/Your first message starts Claude/);
-    expect(said()).toHaveTextContent(
+  it("says what sending does, in words that stay put when the machine changes", () => {
+    render(<ChatDraftDialog machines={[MAC, ORACLE]} machine={MAC} onClose={() => {}} onStart={async () => {}} />);
+    const said = () => screen.getByText(/Your first message starts Claude/).textContent;
+    const before = said();
+    expect(before).toBe(
       "Your first message starts Claude in a new folder made for this chat alone. Nothing is created until you send it.",
     );
-    rerender(<ChatDraftDialog machines={[MAC, ORACLE]} machine={MAC} onClose={() => {}} onStart={async () => {}} />);
-    expect(said()).toHaveTextContent("made for this chat alone on mac.");
     fireEvent.click(screen.getByRole("button", { name: "oracle" }));
-    expect(said()).toHaveTextContent("made for this chat alone on oracle.");
+    expect(said()).toBe(before);
   });
 });
