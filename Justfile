@@ -1319,7 +1319,14 @@ check-legs: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness te
 # Each leg runs under a time limit and fails, named, when it outruns it. Measured 2026-10-18: one
 # sidecar test run sat at 0% CPU with its sockets open for over nine minutes and would have held
 # the gate open for good; the same suite then passed in 47s. Ten minutes is several times any leg.
+#
+# The sidecar's leg gets two minutes of its own, because its hang does not end by waiting. Sampled
+# 2026-10-19: a worker whose main thread and File Watcher thread are parked on one lock runs nothing
+# again, timers included, so the ten minutes were nine and a half spent on a run already lost. The
+# leg is a typecheck and `bun test --parallel`, ~10-25s; the slowest seen was 42s with every leg of
+# the gate running at once on a machine at load 35.
 check_leg_timeout := env_var_or_default("AGENTDESK_CHECK_LEG_TIMEOUT", "600")
+check_sidecar_leg_timeout := env_var_or_default("AGENTDESK_CHECK_SIDECAR_LEG_TIMEOUT", "120")
 check:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1381,8 +1388,9 @@ check:
     # The watchdog sleeps to the deadline rather than polling: `wait` has no timeout to give it.
     # TERM first, which a leg's own traps turn into reaping its children, then KILL after a grace.
     set -m
-    limit='{{check_leg_timeout}}'
     run_leg() {
+        local limit='{{check_leg_timeout}}'
+        [ "$1" = agent-feed-sidecar-check ] && limit='{{check_sidecar_leg_timeout}}'
         just "$1" &
         local leg=$! began=$SECONDS leg_status=0
         (
