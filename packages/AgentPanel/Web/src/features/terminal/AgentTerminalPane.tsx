@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -158,6 +159,16 @@ export function AgentTerminalPane({
       zoom,
       onState,
     });
+  // The mount as an element as well as the hook's ref, so its resizes are watched from the render
+  // it arrives in ("Attach to an element when it arrives", the panel's AGENTS.md).
+  const [mountElement, setMountElement] = useState<HTMLDivElement | null>(null);
+  const holdMount = useCallback(
+    (element: HTMLDivElement | null) => {
+      mountRef.current = element;
+      setMountElement(element);
+    },
+    [mountRef, setMountElement],
+  );
   // Steps from whatever is on screen, so the first press moves from what the reader is looking at
   // rather than from a default they never chose.
   const stepZoom = (by: number): void =>
@@ -236,10 +247,17 @@ export function AgentTerminalPane({
    * Keeps an echo's last drawn row at its bottom edge (`lastDrawnRowInView.ts`). Re-run when that
    * row moves rather than on every write, on the screen's height, which a reflow moves, and on
    * `height`, because a reader dragging the peek taller changes how much fits above it.
+   *
+   * And whenever the mount itself changes size, which none of those say: the pane's height is
+   * clamped to a share of its column and to its whole screen, both measured after it opens. On the
+   * iPhone, Claude's prompt box opened below the window and appeared only once something redrew it
+   * (2026-10-19), which a late resize like that explains; a finger cannot move the window.
    */
-  useDomSync(() => {
+  const placeWindow = (): void => {
     if (echo && mountRef.current) keepLastDrawnRowInView(mountRef.current, lastDrawnRow);
-  }, [echo, contentHeight, height, lastDrawnRow, mountRef]);
+  };
+  useDomSync(placeWindow, [echo, contentHeight, height, lastDrawnRow, mountRef]);
+  useResizeObserver(echo ? mountElement : null, placeWindow);
 
   /**
    * Holds an echo at a fixed share of the session's column, whatever its program has drawn.
@@ -361,7 +379,7 @@ export function AgentTerminalPane({
           direction -- stretched to the box, the screen's padding would come out of its own height
           instead of adding to it, and the last row would sit outside the surface it is drawn on. */}
       <div
-        ref={mountRef}
+        ref={holdMount}
         className="flex min-h-0 flex-1 overflow-auto py-3 [&>.xterm]:m-auto [&>.xterm]:box-content [&>.xterm]:shrink-0 [&>.xterm]:rounded-lg [&>.xterm]:bg-white [&>.xterm]:p-2 dark:[&>.xterm]:bg-[#0b0e14]"
       />
       <OnKeyboardBar focused={focused}>
