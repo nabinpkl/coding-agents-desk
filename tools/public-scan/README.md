@@ -54,3 +54,23 @@ gitleaks reads `.gitleaks.toml` at the repository root: its default rules, plus 
 value that looks like a secret and is not one (a placeholder key in a test, a checksum, a public
 manifest key). Each exception names its file and its exact value, so the same value elsewhere, or a
 different value in that file, is still reported. Add one only after reading the line it is on.
+
+## Publishing
+
+`main` reaches the public repository through one command:
+
+```
+just publish
+```
+
+It sends `main` to the remote that `git config agentdesk.publicRemote` names, and only after
+`--history` comes up clean over the commits that remote does not have yet (all of `main` the first
+time). It refuses on a machine without the denylist, and refuses anything that is not a
+fast-forward of the public `main`. `tools/publish.sh` says what each check is for.
+
+The pre-push hook `tools/git-hooks/pre-push`, linked by `just git-hooks-install`, refuses every
+other push to that remote: a plain `git push`, a tag, another branch, a delete, a force-push, or a
+commit other than the one `just publish` scanned. It recognises the remote by its name or by its
+URL. Pushes to every other remote, `origin` included, pass untouched, and with
+`agentdesk.publicRemote` unset every push passes. `git push --no-verify` skips the hook, as it skips
+every hook.

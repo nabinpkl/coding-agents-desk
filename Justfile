@@ -619,25 +619,38 @@ agent-feed-fitness:
 public-scan *args:
     node '{{justfile_directory()}}/tools/public-scan/public-scan.mjs' "$@"
 
-# Installs this repository's git hooks, which are tracked so every checkout gets the same ones.
+# The public repository is the remote `git config agentdesk.publicRemote` names. This refuses what
+# is not a fast-forward of its `main`, and the pre-push hook `git-hooks-install` links refuses any
+# other push there. `tools/publish.sh` says what each check is for, and
+# `tools/public-scan/README.md` how publishing fits with the scan.
 #
-# One symlink into the COMMON git directory, which is what every linked worktree shares -- so
-# installing once here covers the worktrees under `.claude/worktrees/` as well, including ones
-# that do not exist yet. Idempotent, and it refuses to replace a hook it did not put there rather
-# than silently discarding somebody's own.
+# Sends `main` to the public repository once the history scan finds nothing in what it would send.
+publish:
+    bash '{{justfile_directory()}}/tools/publish.sh'
+
+# Installs this repository's git hooks, which are tracked so every checkout gets the same ones:
+# pre-commit (the file and import rules) and pre-push (only `just publish` reaches the public
+# repository).
+#
+# One symlink per hook into the COMMON git directory, which is what every linked worktree shares
+# -- so installing once here covers the worktrees under `.claude/worktrees/` as well, including
+# ones that do not exist yet. Idempotent, and it refuses to replace a hook it did not put there
+# rather than silently discarding somebody's own.
 git-hooks-install:
     #!/usr/bin/env bash
     set -euo pipefail
-    SOURCE='{{justfile_directory()}}/tools/git-hooks/pre-commit'
     HOOKS="$(git -C '{{justfile_directory()}}' rev-parse --git-common-dir)/hooks"
     mkdir -p "$HOOKS"
-    TARGET="$HOOKS/pre-commit"
-    if [ -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
-        echo "git-hooks-install: $TARGET exists and is not a symlink; move it aside first" >&2
-        exit 1
-    fi
-    ln -sfn "$SOURCE" "$TARGET"
-    echo "git-hooks-install: pre-commit -> $SOURCE"
+    for HOOK in pre-commit pre-push; do
+        SOURCE='{{justfile_directory()}}'"/tools/git-hooks/$HOOK"
+        TARGET="$HOOKS/$HOOK"
+        if [ -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
+            echo "git-hooks-install: $TARGET exists and is not a symlink; move it aside first" >&2
+            exit 1
+        fi
+        ln -sfn "$SOURCE" "$TARGET"
+        echo "git-hooks-install: $HOOK -> $SOURCE"
+    done
 
 # Issue (or renew) the panel dev server's TLS certificate for this Mac's MagicDNS name.
 #
@@ -919,10 +932,10 @@ build-system-check:
     node --test tools/build-system/*.test.mjs
 
 # The shell scripts in `tools/` that drive host-run, the client install, the launch environment,
-# port and pid reclaiming, telemetry and TestFlight upload, each tested by its `-tests.sh` beside it,
-# plus the media architecture guard and the public scan's own tests. Plain shell with stubbed
-# commands, about 10s, nothing built, so an edit to `tools/` runs these rather than every leg of the
-# gate. `swift-check` runs them too.
+# port and pid reclaiming, telemetry, TestFlight upload and publishing, each tested by its
+# `-tests.sh` beside it, plus the media architecture guard and the public scan's own tests. Plain
+# shell with stubbed commands, about 10s, nothing built, so an edit to `tools/` runs these rather
+# than every leg of the gate. `swift-check` runs them too.
 tools-check:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -937,6 +950,7 @@ tools-check:
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/host-client-telemetry-tests.sh
     sh tools/testflight-upload-tests.sh
+    bash tools/publish-tests.sh
 
 # The Swift capture-and-input helper the sidecar spawns for every desktop stream. It is compiled,
 # but it is on the current path, so unlike the rest of the Swift in this repo it belongs in the

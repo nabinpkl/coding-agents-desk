@@ -163,7 +163,8 @@ Each is the short form; the file named holds the full text and the measurements 
   of the fitness gate fails on a name, address, account or device id, tailnet name or credential
   shape beyond the baseline recorded when the cleanup began. Take the string out rather than
   recording it. When you remove existing ones, `just public-scan --update-baseline` and commit the
-  baseline with the change. (`tools/public-scan/README.md`.)
+  baseline with the change. `main` reaches the public repository only through `just publish`, and
+  a pre-push hook refuses any other push there. (`tools/public-scan/README.md`.)
 
 ## Claude's own files are off limits
 

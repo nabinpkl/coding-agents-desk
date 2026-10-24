@@ -514,9 +514,11 @@ their wire shapes included, and [dormant-native.md](dormant-native.md) their ope
 apply to every change, among them: at most 500 lines per file, at most 12 source files per
 directory, and imports by absolute path only, in `packages/AgentPanel/Web/src` and
 `agent-feed/sidecar/src`; lint with oxlint; format with oxfmt at 120 columns; and personal data kept
-out of the tree (`tools/public-scan/`). The sidecar's tests run under `bun test --parallel` and the
-panel's under Vitest. A sidecar test waits for what it expects, never for a length of time, and the
-lint gate refuses a timer in one.
+out of the tree (`tools/public-scan/`). `main` reaches the public repository only through
+`just publish`, which scans every commit it sends and refuses what is not a fast-forward, and a
+pre-push hook refuses any other push there (`tools/publish.sh`, `tools/git-hooks/pre-push`). The
+sidecar's tests run under `bun test --parallel` and the panel's under Vitest. A sidecar test waits
+for what it expects, never for a length of time, and the lint gate refuses a timer in one.
 
 ## Cross-references
 

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Refuses a push to the public repository that did not come through `just publish`
+# (`tools/publish.sh`), which scans every commit it sends for personal data first.
+#
+# The public repository is the remote `git config agentdesk.publicRemote` names. A push counts as
+# going there when it names that remote, or names its URL in any common spelling (https, ssh or
+# scp style, with or without `.git`). With the key unset there is no public repository yet, and
+# every push passes. Every other remote, `origin` included, is not this hook's business.
+#
+# To the public repository it allows one thing: `refs/heads/main`, moved forward to exactly the
+# commit `just publish` scanned (AGENTDESK_PUBLISH_OID). A plain `git push`, a tag, another branch,
+# a delete, a force-push, and a commit other than the scanned one are refused.
+#
+# Linked by `just git-hooks-install`. `git push --no-verify` skips it, as it skips every hook.
+set -uo pipefail
+
+remote_name="$1"
+remote_url="$2"
+
+die() {
+    echo "pre-push: $*" >&2
+    exit 1
+}
+
+public="$(git config --get agentdesk.publicRemote || true)"
+[ -n "$public" ] || exit 0
+public_url="$(git remote get-url --push "$public" 2>/dev/null || true)"
+
+# One spelling for a repository URL: no scheme, no user, `host:path` as `host/path`, no `.git`,
+# lower case. https://github.com/o/r.git, git@github.com:o/r and ssh://git@github.com/o/r all
+# become github.com/o/r.
+normalise() {
+    printf '%s\n' "$1" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#^[^@/]+@##; s#^([^/:]+):#\1/#; s#/+$##; s#\.git$##' |
+        tr '[:upper:]' '[:lower:]'
+}
+
+if [ "$remote_name" != "$public" ]; then
+    [ -n "$public_url" ] || exit 0
+    [ "$(normalise "$remote_url")" = "$(normalise "$public_url")" ] || exit 0
+fi
+
+[ -n "${AGENTDESK_PUBLISH_OID:-}" ] ||
+    die "'$public' is the public repository; push to it only with \`just publish\`, which scans what it sends"
+
+zero='^0+$'
+while read -r local_ref local_oid remote_ref remote_oid; do
+    [ "$remote_ref" = refs/heads/main ] || die "only main goes to the public repository; refused $remote_ref"
+    [[ ! "$local_oid" =~ $zero ]] || die "refused deleting main on the public repository"
+    [ "$local_oid" = "$AGENTDESK_PUBLISH_OID" ] ||
+        die "this push sends $local_oid ($local_ref), and just publish checked $AGENTDESK_PUBLISH_OID"
+    if [[ ! "$remote_oid" =~ $zero ]]; then
+        git merge-base --is-ancestor "$remote_oid" "$local_oid" 2>/dev/null ||
+            die "refused: $local_oid is not a fast-forward of the public main ($remote_oid), or that commit is not in this repository"
+    fi
+done
+exit 0
