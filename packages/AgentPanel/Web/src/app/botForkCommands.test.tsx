@@ -121,10 +121,12 @@ describe("App shell", () => {
     expect(canvas().getByText("Session Claude 01")).toBeInTheDocument();
     expect(screen.queryByRole("banner")).toBeNull();
     expect(screen.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
-    // A fork has no transcript to show: the CLI writes none until its first turn, so the card says
-    // that rather than spinning on a file that is not coming, and it names where it came from.
+    // A fork has no transcript to show until the CLI writes its first turn, so the card says its
+    // first message is on its way rather than spinning, and it names where it came from.
     expect(canvas().getByText(/forked from Session Claude 01, no transcript yet/)).toBeInTheDocument();
-    expect(canvas().getByText(/the transcript appears here once it has one/)).toBeInTheDocument();
+    expect(
+      canvas().getByText(/Its first message is sent; the transcript appears here as it answers/),
+    ).toBeInTheDocument();
 
     // The pane the Bot named, attached rather than created. The panel does not rebuild that name:
     // it is the sidecar's rule, and a second copy of it here would go wrong silently.

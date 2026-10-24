@@ -9,7 +9,7 @@ import {
 } from "@/features/bots/canvas/botCanvasPreferences";
 import { botsOnShownMachines } from "@/features/bots/botMachines";
 import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import type { ForkDraftControls } from "@/features/bots/cards/BotForkDraftCard";
+import type { SessionDraftControls } from "@/features/bots/cards/BotSessionDraftCard";
 import { BotCanvasCard } from "@/features/bots/cards/BotCanvasCard";
 import { CanvasNotices, CanvasReconnecting } from "@/features/bots/cards/canvasNotices";
 import { sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
@@ -68,7 +68,7 @@ export function BotCanvasList({
   onToggleSession,
   newSessions,
   onCloseNewSession,
-  forkDrafts,
+  sessionDrafts,
   canvasZoom,
 }: {
   bots: BotView[];
@@ -110,7 +110,7 @@ export function BotCanvasList({
   onToggleSession: (key: string) => void;
   newSessions: readonly NewBotSession[];
   onCloseNewSession: (sessionId: string) => void;
-  forkDrafts: ForkDraftControls;
+  sessionDrafts: SessionDraftControls;
   /** See `BotCanvas`: the whole strip drawn small enough to see at once. */
   canvasZoom: { mode: boolean; room: number };
 }) {
@@ -251,7 +251,7 @@ export function BotCanvasList({
             scroller={canvas}
             newSessions={newSessions.filter((each) => each.botId === bot.botId)}
             onCloseNewSession={onCloseNewSession}
-            forkDrafts={forkDrafts}
+            sessionDrafts={sessionDrafts}
           />
         </PanelErrorBoundary>
       ))}

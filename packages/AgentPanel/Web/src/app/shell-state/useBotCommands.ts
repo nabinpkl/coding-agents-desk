@@ -1,6 +1,7 @@
 // Everything the shell asks a Bot to do, and the failures it reports back.
 //
-// Creating a Bot, attaching sessions to one, starting a fresh one (forks: `useForkCommands`), renaming
+// Creating a Bot, attaching sessions to one, starting a fresh one (forks: `useForkCommands`, sessions
+// waiting on their first message: `useSessionDrafts`), renaming
 // one, dropping one: all of them are a call to the sidecar and then nothing, because the Bot
 // stream publishes a new snapshot and the rows move on their own. What is here is what that
 // leaves behind -- the dialogs that are open, the sessions the catalog has not heard of yet, and
@@ -18,7 +19,8 @@ import type { HandoverRequest } from "@/features/bots/dialogs/HandoverDialog";
 import { handoverDestination } from "@/features/bots/sessionHandover";
 import { useBotRecordCommands } from "@/app/shell-state/useBotRecordCommands";
 import { useForkCommands } from "@/app/shell-state/useForkCommands";
-import { harnessStart, type NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
+import { useSessionDrafts } from "@/app/shell-state/useSessionDrafts";
+import type { NewSessionHarness } from "@/features/bots/dialogs/BotSessionPickerDialog";
 
 export function useBotCommands(
   /**
@@ -145,7 +147,8 @@ export function useBotCommands(
     [feeds, putBotOnCanvas, setCanvasOpenKeys],
   );
 
-  const forks = useForkCommands(feeds, roster, setBotCommandError, setNewSessions);
+  const drafts = useSessionDrafts(feeds, roster, setNewSessions);
+  const forks = useForkCommands(feeds, drafts.addDraft, setBotCommandError);
 
   /**
    * An opencode session for a Bot: created at the serve, attached, named, and opened as a card.
@@ -190,33 +193,11 @@ export function useBotCommands(
         await startOpencodeSession(bot, title);
         return;
       }
-      try {
-        const { claudeMode } = harnessStart(harness);
-        const added = await feeds.forBot(bot.botId).addBotSessions(bot.botId, {
-          launch: { title, ...(claudeMode ? { claudeMode } : {}) },
-        });
-        if (!added.started) return;
-        const started = added.started;
-        setNewSessions((current) => [
-          ...current,
-          {
-            botId: bot.botId,
-            sessionId: started.sessionId,
-            title: started.title,
-            projectPath: started.projectPath,
-            tmuxSession: started.tmuxSession,
-          },
-        ]);
-        putBotOnCanvas(bot.botId);
-        setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
-      } catch (error) {
-        setBotCommandError({
-          session: null,
-          message: `Could not start the session: ${error instanceof Error ? error.message : String(error)}`,
-        });
-      }
+      // Claude starts when its first message is sent, from the draft card this puts on the Bot:
+      // started bare, it would be a process with no transcript, which nothing could resume.
+      drafts.addDraft({ botId: bot.botId, task: title, harness });
     },
-    [feeds, putBotOnCanvas, startOpencodeSession, setCanvasOpenKeys],
+    [drafts, startOpencodeSession],
   );
 
   /** Takes a started session off the canvas. Its tmux session keeps running; see the card. */
@@ -336,6 +317,7 @@ export function useBotCommands(
     botSessionPickerId,
     setBotSessionPickerId,
     ...forks,
+    ...drafts,
     newSessions,
     handoverRequest,
     setHandoverRequest,

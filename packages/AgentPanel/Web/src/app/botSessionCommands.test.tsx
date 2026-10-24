@@ -364,8 +364,8 @@ describe("App shell", () => {
     });
 
     fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Release Captain" }));
-    // Claude Code until the reader says otherwise, which is what the dialog did before it asked.
-    expect(screen.getByRole("radio", { name: /Claude Code/ })).toBeChecked();
+    // Claude through the SDK until the reader says otherwise: Claude's current path.
+    expect(screen.getByRole("radio", { name: /Claude SDK/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /opencode/ }));
     fireEvent.change(screen.getByLabelText("Start a new session here"), { target: { value: "Port the parser" } });
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
@@ -418,6 +418,55 @@ describe("App shell", () => {
     await waitFor(() => {
       expect(canvas().getByRole("region", { name: "Adam (Port the parser) session" })).toBeInTheDocument();
     });
+    unmount();
+  });
+
+  it("starts a Claude session for a Bot only once its first message is sent from its draft card", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", { version: 2, revision: 1, bots: [BOT_WITH_ONE_SESSION] });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions", {
+      status: 200,
+      body: JSON.stringify({
+        bot: BOT_WITH_ONE_SESSION,
+        started: {
+          sessionId: "new-1",
+          title: "Adam (Port the parser)",
+          projectPath: FIXTURE_PROJECT_A.projectPath,
+          tmuxSession: "agentdesk-new-1",
+        },
+      }),
+    });
+
+    fireEvent.click(canvas().getByRole("button", { name: "Add sessions to Release Captain" }));
+    fireEvent.change(screen.getByLabelText("Start a new session here"), { target: { value: "Port the parser" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    // A draft card on the Bot, seeded with the task, and nothing asked of the sidecar: a Claude
+    // started with no first turn writes no transcript, and nothing can resume it.
+    const draft = within(await waitFor(() => canvas().getByRole("region", { name: "New session" })));
+    expect(draft.getByLabelText("Task, bracketed after the name")).toHaveProperty("value", "Port the parser");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(transport.requests.some((request) => request.path === "/api/bots/bot-1/sessions")).toBe(false);
+
+    fireEvent.change(draft.getByLabelText("The session's first message"), { target: { value: "Start with lexing" } });
+    fireEvent.click(draft.getByRole("button", { name: "Start the session" }));
+
+    await waitFor(() => {
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions")?.body).toEqual({
+        requestId: expect.any(String),
+        launch: { title: "Port the parser", prompt: "Start with lexing", claudeMode: "sdk" },
+      });
+    });
+    // The draft gives way to the started session's card, which waits for the transcript to land.
+    await waitFor(() => {
+      expect(canvas().queryByRole("region", { name: "New session" })).toBeNull();
+    });
+    expect(canvas().getByText("Adam (Port the parser)")).toBeInTheDocument();
+    expect(canvas().getByText(/Its first message is sent/)).toBeInTheDocument();
     unmount();
   });
 });

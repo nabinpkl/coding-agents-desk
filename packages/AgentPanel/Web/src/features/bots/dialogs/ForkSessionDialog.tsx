@@ -13,7 +13,7 @@ const MAXIMUM_BRIEF = 32_768;
  * What is being forked, and from where.
  *
  * `botId` says where the fork lands and `from` says where in the source it starts. Asked from a
- * canvas card, it carries the card's Bot and becomes a draft card there (`BotForkDraftCard`); asked
+ * canvas card, it carries the card's Bot and becomes a draft card there (`BotSessionDraftCard`); asked
  * from a message in the full-width thread view, it has no Bot, starts a session nobody owns, and is
  * named in this dialog.
  */

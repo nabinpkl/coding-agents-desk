@@ -60,12 +60,13 @@ export function BotSessionPickerDialog({
   onClose: () => void;
   onAttach: (bot: BotView, sessionRefs: BotSessionRef[]) => Promise<void>;
   /**
-   * Starts a fresh session in the Bot's directory, in the chosen harness, under the spent anchor
-   * bracketed with this task, and closes the dialog.
+   * Asks for a fresh session in the Bot's directory, in the chosen harness, under the next anchor
+   * bracketed with this task, and closes the dialog. Claude becomes a draft card on the Bot that
+   * starts when its first message is sent; opencode starts at once.
    *
-   * Nothing is awaited and nothing is reported back here: the session becomes a card on the canvas
-   * with its terminal in it, so the pane itself is where a failure to start would show. A dialog
-   * left open over that card would only be in the way of the thing it just made.
+   * Nothing is awaited and nothing is reported back here: the session becomes a card on the canvas,
+   * which is where a failure to start shows. A dialog left open over that card would only be in the
+   * way of the thing it just made.
    */
   onStartNew: (bot: BotView, task: string, harness: NewSessionHarness) => void;
 }) {
@@ -76,7 +77,9 @@ export function BotSessionPickerDialog({
   const [pending, setPending] = useStateFor(opening, () => false);
   const [error, setError] = useStateFor<string | null>(opening, () => null);
   const [task, setTask] = useStateFor(opening, () => "");
-  const [harness, setHarness] = useStateFor<NewSessionHarness>(opening, () => "claude");
+  // The SDK, Claude's current path: a Claude session starts from a draft card once its first
+  // message is written, so there is a composer to write it in whichever way Claude runs.
+  const [harness, setHarness] = useStateFor<NewSessionHarness>(opening, () => "claude-sdk");
   const attachedKeys = useMemo(() => new Set(bot?.sessionRefs.map(sessionKey) ?? []), [bot]);
 
   // A choice can only be of a session still listed and not attached already.
@@ -197,8 +200,10 @@ export function BotSessionPickerDialog({
           </button>
           {/* Said before rather than discovered later: the anchor is the stable half. */}
           <p className="basis-full text-xs text-muted-foreground">
-            Runs {HARNESSES.find((option) => option.value === harness)?.label} in {bot.environment.path} and opens it on
-            the canvas. The name before the brackets never changes; what it is doing goes inside them.
+            {harness === "opencode"
+              ? `Runs opencode in ${bot.environment.path} and opens it on the canvas.`
+              : `Opens a card on the canvas for its first message; ${HARNESSES.find((option) => option.value === harness)?.label} starts in ${bot.environment.path} once it is sent.`}{" "}
+            The name before the brackets never changes; what it is doing goes inside them.
           </p>
         </form>
 

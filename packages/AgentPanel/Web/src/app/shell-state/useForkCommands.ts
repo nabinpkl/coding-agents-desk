@@ -1,30 +1,23 @@
 // Forking a session: naming the fork, starting it, and where it lands.
 //
 // A fork asked for from a canvas card goes to that card's Bot -- whole, or from a message -- as a
-// draft card in its column (`BotForkDraftCard`): its name, first turn, harness and worktree are
-// chosen there, and sending starts it into the same `newSessions` list a fresh session uses. A fork
-// asked for from the full-width thread view has no Bot, so it is named in the dialog and takes
-// over `main` instead.
+// draft card in its column (`useSessionDrafts`): its name, first turn, harness and worktree are
+// chosen there, and sending starts it. A fork asked for from the full-width thread view has no
+// Bot, so it is named in the dialog and takes over `main` instead.
 
 import { useCallback, useState } from "react";
 import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { BotFeeds } from "@/features/bots/botMachines";
 import type { BotCommandError } from "@/features/bots/canvas/BotCanvas";
-import type { NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
 import type { ForkRequest } from "@/features/bots/dialogs/ForkSessionDialog";
-import { harnessStart } from "@/features/bots/dialogs/BotSessionPickerDialog";
-import type { ForkChoices, ForkDraft } from "@/features/bots/cards/BotForkDraftCard";
+import type { SessionDraft } from "@/features/bots/cards/BotSessionDraftCard";
 
 export function useForkCommands(
   feeds: BotFeeds,
-  roster: {
-    putBotOnCanvas: (botId: string) => void;
-    setCanvasOpenKeys: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
-  },
+  /** Puts a draft card on a Bot: where a fork asked for from a canvas card waits to be sent. */
+  addDraft: (draft: Omit<SessionDraft, "key">) => void,
   setBotCommandError: (error: BotCommandError | null) => void,
-  setNewSessions: React.Dispatch<React.SetStateAction<readonly NewBotSession[]>>,
 ) {
-  const { putBotOnCanvas, setCanvasOpenKeys } = roster;
   /**
    * A session forked from another with no Bot to land on, and the pane it runs in.
    *
@@ -49,10 +42,9 @@ export function useForkCommands(
 
   /**
    * A fork with no Bot to land on, being named in the dialog: only the full-width thread view asks
-   * for one. A fork onto a Bot is a draft card instead (`forkDrafts`).
+   * for one. A fork onto a Bot is a draft card instead (`useSessionDrafts`).
    */
   const [forkRequest, setForkRequest] = useState<ForkRequest | null>(null);
-  const [forkDrafts, setForkDrafts] = useState<readonly ForkDraft[]>([]);
 
   /** A fork asked for: a draft card on its Bot, or the dialog for a fork that has no Bot. */
   const askFork = useCallback(
@@ -62,17 +54,10 @@ export function useForkCommands(
         setForkRequest(request);
         return;
       }
-      setForkDrafts((current) => [
-        ...current,
-        { key: `fork-draft:${crypto.randomUUID()}`, request: { ...request, botId } },
-      ]);
-      putBotOnCanvas(botId);
+      addDraft({ botId, fork: request, task: "", harness: "claude-sdk" });
     },
-    [putBotOnCanvas],
+    [addDraft],
   );
-  const closeForkDraft = useCallback((key: string) => {
-    setForkDrafts((current) => current.filter((draft) => draft.key !== key));
-  }, []);
   // Asks for a name rather than forking. Nothing is started here: the pane, the tmux session and
   // the `claude --fork-session` behind it all wait on the dialog being confirmed, because `-n` is
   // an argument of that command and there is no second chance to set it.
@@ -223,76 +208,7 @@ export function useForkCommands(
     [feeds, setBotCommandError],
   );
 
-  /**
-   * Starts a draft with what was chosen on its card, answering why not when it does not start: the
-   * draft stays, with every word the reader typed, so a refusal costs them nothing (the error rides
-   * the card rather than the canvas, because the card is where they are).
-   */
-  const startForkDraft = useCallback(
-    async (key: string, choices: ForkChoices): Promise<string | null> => {
-      const draft = forkDrafts.find((each) => each.key === key);
-      if (!draft) return "This fork is no longer waiting to start.";
-      const { request } = draft;
-      const { botId } = request;
-      const feed = feeds.forBot(botId);
-      const brief = choices.brief.trim() ? choices.brief : undefined;
-      try {
-        if (choices.harness === "opencode") {
-          // opencode holds no Claude history, so its fork is a handover: the conversation rendered
-          // as one first turn, the reader's words after it, attached as an ordinary reference.
-          const { session: started } = await feed.handoverToOpencode(request.session.sessionId, brief);
-          // Beside its source, where its draft was; a Claude fork stands there without being told.
-          await feed.addBotSessions(botId, {
-            sessionRefs: [{ source: "opencode", sessionId: started.sessionId }],
-            after: { source: "claude", sessionId: request.session.sessionId },
-          });
-          // Always, as a fresh opencode session's is: the attach spent the Bot's anchor, and this is
-          // what puts it on the session, with the task bracketed after it when there is one.
-          await feed.setSessionTask("opencode", started.sessionId, choices.task.trim());
-          setCanvasOpenKeys((current) => new Set(current).add(`opencode:${started.sessionId}`));
-        } else {
-          const { claudeMode } = harnessStart(choices.harness);
-          const { started } = await feed.addBotSessions(botId, {
-            launch: {
-              title: choices.task.trim(),
-              ...(brief === undefined ? {} : { prompt: brief }),
-              ...(choices.worktree ? { worktree: {} } : {}),
-              ...(claudeMode ? { claudeMode } : {}),
-              from: {
-                source: "claude",
-                sessionId: request.session.sessionId,
-                ...(request.from ? { eventId: request.from.eventId } : {}),
-              },
-            },
-          });
-          if (!started) return "The Bot did not start the fork.";
-          setNewSessions((current) => [
-            ...current,
-            {
-              botId,
-              sessionId: started.sessionId,
-              title: started.title,
-              projectPath: started.projectPath,
-              tmuxSession: started.tmuxSession,
-              forkedFrom: request.session.title || request.session.sessionId,
-              ...(started.rewindFailed ? { rewindFailed: started.rewindFailed } : {}),
-            },
-          ]);
-          setCanvasOpenKeys((current) => new Set(current).add(`claude:${started.sessionId}`));
-        }
-        closeForkDraft(key);
-        return null;
-      } catch (error) {
-        return `Could not start the fork: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    },
-    [closeForkDraft, feeds, forkDrafts, setCanvasOpenKeys, setNewSessions],
-  );
-
   return {
-    forkDrafts,
-    startForkDraft,
-    closeForkDraft,
     forkedSession,
     setForkedSession,
     forkRequest,

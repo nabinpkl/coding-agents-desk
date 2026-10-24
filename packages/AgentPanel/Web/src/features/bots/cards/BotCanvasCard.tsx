@@ -20,7 +20,7 @@ import { useMissingSessionLog } from "@/features/bots/useMissingSessionLog";
 import { canRenameSession } from "@/features/bots/sessionRename";
 import { handoverMenuProp } from "@/features/bots/sessionHandover";
 import { BotNewSessionCard, type NewBotSession } from "@/features/bots/cards/BotNewSessionCard";
-import { BotForkDraftCard, type ForkDraftControls } from "@/features/bots/cards/BotForkDraftCard";
+import { BotSessionDraftCard, type SessionDraftControls } from "@/features/bots/cards/BotSessionDraftCard";
 import { BotSessionCard } from "@/features/bots/cards/BotSessionCard";
 import { DEFAULT_CARD_SIZE, type BotCardSize, type BotCardSizes } from "@/features/bots/canvas/botCanvasPreferences";
 import { SESSION_GAP, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
@@ -69,7 +69,7 @@ export function BotCanvasCard({
   scroller,
   newSessions,
   onCloseNewSession,
-  forkDrafts,
+  sessionDrafts,
   machineLabel,
 }: {
   bot: BotView;
@@ -135,8 +135,8 @@ export function BotCanvasCard({
   /** This Bot's share of the sessions the panel has started, already filtered to it. */
   newSessions: readonly NewBotSession[];
   onCloseNewSession: (sessionId: string) => void;
-  /** Every fork waiting on the canvas; this card draws its own Bot's. */
-  forkDrafts: ForkDraftControls;
+  /** Every fork and fresh session waiting on the canvas to be started; this card draws its own Bot's. */
+  sessionDrafts: SessionDraftControls;
   /**
    * The machine this Bot's directory is on, or absent when the canvas is showing only one.
    *
@@ -188,25 +188,27 @@ export function BotCanvasCard({
   };
   // The cards with no place in the drag order, drawn beside the card each stands after rather than
   // at the end of the row. A fork's draft sits beside its source, where the sidecar will stand the
-  // fork once it is sent (`placeRefs` there), and a starting session stands where the Bot's order
-  // puts it, so neither moves when it turns into an ordinary card. `null` is the end of the row.
-  const draftsHere = forkDrafts.drafts.filter((draft) => draft.request.botId === bot.botId);
+  // fork once it is sent (`placeRefs` there), a fresh session's draft at the end, where its session
+  // will land, and a starting session stands where the Bot's order puts it, so none moves when it
+  // turns into an ordinary card. `null` is the end of the row.
+  const draftsHere = sessionDrafts.drafts.filter((draft) => draft.botId === bot.botId);
   const startingAfter = standingAfter(bot.sessionRefs, shown, starting, (each) => `claude:${each.sessionId}`);
   const shownKeys = new Set(shown.map(sessionKey));
   const beside = (after: string | null): ReactNode => (
     <>
       {draftsHere
         .filter((draft) => {
-          const source = sessionKey(draft.request.session);
+          if (!draft.fork) return after === null;
+          const source = sessionKey(draft.fork.session);
           return (shownKeys.has(source) ? source : null) === after;
         })
         .map((draft) => (
-          <BotForkDraftCard
+          <BotSessionDraftCard
             key={draft.key}
             draft={draft}
             anchor={bot.nextAnchor}
-            onStart={(choices) => forkDrafts.start(draft.key, choices)}
-            onClose={() => forkDrafts.close(draft.key)}
+            onStart={(choices) => sessionDrafts.start(draft.key, choices)}
+            onClose={() => sessionDrafts.close(draft.key)}
           />
         ))}
       {(startingAfter.get(after) ?? []).map((each) => (

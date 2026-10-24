@@ -126,12 +126,17 @@ describe("what the command does with it", () => {
 
     // The card's Bot rides along, so the fork's draft lands on it as a card beside its source.
     expect(result.current.forkRequest).toBeNull();
-    expect(result.current.forkDrafts.map((draft) => draft.request)).toEqual([
+    expect(result.current.sessionDrafts.map(({ key: _key, ...draft }) => draft)).toEqual([
       {
-        session: SOURCE,
-        projectPath: "/repo",
         botId: "bot-1",
-        from: { eventId: "claude:sid-1:line:12", text: "Rewrite the picker driver" },
+        fork: {
+          session: SOURCE,
+          projectPath: "/repo",
+          botId: "bot-1",
+          from: { eventId: "claude:sid-1:line:12", text: "Rewrite the picker driver" },
+        },
+        task: "",
+        harness: "claude-sdk",
       },
     ]);
   });
@@ -206,12 +211,17 @@ describe("finding the compaction", () => {
       await result.current.forkFromLastCompaction(BOT, SOURCE);
     });
 
-    expect(result.current.forkDrafts.map((draft) => draft.request)).toEqual([
+    expect(result.current.sessionDrafts.map(({ key: _key, ...draft }) => draft)).toEqual([
       {
-        session: SOURCE,
-        projectPath: "/repo",
         botId: "bot-1",
-        from: { eventId: "claude:sid-1:line:88", text: "Now do the other half" },
+        fork: {
+          session: SOURCE,
+          projectPath: "/repo",
+          botId: "bot-1",
+          from: { eventId: "claude:sid-1:line:88", text: "Now do the other half" },
+        },
+        task: "",
+        harness: "claude-sdk",
       },
     ]);
   });

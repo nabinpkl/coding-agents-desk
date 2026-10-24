@@ -29,6 +29,11 @@ export interface NewBotSession {
   forkedFrom?: string;
   /** Why a fork could not be moved back to the message it was asked to start from, if it was. */
   rewindFailed?: string;
+  /**
+   * Whether it was started with its first message, as every session from a draft card is. Its
+   * transcript is then on its way, and the card says so rather than asking for a first turn.
+   */
+  firstTurn?: boolean;
 }
 
 /**
@@ -153,7 +158,9 @@ export function BotNewSessionCard({
                   <span className="font-medium text-foreground">
                     {session.projectPath.split("/").filter(Boolean).at(-1) ?? session.projectPath}
                   </span>
-                  . Type below to give it its first turn; the transcript appears here once it has one.
+                  {session.firstTurn
+                    ? ". Its first message is sent; the transcript appears here as it answers."
+                    : ". Type below to give it its first turn; the transcript appears here once it has one."}
                 </p>
               </div>
               <AgentTerminalPane

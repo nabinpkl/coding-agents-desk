@@ -1,12 +1,12 @@
 /**
- * A fork onto a Bot before it starts: what its card offers, what it sends, and what it keeps when
- * the start is refused.
+ * A session on a Bot before it starts, a fork or a fresh one: what its card offers, what it sends,
+ * and what it keeps when the start is refused.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { SessionSummary } from "@agentdesk/agent-feed-wire";
-import { BotForkDraftCard, type ForkDraft } from "@/features/bots/cards/BotForkDraftCard";
+import { BotSessionDraftCard, type SessionDraft } from "@/features/bots/cards/BotSessionDraftCard";
 
 const SOURCE = {
   source: "claude",
@@ -15,19 +15,29 @@ const SOURCE = {
   lastEventAt: 0,
 } as unknown as SessionSummary;
 
-function draft(from?: { eventId: string; text: string }): ForkDraft {
+function draft(from?: { eventId: string; text: string }): SessionDraft {
   return {
-    key: "fork-draft:1",
-    request: { session: SOURCE, projectPath: "/repo", botId: "bot-1", ...(from ? { from } : {}) },
+    key: "session-draft:1",
+    botId: "bot-1",
+    fork: { session: SOURCE, projectPath: "/repo", botId: "bot-1", ...(from ? { from } : {}) },
+    task: "",
+    harness: "claude-sdk",
   };
 }
 
-function renderCard(options: { from?: { eventId: string; text: string }; refusal?: string | null } = {}) {
+function renderCard(
+  options: { from?: { eventId: string; text: string }; refusal?: string | null; fresh?: SessionDraft } = {},
+) {
   const onStart = vi.fn(async () => options.refusal ?? null);
   const onClose = vi.fn();
   render(
     <ul>
-      <BotForkDraftCard draft={draft(options.from)} anchor="Adam" onStart={onStart} onClose={onClose} />
+      <BotSessionDraftCard
+        draft={options.fresh ?? draft(options.from)}
+        anchor="Adam"
+        onStart={onStart}
+        onClose={onClose}
+      />
     </ul>,
   );
   return { onStart, onClose };
@@ -101,6 +111,56 @@ describe("a fork's draft card", () => {
   it("discards without starting anything", () => {
     const { onStart, onClose } = renderCard();
     fireEvent.click(screen.getByRole("button", { name: "Discard this fork" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onStart).not.toHaveBeenCalled();
+  });
+});
+
+describe("a fresh session's draft card", () => {
+  const fresh = (harness: SessionDraft["harness"]): SessionDraft => ({
+    key: "session-draft:2",
+    botId: "bot-1",
+    task: "Port the parser",
+    harness,
+  });
+
+  it("starts from what the dialog chose and sends the first message with it", async () => {
+    const { onStart } = renderCard({ fresh: fresh("claude") });
+    expect(screen.getByRole("region", { name: "New session" })).toBeDefined();
+    expect(screen.getByLabelText("Task, bracketed after the name")).toHaveProperty("value", "Port the parser");
+    expect(screen.getByRole("button", { name: /Runs in Claude Code/ })).toBeDefined();
+    fireEvent.change(screen.getByLabelText("The session's first message"), { target: { value: "start with lexing" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start the session" }));
+    await waitFor(() =>
+      expect(onStart).toHaveBeenCalledWith({
+        task: "Port the parser",
+        brief: "start with lexing",
+        harness: "claude",
+        worktree: false,
+      }),
+    );
+  });
+
+  it("starts nothing without a first message, in either Claude harness", () => {
+    const { onStart } = renderCard({ fresh: fresh("claude-sdk") });
+    const start = () => screen.getByRole("button", { name: "Start the session" });
+    expect(start()).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: /Runs in Claude SDK/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Claude Code/ }));
+    expect(start()).toHaveProperty("disabled", true);
+    fireEvent.keyDown(screen.getByLabelText("The session's first message"), { key: "Enter" });
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
+  it("does not offer opencode, which the dialog starts itself", () => {
+    renderCard({ fresh: fresh("claude-sdk") });
+    fireEvent.click(screen.getByRole("button", { name: /Runs in Claude SDK/ }));
+    expect(screen.getByRole("menuitemradio", { name: /opencode/ })).toHaveProperty("disabled", true);
+  });
+
+  it("discards without starting anything", () => {
+    const { onStart, onClose } = renderCard({ fresh: fresh("claude-sdk") });
+    fireEvent.click(screen.getByRole("button", { name: "Discard this session" }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onStart).not.toHaveBeenCalled();
   });
