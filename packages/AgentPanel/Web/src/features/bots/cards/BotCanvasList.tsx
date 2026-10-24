@@ -18,6 +18,7 @@ import { useCanvasCards } from "@/features/bots/canvas/canvasShell";
 import { useCanvasStore } from "@/features/bots/canvas/canvasStore";
 import { PanelErrorBoundary } from "@/app/PanelErrorBoundary";
 import { keepTypingInSightWhileMounted } from "@/app/page/keyboardInset";
+import { useStrandedSidewaysWheel } from "@/hooks/dom/useStrandedSidewaysWheel";
 import type { MachineError } from "@/features/bots/useBots";
 
 /**
@@ -81,17 +82,27 @@ export function BotCanvasList({
   // `w-max`, so it reports its own contents, and widening a card would grow the very thing being
   // asked how much room a card has -- and the strip is what a move reads card positions from.
   const canvas = useRef<HTMLDivElement | null>(null);
+  const [canvasNode, setCanvasNode] = useState<HTMLDivElement | null>(null);
   const list = useRef<HTMLUListElement | null>(null);
   // A card has a fixed height, so a phone keyboard shortening the page shortens this scroller and
   // leaves the card's composer and terminal where they were: under the keyboard. Scroll them back.
-  const attachCanvas = useCallback((node: HTMLDivElement | null) => {
-    canvas.current = node;
-    const leave = keepTypingInSightWhileMounted(node);
-    return () => {
-      leave?.();
-      canvas.current = null;
-    };
-  }, []);
+  const attachCanvas = useCallback(
+    (node: HTMLDivElement | null) => {
+      canvas.current = node;
+      setCanvasNode(node);
+      const leave = keepTypingInSightWhileMounted(node);
+      return () => {
+        leave?.();
+        canvas.current = null;
+        setCanvasNode(null);
+      };
+    },
+    [canvas, setCanvasNode],
+  );
+  // Every card's transcript scrolls up and down, and the browser hands a sideways swipe with any
+  // up-or-down drift it can use to the transcript under the pointer, which cannot use the sideways
+  // part. The strip takes that part.
+  useStrandedSidewaysWheel(canvasNode);
   // Moved by id rather than by these indices: the strip is showing a subset of the roster -- a
   // detached Bot has no card, and a hidden machine's are filtered out -- while the order a drop
   // rewrites is the whole roster's, and the sidebar's list draws from that same one.
