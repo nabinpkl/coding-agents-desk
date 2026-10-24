@@ -4,7 +4,7 @@
 //   GET  /api/audio/listeners  -> { listeners }
 //   POST /api/audio/speak      <- { text }  -> { listeners, durationMs }, or 409 nobody_listening
 //
-// A stream plays a message at its next gap (`audioTestStream.ts`). One synthesis for any number of
+// A stream plays a message at its next gap (`audioStream.ts`). One synthesis for any number of
 // listeners, and none for none: a message only goes out while a stream is open, and an agent is
 // told plainly when nobody is, rather than having its words said to no one.
 

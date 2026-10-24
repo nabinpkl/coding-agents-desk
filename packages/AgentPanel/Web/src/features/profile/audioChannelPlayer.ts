@@ -1,16 +1,15 @@
-// The audio test's player: one `<audio>` element for the whole hour, outside React.
+// The audio channel's player: one `<audio>` element on the sidecar's stream, outside React.
 //
+// The stream is silence until an agent speaks into it (`POST /api/audio/speak` on the sidecar).
 // Outside React so it outlives the menu that started it: closing the menu, or the screen locking,
-// must not be what stops it. One element for the whole test rather than one per connection,
+// must not be what stops it. One element for the whole time rather than one per connection,
 // because iOS lets an element play once a tap has started it, and the lock screen's play button
 // reaches the element already playing; a fresh element on resume would have neither.
 //
-// The stream is live, so pausing drops the connection, and resuming joins where the stream is
-// now (`?from=`), not where it stopped: the count it speaks says how long the gap was.
+// The stream is live, so pausing drops the connection, and resuming connects again: whatever was
+// said while paused was said to nobody here, and the sidecar did not count this phone as listening.
 
-import { AUDIO_TEST_STREAM_ROUTE } from "@agentdesk/agent-feed-wire";
-
-const LENGTH_MS = 60 * 60_000;
+import { AUDIO_STREAM_ROUTE } from "@agentdesk/agent-feed-wire";
 
 /**
  * How long playback may sit still, with audio in hand and not paused, before it counts as taken.
@@ -35,20 +34,20 @@ const MEDIA_ERRORS: Record<number, string> = {
   4: "format refused",
 };
 
-export type AudioTestPhase = "idle" | "starting" | "playing" | "paused" | "over";
+export type AudioChannelPhase = "idle" | "starting" | "playing" | "paused";
 
-export type AudioTestState = { phase: AudioTestPhase; status: string | null };
+export type AudioChannelState = { phase: AudioChannelPhase; status: string | null };
 
 let element: HTMLAudioElement | null = null;
-/** Local clock when the test began: stream position is the time since, as on the sidecar. */
-let testStartedAt = 0;
-/** The stream position the current connection joined at; the element's own clock starts at 0. */
-let joinedAtMs = 0;
+/** Local clock when listening began, for saying how long it has been. */
+let listeningSince = 0;
+/** How long after that the current connection was made; the element's own clock starts at 0. */
+let joinedAfterMs = 0;
 let watchdog: ReturnType<typeof setInterval> | null = null;
-let current: AudioTestState = { phase: "idle", status: null };
+let current: AudioChannelState = { phase: "idle", status: null };
 const listeners = new Set<() => void>();
 
-function publish(phase: AudioTestPhase, status: string): void {
+function publish(phase: AudioChannelPhase, status: string): void {
   current = { phase, status };
   for (const listener of listeners) listener();
   if ("mediaSession" in navigator) {
@@ -56,28 +55,29 @@ function publish(phase: AudioTestPhase, status: string): void {
   }
 }
 
-export function subscribeAudioTest(listener: () => void): () => void {
+export function subscribeAudioChannel(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-export function audioTestState(): AudioTestState {
+export function audioChannelState(): AudioChannelState {
   return current;
 }
 
-/** A playback position as a listener counts it: `12m 35s`. */
-export function formatPosition(totalSeconds: number): string {
+/** A length of time as a listener counts it: `12m 35s`. */
+export function formatDuration(totalSeconds: number): string {
   const whole = Math.max(0, Math.round(totalSeconds));
   const minutes = Math.floor(whole / 60);
   const rest = whole % 60;
   return minutes === 0 ? `${rest}s` : `${minutes}m ${rest}s`;
 }
 
+/** How far into listening the element has played. */
 function heard(audio: HTMLAudioElement): string {
-  return formatPosition(joinedAtMs / 1000 + audio.currentTime);
+  return formatDuration(joinedAfterMs / 1000 + audio.currentTime);
 }
 
-/** Drops the connection and keeps the element, so the sidecar stops making lines for nobody. */
+/** Drops the connection and keeps the element, so the sidecar stops counting this as a listener. */
 function disconnect(audio: HTMLAudioElement): void {
   stopWatchdog();
   audio.pause();
@@ -117,19 +117,19 @@ function startWatchdog(audio: HTMLAudioElement): void {
   }, 1_000);
 }
 
-function connect(audio: HTMLAudioElement, fromMs: number): void {
-  joinedAtMs = fromMs;
+function connect(audio: HTMLAudioElement): void {
+  joinedAfterMs = Date.now() - listeningSince;
   // A fresh address each time also keeps anything between here and the sidecar from caching it.
-  audio.src = `${AUDIO_TEST_STREAM_ROUTE}?from=${Math.round(fromMs)}`;
-  publish("starting", `joining at ${formatPosition(fromMs / 1000)}`);
+  audio.src = `${AUDIO_STREAM_ROUTE}?at=${Date.now()}`;
+  publish("starting", "connecting");
   startWatchdog(audio);
   audio.play().then(
     () => {
       if (element !== audio || !("mediaSession" in navigator)) return;
       // Only once it plays: iOS ignores Media Session set before the element is what is playing.
-      navigator.mediaSession.metadata = new MediaMetadata({ title: "Audio channel test", artist: "AgentDesk" });
-      navigator.mediaSession.setActionHandler("pause", pauseAudioTest);
-      navigator.mediaSession.setActionHandler("play", resumeAudioTest);
+      navigator.mediaSession.metadata = new MediaMetadata({ title: "Agent messages", artist: "AgentDesk" });
+      navigator.mediaSession.setActionHandler("pause", pauseListening);
+      navigator.mediaSession.setActionHandler("play", resumeListening);
     },
     (error: unknown) => {
       if (element !== audio || current.phase !== "starting") return;
@@ -144,13 +144,13 @@ function createElement(): HTMLAudioElement {
   const mine = () => element === audio;
   let shownSecond = -1;
   audio.addEventListener("playing", () => {
-    if (mine() && current.phase !== "paused") publish("playing", `playing at ${heard(audio)}`);
+    if (mine() && current.phase !== "paused") publish("playing", `listening, ${heard(audio)}`);
   });
   audio.addEventListener("timeupdate", () => {
-    const second = Math.round(joinedAtMs / 1000 + audio.currentTime);
+    const second = Math.round(joinedAfterMs / 1000 + audio.currentTime);
     if (!mine() || current.phase !== "playing" || second === shownSecond) return;
     shownSecond = second;
-    publish("playing", `playing at ${formatPosition(second)}`);
+    publish("playing", `listening, ${formatDuration(second)}`);
   });
   audio.addEventListener("waiting", () => {
     if (mine() && current.phase === "playing") publish("playing", `waiting for audio at ${heard(audio)}`);
@@ -162,10 +162,12 @@ function createElement(): HTMLAudioElement {
     disconnect(audio);
     publish("paused", `paused at ${at}`);
   });
+  // The sidecar ends a stream only by going away, a restart among them; connecting again is resuming.
   audio.addEventListener("ended", () => {
     if (!mine()) return;
-    stopWatchdog();
-    publish("over", `played to the end (${heard(audio)})`);
+    const at = heard(audio);
+    disconnect(audio);
+    publish("paused", `the stream ended at ${at}`);
   });
   audio.addEventListener("error", () => {
     // An error after a disconnect is the dropped source, not a failure.
@@ -180,14 +182,14 @@ function createElement(): HTMLAudioElement {
 }
 
 /** Must run inside the tap's own handler: a phone starts audio only from a gesture. */
-export function startAudioTest(): void {
-  stopAudioTest();
+export function startListening(): void {
+  stopListening();
   element = createElement();
-  testStartedAt = Date.now();
-  connect(element, 0);
+  listeningSince = Date.now();
+  connect(element);
 }
 
-export function pauseAudioTest(): void {
+export function pauseListening(): void {
   const audio = element;
   if (!audio || (current.phase !== "playing" && current.phase !== "starting")) return;
   const at = heard(audio);
@@ -196,19 +198,14 @@ export function pauseAudioTest(): void {
   disconnect(audio);
 }
 
-/** Joins the stream where it is now. From a tap or the lock screen's play button. */
-export function resumeAudioTest(): void {
+/** Connects again. From a tap or the lock screen's play button. */
+export function resumeListening(): void {
   const audio = element;
   if (!audio || current.phase !== "paused") return;
-  const fromMs = Date.now() - testStartedAt;
-  if (fromMs >= LENGTH_MS) {
-    publish("over", "the hour is over");
-    return;
-  }
-  connect(audio, fromMs);
+  connect(audio);
 }
 
-export function stopAudioTest(): void {
+export function stopListening(): void {
   const audio = element;
   if (!audio) return;
   const at = heard(audio);
@@ -219,5 +216,5 @@ export function stopAudioTest(): void {
     navigator.mediaSession.setActionHandler("play", null);
     navigator.mediaSession.metadata = null;
   }
-  publish("idle", current.phase === "over" ? (current.status ?? "") : `stopped at ${at}`);
+  publish("idle", `stopped after ${at}`);
 }

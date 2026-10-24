@@ -5,10 +5,10 @@
 // start on a locked screen. So the sidecar keeps one stream playing, silence between messages.
 
 /**
- * `GET /api/audio/test-stream`: an hour of AAC (ADTS), paced in real time, saying its own position
- * every five seconds. It exists to learn whether a locked iPhone keeps playing it, and for how long.
+ * `GET /api/audio/stream`: AAC (ADTS), paced in real time, silent until an agent speaks, for as long
+ * as the listener stays. Each connection is a listener; resuming is connecting again.
  */
-export const AUDIO_TEST_STREAM_ROUTE = "/api/audio/test-stream";
+export const AUDIO_STREAM_ROUTE = "/api/audio/stream";
 
 /**
  * `POST /api/audio/speak`: say `text` on every audio stream open now, at its next gap. How an agent

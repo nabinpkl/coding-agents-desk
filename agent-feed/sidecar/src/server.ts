@@ -90,7 +90,7 @@ import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
 import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpencode";
 import { createHubRoutes } from "@/messaging/hubRoutes";
-import { createAudioRoutes } from "@/audio/audioTestStream";
+import { createAudioRoutes } from "@/audio/audioStream";
 import { createPushRoutes } from "@/push/pushRoutes";
 import { startLiveTurnFinishedNotifier } from "@/push/liveTurnFinished";
 import { sendPush } from "@/push/pushSender";
