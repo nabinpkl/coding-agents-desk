@@ -4,7 +4,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { WorkspaceBrowseListing } from "@agentdesk/agent-feed-wire";
-import { WorkspacePicker } from "@/features/workspace-ide/sidebar/WorkspacePicker";
+import { FolderBrowser } from "@/features/project-picker/FolderBrowser";
 
 const TREE: Record<string, WorkspaceBrowseListing> = {
   "/Users/dev": {
@@ -35,7 +35,7 @@ function picker() {
   );
   const onChoose = vi.fn();
   const onCancel = vi.fn();
-  render(<WorkspacePicker browse={browse} createFolder={createFolder} onChoose={onChoose} onCancel={onCancel} />);
+  render(<FolderBrowser browse={browse} createFolder={createFolder} onChoose={onChoose} onCancel={onCancel} />);
   return { browse, createFolder, onChoose, onCancel };
 }
 
@@ -93,7 +93,7 @@ it("says an empty folder is still a choice, rather than looking broken", async (
 
 it("shows a refusal instead of an empty folder, because those look identical", async () => {
   const browse = vi.fn(() => Promise.reject(new Error("Outside the home directory.")));
-  render(<WorkspacePicker browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
+  render(<FolderBrowser browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
   expect(await screen.findByText("Outside the home directory.")).toBeInTheDocument();
 });
 
@@ -123,7 +123,7 @@ it("keeps the listing and says why when a name is refused", async () => {
   // reader gets most often, and a refusal they cannot read is a refusal they try again the same.
   const createFolder = vi.fn(() => Promise.reject(new Error("A folder with that name already exists here.")));
   render(
-    <WorkspacePicker
+    <FolderBrowser
       browse={(path) => Promise.resolve(TREE[path ?? "/Users/dev"]!)}
       createFolder={createFolder}
       onChoose={vi.fn()}
@@ -199,7 +199,7 @@ it("hands a typed `~` to the sidecar untouched, because home is the sidecar's to
   // against a guess would be a second place holding the answer that decides where the picker starts
   // and how far it may walk. Sending it as written is the panel's whole obligation here.
   const browse = vi.fn(() => Promise.reject(new Error("The requested item was not found.")));
-  render(<WorkspacePicker browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
+  render(<FolderBrowser browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
   await screen.findByRole("dialog");
 
   fireEvent.change(pathField(), { target: { value: "~/projects" } });
@@ -217,7 +217,7 @@ it("puts the path the sidecar resolved back in the field, not the reader's spell
       path === null ? TREE["/Users/dev"]! : { path: "/Users/dev/Projects", parent: "/Users/dev", entries: [] },
     ),
   );
-  render(<WorkspacePicker browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
+  render(<FolderBrowser browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
   await standingIn("/Users/dev");
 
   fireEvent.change(pathField(), { target: { value: "/Users/dev/projects" } });
@@ -232,7 +232,7 @@ it("keeps a refused path on screen, because the typo is only visible there", asy
       ? Promise.resolve(TREE["/Users/dev"]!)
       : Promise.reject(new Error("The requested item was not found.")),
   );
-  render(<WorkspacePicker browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
+  render(<FolderBrowser browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
   await standingIn("/Users/dev");
 
   fireEvent.change(pathField(), { target: { value: "/Users/dev/projcts" } });
@@ -267,7 +267,7 @@ it("puts the picker back where it was on Escape, list and all", async () => {
       ? Promise.reject(new Error("The requested item was not found."))
       : Promise.resolve(TREE[path ?? "/Users/dev"]!),
   );
-  render(<WorkspacePicker browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
+  render(<FolderBrowser browse={browse} createFolder={vi.fn()} onChoose={vi.fn()} onCancel={vi.fn()} />);
   await standingIn("/Users/dev");
 
   fireEvent.change(pathField(), { target: { value: "/Users/dev/projcts" } });

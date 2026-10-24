@@ -1,4 +1,5 @@
-// Choosing a folder to register as a workspace.
+// Browsing the machine's folders, for the project picker (`ProjectPicker`) to choose one no catalog
+// knows yet, and for the IDE to register as a workspace.
 //
 // This replaced a `window.prompt` asking for an absolute path, and taking typing away was half the
 // fix rather than all of it: on a phone that prompt asked a touch keyboard for `/Users/...` with no
@@ -22,7 +23,7 @@ const ROW =
   "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left outline-none" +
   " hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset";
 
-export function WorkspacePicker({
+export function FolderBrowser({
   browse,
   createFolder,
   onChoose,
@@ -36,7 +37,7 @@ export function WorkspacePicker({
   createFolder: (path: string, name: string) => Promise<WorkspaceBrowseListing>;
   onChoose: (path: string) => void;
   onCancel: () => void;
-  /** What the reader is choosing FOR, since the same picker now serves the IDE and a new Bot. */
+  /** What the reader is choosing FOR, since the IDE and every project picker open this one. */
   title?: string;
   confirmLabel?: string;
 }) {

@@ -16,7 +16,7 @@ import { PaneDivider } from "@/features/workspace-ide/PaneDivider";
 import { QuickOpen } from "@/features/workspace-ide/search/QuickOpen";
 import { useContentSearch } from "@/features/workspace-ide/search/useContentSearch";
 import { useSearchShortcuts } from "@/features/workspace-ide/search/useSearchShortcuts";
-import { WorkspacePicker } from "@/features/workspace-ide/sidebar/WorkspacePicker";
+import { FolderBrowser } from "@/features/project-picker/FolderBrowser";
 import { WorkspaceSidebar } from "@/features/workspace-ide/sidebar/WorkspaceSidebar";
 import { WorkspaceIdeStatusBar } from "@/features/workspace-ide/WorkspaceIdeStatusBar";
 import { WorkspaceTerminal } from "@/features/workspace-ide/WorkspaceTerminal";
@@ -200,7 +200,7 @@ export function WorkspaceIdeSurface({ transport, feed }: { transport: AgentHttpT
           {ide.error ? <p className="m-0 text-sm text-destructive">{ide.error}</p> : null}
         </div>
         {picking ? (
-          <WorkspacePicker
+          <FolderBrowser
             browse={ide.client.browse.bind(ide.client)}
             createFolder={ide.client.createFolder.bind(ide.client)}
             onChoose={chooseWorkspace}
@@ -307,7 +307,7 @@ export function WorkspaceIdeSurface({ transport, feed }: { transport: AgentHttpT
       />
 
       {picking ? (
-        <WorkspacePicker
+        <FolderBrowser
           browse={ide.client.browse.bind(ide.client)}
           createFolder={ide.client.createFolder.bind(ide.client)}
           onChoose={chooseWorkspace}

@@ -1,10 +1,11 @@
-// What the column has to get right: the directory a Bot is bound to can be one no agent has ever
-// worked in, and the reader's only way to that one is the served folder picker.
+// What the picker has to get right: the directory a thing starts in can be one no agent has ever
+// worked in, and the reader's only way to that one is the served folder browser; and a reader with
+// many projects finds one by searching rather than scrolling.
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { ProjectSummary, WorkspaceBrowseListing } from "@agentdesk/agent-feed-wire";
-import { BotDirectoryColumn } from "@/features/bots/dialogs/BotDirectoryColumn";
+import { ProjectPicker } from "@/features/project-picker/ProjectPicker";
 import type { BotMachine } from "@/features/bots/botMachines";
 
 const HOME: WorkspaceBrowseListing = {
@@ -26,28 +27,35 @@ const CATALOGUED: ProjectSummary = {
   lastEventAt: 1,
 };
 
-/** Only the label is read here; a column never calls a machine's feed itself. */
+const OTHER: ProjectSummary = {
+  projectPath: "/Users/dev/projects/harbor",
+  displayName: "harbor",
+  sourceCounts: { opencode: 1 },
+  sessionCount: 1,
+  lastEventAt: 2,
+};
+
+/** Only the label is read here; the picker never calls a machine's feed itself. */
 const MAC = { label: "mac", feed: {} } as unknown as BotMachine;
 
-function column(overrides: Partial<Parameters<typeof BotDirectoryColumn>[0]> = {}) {
+function column(overrides: Partial<Parameters<typeof ProjectPicker>[0]> = {}) {
   const onSelect = vi.fn();
   const browse = vi.fn((path: string | null) => Promise.resolve(path === null ? HOME : BROWSED));
   const createFolder = vi.fn((path: string, name: string) =>
     Promise.resolve({ path: `${path}/${name}`, parent: path, entries: [] }),
   );
   render(
-    <BotDirectoryColumn
+    <ProjectPicker
       machines={[MAC]}
       machine={MAC}
-      onMachine={vi.fn()}
-      projects={[CATALOGUED]}
+      projects={[CATALOGUED, OTHER]}
       loading={false}
       error={null}
-      claimed={new Set()}
       selectedPath={null}
       onSelect={onSelect}
       browse={browse}
       createFolder={createFolder}
+      className=""
       {...overrides}
     />,
   );
@@ -76,7 +84,9 @@ it("binds a folder the catalog has never heard of", async () => {
 it("refuses a browsed folder another Bot already holds, before the round trip", async () => {
   // The registry refuses it too. Hearing that only after the whole form is filled in is the
   // difference this check makes.
-  const { onSelect } = column({ claimed: new Set(["/Users/dev/brand-new"]) });
+  const { onSelect } = column({
+    unavailable: { paths: new Set(["/Users/dev/brand-new"]), reason: "already assigned to a Bot" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   await waitFor(() => screen.getByRole("button", { name: "Open brand-new" }));
   fireEvent.click(screen.getByRole("button", { name: "Open brand-new" }));
@@ -103,4 +113,50 @@ it("says a machine with no projects can still be browsed", () => {
   // Otherwise an empty catalogue reads as "nothing can be done here", which is now false.
   column({ projects: [] });
   expect(screen.getByRole("status").textContent).toContain("Browse for a folder");
+});
+
+it("narrows the projects to those holding every word searched, in the name or the path", () => {
+  column();
+  const search = screen.getByRole("searchbox", { name: "Search projects" });
+  fireEvent.change(search, { target: { value: "projects KUB" } });
+  expect(screen.queryByRole("radio", { name: /agent-desk/ })).toBeNull();
+  expect(screen.getByRole("radio", { name: /harbor/ })).toBeTruthy();
+
+  fireEvent.change(search, { target: { value: "nothing-like-it" } });
+  expect(screen.getByRole("status").textContent).toContain("No project matches");
+
+  // Escape clears it, and every project is back.
+  fireEvent.keyDown(search, { key: "Escape" });
+  expect(screen.getAllByRole("radio")).toHaveLength(2);
+});
+
+it("puts projects named for the search above those that only hold it in their path", () => {
+  column({
+    projects: [{ ...OTHER, projectPath: "/Users/dev/desk-notes/scratch", displayName: "scratch" }, CATALOGUED],
+  });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search projects" }), { target: { value: "desk" } });
+  expect(screen.getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value)).toEqual([
+    "/Users/dev/projects/agent-desk",
+    "/Users/dev/desk-notes/scratch",
+  ]);
+});
+
+it("may lead with a row that chooses no directory, checked while nothing is selected", () => {
+  const chooseNone = vi.fn();
+  const { onSelect } = column({
+    noPathOption: { label: "New repository", detail: "in the run's folder", onSelect: chooseNone },
+  });
+  const none = screen.getByRole("radio", { name: /New repository/ }) as HTMLInputElement;
+  expect(none.checked).toBe(true);
+  // A search narrows projects only: the row is not one, so it stays.
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search projects" }), { target: { value: "harbor" } });
+  expect(screen.getByRole("radio", { name: /New repository/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: /harbor/ }));
+  expect(onSelect).toHaveBeenCalledWith("/Users/dev/projects/harbor");
+  expect(chooseNone).not.toHaveBeenCalled();
+});
+
+it("shows a selection the catalog does not hold, so it is never chosen out of sight", () => {
+  column({ selectedPath: "/Users/dev/brand-new" });
+  expect(screen.getByRole<HTMLInputElement>("radio", { name: /brand-new/ }).checked).toBe(true);
 });

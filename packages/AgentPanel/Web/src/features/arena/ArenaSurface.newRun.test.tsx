@@ -3,7 +3,7 @@
 // main suite, which covers reading runs that exist.
 
 import { describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { ArenaSurface } from "@/features/arena/ArenaSurface";
 import type { AgentHttpTransport, TransportResponse } from "@/features/activity-feed/transport/AgentHttpTransport";
@@ -65,7 +65,9 @@ const run = (over: Record<string, unknown> = {}) => ({
 });
 
 /** A transport that answers the arena's own routes and records what was asked of it. */
-function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[] } = {}) {
+function harness(
+  options: { detail?: unknown; runs?: unknown[]; modes?: string[]; projects?: { projectPath: string }[] } = {},
+) {
   const posted: unknown[] = [];
   const postedTo: string[] = [];
   const asked: string[] = [];
@@ -116,7 +118,20 @@ function harness(options: { detail?: unknown; runs?: unknown[]; modes?: string[]
       }
       return { status: 404, body: "" };
     },
-    subscribe: () => () => {},
+    // The inventory stream answers only a test that names projects, for the repository picker.
+    subscribe: (path, handlers) => {
+      if (options.projects && path.startsWith("/api/inventory/stream")) {
+        const projects = options.projects.map((project) => ({
+          displayName: project.projectPath.split("/").at(-1),
+          sourceCounts: {},
+          sessionCount: 0,
+          lastEventAt: 1,
+          ...project,
+        }));
+        queueMicrotask(() => handlers.onMessage(JSON.stringify({ projects })));
+      }
+      return () => {};
+    },
   };
   return { transport, posted, postedTo, asked };
 }
@@ -198,14 +213,32 @@ describe("ArenaSurface new run", () => {
     const { transport, posted } = harness({ modes: ["terminals", "headless"] });
     mount(transport);
     await waitFor(() => expect(screen.getByLabelText("Run name").getAttribute("placeholder")).toBe("arena run 3"));
-    expect(screen.getByLabelText("Repository the contestants work in").getAttribute("placeholder")).toBe(
-      "New repository in /Users/me/.arena",
-    );
+    const fresh = await screen.findByRole("radio", { name: /New repository.*\/Users\/me\/\.arena/ });
+    expect((fresh as HTMLInputElement).checked).toBe(true);
     const open = await screen.findByRole("button", { name: /Open lanes/ });
     await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
     open.click();
     await waitFor(() => expect(posted.length).toBe(1));
     expect(posted[0]).toMatchObject({ name: "", repoPath: "", prompt: "", mode: "terminals", manager: "claude" });
+  });
+
+  test("an existing repository is chosen from this machine's projects, searched for by name", async () => {
+    const { transport, posted } = harness({
+      modes: ["terminals", "headless"],
+      projects: [{ projectPath: "/Users/me/projects/agent-desk" }, { projectPath: "/Users/me/projects/harbor" }],
+    });
+    mount(transport);
+    await screen.findByRole("radio", { name: /harbor/ });
+    const search = screen.getByRole("searchbox", { name: "Search projects" });
+    fireEvent.change(search, { target: { value: "desk" } });
+    expect(screen.queryByRole("radio", { name: /harbor/ })).toBeNull();
+    screen.getByRole("radio", { name: /agent-desk/ }).click();
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLInputElement>("radio", { name: /New repository/ }).checked).toBe(false),
+    );
+    (await screen.findByRole("button", { name: /Open lanes/ })).click();
+    await waitFor(() => expect(posted.length).toBe(1));
+    expect(posted[0]).toMatchObject({ repoPath: "/Users/me/projects/agent-desk" });
   });
 
   test("each lane may name its model, and a run with a manager may open with no lanes for it to add", async () => {
