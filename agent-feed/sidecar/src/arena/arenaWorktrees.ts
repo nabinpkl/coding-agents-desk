@@ -35,8 +35,8 @@ async function runGit(args: string[], cwd: string): Promise<{ code: number; out:
 }
 
 /**
- * What a run would make of `path`: a repository it fans worktrees out of, a plain folder it makes a
- * repository of first, or a problem it refuses the run over (ADR-0153).
+ * What a run would make of `path`: a repository it fans worktrees out of, a plain folder the reader
+ * may have made one (`makeFolderRepository`), or a problem it refuses over (ADR-0153, ADR-0154).
  *
  * Read off the filesystem, not git, because the new-run form asks it of every project at once: a
  * folder is in a repository when it or a folder above it holds `.git` (a folder, or the file a
@@ -72,9 +72,28 @@ export async function inspectArenaFolder(path: string, home: string = homedir())
   return { path, repository: false, problem: null };
 }
 
+/** A folder a reader asked to make a repository of, refused with the reason, which is theirs to fix. */
+export class ArenaFolderRefusedError extends Error {}
+
 /**
- * Makes `path` a repository for a run: the run's own empty folder when it named none, or a plain
- * folder it named (ADR-0153). `git init`, the contestants' worktree folders kept out of its own
+ * Makes a plain folder a repository, its files the first commit, on the reader's word: a run never
+ * does this itself (ADR-0154). A folder already in one is answered as it is; one a run could not
+ * use is refused naming why.
+ */
+export async function makeFolderRepository(
+  steps: Pick<ArenaWorktreeSteps, "inspectFolder" | "initRepository">,
+  path: string,
+): Promise<ArenaFolderCheck> {
+  const before = await steps.inspectFolder(path);
+  if (before.problem) throw new ArenaFolderRefusedError(`"${path}" ${before.problem}`);
+  if (before.repository) return before;
+  await steps.initRepository({ path, message: "The folder as the arena found it", worktreeFolders: [] });
+  return steps.inspectFolder(path);
+}
+
+/**
+ * Makes `path` a repository: the run's own empty folder when it named none, or a plain folder the
+ * reader asked for (ADR-0154). `git init`, the contestants' worktree folders kept out of its own
  * status, and one commit of whatever the folder holds -- nothing, for the run's own -- for every
  * contestant to start at.
  *

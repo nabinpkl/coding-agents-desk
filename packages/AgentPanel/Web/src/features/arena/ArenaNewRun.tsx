@@ -3,9 +3,9 @@
 // Nothing has to be filled in. A run left unnamed takes the sidecar's next "arena run N", and one
 // left on "New repository" gets one of its own in the arena home, so Open lanes is a run from a
 // blank form. An existing repository is chosen with the project picker the session and Bot dialogs
-// use: this machine's projects, searchable, or any folder browsed to. A plain folder in the home
-// folder is made a repository by the run, its files the first commit, and its row says so; one the
-// run would refuse says why and cannot be chosen (ADR-0153).
+// use: this machine's projects, searchable, or any folder browsed to. A folder a run would refuse
+// says why and cannot be chosen; a plain folder in the home folder offers, beside its row, to be
+// made a git repository, its files the first commit, and only that click makes one (ADR-0154).
 //
 // The lineup is drawn as the lanes it will become -- one slot per contestant, numbered the way the
 // run will number them, each with its harness chosen in place -- so what a reader builds here is
@@ -31,11 +31,11 @@
 // prompt and argues that it should not be done, editing no file (ADR-0151). For and against sets
 // up the usual pair: two lanes on the first lane's harness and model, one on each side.
 
-import { useCallback, useId, useMemo, type KeyboardEvent } from "react";
+import { useCallback, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { Plus, X } from "lucide-react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
-import { inspectArenaFolders } from "@/features/arena/arenaRunsSource";
+import { inspectArenaFolders, makeArenaRepository } from "@/features/arena/arenaRunsSource";
 import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 import type {
   ArenaContestantSource,
@@ -45,7 +45,7 @@ import type {
 } from "@agentdesk/agent-feed-wire";
 import { LaneModel } from "@/features/arena/ArenaLaneModel";
 import { useMachineInventory } from "@/features/bots/useMachineInventory";
-import { ProjectPicker } from "@/features/project-picker/ProjectPicker";
+import { ProjectPicker, type DirectoryNote } from "@/features/project-picker/ProjectPicker";
 import {
   BUTTON,
   FIELD,
@@ -170,13 +170,38 @@ export function ArenaNewRun({
     enabled: asked.length > 0,
   });
   const checks = new Map((folders.data ?? []).map((check) => [check.path, check]));
-  const describe = (path: string) => {
+  // A plain folder is the reader's to make a repository of, from its row; a run never does (ADR-0154).
+  const [making, setMaking] = useState<string | null>(null);
+  const [makeFailures, setMakeFailures] = useState<ReadonlyMap<string, string>>(new Map());
+  const makeRepository = (path: string) => {
+    setMaking(path);
+    void makeArenaRepository(transport, path)
+      .then(() => {
+        setMakeFailures((failures) => new Map([...failures].filter(([failed]) => failed !== path)));
+        return folders.refetch();
+      })
+      .catch((cause: unknown) =>
+        setMakeFailures((failures) =>
+          new Map(failures).set(path, cause instanceof Error ? cause.message : String(cause)),
+        ),
+      )
+      .then(() => setMaking(null));
+  };
+  const describe = (path: string): DirectoryNote | null => {
     const check = checks.get(path);
     if (!check) return null;
     if (check.problem) return { note: `${check.problem[0]!.toUpperCase()}${check.problem.slice(1)}`, refused: true };
-    return check.repository
-      ? null
-      : { note: "Not a git repository: the run makes it one, its files the first commit", refused: false };
+    if (check.repository) return null;
+    const failure = makeFailures.get(path);
+    return {
+      note: failure ? `Could not make it a repository: ${failure}` : "Not a git repository",
+      refused: true,
+      action: {
+        label: making === path ? "Making…" : "Make it a git repository",
+        busy: making !== null,
+        run: () => makeRepository(path),
+      },
+    };
   };
   const modes = defaults?.modes ?? null;
   const opensLanes = draft.mode === "terminals" && draft.prompt.trim().length === 0;

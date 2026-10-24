@@ -36,6 +36,13 @@ export function projectMatches(project: { projectPath: string; displayName: stri
     .every((word) => haystack.includes(word));
 }
 
+/** What a caller says about one directory; see `describe`. */
+export interface DirectoryNote {
+  note: string;
+  refused: boolean;
+  action?: { label: string; busy: boolean; run: () => void };
+}
+
 const ROW = "flex min-h-12 items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors";
 // Half the muted wash on hover: the full one took a row's grey path to 4.3:1, under the 4.5:1 line.
 const ROW_ACTIVE = "cursor-pointer hover:bg-muted/50 focus-within:ring-2 focus-within:ring-primary active:bg-muted/80";
@@ -69,8 +76,9 @@ export function ProjectPicker({
   /**
    * What the caller has to say about a directory, under its path: why it would refuse it ("already
    * assigned to a Bot"), which also disables its row, or what choosing it means. Null for nothing.
+   * An action is a button beside the row that can change the answer (make a folder a repository).
    */
-  describe?: (path: string) => { note: string; refused: boolean } | null;
+  describe?: (path: string) => DirectoryNote | null;
   selectedPath: string | null;
   onSelect: (path: string) => void;
   /**
@@ -242,10 +250,11 @@ export function ProjectPicker({
           shown.map((row) => {
             const said = describe?.(row.projectPath) ?? null;
             const refused = said?.refused ?? false;
-            return (
+            const action = said?.action;
+            const label = (
               <label
                 key={row.projectPath}
-                className={`${ROW} ${refused ? "cursor-not-allowed text-muted-foreground" : ROW_ACTIVE}`}
+                className={`${ROW} min-w-0 flex-1 ${action ? "basis-56" : ""} ${refused ? "cursor-not-allowed text-muted-foreground" : ROW_ACTIVE}`}
               >
                 <input
                   type="radio"
@@ -263,6 +272,25 @@ export function ProjectPicker({
                   {said ? <span className="block text-xs text-muted-foreground">{said.note}</span> : null}
                 </span>
               </label>
+            );
+            // Beside the row rather than in it: a button inside the label would choose the row too.
+            // It wraps under the row's text where the two do not fit side by side, indented to it.
+            return action ? (
+              <div key={row.projectPath} className="flex flex-wrap items-center gap-x-2">
+                {label}
+                <button
+                  type="button"
+                  disabled={action.busy}
+                  aria-label={`${action.label}: ${row.displayName}`}
+                  onClick={action.run}
+                  className="mb-2 ml-10 flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {action.busy ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden /> : null}
+                  {action.label}
+                </button>
+              </div>
+            ) : (
+              label
             );
           })
         )}

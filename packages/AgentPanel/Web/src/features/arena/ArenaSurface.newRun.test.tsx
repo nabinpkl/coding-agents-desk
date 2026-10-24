@@ -76,6 +76,8 @@ function harness(
   } = {},
 ) {
   const posted: unknown[] = [];
+  /** The folders the reader asked to be made repositories. */
+  const made: string[] = [];
   const postedTo: string[] = [];
   const asked: string[] = [];
   const transport: AgentHttpTransport = {
@@ -112,6 +114,12 @@ function harness(
       if (method === "GET" && path.startsWith("/api/arena/runs/")) {
         return { status: 200, body: JSON.stringify(options.detail ?? run()) };
       }
+      if (method === "POST" && path === "/api/arena/folders/repository") {
+        const { path: folder } = requestOptions?.body as { path: string };
+        made.push(folder);
+        options.folders![folder] = { repository: true, problem: null };
+        return { status: 200, body: JSON.stringify({ path: folder, repository: true, problem: null }) };
+      }
       if (method === "POST" && path === "/api/arena/folders") {
         const { paths } = requestOptions?.body as { paths: string[] };
         const folders = paths.map((one) => ({ path: one, repository: true, problem: null, ...options.folders?.[one] }));
@@ -145,7 +153,7 @@ function harness(
       return () => {};
     },
   };
-  return { transport, posted, postedTo, asked };
+  return { transport, posted, postedTo, asked, made };
 }
 
 /**
@@ -253,8 +261,8 @@ describe("ArenaSurface new run", () => {
     expect(posted[0]).toMatchObject({ repoPath: "/Users/me/projects/agent-desk" });
   });
 
-  test("a plain folder says the run makes it a repository, and one a run would refuse cannot be chosen", async () => {
-    const { transport } = harness({
+  test("a plain folder offers to be made a repository, and only that click makes it one to choose", async () => {
+    const { transport, made, posted } = harness({
       modes: ["terminals", "headless"],
       projects: [{ projectPath: "/Users/me/notes" }, { projectPath: "/tmp/gone" }, { projectPath: "/Users/me/app" }],
       folders: {
@@ -263,14 +271,21 @@ describe("ArenaSurface new run", () => {
       },
     });
     mount(transport);
-    const notes = await screen.findByRole<HTMLInputElement>("radio", { name: /notes/ });
-    await waitFor(() => expect(notes.closest("label")!.textContent).toContain("the run makes it one"));
+    const make = await screen.findByRole("button", { name: "Make it a git repository: notes" });
+    const notes = screen.getByRole<HTMLInputElement>("radio", { name: /notes/ });
+    expect(notes.disabled).toBe(true);
+    expect(notes.closest("label")!.textContent).toContain("Not a git repository");
     const gone = screen.getByRole<HTMLInputElement>("radio", { name: /gone/ });
     expect(gone.disabled).toBe(true);
     expect(gone.closest("label")!.textContent).toContain("Does not exist");
-    expect(screen.getByRole<HTMLInputElement>("radio", { name: /app/ }).closest("label")!.textContent).not.toContain(
-      "git",
-    );
+    expect(screen.queryByRole("button", { name: /gone/ })).toBeNull();
+    // Nothing is made until the reader asks, and a run is not what asks.
+    expect([made, posted]).toEqual([[], []]);
+
+    make.click();
+    await waitFor(() => expect(screen.getByRole<HTMLInputElement>("radio", { name: /notes/ }).disabled).toBe(false));
+    expect(made).toEqual(["/Users/me/notes"]);
+    expect(screen.queryByRole("button", { name: /Make it a git repository/ })).toBeNull();
   });
 
   test("each lane may name its model, and a run with a manager may open with no lanes for it to add", async () => {

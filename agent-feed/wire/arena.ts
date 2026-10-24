@@ -244,7 +244,7 @@ export interface ArenaPassRequest {
 
 /**
  * `POST /api/arena/folders`: what a run would make of each folder, for the new-run form to say before
- * the run is asked for (ADR-0153). At most 500 paths.
+ * the run is asked for (ADR-0153, ADR-0154). At most 500 paths.
  */
 export interface ArenaFoldersRequest {
   paths: string[];
@@ -253,7 +253,7 @@ export interface ArenaFoldersRequest {
 /** One folder as a run would take it. */
 export interface ArenaFolderCheck {
   path: string;
-  /** In a git repository already. False for a plain folder, which a run makes one of. */
+  /** In a git repository already. False for a plain folder, which a run refuses until it is made one. */
   repository: boolean;
   /** Why a run would refuse it ("does not exist", ...), read after the path; null when it would not. */
   problem: string | null;
@@ -261,6 +261,15 @@ export interface ArenaFolderCheck {
 
 export interface ArenaFoldersResponse {
   folders: ArenaFolderCheck[];
+}
+
+/**
+ * `POST /api/arena/folders/repository`: make a plain folder in the home folder a repository, its
+ * files the first commit, answered with the folder as a run would now take it. Only on the reader's
+ * word: a run never does this itself (ADR-0154).
+ */
+export interface ArenaMakeRepositoryRequest {
+  path: string;
 }
 
 /** `POST /api/arena/runs/:id/prompt`: the prompt a terminals run's open lanes wait for. Given once. */

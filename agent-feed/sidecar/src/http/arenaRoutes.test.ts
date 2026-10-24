@@ -296,3 +296,18 @@ test("folders answers what a run would make of each path, refuses a malformed bo
   expect((await post({ paths: Array.from({ length: 501 }, (_, i) => `/p${i}`) })).status).toBe(400);
   expect((await at("/api/arena/folders")).status).toBe(405);
 });
+
+test("folders/repository answers the folder a run would now take, refuses a body with no path, and takes only a POST", async () => {
+  const { at } = await start();
+  const post = (body: unknown) =>
+    at("/api/arena/folders/repository", {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+    });
+  const made = await post({ path: "/repos/one" });
+  expect(made.status).toBe(200);
+  expect(await made.json()).toEqual({ path: "/repos/one", repository: true, problem: null });
+  expect((await post({})).status).toBe(400);
+  expect((await at("/api/arena/folders/repository")).status).toBe(405);
+});
