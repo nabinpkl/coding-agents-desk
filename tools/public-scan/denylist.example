@@ -1,0 +1,18 @@
+# The shape of a personal denylist. Copy it to the path that
+#   node tools/runtime-paths.mjs public-scan-denylist
+# prints (or set AGENTDESK_PUBLIC_SCAN_DENYLIST), then replace these made-up values with your own.
+# Never commit the real one: it is a list of exactly what you are keeping private.
+#
+# Format: <id> /<regex>/<flags>   flags from imsuv; the scanner adds g itself.
+# Ids are lowercase words joined by hyphens, unique across this file and secret-rules.txt.
+# A rule that can match an empty string is refused, since it would match everywhere.
+
+# Your name in every form it takes in code: paths, bundle ids, prose. A lookahead keeps a public
+# handle that starts with it allowed.
+owner-name /jane(?!doe-public)/i
+owner-email /jane\.doe@example\.com/i
+
+# Infrastructure that identifies you: a tailnet name, a domain, account ids.
+tailnet /example-tailnet\.ts\.net/i
+owner-domain /\bjane-doe\.example\b/i
+cloud-account /0123456789abcdef0123456789abcdef/

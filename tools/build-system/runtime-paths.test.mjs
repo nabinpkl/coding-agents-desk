@@ -30,9 +30,19 @@ test("one runtime-root override moves every consumer; helper override is explici
   }).gridEncoder, "/private/helper/grid-encoder");
 });
 
+test("the public-scan denylist lives with the machine's runtime, never in the checkout", () => {
+  const paths = runtimePaths({}, "/Users/fixture");
+  assert.equal(paths.publicScanDenylist, join(paths.root, "public-scan/denylist"));
+  assert.equal(runtimePaths({ AGENTDESK_RUNTIME_ROOT: "/private/runtime" }).publicScanDenylist,
+    "/private/runtime/public-scan/denylist");
+  assert.equal(runtimePaths({ AGENTDESK_PUBLIC_SCAN_DENYLIST: "/private/lists/mine" }).publicScanDenylist,
+    "/private/lists/mine");
+});
+
 test("relative paths and path-shaped bundle ids fail instead of targeting another tree", () => {
   assert.throws(() => runtimePaths({ AGENTDESK_RUNTIME_ROOT: "./.build" }), /absolute/);
   assert.throws(() => runtimePaths({ AGENT_FEED_GRID_ENCODER_PATH: "grid-encoder" }), /absolute/);
+  assert.throws(() => runtimePaths({ AGENTDESK_PUBLIC_SCAN_DENYLIST: "denylist" }), /absolute/);
   for (const bundleId of [undefined, null, "", "../host", "a/b", ".", "..", "host id"]) {
     assert.throws(() => installedHostAppPath(bundleId), /bundle id/);
   }
@@ -48,6 +58,7 @@ test("the shell interface and imported configuration resolve identical paths", (
   assert.equal(cli(["root"]), paths.root);
   assert.equal(cli(["grid-encoder"]), paths.gridEncoder);
   assert.equal(cli(["panel-tls"]), paths.panelTlsDirectory);
+  assert.equal(cli(["public-scan-denylist"]), paths.publicScanDenylist);
   assert.equal(cli(["host-app", "example.host"]), installedHostAppPath("example.host", paths));
 });
 

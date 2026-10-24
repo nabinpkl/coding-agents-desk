@@ -48,6 +48,12 @@ export function runtimePaths(environment = process.env, homeDirectory = homedir(
     // (`agent-feed/sidecar/src/telemetry/`). Beside the other logs for the same reasons.
     telemetryArchive: absoluteEnvironmentPath(environment, "AGENTDESK_TELEMETRY_ARCHIVE",
       join("/Users/Shared/agentdesk/logs", `${userInfo().username}-telemetry`)),
+    // The personal strings `tools/public-scan/` keeps out of the tree: names, addresses, account
+    // ids. Outside the checkout on purpose, because a list of them committed to the repository
+    // would publish exactly what it exists to keep private. One file per machine, shared by every
+    // checkout and worktree on it.
+    publicScanDenylist: absoluteEnvironmentPath(environment, "AGENTDESK_PUBLIC_SCAN_DENYLIST",
+      join(root, "public-scan", "denylist")),
   };
 }
 
@@ -70,12 +76,13 @@ if (import.meta.main) {
     "sidecar-registry": paths.sidecarRegistry,
     "webrtc-diag-log": paths.webrtcDiagLog,
     "telemetry-archive": paths.telemetryArchive,
+    "public-scan-denylist": paths.publicScanDenylist,
   };
   if (key === "host-app" && bundleId && extra.length === 0) {
     process.stdout.write(`${installedHostAppPath(bundleId, paths)}\n`);
   } else if (Object.hasOwn(named, key) && bundleId === undefined) {
     process.stdout.write(`${named[key]}\n`);
   } else {
-    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|speech-models|sidecar-registry|webrtc-diag-log|telemetry-archive|host-app <bundle-id>");
+    throw new Error("usage: runtime-paths.mjs root|grid-encoder|grid-encoder-slots|panel-tls|speech-models|sidecar-registry|webrtc-diag-log|telemetry-archive|public-scan-denylist|host-app <bundle-id>");
   }
 }

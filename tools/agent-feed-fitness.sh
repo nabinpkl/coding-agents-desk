@@ -199,4 +199,13 @@ if ! tools/format.sh --check >/dev/null; then
     fail "files not formatted; run tools/format.sh"
 fi
 
+# 10. No personal data and no credential shape beyond what was already in the tree when the
+#     public-release cleanup began. The whole repository, not just the two live trees, because a
+#     name or an account id in a test fixture or an ADR is published as surely as one in source.
+#     The personal patterns live outside the checkout, so a machine without them checks the secret
+#     shapes only, and says so. `tools/public-scan/README.md` has the rest.
+if ! node tools/public-scan/public-scan.mjs; then
+    fail "the public scan found something to keep out of the tree (see above)"
+fi
+
 echo "agent-feed-fitness: OK"

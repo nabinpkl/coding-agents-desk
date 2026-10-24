@@ -158,6 +158,11 @@ Each is the short form; the file named holds the full text and the measurements 
   and passing the argv is better still. (`docs/agents/shell-scripts.md`.)
 - **Probe with a throwaway session** (`tools/throwaway-session.sh`, the cheap model by default), and
   never start a second `opencode serve` on this machine. (`docs/agents/sessions-and-tmux.md`.)
+- **Nothing personal goes into the tree.** This repository is being prepared for publishing. Check 10
+  of the fitness gate fails on a name, address, account or device id, tailnet name or credential
+  shape beyond the baseline recorded when the cleanup began. Take the string out rather than
+  recording it. When you remove existing ones, `just public-scan --update-baseline` and commit the
+  baseline with the change. (`tools/public-scan/README.md`.)
 
 ## Claude's own files are off limits
 

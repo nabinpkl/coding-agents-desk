@@ -565,6 +565,15 @@ build-agent-webview:
 agent-feed-fitness:
     sh '{{justfile_directory()}}/tools/agent-feed-fitness.sh'
 
+# Personal data and credential shapes kept out of the tree before it is published. With no
+# arguments it is the gate fitness check 10 runs; `--update-baseline` records hits removed since,
+# and `--history <git rev-list arguments>` checks a history about to be published.
+# `tools/public-scan/README.md` says how the parts fit. Positional, so each argument reaches the
+# scanner as itself rather than through a re-split string.
+[positional-arguments]
+public-scan *args:
+    node '{{justfile_directory()}}/tools/public-scan/public-scan.mjs' "$@"
+
 # Installs this repository's git hooks, which are tracked so every checkout gets the same ones.
 #
 # One symlink into the COMMON git directory, which is what every linked worktree shares -- so
@@ -827,11 +836,13 @@ build-system-check:
 
 # The shell scripts in `tools/` that drive host-run, the client install, the launch environment,
 # port and pid reclaiming, telemetry and TestFlight upload, each tested by its `-tests.sh` beside it,
-# plus the media architecture guard. Plain shell with stubbed commands, about 10s, nothing built, so
-# an edit to `tools/` runs these rather than every leg of the gate. `swift-check` runs them too.
+# plus the media architecture guard and the public scan's own tests. Plain shell with stubbed
+# commands, about 10s, nothing built, so an edit to `tools/` runs these rather than every leg of the
+# gate. `swift-check` runs them too.
 tools-check:
     #!/usr/bin/env bash
     set -euo pipefail
+    node --test tools/public-scan/*.test.mjs
     sh tools/media-architecture-guard.sh
     sh tools/exact-executable-pids-tests.sh
     sh tools/local-udp-port-pids-tests.sh
