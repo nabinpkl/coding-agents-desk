@@ -24,6 +24,7 @@ import { reconnectInPlace } from "./src/app/dev-server/reconnectInPlace";
 import { panelReact } from "./src/app/dev-server/panelReact";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
 import { listenAddresses, panelListen, parseListenMode } from "./src/app/dev-server/listenAddresses";
+import { refuseUpgrade, upgradeRefusal } from "./src/app/dev-server/upgradeGuard";
 import { createTypeHolds, dependentsOf, resend } from "./src/app/dev-server/typeHolds";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
 import { AUDIO_HOST, AUDIO_PORT_OFFSET } from "../../../agent-feed/sidecar/src/audio/audioConfig";
@@ -392,7 +393,11 @@ function panelSessions(): Plugin {
  *
  * This does not widen what is reachable. `screensharingd` already listens on the tailnet, the far
  * side here is pinned to loopback, and authentication stays entirely between macOS and whoever is
- * typing. What it buys is the one thing the desktop viewer cannot do: RFB drives whichever session
+ * typing. What it would widen, if anyone could open it, is who can reach that login: a WebSocket is
+ * not held to the same-origin rules, so any page in the reader's browser could, and only this
+ * origin's page is let through (`upgradeGuard.ts`).
+ *
+ * What it buys is the one thing the desktop viewer cannot do: RFB drives whichever session
  * it is showing, including the login window, so it still works when the console is locked and the
  * capture path can only show a picture nobody can click.
  */
@@ -405,6 +410,12 @@ function vncBridge(port = 5900, host = "127.0.0.1"): Plugin {
         // Vite upgrades its own HMR paths on this same server, so anything not ours is left for it
         // rather than refused.
         if (!(request.url ?? "").startsWith("/vnc")) return;
+        const refusal = upgradeRefusal(request.headers, tailnetHost);
+        if (refusal) {
+          server.config.logger.warn(`agent panel /vnc: refused an upgrade (${refusal})`);
+          refuseUpgrade(socket, refusal);
+          return;
+        }
         sockets.handleUpgrade(request, socket as never, head, (ws) => {
           const upstream = connect(port, host);
           const shutdown = () => {
