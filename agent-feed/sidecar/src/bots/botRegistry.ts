@@ -276,7 +276,7 @@ export class BotRegistry {
     // refusals -- a branch that exists, a source that is not this Bot's -- and the caller can fix
     // the command and send a different one. The `-n` title is the next anchor bracketed with the
     // requested task, reserved against the slot it will attach to before anything starts.
-    const started = await this.starter.launchReservedSession(botId, record.bot, launch);
+    const started = await this.starter.launchReservedSession(botId, record.bot, launch, after);
     return {
       bot: await this.viewer.viewRecord(
         await this.starter.recordStartedSession(botId, { source: "claude", sessionId: started.sessionId }, after),

@@ -262,6 +262,43 @@ test("forks one of the Bot's own sessions from a message, and holds the brief fo
   expect(added.bot.sessionAnchors?.["claude:started-1"]).toBe("Adam");
 });
 
+test("numbers a fork for the place beside its source, skipping a slot that would paint like it", async () => {
+  // The panel takes a card's hue from its slot round eight. Alan held 1 and his fork, standing
+  // beside him, took 33: the two cards were one colour. The slot is reserved before the launch, so
+  // it is there, not at the attach, that the fork's place has to be known.
+  const { launcher } = recordingLauncher();
+  const { project, claudeRef, ref, registry, store } = await fixture(launcher);
+  const transcriptPath = join(project, `${claudeRef.sessionId}.jsonl`);
+  await writeFile(transcriptPath, `${JSON.stringify({ type: "user", message: { role: "user", content: "x" } })}\n`);
+  sessions.set(`claude:${claudeRef.sessionId}`, { ...sessions.get(`claude:${claudeRef.sessionId}`)!, transcriptPath });
+
+  const bot = await addBot(registry, { requestId: "add", name: "AD bot", directoryPath: project }, { kind: "user" });
+  await addSessions(registry, bot.botId, { requestId: "attach", sessionRefs: [claudeRef, ref] }, { kind: "user" });
+  // A Bot with history: eight sessions spent since the source took slot 0 and its neighbour 1.
+  await store.mutate((snapshot) => ({
+    snapshot: { ...snapshot, bots: snapshot.bots.map((one) => ({ ...one, nextSessionSlot: 8 })) },
+    value: undefined,
+  }));
+  const added = await registry.addSessions(
+    bot.botId,
+    {
+      requestId: "fork",
+      launch: { title: "Fork", from: { ...claudeRef, eventId: `claude:${claudeRef.sessionId}:at:0` } },
+    },
+    { kind: "user" },
+  );
+
+  expect(added.bot.sessionRefs.map((each) => each.sessionId)).toEqual([
+    claudeRef.sessionId,
+    "started-1",
+    ref.sessionId,
+  ]);
+  // 8 paints like the source's 0 and 9 like its old neighbour's 1. Numbered at the end of the row
+  // instead, beside 1 alone, it would have taken 8: the source's colour, right beside it.
+  expect(added.bot.sessionSlots?.["claude:started-1"]).toBe(10);
+  expect(added.bot.nextSessionSlot).toBe(11);
+});
+
 test("refuses a fork from a row that is not one of the source's messages, before starting anything", async () => {
   const { launched, launcher } = recordingLauncher();
   const { project, claudeRef, registry } = await fixture(launcher);

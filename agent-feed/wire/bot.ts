@@ -8,6 +8,13 @@ import type { FolderFileRead, FolderGitDiff, FolderGitStatus, FolderTree } from 
 
 export type BotGrant = "add_bot";
 
+/**
+ * How many hues a Bot's session cards are painted from: the panel's `BOT_SESSION_HUES`, taken by
+ * stored slot round this many. Here because the sidecar spends slots and has to know which two
+ * paint alike, so a session attached beside another never takes its colour.
+ */
+export const BOT_SESSION_HUE_COUNT = 8;
+
 export interface BotSessionRef {
   source: SourceId;
   sessionId: string;
@@ -43,7 +50,11 @@ export interface BotRecord {
    * written before slots existed, which read as the current `sessionRefs` order.
    */
   sessionSlots?: Record<string, number>;
-  /** The next slot to hand out on this Bot. Never reused, so history cannot collide. */
+  /**
+   * The lowest slot this Bot may still hand out. Never reused, so history cannot collide, and
+   * numbers may be skipped: a session placed beside others takes the first one that does not paint
+   * like its neighbours (`BOT_SESSION_HUE_COUNT`).
+   */
   nextSessionSlot?: number;
   /**
    * Each attached session's stable anchor, by `source:sessionId`: the plain name its title starts

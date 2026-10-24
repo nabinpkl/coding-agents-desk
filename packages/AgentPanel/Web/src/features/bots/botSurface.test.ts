@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "vitest";
 import type { CSSProperties } from "react";
+import { BOT_SESSION_HUE_COUNT } from "@agentdesk/agent-feed-wire";
 import {
   BOT_HUE_OFFSET,
   BOT_HUE_STEP,
@@ -329,6 +330,12 @@ describe("botSessionStyle", () => {
 });
 
 describe("botSessionHue", () => {
+  test("has as many entries as the sidecar counts when it keeps neighbours apart", () => {
+    // The sidecar skips a slot that paints like a neighbour by comparing slots round this count; a
+    // palette of another length would make it keep apart numbers that paint alike here.
+    expect(BOT_SESSION_HUES.length).toBe(BOT_SESSION_HUE_COUNT);
+  });
+
   test("paints only the palette, whatever the Bot's hue", () => {
     for (let hue = 0; hue < 360; hue += 7) {
       for (let step = 0; step < BOT_SESSION_SHADES; step += 1) {

@@ -241,8 +241,13 @@ export function botSessionSlots(
  *
  * The ORDER is the walk, chosen so that consecutive entries are the furthest apart of any ordering
  * -- at least 0.117 dEok on dark's view surface, and 0.054 two steps apart -- because a Bot's
- * sessions stand next to each other in slot order. The 60-degree steps this replaces held 0.040 at
- * worst and 0.077 at the median.
+ * sessions attached one after another stand next to each other in slot order. The 60-degree steps
+ * this replaces held 0.040 at worst and 0.077 at the median.
+ *
+ * Not every neighbour is in slot order: a fork stands beside its source with whatever number the
+ * counter had reached. So the sidecar, which spends the slots, skips any number that would paint
+ * like the cards a new session stands between, and has to know how many entries there are:
+ * `BOT_SESSION_HUE_COUNT`, which this list's length is tested against.
  */
 export const BOT_SESSION_HUES = [58, 154, 284, 98, 319, 191, 354, 228] as const;
 

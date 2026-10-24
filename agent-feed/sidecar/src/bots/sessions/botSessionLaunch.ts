@@ -182,7 +182,8 @@ export class BotSessionStarter {
   }
 
   /**
-   * Starts a session on a Bot that already exists, under its next anchor and slot.
+   * Starts a session on a Bot that already exists, under its next anchor and slot, the slot
+   * numbered for the place it will stand: after `after` when the Bot holds that, else at the end.
    *
    * Both are spent BEFORE the launch, in one mutation, so the `-n` title, the stored slot and
    * the stored anchor always agree: reserving first is what keeps two launches in one moment
@@ -193,20 +194,26 @@ export class BotSessionStarter {
    * The attach afterwards (`recordStartedSession`) finds both reservations and keeps them, which
    * is why this and that agree without sharing anything but the session id.
    */
-  async launchReservedSession(botId: string, bot: BotRecord, launch: NormalizedLaunch): Promise<StartedSession> {
+  async launchReservedSession(
+    botId: string,
+    bot: BotRecord,
+    launch: NormalizedLaunch,
+    after?: BotSessionRef,
+  ): Promise<StartedSession> {
     const sessionId = this.newSessionId();
-    const key = `claude:${sessionId}`;
+    const ref: BotSessionRef = { source: "claude", sessionId };
+    const key = sessionKey(ref);
     const reserved = await this.store.mutate((snapshot) => {
       const index = snapshot.bots.findIndex((one) => one.botId === botId);
       if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
       const current = snapshot.bots[index]!;
-      const backed = ensureSessionSlots(current, current.sessionRefs);
-      const slot = backed.nextSessionSlot;
+      // Numbered where its card will stand, beside `after` for a fork, so its slot paints unlike
+      // the cards either side of it. The order itself is written by `recordStartedSession`.
+      const backed = ensureSessionSlots(current, placeRefs(current.sessionRefs, [ref], after));
       const anchor = nextAnchor(spentAnchors(snapshot.bots));
       const updated: BotRecord = {
         ...current,
-        sessionSlots: { ...backed.sessionSlots, [key]: slot },
-        nextSessionSlot: slot + 1,
+        ...backed,
         sessionAnchors: { ...(current.sessionAnchors ?? {}), [key]: anchor },
       };
       const bots = [...snapshot.bots];
