@@ -79,10 +79,15 @@ Six invariants. Everything in the room is built on them; nothing above may weake
 2. **The budget fails safe.** Only a message from you grants turns. Turns are counted at admission,
    before a turn starts. A missing or unreadable budget counts as zero.
 3. **Stop means stop, at the operating system.**
-   - A spawned harness gets a process group of its own. Stopping it is SIGTERM to the group, a short
-     grace, SIGKILL to the group, then a check that the group is empty.
-   - macOS has no cgroups, so a grandchild that starts a session of its own escapes the group. A
-     snapshot of the lane's descendants is taken before the kill, and each one is signalled.
+   - A spawned harness gets a process group of its own. Stopping it is SIGTERM first, a short
+     grace, then SIGKILL, then a check that nothing is left.
+   - One group is not enough: Claude runs each Bash command in a process group of its own (the
+     spike measured it), and macOS has no cgroups, so a grandchild that starts a session of its own
+     escapes every group. A snapshot of the lane's descendants is taken before the kill, and the
+     SIGKILL goes to every group and process in it, not only the harness's.
+   - SIGTERM first is load-bearing twice over: on it, Claude cleaned up its own tree, the Bash
+     tool's group and a session-escaped grandchild included, and flushed its spans, in about a
+     second. SIGKILL alone did neither.
    - An opencode lane lives in the shared serve, which must never be started twice, so its process
      cannot be killed: its session is aborted (`OpencodeAgentBackend.abort`), then checked idle.
    - A terminals lane's pane is interrupted, then its session ended.
@@ -134,7 +139,9 @@ Each row is a test to write before the code that passes it.
 | A message carries a forged envelope or a budget claim | Escaped as text; no knob exists to reach | Message with closing tags and "budget: 99" |
 | The group's leader exits before its descendants | Waits on the group, not the leader, then escalates | Leader that exits at once, leaving a sleeping child (Effect #7821) |
 | A child exits non-zero and its pid is reused | Signals only a group it owns, checked by start time | Exit non-zero, then a new process on the same pid (Effect #9789) |
-| On macOS, only zombies are left in the group | `EPERM` from `kill(-pgid, 0)` is read as zombies, not as gone | Group whose members are zombies (Effect #9819) |
+| On macOS, only zombies are left in the group | `EPERM` from `kill(-pgid, 0)` is read as zombies, not as gone | Group whose members are zombies (Effect #9819); the spike saw it live, a second after SIGTERM, with Claude exited but not yet reaped |
+| A tool's command runs in a process group other than the harness's | The census names it; SIGKILL goes to its group too | A Bash command that starts background work, the harness SIGKILLed (the spike: four processes survived a kill of Claude's group alone) |
+| The census or a span carries a secret on a command line | Command lines are never stored or exported as text; only pid, group and the program's name | An MCP server started with an API key in its argv (the spike's census printed one) |
 
 ## Supervision
 
@@ -195,8 +202,10 @@ room.wave            one per message from you: budget granted, how it ended
 Names follow OpenTelemetry's agent conventions where they fit (`invoke_agent`, `gen_ai.*`); those
 are still marked Development. Claude Code reads a `TRACEPARENT` passed to `claude -p` and nests
 its own spans (each model request, each tool) under it, with tracing turned on by its beta flag
-(its monitoring docs, read 2026-10-25). Interactive sessions ignore an inbound one. Using that needs two things: a sidecar route that takes OTLP into the same
-archive, and an amendment to AGENTS.md's rule that what a feature knows about a live session comes
+(its monitoring docs, read 2026-10-25). Interactive sessions ignore an inbound one. Every event
+it sends carries the account's identity (email, account id, organisation id) unless told
+otherwise, so what reaches the archive is scrubbed first. Using that needs two things: a sidecar
+route that takes OTLP into the same archive, and an amendment to AGENTS.md's rule that what a feature knows about a live session comes
 from the transcripts or the HTTPS proxy "and from nothing else" (an open decision below).
 
 ## Seeing outside calls
@@ -268,6 +277,34 @@ hand for the first failure in each, before anything is automated.
 | U5 | Does a real `claude -p` leave survivors after a group SIGKILL: MCP servers, their children, anything that started its own session? | The kernel's interlock; the only measurement so far is a comment in `claudeSdkRunnerMain.ts` that MCP children outlive the CLI | The spike's census |
 | U6 | Does Effect's process spawner behave on Bun? Its Bun spawner re-exports the Node one, so it runs on Bun's `node:child_process` compatibility | Decides whether options A and C below can use Effect's process handling at all | The kill test run on Effect's spawner on Bun |
 | U7 | Can Effect's OpenTelemetry spans reach the sidecar's Sentry archive? | Otherwise A and C mean a second tracing stack | One span from Effect, looked for in the archive |
+
+### What the spike found (2026-10-25)
+
+Three turns of `claude -p` on Haiku (Claude Code 2.1.310), each given a `TRACEPARENT` and exporting
+OTLP/JSON to a local receiver: one that finished, one sent SIGTERM mid-tool-call (5 seconds' grace,
+then SIGKILL), one sent SIGKILL at once. The tool call ran a script that left a background sleep, a
+`nohup` sleep and a sleep in a session of its own, then slept in the foreground. The spike's code
+and output are deleted.
+
+- **U1, spans on kill: answered.** A finished turn exported everything before it exited. On SIGTERM,
+  Claude exited in about a second (code 143) and flushed: the `interaction` span arrived, but the
+  Bash tool span still running when it was signalled never did. On SIGKILL, the `interaction` span
+  never arrived either: only spans that ended before the last five-second batch, left without
+  their parent. So Claude's spans cannot say how a killed turn ended; the room's own `lane.turn`
+  and `lane.kill` spans must, and SIGTERM comes first.
+- **U2, what a trace holds: answered.** The `interaction` span is `invoke_agent`, a child of the
+  span we passed in, with the prompt redacted. Model requests carry the model, tokens, cache reads,
+  time to first token, stop reason and request id. Tools carry the tool's name, and for Bash its
+  first word and a class (`sh`, `lang_runtime`), not the command. Every span and event carries
+  `session.id`, the id the lane was started with. A refused tool call is a `tool_decision` event and a
+  `safety_event` (in the clean turn, a `Read` refused by the working-directory rule). Default
+  redaction is enough for the room; the detail switches are not needed yet.
+- **U5, survivors: answered, and it moved the kernel.** Claude's MCP servers share its group and die
+  with it. Its Bash tool does not: each command ran under a shell in a process group of its own. A
+  SIGKILL of Claude's group left all four sleeps running, three in the Bash tool's group and one in
+  its own session. On SIGTERM, Claude cleaned up all of them itself. Invariant 3 and the failure
+  table now say so.
+- **Still open:** U3 (terminals lanes), U4 (opencode), U6 and U7 (Effect).
 
 ## How the kernel is built: three options
 
@@ -360,3 +397,7 @@ supervision, and OpenCode shows it working on Bun. The spike settles U6 and U7 b
   deleted; three ways to build the kernel (an Effect island, plain TypeScript, Effect's structure
   with our own spawner); why AutoGen and Erlang give vocabulary and pattern rather than code; three
   failure-table rows from Effect's process-group bugs.
+- 2026-10-25: the trace-and-kill spike answered U1, U2 and U5. Invariant 3 now kills every process
+  group the census finds, since Claude's Bash tool runs in groups of its own, and keeps SIGTERM
+  first because that is when Claude cleans up and flushes. Three failure-table rows, and a note that
+  events carry the account's identity.
