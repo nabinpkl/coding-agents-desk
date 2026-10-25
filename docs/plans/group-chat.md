@@ -78,9 +78,26 @@ The lean is the first, with the third behind it when the first finds nobody.
 start, mostly terminals in tmux. Group cannot kill them, since they are the reader's own sessions;
 its stop is to interrupt the turn it caused (an interrupt in the pane, `abort` for opencode) and
 to deliver nothing more. Leases and the budget still bound every turn Group causes; the process
-kill applies only to lanes Group itself started. A message reaches a terminals member through its
-pane or the messaging hub (which already delivers into opencode sessions), and its turn is found
-by session id (U3).
+kill applies only to lanes Group itself started. Its turn is found by session id (U3).
+
+**How a message reaches an existing session, as built today** (checked 2026-10-25,
+`docs/agent-messaging.md`, `agent-feed/sidecar/mods/README.md`). Every Claude session the sidecar
+launches, resumes or forks, in its terminal mode (the default, in a tmux pane) and in its Agent SDK
+runner mode, loads three mods: `agentdesk-hub` delivers messaging-hub messages as prompts,
+`prompt-guard` limits every prompt a mod submits, and `ask-owner` gives the session a tool for
+asking the owner. OpenCode sessions get hub messages through the sidecar's adapter. A session is
+reachable only while it belongs to a published Bot. So Group's delivery into an existing session
+is the hub's, and is not something to build again: Group posts to the member's Bot address, and the
+mod or the adapter puts it into the session.
+
+That path brings limits Group has to design under, not around. `prompt-guard` lets mods put in 3
+prompts per session since the person last typed there, one at a time, 6 per session and 20 per
+machine in an hour, never the same text twice in 10 minutes, with a pause for every session on the
+machine. A wave that sends one Claude member more than three messages before you type in it again
+is cut off by the guard, and the guard is right to: it is the brake already on this machine, and it
+fails closed. So in command line mode Group's own budget sits inside the guard's, and Group shows a
+delivery the guard dropped as dropped, rather than as sent. A Claude Code session holds a mod's
+prompt until its running turn ends, so a message to a busy member waits for that turn.
 
 ## Requirements
 
@@ -516,3 +533,7 @@ measured now stands in the way of any of the three; the choice is the one in the
 - 2026-10-25: the case for Group recorded: one hop to sessions you already have, where the Father
   is two. A command line mode beside working together, its cost in steering and the click that
   answers it, three ways to route an unaddressed message, and what it changes in the kernel.
+- 2026-10-25: delivery into existing sessions corrected to what is built: the hub, through the
+  `agentdesk-hub` mod for Claude in both modes and the adapter for opencode, under `prompt-guard`'s
+  limits, which Group's command line mode works inside. `docs/agent-messaging.md` brought up to date
+  with the same facts.
