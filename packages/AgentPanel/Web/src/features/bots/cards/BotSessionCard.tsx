@@ -18,6 +18,9 @@ import type { BotCardSize } from "@/features/bots/canvas/botCanvasPreferences";
 import { CLOSED_SESSION_WIDTH, sessionKey, type BotCommandError } from "@/features/bots/cards/botCanvasCards";
 import { botSessionFaceRank, botSessionStyle } from "@/features/bots/botSurface";
 import { ArchiveFailure, useSessionArchiveCommand } from "@/features/sidebar/session-list/ArchivedSessions";
+import { FilePathOpenerContext } from "@/features/activity-feed/markdown/filePathLinks";
+import { SessionCodeButton, SessionCodeDialog } from "@/features/bots/code/SessionCodeButton";
+import { useSessionCode } from "@/features/bots/code/useSessionCode";
 
 /** How far a press has to travel before it stops being a click and becomes a carry. */
 const MOVE_THRESHOLD = 4;
@@ -155,6 +158,7 @@ export function BotSessionCard({
    * session either belongs to. Given its own node inside the card, each lands over its own session.
    */
   const [tasksHost, setTasksHost] = useState<HTMLElement | null>(null);
+  const code = useSessionCode(session);
   /**
    * What this card's session does with a dropped image, published up from inside it.
    *
@@ -369,7 +373,7 @@ export function BotSessionCard({
               />
             </div>
             {/* Its own line in a narrow row, inline once there is room. A session's controls are
-                five icons wide, which in a narrow card leaves the title about one character: the
+                six icons wide, which in a narrow card leaves the title about one character: the
                 name of the thing is worth more than keeping this to one line. `order-last` rather
                 than DOM order, so the menu stays beside the title where it is on every closed row
                 and does not move when one opens.
@@ -379,10 +383,11 @@ export function BotSessionCard({
                 inline in a 451px card and truncated the title to "CPU and RA...". What decides here
                 is how much room this row actually has. */}
             {open ? (
-              <span
-                ref={setControlsHost}
-                className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 @[560px]:order-none @[560px]:basis-auto @[560px]:pb-0"
-              />
+              <span className="order-last mt-1 flex basis-full items-center justify-end gap-1 pb-1 @[560px]:order-none @[560px]:basis-auto @[560px]:pb-0">
+                {/* `contents`, so what the session portals in lines up with the code button. */}
+                <span ref={setControlsHost} className="contents" />
+                <SessionCodeButton bot={bot} session={session} onOpen={code.openFolder} />
+              </span>
             ) : null}
             {/* Beside the menu rather than in it: one tap to a session at full size is the point. */}
             <button
@@ -441,20 +446,33 @@ export function BotSessionCard({
               {/* The same component the app's own thread view renders, given a box instead of the
                   page. It needs nothing said to it about being small: everything in it measures the
                   column it is, so the box decides. */}
-              <SessionView
-                {...sessionContext}
-                {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
-                projectPath={bot.environment.path}
-                session={session}
-                controlsHost={controlsHost}
-                tasksHost={tasksHost}
-                onAcceptFiles={takeAcceptFiles}
-                {...(onAttachSession === undefined ? {} : { onAttachSession })}
-              />
+              {/* A worktree session's paths are read against its worktree, over the Bot's directory. */}
+              <FilePathOpenerContext.Provider value={code.opener}>
+                <SessionView
+                  {...sessionContext}
+                  {...(forkFromMessage === undefined ? {} : { onForkFromMessage: forkFromMessage })}
+                  projectPath={bot.environment.path}
+                  session={session}
+                  controlsHost={controlsHost}
+                  tasksHost={tasksHost}
+                  onAcceptFiles={takeAcceptFiles}
+                  {...(onAttachSession === undefined ? {} : { onAttachSession })}
+                />
+              </FilePathOpenerContext.Provider>
             </section>
           ) : null}
           {resize.bottom}
         </div>
+        {code.request ? (
+          <SessionCodeDialog
+            key={code.request.file ? `${code.request.file.path}:${code.request.file.line ?? ""}` : "folder"}
+            bot={bot}
+            feed={sessionContext.feed}
+            session={session}
+            file={code.request.file}
+            onClose={code.close}
+          />
+        ) : null}
         {/* `contents` so this box is not one: the panel inside it positions against the card. */}
         <div ref={setTasksHost} className="contents" />
         {resize.edge}

@@ -7,12 +7,24 @@
  * share is the shape of the answers, so the IDE's tree and file views draw both.
  */
 
-import type { BotFileRead, BotGitDiff, BotGitStatus, BotTree } from "@agentdesk/agent-feed-wire";
+import type { BotFileRead, BotGitDiff, BotGitStatus, BotSessionRef, BotTree } from "@agentdesk/agent-feed-wire";
 import { parse } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarAgentSessions } from "@/features/activity-feed/data-source/SidecarAgentSessions";
 
-function botPath(botId: string, rest: string): string {
-  return `/api/bots/${encodeURIComponent(botId)}/${rest}`;
+/**
+ * One of a Bot's routes, with its query. `session` names one of the Bot's sessions, for a read of the
+ * worktree that session works in rather than of the Bot's directory: the sidecar finds the folder,
+ * so the panel never sends a path.
+ */
+function botPath(botId: string, rest: string, query: [string, string][] = [], session?: BotSessionRef): string {
+  const named: [string, string][] = session
+    ? [
+        ["source", session.source],
+        ["session", session.sessionId],
+      ]
+    : [];
+  const search = new URLSearchParams([...query, ...named]).toString();
+  return `/api/bots/${encodeURIComponent(botId)}/${rest}${search ? `?${search}` : ""}`;
 }
 
 export class SidecarBotDirectory extends SidecarAgentSessions {
@@ -24,8 +36,9 @@ export class SidecarBotDirectory extends SidecarAgentSessions {
     botId: string,
     onStatus: (status: BotGitStatus) => void,
     onError: (reason: string) => void,
+    session?: BotSessionRef,
   ): () => void {
-    return this.transport.subscribe(botPath(botId, "git/stream"), {
+    return this.transport.subscribe(botPath(botId, "git/stream", [], session), {
       onMessage: (payload) => {
         try {
           const message = JSON.parse(payload) as Partial<BotGitStatus> & {
@@ -44,9 +57,10 @@ export class SidecarBotDirectory extends SidecarAgentSessions {
   }
 
   /** One path's uncommitted change in the Bot's directory, against `HEAD`. */
-  async botGitDiff(botId: string, path: string): Promise<BotGitDiff> {
-    const query = new URLSearchParams({ path });
-    return parse<BotGitDiff>(await this.transport.request("GET", botPath(botId, `git/diff?${query}`)));
+  async botGitDiff(botId: string, path: string, session?: BotSessionRef): Promise<BotGitDiff> {
+    return parse<BotGitDiff>(
+      await this.transport.request("GET", botPath(botId, "git/diff", [["path", path]], session)),
+    );
   }
 
   /**
@@ -54,24 +68,21 @@ export class SidecarBotDirectory extends SidecarAgentSessions {
    *
    * The whole set on every call, because expansion is this reader's and the sidecar keeps none.
    */
-  async botTree(botId: string, expanded: readonly string[]): Promise<BotTree> {
-    const query = new URLSearchParams(expanded.map((path) => ["expanded", path]));
-    const suffix = expanded.length > 0 ? `?${query}` : "";
-    return parse<BotTree>(await this.transport.request("GET", botPath(botId, `tree${suffix}`)));
+  async botTree(botId: string, expanded: readonly string[], session?: BotSessionRef): Promise<BotTree> {
+    const query = expanded.map((path): [string, string] => ["expanded", path]);
+    return parse<BotTree>(await this.transport.request("GET", botPath(botId, "tree", query, session)));
   }
 
   /** One file in the Bot's directory, read-only. */
-  async botFile(botId: string, path: string): Promise<BotFileRead> {
-    const query = new URLSearchParams({ path });
-    return parse<BotFileRead>(await this.transport.request("GET", botPath(botId, `file?${query}`)));
+  async botFile(botId: string, path: string, session?: BotSessionRef): Promise<BotFileRead> {
+    return parse<BotFileRead>(await this.transport.request("GET", botPath(botId, "file", [["path", path]], session)));
   }
 
   /**
    * Where a binary-backed file's bytes are fetched from, which its read answers without. Null where
    * the transport has no address the page can load on its own.
    */
-  botContentUrl(botId: string, path: string): string | null {
-    const query = new URLSearchParams({ path });
-    return this.transport.resourceUrl?.(botPath(botId, `content?${query}`)) ?? null;
+  botContentUrl(botId: string, path: string, session?: BotSessionRef): string | null {
+    return this.transport.resourceUrl?.(botPath(botId, "content", [["path", path]], session)) ?? null;
   }
 }

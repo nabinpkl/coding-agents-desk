@@ -10,7 +10,7 @@ import type {
   ReorderBotSessionsCommand,
   RetireBotSessionsCommand,
 } from "@agentdesk/agent-feed-wire";
-import { BotConflictError, BotNotFoundError, type BotRegistry } from "@/bots/botRegistry";
+import { BotConflictError, BotInvalidError, BotNotFoundError, type BotRegistry } from "@/bots/botRegistry";
 import { decodeBotId, errorPayload, requestObject, routeError } from "@/http/botRouteProtocol";
 import {
   encodeServerSentEvent,
@@ -128,45 +128,54 @@ export function createBotRoutes(
     // paths rather than the IDE's: see `BotGitStatus` for why a Bot is not a workspace.
     const gitStreamMatch = /^\/api\/bots\/([^/]+)\/git\/stream$/.exec(url.pathname);
     if (request.method === "GET" && gitStreamMatch) {
-      return botGitStream(request, server, gitStreamMatch[1]!, registry, repositories);
+      return botGitStream(request, server, gitStreamMatch[1]!, url.searchParams, registry, repositories);
     }
     const gitDiffMatch = /^\/api\/bots\/([^/]+)\/git\/diff$/.exec(url.pathname);
     if (request.method === "GET" && gitDiffMatch) {
-      return botGitDiff(gitDiffMatch[1]!, url.searchParams.get("path"), registry);
+      return botGitDiff(gitDiffMatch[1]!, url.searchParams, registry);
     }
     // The Bot's files, read-only, for a quick look into its code. The IDE's tree and reads, with
     // the Bot's directory as the root: see `BotTree` for why expansion travels with the request.
     const treeMatch = /^\/api\/bots\/([^/]+)\/tree$/.exec(url.pathname);
     if (request.method === "GET" && treeMatch) {
-      return botTree(treeMatch[1]!, url.searchParams.getAll("expanded"), registry);
+      return botTree(treeMatch[1]!, url.searchParams, registry);
     }
     const fileMatch = /^\/api\/bots\/([^/]+)\/file$/.exec(url.pathname);
     if (request.method === "GET" && fileMatch) {
-      return botFile(fileMatch[1]!, url.searchParams.get("path"), registry, limits);
+      return botFile(fileMatch[1]!, url.searchParams, registry, limits);
     }
     // A binary-backed file's bytes, which its read above answers without.
     const contentMatch = /^\/api\/bots\/([^/]+)\/content$/.exec(url.pathname);
     if (request.method === "GET" && contentMatch) {
-      return botContent(contentMatch[1]!, url.searchParams.get("path"), registry, limits);
+      return botContent(contentMatch[1]!, url.searchParams, registry, limits);
     }
     return undefined;
   };
 }
 
 /**
- * The directory a Bot is bound to, from the roster rather than from the request.
+ * The directory a Bot is bound to, from the roster rather than from the request, or the worktree
+ * one of its sessions works in when the request names that session (`?source=&session=`).
  *
- * Only a Bot's own directory can be read this way, which is the confinement: the panel names a Bot,
- * never a path on the disk.
+ * Only a Bot's own directory and its sessions' worktrees can be read this way, which is the
+ * confinement: the panel names a Bot and a session, never a path on the disk. A session's worktree
+ * is the one the Bot view already carries, which it gives only for a linked worktree of the Bot's
+ * own checkout (`withWorktree`), so a session standing anywhere else reads the Bot's directory.
  */
-async function botDirectory(botId: string, registry: BotRegistry): Promise<string> {
+async function botDirectory(botId: string, query: URLSearchParams, registry: BotRegistry): Promise<string> {
   const decodedBotId = decodeBotId(botId);
   const bot = (await registry.snapshot()).bots.find((each) => each.botId === decodedBotId);
   if (!bot) throw new BotNotFoundError(`no Bot "${decodedBotId}"`);
   if (bot.environmentAvailability === "missing") {
     throw new BotConflictError(`the directory of "${bot.name}" is missing`);
   }
-  return bot.environment.path;
+  const source = query.get("source");
+  const sessionId = query.get("session");
+  if (source === null && sessionId === null) return bot.environment.path;
+  if (!source || !sessionId) throw new BotInvalidError("a session is named by both source and session");
+  const session = bot.sessions.find((each) => each.source === source && each.sessionId === sessionId);
+  if (!session) throw new BotNotFoundError(`"${bot.name}" holds no ${source} session "${sessionId}"`);
+  return session.worktree?.path ?? bot.environment.path;
 }
 
 /** The Bot routes' spelling of the folder reads' refusals. */
@@ -181,11 +190,12 @@ async function botGitStream(
   request: Request,
   server: Parameters<RouteHandler>[2],
   botId: string,
+  query: URLSearchParams,
   registry: BotRegistry,
   repositories: RepositoryGitWatch,
 ): Promise<Response> {
   try {
-    const directory = await botDirectory(botId, registry);
+    const directory = await botDirectory(botId, query, registry);
     const decodedBotId = decodeBotId(botId);
     return await folderGitStream(request, server, directory, repositories, (status): BotGitStatus => ({
       botId: decodedBotId,
@@ -196,9 +206,10 @@ async function botGitStream(
   }
 }
 
-async function botGitDiff(botId: string, path: string | null, registry: BotRegistry): Promise<Response> {
+async function botGitDiff(botId: string, query: URLSearchParams, registry: BotRegistry): Promise<Response> {
+  const path = query.get("path");
   try {
-    const directory = await botDirectory(botId, registry);
+    const directory = await botDirectory(botId, query, registry);
     const answer: BotGitDiff = { botId: decodeBotId(botId), ...(await folderGitDiff(directory, path)) };
     return jsonResponse(answer);
   } catch (error) {
@@ -214,10 +225,10 @@ async function botGitDiff(botId: string, path: string | null, registry: BotRegis
   }
 }
 
-async function botTree(botId: string, expanded: string[], registry: BotRegistry): Promise<Response> {
+async function botTree(botId: string, query: URLSearchParams, registry: BotRegistry): Promise<Response> {
   try {
-    const directory = await botDirectory(botId, registry);
-    const answer: BotTree = { botId: decodeBotId(botId), ...(await folderTree(directory, expanded)) };
+    const directory = await botDirectory(botId, query, registry);
+    const answer: BotTree = { botId: decodeBotId(botId), ...(await folderTree(directory, query.getAll("expanded"))) };
     return jsonResponse(answer);
   } catch (error) {
     return folderReadError(error, null, BOT_FOLDER_CODES) ?? routeError(error);
@@ -226,12 +237,13 @@ async function botTree(botId: string, expanded: string[], registry: BotRegistry)
 
 async function botFile(
   botId: string,
-  path: string | null,
+  query: URLSearchParams,
   registry: BotRegistry,
   limits: WorkspaceFileLimits,
 ): Promise<Response> {
+  const path = query.get("path");
   try {
-    const directory = await botDirectory(botId, registry);
+    const directory = await botDirectory(botId, query, registry);
     const answer: BotFileRead = { botId: decodeBotId(botId), ...(await folderFile(directory, path, limits)) };
     return jsonResponse(answer);
   } catch (error) {
@@ -241,12 +253,13 @@ async function botFile(
 
 async function botContent(
   botId: string,
-  path: string | null,
+  query: URLSearchParams,
   registry: BotRegistry,
   limits: WorkspaceFileLimits,
 ): Promise<Response> {
+  const path = query.get("path");
   try {
-    return await folderContent(await botDirectory(botId, registry), path, limits);
+    return await folderContent(await botDirectory(botId, query, registry), path, limits);
   } catch (error) {
     return folderReadError(error, path, BOT_FOLDER_CODES) ?? routeError(error);
   }

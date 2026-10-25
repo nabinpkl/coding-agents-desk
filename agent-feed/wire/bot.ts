@@ -445,6 +445,11 @@ export interface RenamedBracket {
 /**
  * `GET /api/bots/:botId/git/stream` event: what is uncommitted in the Bot's directory.
  *
+ * This read and the four below it (`git/diff`, `tree`, `file`, `content`) also take
+ * `?source=<source>&session=<sessionId>`, naming one of the Bot's sessions, to read the git worktree
+ * that session works in instead (`SessionSummary.worktree`). The panel names the session and never a
+ * path; a session in the Bot's own directory reads the Bot's directory.
+ *
  * The Bot's own route rather than the IDE's, because a Bot is a directory and not a workspace: see
  * `FolderGitStatus`. The entries are the IDE's own shape, so both surfaces draw them with one list.
  */
