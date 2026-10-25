@@ -1,0 +1,6 @@
+# Group's package takes each dependency at its latest release, without the owner's global 48-hour
+# minimumReleaseAge (the owner's call, 2026-10-25). Group is the pilot: it tracks Effect and its
+# tooling (`@effect/tsgo` releases almost daily) as they ship. Every version is still pinned exactly
+# in package.json, so nothing moves without a commit.
+[install]
+minimumReleaseAge = 0

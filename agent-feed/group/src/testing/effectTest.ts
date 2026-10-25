@@ -12,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
 import * as TestConsole from "effect/testing/TestConsole";
@@ -22,11 +23,18 @@ const body = <A, E, R>(value: Body<A, E, R>) => Effect.suspend(() => (typeof val
 
 const loopback = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
+/** A test reached past loopback; each request it tried is listed. */
+export class NetworkRefused extends Schema.TaggedError<NetworkRefused>()("NetworkRefused", {
+  requests: Schema.Array(Schema.String),
+}) {}
+
 /** A `fetch` that passes loopback through and records, then refuses, anything else. */
 export const refuseNetwork = (violations: string[]): typeof fetch =>
   Object.assign(
     (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      // This is the stand-in for `fetch` that Effect's HTTP client is given, so it calls the real one.
+      // @effect-diagnostics-next-line globalFetch:off
       if (loopback.has(new URL(url).hostname)) return fetch(input, init);
       const method = init?.method ?? (input instanceof Request ? input.method : "GET");
       const message = `test attempted network request: ${method} ${url}; provide an HttpClient stand-in`;
@@ -48,7 +56,7 @@ const run = <A, E, R, E2>(value: Body<A, E, R | Scope.Scope>, layer: Layer.Layer
     if (Exit.isFailure(exit)) {
       for (const error of Cause.prettyErrors(exit.cause)) yield* Effect.logError(error);
     }
-    if (violations.length > 0) return yield* Effect.fail(new Error(violations.join("\n")));
+    if (violations.length > 0) return yield* new NetworkRefused({ requests: violations });
     return yield* exit;
   }).pipe(Effect.runPromise);
 

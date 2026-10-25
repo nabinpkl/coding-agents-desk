@@ -6,14 +6,23 @@
   "scripts": {
     "start": "bun src/GroupMain.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "effect-check": "effect-tsgo diagnostics --project tsconfig.json --strict",
+    "lint": "oxlint -c .oxlintrc.json --report-unused-disable-directives-severity=error src && ast-grep test -c ast-grep/sgconfig.yml && ast-grep scan -c ast-grep/sgconfig.yml src",
+    "format": "oxfmt -c .oxfmtrc.json src",
+    "format:check": "oxfmt -c .oxfmtrc.json --check src"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.6",
     "effect": "4.0.6"
   },
   "devDependencies": {
+    "@ast-grep/cli": "0.51.0",
+    "@effect/tsgo": "0.57.0",
     "@types/bun": "1.3.14",
+    "oxfmt": "0.74.0",
+    "oxlint": "1.89.0",
+    "oxlint-tsgolint": "7.0.2005",
     "typescript": "7.0.2"
   }
 }

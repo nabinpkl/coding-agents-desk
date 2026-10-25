@@ -168,11 +168,10 @@ if [ -n "$oversized_dirs" ]; then
     exit 1
 fi
 
-# 8. The lint rules in `.oxlintrc.json`, over the panel, the sidecar and their wire, then Group's
-#    own (below). Here rather than in a leg of its own because this gate runs on every `just check`,
-#    whatever the diff touched, and a lint finding is the same kind of fact about the tree as checks
-#    5 to 7. oxlint is the panel's dev dependency, so the panel's dependencies are brought up to
-#    date first.
+# 8. The lint rules in `.oxlintrc.json`, over the panel, the sidecar and their wire. Here rather
+#    than in a leg of its own because this gate runs on every `just check`, whatever the diff
+#    touched, and a lint finding is the same kind of fact about the tree as checks 5 to 7. oxlint is
+#    the panel's dev dependency, so the panel's dependencies are brought up to date first.
 node tools/build-system/ensure-js-dependencies.mjs agent-panel packages/AgentPanel/Web .build/js-dependencies
 # oxlint looks for tsgolint, the type checker behind its type-aware rules, beside the directory it
 # runs in, and this runs from the repository root.
@@ -191,27 +190,8 @@ if grep -rnE '\bReact\.use(Layout|Insertion)?Effect\b' packages/AgentPanel/Web/s
     --include='*.ts' --include='*.tsx' | grep -vE '\.test\.tsx?:|/src/hooks/'; then
     fail "an effect reached through the React namespace; ADR-0146 bans them outside src/hooks"
 fi
-# Group is a package with its own lint (ADR-0155): its `.oxlintrc.json` is run on its sources alone,
-# so the config above never reaches them and nothing depends on the order of overrides. Its
-# type-aware rules read Group's tsconfig and Effect's types, so its dependencies come first.
-node tools/build-system/ensure-js-dependencies.mjs agent-feed-group agent-feed/group .build/js-dependencies
-if ! OXLINT_TSGOLINT_PATH="$ROOT/packages/AgentPanel/Web/node_modules/.bin/tsgolint" \
-    packages/AgentPanel/Web/node_modules/.bin/oxlint -c agent-feed/group/.oxlintrc.json \
-    --report-unused-disable-directives-severity=error agent-feed/group/src; then
-    fail "Group's lint failed (rules and the reason for each are in agent-feed/group/.oxlintrc.json)"
-fi
-# Group's Effect rules (`agent-feed/group/ast-grep/`), the part of its standards that oxlint's
-# import rules cannot see. The rules' own tests run on every gate, so each is shown catching its
-# invalid cases before it is trusted to find nothing. ast-grep is the panel's dev dependency, beside
-# oxlint, so the install above covers it.
-AST_GREP="$ROOT/packages/AgentPanel/Web/node_modules/.bin/ast-grep"
-if ! "$AST_GREP" test -c agent-feed/group/ast-grep/sgconfig.yml >/dev/null; then
-    "$AST_GREP" test -c agent-feed/group/ast-grep/sgconfig.yml >&2 || true
-    fail "Group's ast-grep rules failed their own tests (agent-feed/group/ast-grep/)"
-fi
-if ! "$AST_GREP" scan -c agent-feed/group/ast-grep/sgconfig.yml agent-feed/group/src; then
-    fail "Group's code broke an ast-grep rule (agent-feed/group/ast-grep/README.md says where each comes from)"
-fi
+# Group's lint, its ast-grep rules and its formatting run in its own gate leg with its own
+# toolchain (`agent-feed-group-check`, ADR-0155), so neither this check nor check 9 reads it.
 
 # 9. Every file in those trees is as oxfmt would write it (`.oxfmtrc.json`). Checked rather than
 #    applied on save, because several sessions edit this tree at once: a formatter that ran

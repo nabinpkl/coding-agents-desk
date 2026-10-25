@@ -29,7 +29,8 @@ TREES="packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/group/src"
 
 staged="$(git diff --cached --name-only --diff-filter=ACMR -- $TREES | grep -E '\.tsx?$' || true)"
 # Formatting covers the wire as well, the trees `tools/format.sh` formats.
-FORMAT_TREES="$TREES agent-feed/wire"
+# Group's formatting is its own toolchain's, checked in its gate leg, so it is not asked here.
+FORMAT_TREES="packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/wire"
 format_staged="$(git diff --cached --name-only --diff-filter=ACMR -- $FORMAT_TREES | grep -E '\.tsx?$' || true)"
 [ -n "$staged$format_staged" ] || exit 0
 

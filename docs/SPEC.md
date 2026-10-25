@@ -525,12 +525,13 @@ their wire shapes included, and [dormant-native.md](dormant-native.md) their ope
 `just check` does not. The fitness checks in `tools/agent-feed-fitness.sh` enforce the rules that
 apply to every change, among them: at most 500 lines per file, at most 12 source files per
 directory, and imports by absolute path only, in `packages/AgentPanel/Web/src`,
-`agent-feed/sidecar/src` and `agent-feed/group/src`; lint with oxlint (Group with its own config); format with oxfmt at 120 columns; and personal data kept
+`agent-feed/sidecar/src` and `agent-feed/group/src`; lint with oxlint (Group with its own); format with oxfmt at 120 columns; and personal data kept
 out of the tree (`tools/public-scan/`). `main` reaches the public repository only through
 `just publish`, which scans every commit it sends and refuses what is not a fast-forward, and a
 pre-push hook refuses any other push there (`tools/publish.sh`, `tools/git-hooks/pre-push`). The
-sidecar's tests run under `bun test --parallel`, Group's under `bun test` in a leg of their own,
-and the panel's under Vitest. A sidecar test waits
+sidecar's tests run under `bun test --parallel` and the panel's under Vitest. Group's package
+checks itself in a leg of its own with its own toolchain: typecheck, Effect's checks
+(`@effect/tsgo`), lint, formatting and `bun test` (ADR-0156). A sidecar test waits
 for what it expects, never for a length of time, and the lint gate refuses a timer in one.
 
 ## Cross-references

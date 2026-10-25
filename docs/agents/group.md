@@ -16,10 +16,10 @@ calls it; `agent-feed/group/AGENTS.md` has the package's commands.
 | Everything every change in this repository follows: file and directory caps, no relative imports, lint, format, commits by pathspec | the root `AGENTS.md` |
 
 Skills live in `.agents/skills/`; `.claude/skills` points there, so Claude and other agents read one
-copy. The parts of them a tool can check are checked on every `just check`: Group's compiler
-settings and tests in the `agent-feed-group-check` leg, its own oxlint config and its ast-grep rules
-(`agent-feed/group/ast-grep/`) in the fitness leg, and the repository's oxlint config keeps Effect
-and Group out of the sidecar (`group-effect`, "What the gate enforces"). Group's config copies the
+copy. The parts of them a tool can check are checked by the `agent-feed-group-check` leg, with
+Group's own toolchain: its compiler settings, Effect's type-aware checks (`@effect/tsgo`), its own
+oxlint config and ast-grep rules (`agent-feed/group/ast-grep/`), its formatting and its tests. The
+repository's oxlint config keeps Effect and Group out of the sidecar (`group-effect`, "What the gate enforces"). Group's config copies the
 rules the sidecar learned rather than inheriting them, so a lesson added to the sidecar's lint is
 copied into Group's when it applies there too.
 

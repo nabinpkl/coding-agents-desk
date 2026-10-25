@@ -1,8 +1,8 @@
 {
-  "$schema": "../../packages/AgentPanel/Web/node_modules/oxlint/configuration_schema.json",
-  // Group's own lint (ADR-0155), run by check 8 of tools/agent-feed-fitness.sh with `-c` on this
-  // file, so the repository's `.oxlintrc.json` never reaches Group's code and nothing here depends
-  // on the order of overrides. Rules the sidecar learned are copied in, not inherited: a lesson
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Group's own lint (ADR-0155), run with Group's own oxlint by `bun run lint` in its gate leg
+  // (`just agent-feed-group-check`), so the repository's `.oxlintrc.json` never reaches Group's
+  // code and nothing here depends on the order of overrides. Rules the sidecar learned are copied in, not inherited: a lesson
   // added there is not here until it is copied too. The React rules are left out. Every rule is an
   // error and the package holds none, so a finding is always new.
   "plugins": ["eslint", "typescript", "import"],

@@ -1,14 +1,15 @@
 # Group's ast-grep rules
 
 Structural lint for Group's Effect code (`agent-feed/group/src/`), the half of its standards
-(`.agents/skills/group-effect/SKILL.md`) that oxlint's import rules cannot see. Check 8 of
-`tools/agent-feed-fitness.sh` runs `ast-grep test` on every gate, so every rule is shown failing on
-its own invalid cases, and then `ast-grep scan` over Group's code. The rules live in Group's package
+(`.agents/skills/group-effect/SKILL.md`) that oxlint's import rules cannot see. `bun run lint` in
+Group's package, part of its gate leg, runs `ast-grep test`, so every rule is shown failing on its
+own invalid cases, and then `ast-grep scan` over Group's code, with Group's own ast-grep. The rules live in Group's package
 beside its `.oxlintrc.json`, so the package carries its whole toolchain (ADR-0155).
 
 ```sh
-packages/AgentPanel/Web/node_modules/.bin/ast-grep test -c agent-feed/group/ast-grep/sgconfig.yml
-packages/AgentPanel/Web/node_modules/.bin/ast-grep scan -c agent-feed/group/ast-grep/sgconfig.yml agent-feed/group/src
+cd agent-feed/group
+node_modules/.bin/ast-grep test -c ast-grep/sgconfig.yml
+node_modules/.bin/ast-grep scan -c ast-grep/sgconfig.yml src
 ```
 
 ## Where the rules come from

@@ -685,3 +685,8 @@ tests; the supervisor does not start it and the panel does not route to it yet.
   skeleton is built: one health endpoint, the OpenAPI document, tests on `bun test`, its own
   compiler settings and lint, and a gate leg. Not yet started by the supervisor or routed by the
   panel.
+- 2026-10-25: Group checks itself with its own toolchain at each tool's latest release (ADR-0156):
+  TypeScript, `@effect/tsgo` (Effect's type-aware checks, which `tsc` does not run), oxlint, oxfmt
+  and ast-grep are its own dev dependencies, its gate leg runs them all, and its `bunfig.toml` turns
+  off the release-age wait. The panel's lint tools moved to oxlint 1.89.0, oxlint-tsgolint 7.0.2005
+  and oxfmt 0.74.0 the same day, with no new finding and no file reformatted.

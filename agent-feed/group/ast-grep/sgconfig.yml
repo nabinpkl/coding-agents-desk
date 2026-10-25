@@ -1,5 +1,5 @@
-# ast-grep rules for Group's code (agent-feed/group/src/), run by check 8 of
-# tools/agent-feed-fitness.sh. See README.md here for where each rule comes from.
+# ast-grep rules for Group's code (src/), run by `bun run lint` in Group's package, part of its
+# gate leg. See README.md here for where each rule comes from.
 ruleDirs:
   - rules
 testConfigs:

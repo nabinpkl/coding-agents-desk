@@ -24,7 +24,58 @@
     // `@/` is this package's own src. Group imports nothing from the rest of the repository.
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    // Effect's type-aware checks, which `tsc` does not run: `effect-tsgo diagnostics --strict` runs
+    // them in the gate leg, so a warning fails it too and a suggestion does not. Severities are
+    // set here rather than left to the defaults, which leave several of these at suggestion.
+    // `unstableApiUsage` is off: every HttpApi module is marked unstable, and Group accepts that by
+    // pinning Effect exactly (t3code turns it off too). `strictEffectProvide` is off because a test
+    // provides its layers with `Effect.provide`.
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "namespaceImportPackages": ["effect", "@effect/platform-bun"],
+        "diagnosticSeverity": {
+          "unstableApiUsage": "off",
+          "strictEffectProvide": "off",
+          "floatingEffect": "error",
+          "missingEffectContext": "error",
+          "missingEffectError": "error",
+          "missingLayerContext": "error",
+          "leakingRequirements": "error",
+          "returnEffectInGen": "error",
+          "runEffectInsideEffect": "error",
+          "layerMergeAllWithDependencies": "error",
+          "scopeInLayerEffect": "error",
+          "anyUnknownInErrorContext": "error",
+          "unsafeEffectTypeAssertion": "error",
+          "globalErrorInEffectCatch": "error",
+          "globalErrorInEffectFailure": "error",
+          "unknownInEffectCatch": "error",
+          "tryCatchInEffectGen": "error",
+          "preferNamespaceImport": "error",
+          "preferSchemaOverJson": "error",
+          "schemaSyncInEffect": "error",
+          "nodeBuiltinImport": "error",
+          "processEnv": "error",
+          "processEnvInEffect": "error",
+          "globalDate": "error",
+          "globalDateInEffect": "error",
+          "globalConsole": "error",
+          "globalConsoleInEffect": "error",
+          "globalRandom": "error",
+          "globalRandomInEffect": "error",
+          "globalTimers": "error",
+          "globalTimersInEffect": "error",
+          "globalFetch": "error",
+          "globalFetchInEffect": "error",
+          "cryptoRandomUUID": "error",
+          "cryptoRandomUUIDInEffect": "error",
+          "newPromise": "error",
+          "asyncFunction": "error"
+        }
+      }
+    ]
   },
   "include": ["src/**/*.ts"]
 }

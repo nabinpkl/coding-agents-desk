@@ -153,21 +153,30 @@ From t3code's rules, which Group adopts whole:
 
 ## What the gate enforces
 
-Part of this skill is checked on every `just check`, so a review need not catch it:
+Part of this skill is checked by `agent-feed-group-check`, the gate leg any change under
+`agent-feed/group/` runs, with Group's own toolchain from its own `node_modules`, so a review need
+not catch it:
 
-- **The compiler** (`agent-feed/group/tsconfig.json`, the `agent-feed-group-check` leg): t3code's
-  strict settings, `exactOptionalPropertyTypes` among them.
-- **oxlint** (`agent-feed/group/.oxlintrc.json`, run on its own by check 8 of
-  `tools/agent-feed-fitness.sh`): Group imports nothing from the rest of the repository, no named
+- **The compiler** (`tsconfig.json`): t3code's strict settings, `exactOptionalPropertyTypes` among
+  them.
+- **Effect's type-aware checks** (`@effect/tsgo`, `bun run effect-check`, severities in the
+  tsconfig's plugin block): an Effect made and never run, a requirement or error left unhandled, a
+  service whose methods leak what its implementation needs, a returned Effect inside a generator,
+  `Effect.run*` inside an Effect, a plain `Error` in a failure channel, and `Date`, `console`,
+  `process.env`, `fetch`, timers and `Math.random` where Effect has a service for each. `tsc`
+  passes all of these. One line is excused with `// @effect-diagnostics-next-line <rule>:off` and
+  a reason above it; an excuse that silences nothing is reported.
+- **oxlint** (`.oxlintrc.json`, `bun run lint`): Group imports nothing from the rest of the repository, no named
   imports from the `effect` root, no timers (`setTimeout`, `setInterval`, `Bun.sleep`,
   `node:timers`) anywhere, no chokidar, and the type-aware rules the sidecar runs. The
   repository's `.oxlintrc.json` keeps Effect and Group out of the sidecar.
-- **ast-grep** (`agent-feed/group/ast-grep/`): no `Effect.run*` or `ManagedRuntime.make` outside a
+- **ast-grep** (`ast-grep/`, `bun run lint`): no `Effect.run*` or `ManagedRuntime.make` outside a
   `*Main.ts` entry point, a test or the test helper, no `node:fs`, `node:child_process` or `Bun.spawn` and its kin
   outside them either, Node built-ins only as `Node`-named namespaces, no nested service yields,
   no aliased value imports, no `JSON.parse(...) as`, no `Effect.die` with a string, and OpenCode's
   five Effect simplifications.
   The rules' own tests run every time, so each is shown failing before it is trusted.
+- **Formatting** (`.oxfmtrc.json`, `bun run format:check`): oxfmt at 120 columns.
 
 The rest (spans named with `Effect.fn`, safe error attributes, a request's scope versus the room's)
 is still the reviewer's to check against this skill.

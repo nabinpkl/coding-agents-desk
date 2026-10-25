@@ -1,0 +1,6 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  // Group formats with its own oxfmt (ADR-0155), to the repository's one setting: 120 columns, as
+  // the root `.oxfmtrc.json` explains. Run `bun run format` here; the gate leg runs `format:check`.
+  "printWidth": 120
+}

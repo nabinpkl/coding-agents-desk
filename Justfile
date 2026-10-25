@@ -369,9 +369,11 @@ agent-feed-sidecar-check:
         exit 1
     fi
 
-# Group's package (ADR-0155): its typecheck, under its own stricter tsconfig, then its tests on
-# `bun test`. Its lint runs in the fitness leg with the other trees'. Each step in a process group
-# of its own, reaped on the way out, for the reason given in `agent-feed-sidecar-check`.
+# Group's package (ADR-0155, ADR-0156), checked with its own toolchain from its own node_modules:
+# the typecheck under its stricter tsconfig, Effect's type-aware checks (`@effect/tsgo`), its own
+# oxlint and ast-grep rules, its formatting, then its tests on `bun test`. Nothing here reads the
+# panel's or the sidecar's dependencies. Each step in a process group of its own, reaped on the way
+# out, for the reason given in `agent-feed-sidecar-check`.
 agent-feed-group-check:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -396,6 +398,9 @@ agent-feed-group-check:
         wait "$STEP_PID"
     }
     step bun run typecheck
+    step bun run effect-check
+    step bun run lint
+    step bun run format:check
     step bun run test
 
 # Canary for the harness artifacts background-task detection reads (ADR-0099): the
