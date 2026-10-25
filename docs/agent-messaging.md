@@ -232,7 +232,7 @@ body text
      narrow. It is a `listbox` with the two sections as labelled groups, filtered by whatever the
      reader remembers about a session: name, Bot, machine or directory. A session that belongs to a
      Bot appears in both sections, which is deliberate and is what the filter preserves.
-   - Its backend holds the surface token. The panel is tailnet-only, which is agent-desk's existing trust boundary.
+   - Its backend holds the surface token. The panel listens on loopback by default, and on the tailnet in tailnet mode (`AGENTDESK_PANEL_LISTEN`), which is agent-desk's trust boundary.
 2. **Annotator Send (v1, an adapter):**
    - The extension panel shows `Send N to [recipient ▾]`, with the pick remembered per site.
    - The annotator server builds the brief and posts a `request` to the hub as `human`, with refs to the annotations.

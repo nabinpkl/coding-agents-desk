@@ -175,6 +175,20 @@ agent_panel_origin_var := "AGENTDESK_AGENT_PANEL_ORIGIN"
 # it rather than a human. One port for both host variants on purpose: the panel is the same code
 # either way, and it reaches its own tier's sidecar through that host's relay, not through Vite.
 agent_panel_dev_port := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_PORT", "5173")
+# Where the panel's dev server can be reached from, AGENTDESK_PANEL_LISTEN in `.env`. The panel has no
+# login of its own and drives this Mac, so the scope is chosen rather than assumed, narrowest first:
+#   loopback  this Mac only, over http. The default, and all a first run needs.
+#   tailnet   this Mac and your tailnet, over https under the tailnet name's certificate. What a
+#             phone needs, and the only mode with HTTP/2 (see `agent-webview-dev-status`).
+#   network   every network this Mac is on, over plain http, for a phone without Tailscale. Anyone on
+#             that network can load the panel, so only on one you trust.
+# `agent-webview-dev-origin` turns it into the origin, `listenAddresses.ts` into the addresses.
+# Checked here, so a value that is none of the three stops every recipe saying so; empty is the
+# default, as it is to the dev server (`parseListenMode`).
+panel_listen_setting := env_var_or_default("AGENTDESK_PANEL_LISTEN", "")
+panel_listen := if panel_listen_setting == "" { "loopback" } else if panel_listen_setting =~ '^(loopback|tailnet|network)$' { panel_listen_setting } else { error("AGENTDESK_PANEL_LISTEN must be loopback, tailnet or network") }
+# Loopback answers in every mode, under TLS in tailnet mode only: what a check on this Mac uses.
+agent_panel_local_origin := if panel_listen == "tailnet" { "https://127.0.0.1:" + agent_panel_dev_port } else { "http://127.0.0.1:" + agent_panel_dev_port }
 agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp/agentdesk-agent-panel-dev.log")
 # Where the login launch writes what it did. A file rather than os_log, because this runs at
 # login and the question it answers is always asked afterwards -- and `log show` returns nothing on
@@ -649,6 +663,18 @@ agent-webview-dev-cert:
       --cert-file "$DIR/$NAME.crt" --key-file "$DIR/$NAME.key" "$NAME" >&2
     echo "$DIR/$NAME"
 
+# The panel dev server's origin for the listen mode: http on loopback, https under this Mac's tailnet
+# name, or http under its local network name. The one place that mapping lives: every recipe that
+# serves or probes the dev server asks here, so they cannot disagree about where the panel is.
+agent-webview-dev-origin port=agent_panel_dev_port:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case '{{panel_listen}}' in
+        loopback) echo "http://127.0.0.1:{{port}}" ;;
+        tailnet) echo "https://$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh'):{{port}}" ;;
+        network) echo "http://$(scutil --get LocalHostName).local:{{port}}" ;;
+    esac
+
 # Bring the panel's Vite dev server up if it is not already. Prints its origin, and nothing else.
 #
 # This is what makes the live panel the DEFAULT rather than a thing you remember to set up: every
@@ -673,16 +699,23 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     ROOT='{{justfile_directory()}}'
     WEB='{{agent_panel_web_dir}}'
     LOG='{{agent_panel_dev_log}}'
-    NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
-    TLS_PREFIX='{{agent_panel_dev_tls_dir}}'/"$NAME"
-    ORIGIN="https://$NAME:{{port}}"
-    # `/@vite/client` rather than `/`, because this asks a narrower question: not "is something
-    # listening on this port" but "is that something a Vite dev server". An unhealthy listener
-    # or missing runtime credentials must be replaced before a host adopts this origin.
+    MODE='{{panel_listen}}'
+    ORIGIN="$(just agent-webview-dev-origin '{{port}}')"
+    NAME="${ORIGIN#*://}"
+    NAME="${NAME%:*}"
+    # TLS only under the tailnet name, which is what Tailscale issues a certificate for.
+    TLS_PREFIX=""
+    case "$ORIGIN" in https://*) TLS_PREFIX='{{agent_panel_dev_tls_dir}}'/"$NAME" ;; esac
+    # The server's own listen mode rather than `/` or `/@vite/client`, because this asks a narrower
+    # question: not "is something listening on this port" but "is that one of our dev servers, in the
+    # mode asked for". A server left in network mode also answers on loopback, and reusing it after a
+    # switch back to loopback would keep the panel on every network. An unhealthy listener or missing
+    # runtime credentials must be replaced before a host adopts this origin.
     # --noproxy: this shell inherits HTTPS_PROXY (proxy-agent) with only loopback in NO_PROXY, so
     # without it the probe to the tailnet name is tunnelled through the proxy instead of reaching Vite.
-    serving() { curl -fs --noproxy '*' -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; }
-    if serving && [ -s "$TLS_PREFIX.crt" ] && [ -s "$TLS_PREFIX.key" ]; then
+    serving() { [ "$(curl -fs --noproxy '*' --max-time 4 "$ORIGIN/@agentdesk/listen-mode" 2>/dev/null)" = "$MODE" ]; }
+    tls_ready() { [ -z "$TLS_PREFIX" ] || { [ -s "$TLS_PREFIX.crt" ] && [ -s "$TLS_PREFIX.key" ]; }; }
+    if serving && tls_ready; then
         echo "agent-webview-dev: already serving at $ORIGIN" >&2
         echo "$ORIGIN"
         exit 0
@@ -691,7 +724,11 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     # Stop first, including a listener whose TLS can no longer answer the probe. The existing
     # port reclaimer is a no-op on a cold start and fails if it cannot stop.
     just agent-webview-dev-stop '{{port}}' >&2
-    CERT="$(just agent-webview-dev-cert)"
+    TLS_ENV=()
+    if [ -n "$TLS_PREFIX" ]; then
+        CERT="$(just agent-webview-dev-cert)"
+        TLS_ENV=(AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key")
+    fi
     # stdout of this recipe IS the origin, so everything else here goes to stderr. Without the
     # redirect the dependency check's own chatter is prepended to the captured value and the host
     # is handed a two-line "origin" it can only refuse -- which it does, loudly, on both surfaces.
@@ -701,9 +738,9 @@ agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1
     # recipe would make every launch the last one that worked.
     (
         cd "$WEB"
+        env AGENTDESK_PANEL_LISTEN="$MODE" \
         AGENTDESK_AGENT_PANEL_HOST="$NAME" \
-        AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" \
-        AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key" \
+        ${TLS_ENV[@]+"${TLS_ENV[@]}"} \
         AGENTDESK_AGENT_FEED_ORIGIN='{{feed_origin}}' \
         nohup bun run dev --port '{{port}}' --strictPort </dev/null >>"$LOG" 2>&1 &
     )
@@ -739,8 +776,10 @@ agent-webview-dev port=agent_panel_dev_port feed_origin="http://127.0.0.1:7682":
     set -euo pipefail
     ROOT='{{justfile_directory()}}'
     WEB='{{agent_panel_web_dir}}'
-    NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
-    ORIGIN="https://$NAME:{{port}}"
+    MODE='{{panel_listen}}'
+    ORIGIN="$(just agent-webview-dev-origin '{{port}}')"
+    NAME="${ORIGIN#*://}"
+    NAME="${NAME%:*}"
     # Refuse rather than let --strictPort fail with a bare EADDRINUSE: the likely occupant is the
     # server a launch started, and the reason you are running this one by hand is usually an
     # environment that one does not have.
@@ -749,16 +788,22 @@ agent-webview-dev port=agent_panel_dev_port feed_origin="http://127.0.0.1:7682":
         echo "Run 'just agent-webview-dev-stop' first to replace it with this one." >&2
         exit 1
     fi
-    CERT="$(just agent-webview-dev-cert)"
+    TLS_ENV=()
+    case "$ORIGIN" in
+        https://*)
+            CERT="$(just agent-webview-dev-cert)"
+            TLS_ENV=(AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key")
+            ;;
+    esac
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
-    echo "agent-webview-dev: serving at $ORIGIN"
+    echo "agent-webview-dev: serving at $ORIGIN ($MODE mode)"
     echo "  hosts launched from here point at it automatically ({{agent_panel_origin_var}}),"
     echo "  and each host tells its attached phones to load from it too"
     echo ""
     cd "$WEB"
+    env AGENTDESK_PANEL_LISTEN="$MODE" \
     AGENTDESK_AGENT_PANEL_HOST="$NAME" \
-    AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" \
-    AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key" \
+    ${TLS_ENV[@]+"${TLS_ENV[@]}"} \
     AGENTDESK_AGENT_FEED_ORIGIN='{{feed_origin}}' \
     bun run dev --port '{{port}}' --strictPort
 
@@ -777,8 +822,7 @@ agent-webview-dev-stop port=agent_panel_dev_port:
 agent-webview-dev-status port=agent_panel_dev_port:
     #!/usr/bin/env bash
     set -euo pipefail
-    NAME="$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh')"
-    ORIGIN="https://$NAME:{{port}}"
+    ORIGIN="$(just agent-webview-dev-origin '{{port}}')"
     # Probed on the inventory stream, which carries the whole surface's data since 469e7938
     # put it on one connection. That commit removed /api/projects, which this probed until
     # it started reporting a dead sidecar at a stack that was serving perfectly.
@@ -813,6 +857,15 @@ agent-webview-dev-status port=agent_panel_dev_port:
             # opens, silently: the terminal that waits on it just says "Opening terminal" for
             # ever. That cost an evening, so the version is checked here rather than assumed.
             VERSION="$(curl -sk -o /dev/null -w '%{http_version}' --max-time 3 "$ORIGIN/api/config" || true)"
+            # A browser speaks HTTP/2 only over TLS, so the plain-http modes are HTTP/1.1 by design:
+            # that is a limit of the mode, said as such, not the misconfiguration the check below is for.
+            case "$ORIGIN" in
+                http://*)
+                    echo "  plain http in '{{panel_listen}}' mode, so HTTP/1.1: with many cards or terminals open the"
+                    echo "  panel's event streams compete for ~6 connections. Tailnet mode serves HTTP/2."
+                    exit 0
+                    ;;
+            esac
             case "$VERSION" in
                 2*) echo "  negotiated HTTP/$VERSION, so its event streams are multiplexed" ;;
                 *)
@@ -1184,7 +1237,7 @@ panel-highlight-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh'):5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-$(just agent-webview-dev-origin)}" \
       node '{{justfile_directory()}}/chrome-test/panel-highlight-verify.mjs'
 
 # Checks that the panel comes back to where it was being read, in a browser that lays pages out.
@@ -1198,7 +1251,7 @@ panel-scroll-memory-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-{{agent_panel_local_origin}}}" \
       PANEL_PROJECT='{{justfile_directory()}}' \
       node '{{justfile_directory()}}/chrome-test/panel-scroll-memory-verify.mjs'
 
@@ -1210,7 +1263,7 @@ trackpad-deck-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh'):5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-$(just agent-webview-dev-origin)}" \
       node '{{justfile_directory()}}/chrome-test/trackpad-deck-verify.mjs'
 
 # Checks a long message survives Claude collapsing it into a `[Pasted text #N]` handle.
@@ -1222,7 +1275,7 @@ composer-paste-collapse-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-{{agent_panel_local_origin}}}" \
       PANEL_PROJECT='{{justfile_directory()}}' \
       node '{{justfile_directory()}}/chrome-test/composer-paste-collapse-verify.mjs'
 
@@ -1236,7 +1289,7 @@ sent-file-link-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-{{agent_panel_local_origin}}}" \
       PANEL_PROJECT='{{justfile_directory()}}' \
       node '{{justfile_directory()}}/chrome-test/sent-file-link-verify.mjs'
 
@@ -1251,7 +1304,7 @@ canvas-zoom-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-{{agent_panel_local_origin}}}" \
       node '{{justfile_directory()}}/chrome-test/canvas-zoom-verify.mjs'
 
 # Checks that a wheel over a peer's FULLSCREEN pane reaches the program, and that one over an
@@ -1261,7 +1314,7 @@ terminal-wheel-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-{{agent_panel_local_origin}}}" \
       node '{{justfile_directory()}}/chrome-test/terminal-wheel-verify.mjs'
 
 # Checks that the faces switch trades initials for generated faces on every ranked
@@ -1271,7 +1324,7 @@ bot-faces-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-{{agent_panel_local_origin}}}" \
       node '{{justfile_directory()}}/chrome-test/bot-faces-verify.mjs'
 
 # Checks the Bot file viewer keeps a long markdown file inside its modal, at desktop and phone
@@ -1283,7 +1336,7 @@ bot-code-dialog-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-{{agent_panel_local_origin}}}" \
       node '{{justfile_directory()}}/chrome-test/bot-code-dialog-verify.mjs'
 
 # The IDE's quick open and text search on the live panel: double Shift, Cmd+Shift+F, a result
@@ -1292,7 +1345,7 @@ ide-search-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
-    PANEL_ORIGIN="${PANEL_ORIGIN:-https://127.0.0.1:5173}" \
+    PANEL_ORIGIN="${PANEL_ORIGIN:-{{agent_panel_local_origin}}}" \
       node '{{justfile_directory()}}/chrome-test/ide-search-verify.mjs'
 
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
@@ -2054,7 +2107,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
         # build its panel at all -- on the Mac AND on every attached phone. Caught here it is one
         # failed launch naming the culprit.
         case "$PANEL_ORIGIN" in
-            https://*) ;;
+            http://*|https://*) ;;
             *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
         esac
         export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
@@ -2256,7 +2309,7 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
         # build its panel at all -- on the Mac AND on every attached phone. Caught here it is one
         # failed launch naming the culprit.
         case "$PANEL_ORIGIN" in
-            https://*) ;;
+            http://*|https://*) ;;
             *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
         esac
         export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
@@ -2414,8 +2467,7 @@ host-login:
         exit 0
     fi
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-7682}"
-    NAME="$(sh tools/tailnet-dns-name.sh)"
-    PANEL_ORIGIN="https://$NAME:{{agent_panel_dev_port}}"
+    PANEL_ORIGIN="$(just agent-webview-dev-origin '{{agent_panel_dev_port}}')"
     # WAIT for the panel dev server rather than starting one. The `*.paneldev` agent owns it, and a
     # server started from inside THIS job would not survive it: launchd reaps a job's process group
     # when the job exits, so the detached Vite that `agent-webview-dev-ensure` leaves behind dies
@@ -2432,7 +2484,7 @@ host-login:
         echo "host-login: nothing serving $PANEL_ORIGIN after 60s; starting one that will not outlive this job" >&2
         PANEL_ORIGIN="$(just agent-webview-dev-ensure '{{agent_panel_dev_port}}' "http://127.0.0.1:$FEEDPORT")"
         case "$PANEL_ORIGIN" in
-            https://*) ;;
+            http://*|https://*) ;;
             *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
         esac
     fi

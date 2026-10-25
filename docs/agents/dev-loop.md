@@ -158,11 +158,19 @@ and reversed with `just dev-login-uninstall`:
 path only starts what is already installed, so **an installed app moves forward only when you run
 `host-run`**.
 
-### The dev origin is HTTPS over the tailnet, and that is load-bearing
+### Where the dev server listens, and why the phone's origin is HTTPS over the tailnet
 
-The origin is `https://<this-mac>.<tailnet>.ts.net:5173`, derived per machine by
-`tools/tailnet-dns-name.sh` and never written down. One origin serves every surface because TLS is a
-property of the port. `just agent-webview-dev` is the same server in the foreground for watching its
+The dev server listens only as far as `AGENTDESK_PANEL_LISTEN` reaches (`listenAddresses.ts`), because
+the panel has no login and drives this Mac, so where it can be reached from is its boundary:
+`loopback` (the default; this Mac only, `http://127.0.0.1:5173`), `tailnet` (this Mac's tailnet
+address and loopback), or `network` (every network, plain http, for a phone without Tailscale on a
+network you trust). `just agent-webview-dev-origin` is the one place a mode becomes an origin. Until
+2026-10-23 it listened on every interface and a pf rule turned the local network away; the rule
+covered IPv4 alone, so the Wi-Fi reached it over IPv6, and the rule was removed with the binding fix.
+
+A phone needs `tailnet` mode. Its origin is `https://<this-mac>.<tailnet>.ts.net:5173`, derived per
+machine by `tools/tailnet-dns-name.sh` and never written down. One origin serves every surface there
+because TLS is a property of the port. `just agent-webview-dev` is the same server in the foreground for watching its
 log; `agent-webview-dev-cert` issues or renews the certificate; `agent-webview-dev-stop` frees the
 port; `agent-webview-dev-status` is the only check that exercises the browser leg, and it checks the
 **protocol**, not just the status code.
@@ -188,14 +196,17 @@ refuses a `Host` outside `config.allowedHosts` (loopback, the bind address, and
 `Host` to the sidecar's own authority, and the host's clients send no `Sec-Fetch-Site`. A new way
 of reaching the sidecar is a new `allowedHosts` entry, never a removed check.
 
-During an approved host launch, `agent-webview-dev-ensure` reuses a healthy server with intact TLS
-or stops the configured port's listener before recreating it; a failed stop or readiness check
+During an approved host launch, `agent-webview-dev-ensure` reuses a healthy server in the mode asked
+for (it asks the server, at `/@agentdesk/listen-mode`), with intact TLS where the mode has it, or
+stops the configured port's listener before recreating it; a failed stop or readiness check
 aborts the launch. One server means one `/api` target, so a browser tab follows whichever host tier
 started it.
 
 ## The dev origin serves HTTP/2, and it is load-bearing
 
-Settled 2026-09-06, after an evening spent debugging three features that were not broken.
+Settled 2026-09-06, after an evening spent debugging three features that were not broken. Only
+`tailnet` mode has TLS, so only it has HTTP/2: the plain-http modes are HTTP/1.1, where the limit
+below applies by design, and `agent-webview-dev-status` says so rather than calling it a fault.
 
 `server.https` gives the panel's dev origin TLS **and HTTP/2** -- but Vite downgrades it to
 TLS-only "if the `server.proxy` option is also configured" (its own server-options doc). Under

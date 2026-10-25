@@ -23,6 +23,7 @@ import { hookRefresh } from "./src/app/dev-server/hookRefresh";
 import { reconnectInPlace } from "./src/app/dev-server/reconnectInPlace";
 import { panelReact } from "./src/app/dev-server/panelReact";
 import { panelPublish } from "./src/app/dev-server/panelPublish";
+import { listenAddresses, panelListen, parseListenMode } from "./src/app/dev-server/listenAddresses";
 import { createTypeHolds, dependentsOf, resend } from "./src/app/dev-server/typeHolds";
 import { createSupervisorClient, type Machine } from "./src/app/dev-server/supervisorClient";
 import { AUDIO_HOST, AUDIO_PORT_OFFSET } from "../../../agent-feed/sidecar/src/audio/audioConfig";
@@ -58,6 +59,12 @@ const sidecarOrigin = process.env.AGENTDESK_AGENT_FEED_ORIGIN ?? "http://127.0.0
  * the phone does rather than each surface having its own idea of where the panel lives.
  */
 const tailnetHost = process.env.AGENTDESK_AGENT_PANEL_HOST;
+/**
+ * Where the server can be reached from: loopback (the default), tailnet or network, from
+ * `AGENTDESK_PANEL_LISTEN`. Resolved now, so a tailnet name that answers nowhere, or somewhere that is
+ * not the tailnet, stops the server before it listens anywhere (`listenAddresses.ts`).
+ */
+const listen = await listenAddresses(parseListenMode(process.env.AGENTDESK_PANEL_LISTEN), tailnetHost);
 const tlsCertificate = process.env.AGENTDESK_AGENT_PANEL_TLS_CERT;
 const tlsKey = process.env.AGENTDESK_AGENT_PANEL_TLS_KEY;
 // Read now rather than handing Vite the paths, so a missing or unreadable certificate fails here,
@@ -423,6 +430,8 @@ export default defineConfig({
     // First, so it wraps each response before anything answers it: moves Vite's inline source maps
     // out of the modules and compresses what is left, which is most of a cold load on the phone.
     slimResponses(),
+    // Answers which listen mode this server is in, and adds the loopback listener in tailnet mode.
+    panelListen(listen),
     // Puts modules of hooks alone under Fast Refresh, which Vite leaves out; without it a save that
     // adds or removes a hook inside one fails its callers with "Should have a queue".
     hookRefresh(),
@@ -510,9 +519,8 @@ export default defineConfig({
     },
   },
   server: {
-    // Bound to every interface rather than loopback only, so the Mac host's webview, the phone
-    // over the tailnet, and an ordinary browser all reach the same server.
-    host: true,
+    // Only as far as the listen mode reaches: loopback, the tailnet plus loopback, or every network.
+    host: listen.host,
     fs: { allow: [repositoryRoot] },
     https,
     // Only matters when this server is run by hand without a certificate. Vite's host check exists

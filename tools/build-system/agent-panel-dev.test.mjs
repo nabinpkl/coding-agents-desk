@@ -9,11 +9,13 @@ import test from "node:test";
 import { runtimePaths } from "../runtime-paths.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const origin = "https://fixture.invalid:5173";
+const origins = { tailnet: "https://fixture.invalid:5173", loopback: "http://127.0.0.1:5173" };
+const origin = origins.tailnet;
 
 // Execute the actual recipe with only its external operations replaced. No real
-// listener, certificate, credential, dependency tree, or app is touched.
-async function fixture(t, { serving = true, token = true, tls = true, failure = "" } = {}) {
+// listener, certificate, credential, dependency tree, or app is touched. `servingMode` is the
+// mode a server already on the port says it is in, when one is there.
+async function fixture(t, { serving = true, token = true, tls = true, failure = "", mode = "tailnet", servingMode = mode } = {}) {
   const root = await mkdtemp(join(tmpdir(), "agentdesk-panel-ensure-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const bin = join(root, "bin");
@@ -26,13 +28,16 @@ async function fixture(t, { serving = true, token = true, tls = true, failure = 
     // recipe's full 20s readiness budget proving the obvious. Three attempts exercise the
     // same loop and the same error.
     AGENTDESK_AGENT_PANEL_DEV_READY_ATTEMPTS: "3",
+    AGENTDESK_PANEL_LISTEN: mode,
+    AGENTDESK_PANEL_LISTEN_EXPECTED: mode,
     FIXTURE_ROOT: root,
     FIXTURE_FAILURE: failure,
+    FIXTURE_ORIGIN: origins[mode],
   };
   const paths = runtimePaths(env);
   await mkdir(bin);
   await mkdir(paths.panelTlsDirectory, { recursive: true });
-  if (serving) await writeFile(join(root, "serving"), "yes");
+  if (serving) await writeFile(join(root, "serving"), servingMode);
   if (tls) {
     await writeFile(join(paths.panelTlsDirectory, "fixture.invalid.crt"), "certificate");
     await writeFile(join(paths.panelTlsDirectory, "fixture.invalid.key"), "key");
@@ -61,10 +66,16 @@ switch (basename(process.argv[1])) {
     console.log("fixture.invalid");
     break;
   case "curl":
-    assert.equal(args.at(-1), ${JSON.stringify(origin + "/@vite/client")});
-    process.exit(existsSync(marker) ? 0 : 1);
+    // The probe asks the server for its listen mode; a server answers with the one it runs in.
+    assert.equal(args.at(-1), process.env.FIXTURE_ORIGIN + "/@agentdesk/listen-mode");
+    if (!existsSync(marker)) process.exit(22);
+    process.stdout.write(readFileSync(marker, "utf8"));
+    break;
   case "just":
-    if (args[0] === "agent-webview-dev-stop") {
+    if (args[0] === "agent-webview-dev-origin") {
+      assert.equal(args[1], "5173");
+      console.log(process.env.FIXTURE_ORIGIN);
+    } else if (args[0] === "agent-webview-dev-stop") {
       assert.equal(args[1], "5173");
       record("stop");
       if (failure === "stop") process.exit(1);
@@ -87,11 +98,17 @@ switch (basename(process.argv[1])) {
     break;
   case "bun":
     assert.deepEqual(args, ["run", "dev", "--port", "5173", "--strictPort"]);
-    assert.equal(process.env.AGENTDESK_AGENT_PANEL_TLS_CERT, prefix + ".crt");
-    assert.equal(process.env.AGENTDESK_AGENT_PANEL_TLS_KEY, prefix + ".key");
+    assert.equal(process.env.AGENTDESK_PANEL_LISTEN, process.env.AGENTDESK_PANEL_LISTEN_EXPECTED);
+    if (process.env.FIXTURE_ORIGIN.startsWith("https://")) {
+      assert.equal(process.env.AGENTDESK_AGENT_PANEL_TLS_CERT, prefix + ".crt");
+      assert.equal(process.env.AGENTDESK_AGENT_PANEL_TLS_KEY, prefix + ".key");
+    } else {
+      assert.equal(process.env.AGENTDESK_AGENT_PANEL_TLS_CERT, undefined);
+      assert.equal(process.env.AGENTDESK_AGENT_PANEL_TLS_KEY, undefined);
+    }
     assert.equal(process.env.AGENTDESK_AGENT_FEED_ORIGIN, "http://127.0.0.1:7682");
     record("start");
-    if (failure !== "start") writeFileSync(marker, "yes");
+    if (failure !== "start") writeFileSync(marker, process.env.AGENTDESK_PANEL_LISTEN);
     break;
   default: throw new Error("unexpected fixture command");
 }
@@ -135,6 +152,23 @@ for (const [name, options] of [
     assert.deepEqual(await state.events(), ["stop", "cert", "dependencies", "start"]);
   });
 }
+
+test("a loopback start needs no tailnet name or certificate, and publishes the http origin", async (t) => {
+  const state = await fixture(t, { mode: "loopback", serving: false, tls: false });
+  const result = state.run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, origins.loopback + "\n");
+  assert.deepEqual(await state.events(), ["stop", "dependencies", "start"]);
+});
+
+test("a server in another mode is replaced, not reused", async (t) => {
+  // Left in network mode, it answers on loopback too: reusing it would keep the panel on every network.
+  const state = await fixture(t, { mode: "loopback", servingMode: "network", tls: false });
+  const result = state.run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, origins.loopback + "\n");
+  assert.deepEqual(await state.events(), ["stop", "dependencies", "start"]);
+});
 
 test("failed stop aborts before provisioning anything", async (t) => {
   const state = await fixture(t, { serving: false, failure: "stop" });
