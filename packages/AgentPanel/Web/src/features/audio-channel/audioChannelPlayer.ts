@@ -1,7 +1,7 @@
-// The audio channel's player: one `<audio>` element on the sidecar's stream, outside React.
+// The audio channel's player: one `<audio>` element on the audio process's stream, outside React.
 //
 // The stream is a bed of noise, in the color and at the level this device picks, with agents' messages over
-// it (`POST /api/audio/speak` on the sidecar). The noise is mixed on the sidecar, not here: iOS
+// it (`POST /api/audio/speak`). The noise is mixed by the audio process on the Mac, not here: iOS
 // ignores a page setting an element's volume, and a page's own Web Audio is suspended once the
 // screen locks, which is exactly when this has to keep playing.
 // Outside React so it outlives the menu that started it: closing the menu, or the screen locking,
@@ -10,7 +10,8 @@
 // reaches the element already playing; a fresh element on resume would have neither.
 //
 // The stream is live, so pausing drops the connection, and resuming connects again: whatever was
-// said while paused was said to nobody here, and the sidecar did not count this phone as listening.
+// said while paused was said to nobody here, and the audio process did not count this phone as
+// listening. A stream that drops on its own is reconnected after a short wait, on the same element.
 
 import {
   AUDIO_NOISE_COLORS,
@@ -92,7 +93,7 @@ function clampNoise(level: number): number {
 }
 
 /**
- * This device's name to the sidecar, made once per page: the sidecar keeps the noise level under
+ * This device's name to the audio process, made once per page: it keeps the noise under
  * it, and counts a phone's probe connection and its playing one as one listener.
  */
 const LISTENER_ID = crypto.randomUUID();
@@ -103,6 +104,15 @@ let listeningSince = 0;
 /** How long after that the current connection was made; the element's own clock starts at 0. */
 let joinedAfterMs = 0;
 let watchdog: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * The waits before each try to reconnect after a stream dropped, the last repeating; reset once one
+ * plays. A stream drops when the audio process is replaced (an edit to its own code) or the dev
+ * server restarts, and either is back within seconds.
+ */
+const RECONNECT_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnects = 0;
 let current: AudioChannelState = { phase: "idle", status: null, noise: storedNoise(), color: storedColor() };
 const listeners = new Set<() => void>();
 
@@ -136,12 +146,34 @@ function heard(audio: HTMLAudioElement): string {
   return formatDuration(joinedAfterMs / 1000 + audio.currentTime);
 }
 
-/** Drops the connection and keeps the element, so the sidecar stops counting this as a listener. */
+/** Drops the connection and keeps the element, so the audio process stops counting this as a listener. */
 function disconnect(audio: HTMLAudioElement): void {
   stopWatchdog();
   audio.pause();
   audio.removeAttribute("src");
   audio.load();
+}
+
+function cancelReconnect(): void {
+  if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+/**
+ * The stream dropped under a listener who did not ask it to: connect again after a short wait, on
+ * the same element, which iOS lets play without a new tap because a tap already started it. Not for
+ * another app taking the audio: that is the listener's phone deciding, and they resume it.
+ */
+function reconnectSoon(audio: HTMLAudioElement, why: string): void {
+  disconnect(audio);
+  cancelReconnect();
+  const wait = RECONNECT_MS[Math.min(reconnects, RECONNECT_MS.length - 1)] ?? 15_000;
+  reconnects += 1;
+  publish("starting", `${why}; reconnecting in ${Math.round(wait / 1000)}s`);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (element === audio && current.phase === "starting") connect(audio, `reconnecting, try ${reconnects}`);
+  }, wait);
 }
 
 function stopWatchdog(): void {
@@ -171,17 +203,21 @@ function startWatchdog(audio: HTMLAudioElement): void {
     const waiting = current.phase === "starting" || audio.readyState < HAVE_FUTURE_DATA;
     if (stillFor < (waiting ? STALLED_MS : STILL_MS)) return;
     const at = heard(audio);
+    if (waiting) {
+      reconnectSoon(audio, `the stream stalled at ${at}`);
+      return;
+    }
     disconnect(audio);
-    publish("paused", waiting ? `stream stalled at ${at}` : `interrupted at ${at}, likely another app's audio`);
+    publish("paused", `interrupted at ${at}, likely another app's audio`);
   }, 1_000);
 }
 
-function connect(audio: HTMLAudioElement): void {
+function connect(audio: HTMLAudioElement, saying = "connecting"): void {
   joinedAfterMs = Date.now() - listeningSince;
-  // A fresh address each time (`at`) also keeps anything between here and the sidecar from caching it.
+  // A fresh address each time (`at`) also keeps anything between here and the Mac from caching it.
   const noise = `noise=${current.noise}&color=${current.color}`;
   audio.src = `${AUDIO_STREAM_ROUTE}?listener=${LISTENER_ID}&${noise}&at=${Date.now()}`;
-  publish("starting", "connecting");
+  publish("starting", saying);
   startWatchdog(audio);
   audio.play().then(
     () => {
@@ -194,6 +230,7 @@ function connect(audio: HTMLAudioElement): void {
     (error: unknown) => {
       if (element !== audio || current.phase !== "starting") return;
       disconnect(audio);
+      // A reconnect the browser refused to play without a tap ends here: Resume is that tap.
       publish("paused", `could not start: ${error instanceof Error ? error.message : String(error)}`);
     },
   );
@@ -204,7 +241,9 @@ function createElement(): HTMLAudioElement {
   const mine = () => element === audio;
   let shownSecond = -1;
   audio.addEventListener("playing", () => {
-    if (mine() && current.phase !== "paused") publish("playing", `listening, ${heard(audio)}`);
+    if (!mine() || current.phase === "paused") return;
+    reconnects = 0;
+    publish("playing", `listening, ${heard(audio)}`);
   });
   audio.addEventListener("timeupdate", () => {
     const second = Math.round(joinedAfterMs / 1000 + audio.currentTime);
@@ -222,21 +261,18 @@ function createElement(): HTMLAudioElement {
     disconnect(audio);
     publish("paused", `paused at ${at}`);
   });
-  // The sidecar ends a stream only by going away, a restart among them; connecting again is resuming.
+  // The audio process ends a stream only by going away, a restart among them.
   audio.addEventListener("ended", () => {
-    if (!mine()) return;
-    const at = heard(audio);
-    disconnect(audio);
-    publish("paused", `the stream ended at ${at}`);
+    if (mine() && (current.phase === "playing" || current.phase === "starting")) {
+      reconnectSoon(audio, `the stream ended at ${heard(audio)}`);
+    }
   });
   audio.addEventListener("error", () => {
     // An error after a disconnect is the dropped source, not a failure.
     if (!mine() || (current.phase !== "playing" && current.phase !== "starting")) return;
     const error = audio.error;
     const reason = error ? (MEDIA_ERRORS[error.code] ?? `error ${error.code}`) : "unknown error";
-    const at = heard(audio);
-    disconnect(audio);
-    publish("paused", `stopped at ${at}: ${reason}${error?.message ? `, ${error.message}` : ""}`);
+    reconnectSoon(audio, `dropped at ${heard(audio)}: ${reason}${error?.message ? `, ${error.message}` : ""}`);
   });
   return audio;
 }
@@ -246,6 +282,7 @@ export function startListening(): void {
   stopListening();
   element = createElement();
   listeningSince = Date.now();
+  reconnects = 0;
   connect(element);
 }
 
@@ -253,6 +290,7 @@ export function pauseListening(): void {
   const audio = element;
   if (!audio || (current.phase !== "playing" && current.phase !== "starting")) return;
   const at = heard(audio);
+  cancelReconnect();
   // Published first, so the element's own `pause` event reads as ours.
   publish("paused", `paused at ${at}`);
   disconnect(audio);
@@ -262,6 +300,7 @@ export function pauseListening(): void {
 export function resumeListening(): void {
   const audio = element;
   if (!audio || current.phase !== "paused") return;
+  reconnects = 0;
   connect(audio);
 }
 
@@ -270,6 +309,7 @@ export function stopListening(): void {
   if (!audio) return;
   const at = heard(audio);
   element = null;
+  cancelReconnect();
   disconnect(audio);
   if ("mediaSession" in navigator) {
     navigator.mediaSession.setActionHandler("pause", null);
@@ -280,7 +320,7 @@ export function stopListening(): void {
 }
 
 /**
- * Tells the sidecar about a noise change while connected; it switches at once, and the change is
+ * Tells the audio process about a noise change while connected; it switches at once, and the change is
  * heard once what the stream sent ahead has played, about six seconds. Not connected, the next
  * connection carries it.
  */

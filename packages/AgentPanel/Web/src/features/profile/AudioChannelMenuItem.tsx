@@ -16,7 +16,7 @@ import {
   startListening,
   stopListening,
   subscribeAudioChannel,
-} from "@/features/profile/audioChannelPlayer";
+} from "@/features/audio-channel/audioChannelPlayer";
 import { PROFILE_MENU_ITEM_CLASS } from "@/features/profile/PushMenuItems";
 
 export function AudioChannelMenuItem() {
