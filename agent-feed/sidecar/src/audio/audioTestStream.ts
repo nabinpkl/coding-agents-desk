@@ -1,12 +1,17 @@
 // An hour-long test of the spoken audio channel: does a phone keep playing a live stream, locked?
 //
-//   GET /api/audio/test-stream  -> audio/aac, one hour, paced in real time
+//   GET /api/audio/test-stream            -> audio/aac, one hour, paced in real time
+//   GET /api/audio/test-stream?from=<ms>  -> the same hour, joined that far in
 //
 // Every five seconds it says how far into the stream it is ("12 minutes 35"), with silence between.
 // Each line is spoken just before its turn rather than all at the start, the way a forwarded agent
 // message will be, and the stream is paced so the phone cannot buffer ahead: what it plays at
 // minute twelve was made at minute twelve. A listener who hears the count skip, or fall behind the
 // clock, has heard the stream stall.
+//
+// `from` is how a listener comes back after a pause or after another app took the audio: it joins
+// where the stream is now, not where it stopped, as a live channel would. The count it then speaks
+// is still the time since the test began, so the gap is heard rather than hidden.
 
 import { AUDIO_TEST_STREAM_ROUTE } from "@agentdesk/agent-feed-wire";
 import { splitAdtsFrames, type AdtsFrame } from "@/audio/adtsFrames";
@@ -82,10 +87,13 @@ function seconds(ms: number): string {
  * still being spoken when its turn comes holds the stream until it is ready, which the lead covers.
  * A line that runs past the next one's turn pushes that one back; the turn after is on time again.
  */
-function pacedStream(gap: AdtsFrame, label: string, stopped: AbortSignal): ReadableStream<Uint8Array> {
+function pacedStream(gap: AdtsFrame, fromMs: number, label: string, stopped: AbortSignal): ReadableStream<Uint8Array> {
+  // The wall-clock moment stream position 0 had, or would have had for a listener joining late.
   let startedAt = 0;
-  let clockMs = 0;
-  let nextLine = 0;
+  let connectedAt = 0;
+  // Joined on a frame boundary, and at the first line still to come.
+  let clockMs = Math.floor(fromMs / gap.durationMs) * gap.durationMs;
+  let nextLine = Math.ceil(clockMs / LINE_EVERY_MS);
   const speaking = new Map<number, Promise<AdtsFrame[]>>();
   const lineAt = (index: number) => index * LINE_EVERY_MS;
   const speakUpTo = (untilMs: number) => {
@@ -103,12 +111,15 @@ function pacedStream(gap: AdtsFrame, label: string, stopped: AbortSignal): Reada
   const finish = (how: string) => {
     if (finished) return;
     finished = true;
-    console.log(`[audio] ${label}: ${how} at ${seconds(Date.now() - startedAt)}, stream position ${seconds(clockMs)}`);
+    console.log(
+      `[audio] ${label}: ${how} after ${seconds(Date.now() - connectedAt)}, at stream position ${seconds(clockMs)}`,
+    );
   };
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      startedAt = Date.now();
-      console.log(`[audio] ${label}: started`);
+      connectedAt = Date.now();
+      startedAt = connectedAt - clockMs;
+      console.log(`[audio] ${label}: started at stream position ${seconds(clockMs)}`);
       // The listener leaving, as either side reports it: Bun cancels the stream, or the request's
       // signal aborts. Whichever comes first stops lines being spoken for nobody.
       stopped.addEventListener("abort", () => {
@@ -162,7 +173,13 @@ function pacedStream(gap: AdtsFrame, label: string, stopped: AbortSignal): Reada
   });
 }
 
-async function serveTestStream(request: Request): Promise<Response> {
+async function serveTestStream(request: Request, url: URL): Promise<Response> {
+  const from = url.searchParams.get("from");
+  const fromMs = from === null ? 0 : Number(from);
+  if (!Number.isFinite(fromMs) || fromMs < 0) {
+    return errorResponse("invalid_from", "from must be a non-negative number of milliseconds", 400);
+  }
+  if (fromMs >= LENGTH_MS) return errorResponse("test_over", "the hour-long test has ended", 410);
   let gap: AdtsFrame;
   try {
     gap = await silence();
@@ -171,14 +188,14 @@ async function serveTestStream(request: Request): Promise<Response> {
   }
   // Which reader this is, for the log: a phone opens the same stream more than once while it probes.
   const label = `test stream ${request.headers.get("range") ?? "no range"} ${request.headers.get("user-agent")?.slice(0, 60) ?? ""}`;
-  return new Response(pacedStream(gap, label, request.signal), {
+  return new Response(pacedStream(gap, fromMs, label, request.signal), {
     headers: { "content-type": "audio/aac", "cache-control": "no-store" },
   });
 }
 
 export function createAudioRoutes(): RouteHandler {
   return (request, url) => {
-    if (url.pathname === AUDIO_TEST_STREAM_ROUTE && request.method === "GET") return serveTestStream(request);
+    if (url.pathname === AUDIO_TEST_STREAM_ROUTE && request.method === "GET") return serveTestStream(request, url);
     return undefined;
   };
 }
