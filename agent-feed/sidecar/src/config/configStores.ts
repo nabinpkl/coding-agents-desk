@@ -19,3 +19,11 @@ export const botsPath = resolve(process.env.AGENT_FEED_BOTS_PATH?.trim() || join
 export const sessionArchivePath = resolve(
   process.env.AGENT_FEED_SESSION_ARCHIVE_PATH?.trim() || join(storeDirectory, "session-archive.json"),
 );
+
+/**
+ * Web push (`push/`): the VAPID key pair this machine signs pushes with, and the subscriptions it
+ * sends to. Holds a private key, so it is written 0600 like the files beside it.
+ */
+export const webPushPath = resolve(
+  process.env.AGENT_FEED_WEB_PUSH_PATH?.trim() || join(storeDirectory, "web-push.json"),
+);

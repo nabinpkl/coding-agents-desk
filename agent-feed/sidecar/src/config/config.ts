@@ -10,7 +10,7 @@ import {
   integerEnvironment,
   urlEnvironment,
 } from "@/config/configEnvironment";
-import { botsPath, sessionArchivePath } from "@/config/configStores";
+import { botsPath, sessionArchivePath, webPushPath } from "@/config/configStores";
 import { composerHandlesPath, composerImageDirectory } from "@/config/configComposer";
 import { contextWindowEnvironment, contextWindowIn } from "@/config/contextWindows";
 import { ripgrepBinary, tmuxBinary, yabaiBinary } from "@/config/configBinaries";
@@ -123,6 +123,9 @@ export const config = {
     64 * 1024 ** 3,
   ),
   spotlightUrl: urlEnvironment("AGENT_FEED_SPOTLIGHT_URL", "http://127.0.0.1:8969/stream"),
+  // Web push (`push/`). The subject is the contact a push service may use about this sender; Apple
+  // refuses a localhost one, so it is a public URL rather than this machine's name.
+  webPushSubject: process.env.AGENT_FEED_WEB_PUSH_SUBJECT?.trim() || "https://github.com/nabinpkl/agent-desk",
   claudeLiveEnabled: booleanEnvironment("AGENT_FEED_CLAUDE_LIVE_ENABLED", true),
   claudeLiveReconnectMs: integerEnvironment("AGENT_FEED_CLAUDE_LIVE_RECONNECT_MS", 1000, 50, 60_000),
   claudeLiveReconnectMaxMs: integerEnvironment("AGENT_FEED_CLAUDE_LIVE_RECONNECT_MAX_MS", 30_000, 1_000, 5 * 60_000),
@@ -172,6 +175,7 @@ export const config = {
 
   botsPath,
   sessionArchivePath,
+  webPushPath,
 
   // The sidecar speaks the pty-manager protocol directly for Agent Feed terminals. The host
   // launch recipes override this for the dev tier; the stable path is the from-source default

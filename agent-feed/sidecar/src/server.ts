@@ -89,6 +89,8 @@ import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
 import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpencode";
 import { createHubRoutes } from "@/messaging/hubRoutes";
+import { createPushRoutes } from "@/push/pushRoutes";
+import { sendPush } from "@/push/pushSender";
 import { bindableDirectory } from "@/bots/botDirectory";
 import { createAddBotTool } from "@/bots/addBotTool";
 import { renameClaudeSession } from "@/transcripts/session-ops/renameSession";
@@ -243,6 +245,7 @@ const routes: RouteHandler[] = [
   // how a reader's answer gets back to it, since a supervisor has no port of its own.
   createSupervisorRoutes(),
   createTelemetryRoutes(sinkEnvelope),
+  createPushRoutes({ path: config.webPushPath, subject: config.webPushSubject, send: sendPush }),
   createArenaRoutes(arenaService),
   createArenaCodeRoutes(arenaService, repositoryGitWatch, {
     maxTextBytes: config.workspaceMaxTextBytes,

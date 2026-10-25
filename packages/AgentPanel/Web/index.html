@@ -41,6 +41,10 @@
     />
     <title>Agent Feed</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!-- What a Home Screen install takes its name, icon and standalone display from; web push on iOS
+         needs the page installed that way. The service worker is registered on demand, not here. -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <!--
       The panel's background, inline, so the FIRST paint is already the right colour.
 
