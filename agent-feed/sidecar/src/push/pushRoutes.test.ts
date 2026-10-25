@@ -76,6 +76,25 @@ describe("push routes", () => {
     expect((await readPushState(options.path))?.subscriptions.map((entry) => entry.endpoint)).toEqual([APPLE]);
   });
 
+  test("a subscription posted again on a later load keeps the time it was first stored", async () => {
+    let now = new Date("2026-10-19T00:00:00Z");
+    const { options, call } = await harness();
+    options.now = () => now;
+    const routes = createPushRoutes(options);
+    const post = (body: unknown) => {
+      const url = new URL(PUSH_SUBSCRIPTIONS_ROUTE, "http://127.0.0.1");
+      return routes(new Request(url.href, { method: "POST", body: JSON.stringify(body) }), url, undefined as never);
+    };
+    await call("GET", PUSH_KEY_ROUTE);
+    await post({ endpoint: APPLE, keys: KEYS });
+    now = new Date("2026-10-20T00:00:00Z");
+    await post({ endpoint: APPLE, keys: { ...KEYS, auth: "rotatedAuthSecret00000" } });
+    const stored = (await readPushState(options.path))?.subscriptions ?? [];
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.addedAt).toBe("2026-10-19T00:00:00.000Z");
+    expect(stored[0]?.keys.auth).toBe("rotatedAuthSecret00000");
+  });
+
   test("a test push goes to every subscription and forgets the ones the service calls gone", async () => {
     const { options, sent, call } = await harness((endpoint) => (endpoint === CHROME ? 410 : 201));
     expect((await call("POST", PUSH_TEST_ROUTE)).status).toBe(409);

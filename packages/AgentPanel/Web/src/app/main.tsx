@@ -17,6 +17,7 @@ import { installFixture } from "@/app/fake-sidecar/fixture";
 import { installKeyboardInset } from "@/app/page/keyboardInset";
 import { installPagehideLifecycle } from "@/app/page/pageLifecycle";
 import { installWindowDrag } from "@/app/page/windowDrag";
+import { renewPushSubscription } from "@/features/profile/webPush";
 import { installPanelTelemetry, panelRootOptions } from "@/features/telemetry/panelTelemetry";
 import { BrowserSurfaces } from "@/app/BrowserSurfaces";
 import { DesktopViewerOnDemand, WorkspaceIdeOnDemand } from "@/app/page/surfacesOnDemand";
@@ -173,6 +174,11 @@ if (entry === "ide") {
   // window-chrome entry point, so the iOS client and a plain browser take no branch.
   let drag = installWindowDrag();
 
+  // Once per load, where notifications are already on: hand the sidecar this browser's push
+  // subscription again, so a subscription the push service dropped, or one made with a key pair the
+  // sidecar has since replaced, repairs itself. Not under a native container, which has no push.
+  if (!hasNativeHost() && !isFixtureMode()) void renewPushSubscription();
+
   // Each of these listens on the page itself, once, so an edit to one used to reload every panel to
   // install it again. Taking the old listeners off and installing from the new module does the same
   // thing in place, and nothing they own outlives the swap: each one's state is the listener.
@@ -194,5 +200,8 @@ if (entry === "ide") {
         }
       },
     );
+    // Renewal runs once per load and holds nothing, so an edit to it waits for the next load rather
+    // than reloading every panel; the Profile menu's entries pick the new module up themselves.
+    import.meta.hot.accept(["@/features/profile/webPush"], () => {});
   }
 }

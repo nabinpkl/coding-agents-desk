@@ -72,12 +72,17 @@ export async function ensureVapidKeys(path: string): Promise<VapidKeys> {
   return state.vapid;
 }
 
-/** Adds a subscription, replacing any earlier one for the same endpoint. */
+/**
+ * Adds a subscription, replacing any earlier one for the same endpoint. The panel posts its
+ * subscription again on every load, so a known endpoint keeps the `addedAt` it was first stored with.
+ */
 export async function addSubscription(path: string, subscription: PushSubscriptionKeys, now: Date): Promise<void> {
   await updatePushState(path, (state) => {
     if (!state) throw new Error("a subscription arrived before any VAPID key was handed out");
-    const others = state.subscriptions.filter((entry) => entry.endpoint !== subscription.endpoint);
-    return { ...state, subscriptions: [...others, { ...subscription, addedAt: now.toISOString() }] };
+    const earlier = state.subscriptions.find((entry) => entry.endpoint === subscription.endpoint);
+    const others = state.subscriptions.filter((entry) => entry !== earlier);
+    const addedAt = earlier?.addedAt ?? now.toISOString();
+    return { ...state, subscriptions: [...others, { ...subscription, addedAt }] };
   });
 }
 

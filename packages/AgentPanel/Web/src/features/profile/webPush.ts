@@ -45,20 +45,15 @@ async function sidecarJson<T>(response: Response): Promise<T> {
 }
 
 /**
- * Turns notifications on for this browser. Call it straight from a tap: the permission prompt is
- * asked for first, while the tap is still the current user gesture, because iOS shows it only then.
+ * Subscribes `registration` with the sidecar's current key and hands the subscription to the
+ * sidecar. A subscription made with an older key pair would be refused by the push service, so it
+ * is replaced rather than reused; one made with the current key is posted again as it is, which is
+ * what restores it if the sidecar forgot it.
  */
-export async function enableNotifications(): Promise<void> {
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") throw new Error(`notifications are ${permission}`);
-
-  const registration = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
-  await navigator.serviceWorker.ready;
+async function syncSubscription(registration: ServiceWorkerRegistration): Promise<void> {
   const { publicKey } = await sidecarJson<PushKeyResponse>(await fetch(PUSH_KEY_ROUTE));
   const key = decodeBase64Url(publicKey);
 
-  // A subscription made with an older key pair would be refused by the push service, so it is
-  // replaced rather than reused.
   let subscription = await registration.pushManager.getSubscription();
   if (subscription && !sameBytes(subscription.options.applicationServerKey, key)) {
     await subscription.unsubscribe();
@@ -72,6 +67,37 @@ export async function enableNotifications(): Promise<void> {
     body: JSON.stringify(subscription.toJSON()),
   });
   if (!response.ok) throw new Error(`sidecar answered ${response.status}: ${await response.text()}`);
+}
+
+/**
+ * Turns notifications on for this browser. Call it straight from a tap: the permission prompt is
+ * asked for first, while the tap is still the current user gesture, because iOS shows it only then.
+ */
+export async function enableNotifications(): Promise<void> {
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") throw new Error(`notifications are ${permission}`);
+  const registration = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+  await navigator.serviceWorker.ready;
+  await syncSubscription(registration);
+}
+
+/**
+ * Once per page load (`app/main.tsx`): where notifications were already turned on, hands the
+ * sidecar this browser's subscription again. That repairs, without anyone pressing Enable, the two
+ * ways delivery stops silently: the push service dropped the subscription and the sidecar deleted
+ * it on a 410, or the sidecar's key pair was made anew and every old subscription went dead.
+ *
+ * A browser that never pressed Enable has no registration and is left alone. A failure is logged
+ * rather than thrown, because nothing on the page waits for this; pressing Enable again is the fix.
+ */
+export async function renewPushSubscription(): Promise<void> {
+  if (pushReadiness() !== "granted") return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration("./");
+    if (registration) await syncSubscription(registration);
+  } catch (error) {
+    console.warn("[push] renewing this browser's subscription failed; press Enable notifications", error);
+  }
 }
 
 /** Asks the sidecar to push a test notification to every subscribed device; says what each answered. */
