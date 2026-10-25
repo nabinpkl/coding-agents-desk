@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectSummary, RecentSession, RecentSessionsPayload } from "@agentdesk/agent-feed-wire";
+import type { CSSProperties } from "react";
 import { CanvasSessionsList, type CanvasSessions } from "@/features/sidebar/session-list/CanvasSessionsList";
+import { setBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 
 const desk: ProjectSummary = {
   projectPath: "/repo/agent-desk",
@@ -36,6 +38,7 @@ function sessions(overrides: Partial<CanvasSessions>): CanvasSessions {
   return {
     onOpen: () => {},
     canvasMove: { held: new Set(), onMove: () => {} },
+    faces: new Map(),
     modalSelection: null,
     grouped: false,
     onGroupedChange: () => {},
@@ -204,5 +207,47 @@ describe("the Canvas tab's Sessions view", () => {
     rerender(<CanvasSessionsList list={list} sessions={sessions({ grouped: false, onGroupedChange })} />);
     fireEvent.click(screen.getByRole("button", { name: "Group by project" }));
     expect(onGroupedChange).toHaveBeenLastCalledWith(true);
+  });
+});
+
+describe("a Bot's session in the Sessions view", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setBotFaces(true);
+  });
+
+  // Alice is a Bot's live session on the canvas, folded; Brian belongs to no Bot.
+  const alice = { ...row("a", "Alice", desk.projectPath, 4), activity: "live" } as RecentSession;
+  const brian = row("b", "Brian", oss.projectPath, 3);
+  const faces = new Map([["claude:a", { style: { "--bot-hue": "200" } as CSSProperties, rank: 0, open: false }]]);
+
+  it("wears its face, ringed while live, where another session keeps the dot", () => {
+    const recent = { recent: [alice, brian], more: false, securityReviews: NO_REVIEWS };
+    render(<CanvasSessionsList list={list} sessions={sessions({ recent, faces })} />);
+
+    const face = screen.getByRole("button", { name: /^Alice/ }).querySelector(".bot-face")!;
+    expect(face.getAttribute("class")).toContain("ring-green-500");
+    expect(face.querySelector(".bot-face-eyes--shut")).not.toBeNull();
+    // The Bot's colour reaches the face and stops there.
+    expect(face.closest("[style]")).toHaveStyle({ "--bot-hue": "200" });
+    expect(screen.getByRole("button", { name: /^Alice/ })).not.toHaveAttribute("style");
+
+    const plain = screen.getByRole("button", { name: /^Brian/ });
+    expect(plain.querySelector(".bot-face")).toBeNull();
+    expect(plain.querySelector(".bg-muted-foreground\\/35")).not.toBeNull();
+  });
+
+  it("wears it in the grouped view too", () => {
+    render(
+      <CanvasSessionsList
+        list={{
+          ...list,
+          expandedProjectPaths: new Set([desk.projectPath]),
+          sessionsByProject: new Map([[desk.projectPath, [alice]]]),
+        }}
+        sessions={sessions({ grouped: true, faces })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /^Alice/ }).querySelector(".bot-face")).not.toBeNull();
   });
 });

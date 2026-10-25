@@ -19,6 +19,8 @@ import {
 import { ScratchProjects, scratchItemProject } from "@/features/sidebar/session-list/ScratchProjects";
 import { SecurityReviewFold, splitSecurityReviews } from "@/features/sidebar/session-list/SecurityReviewSessions";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
+import type { BotSessionFace } from "@/features/bots/avatar/botSessionFaces";
+import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { InlineStatus, SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
@@ -37,6 +39,42 @@ export interface SessionCanvasMove {
 }
 const SESSION_BATCH_SIZE = 10;
 
+/**
+ * The face each Bot's session wears, by `source:sessionId`. Given only by the Canvas tab's list,
+ * where a row that belongs to a Bot should read as the session on that Bot's card.
+ */
+export type SessionFaces = ReadonlyMap<string, BotSessionFace>;
+
+/**
+ * What opens a row: a Bot's session wears its face, which rings green while it is live, and any
+ * other session keeps the dot. In a list that shows faces the dot sits in a face-wide slot, so
+ * every title starts at one edge.
+ */
+function SessionMark({ session, faces }: { session: SessionSummary; faces: SessionFaces | undefined }) {
+  if (!faces) return <ActivityDot activity={session.activity} className="mt-1.5" />;
+  const face = faces.get(`${session.source}:${session.sessionId}`);
+  if (!face) {
+    return (
+      <span className="flex w-8 shrink-0 justify-center">
+        <ActivityDot activity={session.activity} className="mt-1.5" />
+      </span>
+    );
+  }
+  return (
+    // The Bot's hue and the session's step are set here rather than on the row, so they reach the
+    // face and not the meta line, whose muted ink would otherwise take the card's ladder.
+    <span className="shrink-0" style={face.style}>
+      <SessionAvatar
+        title={session.title || session.sessionId}
+        activity={session.activity}
+        shaded={face.style !== undefined}
+        rank={face.rank}
+        shut={!face.open}
+      />
+    </span>
+  );
+}
+
 export function ProjectSidebarItem({
   project,
   sessions,
@@ -49,6 +87,7 @@ export function ProjectSidebarItem({
   onSelectSession,
   onCreatePiSession,
   canvasMove,
+  faces,
   archiving,
   projectArchive,
 }: {
@@ -64,6 +103,7 @@ export function ProjectSidebarItem({
   /** Absent where a new Pi session is not offered, which is everywhere but the Sessions tab. */
   onCreatePiSession?: () => void;
   canvasMove?: SessionCanvasMove;
+  faces?: SessionFaces;
   /** Archive and Unarchive. Absent where the list offers neither. */
   archiving?: SessionArchiving;
   /** The list's folder command, present where the list offers archiving a folder. */
@@ -158,6 +198,7 @@ export function ProjectSidebarItem({
             selectedSessionKey={selectedSessionKey}
             onSelect={onSelectSession}
             canvasMove={canvasMove}
+            faces={faces}
             archiving={archiving}
           />
           {archiving ? (
@@ -177,12 +218,14 @@ export function ProjectSessionPreview({
   selectedSessionKey,
   onSelect,
   canvasMove,
+  faces,
   archiving,
 }: {
   sessions: SessionSummary[] | undefined;
   selectedSessionKey: string | null;
   onSelect: (session: SessionSummary) => void;
   canvasMove?: SessionCanvasMove | undefined;
+  faces?: SessionFaces | undefined;
   archiving?: SessionArchiving | undefined;
 }) {
   const archive = useSessionArchiveCommand(archiving?.setArchived);
@@ -206,6 +249,7 @@ export function ProjectSessionPreview({
       selectedSessionKey={selectedSessionKey}
       onSelect={() => onSelect(session)}
       canvasMove={canvasMove}
+      faces={faces}
       archive={archiving ? archive : undefined}
     />
   );
@@ -258,8 +302,8 @@ function ShowMore({ remaining, onShowMore }: { remaining: number; onShowMore: ()
 /**
  * One session's row, in a project's list or in the flat one.
  *
- * Shared so the two lists cannot drift: the same dot, meta, selection mark and row menu, whichever
- * way the reader chose to see their sessions. `project` names the session's project on a row that
+ * Shared so the two lists cannot drift: the same face or dot, meta, selection mark and row menu,
+ * whichever way the reader chose to see their sessions. `project` names the session's project on a row that
  * is not already under it, which is every row of the flat list.
  */
 export function SessionRow({
@@ -267,6 +311,7 @@ export function SessionRow({
   selectedSessionKey,
   onSelect,
   canvasMove,
+  faces,
   archive,
   project,
 }: {
@@ -274,6 +319,7 @@ export function SessionRow({
   selectedSessionKey: string | null;
   onSelect: () => void;
   canvasMove?: SessionCanvasMove | undefined;
+  faces?: SessionFaces | undefined;
   /** Archive, when the list offers it. One command per list, so its pending and failed rows are. */
   archive?: ReturnType<typeof useSessionArchiveCommand> | undefined;
   project?: string;
@@ -296,7 +342,7 @@ export function SessionRow({
           project === undefined ? "pl-8" : "pl-3"
         } ${active ? "border-primary text-foreground" : "border-transparent"}`}
       >
-        <ActivityDot activity={session.activity} className="mt-1.5" />
+        <SessionMark session={session} faces={faces} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-foreground">
             {session.title || session.sessionId}
@@ -353,6 +399,7 @@ export function ProjectSessionList(props: {
   };
   /** The Canvas tab's row action; absent on the Sessions tab, whose sessions open in place. */
   canvasMove?: SessionCanvasMove;
+  faces?: SessionFaces;
   archiving?: SessionArchiving;
 }) {
   const projectArchiving = props.archiving?.projects;
@@ -387,6 +434,7 @@ export function ProjectSessionList(props: {
       onSelectSession={(session) => props.onSelectSession(project, session)}
       {...(props.pi ? { onCreatePiSession: () => props.pi!.onCreate(project) } : {})}
       {...(props.canvasMove ? { canvasMove: props.canvasMove } : {})}
+      {...(props.faces ? { faces: props.faces } : {})}
       {...(props.archiving ? { archiving: props.archiving } : {})}
       {...(projectArchiving ? { projectArchive } : {})}
     />

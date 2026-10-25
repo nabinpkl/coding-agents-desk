@@ -14,6 +14,7 @@ import type { useCanvasRoster } from "@/app/shell-state/useCanvasRoster";
 import type { useBotCommands } from "@/app/shell-state/useBotCommands";
 import type { ShellMachines } from "@/app/shell-state/useBotMachines";
 import { botsOnShownMachines, machineIsHidden } from "@/features/bots/botMachines";
+import { botSessionFaces } from "@/features/bots/avatar/botSessionFaces";
 import type { useThreadSelection } from "@/app/shell-state/useThreadSelection";
 import type { usePiSessionCreation } from "@/app/shell-state/usePiSessionCreation";
 import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
@@ -45,6 +46,15 @@ export function sidebarProps({
   roster: ReturnType<typeof useCanvasRoster>;
   thread: ReturnType<typeof useThreadSelection>;
 }) {
+  // Over the WHOLE roster rather than over the Bots on the canvas, because the roster rows this
+  // marks include the ones already taken off it: a Bot that is both detached and on a hidden
+  // machine is off the canvas twice, and its row must not offer to put it back with one press.
+  // The Sessions view's faces read it too, to leave a session with no card unshaded.
+  const machineHiddenBotIds = new Set(
+    botsState.bots
+      .filter((bot) => machineIsHidden(roster.hiddenMachines, machines.keyOfBot, bot.botId))
+      .map((bot) => bot.botId),
+  );
   return {
     mode: chrome.sidebarMode,
     onModeChange: chrome.changeSidebarMode,
@@ -83,14 +93,7 @@ export function sidebarProps({
     onRenameSession: commands.setRenamingSession,
     detachedBotIds: roster.detachedBotIds,
     onToggleBotOnCanvas: roster.toggleBotOnCanvas,
-    // Over the WHOLE roster rather than over the Bots on the canvas, because the rows this marks
-    // include the ones already taken off it: a Bot that is both detached and on a hidden machine
-    // is off the canvas twice, and its row must not offer to put it back with one press.
-    machineHiddenBotIds: new Set(
-      botsState.bots
-        .filter((bot) => machineIsHidden(roster.hiddenMachines, machines.keyOfBot, bot.botId))
-        .map((bot) => bot.botId),
-    ),
+    machineHiddenBotIds,
     // Counted over the Bots ON the canvas rather than over the whole roster, and over all of them
     // rather than over the ones a shown machine is contributing: the number beside a hidden
     // machine's chip is what says how many cards pressing it would bring back.
@@ -123,6 +126,14 @@ export function sidebarProps({
     canvasSessions: {
       onOpen: thread.openSessionInModal,
       canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveListedSessionToCanvas },
+      // From the same roster, sets and open cards the Bots view draws its rows from, so a session
+      // wears one face in both views.
+      faces: botSessionFaces(roster.orderedBots, {
+        detachedBotIds: roster.detachedBotIds,
+        machineHiddenBotIds,
+        detachedSessionKeys: roster.detachedSessionKeys,
+        openSessionKeys: roster.canvasOpenKeys,
+      }),
       modalSelection: thread.modalThread
         ? {
             projectPath: thread.modalThread.project.projectPath,

@@ -16,6 +16,7 @@ import {
   ProjectSessionList,
   SessionRow,
   type SessionCanvasMove,
+  type SessionFaces,
 } from "@/features/sidebar/session-list/ProjectSidebarItem";
 import { SidebarError, SidebarReconnecting, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
@@ -23,13 +24,15 @@ import { RowMenu } from "@/features/bots/menus/RowMenu";
 /** What the project list needs whichever list it sits in; the rest is this view's. */
 type ProjectListProps = Omit<
   Parameters<typeof ProjectSessionList>[0],
-  "selectedProjectPath" | "selectedSessionKey" | "onSelectSession" | "pi" | "canvasMove"
+  "selectedProjectPath" | "selectedSessionKey" | "onSelectSession" | "pi" | "canvasMove" | "faces"
 >;
 
 export interface CanvasSessions {
   /** Opens a session in a modal over the canvas. */
   onOpen: (project: ProjectSummary, session: SessionSummary) => void;
   canvasMove: SessionCanvasMove;
+  /** The face each Bot's session wears, so its row reads as the session on that Bot's card. */
+  faces: SessionFaces;
   /** The session that modal is showing, so its row reads as the one picked. */
   modalSelection: { projectPath: string; sessionKey: string } | null;
   grouped: boolean;
@@ -88,6 +91,7 @@ export function CanvasSessionsList({ list, sessions }: { list: ProjectListProps;
           selectedSessionKey={sessions.modalSelection?.sessionKey ?? null}
           onSelectSession={sessions.onOpen}
           canvasMove={sessions.canvasMove}
+          faces={sessions.faces}
         />
       ) : (
         <RecentSessionList list={list} sessions={sessions} />
@@ -120,6 +124,7 @@ function RecentSessionList({ list, sessions }: { list: ProjectListProps; session
         selectedSessionKey={sessions.modalSelection?.sessionKey ?? null}
         onSelect={() => sessions.onOpen(project, session)}
         canvasMove={sessions.canvasMove}
+        faces={sessions.faces}
         archive={list.archiving ? archive : undefined}
         project={project.displayName || session.projectPath}
       />

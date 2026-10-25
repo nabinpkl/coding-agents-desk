@@ -6,6 +6,7 @@ import type { SidecarDataSource } from "@/features/activity-feed/data-source/Sid
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { SessionAvatar } from "@/features/bots/SessionAvatar";
 import { BotAvatar } from "@/features/bots/avatar/BotAvatar";
+import { sessionOffCanvas } from "@/features/bots/avatar/botSessionFaces";
 import { attachedSessionKey, isFatherSession, splitSessionsByCanvas } from "@/features/bots/botRosterOrder";
 import { botSessionFaceRank, botSessionSlots, botSessionStyle, botSurfaceStyle } from "@/features/bots/botSurface";
 import { canRenameSession } from "@/features/bots/sessionRename";
@@ -96,7 +97,7 @@ export function BotRosterRow({
   const slots = botSessionSlots(bot.sessionRefs, bot.sessionSlots);
   const split = splitSessionsByCanvas(
     bot.sessions,
-    (session) => (canvas?.detachedSessionKeys.has(attachedSessionKey(session)) ?? false) || onStrip === false,
+    (session) => canvas !== undefined && sessionOffCanvas(bot.botId, attachedSessionKey(session), canvas),
   );
   const sessionRow = (session: SessionSummary) => {
     const key = attachedSessionKey(session);
@@ -106,7 +107,7 @@ export function BotRosterRow({
     // a row that looks identical to the ones with cards would make the canvas
     // read as having lost one, and from here a reader cannot act on which of
     // the two reasons it is.
-    const noCard = (canvas?.detachedSessionKeys.has(key) ?? false) || onStrip === false;
+    const noCard = canvas !== undefined && sessionOffCanvas(bot.botId, key, canvas);
     const step = slots.get(key);
     const shaded = botSessionStyle(hue, step);
     // Its own face rather than its Bot's, so siblings never share one; either

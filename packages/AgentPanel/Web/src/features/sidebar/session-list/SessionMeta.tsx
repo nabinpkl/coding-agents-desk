@@ -50,7 +50,8 @@ export function SessionMeta({
     <span className="mt-0.5 flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-chip,11px) session-muted-ink">
       <SourceBadge source={source} />
       {project === undefined ? null : <span className="min-w-0 truncate">{project}</span>}
-      <span>{time}</span>
+      {/* Whole, never broken across lines: the project's name beside it is what gives way. */}
+      <span className="whitespace-nowrap">{time}</span>
       <span className="capitalize">{activity}</span>
       {worktree ? <WorktreeChip worktree={worktree} /> : null}
     </span>
