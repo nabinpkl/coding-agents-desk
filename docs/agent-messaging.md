@@ -1,6 +1,6 @@
 # Agent messaging: H2A, A2H, A2A
 
-Status: hub, relay, Bot publishing and the OpenCode adapter are built and live. The panel inbox and the annotator adapter are not. Claude delivery through a mod instead of the channel flag is proposed (2026-10-16), not built: see "Delivering into a Claude session through a mod". Written 2026-09-25, OpenCode slice landed the same day. It replaces the annotator-only dispatch plan. The annotator becomes one adapter on top of this design.
+Status (checked against the code 2026-10-25): built are the hub, the relay, Bot publishing, the OpenCode adapter, the panel's Messages tab (2026-09-25), and Claude delivery through mods instead of the channel flag (2026-10-16): every Claude session the sidecar launches, resumes or forks, in its terminal mode and in its Agent SDK runner mode, loads `prompt-guard`, `agentdesk-hub` and `ask-owner` with `--plugin-dir` (`config/configClaudeLaunch.ts`, `claude-sdk/claudeSdkLaunch.ts`; the mods are described in `agent-feed/sidecar/mods/README.md`). The channel path is still in the relay, for a Claude session started without the hub mod. Not built: the annotator adapter. Written 2026-09-25, OpenCode slice landed the same day. It replaces the annotator-only dispatch plan. The annotator becomes one adapter on top of this design.
 
 ## Goal
 
@@ -14,7 +14,7 @@ This is one messaging layer that any surface or agent can use:
 
 It knows nothing about annotations, pages or any one app. Apps attach opaque references.
 
-**v1 scope:** OpenCode sessions on the mac and oracle, plus the human. Claude Code's channel path is built and verified but is not in v1, because the OpenCode adapter needed no per-session child and therefore no startup flag.
+**v1 scope:** OpenCode sessions on the mac and oracle, plus the human, as first written. Claude sessions have since joined it through the `agentdesk-hub` mod (2026-10-16), which needs no startup flag; the channel path, built and verified earlier, stayed out of v1 because it does.
 
 ## Why this shape
 
@@ -127,7 +127,12 @@ serve lists, so it holds the streams:
 The stream query carries a `source` parameter (`claude` or `opencode`) because the same id under
 the other runtime's prefix is a different address, not an alias.
 
-## Reachability of a Claude session (built, verified, out of v1)
+## Reachability of a Claude session (the channel path, built, verified, out of v1)
+
+This is the development-channel path. A Claude session the sidecar launches is reached through the
+`agentdesk-hub` mod instead ("Delivering into a Claude session through a mod", below), and the
+relay opens no stream of its own when it sees that mod on the session's command line. What follows
+still describes a session started without the mod.
 
 When the child starts, it works out the following:
 
@@ -241,7 +246,7 @@ body text
    - The annotator needs a hub surface token. Nothing in the hub knows about annotations.
 3. **Later:** phone push for A2H requests, and permission relay.
 
-## Delivering into a Claude session through a mod (proposed, not built)
+## Delivering into a Claude session through a mod (built 2026-10-16)
 
 Proposed 2026-10-16 in place of launching every Claude session with the development-channel flag.
 Built (2026-10-16): the prompt guard (`agent-feed/sidecar/mods/prompt-guard/`), the reader and
@@ -399,24 +404,30 @@ and observed live; the Claude-only steps are struck because v1 is OpenCode.
 4. **OpenCode adapter.** Code done: one hub stream per serve-listed session, prompt delivery, hub
    confirmation after the write, dropped sessions requeued. Awaiting the live check on a real
    opencode session on both machines.
-5. **Panel inbox.** Not started. The sidecar routes are in place (`/api/hub/*`); the panel surface
-   is not.
+5. **Panel inbox.** Built as the panel's Messages tab (2026-09-25, `features/messages/`): the
+   owner's threads with every agent, sent and answered through the sidecar's `/api/hub/*` routes,
+   where the sidecar speaks as `human`. The hub accepts that only from a principal its config flags
+   as human (`agent-feed/hub/src/config.ts`), so whether owner messages go through depends on how
+   the hub is configured, not on code here.
 6. **Annotator adapter.** Not started beyond the `sends` table.
 7. **Permission relay:** only after its own go, and Claude-only.
-8. **Claude delivery through a mod.** In progress. Done: the prompt guard, and the reader and
+8. **Claude delivery through a mod.** Built for agent messages; the owner's messages through it
+   were not verified end to end, for the reason below. Done: the prompt guard, and the reader and
    confirm helper, verified against the live hub with a throwaway Bot: a message is pushed to the
    reader and stays `pushed` until the helper confirms it; a reader stopped before confirming leaves
    it `queued`, and the next reader gets it on a new stream. An owner message could not be sent in
    that test: the sidecar's machine token "may not send as human", so owner messages wait on a
    surface token (the panel inbox). The `agentdesk-hub` mod is built and verified with agent
-   messages. Every session the sidecar launches, resumes or forks now loads both mods with
-   `--plugin-dir` (`config/configClaudeLaunch.ts`), and a session started before that is listed as
-   behind its launch flags for the Profile menu's restart.
+   messages. Every session the sidecar launches, resumes or forks now loads the mods with
+   `--plugin-dir` (`config/configClaudeLaunch.ts`; the Agent SDK runner mode passes the same ones,
+   `claude-sdk/claudeSdkLaunch.ts`), and a session started before that is listed as behind its
+   launch flags for the Profile menu's restart. A third mod, `ask-owner`, has since joined them.
 
 ## Decisions for the owner
 
 All four are settled (2026-09-25): a new relay service on oracle; v1 is OpenCode only,
 so no Claude startup flag; peer messages carry colleague weight; A2H is the agent-desk panel only.
 
-Open (2026-10-16): whether Claude delivery moves to the mod in "Delivering into a Claude session
-through a mod", and with it whether a message to a busy Claude Bot may wait for its turn to end.
+Settled since (2026-10-16): Claude delivery moved to the mod in "Delivering into a Claude session
+through a mod", and a message to a busy Claude session waits for its turn to end, since Claude
+Code holds a mod's prompt until the running turn is over.
