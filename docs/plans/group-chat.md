@@ -513,27 +513,28 @@ guard's limits, the arena's lanes that time out without stopping), and never for
 priors**: Group does not import the arena, and does not take its structure from the sidecar's
 modules.
 
-The server-side home, proposed: a package of its own, `agent-feed/group/`, run as a process of its
-own under the sidecar's supervisor. There is precedent for both halves:
+The server-side home, set 2026-10-25 (the lint is written against it): `agent-feed/sidecar/src/group/`,
+**its own process inside the sidecar package**, not a package of its own. A package of its own was
+proposed first and dropped on investigation:
 
-- The messaging hub is already a package of its own (`agent-feed/hub/`, its own `package.json`).
-  Group's would hold `effect` and `@effect/platform-bun` at pinned versions, and no other part of
-  the tree would take Effect on by accident.
-- The audio process already runs as a separate child of the supervisor (`supervisor.ts`), on the
-  sidecar's port plus an offset, and the panel's dev server sends `/api/audio/` to it
-  (`vite.config.ts`). Group's would be `/api/group/` the same way. A hang or a crash in Group then
-  never takes the sidecar's streams down, and a save elsewhere in the sidecar does not restart a
-  room mid-wave.
-- What Group needs from the sidecar (sending through the hub, the session catalog, transcripts) it
-  asks for over the sidecar's own HTTP routes, as the panel does, rather than by importing them.
+- **The isolation comes from the process, not the package.** The audio process is the precedent: a
+  second entry point in the sidecar package (`src/audio/audioServer.ts`) that the supervisor runs as
+  its own child and replaces only when its own files change, on the sidecar's port plus an offset,
+  reached from the panel's dev server at `/api/audio/` (`vite.config.ts`). Group is the same, at
+  `/api/group/`: a hang or a crash in Group never takes the sidecar's streams down, and a save
+  elsewhere in the sidecar never restarts a room mid-wave.
+- **A package of its own falls outside the gate.** The messaging hub is one (`agent-feed/hub/`), and
+  `just check` has no leg for it, so its tests run in no gate. Inside `agent-feed/sidecar/`, Group
+  gets the sidecar leg's tests, typecheck, file caps, lint and format without new wiring.
+- **The boundary is lint, not a directory of packages:** Group imports nothing from the rest of the
+  sidecar, and nothing outside Group imports Effect (`.oxlintrc.json`); what Group needs from the
+  sidecar (sending through the hub, the session catalog, transcripts) it asks for over the sidecar's
+  HTTP routes, as the panel does.
+- **Effect's HTTP router lives inside Group's process only**; the sidecar's hand-written route
+  chain is untouched.
 
-What a home of its own costs: the repository's rules (500 lines a file, 12 files a directory, no
-relative imports, lint, format) are checked in the two live trees by path, so `agent-feed/group/`
-has to be added to those checks, and `just check` needs a leg for it, or a change there runs every
-leg. OpenCode's ast-grep rules for Effect patterns (`.reference/opencode/script/ast-grep/`, MIT) are
-the starting point for Group's own lint. The alternative, a directory inside the sidecar process,
-is cheaper to wire and shares its reload and its failure, which is what this decision exists to
-avoid.
+What it costs: Effect becomes a dependency of the sidecar package, kept to `src/group/` by lint
+rather than by a separate install.
 
 ## Libraries and runtimes considered
 
@@ -560,8 +561,6 @@ avoid.
 - Defaults: rounds per wave (proposed 3), the lease (proposed the arena's 10 minutes, 2 for the smoke
   run), the grace before SIGKILL (proposed 5 seconds), and a hard maximum the reader cannot exceed.
 - Whether Claude's own telemetry export may be a source, which amends an AGENTS.md rule.
-- Group's server-side home: a package and process of its own under the supervisor (proposed in
-  "Where Group lives"), or a directory inside the sidecar.
 - When to restart the opencode serve with a span endpoint, to answer U4.
 - How an unaddressed message finds its member in command line mode: matching by code, a cheap
   router call, or both (proposed: code first, the router when code finds nobody).
@@ -652,3 +651,6 @@ avoid.
   `agent-feed/sidecar/src/group/`, its own process in the sidecar package) from importing the rest of
   the sidecar and Effect from spreading outside it, and ast-grep runs ten Effect rules over Group's
   code, nine copied from OpenCode under MIT and one Group's own.
+- 2026-10-25: "Where Group lives" corrected to the home the lint was written against: its own
+  process inside the sidecar package at `agent-feed/sidecar/src/group/`, not the separate package
+  proposed earlier, which would have fallen outside every gate leg as the hub's does.
