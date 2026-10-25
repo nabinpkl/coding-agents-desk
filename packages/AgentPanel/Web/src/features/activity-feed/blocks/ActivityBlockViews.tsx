@@ -6,12 +6,14 @@
 // folded into it, a plain labelled record. Raw blocks never do -- `partitionEventBlocks`
 // routes those into the event's Raw drawer before this is reached.
 
-import { ChevronRight } from "lucide-react";
+import { useContext } from "react";
+import { ChevronRight, CodeXml } from "lucide-react";
 import { DiffBlockOnDemand } from "@/features/activity-feed/blocks/diff/DiffBlockOnDemand";
 import { describeEditChange } from "@/features/activity-feed/blocks/diff/describeEditChange";
 import { SearchResultBody, parseSearchResult } from "@/features/activity-feed/blocks/SearchResultBody";
 import { WebResultBody, parseWebResult } from "@/features/activity-feed/blocks/WebResultBody";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
+import { FilePathOpenerContext, filePathTarget } from "@/features/activity-feed/markdown/filePathLinks";
 import { AgentReply } from "@/features/activity-feed/markdown/AgentReply";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
@@ -115,6 +117,9 @@ export function Block({
   // markup on the way past. Only while streaming: a finished message with an
   // unmatched marker renders exactly as the model wrote it.
   const revealedText = isStreamingProse ? markdownSafePrefix(revealed) : revealed;
+  // What opens a file in the code viewer, where the surface around this row has one: a Bot's
+  // card, or a session's, whose viewer reads its worktree.
+  const opener = useContext(FilePathOpenerContext);
   if (b.kind === "text") {
     // Assistant text is the model's prose response; it conventionally
     // contains markdown (headings, code fences, lists, tables) that should
@@ -156,31 +161,35 @@ export function Block({
     //
     // Both harnesses' shapes: Claude's `Edit` carries snake_case (`file_path`,
     // `old_string`, `new_string`); opencode's `edit` carries camelCase (`path`,
-    // `oldString`, `newString`). The header names the basename either way.
-    const editPath = toolStringInput(b.input, ["file_path", "path"]);
+    // `oldString`, `newString`). The header names the basename either way. A read and a write
+    // name their file under the same two keys, so one lookup serves all three.
+    const filePath = toolStringInput(b.input, ["file_path", "path"]);
     const editOld = toolStringInput(b.input, ["old_string", "oldString"]);
     const editNew = toolStringInput(b.input, ["new_string", "newString"]);
     const isEditDiff =
       (b.tool === "Edit" || b.tool === "edit") &&
-      editPath !== null &&
+      filePath !== null &&
       ((editOld !== null && editOld.length > 0) || (editNew !== null && editNew.length > 0));
-    const writePath = toolStringInput(b.input, ["file_path", "path"]);
     const writeContent = toolStringInput(b.input, ["content"]);
     const isWrite = b.tool === "Write" || b.tool === "write";
-    const isMarkdownWrite = isWrite && writePath !== null && isMarkdownPath(writePath) && writeContent !== null;
-    const isCodeWrite = isWrite && writePath !== null && !isMarkdownPath(writePath) && writeContent !== null;
+    const isMarkdownWrite = isWrite && filePath !== null && isMarkdownPath(filePath) && writeContent !== null;
+    const isCodeWrite = isWrite && filePath !== null && !isMarkdownPath(filePath) && writeContent !== null;
     const isFileBody = isEditDiff || isMarkdownWrite || isCodeWrite;
-    const fileBodyPath = isEditDiff ? editPath : isFileBody ? writePath : null;
+    const fileBodyPath = isFileBody ? filePath : null;
     // A file the call READ, drawn as source once its result lands: the paired result's preview
     // is the file's content (Claude prefixes `cat -n` line numbers, stripped here), highlighted
     // by the path's own grammar. Markdown reads render as prose, the way markdown writes do.
     // Empty previews stay on the existing path: a `Read screenshot.png` returned only a picture,
     // and an empty code block above it would be the one false thing in the row.
-    const readPath = toolStringInput(b.input, ["file_path", "path"]);
     const isReadCall = b.tool === "Read" || b.tool === "read";
     const readText = pairedResult?.block.preview?.trim() ? pairedResult.block.preview : null;
-    const isMarkdownRead = isReadCall && readPath !== null && isMarkdownPath(readPath) && readText !== null;
-    const isCodeRead = isReadCall && readPath !== null && !isMarkdownPath(readPath) && readText !== null;
+    const isMarkdownRead = isReadCall && filePath !== null && isMarkdownPath(filePath) && readText !== null;
+    const isCodeRead = isReadCall && filePath !== null && !isMarkdownPath(filePath) && readText !== null;
+    // The file a read, write or edit worked on, openable when it is inside the directory the
+    // viewer reads. One outside it, or a row with no viewer around it, gets no way in.
+    const isFileCall = isReadCall || isWrite || b.tool === "Edit" || b.tool === "edit";
+    const openTarget =
+      isFileCall && opener !== null && filePath !== null ? filePathTarget(filePath, opener.root, "tool") : null;
     // A search the call drew structured above: content matches grouped by file, file lists as
     // rows. Parsed off the same result text; null stays on the generic `pre` below.
     const searchBody = parseSearchResult(b.tool, readText ?? "");
@@ -220,7 +229,7 @@ export function Block({
         : [];
     // What the edit changed, on its own row under the header: the header
     // keeps naming the file, this names the change. Null stays off the row.
-    const editDetail = isEditDiff ? describeEditChange(editOld ?? "", editNew ?? "", editPath ?? undefined) : null;
+    const editDetail = isEditDiff ? describeEditChange(editOld ?? "", editNew ?? "", filePath ?? undefined) : null;
     return (
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5" style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}>
@@ -253,6 +262,17 @@ export function Block({
             </span>
           </button>
           {/* Beside the header rather than inside it: a button cannot hold another button. */}
+          {openTarget !== null ? (
+            <button
+              type="button"
+              onClick={() => opener?.open(openTarget)}
+              aria-label={`Open ${openTarget.path} in the code viewer`}
+              title={`Open ${openTarget.path}`}
+              className="flex size-[1.5em] shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/10"
+            >
+              <CodeXml className="size-[1em]" aria-hidden />
+            </button>
+          ) : null}
           {pairedResult
             ? headerImages.map((blockIndex) => (
                 <EventImageBlock
@@ -294,12 +314,12 @@ export function Block({
                 indentation to read and nothing is gained by a horizontal scroll. */}
             {command !== null ? <CodeBlock code={command} lang="bash" wrap /> : null}
             {isEditDiff ? (
-              <DiffBlockOnDemand filePath={editPath} oldString={editOld ?? ""} newString={editNew ?? ""} />
+              <DiffBlockOnDemand filePath={filePath} oldString={editOld ?? ""} newString={editNew ?? ""} />
             ) : null}
             {isMarkdownWrite ? <Markdown content={writeContent} /> : null}
-            {isCodeWrite ? <CodeBlock code={writeContent} lang={writePath} /> : null}
+            {isCodeWrite ? <CodeBlock code={writeContent} lang={filePath} /> : null}
             {isMarkdownRead ? <Markdown content={stripReadLineNumbers(readText)} /> : null}
-            {isCodeRead ? <CodeBlock code={stripReadLineNumbers(readText)} lang={readPath} /> : null}
+            {isCodeRead ? <CodeBlock code={stripReadLineNumbers(readText)} lang={filePath} /> : null}
             {searchBody ? <SearchResultBody body={searchBody} /> : null}
             {webBody ? <WebResultBody body={webBody} /> : null}
             {namedFiles ? (

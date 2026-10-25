@@ -8,13 +8,14 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { stubDataSource } from "@/features/activity-feed/data-source/stubDataSource";
 import { DataSourceProvider } from "@/features/activity-feed/data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "@/features/activity-feed/data-source/AgentDataSource";
 import { pairSameEventToolResults, withoutPairedToolResults } from "@/features/activity-feed/rows/activityFeedLayout";
 import { SegmentEventRow, type EventRowContext } from "@/features/activity-feed/blocks/ActivityEventRows";
 import type { ActivityEvent } from "@/features/activity-feed/useSessionEventsStream";
+import { FilePathOpenerContext, type FilePathOpener } from "@/features/activity-feed/markdown/filePathLinks";
 
 vi.mock("@/features/activity-feed/blocks/diff/DiffBlock", () => ({
   DiffBlock: () => <div data-testid="diff-block" />,
@@ -39,7 +40,12 @@ function event(blocks: ActivityEvent["blocks"]): ActivityEvent {
   return { index: 7, ts: Date.UTC(2026, 0, 1, 12, 0, 0), type: "assistant", blocks };
 }
 
-function fileRow(tool: string, input: Record<string, unknown>, result?: string, opts?: { omitSummary?: boolean }) {
+function fileRow(
+  tool: string,
+  input: Record<string, unknown>,
+  result?: string,
+  opts?: { omitSummary?: boolean; opener?: FilePathOpener },
+) {
   const blocks: ActivityEvent["blocks"] = [
     // An input-less call carries no summary, the way the mapper leaves it.
     ...(opts?.omitSummary
@@ -51,15 +57,17 @@ function fileRow(tool: string, input: Record<string, unknown>, result?: string, 
   const paired = pairSameEventToolResults(full);
   return render(
     <DataSourceProvider source={DATA_SOURCE}>
-      <SegmentEventRow
-        ev={withoutPairedToolResults(full, paired)}
-        ctx={{ ...CTX, pairedToolResults: paired }}
-        isFirst
-        isLast
-        isCollapsed={false}
-        onToggle={() => {}}
-        isHighlighted={false}
-      />
+      <FilePathOpenerContext.Provider value={opts?.opener ?? null}>
+        <SegmentEventRow
+          ev={withoutPairedToolResults(full, paired)}
+          ctx={{ ...CTX, pairedToolResults: paired }}
+          isFirst
+          isLast
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+      </FilePathOpenerContext.Provider>
     </DataSourceProvider>,
   );
 }
@@ -288,5 +296,34 @@ describe("search bodies", () => {
     expect(container.textContent).not.toContain("REMINDER");
     expect(container.querySelector("pre")).toBeNull();
     unmount();
+  });
+});
+
+describe("opening the file a call worked on", () => {
+  // The viewer reads one directory (the Bot's, or the session's worktree), and only a file inside
+  // it can be opened there.
+  it.each([
+    ["Edit", { file_path: "/repo/src/a.ts", old_string: "a", new_string: "b" }],
+    ["write", { path: "/repo/src/a.ts", content: "export {};\n" }],
+    ["Read", { file_path: "/repo/src/a.ts" }],
+  ] as const)("opens a %s call's file in the code viewer", async (tool, input) => {
+    const open = vi.fn();
+    const { unmount } = fileRow(tool, input, undefined, { opener: { root: "/repo", open } });
+    fireEvent.click(await screen.findByRole("button", { name: "Open src/a.ts in the code viewer" }));
+    expect(open).toHaveBeenCalledWith({ path: "src/a.ts", line: null });
+    unmount();
+  });
+
+  it("offers none for a file outside that directory, a row with no viewer, or another tool", () => {
+    const opener = { root: "/repo", open: vi.fn() };
+    for (const row of [
+      () => fileRow("Read", { file_path: "/elsewhere/a.ts" }, undefined, { opener }),
+      () => fileRow("Read", { file_path: "/repo/src/a.ts" }),
+      () => fileRow("Grep", { pattern: "x", path: "/repo/src/a.ts" }, undefined, { opener }),
+    ]) {
+      const { unmount } = row();
+      expect(screen.queryByRole("button", { name: /in the code viewer/ })).toBeNull();
+      unmount();
+    }
   });
 });

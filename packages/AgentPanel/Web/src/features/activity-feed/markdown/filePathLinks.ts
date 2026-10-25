@@ -4,7 +4,8 @@
 // `tools/check.sh` in a sentence -- and every one of them was dead text: a relative link even
 // navigated the panel's new tab to a page that does not exist. Where a surface can open a file (a
 // Bot's session card, whose Bot has a directory), it says so through `FilePathOpenerContext`, and
-// the prose renderer marks every path that resolves inside that directory.
+// the prose renderer marks every path that resolves inside that directory. A tool call that read,
+// wrote or edited a file opens it the same way, from a button beside its header.
 //
 // Only paths INSIDE the root resolve. A relative path is read against it, an absolute one is kept
 // only when it starts there, and `..` is refused outright: the sidecar would refuse it too, and a
@@ -32,17 +33,19 @@ export const FilePathOpenerContext = createContext<FilePathOpener | null>(null);
 /**
  * How sure the text is about being a path. A link's target was written AS an address, so a bare
  * `AGENTS.md` there is one. Inline code and prose are not: `origin/main` and `and/or` both have a
- * slash, so they need a directory AND a file name with an extension before they count.
+ * slash, so they need a directory AND a file name with an extension before they count. A tool
+ * call's own path argument (a `Read`, `Write` or `Edit`) is nothing but a path, so it is taken as
+ * written: a space, a `%` or a trailing `:12` there is part of the file's name.
  */
-export type FilePathForm = "link" | "code";
+export type FilePathForm = "link" | "code" | "tool";
 
 const LINE_SUFFIX = /(?::(\d+)(?:[:-]\d+)?|#L(\d+)(?:-L?\d+)?)$/;
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const EXTENSION = /^[^.].*\.[A-Za-z0-9]{1,10}$|^\.[\w.-]+$/;
 
 export function filePathTarget(text: string, root: string, form: FilePathForm): FilePathTarget | null {
-  let value = text.trim();
-  if (value === "" || /\s/.test(value)) return null;
+  let value = form === "tool" ? text : text.trim();
+  if (value === "" || (form !== "tool" && /\s/.test(value))) return null;
   if (form === "link") {
     if (value.startsWith("file://")) value = value.slice("file://".length);
     else if (SCHEME.test(value) || value.startsWith("#")) return null;
@@ -52,7 +55,7 @@ export function filePathTarget(text: string, root: string, form: FilePathForm): 
       return null;
     }
   }
-  const suffix = LINE_SUFFIX.exec(value);
+  const suffix = form === "tool" ? null : LINE_SUFFIX.exec(value);
   const line = suffix ? Number(suffix[1] ?? suffix[2]) : null;
   if (suffix) value = value.slice(0, suffix.index);
   if (value.startsWith("/")) {

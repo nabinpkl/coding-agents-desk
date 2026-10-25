@@ -20,6 +20,9 @@ describe("filePathTarget", () => {
     ["AGENTS.md", "link", { path: "AGENTS.md", line: null }],
     [`file://${ROOT}/a%20b/c.ts`, "link", { path: "a b/c.ts", line: null }],
     ["src/.env", "code", { path: "src/.env", line: null }],
+    [`${ROOT}/AGENTS.md`, "tool", { path: "AGENTS.md", line: null }],
+    [`${ROOT}/My Notes/100%25 done.md`, "tool", { path: "My Notes/100%25 done.md", line: null }],
+    [`${ROOT}/logs/run:12`, "tool", { path: "logs/run:12", line: null }],
   ] as const)("reads %s as %s", (text, form, expected) => {
     expect(filePathTarget(text, ROOT, form)).toEqual(expected);
   });
@@ -34,6 +37,8 @@ describe("filePathTarget", () => {
     ["https://example.com/a.ts", "link"],
     ["#section", "link"],
     ["git add src/a.ts", "code"],
+    ["/Users/me/.claude/settings.json", "tool"],
+    [`${ROOT}/../other/a.ts`, "tool"],
   ] as const)("refuses %s as %s", (text, form) => {
     expect(filePathTarget(text, ROOT, form)).toBeNull();
   });
