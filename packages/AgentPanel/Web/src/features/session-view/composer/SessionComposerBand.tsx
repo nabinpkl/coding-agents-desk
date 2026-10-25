@@ -12,7 +12,7 @@ import { TokenMeter } from "@/features/activity-feed/TokenMeter";
 import type { TokenUsage } from "@/features/activity-feed/useSessionEventsStream";
 import { terminalContextKey } from "@/features/terminal/terminalContext";
 import type { ComposerPaneContext } from "@/features/session-view/composer/terminalArrangement";
-import { COMPOSER_FOOTER_BUTTON_CLASS } from "@/features/session-view/composer/sessionComposerActions";
+import { COMPOSER_FOOTER_BUTTON_SHAPE } from "@/features/session-view/composer/sessionComposerActions";
 import { compactControl, submitComposer } from "@/features/session-view/composer/sessionComposerSubmit";
 import { ComposerImageStrip } from "@/features/cli-input/ComposerImageStrip";
 import { ComposerPasteStrip } from "@/features/cli-input/ComposerPasteStrip";
@@ -338,11 +338,16 @@ export function SessionComposerBand({
                     : "Show this session's screen above the composer, so text typed here can be watched" +
                       " arriving in the agent's own composer line."
                 }
-                className={`${COMPOSER_FOOTER_BUTTON_CLASS} ${
-                  terminalComposer.shown ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
+                // Open is a solid fill, unlike any other state in the footer. It was the faint tint
+                // the run-mode toggle beside it uses when on, and the same grey as hovering, so on
+                // the Mac, with the pointer still over it after a click, open and shut looked alike.
+                className={`${COMPOSER_FOOTER_BUTTON_SHAPE} ${
+                  terminalComposer.shown
+                    ? "bg-primary text-primary-foreground hover:bg-primary/85 active:bg-primary/75"
+                    : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15"
                 }`}
               >
-                {/* The thing it opens: a terminal. The pressed state is what says whether it is open. */}
+                {/* The thing it opens: a terminal. The fill is what says whether it is open. */}
                 <TerminalIcon className="size-3.5" aria-hidden />
               </button>
             ) : null}

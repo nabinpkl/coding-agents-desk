@@ -26,13 +26,18 @@ import {
 } from "@/features/cli-input/permissionModes";
 
 /**
- * The small icon buttons on the line under the field, beside the context meter: attach, and the
- * terminal toggle the band draws itself. Colour is left to the caller, which is how the toggle
- * shows its pressed state without two text colours fighting in one class list. A translucent
- * hover rather than `bg-muted`, so it darkens whatever tinted dock it sits on.
+ * The small icon buttons on the line under the field, beside the context meter, without any fill:
+ * for a button whose fill says something, so the hover's own cannot fight it in one class list.
  */
-export const COMPOSER_FOOTER_BUTTON_CLASS =
-  "flex size-7 shrink-0 touch-manipulation items-center justify-center rounded-md outline-none transition-colors hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/15 disabled:cursor-not-allowed disabled:opacity-40";
+export const COMPOSER_FOOTER_BUTTON_SHAPE =
+  "flex size-7 shrink-0 touch-manipulation items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40";
+
+/**
+ * The same buttons with the footer's hover: attach, and the toggles. Colour is left to the caller,
+ * which is how a toggle shows its pressed state without two text colours fighting in one class
+ * list. A translucent hover rather than `bg-muted`, so it darkens whatever tinted dock it sits on.
+ */
+export const COMPOSER_FOOTER_BUTTON_CLASS = `${COMPOSER_FOOTER_BUTTON_SHAPE} hover:bg-foreground/10 active:bg-foreground/15`;
 
 /** One action in the composer, rendered in array order in the place its `placement` names. */
 export type ComposerAction = {
