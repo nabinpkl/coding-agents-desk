@@ -95,6 +95,11 @@ function KeyboardBarRow({ bar, field }: { bar: KeyboardBarState; field: HTMLElem
         height: keyboardBarHeight(bar.ownKeys),
         transform: `scale(${1 / scale}) translateY(-100%)`,
         transformOrigin: "top left",
+        // Above everything even where it never reaches the top layer (a WebKit whose popover did
+        // not open): then it is a fixed box at the body's root, and every positioned layer the
+        // canvas draws with a z-index would otherwise paint over it, leaving it seen only where a
+        // session card happens to be under it.
+        zIndex: 2147483647,
         opacity: bar.pinching ? 0 : 1,
       }}
       className="m-0 flex items-center gap-1 overflow-hidden border-0 border-t border-border bg-background py-1 pr-[max(6px,env(safe-area-inset-right))] pl-[max(6px,env(safe-area-inset-left))] text-foreground motion-safe:transition-opacity"

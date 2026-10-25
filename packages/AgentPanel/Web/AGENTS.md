@@ -73,7 +73,9 @@ know when building near it:
   layout viewport, which a keyboard does not shorten, so `styles.css` ends every `.fixed.inset-0`
   at the page's bottom while the keyboard is up. An overlay built some other way stays under the
   keyboard and the bar. The bar itself is drawn as a popover, inside the open modal dialog when the
-  field is in one, so neither a dialog's backdrop nor its inertness hides it.
+  field is in one, so neither a dialog's backdrop nor its inertness hides it. It also carries the
+  highest z-index, so a browser whose popover never opens still paints it over every layer the
+  canvas positions; without it, such a bar shows only where a session card happens to be under it.
 
 Measured only with a stand-in keyboard in an emulated iPhone. What the real one reports, WebKit's own
 form strip above the keys included, is the open question.
@@ -85,7 +87,7 @@ panel that remembers its font size and forgets which session it was reading.
 
 - **React state** is the default and needs no justification. Anything that should not survive a
   reload belongs here and nowhere else: dialogs, in-flight errors, hover, drag positions mid-drag.
-- **The address bar** carries what a *link* should carry, and only that. Today that is the surface
+- **The address bar** carries what a _link_ should carry, and only that. Today that is the surface
   (`entry`) and the sidebar view (`view`) -- `?entry=feed&view=canvas`. **Query parameters, never
   path segments**: the panel also ships through a custom scheme whose asset resolver maps a request
   path straight onto a bundled file with no fall back to `index.html`, and the build references its
