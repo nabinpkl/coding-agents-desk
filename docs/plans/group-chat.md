@@ -646,3 +646,5 @@ avoid.
   root `AGENTS.md`), the `group-effect` and `group-api-design` skills in `.agents/skills` (with
   `.claude/skills` pointing there), the API after Zalando's RESTful API Guidelines. The existing
   codebase is behaviour to port, never a precedent for departing from them.
+- 2026-10-25: the owner approved snake_case JSON for Group's API (Zalando #118, unlike the rest of
+  the panel's wire) and the list of Zalando rules out of scope for Group.

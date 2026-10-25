@@ -26,7 +26,7 @@ guidelines lean on OData; neither fits a small JSON-over-HTTP API between a pane
   this way" justifies nothing here. If a rule is wrong for Group, change this skill first, with the
   reason, then the code.
 
-Out of scope, because Group has no counterpart: the events chapter (Zalando's Nakadi event bus;
+Out of scope (approved by the owner 2026-10-25), because Group has no counterpart: the events chapter (Zalando's Nakadi event bus;
 Group's room stream is below), OAuth permission scopes (#105, #225: Group is reached on loopback
 behind the sidecar's own boundary), API registry metadata (#218, #215, #219), hostname conventions
 (#224), partner approval and consent before a shutdown (#185, #186), `X-Flow-ID` (#233), and the
@@ -57,8 +57,9 @@ money and address objects (#173, #249).
 ## Payloads
 
 - **JSON, top-level objects** (#167, #110): never a bare array, so a field can be added later.
-- **snake_case property names** (#118). Group's TypeScript keeps camelCase and renames at the
-  boundary with `Schema.encodeKeys` (`packages/effect/src/Schema.ts`).
+- **snake_case property names** (#118), approved by the owner 2026-10-25 knowing the rest of the
+  panel's wire is camelCase. Group's TypeScript keeps camelCase and renames at the boundary with
+  `Schema.encodeKeys` (`packages/effect/src/Schema.ts`).
 - **`null` and absent mean the same** (#123); no `null` booleans (#122).
 - **Standard formats** (#238, #169, #171): RFC 3339 date-times, and a declared format for every
   number and integer.
