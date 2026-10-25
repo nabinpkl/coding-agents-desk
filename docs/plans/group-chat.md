@@ -310,7 +310,13 @@ and output are deleted.
   SIGKILL of Claude's group left all four sleeps running, three in the Bash tool's group and one in
   its own session. On SIGTERM, Claude cleaned up all of them itself. Invariant 3 and the failure
   table now say so.
-- **Still open:** U3 (terminals lanes), U4 (opencode), U6 and U7 (Effect).
+- **U3, terminals lanes: answered.** An interactive Claude in tmux (Haiku, no tools, tracing on, a
+  `TRACEPARENT` set) ignored the parent: its `interaction` span was a root (`parent.source` none)
+  in a trace of its own. Every span and event, 41 of 41, carried `session.id`, the id the session was
+  started with, and each prompt opened a new trace whose `interaction.sequence` counted 1, then 2.
+  So a terminals lane's turn is found by its session id and that sequence number, and Group links
+  it to its own `lane.turn` span on arrival rather than nesting it.
+- **Still open:** U4 (opencode), U6 and U7 (Effect).
 
 ## How the kernel is built: three options
 
@@ -410,3 +416,5 @@ supervision, and OpenCode shows it working on Bun. The spike settles U6 and U7 b
 - 2026-10-25: Group gets a tab of its own instead of living in the arena, which is treated as the
   older design: Group takes ideas from it, never code or records. The document moved from
   `arena-group-chat.md` to `group-chat.md`.
+- 2026-10-25: U3 answered by a traced interactive probe: a terminals lane's spans are its own trace
+  per prompt, found by session id and interaction sequence, never nested.
