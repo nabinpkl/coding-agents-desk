@@ -271,13 +271,19 @@ struct AgentFeedSidecarProcessTests {
         var contents = ""
         while Date() < deadline {
             contents = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
-            if contents.contains("a line only the child could have written") { break }
+            if contents.contains("a line only the child could have written"), contents.contains("start: ready after") {
+                break
+            }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
 
         #expect(contents.contains("a line only the child could have written"))
         // The spawn boundary, so somebody reading backwards can tell which run they are in.
         #expect(contents.contains("host spawned sidecar port=\(port)"))
+        // The host's own account of the start, which is the part that survives the host killing a
+        // child that never got its own lines out.
+        #expect(contents.contains("[host] start: ready after"))
+        #expect(contents.contains("live@"))
     }
 
     // MARK: - Child inherits the parent environment (PATH not stripped)

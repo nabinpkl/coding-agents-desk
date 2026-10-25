@@ -2,23 +2,6 @@ import Foundation
 import os
 import Security
 
-private final class AgentFeedReadinessProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var live = false
-
-    func finish(live: Bool) {
-        lock.lock()
-        self.live = live
-        lock.unlock()
-    }
-
-    var isLive: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return live
-    }
-}
-
 // AgentFeedSidecarProcess spawns the bundled transcript sidecar, polls until it
 // answers /api/config on loopback, supervises the child (restarting on
 // unexpected exit with a small backoff), and tears down cleanly on stop.
@@ -52,6 +35,9 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // reach scheduleRestart from both handleTermination and a ready-timeout
     // path; this guard ensures exactly one restart is queued per dead process.
     private var restartScheduled = false
+    // The starts that failed in a row and where each one stopped, so a loop is named in the log
+    // and the next attempt is given longer instead of the same.
+    private var startFailures = SidecarStartFailures()
     // Count of restarts actually dispatched. Test-observable so a unit test can
     // assert exactly one restart per induced exit without inferring from child
     // process spawn counts (which are noisy under xctest supervision). Read it
@@ -60,7 +46,12 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // Appends the child's stdout and stderr to a file as well as the unified log. Nil when the
     // file could not be opened, which is never fatal: losing the transcript must not cost the
     // sidecar.
-    private var outputFile: FileHandle?
+    //
+    // A raw descriptor rather than a `FileHandle`: a handle guards its descriptor and traps the
+    // process when it is closed with the wrong guard, which is what closing a number that someone
+    // else has since closed and reused does. That killed a whole test run once, over a diagnostics
+    // file. Negative when there is no file.
+    private var outputFD: Int32 = -1
     private var outputFileBytes: UInt64 = 0
     // Invalidates a health monitor belonging to an earlier spawn. Each spawn takes the next
     // generation, so a tick scheduled before a restart finds its generation stale and stops
@@ -77,8 +68,14 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         return formatter
     }()
 
-    // Maximum time (seconds) to wait for the sidecar to answer /api/config.
-    private static let readyTimeoutSeconds: TimeInterval = 5
+    // A starting sidecar is judged on progress, not on a fixed deadline (`SidecarStartWatch`). It is
+    // given up on after this long with no stage it had not reached before: the port still unbound,
+    // or still answering the same `watcherState`. Each start that failed in a row doubles it, up to
+    // the ceiling, because a retry given the same allowance as the attempt that just failed has
+    // no reason to do better.
+    private static let startStallSeconds: TimeInterval = 10
+    // The backstop on one whole start, for a sidecar that keeps advancing and never arrives.
+    private static let startCeilingSeconds: TimeInterval = 90
     // A stale listener can accept a connection without responding. Keep each
     // readiness attempt short so stop() can always reach the supervisor queue.
     private static let readinessProbeTimeoutSeconds: TimeInterval = 0.25
@@ -241,55 +238,85 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
 
     private func waitUntilReady() {
         let candidate = URL(string: "http://127.0.0.1:\(port)/api/config")!
-        let deadline = Date().addingTimeInterval(Self.readyTimeoutSeconds)
-        var reached = false
+        let allowance = startFailures.allowance(base: Self.startStallSeconds, ceiling: Self.startCeilingSeconds)
+        var watch = SidecarStartWatch(startedAt: ProcessInfo.processInfo.systemUptime)
+        note("start: waiting for the sidecar, giving up after \(Int(allowance))s with no new stage")
 
-        while Date() < deadline {
+        while true {
             if stopped || isStopRequested { return }
-            if isReady(candidate) {
-                reached = true
-                break
+            let now = ProcessInfo.processInfo.systemUptime
+            // An exit is the termination handler's business, queued behind this loop on the same
+            // queue, so it restarts the sidecar once this returns. What this adds is the stage the
+            // start had reached, which the handler cannot know.
+            if let proc = process, !proc.isRunning {
+                startFailures.record(stage: watch.stage)
+                note(
+                    "start: the sidecar exited at stage \(watch.stage) after "
+                        + "\(String(format: "%.1f", watch.elapsed(at: now)))s; stages \(watch.timelineDescription)"
+                        + loopSuffix())
+                return
             }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
+            let before = watch.stage
+            if watch.observe(
+                SidecarStageProbe.stage(of: candidate, timeout: Self.readinessProbeTimeoutSeconds), at: now)
+            {
+                note(
+                    "start: stage \(before) -> \(watch.stage) at "
+                        + "\(String(format: "%.1f", watch.elapsed(at: now)))s")
+            }
+            if watch.stage == .live { break }
 
-        if reached {
-            let url = URL(string: "http://127.0.0.1:\(port)")!
-            restartBackoffSeconds = 1
-            logger.notice("sidecar ready baseURL=\(url.absoluteString, privacy: .public)")
-            readiness.publish(url)
-            startHealthMonitor()
-        } else {
-            logger.error("sidecar did not become ready within \(Self.readyTimeoutSeconds, privacy: .public)s; will restart")
+            let verdict = watch.verdict(
+                at: ProcessInfo.processInfo.systemUptime, stallAllowance: allowance, ceiling: Self.startCeilingSeconds)
+            guard verdict != .waiting else {
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            let why: String
+            switch verdict {
+            case .stalled(let seconds): why = "no new stage for \(Int(seconds))s (allowance \(Int(allowance))s)"
+            case .overCeiling(let seconds): why = "still not live after \(Int(seconds))s (ceiling)"
+            case .waiting: why = ""
+            }
+            startFailures.record(stage: watch.stage)
+            logger.error("sidecar did not become ready; will restart")
+            note(
+                "start: giving up at stage \(watch.stage): \(why); stages \(watch.timelineDescription)"
+                    + loopSuffix())
             terminateCurrentProcess()
             scheduleRestart()
+            return
         }
+
+        let url = URL(string: "http://127.0.0.1:\(port)")!
+        restartBackoffSeconds = 1
+        startFailures.reset()
+        note(
+            "start: ready after \(String(format: "%.1f", watch.elapsed(at: ProcessInfo.processInfo.systemUptime)))s; "
+                + "stages \(watch.timelineDescription)")
+        logger.notice("sidecar ready baseURL=\(url.absoluteString, privacy: .public)")
+        readiness.publish(url)
+        startHealthMonitor()
+    }
+
+    /// Names a loop once there is one: the starts failed in a row, and how many stopped at the same
+    /// stage. Empty for a first failure, which is not yet a pattern.
+    private func loopSuffix() -> String {
+        guard startFailures.consecutive >= 2, let stage = startFailures.lastStage else { return "" }
+        return "; LOOP: \(startFailures.consecutive) starts failed in a row, \(startFailures.atLastStage) at stage "
+            + "\(stage); the next start is given \(Int(startFailures.allowance(base: Self.startStallSeconds, ceiling: Self.startCeilingSeconds)))s"
+    }
+
+    /// A line from the host about the sidecar's start, in the unified log and in the sidecar's own
+    /// output file. The file is the one that survives: the unified log is gone by the time a
+    /// restart loop is looked at, and the child's lines are lost when the host kills it.
+    private func note(_ message: String) {
+        logger.notice("sidecar \(message, privacy: .public)")
+        appendToOutputFile("[host] \(message)")
     }
 
     private func isReady(_ url: URL) -> Bool {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = Self.readinessProbeTimeoutSeconds
-        let probe = AgentFeedReadinessProbe()
-        let completion = DispatchSemaphore(value: 0)
-        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
-            let live: Bool
-            if let http = response as? HTTPURLResponse,
-               (200..<300).contains(http.statusCode),
-               let data,
-               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                live = body["watcherState"] as? String == "live"
-            } else {
-                live = false
-            }
-            probe.finish(live: live)
-            completion.signal()
-        }
-        task.resume()
-        guard completion.wait(timeout: .now() + Self.readinessProbeTimeoutSeconds) == .success else {
-            task.cancel()
-            return false
-        }
-        return probe.isLive
+        SidecarStageProbe.stage(of: url, timeout: Self.readinessProbeTimeoutSeconds) == .live
     }
 
     private var isStopRequested: Bool {
@@ -430,8 +457,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         outputPipe = nil
         outputBuffer = ""
-        try? outputFile?.close()
-        outputFile = nil
+        closeOutputFile()
     }
 
     /// Where the child's output is kept so it can be read AFTER the fact.
@@ -457,9 +483,13 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         return "/Users/Shared/agentdesk/logs/\(NSUserName())-agent-feed-sidecar.log"
     }
 
+    private func closeOutputFile() {
+        if outputFD >= 0 { Darwin.close(outputFD) }
+        outputFD = -1
+    }
+
     private func openOutputFile() {
-        try? outputFile?.close()
-        outputFile = nil
+        closeOutputFile()
         outputFileBytes = 0
         let path = outputFilePath()
         let directory = (path as NSString).deletingLastPathComponent
@@ -467,12 +497,12 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             try FileManager.default.createDirectory(
                 atPath: directory, withIntermediateDirectories: true
             )
-            if !FileManager.default.fileExists(atPath: path) {
-                FileManager.default.createFile(atPath: path, contents: nil)
-            }
-            let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: path))
-            outputFileBytes = try handle.seekToEnd()
-            outputFile = handle
+            // Append-only, so a truncate by this process or another never leaves a stale offset,
+            // and close-on-exec, so the sidecar it spawns does not inherit the descriptor.
+            let fd = Darwin.open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
+            guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            outputFD = fd
+            outputFileBytes = UInt64(max(0, lseek(fd, 0, SEEK_END)))
             // Every spawn is a boundary somebody reading this file backwards needs to see: it is
             // the line that says the sidecar they are reading is not the one that failed.
             appendToOutputFile("=== host spawned sidecar port=\(port) reloadsOnEdit=\(launch.reloadsOnEdit)")
@@ -484,24 +514,26 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     }
 
     private func appendToOutputFile(_ line: String) {
-        guard let handle = outputFile else { return }
+        guard outputFD >= 0 else { return }
         // Truncate rather than rotate. Its neighbour reached 42MB; keeping one bounded file beats
         // a rotation scheme nobody asked for, and losing old lines matters less than the file
         // still being there for the failure being investigated now.
         if outputFileBytes > Self.outputFileMaxBytes {
-            try? handle.truncate(atOffset: 0)
+            _ = ftruncate(outputFD, 0)
             outputFileBytes = 0
         }
         let stamped = "\(timestamp.string(from: Date())) \(line)\n"
         guard let data = stamped.data(using: .utf8) else { return }
-        do {
-            try handle.write(contentsOf: data)
-            outputFileBytes += UInt64(data.count)
-        } catch {
-            // One failed write is not worth a log line per line of output. Drop the handle so the
-            // next spawn opens a fresh one rather than retrying a broken descriptor forever.
-            try? handle.close()
-            outputFile = nil
+        let written = data.withUnsafeBytes { Darwin.write(outputFD, $0.baseAddress, $0.count) }
+        if written == data.count {
+            outputFileBytes += UInt64(written)
+        } else {
+            // One failed write is not worth a log line per line of output. Forget the descriptor so
+            // the next spawn opens a fresh one rather than retrying a broken one forever. It is NOT
+            // closed: a write fails like this when the descriptor is no longer ours, and closing a
+            // number that may now belong to someone else is the crash this replaced. One leaked
+            // descriptor on a rare failure costs less than that.
+            outputFD = -1
         }
     }
 
