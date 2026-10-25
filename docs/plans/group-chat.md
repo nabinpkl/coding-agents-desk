@@ -335,7 +335,23 @@ spike started was stopped afterwards.
   nothing outside it. The census and the start-time check stay ours whichever option is chosen. A
   supervisor must always pass `forceKillAfter`: without it, its documentation says, termination
   waits for a process that ignores SIGTERM with no time limit.
-- **Still open:** U4 (opencode) and U7 (Effect's spans into the archive).
+- **U7, Effect's spans into the archive: answered, through a bridge of our own.** Tested with the
+  sidecar's own Sentry setup (`@sentry/bun` 11.6.0, static transactions, a transport that hands each
+  envelope on) and `effect` with `@effect/opentelemetry` 4.0.6 on Bun 1.3.13.
+  - `@effect/opentelemetry`'s global-tracer layer reaches nothing: Sentry 11 on Bun registers no
+    global OpenTelemetry provider (the global was `NoopTracerProvider`), so every Effect span was
+    dropped, silently, with no error.
+  - An Effect `Tracer` of our own whose spans are Sentry spans (about 70 lines over
+    `Sentry.startInactiveSpan`) works: Effect spans nested under the Sentry span active where they
+    started, two lanes in parallel fibers each kept their own parent and children, attributes and
+    `annotateCurrentSpan` arrived, and a failed effect's span had an error status. An Effect span
+    with nothing around it became a transaction of its own.
+  - One direction does not nest yet: a Sentry span started inside an Effect span became a separate
+    transaction, because the bridge does not make its spans Sentry's active span. Effect's tracer
+    has a `context` hook for running a fiber under such a context; the bridge would use it.
+
+  So A and C need no second tracing stack, but they do need that bridge, which is ours to keep.
+- **Still open:** U4 (opencode).
 
 ## How the kernel is built: three options
 
@@ -348,7 +364,7 @@ runtime; processes, files and HTTP come from platform packages (node, bun, deno,
 | --- | --- | --- | --- |
 | Supervision | Scopes and fibers: Stop interrupts the room's scope and every child's cleanup runs | The lane state machine, written by hand | Scopes and fibers, as A |
 | Kill and wait | Effect's `ChildProcess` (detached group, `forceKillAfter`, then SIGKILL, then a wait on the group), plus our census and start-time check, which it does not do | Our own, about 300 lines, with Effect's three bugs as failure-table rows | Our spawner behind Effect's `ChildProcessSpawner` interface, census and start-time check included |
-| Spans | `withSpan` and `@effect/opentelemetry`, bridged to the archive (U7) | The Sentry spans the sidecar already makes | As A |
+| Spans | `withSpan`, through our own Effect tracer onto Sentry's span API (U7: `@effect/opentelemetry` reaches nothing here) | The Sentry spans the sidecar already makes | As A |
 | Precedent | t3code, on Node with Effect's Node spawner | The sidecar's own `claudeSdkRunnerMain.ts` | OpenCode v2: Bun, Effect's interfaces, and its own 556-line `cross-spawn-spawner.ts` |
 | Risk | The interlock rests on a module Effect marks unstable, with three process-group bugs fixed in September and October 2026; two concurrency models meet at a Promise boundary that interruption does not cross | More code of our own, and a class of structured-concurrency bugs to avoid by hand | Effect still spreads through every caller; the kill stays ours to get right |
 
@@ -359,7 +375,9 @@ productive, and v4 renamed modules that models know by their v3 names.
 The lean so far is B or C: the Simplex principle says the part that guarantees the envelope should
 be small and auditable, which argues for kill code we own. C keeps that while taking Effect's
 supervision, and OpenCode shows it working on Bun. U6 is settled: Effect's spawner behaves on Bun,
-so A and C are both open, and either way the census is ours. U7 is left before choosing.
+so A and C are both open, and either way the census is ours. U7 is settled too: Effect's spans reach
+the archive through a small tracer of our own, not through Effect's OpenTelemetry package. Nothing
+measured now stands in the way of any of the three; the choice is the one in the risk row.
 
 ## Libraries and runtimes considered
 
@@ -441,3 +459,6 @@ so A and C are both open, and either way the census is ours. U7 is left before c
 - 2026-10-25: U6 answered: Effect's spawner stops everything in its group on Bun, the leader-first
   case included, and nothing outside it, so the census stays ours under every option. Spike code is
   now left in its temporary folder rather than deleted.
+- 2026-10-25: U7 answered: `@effect/opentelemetry` drops every span under Sentry 11 on Bun, which
+  registers no global provider; an Effect tracer of our own onto Sentry's span API carries them,
+  except Sentry spans started inside Effect, which need its `context` hook. Only U4 is open.
