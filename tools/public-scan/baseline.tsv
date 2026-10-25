@@ -214,6 +214,7 @@
 1	owner-name	packages/AgentPanel/Web/src/features/activity-feed/reading-preferences/fontStore.ts
 1	owner-name	packages/AgentPanel/Web/src/features/activity-feed/rows/activityClustering.test.ts
 2	owner-name	packages/AgentPanel/Web/src/features/activity-feed/sticky-headers/activityStickyHeaders.test.ts
+3	private-projects	packages/AgentPanel/Web/src/features/arena/ArenaSurface.newRun.test.tsx
 2	owner-name	packages/AgentPanel/Web/src/features/bots/BotSidebarPanel.test.tsx
 1	owner-name	packages/AgentPanel/Web/src/features/bots/botMachines.test.ts
 1	owner-name	packages/AgentPanel/Web/src/features/bots/botRosterOrder.test.ts
@@ -222,10 +223,12 @@
 1	owner-name	packages/AgentPanel/Web/src/features/bots/cards/BotCanvasCard.tsx
 12	owner-name	packages/AgentPanel/Web/src/features/bots/cards/BotCanvasHeader.test.tsx
 1	owner-name	packages/AgentPanel/Web/src/features/bots/cards/BotCanvasHeader.tsx
-10	owner-name	packages/AgentPanel/Web/src/features/bots/dialogs/BotDirectoryColumn.test.tsx
 2	owner-name	packages/AgentPanel/Web/src/features/profile/PanelBuildStatus.test.tsx
 3	owner-name	packages/AgentPanel/Web/src/features/profile/StaleSessionsModal.test.tsx
 5	owner-name	packages/AgentPanel/Web/src/features/profile/useStaleSessions.test.ts
+57	owner-name	packages/AgentPanel/Web/src/features/project-picker/FolderBrowser.test.tsx
+16	owner-name	packages/AgentPanel/Web/src/features/project-picker/ProjectPicker.test.tsx
+10	private-projects	packages/AgentPanel/Web/src/features/project-picker/ProjectPicker.test.tsx
 7	owner-name	packages/AgentPanel/Web/src/features/session-view/composer/SessionComposer.tsx
 22	owner-name	packages/AgentPanel/Web/src/features/session-view/composer/ask-owner/AskOwnerCard.test.tsx
 14	owner-name	packages/AgentPanel/Web/src/features/session-view/composer/ask-owner/AskOwnerCard.tsx
@@ -240,7 +243,6 @@
 7	private-projects	packages/AgentPanel/Web/src/features/terminal/canvas/strip/TerminalCanvas.test.tsx
 4	private-projects	packages/AgentPanel/Web/src/features/terminal/canvas/terminalCanvasPreferences.test.ts
 18	private-projects	packages/AgentPanel/Web/src/features/terminal/canvas/terminalGroups.test.ts
-57	owner-name	packages/AgentPanel/Web/src/features/workspace-ide/sidebar/WorkspacePicker.test.tsx
 2	owner-name	packages/InteractionPanel/Sources/InteractionPanel/InteractionPanelWebViewController.swift
 2	owner-name	packages/KeyboardDictation/Sources/KeyboardDictation/KeyboardDictationNotification.swift
 1	owner-name	packages/WebPanelKit/Sources/WebPanelKit/WebPanelWebViewController.swift
