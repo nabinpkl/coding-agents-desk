@@ -135,6 +135,11 @@ prompt until its running turn ends, so a message to a busy member waits for that
 4. **Explore the riskiest unknown first, cheaply.** The kernel's riskiest unknown is whether a lane's
    process tree really dies. The test that settles it (a fake that ignores SIGTERM and leaves a
    grandchild) is also the first thing to build.
+5. **A reader watches; it never owns work.** A browser that disconnects or reloads, and in the dev
+   loop that is many times an hour, ends only its own watching: its stream, and anything started
+   to serve that stream. A wave, a turn and a lane belong to the room, whose lifetime is the
+   room's leases on disk, never a request's. With Effect this is a matter of which scope work is
+   forked into: a request's scope for the stream, the room's for the work (U8 shows both).
 
 ## The kernel (class C)
 
@@ -349,6 +354,8 @@ hand for the first failure in each, before anything is automated.
 | U5 | Does a real `claude -p` leave survivors after a group SIGKILL: MCP servers, their children, anything that started its own session? | The kernel's interlock; the only measurement so far is a comment in `claudeSdkRunnerMain.ts` that MCP children outlive the CLI | The spike's census |
 | U6 | Does Effect's process spawner behave on Bun? Its Bun spawner re-exports the Node one, so it runs on Bun's `node:child_process` compatibility | Decides whether options A and C below can use Effect's process handling at all | The kill test run on Effect's spawner on Bun |
 | U7 | Can Effect's OpenTelemetry spans reach the sidecar's Sentry archive? | Otherwise A and C mean a second tracing stack | One span from Effect, looked for in the archive |
+| U8 | Does Bun report a stream reader leaving? On the tile path in August 2026 it never did, neither `request.signal` nor the stream's cancel | Effect stops a request's work when its signal aborts, and every framework's own "on abort" depends on the same signal | An SSE server on Bun 1.3.13, plain and on Effect, read by clients that leave, directly and through the panel's dev proxy |
+| U9 | When Group's own process restarts (a save in its files, a crash), do its lanes die with it, or are they picked up again? | In the dev loop Group restarts often; Effect runs a scope's finalizers on a graceful exit, so a lane tied to the room's scope would be killed by every restart, losing its turn | A lane mid-turn, Group sent SIGTERM and started again |
 
 ### What the spike found (2026-10-25)
 
@@ -415,7 +422,21 @@ spike started was stopped afterwards.
     has a `context` hook for running a fiber under such a context; the bridge would use it.
 
   So A and C need no second tracing stack, but they do need that bridge, which is ours to keep.
-- **Still open:** U4 (opencode).
+- **U8, a reader leaving: answered, and Bun reports it now.** Bun 1.3.13, an SSE response from a
+  `ReadableStream` written every 200 ms, read for about a second by four kinds of client: curl
+  giving up, curl killed with SIGKILL (a browser crashing), an aborted `fetch`, each directly and
+  through the repository's own `proxyToSidecar` (the panel dev server's hop).
+
+  | Server | What it saw when the reader left |
+  | --- | --- |
+  | Plain `Bun.serve` | `request.signal` aborted and the stream's `cancel` ran, both within 1 ms, in every case; writing stopped |
+  | Effect's Bun server | The request's stream ended within a second in every case |
+  | Work forked into the room's scope from that same request | Ran to its end every time, never interrupted |
+
+  So the August result does not hold for Bun 1.3.13 on a stream of this shape, and principle 5
+  holds on Effect by construction. Not covered: the browser's own HTTP/2 hop into the dev server,
+  and the tile path's stream shape.
+- **Still open:** U4 (opencode), U9 (a Group restart and its lanes).
 
 ## How the kernel is built: three options
 
@@ -584,3 +605,7 @@ avoid.
   tab of its own and a home of its own; earlier code is read for behaviour priors, not
   architecture priors. Proposed that home: `agent-feed/group/`, a package and a supervised process
   reached at `/api/group/`, following the hub's package and the audio process.
+- 2026-10-25: principle 5, a reader watches and never owns work, since browser and sidecar reloads
+  are routine in the dev loop. U8 answered: Bun 1.3.13 reports a reader leaving within 1 ms,
+  directly and through the panel's proxy, and Effect then ends only the request's stream while
+  room work runs on. U9 opened: what a restart of Group's own process does to its lanes.
