@@ -26,7 +26,9 @@ afterEach(async () => {
 });
 
 const worktrees = {
-  async assertRepository() {},
+  async inspectFolder(path: string) {
+    return { path, repository: true, problem: null };
+  },
   async initRepository() {},
   async add() {},
   async remove() {},

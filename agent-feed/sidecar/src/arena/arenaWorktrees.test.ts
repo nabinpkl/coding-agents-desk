@@ -3,16 +3,16 @@
 // with a fixture of it.
 
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm, writeFile, mkdir } from "node:fs/promises";
+import { chmod, mkdtemp, realpath, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LANE_FOLDERS_PATTERN } from "@/arena/arenaLanes";
 import {
   addContestantWorktree,
-  assertGitRepository,
   ArenaWorktreeError,
   captureWorktreeDiff,
   initRunRepository,
+  inspectArenaFolder,
   removeContestantWorktree,
 } from "@/arena/arenaWorktrees";
 
@@ -40,10 +40,45 @@ async function run(command: string[], cwd: string): Promise<void> {
   if (code !== 0) throw new Error(`${command.join(" ")} exited ${code}`);
 }
 
-test("asserts a repository by refusing everything else by name", async () => {
-  const plain = await mkdtemp(join(tmpdir(), "arena-"));
-  roots.push(plain);
-  expect(assertGitRepository(plain)).rejects.toThrow("is not a git repository");
+test("says what a run would make of a folder: a repository, a plain folder in home, or a refusal", async () => {
+  const checkout = await repository();
+  const home = join(checkout, "..");
+  await mkdir(join(checkout, "src"));
+  await mkdir(join(home, "plain"));
+  await writeFile(join(home, "file"), "x");
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "arena-outside-")));
+  roots.push(outside);
+
+  const check = (path: string) => inspectArenaFolder(path, home);
+  expect(await check(checkout)).toEqual({ path: checkout, repository: true, problem: null });
+  // A folder inside a repository is in it: its worktrees are of that repository.
+  expect((await check(join(checkout, "src"))).repository).toBe(true);
+  expect(await check(join(home, "plain"))).toEqual({ path: join(home, "plain"), repository: false, problem: null });
+  expect((await check(outside)).problem).toContain("outside the home folder");
+  expect((await check(join(home, "gone"))).problem).toBe("does not exist");
+  expect((await check(join(home, "file"))).problem).toBe("is not a folder");
+  expect((await check("relative/path")).problem).toBe("is not an absolute path");
+  // A folder this process may not read is not a folder that is missing.
+  await mkdir(join(home, "locked"));
+  await mkdir(join(home, "locked", "inner"));
+  await chmod(join(home, "locked"), 0o000);
+  try {
+    expect((await check(join(home, "locked", "inner"))).problem).toBe("cannot be read by the sidecar");
+  } finally {
+    await chmod(join(home, "locked"), 0o755);
+  }
+});
+
+test("a plain folder made a repository keeps its files as the commit every lane starts at", async () => {
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "arena-plain-")));
+  roots.push(folder);
+  await writeFile(join(folder, "notes.md"), "keep me\n");
+  await initRunRepository({ path: folder, message: "arena run 1: the folder as found", worktreeFolders: [] });
+
+  expect(await capture(["ls-tree", "--name-only", "HEAD"], folder)).toBe("notes.md");
+  await addContestantWorktree({ repoPath: folder, path: join(folder, "..", "lane-of-plain"), ref: "HEAD" });
+  roots.push(join(folder, "..", "lane-of-plain"));
+  expect(await capture(["status", "--porcelain"], folder)).toBe("");
 });
 
 test("makes a detached contestant worktree at the ref asked for", async () => {

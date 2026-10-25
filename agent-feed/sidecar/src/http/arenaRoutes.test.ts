@@ -71,7 +71,9 @@ const closingBackend: OpencodeContestantBackend = {
 };
 
 const fakeWorktrees = {
-  async assertRepository() {},
+  async inspectFolder(path: string) {
+    return { path, repository: true, problem: null };
+  },
   async initRepository() {},
   async add() {},
   async remove() {},
@@ -277,4 +279,20 @@ test("lanes are added by POST: a run past its first prompt is a 409, an unknown 
   expect((await add("22222222-2222-4222-8222-222222222222", JSON.stringify({ contestants: [] }))).status).toBe(404);
   expect((await add(created.runId, "not json")).status).toBe(400);
   expect((await at(`/api/arena/runs/${created.runId}/contestants`)).status).toBe(405);
+});
+
+test("folders answers what a run would make of each path, refuses a malformed body, and takes only a POST", async () => {
+  const { at } = await start();
+  const post = (body: unknown) =>
+    at("/api/arena/folders", {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+    });
+  const answered = await post({ paths: ["/repos/one"] });
+  expect(answered.status).toBe(200);
+  expect(await answered.json()).toEqual({ folders: [{ path: "/repos/one", repository: true, problem: null }] });
+  expect((await post({ paths: [1] })).status).toBe(400);
+  expect((await post({ paths: Array.from({ length: 501 }, (_, i) => `/p${i}`) })).status).toBe(400);
+  expect((await at("/api/arena/folders")).status).toBe(405);
 });

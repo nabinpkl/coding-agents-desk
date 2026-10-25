@@ -85,7 +85,8 @@ it("refuses a browsed folder another Bot already holds, before the round trip", 
   // The registry refuses it too. Hearing that only after the whole form is filled in is the
   // difference this check makes.
   const { onSelect } = column({
-    unavailable: { paths: new Set(["/Users/dev/brand-new"]), reason: "already assigned to a Bot" },
+    describe: (path) =>
+      path === "/Users/dev/brand-new" ? { note: "already assigned to a Bot", refused: true } : null,
   });
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   await waitFor(() => screen.getByRole("button", { name: "Open brand-new" }));
@@ -159,4 +160,18 @@ it("may lead with a row that chooses no directory, checked while nothing is sele
 it("shows a selection the catalog does not hold, so it is never chosen out of sight", () => {
   column({ selectedPath: "/Users/dev/brand-new" });
   expect(screen.getByRole<HTMLInputElement>("radio", { name: /brand-new/ }).checked).toBe(true);
+});
+
+it("says under a row what the caller has to say about it, and disables only a refused one", () => {
+  column({
+    describe: (path) =>
+      path === CATALOGUED.projectPath
+        ? { note: "not a git repository yet", refused: false }
+        : { note: "does not exist", refused: true },
+  });
+  const desk = screen.getByRole<HTMLInputElement>("radio", { name: /agent-desk/ });
+  const harbor = screen.getByRole<HTMLInputElement>("radio", { name: /harbor/ });
+  expect([desk.disabled, harbor.disabled]).toEqual([false, true]);
+  expect(desk.closest("label")!.textContent).toContain("not a git repository yet");
+  expect(harbor.closest("label")!.textContent).toContain("does not exist");
 });

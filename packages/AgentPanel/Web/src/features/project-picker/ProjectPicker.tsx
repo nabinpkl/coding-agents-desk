@@ -47,7 +47,7 @@ export function ProjectPicker({
   projects,
   loading,
   error,
-  unavailable,
+  describe,
   selectedPath,
   onSelect,
   noPathOption,
@@ -65,8 +65,11 @@ export function ProjectPicker({
   projects: readonly ProjectSummary[];
   loading: boolean;
   error: string | null;
-  /** Directories the caller would refuse, and why, read after "is": "already assigned to a Bot". */
-  unavailable?: { paths: ReadonlySet<string>; reason: string };
+  /**
+   * What the caller has to say about a directory, under its path: why it would refuse it ("already
+   * assigned to a Bot"), which also disables its row, or what choosing it means. Null for nothing.
+   */
+  describe?: (path: string) => { note: string; refused: boolean } | null;
   selectedPath: string | null;
   onSelect: (path: string) => void;
   /**
@@ -87,7 +90,6 @@ export function ProjectPicker({
   // catalog, so the list it would otherwise appear in does not know about it.
   const [browsed, setBrowsed] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const claimed = unavailable?.paths;
 
   // The selection always has a row too: a caller that outlives this picker (the arena's draft, kept
   // while the reader looks at a run) hands back a browsed folder this picker no longer remembers.
@@ -237,7 +239,8 @@ export function ProjectPicker({
           </div>
         ) : (
           shown.map((row) => {
-            const refused = claimed?.has(row.projectPath) ?? false;
+            const said = describe?.(row.projectPath) ?? null;
+            const refused = said?.refused ?? false;
             return (
               <label
                 key={row.projectPath}
@@ -256,7 +259,7 @@ export function ProjectPicker({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-foreground">{row.displayName}</span>
                   <span className="block truncate font-mono text-xs text-muted-foreground">{row.projectPath}</span>
-                  {refused ? <span className="text-xs">{unavailable?.reason}</span> : null}
+                  {said ? <span className="block text-xs text-muted-foreground">{said.note}</span> : null}
                 </span>
               </label>
             );
@@ -275,9 +278,10 @@ export function ProjectPicker({
             setPicking(false);
             // Refused here rather than on submit, because the caller refuses it too and the
             // reader would otherwise fill the whole form in before hearing about it.
-            if (claimed?.has(path)) {
+            const said = describe?.(path);
+            if (said?.refused) {
               setBrowsed(null);
-              setRefusal(`${path} is ${unavailable?.reason}.`);
+              setRefusal(`${path}: ${said.note}`);
               return;
             }
             setBrowsed(path);

@@ -218,7 +218,9 @@ export function BotCreatorDialog({
             projects={machineProjects}
             loading={machineProjectsLoading}
             error={peerProjects.error}
-            unavailable={{ paths: claimedDirectories, reason: "already assigned to a Bot" }}
+            describe={(path) =>
+              claimedDirectories.has(path) ? { note: "already assigned to a Bot", refused: true } : null
+            }
             selectedPath={selectedPath}
             onSelect={(path) => {
               setSelectedPath(path);

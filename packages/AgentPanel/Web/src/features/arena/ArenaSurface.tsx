@@ -300,6 +300,7 @@ export function ArenaSurface({
         <main ref={keepTypingInSightWhileMounted} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {selectedRunId === null ? (
             <ArenaNewRun
+              transport={transport}
               feed={feed}
               draft={draft}
               onDraft={setDraft}

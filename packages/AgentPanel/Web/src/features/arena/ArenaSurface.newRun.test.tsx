@@ -66,7 +66,14 @@ const run = (over: Record<string, unknown> = {}) => ({
 
 /** A transport that answers the arena's own routes and records what was asked of it. */
 function harness(
-  options: { detail?: unknown; runs?: unknown[]; modes?: string[]; projects?: { projectPath: string }[] } = {},
+  options: {
+    detail?: unknown;
+    runs?: unknown[];
+    modes?: string[];
+    projects?: { projectPath: string }[];
+    /** What the sidecar says of a folder; any other is a repository. */
+    folders?: Record<string, { repository: boolean; problem: string | null }>;
+  } = {},
 ) {
   const posted: unknown[] = [];
   const postedTo: string[] = [];
@@ -104,6 +111,11 @@ function harness(
       }
       if (method === "GET" && path.startsWith("/api/arena/runs/")) {
         return { status: 200, body: JSON.stringify(options.detail ?? run()) };
+      }
+      if (method === "POST" && path === "/api/arena/folders") {
+        const { paths } = requestOptions?.body as { paths: string[] };
+        const folders = paths.map((one) => ({ path: one, repository: true, problem: null, ...options.folders?.[one] }));
+        return { status: 200, body: JSON.stringify({ folders }) };
       }
       if (method === "POST" && path.endsWith("/prompt")) {
         posted.push(requestOptions?.body);
@@ -239,6 +251,26 @@ describe("ArenaSurface new run", () => {
     (await screen.findByRole("button", { name: /Open lanes/ })).click();
     await waitFor(() => expect(posted.length).toBe(1));
     expect(posted[0]).toMatchObject({ repoPath: "/Users/me/projects/agent-desk" });
+  });
+
+  test("a plain folder says the run makes it a repository, and one a run would refuse cannot be chosen", async () => {
+    const { transport } = harness({
+      modes: ["terminals", "headless"],
+      projects: [{ projectPath: "/Users/me/notes" }, { projectPath: "/tmp/gone" }, { projectPath: "/Users/me/app" }],
+      folders: {
+        "/Users/me/notes": { repository: false, problem: null },
+        "/tmp/gone": { repository: false, problem: "does not exist" },
+      },
+    });
+    mount(transport);
+    const notes = await screen.findByRole<HTMLInputElement>("radio", { name: /notes/ });
+    await waitFor(() => expect(notes.closest("label")!.textContent).toContain("the run makes it one"));
+    const gone = screen.getByRole<HTMLInputElement>("radio", { name: /gone/ });
+    expect(gone.disabled).toBe(true);
+    expect(gone.closest("label")!.textContent).toContain("Does not exist");
+    expect(screen.getByRole<HTMLInputElement>("radio", { name: /app/ }).closest("label")!.textContent).not.toContain(
+      "git",
+    );
   });
 
   test("each lane may name its model, and a run with a manager may open with no lanes for it to add", async () => {

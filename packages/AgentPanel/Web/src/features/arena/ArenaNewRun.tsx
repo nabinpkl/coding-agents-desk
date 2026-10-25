@@ -3,7 +3,9 @@
 // Nothing has to be filled in. A run left unnamed takes the sidecar's next "arena run N", and one
 // left on "New repository" gets one of its own in the arena home, so Open lanes is a run from a
 // blank form. An existing repository is chosen with the project picker the session and Bot dialogs
-// use: this machine's projects, searchable, or any folder browsed to.
+// use: this machine's projects, searchable, or any folder browsed to. A plain folder in the home
+// folder is made a repository by the run, its files the first commit, and its row says so; one the
+// run would refuse says why and cannot be chosen (ADR-0153).
 //
 // The lineup is drawn as the lanes it will become -- one slot per contestant, numbered the way the
 // run will number them, each with its harness chosen in place -- so what a reader builds here is
@@ -32,6 +34,9 @@
 import { useCallback, useId, useMemo, type KeyboardEvent } from "react";
 import { Plus, X } from "lucide-react";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
+import type { AgentHttpTransport } from "@/features/activity-feed/transport/AgentHttpTransport";
+import { inspectArenaFolders } from "@/features/arena/arenaRunsSource";
+import { sourceKey, usePanelQuery } from "@/query/panelQuery";
 import type {
   ArenaContestantSource,
   ArenaLaneStance,
@@ -124,6 +129,7 @@ const NO_PATHS: readonly string[] = [];
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 export function ArenaNewRun({
+  transport,
   feed,
   draft,
   onDraft,
@@ -132,6 +138,8 @@ export function ArenaNewRun({
   problem,
   onStart,
 }: {
+  /** Asks the sidecar what a run would make of each project. */
+  transport: AgentHttpTransport;
   /** The machine the run is on: where an opencode lane's model list and the projects are read from. */
   feed: SidecarDataSource;
   draft: ArenaDraft;
@@ -152,6 +160,24 @@ export function ArenaNewRun({
   const inventory = useMachineInventory(machine, NO_PATHS);
   const browse = useCallback((path: string | null) => feed.browseDirectories(path), [feed]);
   const createFolder = useCallback((path: string, name: string) => feed.createDirectory(path, name), [feed]);
+  // Every project, and the selection when it is a folder browsed to, asked about in one request.
+  const asked = [...new Set([...inventory.projects.map((project) => project.projectPath), draft.repoPath])]
+    .filter(Boolean)
+    .sort();
+  const folders = usePanelQuery({
+    queryKey: ["arena-folders", sourceKey(transport), asked.join("\0")],
+    queryFn: () => inspectArenaFolders(transport, asked),
+    enabled: asked.length > 0,
+  });
+  const checks = new Map((folders.data ?? []).map((check) => [check.path, check]));
+  const describe = (path: string) => {
+    const check = checks.get(path);
+    if (!check) return null;
+    if (check.problem) return { note: `${check.problem[0]!.toUpperCase()}${check.problem.slice(1)}`, refused: true };
+    return check.repository
+      ? null
+      : { note: "Not a git repository: the run makes it one, its files the first commit", refused: false };
+  };
   const modes = defaults?.modes ?? null;
   const opensLanes = draft.mode === "terminals" && draft.prompt.trim().length === 0;
   const managed = draft.mode === "terminals" && draft.manager !== null;
@@ -216,6 +242,7 @@ export function ArenaNewRun({
         error={inventory.error}
         selectedPath={draft.repoPath === "" ? null : draft.repoPath}
         onSelect={(repoPath) => onDraft({ ...draft, repoPath })}
+        describe={describe}
         noPathOption={{
           label: "New repository",
           detail: defaults ? `Of the run's own, in ${defaults.arenaHome}` : "Of the run's own",
