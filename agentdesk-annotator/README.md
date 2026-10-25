@@ -11,7 +11,7 @@ Every client signs in with OAuth through Cloudflare Access. Only the owner's ema
 ## Connect a client
 
 - **claude.ai** (also Desktop and mobile): Settings, Connectors, Add custom connector, paste the URL above, then sign in with the emailed one-time code. Leave the OAuth client fields empty.
-- **Claude Code**: nothing to add. Claude Code signed in to the same claude.ai account loads the connector above automatically (`claude mcp list` shows `claude.ai AgentDesk Annotator`). Adding a local entry as well would duplicate every tool.
+- **Claude Code**: nothing to add. Claude Code signed in to the same claude.ai account loads the connector above automatically (`claude mcp list` shows it as `claude.ai <the connector's name>`). Adding a local entry as well would duplicate every tool.
 - **OpenCode**:
 
   ```bash

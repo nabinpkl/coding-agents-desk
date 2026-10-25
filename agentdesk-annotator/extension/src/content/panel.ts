@@ -41,7 +41,7 @@ function dirLabel(cwd: string | null): string {
   if (!cwd) return "unknown";
   const parts = cwd.split("/").filter(Boolean);
   if (parts.length === 0) return "root";
-  // /Users/dev and /home/ubuntu are both "somebody's home", and putting the person's name in a
+  // /Users/you and /home/ubuntu are both "somebody's home", and putting the person's name in a
   // group label helps nobody. The agent-desk picker labels them the same way, on purpose.
   if (parts.length === 2 && (parts[0] === "home" || parts[0] === "Users")) return "home";
   return parts[parts.length - 1]!;

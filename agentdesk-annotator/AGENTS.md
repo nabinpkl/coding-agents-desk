@@ -30,7 +30,7 @@ server: auth/access-jwt → /mcp (MCP SDK) and /api/v1 (extension) → service �
 - A missing id throws `NotFound` (404 or an MCP tool error). Never return a silent null.
 - The server is the only home for annotations. The extension keeps no local copy. Text the user typed stays in its field until the server accepts it.
 - Every origin the extension calls must be in `manifest.json` `host_permissions`. The list lives in `extension/src/origins.ts` and the build enforces it. Cloudflare Access refuses OAuth registration and token requests carrying `Origin: chrome-extension://<id>`, and Chrome adds that Origin to every POST from the service worker, even with host access. The session `declarativeNetRequest` rule in `extension/src/auth.ts` removes it. The rule is scoped to this extension's own requests to the Access origin, so pages keep their Origin. Removing that rule or the `declarativeNetRequestWithHostAccess` permission breaks sign-in.
-- Tool names stay `agentdesk-annotator_*`. Agents and prompts depend on them.
+- Tool names are `agentdesk-annotator_*`. Agents and prompts call them by name, so a rename breaks them until they are updated.
 - Send hands annotations to an agent session over the hub. The hub owns the message and its delivery state; the `sends` table owns only the link from an annotation to the message that carried it. Write that link after the hub has the message, never before, and never a placeholder: a recorded send that never left is a lie the panel shows as `queued`. The hub knows nothing about annotations, and this server is the only thing that speaks to both.
 - Migrations in `store/migrations.ts` are append-only.
 

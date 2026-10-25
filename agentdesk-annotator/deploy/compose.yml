@@ -2,6 +2,9 @@
 # Values come from deploy/.env (mode 0600, never committed); see .env.example.
 # The server publishes no host port: only cloudflared reaches it, over the
 # compose network, and every request still needs an Access-signed JWT.
+# The project name below names the containers and the data volume. A stack
+# first deployed under another name keeps it, and its data, by setting
+# COMPOSE_PROJECT_NAME in deploy/.env, which takes precedence over it.
 name: agentdesk-annotator
 
 services:
