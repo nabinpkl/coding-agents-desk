@@ -52,7 +52,9 @@ export function SessionMeta({
       {project === undefined ? null : <span className="min-w-0 truncate">{project}</span>}
       {/* Whole, never broken across lines: the project's name beside it is what gives way. */}
       <span className="whitespace-nowrap">{time}</span>
-      <span className="capitalize">{activity}</span>
+      {/* Said by the mark the row opens with, a face's ring and Zs or the dot's green and grey,
+          the way a canvas card leaves it to its face. A screen reader is shown neither. */}
+      <span className="sr-only">{activity}</span>
       {worktree ? <WorktreeChip worktree={worktree} /> : null}
     </span>
   );

@@ -176,3 +176,10 @@ describe("archiving a project folder", () => {
     expect(setArchived).toHaveBeenCalledWith("/work/old", false);
   });
 });
+
+describe("a session row's activity", () => {
+  it("is left to the mark it opens with, and still read to a screen reader", () => {
+    render(<ProjectSessionPreview sessions={[loose]} selectedSessionKey={null} onSelect={() => {}} />);
+    expect(screen.getByText("ready").className).toContain("sr-only");
+  });
+});
