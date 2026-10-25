@@ -249,9 +249,9 @@ export function AgentTerminalPane({
    * `height`, because a reader dragging the peek taller changes how much fits above it.
    *
    * And whenever the mount itself changes size, which none of those say: the pane's height is
-   * clamped to a share of its column and to its whole screen, both measured after it opens. On the
-   * iPhone, Claude's prompt box opened below the window and appeared only once something redrew it
-   * (2026-10-19), which a late resize like that explains; a finger cannot move the window.
+   * clamped to a share of its column and to its whole screen, both measured after it opens:
+   * measured in a phone-sized Chromium, the box shrank from 181 to 174 pixels after the first
+   * placement (2026-10-19). A finger cannot move the window, so a placement nothing re-runs stays.
    */
   const placeWindow = (): void => {
     if (echo && mountRef.current) keepLastDrawnRowInView(mountRef.current, lastDrawnRow);

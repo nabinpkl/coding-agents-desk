@@ -3,18 +3,21 @@ import { keepLastDrawnRowInView } from "@/features/terminal/lastDrawnRowInView";
 
 /**
  * A mount holding a screen of `rows` rows, `rowHeight` each, starting `screenTop` below the mount's
- * top, with jsdom's missing layout supplied by hand.
+ * top, with jsdom's missing layout supplied by hand. `scale` is a transform above the mount, which
+ * rectangles report and its own pixels do not.
  */
 function setUp({
   mountHeight,
   rows,
   rowHeight,
   screenTop,
+  scale = 1,
 }: {
   mountHeight: number;
   rows: number;
   rowHeight: number;
   screenTop: number;
+  scale?: number;
 }) {
   const mount = document.createElement("div");
   const screen = document.createElement("div");
@@ -25,12 +28,13 @@ function setUp({
   mount.append(screen);
   Object.defineProperty(mount, "clientHeight", { value: mountHeight });
   Object.defineProperty(mount, "scrollHeight", { get: () => screenTop + rows * rowHeight });
-  mount.getBoundingClientRect = () => ({ top: 0, bottom: mountHeight }) as DOMRect;
+  Object.defineProperty(mount, "offsetHeight", { value: mountHeight });
+  mount.getBoundingClientRect = () => ({ top: 0, bottom: mountHeight * scale, height: mountHeight * scale }) as DOMRect;
   for (let index = 0; index < rows; index++) {
     const row = document.createElement("div");
     row.getBoundingClientRect = () => {
-      const top = screenTop + index * rowHeight - mount.scrollTop;
-      return { top, bottom: top + rowHeight } as DOMRect;
+      const top = (screenTop + index * rowHeight - mount.scrollTop) * scale;
+      return { top, bottom: top + rowHeight * scale } as DOMRect;
     };
     rowsBox.append(row);
   }
@@ -43,6 +47,13 @@ describe("keepLastDrawnRowInView", () => {
     keepLastDrawnRowInView(mount, 19);
     // Row 19 ends 12 + 20 * 15 = 312 down the screen.
     expect(mount.scrollTop).toBe(112);
+  });
+
+  it("lands in the same place under a zoomed-out canvas, whose scale the rectangles carry", () => {
+    // The phone's canvas at its fit zoom draws the card at about half size.
+    const { mount } = setUp({ mountHeight: 200, rows: 24, rowHeight: 15, screenTop: 12, scale: 0.52 });
+    keepLastDrawnRowInView(mount, 19);
+    expect(mount.scrollTop).toBeCloseTo(112);
   });
 
   it("stops at the top once the pane is taller than what is drawn", () => {

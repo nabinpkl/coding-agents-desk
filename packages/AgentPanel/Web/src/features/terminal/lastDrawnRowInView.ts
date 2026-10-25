@@ -19,6 +19,13 @@ export function keepLastDrawnRowInView(mount: HTMLElement, lastDrawnRow: number 
     mount.scrollTop = mount.scrollHeight;
     return;
   }
-  const bottom = row.getBoundingClientRect().bottom - mount.getBoundingClientRect().top + mount.scrollTop;
+  // Rectangles are measured on the glass, after any transform above the pane; `scrollTop` and
+  // `clientHeight` are the pane's own pixels. A canvas zoomed out draws its cards at a scale, so
+  // the two differ by it and are put back into one unit here: mixed, the window landed about half
+  // as far down as it should on a phone at the canvas's fit zoom (2026-10-19), leaving Claude's box
+  // below it until enough redraws walked it down.
+  const box = mount.getBoundingClientRect();
+  const scale = mount.offsetHeight > 0 && box.height > 0 ? box.height / mount.offsetHeight : 1;
+  const bottom = (row.getBoundingClientRect().bottom - box.top) / scale + mount.scrollTop;
   mount.scrollTop = Math.max(0, bottom - mount.clientHeight);
 }
