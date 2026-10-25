@@ -360,13 +360,18 @@ describe("DesktopViewer", () => {
     await waitFor(() => expect(show).toBeEnabled());
     fireEvent.click(show);
 
+    // jsdom lays nothing out: a page that ends at the window's bottom, and an accessory 80px tall on it.
+    const page = vi.spyOn(document.documentElement, "getBoundingClientRect").mockReturnValue({
+      bottom: window.innerHeight,
+    } as DOMRect);
     const accessory = screen.getByRole("region", { name: "Remote keyboard controls" });
-    vi.spyOn(accessory, "getBoundingClientRect").mockReturnValue({ height: 80 } as DOMRect);
+    vi.spyOn(accessory, "getBoundingClientRect").mockReturnValue({ top: window.innerHeight - 80 } as DOMRect);
     act(() => observed.get(accessory)!());
     expect(box).toHaveStyle({ bottom: "80px" });
 
     fireEvent.click(within(accessory).getByRole("button", { name: "Hide" }));
     expect(box).toHaveStyle({ bottom: "0px" });
+    page.mockRestore();
   });
 
   it("summons the keyboard from the mirrored cursor shape at the moment of the tap", async () => {

@@ -60,7 +60,6 @@ export interface KeyboardContext {
   readonly setDeliveryStatus: Dispatch<SetStateAction<string | null>>;
   readonly setDraft: Dispatch<SetStateAction<string | null>>;
   readonly setAccessoryBottom: Dispatch<SetStateAction<number>>;
-  readonly setAccessoryHeight: Dispatch<SetStateAction<number>>;
   readonly setSoftwareKeyboardVisible: Dispatch<SetStateAction<boolean>>;
   readonly report: (event: DesktopKeyboardTelemetry) => void;
   readonly cursorKind: () => DesktopCursorKind;

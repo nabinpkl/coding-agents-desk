@@ -107,6 +107,10 @@ describe("useDesktopKeyboard", () => {
     const originalHeight = window.innerHeight;
     const viewport = Object.assign(new EventTarget(), { height: originalHeight, offsetTop: 0 });
     Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    // A page that keeps its full height under the keyboard, as the standalone viewer does.
+    const page = vi
+      .spyOn(document.documentElement, "getBoundingClientRect")
+      .mockReturnValue({ bottom: originalHeight } as DOMRect);
     try {
       const harness = setup();
       expect(harness.controller.occludedBottom).toBe(0);
@@ -118,7 +122,7 @@ describe("useDesktopKeyboard", () => {
       expect(harness.controller.accessoryBottom).toBe(300);
 
       const accessory = screen.getByLabelText("accessory");
-      vi.spyOn(accessory, "getBoundingClientRect").mockReturnValue({ height: 80 } as DOMRect);
+      vi.spyOn(accessory, "getBoundingClientRect").mockReturnValue({ top: originalHeight - 380 } as DOMRect);
       act(() => accessoryObservers.get(accessory)!());
 
       // The video's box ends at the accessory's top, which is both occluders in one number.
@@ -127,6 +131,33 @@ describe("useDesktopKeyboard", () => {
       act(() => harness.controller.hide());
       expect(harness.controller.occludedBottom).toBe(300);
     } finally {
+      page.mockRestore();
+      Object.defineProperty(window, "visualViewport", { configurable: true, value: previous });
+    }
+  });
+
+  it("counts only what covers the page, once the page has given the keyboard back", () => {
+    // Inside the panel the page ends at the keyboard's top already (`app/page/keyboardInset.ts`),
+    // so adding the keyboard again would leave the video no height at all.
+    const previous = window.visualViewport;
+    const originalHeight = window.innerHeight;
+    const viewport = Object.assign(new EventTarget(), { height: originalHeight, offsetTop: 0 });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    const page = vi
+      .spyOn(document.documentElement, "getBoundingClientRect")
+      .mockReturnValue({ bottom: originalHeight } as DOMRect);
+    try {
+      const harness = setup();
+      act(() => harness.controller.showManually());
+      viewport.height = originalHeight - 300;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      page.mockReturnValue({ bottom: originalHeight - 300 } as DOMRect);
+      const accessory = screen.getByLabelText("accessory");
+      vi.spyOn(accessory, "getBoundingClientRect").mockReturnValue({ top: originalHeight - 380 } as DOMRect);
+      act(() => accessoryObservers.get(document.documentElement)!());
+      expect(harness.controller.occludedBottom).toBe(80);
+    } finally {
+      page.mockRestore();
       Object.defineProperty(window, "visualViewport", { configurable: true, value: previous });
     }
   });

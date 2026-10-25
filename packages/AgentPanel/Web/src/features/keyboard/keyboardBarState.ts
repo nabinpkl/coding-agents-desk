@@ -10,7 +10,7 @@
 export const KEYBOARD_BAR_HEIGHT = 44;
 
 /**
- * How tall it stands when the field brings its own keys: the terminal rail's arrow pad is two rows,
+ * How tall it stands when the field brings its own keys: their arrow pad is two rows,
  * ↑ over ← ↓ →, and each row wants a key a thumb can hit.
  */
 const KEYBOARD_BAR_KEYS_HEIGHT = 64;
@@ -21,15 +21,9 @@ export function keyboardBarHeight(ownKeys: boolean): number {
 }
 
 /**
- * Marks a region whose fields already draw their own key row, so the bar stays away from them: a
- * terminal's rail and the desktop viewer's keys. Written `data-keyboard-bar="off"` on the region.
- */
-const OWN_KEY_ROW = '[data-keyboard-bar="off"]';
-
-/**
  * Marks a region whose fields bring their own keys ONTO the bar, in place of its Esc, Tab and
- * arrows: the terminal composer's rail, whose keys go to a pane rather than to the field. Written
- * `data-keyboard-bar="keys"`; the region draws its keys into the bar with `OnKeyboardBar`.
+ * arrows: a terminal's rail, whose keys go to a pane, and the desktop viewer's, whose go to the Mac.
+ * Written `data-keyboard-bar="keys"`; the region draws its keys into the bar with `OnKeyboardBar`.
  */
 const OWN_KEYS_ON_BAR = '[data-keyboard-bar="keys"]';
 
@@ -112,11 +106,6 @@ export function publishKeyboardBar(next: Omit<KeyboardBarState, "slot"> | null):
 /** The bar says where a field's own keys go, or that it has gone. */
 export function publishKeyboardBarSlot(slot: HTMLElement | null): void {
   replace({ ...current, slot });
-}
-
-/** Whether this field sits in a region that draws its own key row. */
-export function hasOwnKeyRow(field: Element): boolean {
-  return field.closest(OWN_KEY_ROW) !== null;
 }
 
 /** Whether this field sits in a region that draws its own keys onto the bar. */

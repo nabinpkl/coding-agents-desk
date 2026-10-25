@@ -13,9 +13,10 @@
 // - It is drawn inside the modal dialog the field is in, when there is one: a modal dialog makes
 //   everything outside it inert, so a row drawn outside could be seen and not pressed.
 //
-// A field whose keys are not the bar's (the terminal composer's, which go to a pane) brings its own
-// row instead: it marks itself `data-keyboard-bar="keys"` and draws them with `OnKeyboardBar`, into
-// a slot the bar leaves where its own keys would be.
+// A field whose keys are not the bar's (a terminal's, which go to a pane, and the desktop viewer's,
+// which go to the Mac) brings its own row instead: it marks itself `data-keyboard-bar="keys"` and
+// draws them with `OnKeyboardBar` or `useKeyboardBarSlot`, into a slot the bar leaves where its own
+// keys would be.
 //
 // It keeps to the glass rather than the page. Zoomed in, the page is drawn larger, so the row is
 // placed on the visible part of the page and scaled back down by the zoom; during a pinch, whose
@@ -49,13 +50,18 @@ export function KeyboardBar() {
 }
 
 /**
- * A field's own keys, drawn on the keyboard bar while that field has the keyboard. `focused` says
- * the field is this region's; the bar only leaves room for keys when the field asked for it.
+ * Where a field's own keys go on the keyboard bar, or null while they have no place there: the bar
+ * is not up, or the focused field did not ask for room. `focused` says the field is this region's.
  */
-export function OnKeyboardBar({ focused, children }: { focused: boolean; children: ReactNode }) {
+export function useKeyboardBarSlot(focused: boolean): HTMLElement | null {
   const bar = useSyncExternalStore(subscribeKeyboardBar, keyboardBarSnapshot);
-  if (!focused || !bar.ownKeys || !bar.slot) return null;
-  return createPortal(children, bar.slot);
+  return focused && bar.ownKeys ? bar.slot : null;
+}
+
+/** A field's own keys, drawn on the keyboard bar while that field has the keyboard. */
+export function OnKeyboardBar({ focused, children }: { focused: boolean; children: ReactNode }) {
+  const slot = useKeyboardBarSlot(focused);
+  return slot ? createPortal(children, slot) : null;
 }
 
 function KeyboardBarRow({ bar, field }: { bar: KeyboardBarState; field: HTMLElement }) {

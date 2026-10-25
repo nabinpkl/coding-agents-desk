@@ -1,7 +1,6 @@
 import { drawsOwnKeyboard } from "@/features/keyboard/softwareKeyboard";
 import {
   bringsOwnKeys,
-  hasOwnKeyRow,
   keyboardBarHeight,
   KEYBOARD_SUGGESTION_ATTRIBUTE,
   publishKeyboardBar,
@@ -57,7 +56,7 @@ export function keyboardInset(reading: {
 
 /**
  * Whether the keyboard bar stands on the keyboard: a text field is focused on a device that draws
- * its keyboard, and the field's region has no key row of its own.
+ * its keyboard.
  *
  * Shown once the keyboard has measurably arrived, so the page moves once for both rather than
  * twice. Zoomed in, the covered strip cannot be told from the zoom, so a focused field is taken to
@@ -66,11 +65,10 @@ export function keyboardInset(reading: {
 export function showsKeyboardBar(reading: {
   typing: boolean;
   drawsKeyboard: boolean;
-  ownKeyRow: boolean;
   covered: number;
   scale: number;
 }): boolean {
-  if (!reading.typing || !reading.drawsKeyboard || reading.ownKeyRow) return false;
+  if (!reading.typing || !reading.drawsKeyboard) return false;
   return reading.scale > ZOOMED_SCALE || reading.covered >= MINIMUM_KEYBOARD_INSET;
 }
 
@@ -101,7 +99,6 @@ export function installKeyboardInset(): { remove(): void } {
       showsKeyboardBar({
         typing,
         drawsKeyboard: drawsOwnKeyboard(),
-        ownKeyRow: hasOwnKeyRow(active),
         covered: layoutHeight - (viewportHeight + viewportOffsetTop),
         scale,
       })

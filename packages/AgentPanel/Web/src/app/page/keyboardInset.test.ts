@@ -72,7 +72,7 @@ describe("keyboardInset", () => {
 });
 
 describe("showsKeyboardBar", () => {
-  const reading = { typing: true, drawsKeyboard: true, ownKeyRow: false, covered: 336, scale: 1 };
+  const reading = { typing: true, drawsKeyboard: true, covered: 336, scale: 1 };
 
   it("stands on a phone's keyboard for a focused field", () => {
     expect(showsKeyboardBar(reading)).toBe(true);
@@ -86,9 +86,8 @@ describe("showsKeyboardBar", () => {
     expect(showsKeyboardBar({ ...reading, covered: 0, scale: 2 })).toBe(true);
   });
 
-  it("stays away from a desktop keyboard, a field with its own key row, and nothing focused", () => {
+  it("stays away from a desktop keyboard and from nothing focused", () => {
     expect(showsKeyboardBar({ ...reading, drawsKeyboard: false })).toBe(false);
-    expect(showsKeyboardBar({ ...reading, ownKeyRow: true })).toBe(false);
     expect(showsKeyboardBar({ ...reading, typing: false })).toBe(false);
   });
 });
@@ -217,22 +216,6 @@ describe("installKeyboardInset", () => {
     installed.remove();
     expect(keyboardBarSnapshot().field).toBeNull();
     expect(root.style.getPropertyValue("--agent-panel-keyboard-inset")).toBe("");
-  });
-
-  it("leaves a field with its own key row to it, clearing only the keyboard", () => {
-    const device = phone();
-    const pane = document.createElement("section");
-    pane.setAttribute("data-keyboard-bar", "off");
-    const field = document.createElement("textarea");
-    field.scrollIntoView = vi.fn();
-    pane.append(field);
-    document.body.append(pane);
-    const installed = installKeyboardInset();
-    field.focus();
-    device.keyboard(336);
-    expect(document.documentElement.style.getPropertyValue("--agent-panel-keyboard-inset")).toBe("336px");
-    expect(keyboardBarSnapshot().field).toBeNull();
-    installed.remove();
   });
 
   it("raises a taller bar for a field that brings its own keys, and tells it so", () => {

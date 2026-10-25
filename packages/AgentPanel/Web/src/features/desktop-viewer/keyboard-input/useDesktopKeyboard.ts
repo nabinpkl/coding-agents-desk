@@ -97,7 +97,7 @@ export function useDesktopKeyboard({
   const [draft, setDraft] = useState<string | null>(null);
   const draftRef = useLatestRef(draft);
   const [accessoryBottom, setAccessoryBottom] = useState(0);
-  const [accessoryHeight, setAccessoryHeight] = useState(0);
+  const [occludedBottom, setOccludedBottom] = useState(0);
   const accessoryRef = useRef<HTMLElement>(null);
   const [softwareKeyboardVisible, setSoftwareKeyboardVisible] = useState(false);
   const pendingKeys = useRef<RemoteKeyEvent[]>([]);
@@ -142,7 +142,6 @@ export function useDesktopKeyboard({
     setDeliveryStatus,
     setDraft,
     setAccessoryBottom,
-    setAccessoryHeight,
     setSoftwareKeyboardVisible,
     report,
     cursorKind,
@@ -275,23 +274,25 @@ export function useDesktopKeyboard({
   useEventListener(viewport ? window : null, "resize", followViewport);
 
   const keyboardPresented = presentation.presentation === "pending" || presentation.presentation === "shown";
-  // Measured again from nothing each time the keyboard comes or goes.
-  const [measuredFor, setMeasuredFor] = useState(keyboardPresented);
-  if (measuredFor !== keyboardPresented) {
-    setMeasuredFor(keyboardPresented);
-    setAccessoryHeight(0);
-  }
 
-  // The accessory's height is measured rather than known: its bottom padding follows the safe area
-  // until the software keyboard actually owns it, and the key rail is free to change shape. The
-  // viewer subtracts this from the video, so a stale guess here is a band of Mac nobody can see.
-  const measureAccessory = () => {
+  // How far up from the page's bottom edge the keyboard and the accessory reach: the accessory's top,
+  // or the keyboard's while there is no accessory. Measured rather than added up, because neither
+  // the accessory's height nor the page's bottom is known here: the accessory's padding follows the
+  // safe area until the keyboard owns it, it stands on the keyboard bar when its rail is there, and
+  // inside the panel the page has already given back the keyboard and the bar
+  // (`app/page/keyboardInset.ts`). The viewer fills the page to its bottom edge and subtracts this
+  // from the video, so a stale number is a band of Mac nobody can see, or one under the keyboard.
+  const measureOcclusion = () => {
+    const pageBottom = document.documentElement.getBoundingClientRect().bottom;
     const accessory = accessoryRef.current;
-    if (accessory) setAccessoryHeight(Math.ceil(accessory.getBoundingClientRect().height));
+    const top = accessory ? accessory.getBoundingClientRect().top : window.innerHeight - accessoryBottom;
+    setOccludedBottom(Math.max(0, Math.ceil(pageBottom - top)));
   };
-  useDomSync(measureAccessory, [keyboardPresented]);
-  // Re-observed whenever the keyboard comes or goes, since the accessory is drawn with it.
-  useResizeObserver(keyboardPresented ? accessoryRef : null, measureAccessory);
+  useDomSync(measureOcclusion, [keyboardPresented, accessoryBottom]);
+  // Re-observed whenever the keyboard comes or goes, since the accessory is drawn with it; the page
+  // is watched for the inset it takes when the keyboard and the bar arrive.
+  useResizeObserver(keyboardPresented ? accessoryRef : null, measureOcclusion);
+  useResizeObserver(document.documentElement, measureOcclusion);
 
   return {
     captureRef,
@@ -304,14 +305,8 @@ export function useDesktopKeyboard({
     localEcho,
     deliveryStatus,
     accessoryBottom,
-    /**
-     * The band at the bottom of the layout viewport that the keyboard and its accessory cover,
-     * which is the accessory's top edge. One number for both occluders, because the accessory is
-     * drawn on top of the keyboard: `accessoryBottom` is 0 when the WKWebView's layout viewport
-     * has already shrunk to the keyboard-free area and the keyboard's own height when it has not,
-     * so the answer is the same visible band either way.
-     */
-    occludedBottom: accessoryBottom + accessoryHeight,
+    /** The band at the bottom of the page that the keyboard and its accessory cover. */
+    occludedBottom,
     softwareKeyboardVisible,
     sendControl,
     handleControlEvent,

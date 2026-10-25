@@ -61,8 +61,9 @@ know when building near it:
   `data-keyboard-bar="keys"` and draws its row with `OnKeyboardBar`, which the bar shows in place of
   its Esc, Tab and arrows. The terminal rail (`TerminalKeyRail`) does this for the terminal composer
   and every terminal pane, because its keys go to a PTY rather than to the field, and it is drawn
-  nowhere else. A surface that still draws its own key row in place marks its region
-  `data-keyboard-bar="off"` and the bar stays away: today the desktop viewer.
+  nowhere else. The desktop viewer's rail does it too, through `useKeyboardBarSlot`, and falls back
+  to its own accessory where no bar stands: over the panel's deck, and on a desktop browser. Every
+  field on the page gets the bar; there is no opting out.
   A field that offers a suggestion sets `data-keyboard-suggestion` and takes it on Tab; the bar
   shows it as a key that presses Tab.
 - **A bar key is a key event first.** It is dispatched to the field, so a handler written for the

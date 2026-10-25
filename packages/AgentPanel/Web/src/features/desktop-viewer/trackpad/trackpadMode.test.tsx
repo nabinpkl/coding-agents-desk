@@ -137,7 +137,9 @@ describe("DesktopViewer trackpad deck", () => {
   it("sizes the deck to the share of the viewer chosen in Tuning, and keeps that share", async () => {
     const media = coarsePointer(true);
     // jsdom lays nothing out, so give the viewer a height for the share to be a share of.
-    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 800 } as DOMRect);
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({ height: 800, top: 0, bottom: window.innerHeight } as DOMRect);
     try {
       localStorage.setItem("agentdesk.desktop.trackpadDeck", "true");
       tileMock.publishSource = true;
