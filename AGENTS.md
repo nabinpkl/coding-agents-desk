@@ -16,6 +16,7 @@ under `docs/agents/`, and is read when its situation comes up:
 | --- | --- |
 | changing or verifying the panel (`packages/AgentPanel/Web/`) | `packages/AgentPanel/Web/AGENTS.md` |
 | changing the sidecar (`agent-feed/sidecar/`) | `agent-feed/sidecar/AGENTS.md` |
+| building or changing Group, the group chat tab and its server process | `docs/agents/group.md`, then the `group-effect` and `group-api-design` skills; the rest of the codebase is no precedent for it |
 | verifying a panel change in a browser | `docs/agents/browser-testing.md` |
 | running `just host-run`, touching the dev server, the supervisor, the login launch or the runtime root, or changing Swift or `terminal/pty-manager/` | `docs/agents/dev-loop.md` |
 | splitting a file, or adding one to a directory near twelve files | `docs/agents/file-and-directory-caps.md` |

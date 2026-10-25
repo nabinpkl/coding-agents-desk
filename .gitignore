@@ -126,10 +126,16 @@ graphify-out/
 #                        rules) at tag v2.0.16: `git -C .reference/opencode show
 #                        v2.0.16:<path>` reads that version from the latest clone.
 #   .reference/t3code    harness providers and process supervision on Effect.
+#   .reference/effect    Effect itself (MIT), the source of truth for its v4 API: the
+#                        `group-effect` skill looks APIs up here, never from memory.
+#   .reference/zalando-api-guidelines  Zalando's RESTful API Guidelines (CC BY 4.0),
+#                        every rule under its number, for the `group-api-design` skill.
 #
 # Recreate with:
 #   git clone https://github.com/anomalyco/opencode.git .reference/opencode
 #   git clone https://github.com/pingdotgg/t3code.git .reference/t3code
+#   git clone https://github.com/Effect-TS/effect.git .reference/effect
+#   git clone https://github.com/zalando/restful-api-guidelines.git .reference/zalando-api-guidelines
 # and bring them up to date with `git -C .reference/<name> pull`.
 .reference/
 

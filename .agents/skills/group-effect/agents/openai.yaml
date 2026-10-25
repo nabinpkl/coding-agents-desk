@@ -1,0 +1,4 @@
+interface:
+  display_name: "Group: Effect"
+  short_description: "Effect v4 standards for Group's server code"
+  default_prompt: "Use $group-effect when writing or reviewing Group's server code: look Effect APIs up in .reference/effect, shape services and errors as it says, and keep a request's lifetime apart from the room's."

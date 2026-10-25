@@ -1,0 +1,4 @@
+interface:
+  display_name: "Group: API design"
+  short_description: "Zalando-based API rules for Group's /api/group endpoints"
+  default_prompt: "Use $group-api-design when adding or changing a Group endpoint, payload, error or stream: define it contract-first in Effect's HttpApi and follow the Zalando rules it cites."

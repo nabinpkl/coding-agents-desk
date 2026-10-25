@@ -642,3 +642,7 @@ avoid.
   adopted by its lease and finishes. Invariant 4 now says a lane belongs to its lease and writes to
   files, and the failure table gained the graceful restart, the crash, and Effect changing the
   behaviour this rests on. Only U4 is open.
+- 2026-10-25: Group's standards set before its first line: `docs/agents/group.md` (routed from the
+  root `AGENTS.md`), the `group-effect` and `group-api-design` skills in `.agents/skills` (with
+  `.claude/skills` pointing there), the API after Zalando's RESTful API Guidelines. The existing
+  codebase is behaviour to port, never a precedent for departing from them.
