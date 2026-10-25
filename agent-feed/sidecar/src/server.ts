@@ -182,6 +182,8 @@ const opencodeBackend = new OpencodeAgentBackend({
   resolveSession: resolveOpencodeSession,
   onSessionCreated: registerOpencodeSession,
   onCatalogChanged: scheduleOpencodeReconcile,
+  // Every opencode session's turns, for announcing the ones that finish (`liveTurnFinished.ts`).
+  watchAllTurns: config.pushTurnFinished,
 });
 backends.register(opencodeBackend);
 // Read-only live mirror of Claude Code traffic observed through proxy-agent.
@@ -255,7 +257,7 @@ const routes: RouteHandler[] = [
   createSupervisorRoutes(),
   createTelemetryRoutes(sinkEnvelope),
   createPushRoutes({ path: config.webPushPath, subject: config.webPushSubject, send: sendPush }),
-  createSpeechRoutes(),
+  createSpeechRoutes({ bots: botStore }),
   createAudioForward(),
   createArenaRoutes(arenaService),
   createArenaCodeRoutes(arenaService, repositoryGitWatch, {

@@ -95,6 +95,16 @@ export interface BotRecord {
    */
   sessionAnchors?: Record<string, string>;
   /**
+   * The voice each session is announced in on Agent Radio, by `source:sessionId`: a name from the
+   * Mac's speech process, so a listener tells the sessions apart by ear.
+   *
+   * Given the first time the session is announced, from a pool shared by every Bot, and held only
+   * while the Bot holds the session on the canvas: one taken off it, or out of the Bot, frees its
+   * voice for the next session. The entry stays until its voice goes to another, so a session put
+   * back before then speaks as it did.
+   */
+  sessionVoices?: Record<string, string>;
+  /**
    * The agent log each session keeps, by `source:sessionId`: a path relative to the directory the
    * session works in, under `.agents/agents-log/` (ADR-0147). One log per session.
    *

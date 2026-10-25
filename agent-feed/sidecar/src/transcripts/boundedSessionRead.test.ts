@@ -346,13 +346,35 @@ test("turn state comes from the end of the session, not the start", async () => 
   ).toBe(false);
 });
 
-test("a tail with nothing to say about the turn says nothing", async () => {
+test("a tail with nothing to say about the turn is read back for the line that does, not far", async () => {
   const path = await transcript("c.jsonl", [
     userLine("go"),
     ...GAP,
     JSON.stringify({ type: "system", note: "no boundary here" }),
   ]);
-  expect((await claudeAdapter.readHeader(path))?.lastTurnClosed).toBeUndefined();
+  // The opening prompt is 100KB back: the turn it opened is still open.
+  expect((await claudeAdapter.readHeader(path))?.lastTurnClosed).toBe(false);
+  // Past the 256KB the read goes back, the turn is left unknown rather than read from the start.
+  const far = await transcript("c.jsonl", [userLine("go"), ...GAP, ...GAP, ...GAP, filler()]);
+  expect((await claudeAdapter.readHeader(far))?.lastTurnClosed).toBeUndefined();
+});
+
+test("a turn closed just before something larger than the tail window is still read as closed", async () => {
+  // Measured 2026-10-24: a 29KB attachment written after the closing reply put that reply 33KB
+  // from the end, the cut-off first line of the 32KB tail window.
+  const close = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "z".repeat(2048) }] },
+  });
+  // The window's 32KB start inside the 2KB reply, so the reply is the cut-off line it drops.
+  const path = await transcript("c.jsonl", [
+    userLine("go"),
+    ...GAP,
+    close,
+    JSON.stringify({ type: "attachment", attachment: "y".repeat(31 * 1024) }),
+    JSON.stringify({ type: "system", subtype: "turn_duration" }),
+  ]);
+  expect((await claudeAdapter.readHeader(path))?.lastTurnClosed).toBe(true);
 });
 
 // The claim that makes one rule safe to read from two places. If these ever

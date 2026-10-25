@@ -6,10 +6,13 @@ import {
   createSpeechQueue,
   lastAgentReply,
   replyOpening,
+  sayForSession,
+  sessionMessage,
   speakableReply,
   speakerName,
   spokenAnnouncement,
   type SpeechTone,
+  unheldSpeakerName,
   withoutReports,
 } from "@/push/sessionSpeech";
 
@@ -173,5 +176,82 @@ describe("a reply read out loud", () => {
     expect(withoutReports("<task-state>\ntask: x\n</task-state>\nIt works.\n<spoken-status>\ndone: y").trim()).toBe(
       "It works.",
     );
+  });
+});
+
+describe("voices", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("a session no Bot holds is named by its title, else by its folder", () => {
+    expect(unheldSpeakerName({ title: "Fix the  drawer\nmenus", project: "/x/agent-desk" })).toBe(
+      "Fix the drawer menus",
+    );
+    expect(unheldSpeakerName({ project: "/Users/me/projects/agent-desk" })).toBe("A session in agent-desk");
+  });
+
+  test("each message goes to the speech process in its own voice", async () => {
+    const voices: (string | null | undefined)[] = [];
+    const queue = createSpeechQueue(async (_text, _tone, _ref, voice) => {
+      voices.push(voice);
+      return { listeners: 1, durationMs: 1, cancelled: false };
+    });
+    await queue.enqueue("a", "one", null, false, "Easton");
+    await queue.enqueue("b", "two", null, false);
+    expect(voices).toEqual(["Easton", null]);
+  });
+
+  test("a voice the speech process does not know is said in the voice in use, not dropped", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body.voice) return Response.json({ error: { code: "unknown_voice" } }, { status: 400 });
+      return Response.json({ listeners: 1, durationMs: 900 });
+    }) as typeof fetch;
+    const queue = createSpeechQueue();
+    expect(await queue.enqueue("a", "Done.", "done", false, "Nobody")).toEqual({
+      said: true,
+      listeners: 1,
+      durationMs: 900,
+    });
+    expect(bodies).toEqual([
+      { text: "Done.", ref: "a", tone: "done", voice: "Nobody" },
+      { text: "Done.", ref: "a", tone: "done" },
+    ]);
+  });
+});
+
+describe("a session's own message", () => {
+  const session = { source: "claude" as const, sessionId: "s1", title: "Fix menus", project: "/p", lastEventAt: 0 };
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("is said as the Bot holding the session, else as the session, on a line of its own", () => {
+    const bot = { name: "Agent Desk", sessionAnchors: { "claude:s1": "Alan" } };
+    expect(sessionMessage(bot, session, "The **build** is `green`.")).toEqual({
+      key: "said:claude:s1",
+      speaker: "Agent Desk, Alan",
+      text: "Agent Desk, Alan. The build is green.",
+    });
+    expect(sessionMessage(null, session, "Done.")?.text).toBe("Fix menus. Done.");
+    expect(sessionMessage(null, session, "  **  ")).toBeNull();
+  });
+
+  test("goes to the speech process after the done tone, in the session's voice", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return Response.json({ listeners: 1, durationMs: 1200 });
+    }) as typeof fetch;
+    expect(await sayForSession(null, session, "Tests pass.", "Hadley")).toEqual({
+      outcome: { said: true, listeners: 1, durationMs: 1200 },
+      speaker: "Fix menus",
+    });
+    expect(bodies).toEqual([{ text: "Fix menus. Tests pass.", ref: "said:claude:s1", tone: "done", voice: "Hadley" }]);
   });
 });

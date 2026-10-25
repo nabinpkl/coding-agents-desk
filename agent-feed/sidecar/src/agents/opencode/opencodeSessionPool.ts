@@ -45,6 +45,12 @@ export interface OpencodePoolOptions {
   /** Overridden in tests so no serve has to run; defaults to this machine's. */
   client?: () => OpencodeClient | null;
   now?: () => number;
+  /**
+   * Keep the serve's event stream open for the life of the pool, not only while a thread is read:
+   * every session's turns are then the catalog's (`noteOpencodeRunState`), which is how a finished
+   * opencode turn is announced. One connection, and nothing is read for a session nobody opened.
+   */
+  watchAllTurns?: boolean;
 }
 
 export interface OwnedSession {
@@ -116,6 +122,7 @@ export class OpencodeSessionPool {
       },
       this.serve,
     );
+    if (options.watchAllTurns) this.events.setWanted(true);
     const idleMs = config.opencodeIdleMs;
     this.reaper = setInterval(() => void this.reapIdle(), Math.min(30_000, idleMs));
     this.reaper.unref?.();
@@ -242,7 +249,7 @@ export class OpencodeSessionPool {
       unsubscribe();
       owned.subscribers = Math.max(0, owned.subscribers - 1);
       owned.lastTouchedAt = this.now();
-      if (!this.hasSubscribers()) this.events.setWanted(false);
+      if (!this.hasSubscribers() && !this.options.watchAllTurns) this.events.setWanted(false);
     };
   }
 

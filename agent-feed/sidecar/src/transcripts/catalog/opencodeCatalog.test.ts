@@ -7,6 +7,9 @@ import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import { state } from "@/transcripts/transcriptState";
 import { sessionKey } from "@/transcripts/catalog/catalogState";
 import {
+  noteOpencodeReply,
+  noteOpencodeRunState,
+  opencodeLastReply,
   reconcileOpencode,
   registerOpencodeSession,
   resolveOpencodeSession,
@@ -74,4 +77,27 @@ test("a created session registers immediately and resolves for the backend", asy
 test("no password leaves the source empty rather than failing the catalog", async () => {
   await reconcileOpencode(null);
   expect([...state.sessions.keys()].filter((key) => key.startsWith("opencode:"))).toEqual([]);
+});
+
+test("a turn the serve reports is the record's, its block and reply too, and a reconcile keeps it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "opencode-catalog-"));
+  try {
+    await reconcileOpencode(fakeClient([serveSession("ses-t", root, 500)]));
+    const key = sessionKey("opencode", "ses-t");
+    noteOpencodeRunState("ses-t", "running");
+    expect(state.sessions.get(key)?.lastTurnClosed).toBe(false);
+    noteOpencodeReply("ses-t", "Done.\n\n<spoken-status>\ndone: the build is green\n</spoken-status>", 700);
+    noteOpencodeRunState("ses-t", "idle");
+    expect(state.sessions.get(key)?.lastTurnClosed).toBe(true);
+    expect(state.sessions.get(key)?.spokenStatus?.lines).toEqual([{ kind: "done", text: "the build is green" }]);
+    await reconcileOpencode(fakeClient([serveSession("ses-t", root, 800)]));
+    expect(state.sessions.get(key)?.lastTurnClosed).toBe(true);
+    expect(state.sessions.get(key)?.spokenStatus?.at).toBe(700);
+    // The next turn forgets what the last one said.
+    noteOpencodeRunState("ses-t", "running");
+    expect(state.sessions.get(key)?.spokenStatus).toBeUndefined();
+    expect(opencodeLastReply("ses-t")).toBeNull();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

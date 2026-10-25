@@ -402,6 +402,11 @@ export type {
   SpeechHereRequest,
   SpeechReadRequest,
   SpeechReadResponse,
+  SpeechSayRequest,
+  SpeechSayResponse,
+  SpeechTuning,
+  SpeechTuningNumber,
+  SpeechTuningState,
 } from "./audioChannel.ts";
 export {
   AUDIO_LEVEL_MAX,
@@ -416,5 +421,7 @@ export {
   SPEECH_READ_MAX_CHARS,
   SPEECH_READ_ROUTE,
   SPEECH_SAMPLE_RATE,
+  SPEECH_SAY_ROUTE,
   SPEECH_STOP_ROUTE,
+  SPEECH_TUNING_ROUTE,
 } from "./audioChannel.ts";

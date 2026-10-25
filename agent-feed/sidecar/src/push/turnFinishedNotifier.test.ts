@@ -52,7 +52,8 @@ function harness(bots: readonly BotRecord[] = [ALPHA], mayPush = true, saved: St
       return Promise.resolve();
     },
     announce: (curator, finished, occasion) => {
-      announced.push(`${curator.name}:${finished.sessionId}:${occasion}`);
+      // A session no Bot holds is announced as itself.
+      announced.push(`${curator?.name ?? "itself"}:${finished.sessionId}:${occasion}`);
       return Promise.resolve();
     },
     mayPush: () => mayPush,
@@ -243,11 +244,21 @@ describe("turn-finished notifier", () => {
   });
 
   test("a session first seen already closed was discovered, not finished", async () => {
-    const { emit, elapse, pushed } = harness();
+    const { emit, elapse, pushed, announced } = harness();
     emit(session("other", false));
     emit(session("other", false), session("s1", true));
     await elapse();
     expect(pushed).toEqual([]);
+    expect(announced).toEqual([]);
+  });
+
+  test("a new session whose first turn closed just now finished it, though it was never seen open", async () => {
+    const { emit, elapse, pushed, announced } = harness();
+    emit(session("other", false));
+    emit(session("other", false), session("s1", true, { lastEventAt: NOW - 5_000 }));
+    await elapse();
+    expect(announced).toEqual(["Alpha:s1:finished"]);
+    expect(pushed).toHaveLength(1);
   });
 
   test("a tail that says nothing about the turn keeps the state it had", async () => {
@@ -270,7 +281,7 @@ describe("turn-finished notifier", () => {
     expect(pushed.map((payload) => payload.tag)).toEqual(["turn:claude:s1:1", "turn:claude:s1:3"]);
   });
 
-  test("only Claude sessions a Bot holds on the canvas push", async () => {
+  test("only sessions a Bot holds on the canvas push, and every one is said", async () => {
     const bots = [
       bot({ name: "Off", offCanvas: true, sessionRefs: [{ source: "claude", sessionId: "s2" }] }),
       bot({
@@ -282,12 +293,32 @@ describe("turn-finished notifier", () => {
         offCanvasSessionRefs: [{ source: "claude", sessionId: "s4" }],
       }),
     ];
-    const { emit, elapse, pushed } = harness(bots);
+    const { emit, elapse, pushed, announced } = harness(bots);
     const ids = ["s2", "s3", "s4", "loose"];
     emit(...ids.map((id) => session(id, false)), session("op", false, { source: "opencode" }));
     emit(...ids.map((id) => session(id, true)), session("op", true, { source: "opencode" }));
     await elapse();
     expect(pushed.map((payload) => payload.tag)).toEqual(["turn:claude:s3:0"]);
+    expect(announced.sort()).toEqual([
+      "Partly:s3:finished",
+      "itself:loose:finished",
+      "itself:op:finished",
+      "itself:s2:finished",
+      "itself:s4:finished",
+    ]);
+  });
+
+  test("a security review is never heard, and a question from a session no Bot holds is said, not pushed", async () => {
+    const { emit, elapse, pushed, announced } = harness([]);
+    const review = { entrypoint: "sdk-py", firstPrompt: "Review this change for security vulnerabilities. Diff:" };
+    const asking = {
+      spokenStatus: { from: "question" as const, at: 5, lines: [{ kind: "waiting" as const, text: "Which?" }] },
+    };
+    emit(session("review", false, review), session("loose", false));
+    emit(session("review", true, review), session("loose", false, asking));
+    await elapse();
+    expect(announced).toEqual(["itself:loose:question"]);
+    expect(pushed).toEqual([]);
   });
 
   test("a process that does not hold the sender lease pushes nothing", async () => {

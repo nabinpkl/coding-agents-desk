@@ -12,8 +12,10 @@
 // with no seam (`noiseBed.ts`). `POST /api/audio/mix` changes either, read here every tick.
 //
 // Paced rather than sent as fast as it is read, so what the phone plays is what was said a moment
-// ago, not something it buffered minutes earlier. Silence is sent as real frames, not nothing: a
-// stream that sends nothing is one a player gives up on.
+// ago, not something it buffered minutes earlier. A message is paced too, frame by frame like the
+// noise: sent whole, it arrived as seconds of audio at once, which a player that keeps itself close
+// to the newest audio reads as having fallen behind, and skips. Silence is sent as real frames, not
+// nothing: a stream that sends nothing is one a player gives up on.
 
 import { AUDIO_STREAM_ROUTE, type AudioMix } from "@agentdesk/agent-feed-wire";
 import type { AdtsFrame } from "@/audio/adtsFrames";
@@ -42,11 +44,11 @@ const LEAD_MS = 6_000;
 const TICK_MS = 250;
 
 /**
- * How far past the next frame to send a message is spliced in, about 0.7s: room for mixing and
- * encoding it (a few hundred milliseconds) before the stream reaches it. If it is not ready by
- * then the stream waits for it, which the lead covers.
+ * How far past the next frame to send a message is spliced in, about 0.19s: room for mixing and
+ * encoding it before the stream reaches it, and every frame of it is added to a message's delay.
+ * If it is not ready by then the stream waits for it, which the lead covers.
  */
-const SPLICE_AHEAD_FRAMES = 16;
+const SPLICE_AHEAD_FRAMES = 4;
 
 /** A device id as the panel makes one (a UUID), or anything as plain. */
 const LISTENER_ID = /^[A-Za-z0-9-]{1,64}$/;
@@ -83,6 +85,8 @@ function pacedStream(listener: string, mix: AudioMix, label: string, stopped: Ab
   // Messages waiting their turn, oldest first, and the one being mixed in.
   const waiting: Int16Array[] = [];
   let splice: Splice | null = null;
+  // The message going out now, a frame at a time, and the next of its frames to send.
+  let speaking: { frames: AdtsFrame[]; next: number } | null = null;
   const unlisten = channel.listen(listener, mix, (speech) => waiting.push(speech));
   let finished = false;
   const finish = (how: string) => {
@@ -126,13 +130,23 @@ function pacedStream(listener: string, mix: AudioMix, label: string, stopped: Ab
         clockMs += frame.durationMs;
       };
       while (clockMs <= dueMs) {
+        if (speaking) {
+          const frame = speaking.frames[speaking.next];
+          if (!frame) throw new Error("a message with no frame where one was due");
+          append(frame);
+          bedFrame += 1;
+          speaking.next += 1;
+          if (speaking.next === speaking.frames.length) {
+            speaking = null;
+            spoken += 1;
+          }
+          continue;
+        }
         startSplice(bed);
         if (splice && splice.atFrame === bedFrame) {
           const frames = await splice.frames;
-          frames.forEach(append);
-          bedFrame += frames.length;
           splice = null;
-          spoken += 1;
+          if (frames.length > 0) speaking = { frames, next: 0 };
           continue;
         }
         const frame = bed.frames[bedFrame % bed.frames.length];

@@ -1,9 +1,11 @@
-// A push when a Claude session in a Bot finishes its turn.
+// A push when a session in a Bot finishes its turn, and the same moment said on the Mac's audio
+// channel for every session.
 //
-// The signal is the catalog's, not a live connection's: the catalog watches every Claude transcript
-// all the time and keeps `lastTurnClosed` for each session (an assistant record ending on
-// `end_turn` closes the turn, a user record opens it). The SDK client and the live sources connect
-// only while a panel is looking, which is exactly when a notification is not needed.
+// The signal is the catalog's, not a live connection's: the catalog keeps `lastTurnClosed` for each
+// session all the time, from every Claude transcript (an assistant record ending on `end_turn` closes
+// the turn, a user record opens it) and from the opencode serve's event stream (`opencodeCatalog`).
+// The SDK client and the live sources connect only while a panel is looking, which is exactly when a
+// notification is not needed.
 //
 // The rules, each for a reason:
 // - The first catalog snapshot only records where every session stands. A restart (every save
@@ -19,13 +21,16 @@
 //   and that turn notifies too.
 // - Each turn has its own tag, the session's plus the time the turn closed. One session finishes
 //   many tasks, and a notification that shares a tag with one still showing replaces it silently.
-// - Only sessions a Bot holds on the canvas, and Father sessions. This machine runs many sessions
-//   nobody curated (probes, workers, the security-review plugin's), and they would bury these.
+// - Pushed only for sessions a Bot holds on the canvas, and Father sessions. This machine runs many
+//   sessions nobody curated (probes, workers), and a phone buzzing for each would bury these.
 //
 // The same moment is also announced (`announce`): the session's spoken status said on the Mac's
 // audio channel (`sessionSpeech.ts`), at once rather than after the window, because a listener is
 // there to hear the turn end as it ends, and a turn that carries on simply says something more.
-// Each goes out whether or not the other one fails.
+// Each goes out whether or not the other one fails. Announced for every session heard from
+// (`heardFrom`), on the owner's word (2026-10-24): a session outside any Bot is announced as itself,
+// in the voice in use, where a Bot's session has a voice of its own (`sessionVoices.ts`). Only the
+// security reviewer's sessions are never heard.
 //
 // Two more moments, for the same sessions:
 // - A question the session asks through a tool and waits on (its spoken status turns `question`).
@@ -39,6 +44,7 @@ import type { BotRecord } from "@agentdesk/agent-feed-wire";
 import type { PushPayload } from "@/push/pushSender";
 import type { SpeechOccasion } from "@/push/sessionSpeech";
 import type { ReminderStore } from "@/push/speechReminders";
+import { sessionAutomation } from "@/transcripts/catalog/sessionAutomation";
 import type { Session } from "@/transcripts/transcriptTypes";
 
 export type TurnFinishedSources = {
@@ -46,8 +52,11 @@ export type TurnFinishedSources = {
   subscribe: (listener: (sessions: readonly Session[]) => void) => () => void;
   bots: () => Promise<readonly BotRecord[]>;
   push: (payload: PushPayload) => Promise<void>;
-  /** Says what the session has to say on `occasion` to whoever listens on the audio channel. */
-  announce: (bot: BotRecord, session: Session, occasion: SpeechOccasion) => Promise<void>;
+  /**
+   * Says what the session has to say on `occasion` to whoever listens on the audio channel, as the
+   * Bot that holds it on the canvas, or as itself when none does (`bot` null).
+   */
+  announce: (bot: BotRecord | null, session: Session, occasion: SpeechOccasion) => Promise<void>;
   /** Whether this process is the one that sends (`pushSenderLease.ts`). */
   mayPush: () => boolean;
   /** Runs `work` after `ms` unless the returned cancel runs first. `work` settles when its push has. */
@@ -64,19 +73,35 @@ export type TurnFinishedSources = {
 
 const BODY_LIMIT = 140;
 
+/** How recently a session first listed already closed must have moved to count as having finished. */
+const FIRST_TURN_WINDOW_MS = 60_000;
+
 function sessionKey(session: Pick<Session, "source" | "sessionId">): string {
   return `${session.source}:${session.sessionId}`;
 }
 
+/** The sessions a Bot holds on the canvas, and its Father session: the ones heard as this Bot's. */
+export function curatedKeys(bot: BotRecord): Set<string> {
+  const keys = new Set<string>();
+  if (bot.fatherSession) keys.add(sessionKey(bot.fatherSession));
+  if (bot.offCanvas) return keys;
+  const off = new Set((bot.offCanvasSessionRefs ?? []).map(sessionKey));
+  for (const ref of bot.sessionRefs) if (!off.has(sessionKey(ref))) keys.add(sessionKey(ref));
+  return keys;
+}
+
 /** The Bot that holds this session on the canvas, or as its Father; null when none does. */
 export function curatingBot(bots: readonly BotRecord[], key: string): BotRecord | null {
-  for (const bot of bots) {
-    if (bot.fatherSession && sessionKey(bot.fatherSession) === key) return bot;
-    if (bot.offCanvas) continue;
-    if ((bot.offCanvasSessionRefs ?? []).some((ref) => sessionKey(ref) === key)) continue;
-    if (bot.sessionRefs.some((ref) => sessionKey(ref) === key)) return bot;
-  }
-  return null;
+  return bots.find((bot) => curatedKeys(bot).has(key)) ?? null;
+}
+
+/**
+ * Whether a session is heard from at all: every Claude and opencode session but the ones a tool
+ * starts on its own. The security reviewer is most of this machine's sessions (`sessionAutomation`),
+ * and a review of every commit announced would bury what a person is waiting to hear.
+ */
+export function heardFrom(session: Session): boolean {
+  return (session.source === "claude" || session.source === "opencode") && sessionAutomation(session) === undefined;
 }
 
 /** A status line as a notification shows it: the kind, then what the session wrote. */
@@ -147,7 +172,7 @@ export function startTurnFinishedNotifier(sources: TurnFinishedSources): () => v
   /** Pushes and says, each whether or not the other fails; the push's failure is the one thrown. */
   const deliver = async (
     key: string,
-    bot: BotRecord,
+    bot: BotRecord | null,
     session: Session,
     occasion: SpeechOccasion,
     payload: PushPayload | null,
@@ -184,8 +209,7 @@ export function startTurnFinishedNotifier(sources: TurnFinishedSources): () => v
         // Only the same wait, still standing: a new turn, an answer or a newer status ended it.
         if (!session || status?.at !== at || !needsPerson(status) || !sources.mayPush()) return;
         if (status.from === "block" && closed?.get(key) !== true) return;
-        const bot = curatingBot(await sources.bots(), key);
-        if (bot) await deliver(key, bot, session, "reminder", null);
+        await deliver(key, curatingBot(await sources.bots(), key), session, "reminder", null);
       },
       Math.max(0, due - sources.now()),
     );
@@ -196,7 +220,6 @@ export function startTurnFinishedNotifier(sources: TurnFinishedSources): () => v
   const announceFinished = async (key: string, session: Session): Promise<void> => {
     if (!sources.mayPush()) return;
     const bot = curatingBot(await sources.bots(), key);
-    if (!bot) return;
     try {
       await sources.announce(bot, session, "finished");
     } catch (error) {
@@ -223,8 +246,7 @@ export function startTurnFinishedNotifier(sources: TurnFinishedSources): () => v
     if (!session || session.spokenStatus?.from !== "question" || session.spokenStatus.at !== at || !sources.mayPush())
       return;
     const bot = curatingBot(await sources.bots(), key);
-    if (!bot) return;
-    await deliver(key, bot, session, "question", questionPayload(bot, session));
+    await deliver(key, bot, session, "question", bot ? questionPayload(bot, session) : null);
   };
 
   /** Announces a question once it has stood for the quiet window, unless it was answered first. */
@@ -255,7 +277,7 @@ export function startTurnFinishedNotifier(sources: TurnFinishedSources): () => v
     const now = new Map<string, boolean>();
     latest = new Map();
     for (const session of sessions) {
-      if (session.source !== "claude") continue;
+      if (!heardFrom(session)) continue;
       const key = sessionKey(session);
       latest.set(key, session);
       watchQuestion(key, session, !before);
@@ -269,7 +291,11 @@ export function startTurnFinishedNotifier(sources: TurnFinishedSources): () => v
         waiting.delete(key);
         continue;
       }
-      if (before.get(key) !== false || waiting.has(key)) continue;
+      // A session new since the last snapshot whose turn has just closed finished it: a fresh chat
+      // can open and close its first turn before the catalog first lists it. One that last moved
+      // longer ago than that was discovered, not finished.
+      const firstTurnJustClosed = !before.has(key) && sources.now() - session.lastEventAt < FIRST_TURN_WINDOW_MS;
+      if ((before.get(key) !== false && !firstTurnJustClosed) || waiting.has(key)) continue;
       void announceFinished(key, session).catch((error: unknown) => {
         console.error(`[speech] finished speech for ${key} failed`, error);
       });

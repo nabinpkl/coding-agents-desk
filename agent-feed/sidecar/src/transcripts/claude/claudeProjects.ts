@@ -11,6 +11,7 @@ import type { Header, LastSelection } from "@/transcripts/transcriptTypes";
 import { turnClosedFor } from "@/transcripts/claude/claudePayloads";
 import { currentTitles, titlesOf, type Titles } from "@/transcripts/claude/claudeTitles";
 import { currentReports } from "@/transcripts/claude/claudeTaskState";
+import { linesBefore } from "@/transcripts/transcript-reads/transcriptLines";
 
 const HEADER_EDGE_BYTES = 32 * 1024;
 /**
@@ -377,6 +378,14 @@ export async function readHeader(filePath: string): Promise<Header | null> {
       out.cwd = opening?.cwd;
       out.entrypoint ??= opening?.entrypoint;
     }
+    // The tail says nothing about the turn when what was written after the turn outruns the window:
+    // a 29KB attachment after a session's closing reply (measured 2026-10-24) put that reply 33KB
+    // from the end, where it is the cut-off first line the window drops, and the session read as
+    // having no turn state at all -- never announced, never shown finished. Read back from the
+    // window's start for the newest line that does say, and no further than that.
+    if (out.lastTurnClosed === undefined && tailFrom > 0) {
+      out.lastTurnClosed = await turnStateBefore(filePath, tailFrom);
+    }
     out.entrypoint ??= tailEntrypoint;
     out.lastEntrypoint = lastEntrypoint ?? out.entrypoint;
     if (Object.keys(lastSelection).length > 0) out.lastSelection = lastSelection;
@@ -396,6 +405,28 @@ export async function readHeader(filePath: string): Promise<Header | null> {
   } finally {
     await fh.close();
   }
+}
+
+/** How far back from the tail window a turn's state is looked for before it is left unknown. */
+const TURN_STATE_SCAN_BYTES = 256 * 1024;
+
+/** The turn state of the newest line before `end` that has one, within `TURN_STATE_SCAN_BYTES`. */
+async function turnStateBefore(filePath: string, end: number): Promise<boolean | undefined> {
+  let found: boolean | undefined;
+  let read = 0;
+  await linesBefore(filePath, end, (line) => {
+    read += line.text.length + 1;
+    try {
+      const parsed: unknown = JSON.parse(line.text);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        found = turnClosedFor(parsed as Record<string, unknown>);
+      }
+    } catch {
+      // A line that is not a record says nothing about the turn; the one before it may.
+    }
+    return found === undefined && read < TURN_STATE_SCAN_BYTES;
+  });
+  return found;
 }
 
 export function filePathToSessionId(p: string): string | null {

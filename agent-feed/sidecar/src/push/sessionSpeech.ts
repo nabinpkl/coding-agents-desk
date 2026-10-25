@@ -15,6 +15,7 @@
 
 import { AUDIO_SPEAK_MAX_CHARS, SPEECH_READ_MAX_CHARS, type BotRecord } from "@agentdesk/agent-feed-wire";
 import { speechPort } from "@/audio/audioConfig";
+import { opencodeLastReply } from "@/transcripts/catalog/opencodeCatalog";
 import { normalizedLine } from "@/transcripts/claude/claudeNormalize";
 import { isHumanTurnStart } from "@/transcripts/humanTurns";
 import type { SessionSpokenStatus, SpokenStatusKind } from "@/transcripts/spokenStatus";
@@ -111,6 +112,11 @@ export function needsAttention(status: SessionSpokenStatus | undefined): boolean
   return status?.lines.some((line) => line.kind === "waiting" || line.kind === "failed") ?? false;
 }
 
+/** A speaker's name as it opens a message: a sentence of its own, so a pause follows it. */
+function spokenName(speaker: string): string {
+  return `${speaker.replace(/[.!?\s]+$/, "")}.`;
+}
+
 /** What `speaker` says, for a session with this status (or, with none, this reply), on this occasion. */
 export function spokenAnnouncement(
   speaker: string,
@@ -118,7 +124,7 @@ export function spokenAnnouncement(
   status: SessionSpokenStatus | undefined,
   reply: string | null,
 ): string | null {
-  const name = `${speaker.replace(/[.!?\s]+$/, "")}.`;
+  const name = spokenName(speaker);
   if (occasion === "question" || occasion === "reminder") {
     const waiting = status?.lines.filter((line) => line.kind === "waiting") ?? [];
     if (waiting.length === 0) return null;
@@ -150,21 +156,43 @@ type Announcement = {
   text: string;
   tone: SpeechTone | null;
   urgent: boolean;
+  /** The voice to say it in, or null for the voice in use (`sessionVoices.ts`). */
+  voice: string | null;
   settle: (outcome: SpeechOutcome) => void;
 };
 
 /**
  * Sends one message to the speech process, named by `ref` (its key in the queue) so it can be
- * cancelled by that name; nobody listening is an answer, not a failure.
+ * cancelled by that name, in `voice` when one is named; nobody listening is an answer, not a failure.
  */
-export type SpeechSay = (text: string, tone: SpeechTone | null, ref: string) => Promise<SpeechHeard>;
+export type SpeechSay = (
+  text: string,
+  tone: SpeechTone | null,
+  ref: string,
+  voice?: string | null,
+) => Promise<SpeechHeard>;
 
-async function sayOnMac(text: string, tone: SpeechTone | null, ref: string): Promise<SpeechHeard> {
+async function sayOnMac(
+  text: string,
+  tone: SpeechTone | null,
+  ref: string,
+  voice?: string | null,
+): Promise<SpeechHeard> {
   const response = await fetch(`http://127.0.0.1:${speechPort()}/say`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(tone ? { text, tone, ref } : { text, ref }),
+    body: JSON.stringify({ text, ref, ...(tone ? { tone } : {}), ...(voice ? { voice } : {}) }),
   });
+  if (response.status === 400 && voice) {
+    const code = ((await response.json().catch(() => null)) as { error?: { code?: string } } | null)?.error?.code;
+    if (code === "unknown_voice") {
+      // A voice given out before the speech process stopped listing it: said in the voice in use
+      // rather than not at all, and said here so the pool can be put right.
+      console.error(`[speech] the speech process has no voice ${JSON.stringify(voice)}; saying it in the voice in use`);
+      return sayOnMac(text, tone, ref, null);
+    }
+    throw new Error(`the speech process answered 400 (${code ?? "no code"})`);
+  }
   if (response.status === 409) {
     console.log(`[speech] nobody listening, not said: ${JSON.stringify(text.slice(0, 60))}`);
     return null;
@@ -200,7 +228,7 @@ export function createSpeechQueue(say: SpeechSay = sayOnMac) {
   async function drain(): Promise<void> {
     for (let next = queue.shift(); next; next = queue.shift()) {
       try {
-        const heard = await say(next.text, next.tone, next.key);
+        const heard = await say(next.text, next.tone, next.key, next.voice);
         if (!heard) next.settle({ said: false, why: "nobody-listening" });
         else if (heard.cancelled) next.settle({ said: false, why: "stopped" });
         else next.settle({ said: true, listeners: heard.listeners, durationMs: heard.durationMs });
@@ -213,12 +241,21 @@ export function createSpeechQueue(say: SpeechSay = sayOnMac) {
   }
 
   return {
-    /** Queues `text` from `key` (a Bot), replacing anything it queued that has not gone yet. */
-    enqueue(key: string, text: string, tone: SpeechTone | null, urgent: boolean): Promise<SpeechOutcome> {
+    /**
+     * Queues `text` from `key` (a Bot, or a session no Bot holds) in `voice`, replacing anything it
+     * queued that has not gone yet.
+     */
+    enqueue(
+      key: string,
+      text: string,
+      tone: SpeechTone | null,
+      urgent: boolean,
+      voice: string | null = null,
+    ): Promise<SpeechOutcome> {
       return new Promise((settle) => {
         const stale = queue.findIndex((item) => item.key === key);
         if (stale !== -1) queue.splice(stale, 1)[0]?.settle({ said: false, why: "replaced" });
-        const item = { key, text, tone, urgent, settle };
+        const item = { key, text, tone, urgent, voice, settle };
         const firstCalm = queue.findIndex((queued) => !queued.urgent);
         if (urgent && firstCalm !== -1) queue.splice(firstCalm, 0, item);
         else queue.push(item);
@@ -248,20 +285,79 @@ export function speakerName(bot: Pick<BotRecord, "name" | "sessionAnchors">, ses
   return anchor ? `${botName}, ${anchor}` : botName;
 }
 
-/** Says what `session` has to say on `occasion`, through the one queue. */
-export async function speakSession(bot: BotRecord, session: Session, occasion: SpeechOccasion): Promise<void> {
+/**
+ * Who is speaking for a session no Bot holds: its title, else the folder it works in, since the
+ * listener knows a session by what the panel lists it as.
+ */
+export function unheldSpeakerName(session: Pick<Session, "title" | "project">): string {
+  const title = (session.title ?? "").replace(/\s+/g, " ").trim();
+  if (title) return title;
+  const folder = session.project.split("/").filter(Boolean).pop();
+  return folder ? `A session in ${folder}` : "A session";
+}
+
+/** What a session's latest turn ended on, for a turn that wrote no block. */
+async function latestReply(session: Session): Promise<string | null> {
+  if (session.transcriptPath) return lastAgentReply(session.transcriptPath);
+  return session.source === "opencode" ? opencodeLastReply(session.sessionId) : null;
+}
+
+/**
+ * Says what `session` has to say on `occasion`, through the one queue: as the Bot that holds it on
+ * the canvas, in `voice` (`sessionVoices.ts`), or as itself when no Bot does (`bot` null). Null
+ * `voice` is the voice in use.
+ */
+export async function speakSession(
+  bot: BotRecord | null,
+  session: Session,
+  occasion: SpeechOccasion,
+  voice: string | null = null,
+): Promise<void> {
   const status = session.spokenStatus;
-  const reply =
-    occasion === "finished" && status?.from !== "block" && session.transcriptPath
-      ? await lastAgentReply(session.transcriptPath)
-      : null;
-  const text = spokenAnnouncement(speakerName(bot, session), occasion, status, reply);
+  const reply = occasion === "finished" && status?.from !== "block" ? await latestReply(session) : null;
+  const speaker = bot ? speakerName(bot, session) : unheldSpeakerName(session);
+  const text = spokenAnnouncement(speaker, occasion, status, reply);
   if (!text) {
-    console.log(`[speech] ${bot.name}: nothing to say for ${occasion}`);
+    console.log(`[speech] ${speaker}: nothing to say for ${occasion}`);
     return;
   }
   const urgent = occasion !== "finished" || needsAttention(status);
-  await speechQueue.enqueue(bot.botId, text, urgent ? "attention" : "done", urgent);
+  // One message waiting per Bot, and per session for one no Bot holds.
+  const key = bot ? bot.botId : `${session.source}:${session.sessionId}`;
+  await speechQueue.enqueue(key, text, urgent ? "attention" : "done", urgent, voice);
+}
+
+/**
+ * What a session's own message to the listener is said as, and its place in the queue: its own key,
+ * beside the session's announcements, so neither replaces the other, while its next message replaces
+ * it if it has not gone yet. Null when nothing in `text` can be said.
+ */
+export function sessionMessage(
+  bot: Pick<BotRecord, "name" | "sessionAnchors"> | null,
+  session: Session,
+  text: string,
+): { key: string; speaker: string; text: string } | null {
+  const words = speakableReply(text);
+  if (!words) return null;
+  const speaker = bot ? speakerName(bot, session) : unheldSpeakerName(session);
+  return { key: `said:${session.source}:${session.sessionId}`, speaker, text: `${spokenName(speaker)} ${words}` };
+}
+
+/**
+ * Says `text`, which a session wrote for whoever is listening (`tools/agent-radio-say.sh`), as that
+ * session: named as its announcements are, in `voice`, after the "done" tone and behind anything that
+ * needs the person. Null when nothing in it can be said.
+ */
+export async function sayForSession(
+  bot: BotRecord | null,
+  session: Session,
+  text: string,
+  voice: string | null,
+): Promise<{ outcome: SpeechOutcome; speaker: string } | null> {
+  const message = sessionMessage(bot, session, text);
+  if (!message) return null;
+  const outcome = await speechQueue.enqueue(message.key, message.text, "done", false, voice);
+  return { outcome, speaker: message.speaker };
 }
 
 /** A reply as it is read out loud, on Agent Radio or on the device that asked: empty when nothing can be said. */

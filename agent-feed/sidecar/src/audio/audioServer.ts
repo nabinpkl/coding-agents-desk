@@ -12,6 +12,7 @@
 
 import { AUDIO_HOST, audioPort } from "@/audio/audioConfig";
 import { createAudioRoutes } from "@/audio/audioStream";
+import { createRtcTestRoutes } from "@/audio/rtcAudioTest";
 import { createSpeechPushExperimentRoutes } from "@/audio/speechPushExperiment";
 import { errorResponse } from "@/http/protocol/httpResponses";
 import { refuseForeignRequest } from "@/http/protocol/requestGuard";
@@ -20,10 +21,13 @@ import { refuseForeignRequest } from "@/http/protocol/requestGuard";
 const ALLOWED_HOSTS = new Set([AUDIO_HOST, "localhost"]);
 
 const audioRoutes = createAudioRoutes();
-// Ahead of the channel's routes: while it runs, the experiment answers `/api/audio/speak`.
+// Ahead of the channel's routes: while it runs, the experiment answers `/api/audio/speak` and `/api/audio/listeners`.
 const speechPushRoutes = createSpeechPushExperimentRoutes();
+const rtcTestRoutes = createRtcTestRoutes();
 const routes: typeof audioRoutes = (request, url, bunServer) =>
-  speechPushRoutes(request, url, bunServer) ?? audioRoutes(request, url, bunServer);
+  speechPushRoutes(request, url, bunServer) ??
+  rtcTestRoutes(request, url, bunServer) ??
+  audioRoutes(request, url, bunServer);
 
 const server = Bun.serve<undefined>({
   hostname: AUDIO_HOST,

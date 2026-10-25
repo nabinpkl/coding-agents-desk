@@ -65,7 +65,10 @@ export type AudioSpeakResponse = { listeners: number; durationMs: number };
 /**
  * `GET /api/audio/listeners`: how many audio streams are open now, so an agent can ask before it
  * forwards anything. A stream counts from the moment it connects until it is dropped: a paused
- * player has dropped it, and so has one whose page noticed it was interrupted.
+ * player has dropped it, and so has one whose page noticed it was interrupted. While the push
+ * experiment is checked in (`agent-feed/sidecar/src/audio/speechPushExperiment.ts`) it counts the
+ * pages listening to the Mac's speech process instead, which is where `AUDIO_SPEAK_ROUTE` then
+ * sends a message; such a page counts while its stream is open, paused or not.
  */
 export const AUDIO_LISTENERS_ROUTE = "/api/audio/listeners";
 
@@ -93,6 +96,23 @@ export type SpeechReadRequest = { text: string };
 export type SpeechReadResponse = { listeners: number; durationMs: number };
 
 /**
+ * `POST /api/speech/say`: something short a session tells whoever listens on Agent Radio, said as
+ * that session: named the way its announcements are, in the voice its Bot gave it, after the "done"
+ * tone, in line with the announcements and behind any that needs the person. `session` is
+ * `<source>:<session id>`; `tools/agent-radio-say.sh` sends the calling session's own. Answers once
+ * it is said. At most `AUDIO_SPEAK_MAX_CHARS`, refused past that (413 `message_too_long`) rather than
+ * cut. 409 `nobody_listening` with no page listening, and nothing is made; 409 `replaced` when the
+ * session's next message took its place before it went, `stopped` when it was cancelled part way;
+ * 404 `unknown_session`; 422 `nothing_to_say`.
+ */
+export const SPEECH_SAY_ROUTE = "/api/speech/say";
+
+export type SpeechSayRequest = { session: string; text: string };
+
+/** Who it was said as, and in which voice: null for the voice in use, which a session outside a Bot speaks in. */
+export type SpeechSayResponse = SpeechReadResponse & { speaker: string; voice: string | null };
+
+/**
  * `POST /api/speech/here`: a reply made into speech on this Mac and handed back to the page that
  * asked, to play on its own device rather than to Agent Radio's listeners. Made speakable and cut
  * as `SPEECH_READ_ROUTE` does, outside its line, so it neither waits behind nor stops what is being
@@ -110,3 +130,42 @@ export const SPEECH_SAMPLE_RATE = 24_000;
 
 /** `ref` is the page's own name for this playback, so it can stop it: letters, digits and dashes. */
 export type SpeechHereRequest = { text: string; ref: string };
+
+/**
+ * `GET /api/speech/tuning` -> `SpeechTuningState`; `POST` <- some of `SpeechTuning` -> the same.
+ * How the Mac's speech process treats speech before it is sent, so it is heard loud and clear over
+ * the page's noise: each voice brought to one level, the tone shaped, quiet syllables lifted by a
+ * compressor and peaks held under a limiter. The speech process keeps the settings, on disk, and
+ * owns their ranges; each frame reads them as they are, so a change is heard in the message already
+ * playing. A number past its range is held to it; anything else it does not know is refused, 400
+ * `invalid_tuning`. 502 `speech_unreachable` when the speech process is not answering.
+ */
+export const SPEECH_TUNING_ROUTE = "/api/speech/tuning";
+
+export type SpeechTuning = {
+  /** Whether speech is processed at all. */
+  on: boolean;
+  /** Each voice brought to one speech level first, from its measured level. */
+  evenLevels: boolean;
+  /** The gain put back after the compressor. */
+  loudnessDb: number;
+  /** Where the compressor starts turning speech down. */
+  thresholdDb: number;
+  /** How hard it turns speech down past the threshold. */
+  ratio: number;
+  /** How fast it lets go: fast lifts each quiet syllable, slow acts on whole phrases. */
+  releaseMs: number;
+  /** Below this the boom is cut. */
+  boomCutHz: number;
+  /** The dip around 300 Hz, where a voice turns muddy. */
+  mudDb: number;
+  /** The lift around 3 kHz, where consonants are. */
+  presenceDb: number;
+};
+
+export type SpeechTuningNumber = Exclude<keyof SpeechTuning, "on" | "evenLevels">;
+
+export type SpeechTuningState = {
+  tuning: SpeechTuning;
+  ranges: Record<SpeechTuningNumber, { min: number; max: number; step: number }>;
+};

@@ -5,12 +5,19 @@
 //
 // While it runs it takes over `POST /api/audio/speak`: an agent's message goes to the speech process
 // (`agent-feed/speech/speech_server.py`) and on to every page listening there, not to Agent Radio's
-// AAC stream. The sidecar's own speech (`push/sessionSpeech.ts`) already goes to the speech process.
+// AAC stream. And `GET /api/audio/listeners` with it, so an agent that asks first is told about the
+// pages its message would reach. The sidecar's own speech (`push/sessionSpeech.ts`) already goes to
+// the speech process.
 
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AUDIO_SPEAK_MAX_CHARS, AUDIO_SPEAK_ROUTE } from "@agentdesk/agent-feed-wire";
+import {
+  AUDIO_LISTENERS_ROUTE,
+  AUDIO_SPEAK_MAX_CHARS,
+  AUDIO_SPEAK_ROUTE,
+  type AudioListenersResponse,
+} from "@agentdesk/agent-feed-wire";
 import { speakableText } from "@/audio/audioChannel";
 import { speechPort } from "@/audio/audioConfig";
 import { errorResponse, jsonResponse } from "@/http/protocol/httpResponses";
@@ -102,6 +109,25 @@ async function speakOnPush(request: Request): Promise<Response> {
   const body = await answer.text();
   console.log(`[audio] speak on push ${JSON.stringify(text.slice(0, 60))}: ${answer.status} ${body.slice(0, 120)}`);
   return new Response(body, { status: answer.status, headers: { "content-type": "application/json" } });
+}
+
+/**
+ * `GET /api/audio/listeners`, taken over with speak: how many pages listen to the speech process,
+ * answered in Agent Radio's shape, `{ listeners }`.
+ */
+async function listenersOnPush(): Promise<Response> {
+  let answer: Response;
+  try {
+    answer = await fetch(`${SPEECH_SERVER}listeners`);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return errorResponse("speech_unreachable", `the speech process at ${SPEECH_SERVER} did not answer: ${reason}`, 502);
+  }
+  const body = (await answer.json().catch(() => null)) as { listeners?: unknown } | null;
+  if (!answer.ok || typeof body?.listeners !== "number") {
+    return errorResponse("speech_failed", `the speech process answered ${answer.status} with no count`, 502);
+  }
+  return jsonResponse({ listeners: body.listeners } satisfies AudioListenersResponse);
 }
 
 /**
@@ -362,6 +388,7 @@ function micRecordingRoutes(request: Request, url: URL): Promise<Response> | und
 export function createSpeechPushExperimentRoutes(): RouteHandler {
   return (request, url) => {
     if (url.pathname === AUDIO_SPEAK_ROUTE && request.method === "POST") return speakOnPush(request);
+    if (url.pathname === AUDIO_LISTENERS_ROUTE && request.method === "GET") return listenersOnPush();
     if (url.pathname.startsWith(SPEECH_PREFIX)) {
       const route = url.pathname.slice(SPEECH_PREFIX.length);
       return SPEECH_ROUTES.has(route) ? forwardToSpeech(request, route, url.search) : undefined;

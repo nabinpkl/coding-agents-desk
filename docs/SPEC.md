@@ -434,13 +434,15 @@ waits at `/api/asks` until someone answers it in the panel.
   turn, read from the catalog's record of the transcript, and when a session waits on a question
   (`AGENT_FEED_PUSH_TURN_FINISHED`, `AGENT_FEED_PUSH_QUESTION_QUIET_MS`).
 - **Speech** (experimental): the speech process speaks with Phonon on the Mac's GPU (ADR-0150). The
-  sidecar sends it what a Bot's session says when its turn finishes, when it waits on a question,
-  and again if that wait goes on (`src/push/sessionSpeech.ts`). For now that speech goes to an
+  sidecar sends it what a session says when its turn finishes, when it waits on a question, and
+  again if that wait goes on (`src/push/sessionSpeech.ts`), and what a session asks to say itself
+  (`POST /api/speech/say`, `tools/agent-radio-say.sh`). For now that speech goes to an
   experimental listening page (`packages/AgentPanel/Web/public/experiments/local-test.html?push=1`).
 - **Agent Radio** (experimental): one AAC stream mixed in the audio process
   (`src/audio/audioStream.ts`, `packages/AgentPanel/Web/public/listen.html`). While the listening
   page's experiment is in the tree it takes over `/api/audio/speak`, so Agent Radio plays only its
-  noise (recorded 2026-10-21).
+  noise (recorded 2026-10-21), and `/api/audio/listeners`, which counts the listening pages instead
+  (2026-10-24).
 
 ## Summaries, usage and background tasks
 

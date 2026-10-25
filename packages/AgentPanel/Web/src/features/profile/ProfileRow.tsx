@@ -1,7 +1,7 @@
 "use client";
 
 import { lazy, Suspense, useCallback, useId, useMemo, useRef, useState } from "react";
-import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw, RotateCcw } from "lucide-react";
+import { ChevronUp, CircleUser, Gauge, LayoutGrid, Pause, RefreshCw, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useDesktopPark, type DesktopParkHandle, type ParkDataSource } from "@/features/desktop-park/useDesktopPark";
 import type { UsageQuota } from "@agentdesk/agent-feed-wire";
 import { UsageModal } from "@/features/usage/UsageModal";
@@ -15,8 +15,8 @@ import {
 import { usePanelBuild } from "@/features/profile/panelBuild";
 import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
 import { StaleSessionsModal } from "@/features/profile/StaleSessionsModal";
-import { AgentRadioMenuItem } from "@/features/profile/AgentRadioMenuItem";
-import { PushMenuItems } from "@/features/profile/PushMenuItems";
+import { AgentRadioMenuItem, MseAudioTestMenuItem } from "@/features/profile/AgentRadioMenuItem";
+import { PROFILE_MENU_ITEM_CLASS, PushMenuItems } from "@/features/profile/PushMenuItems";
 import { ListenHereMenuItem } from "@/features/audio-channel/ListenHere";
 import {
   useStaleSessions,
@@ -31,6 +31,11 @@ import { useNow } from "@/hooks/useNow";
 // carries the desktop viewer's stream and viewport code, which nothing else in the sidebar needs.
 const DesktopParkModal = lazy(() =>
   import("@/features/desktop-park/DesktopParkModal").then((module) => ({ default: module.DesktopParkModal })),
+);
+
+// Loaded when it is opened too: a tool for the moments the voice is being tuned, not for every load.
+const VoiceTuningModal = lazy(() =>
+  import("@/features/speech-tuning/VoiceTuningModal").then((module) => ({ default: module.VoiceTuningModal })),
 );
 
 // Read here, once, rather than as the default below: React Compiler cannot reorder a default that
@@ -66,6 +71,7 @@ export function ProfileRow({
   const [modalOpen, setModalOpen] = useState(false);
   const [parkOpen, setParkOpen] = useState(false);
   const [restartsOpen, setRestartsOpen] = useState(false);
+  const [tuningOpen, setTuningOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
@@ -186,6 +192,19 @@ export function ProfileRow({
           <PushMenuItems />
           <AgentRadioMenuItem />
           <ListenHereMenuItem />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setTuningOpen(true);
+              close(false);
+            }}
+            className={PROFILE_MENU_ITEM_CLASS}
+          >
+            <SlidersHorizontal className="size-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">Voice tuning</span>
+          </button>
+          <MseAudioTestMenuItem />
           {/* Whether an edit acts on anything the moment it is saved: this page's own modules, and
               every machine's sidecar, which is the half that costs more -- a restart takes every
               stream the panel is holding with it. One switch because "stop changing under me" is
@@ -313,6 +332,12 @@ export function ProfileRow({
       ) : null}
 
       <StaleSessionsModal open={restartsOpen} restarts={restarts} onClose={() => setRestartsOpen(false)} />
+
+      {tuningOpen ? (
+        <Suspense fallback={null}>
+          <VoiceTuningModal open onClose={() => setTuningOpen(false)} />
+        </Suspense>
+      ) : null}
 
       <UsageModal
         open={modalOpen}

@@ -20,6 +20,7 @@ import { state } from "@/transcripts/transcriptState";
 import { broadcast, findSession, scheduleBroadcast, sessionKey } from "@/transcripts/catalog/catalogState";
 import { canonicalDirectory, makeSession } from "@/transcripts/catalog/catalogRecords";
 import { lookUpOpencodeTaskStates, opencodeTaskState } from "@/transcripts/catalog/opencodeTaskState";
+import { parseSpokenStatus, type SessionSpokenStatus } from "@/transcripts/spokenStatus";
 
 let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -88,10 +89,56 @@ async function toRecord(session: SessionInfo): Promise<Session | null> {
   // paths Claude records carry for the same checkout.
   const project =
     (await canonicalDirectory(session.location.directory).catch(() => null)) ?? session.location.directory;
+  const turn = turns.get(session.id);
   return makeSession("opencode", session.id, project, undefined, session.time.updated, {
     title: session.title || undefined,
     taskState: opencodeTaskState(session.id),
+    lastTurnClosed: turn?.closed,
+    spokenStatus: turn?.spokenStatus,
   });
+}
+
+/**
+ * How each session's latest turn stands, from the serve's event stream (`opencodeServeEvents.ts`):
+ * whether it has finished, the spoken-status block its reply closed with, and that reply. This is
+ * what the turn-finished notifier announces from, as it does from a Claude transcript. Kept here and
+ * not on the record alone because a reconcile makes every record afresh from the serve's list, which
+ * knows none of it. Only what this process has heard: a turn that ended before it started is not.
+ */
+type OpencodeTurn = { closed: boolean; spokenStatus?: SessionSpokenStatus; reply?: string };
+const turns = new Map<string, OpencodeTurn>();
+
+/** The serve said a session started or finished a turn. */
+export function noteOpencodeRunState(sessionId: string, state: "running" | "idle" | "error"): void {
+  const closed = state !== "running";
+  const turn = turns.get(sessionId);
+  if (turn?.closed === closed) return;
+  // A new turn forgets what the last one said, so a turn that ends without a block does not repeat it.
+  turns.set(sessionId, closed ? { ...turn, closed } : { closed });
+  applyTurn(sessionId);
+}
+
+/** The serve finished writing a text part of a session's reply; the newest is the one the turn ends on. */
+export function noteOpencodeReply(sessionId: string, text: string, at: number): void {
+  const turn = turns.get(sessionId) ?? { closed: false };
+  const spokenStatus = parseSpokenStatus(text, at) ?? undefined;
+  turns.set(sessionId, { closed: turn.closed, reply: text, ...(spokenStatus ? { spokenStatus } : {}) });
+  applyTurn(sessionId);
+}
+
+/** The text a session's latest turn ended on, for saying it when it wrote no block. */
+export function opencodeLastReply(sessionId: string): string | null {
+  return turns.get(sessionId)?.reply ?? null;
+}
+
+function applyTurn(sessionId: string): void {
+  const session = state.sessions.get(sessionKey("opencode", sessionId));
+  const turn = turns.get(sessionId);
+  if (!session || !turn) return;
+  session.lastTurnClosed = turn.closed;
+  if (turn.spokenStatus) session.spokenStatus = turn.spokenStatus;
+  else delete session.spokenStatus;
+  scheduleBroadcast();
 }
 
 export function registerOpencodeSession(location: OpencodeSessionLocation): void {

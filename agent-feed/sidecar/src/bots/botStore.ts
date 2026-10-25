@@ -64,6 +64,16 @@ function isSessionSlots(value: unknown): value is Record<string, number> | undef
   );
 }
 
+/** A voice is a name the speech process lists: letters, accents, spaces and dashes. */
+function isSessionVoices(value: unknown): value is Record<string, string> | undefined {
+  if (value === undefined) return true;
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) => /^[A-Za-z]+:[A-Za-z0-9._:-]{1,128}$/.test(key)) &&
+    Object.values(value).every((voice) => typeof voice === "string" && /^[\p{L}][\p{L} '-]{0,63}$/u.test(voice))
+  );
+}
+
 function isSessionAnchors(value: unknown): value is Record<string, string> | undefined {
   if (value === undefined) return true;
   return (
@@ -111,6 +121,7 @@ function isBotRecord(value: unknown): value is BotRecord {
     value.sessionRefs.every(isSessionRef) &&
     isSessionSlots(value.sessionSlots) &&
     isSessionAnchors(value.sessionAnchors) &&
+    isSessionVoices(value.sessionVoices) &&
     isSessionLogs(value.sessionLogs) &&
     isSessionOrigins(value.sessionOrigins) &&
     (value.nextSessionSlot === undefined ||

@@ -11,6 +11,7 @@ import { isServeUnauthorized, resetOpencodeClient, type OpencodeClient } from "@
 import type { OpencodeStreamedPart } from "@/agents/opencode/opencodeStreamTail";
 import type { AgentUiBroker } from "@/agents/agentUiBroker";
 import { noteOpencodeText } from "@/transcripts/catalog/opencodeTaskState";
+import { noteOpencodeReply, noteOpencodeRunState } from "@/transcripts/catalog/opencodeCatalog";
 
 export type OpencodeRunState = "running" | "idle" | "error";
 
@@ -118,6 +119,7 @@ export class OpencodeServeEvents {
       // is how the catalog learns what that session set out to do.
       if (streamed?.kind === "text" && streamed.phase === "ended" && streamed.text && sessionId) {
         noteOpencodeText(sessionId, streamed.text, Date.now());
+        noteOpencodeReply(sessionId, streamed.text, Date.now());
       }
       if (streamed && sessionId && this.router.hasSession(sessionId)) {
         this.router.streamPart(sessionId, streamed);
@@ -129,20 +131,34 @@ export class OpencodeServeEvents {
       return;
     }
     switch (event.type) {
+      // Every session's run state, read or not, is also the catalog's: it is how a finished turn is
+      // announced (`noteOpencodeRunState`), as a Claude transcript's last record is.
       case "session.status": {
-        const status = event.data.status.type;
-        if (sessionId) this.router.setRunState(sessionId, status === "idle" ? "idle" : "running");
+        const status = event.data.status.type === "idle" ? "idle" : "running";
+        if (sessionId) noteOpencodeRunState(sessionId, status);
+        if (sessionId) this.router.setRunState(sessionId, status);
         if (sessionId) this.router.refresh(sessionId);
         return;
       }
       case "session.idle": {
+        if (sessionId) noteOpencodeRunState(sessionId, "idle");
         if (sessionId) this.router.setRunState(sessionId, "idle");
         if (sessionId) this.router.refresh(sessionId);
         return;
       }
       case "session.execution.failed": {
+        if (sessionId) noteOpencodeRunState(sessionId, "error");
         if (sessionId) this.router.setRunState(sessionId, "error");
         if (sessionId) this.router.refresh(sessionId);
+        return;
+      }
+      // How the serve marks a turn, measured on 2.0.30 (2026-10-24): a turn run there sent these
+      // and neither `session.status` nor `session.idle`. An interrupted turn is left running for the
+      // catalog: the person stopped it, and is not told it finished.
+      case "session.execution.started":
+      case "session.execution.succeeded": {
+        if (sessionId) noteOpencodeRunState(sessionId, event.type === "session.execution.started" ? "running" : "idle");
+        if (sessionId && this.router.hasSession(sessionId)) this.router.refresh(sessionId);
         return;
       }
       // A model switch lands on no message, so this refresh is what picks the new name up, and
