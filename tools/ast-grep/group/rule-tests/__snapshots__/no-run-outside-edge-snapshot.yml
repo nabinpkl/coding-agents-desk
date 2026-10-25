@@ -1,0 +1,26 @@
+id: no-run-outside-edge
+snapshots:
+  "const fiber = Effect.runFork(watchRoom)\n":
+    labels:
+    - source: Effect.runFork(watchRoom)
+      style: primary
+      start: 14
+      end: 39
+  "const runtime = ManagedRuntime.make(RoomLog.layer)\n":
+    labels:
+    - source: ManagedRuntime.make(RoomLog.layer)
+      style: primary
+      start: 16
+      end: 50
+  "const value = Effect.runSync(read)\n":
+    labels:
+    - source: Effect.runSync(read)
+      style: primary
+      start: 14
+      end: 34
+  "export async function send(text: string) {\n  await Effect.runPromise(append(text))\n}\n":
+    labels:
+    - source: Effect.runPromise(append(text))
+      style: primary
+      start: 51
+      end: 82

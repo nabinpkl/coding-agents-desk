@@ -1,0 +1,22 @@
+id: no-run-outside-edge
+valid:
+  - |
+    export const send = Effect.fn("Room.send")(function* (text: string) {
+      const log = yield* RoomLog.RoomLog
+      yield* log.append(text)
+    })
+  - |
+    const program = Effect.gen(function* () {
+      yield* Effect.sleep("1 second")
+    })
+invalid:
+  - |
+    export async function send(text: string) {
+      await Effect.runPromise(append(text))
+    }
+  - |
+    const fiber = Effect.runFork(watchRoom)
+  - |
+    const value = Effect.runSync(read)
+  - |
+    const runtime = ManagedRuntime.make(RoomLog.layer)

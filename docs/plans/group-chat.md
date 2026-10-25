@@ -648,3 +648,7 @@ avoid.
   codebase is behaviour to port, never a precedent for departing from them.
 - 2026-10-25: the owner approved snake_case JSON for Group's API (Zalando #118, unlike the rest of
   the panel's wire) and the list of Zalando rules out of scope for Group.
+- 2026-10-25: the standards are enforced on every gate: oxlint keeps Group (at
+  `agent-feed/sidecar/src/group/`, its own process in the sidecar package) from importing the rest of
+  the sidecar and Effect from spreading outside it, and ast-grep runs ten Effect rules over Group's
+  code, nine copied from OpenCode under MIT and one Group's own.

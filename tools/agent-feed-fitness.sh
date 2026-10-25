@@ -189,6 +189,18 @@ if grep -rnE '\bReact\.use(Layout|Insertion)?Effect\b' packages/AgentPanel/Web/s
     --include='*.ts' --include='*.tsx' | grep -vE '\.test\.tsx?:|/src/hooks/'; then
     fail "an effect reached through the React namespace; ADR-0146 bans them outside src/hooks"
 fi
+# Group's Effect rules (`tools/ast-grep/group/`), the part of its standards that oxlint's import
+# rules cannot see. The rules' own tests run on every gate, so each is shown catching its invalid
+# cases before it is trusted to find nothing; the scan runs once Group has code to scan. ast-grep
+# is the panel's dev dependency, beside oxlint, so the install above covers it.
+AST_GREP="$ROOT/packages/AgentPanel/Web/node_modules/.bin/ast-grep"
+if ! "$AST_GREP" test -c tools/ast-grep/group/sgconfig.yml >/dev/null; then
+    "$AST_GREP" test -c tools/ast-grep/group/sgconfig.yml >&2 || true
+    fail "Group's ast-grep rules failed their own tests (tools/ast-grep/group/)"
+fi
+if [ -d agent-feed/sidecar/src/group ] && ! "$AST_GREP" scan -c tools/ast-grep/group/sgconfig.yml agent-feed/sidecar/src/group; then
+    fail "Group's code broke an ast-grep rule (tools/ast-grep/group/README.md says where each comes from)"
+fi
 
 # 9. Every file in those trees is as oxfmt would write it (`.oxfmtrc.json`). Checked rather than
 #    applied on save, because several sessions edit this tree at once: a formatter that ran

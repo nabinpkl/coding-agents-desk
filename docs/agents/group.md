@@ -14,7 +14,10 @@ Group's code, its tests, or the panel code that calls it.
 | Everything every change in this repository follows: file and directory caps, no relative imports, lint, format, commits by pathspec | the root `AGENTS.md` |
 
 Skills live in `.agents/skills/`; `.claude/skills` points there, so Claude and other agents read one
-copy.
+copy. The parts of them a tool can check are checked on every `just check`: oxlint keeps Group from
+importing the rest of the sidecar and Effect from spreading outside Group, and ast-grep
+(`tools/ast-grep/group/`) holds Group's Effect code to its patterns (`group-effect`, "What the gate
+enforces").
 
 **The existing codebase is not a precedent for Group.** The sidecar and the panel grew feature by
 feature, steered bug by bug: the sidecar matches HTTP paths by hand in a chain of handlers, answers

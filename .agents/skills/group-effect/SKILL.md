@@ -116,6 +116,22 @@ From t3code's rules, which Group adopts whole:
   never mocked.
 - Each row of the design doc's failure table is a test, written before the code that passes it.
 
+## What the gate enforces
+
+Part of this skill is checked on every `just check` (check 8 of `tools/agent-feed-fitness.sh`), so
+a review need not catch it:
+
+- **oxlint** (`.oxlintrc.json`, the last override): Group's code imports nothing from the rest of
+  the sidecar (`@/**` except `@/group/**`), no named imports from the `effect` root, no
+  `node:timers`; and outside `src/group/`, nothing in the sidecar imports `effect` or `@effect/*`.
+- **ast-grep** (`tools/ast-grep/group/`): no `Effect.run*` or `ManagedRuntime.make` outside a
+  `*Main.ts` entry point or a test, no nested service yields, no aliased value imports, no
+  `JSON.parse(...) as`, no `Effect.die` with a string, and OpenCode's five Effect simplifications.
+  The rules' own tests run every time, so each is shown failing before it is trusted.
+
+The rest (spans named with `Effect.fn`, safe error attributes, a request's scope versus the room's)
+is still the reviewer's to check against this skill.
+
 ## Before you hand off
 
 - Does any handler do more than decode, call and map errors?

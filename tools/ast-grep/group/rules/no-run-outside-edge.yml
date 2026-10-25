@@ -1,0 +1,16 @@
+id: no-run-outside-edge
+language: TypeScript
+message: Run Effects only at the program's edge (a *Main.ts entry point) or in a test; a service returns an Effect and never runs one (group-effect skill, "Two lifetimes").
+severity: error
+ignores:
+  - "**/*Main.ts"
+  - "**/*.test.ts"
+rule:
+  any:
+    - pattern: Effect.runPromise($$$ARGS)
+    - pattern: Effect.runPromiseExit($$$ARGS)
+    - pattern: Effect.runFork($$$ARGS)
+    - pattern: Effect.runSync($$$ARGS)
+    - pattern: Effect.runSyncExit($$$ARGS)
+    - pattern: Effect.runCallback($$$ARGS)
+    - pattern: ManagedRuntime.make($$$ARGS)
