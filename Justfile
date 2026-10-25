@@ -1381,8 +1381,12 @@ check:
             tools/grid-encoder/*|tools/test-desktop-*.sh) add grid-encoder ;;
             # build-system-check owns the tests that drive these two scripts.
             tools/build-grid-encoder.sh|tools/swiftc-cached.sh) add grid-encoder; add build-system-check ;;
-            # Fitness runs on every gate, and these two are its own script and the formatter it calls.
-            tools/agent-feed-fitness.sh|tools/format.sh) ;;
+            # Fitness runs on every gate, and these are its own script, the formatter it calls, and
+            # what its lint and format checks read: the two configs, and the two tsconfigs that
+            # exist only to point the type-aware lint at the right program (nothing builds from
+            # them). Unclaimed, a lint-only change ran all seven legs at once, and three tests timed
+            # out under that load on 2026-10-19.
+            tools/agent-feed-fitness.sh|tools/format.sh|.oxlintrc.json|.oxfmtrc.json|packages/AgentPanel/tsconfig.json|agent-feed/tsconfig.json) ;;
             # Any other script in `tools/` is tested by its own `-tests.sh`, not by the suites, so an
             # edit there runs those rather than every leg.
             tools/*) add tools-check ;;
