@@ -263,9 +263,11 @@ convergence detection, token budgets, a `PreToolUse` hook capping tool calls wit
 
 ## Unknowns the spike answers first
 
-Before the first slice, a spike: a throwaway script outside `agent-feed/sidecar/src`, a few cents of
-cheap-model turns, deleted once it has answered. What it hands on is findings, not code: answers
-below, new rows for the failure table, decisions settled in this document. Code written to explore
+Before the first slice, a spike: a throwaway script in a temporary folder outside the repository, a
+few cents of cheap-model turns. It is left where it is once it has answered, never committed and
+never deleted by hand (the temporary folder goes in its own time). What it hands on is findings,
+not code: answers below, new rows for the failure table, decisions settled in this document. Code
+written to explore
 is never extended into the product: agents extending their own earlier code degrade it steadily
 (SlopCodeBench, 2026), so the product is built fresh from this document and its tests.
 
@@ -289,8 +291,8 @@ hand for the first failure in each, before anything is automated.
 Three turns of `claude -p` on Haiku (Claude Code 2.1.310), each given a `TRACEPARENT` and exporting
 OTLP/JSON to a local receiver: one that finished, one sent SIGTERM mid-tool-call (5 seconds' grace,
 then SIGKILL), one sent SIGKILL at once. The tool call ran a script that left a background sleep, a
-`nohup` sleep and a sleep in a session of its own, then slept in the foreground. The spike's code
-and output are deleted.
+`nohup` sleep and a sleep in a session of its own, then slept in the foreground. Every process the
+spike started was stopped afterwards.
 
 - **U1, spans on kill: answered.** A finished turn exported everything before it exited. On SIGTERM,
   Claude exited in about a second (code 143) and flushed: the `interaction` span arrived, but the
@@ -316,7 +318,24 @@ and output are deleted.
   started with, and each prompt opened a new trace whose `interaction.sequence` counted 1, then 2.
   So a terminals lane's turn is found by its session id and that sequence number, and Group links
   it to its own `lane.turn` span on arrival rather than nesting it.
-- **Still open:** U4 (opencode), U6 and U7 (Effect).
+- **U6, Effect's spawner on Bun: answered.** `effect` and `@effect/platform-bun` 4.0.6 on Bun 1.3.13,
+  each case a shell script that misbehaves one way, stopped through Effect with a 2-second
+  `forceKillAfter`, then checked against the process table:
+
+  | Case | Result |
+  | --- | --- |
+  | Leader and its child both ignore SIGTERM | Escalated to SIGKILL after 2 seconds; group empty |
+  | Leader dies at once, a child ignoring SIGTERM outlives it (Effect #7821) | Waited on the group, not the leader; the child was killed after 2 seconds |
+  | A child in a process group of its own, as Claude's Bash tool runs commands | Survived |
+  | A grandchild in a session of its own | Survived |
+  | No kill call: the scope is interrupted by a timeout | Release stopped the group, escalating after about 2.25 seconds |
+  | Output | Streamed as written, lines about 300 ms apart, before the exit |
+
+  So it does what its documentation says on Bun: everything inside its group, correctly, and
+  nothing outside it. The census and the start-time check stay ours whichever option is chosen. A
+  supervisor must always pass `forceKillAfter`: without it, its documentation says, termination
+  waits for a process that ignores SIGTERM with no time limit.
+- **Still open:** U4 (opencode) and U7 (Effect's spans into the archive).
 
 ## How the kernel is built: three options
 
@@ -339,7 +358,8 @@ productive, and v4 renamed modules that models know by their v3 names.
 
 The lean so far is B or C: the Simplex principle says the part that guarantees the envelope should
 be small and auditable, which argues for kill code we own. C keeps that while taking Effect's
-supervision, and OpenCode shows it working on Bun. The spike settles U6 and U7 before choosing.
+supervision, and OpenCode shows it working on Bun. U6 is settled: Effect's spawner behaves on Bun,
+so A and C are both open, and either way the census is ours. U7 is left before choosing.
 
 ## Libraries and runtimes considered
 
@@ -418,3 +438,6 @@ supervision, and OpenCode shows it working on Bun. The spike settles U6 and U7 b
   `arena-group-chat.md` to `group-chat.md`.
 - 2026-10-25: U3 answered by a traced interactive probe: a terminals lane's spans are its own trace
   per prompt, found by session id and interaction sequence, never nested.
+- 2026-10-25: U6 answered: Effect's spawner stops everything in its group on Bun, the leader-first
+  case included, and nothing outside it, so the census stays ours under every option. Spike code is
+  now left in its temporary folder rather than deleted.
