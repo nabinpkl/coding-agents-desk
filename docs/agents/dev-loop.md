@@ -202,6 +202,26 @@ stops the configured port's listener before recreating it; a failed stop or read
 aborts the launch. One server means one `/api` target, so a browser tab follows whichever host tier
 started it.
 
+## Runtimes come from mise
+
+Since 2026-10-25 Node, npm and Bun come from mise and nothing else (ADR-0157): no nvm, no Homebrew
+Bun. The repository root's `mise.toml` pins exact versions; mise's global config tracks Node LTS and
+the latest Bun for everything without a pin. Every caller reaches them through mise's shims,
+`~/.local/share/mise/shims`, which come first on the owner's shell PATH, on the PATH
+`just dev-login-install` writes into the login jobs, and on tmux's global PATH, where
+`AGENTDESK_BUN_PATH` points at the shim for new sessions.
+
+- **The host runs the pinned Bun.** The launch recipes ask Bun, from this tree, for its own
+  `process.execPath`, so `AGENTDESK_BUN_PATH` is `~/.local/share/mise/installs/bun/<pin>/bin/bun`.
+  Through the shim alone, the host's working directory is outside the tree and would get the global
+  version instead.
+- **Upgrading:** `mise upgrade --bump` in the repository root, `just check-legs` on the new
+  versions, commit `mise.toml`, then restart the dev loop (quit the host, then
+  `launchctl kickstart -k gui/$(id -u)/<host bundle id>.devlogin`) so the host takes the new path.
+  The shims directory does not move, so the login jobs need no re-install.
+- **A Claude Code session keeps the PATH it started with.** One started before a runtime moved finds
+  the old one, or none, in its shell until it restarts.
+
 ## The dev origin serves HTTP/2, and it is load-bearing
 
 Settled 2026-09-06, after an evening spent debugging three features that were not broken. Only

@@ -41,7 +41,7 @@ Mac app (`host/`), which starts and supervises the two processes at login. The i
 | Layer | Choice | Decision |
 | --- | --- | --- |
 | Panel | React 19, TypeScript 7, Vite 8, Tailwind 4; reads through TanStack Query 5, shared state in zustand 5; Vitest 4 | ADR-0146, ADR-0149 |
-| Sidecar | Bun 1.3 and TypeScript 7; Claude's Agent SDK for the SDK runner, opencode's own client, the Pi SDK for turn summaries, the MCP SDK, werift for WebRTC, web-push, Sentry's SDKs delivering to a local archive | ADR-0143, ADR-0132 |
+| Sidecar | Bun 1.4, from mise as the repository's `mise.toml` pins it (ADR-0157), and TypeScript 7; Claude's Agent SDK for the SDK runner, opencode's own client, the Pi SDK for turn summaries, the MCP SDK, werift for WebRTC, web-push, Sentry's SDKs delivering to a local archive | ADR-0143, ADR-0132, ADR-0157 |
 | Contract | `agent-feed/wire/`: TypeScript types only, shared by both through a `tsconfig` path mapping | `agent-feed/wire/README.md` |
 | Sessions | tmux; Claude Code in its terminal UI by default, or the Agent SDK runner in the same pane; opencode's serve and its TUI | ADR-0116, ADR-0143 |
 | Transport to the browser | HTTP with JSON, Server-Sent Events for every live view, WebRTC for desktop video and its control channel; HTTP/2 over TLS in tailnet mode | ADR-0109 |

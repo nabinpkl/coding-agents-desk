@@ -1,0 +1,8 @@
+# The runtimes this repository's dev loop and gate run on (ADR-0157). mise picks these for any
+# process started under this tree, through its shims at ~/.local/share/mise/shims, which is the
+# PATH entry the login jobs and tmux are given. Exact versions, so a runtime moves only in a commit
+# whose `just check-legs` passed on it: `mise upgrade --bump` here, then the gate, then commit.
+# Plain [tools] pins only, so this file needs no `mise trust`.
+[tools]
+bun = "1.4.4"
+node = "24.22.1"

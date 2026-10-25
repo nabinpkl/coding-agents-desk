@@ -187,3 +187,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0154 | An arena run never makes a repository of the reader's folder; the reader asks for one                            | accepted                         | 2026-10-23 |
 | ADR-0155 | Group is its own package, the pilot for Effect, with its own compiler settings, lint and tests                   | accepted                         | 2026-10-25 |
 | ADR-0156 | Group checks itself with its own toolchain, at each tool's latest release                                        | accepted                         | 2026-10-25 |
+| ADR-0157 | Node, npm and Bun come from mise alone, pinned exactly per repository                                            | accepted                         | 2026-10-25 |

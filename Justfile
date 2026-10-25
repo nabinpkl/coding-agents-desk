@@ -2223,8 +2223,10 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     esac
     if [ '{{sidecar}}' = live ]; then
         # Resolved to an absolute path here rather than searched for in the host, whose child
-        # environment is deliberately stripped of the PATH that would find a Homebrew install.
-        BUN_PATH="$(command -v bun || true)"
+        # environment is deliberately stripped of PATH. Asked of Bun itself from this tree, so it is
+        # the binary this repository's mise.toml pins (ADR-0157), not whatever mise's shim picks
+        # for the host's working directory.
+        BUN_PATH="$(cd '{{justfile_directory()}}' && bun -e 'process.stdout.write(process.execPath)' 2>/dev/null || true)"
         if [ -z "$BUN_PATH" ]; then
             echo "ERROR: sidecar=live needs bun on PATH" >&2
             exit 1
@@ -2425,8 +2427,10 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     esac
     if [ '{{sidecar}}' = live ]; then
         # Resolved to an absolute path here rather than searched for in the host, whose child
-        # environment is deliberately stripped of the PATH that would find a Homebrew install.
-        BUN_PATH="$(command -v bun || true)"
+        # environment is deliberately stripped of PATH. Asked of Bun itself from this tree, so it is
+        # the binary this repository's mise.toml pins (ADR-0157), not whatever mise's shim picks
+        # for the host's working directory.
+        BUN_PATH="$(cd '{{justfile_directory()}}' && bun -e 'process.stdout.write(process.execPath)' 2>/dev/null || true)"
         if [ -z "$BUN_PATH" ]; then
             echo "ERROR: sidecar=live needs bun on PATH" >&2
             exit 1
@@ -2579,7 +2583,7 @@ host-login:
             *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
         esac
     fi
-    BUN_PATH="$(command -v bun || true)"
+    BUN_PATH="$(cd '{{justfile_directory()}}' && bun -e 'process.stdout.write(process.execPath)' 2>/dev/null || true)"
     if [ -z "$BUN_PATH" ]; then
         echo "ERROR: the live sidecar needs bun on PATH" >&2
         exit 1
@@ -2657,9 +2661,9 @@ dev-login-install:
     mkdir -p "$AGENTS"
     # The toolchain is located HERE, from a shell that has a working PATH, rather than guessed by
     # the script launchd runs. Every one of these lives somewhere a login job cannot find: `just`
-    # under ~/.local/bin, `node` inside an nvm version directory that moves on every upgrade, `bun`
-    # in Homebrew, `tailscale` in /usr/local. Capturing the resolved directories means an upgrade
-    # that moves one is a re-install of this agent rather than a login that half works.
+    # under ~/.local/bin, `node` and `bun` behind mise's shims (~/.local/share/mise/shims, ADR-0157),
+    # `tailscale` in /usr/local. The shims directory does not move when mise upgrades a runtime, so
+    # an upgrade needs no re-install of this agent; a tool that moves elsewhere still does.
     TOOL_DIRS=""
     for TOOL in just bun node tailscale; do
         TOOL_PATH="$(command -v "$TOOL" || true)"
