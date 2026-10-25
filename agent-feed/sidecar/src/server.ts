@@ -90,6 +90,7 @@ import { startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient, loadHubSettings } from "@/messaging/hubClient";
 import { HubOpencodeAdapter, liveOpencodeServePort } from "@/messaging/hubOpencode";
 import { createHubRoutes } from "@/messaging/hubRoutes";
+import { createAudioRoutes } from "@/audio/audioTestStream";
 import { createPushRoutes } from "@/push/pushRoutes";
 import { startLiveTurnFinishedNotifier } from "@/push/liveTurnFinished";
 import { sendPush } from "@/push/pushSender";
@@ -250,6 +251,7 @@ const routes: RouteHandler[] = [
   createSupervisorRoutes(),
   createTelemetryRoutes(sinkEnvelope),
   createPushRoutes({ path: config.webPushPath, subject: config.webPushSubject, send: sendPush }),
+  createAudioRoutes(),
   createArenaRoutes(arenaService),
   createArenaCodeRoutes(arenaService, repositoryGitWatch, {
     maxTextBytes: config.workspaceMaxTextBytes,

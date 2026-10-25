@@ -277,6 +277,9 @@ describe("live updates", () => {
     // Usage has focus on open; Desktop park is disabled in this fixture and skipped.
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Restart stale sessions" }));
+    // The notification entries are disabled here (no push support in the test DOM) and skipped.
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /Test audio stream/ }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(toggle);
   });

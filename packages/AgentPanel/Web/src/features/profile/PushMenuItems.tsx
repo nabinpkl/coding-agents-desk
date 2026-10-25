@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Bell, BellRing } from "lucide-react";
 import { enableNotifications, pushReadiness, sendTestNotification } from "@/features/profile/webPush";
 
-const ITEM_CLASS = `flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm
+/** The Profile menu's entry look, shared by the entries that live outside `ProfileRow`. */
+export const PROFILE_MENU_ITEM_CLASS = `flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm
   transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80
   focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2
   focus-visible:outline-primary disabled:cursor-not-allowed disabled:text-muted-foreground
@@ -44,7 +45,7 @@ export function PushMenuItems() {
         aria-disabled={unsupported || busy}
         disabled={unsupported || busy}
         onClick={() => run(() => enableNotifications().then(() => "notifications on"))}
-        className={ITEM_CLASS}
+        className={PROFILE_MENU_ITEM_CLASS}
       >
         <Bell className="size-4 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1 truncate">Enable notifications</span>
@@ -58,7 +59,7 @@ export function PushMenuItems() {
         aria-disabled={readiness !== "granted" || busy}
         disabled={readiness !== "granted" || busy}
         onClick={() => run(sendTestNotification)}
-        className={ITEM_CLASS}
+        className={PROFILE_MENU_ITEM_CLASS}
       >
         <BellRing className="size-4 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1 truncate">Send test notification</span>

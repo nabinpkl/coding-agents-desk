@@ -365,3 +365,4 @@ export type {
 export { SENT_MESSAGE_KIND_HELP, SENT_MESSAGE_KINDS } from "./messaging.ts";
 export type { PushKeyResponse, PushTestResponse } from "./webPush.ts";
 export { PUSH_KEY_ROUTE, PUSH_SUBSCRIPTIONS_ROUTE, PUSH_TEST_ROUTE } from "./webPush.ts";
+export { AUDIO_TEST_STREAM_ROUTE } from "./audioChannel.ts";
