@@ -12,6 +12,7 @@
 // link that can only fail is worse than text.
 
 import { createContext } from "react";
+import type { WrittenText } from "@/features/activity-feed/blocks/diff/editedLines";
 import { FENCE_SLOT_ATTRIBUTE } from "@/features/activity-feed/markdown/proseBlocks";
 
 export interface FilePathTarget {
@@ -19,6 +20,8 @@ export interface FilePathTarget {
   path: string;
   /** One-based, when the text named a line. */
   line: number | null;
+  /** What an edit wrote, when an edit's card asked: the viewer finds it in the file and marks it. */
+  written?: WrittenText;
 }
 
 export interface FilePathOpener {

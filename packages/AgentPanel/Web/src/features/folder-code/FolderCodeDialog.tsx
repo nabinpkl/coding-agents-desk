@@ -14,6 +14,7 @@
 import { ArrowLeft, FileCode2 } from "lucide-react";
 import { useState } from "react";
 import type { WorkspaceGitEntry } from "@agentdesk/agent-feed-wire";
+import { findWritten } from "@/features/activity-feed/blocks/diff/editedLines";
 import type { FilePathTarget } from "@/features/activity-feed/markdown/filePathLinks";
 import type { FolderGitState, FolderSource } from "@/features/folder-code/folderSource";
 import { BACK_TO_LIST, FolderWideDialog } from "@/features/folder-code/FolderWideDialog";
@@ -25,6 +26,7 @@ import {
   FileBody,
   FileViewToggle,
 } from "@/features/workspace-ide/editor/FileBody";
+import type { LineReveal } from "@/features/workspace-ide/editor/CodeEditor";
 import { ReadPatchView } from "@/features/workspace-ide/history/PatchView";
 import { changedFileCount, changedLabel } from "@/features/workspace-ide/sidebar/gitTones";
 import { SidebarSections, type SidebarSection } from "@/features/workspace-ide/sidebar/SidebarSections";
@@ -76,10 +78,10 @@ export function FolderCodeDialog({
   // The reader's choice for each file this look, falling back to the kind's own default. Only
   // markdown has two views worth offering here: the IDE's preview of any other source kind is the
   // same text without its line numbers.
-  // A named line is in the source, so a markdown file asked for at a line opens there rather than
-  // on its preview, which has no lines to mark.
+  // A named line is in the source, so a markdown file asked for at a line, or on an edit, opens
+  // there rather than on its preview, which has no lines to mark.
   const [chosen, setChosen] = useState<Record<string, boolean>>(() =>
-    initialFile?.line == null ? {} : { [initialFile.path]: false },
+    initialFile?.line == null && initialFile?.written === undefined ? {} : { [initialFile.path]: false },
   );
 
   // A change committed or reverted while its diff was open is no longer a change, and asking for
@@ -93,6 +95,15 @@ export function FolderCodeDialog({
   };
   const file = showing?.kind === "file" ? code.file : null;
   const preview = file ? (chosen[file.path] ?? defaultFileView(file.kind) === "preview") : false;
+  const opening = file !== null && initialFile !== null && file.path === initialFile.path ? initialFile : null;
+  // Where the edit this was opened from is in the file now, found by the text it wrote.
+  const landing = opening?.written && file ? findWritten(file.text, opening.written) : null;
+  const reveal: LineReveal | undefined = landing
+    ? { line: landing.line, through: landing.through, start: 0, end: 0, nonce: 1, changed: true }
+    : opening?.line != null
+      ? { line: opening.line, start: 0, end: 0, nonce: 1 }
+      : undefined;
+  const editGone = opening?.written !== undefined && landing === null;
 
   return (
     <FolderWideDialog
@@ -179,6 +190,16 @@ export function FolderCodeDialog({
                 <span className="min-w-0 flex-1 truncate px-1 font-mono text-xs" title={showing.path}>
                   {showing.path}
                 </span>
+                {/* Said rather than left as a file opened at its top, which reads as the edit
+                    being there and unmarked. */}
+                {editGone ? (
+                  <span
+                    className="shrink-0 px-1 text-xs text-muted-foreground"
+                    title="The text this edit wrote is no longer in the file"
+                  >
+                    Edit not found
+                  </span>
+                ) : null}
                 {/* From a diff to what the file says now, which is where a reader goes next about
                     half the time. Absent for a deleted path, which has nothing to open. */}
                 {showing.kind === "change" && !isDeleted(entries, showing.path) ? (
@@ -209,15 +230,7 @@ export function FolderCodeDialog({
                     read={() => source.gitDiff(showing.path)}
                   />
                 ) : file ? (
-                  <FileBody
-                    file={file}
-                    preview={preview}
-                    reveal={
-                      initialFile?.line != null && file.path === initialFile.path
-                        ? { line: initialFile.line, start: 0, end: 0, nonce: 1 }
-                        : undefined
-                    }
-                  />
+                  <FileBody file={file} preview={preview} reveal={reveal} />
                 ) : (
                   <p className="m-0 p-6 text-center text-sm text-muted-foreground">Opening file…</p>
                 )}

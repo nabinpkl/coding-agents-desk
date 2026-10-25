@@ -303,7 +303,6 @@ describe("opening the file a call worked on", () => {
   // The viewer reads one directory (the Bot's, or the session's worktree), and only a file inside
   // it can be opened there.
   it.each([
-    ["Edit", { file_path: "/repo/src/a.ts", old_string: "a", new_string: "b" }],
     ["write", { path: "/repo/src/a.ts", content: "export {};\n" }],
     ["Read", { file_path: "/repo/src/a.ts" }],
   ] as const)("opens a %s call's file in the code viewer", async (tool, input) => {
@@ -311,6 +310,19 @@ describe("opening the file a call worked on", () => {
     const { unmount } = fileRow(tool, input, undefined, { opener: { root: "/repo", open } });
     fireEvent.click(await screen.findByRole("button", { name: "Open src/a.ts in the code viewer" }));
     expect(open).toHaveBeenCalledWith({ path: "src/a.ts", line: null });
+    unmount();
+  });
+
+  it("opens an edit's file on its change, with the text it wrote to find it by", async () => {
+    const open = vi.fn();
+    const { unmount } = fileRow(
+      "Edit",
+      { file_path: "/repo/src/a.ts", old_string: "a\nb\nc", new_string: "a\nB\nc" },
+      undefined,
+      { opener: { root: "/repo", open } },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open src/a.ts in the code viewer" }));
+    expect(open).toHaveBeenCalledWith({ path: "src/a.ts", line: null, written: { text: "a\nB\nc", from: 1, to: 2 } });
     unmount();
   });
 

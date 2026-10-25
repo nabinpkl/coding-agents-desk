@@ -10,10 +10,15 @@ import { useContext } from "react";
 import { ChevronRight, CodeXml } from "lucide-react";
 import { DiffBlockOnDemand } from "@/features/activity-feed/blocks/diff/DiffBlockOnDemand";
 import { describeEditChange } from "@/features/activity-feed/blocks/diff/describeEditChange";
+import { writtenText } from "@/features/activity-feed/blocks/diff/editedLines";
 import { SearchResultBody, parseSearchResult } from "@/features/activity-feed/blocks/SearchResultBody";
 import { WebResultBody, parseWebResult } from "@/features/activity-feed/blocks/WebResultBody";
 import { Markdown } from "@/features/activity-feed/markdown/Markdown";
-import { FilePathOpenerContext, filePathTarget } from "@/features/activity-feed/markdown/filePathLinks";
+import {
+  FilePathOpenerContext,
+  filePathTarget,
+  type FilePathTarget,
+} from "@/features/activity-feed/markdown/filePathLinks";
 import { AgentReply } from "@/features/activity-feed/markdown/AgentReply";
 import { CodeBlock } from "@/features/activity-feed/markdown/CodeBlock";
 import { LabeledTextBlock, RawDetails } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
@@ -190,6 +195,13 @@ export function Block({
     const isFileCall = isReadCall || isWrite || b.tool === "Edit" || b.tool === "edit";
     const openTarget =
       isFileCall && opener !== null && filePath !== null ? filePathTarget(filePath, opener.root, "tool") : null;
+    // An edit opens on its change, found by the text it wrote; a write wrote the whole file, so
+    // there is no one place in it to open on. Worked out on the press rather than on every render
+    // of every card, since it splits both texts into lines.
+    const openFile = (target: FilePathTarget): void => {
+      const written = isEditDiff ? writtenText(editOld ?? "", editNew ?? "") : null;
+      opener?.open(written ? { ...target, written } : target);
+    };
     // A search the call drew structured above: content matches grouped by file, file lists as
     // rows. Parsed off the same result text; null stays on the generic `pre` below.
     const searchBody = parseSearchResult(b.tool, readText ?? "");
@@ -265,7 +277,7 @@ export function Block({
           {openTarget !== null ? (
             <button
               type="button"
-              onClick={() => opener?.open(openTarget)}
+              onClick={() => openFile(openTarget)}
               aria-label={`Open ${openTarget.path} in the code viewer`}
               title={`Open ${openTarget.path}`}
               className="flex size-[1.5em] shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-foreground/10"

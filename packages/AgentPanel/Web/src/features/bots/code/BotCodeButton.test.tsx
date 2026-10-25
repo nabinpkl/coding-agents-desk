@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BotFileRead, BotGitStatus, BotTree, BotView, WorkspaceTreeNode } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { BotCodeButton } from "@/features/bots/code/BotCodeButton";
@@ -158,4 +158,68 @@ it("offers no Source Control tab outside a repository", async () => {
   const dialog = await screen.findByRole("dialog", { name: "Rags" });
   expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Show Source Control" }).disabled).toBe(true);
   expect(within(dialog).getByRole("button", { name: "Show Explorer" }).getAttribute("aria-pressed")).toBe("true");
+});
+
+describe("opened from an edit's card", () => {
+  const file = "import x;\n\nfunction a() {\n  return 1;\n}\n";
+  const written = { text: "function a() {\n  return 1;\n}", from: 1, to: 2 };
+
+  function band(dialog: HTMLElement): HTMLElement | null {
+    return dialog.querySelector<HTMLElement>("[data-line-mark]");
+  }
+
+  it("opens at the change and marks its lines", async () => {
+    const { feed } = feedWithFiles({ "src/app.ts": file });
+    render(
+      <BotCodeDialog
+        bot={bot}
+        feed={feed}
+        git={NO_GIT}
+        initialSection="explorer"
+        initialFile={{ path: "src/app.ts", line: null, written: { ...written, to: 3 } }}
+        onClose={() => {}}
+      />,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Rags" });
+    const source = await within(dialog).findByRole<HTMLTextAreaElement>("textbox", { name: "Source of app.ts" });
+    // The caret is at the start of line 4, the first changed one: `import x;\n\nfunction a() {\n`.
+    await waitFor(() => expect(source.selectionStart).toBe("import x;\n\nfunction a() {\n".length));
+    // Two lines tall, at the 20px line jsdom's missing styles leave the editor measuring.
+    expect(band(dialog)?.style.height).toBe("40px");
+    expect(band(dialog)?.dataset.lineMark).toBe("changed");
+    expect(within(dialog).queryByText("Edit not found")).toBeNull();
+  });
+
+  it("opens a markdown file on its source, which has the lines to mark", async () => {
+    const { feed } = feedWithFiles({ "README.md": "# Rags\n\nRetrieval.\n" });
+    render(
+      <BotCodeDialog
+        bot={bot}
+        feed={feed}
+        git={NO_GIT}
+        initialSection="explorer"
+        initialFile={{ path: "README.md", line: null, written: { text: "Retrieval.", from: 0, to: 1 } }}
+        onClose={() => {}}
+      />,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Rags" });
+    expect(await within(dialog).findByRole("textbox", { name: "Source of README.md" })).toBeTruthy();
+  });
+
+  it("says so when the edit's text is no longer in the file", async () => {
+    const { feed } = feedWithFiles({ "src/app.ts": "import y;\n" });
+    render(
+      <BotCodeDialog
+        bot={bot}
+        feed={feed}
+        git={NO_GIT}
+        initialSection="explorer"
+        initialFile={{ path: "src/app.ts", line: null, written }}
+        onClose={() => {}}
+      />,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Rags" });
+    expect(await within(dialog).findByText("Edit not found")).toBeTruthy();
+    expect(band(dialog)?.style.display).toBe("none");
+  });
 });

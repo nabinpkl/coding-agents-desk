@@ -59,6 +59,13 @@ export interface LineReveal {
   start: number;
   end: number;
   nonce: number;
+  /**
+   * The last line marked with it, for a span such as an edit's change: `line` to `through`,
+   * inclusive. `line - 1` marks none and only brings the place into view. Absent marks `line`.
+   */
+  through?: number;
+  /** Lines an edit wrote, tinted as the patch view tints an added line, rather than a line found. */
+  changed?: boolean;
 }
 
 /**
@@ -87,7 +94,7 @@ export function CodeEditor({
   text: string;
   /** Absent for a file that is only read: the same surface, with the caret but no typing. */
   onChange?: (text: string) => void;
-  /** A line to scroll to and mark, from a search result or a `file:line` in quick open. */
+  /** A line to scroll to and mark, from a search result, a `file:line` in quick open or an edit. */
   reveal?: LineReveal;
 }) {
   const readOnly = onChange === undefined;
@@ -169,7 +176,8 @@ export function CodeEditor({
     control.scrollLeft = column > control.clientWidth * 0.8 ? column - control.clientWidth / 3 : 0;
     bandTop.current = top;
     if (band.current) {
-      band.current.style.height = `${height}px`;
+      const marked = reveal.through === undefined ? 1 : Math.max(0, reveal.through - reveal.line + 1);
+      band.current.style.height = `${marked * height}px`;
       band.current.style.transform = `translateY(${top - control.scrollTop}px)`;
     }
     sync();
@@ -193,8 +201,9 @@ export function CodeEditor({
       <div
         ref={band}
         aria-hidden
+        data-line-mark={reveal?.changed ? "changed" : "found"}
         style={{ left: gutterWidth, display: reveal ? undefined : "none" }}
-        className="pointer-events-none absolute right-0 top-0 bg-primary/15"
+        className={`pointer-events-none absolute right-0 top-0 ${reveal?.changed ? "bg-emerald-500/15" : "bg-primary/15"}`}
       />
       {html ? (
         <pre
