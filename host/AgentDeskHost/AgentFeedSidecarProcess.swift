@@ -58,6 +58,10 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // have been seen doing exactly that to descriptors they did not own.
     private var outputIdentity: (device: dev_t, inode: ino_t)?
     private var outputPath: String?
+    // When the log was last reopened after being lost, so a log that keeps failing is retried every
+    // few seconds and not once per line of output.
+    private var lastOutputReopenAt: TimeInterval = -.infinity
+    private static let outputReopenIntervalSeconds: TimeInterval = 5
     private var outputFileBytes: UInt64 = 0
     // Invalidates a health monitor belonging to an earlier spawn. Each spawn takes the next
     // generation, so a tick scheduled before a restart finds its generation stale and stops
@@ -535,12 +539,16 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         return fstat(outputFD, &info) == 0 && info.st_dev == identity.device && info.st_ino == identity.inode
     }
 
-    private func closeOutputFile() {
-        // Only a descriptor that is still ours is closed. One that has been taken is forgotten, not
-        // closed: its number now belongs to someone else.
+    /// Lets go of the descriptor, closing it only while it is still the log. One that has been taken
+    /// is forgotten, not closed: its number now belongs to someone else.
+    private func closeOutputFileKeepingPath() {
         if ownsOutputFile() { Darwin.close(outputFD) }
         outputFD = -1
         outputIdentity = nil
+    }
+
+    private func closeOutputFile() {
+        closeOutputFileKeepingPath()
         // Closed on purpose, so a late line queued behind the close does not reopen it.
         outputPath = nil
     }
@@ -588,7 +596,10 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             }
             outputFD = -1
             outputIdentity = nil
-            guard let path = outputPath, let reopened = Self.openOwnedAppendFile(path) else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            guard let path = outputPath, now - lastOutputReopenAt >= Self.outputReopenIntervalSeconds else { return }
+            lastOutputReopenAt = now
+            guard let reopened = Self.openOwnedAppendFile(path) else { return }
             outputFD = reopened.fd
             outputIdentity = (reopened.device, reopened.inode)
             outputFileBytes = UInt64(max(0, lseek(reopened.fd, 0, SEEK_END)))
@@ -606,13 +617,14 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         if written == data.count {
             outputFileBytes += UInt64(written)
         } else {
-            // Forget the descriptor; the next line reopens the file by path. It is NOT closed: a
-            // write fails like this when the descriptor is no longer ours, and closing a number
-            // that may now belong to someone else is the crash this replaced. One leaked descriptor
-            // on a rare failure costs less than that.
-            logger.error("sidecar output write failed: wrote \(written, privacy: .public) of \(data.count, privacy: .public), errno \(errno, privacy: .public)")
-            outputFD = -1
-            outputIdentity = nil
+            // A write can fail with the descriptor still ours (a full disk, a quota, an I/O error),
+            // or because it is no longer ours. Only the first is closed here: closing a number that
+            // may now belong to someone else is the crash this replaced. Either way the next line
+            // reopens the file by path, at most every few seconds, so a log that keeps failing
+            // neither leaks a descriptor per line nor reopens per line.
+            let failure = errno
+            logger.error("sidecar output write failed: wrote \(written, privacy: .public) of \(data.count, privacy: .public), errno \(failure, privacy: .public)")
+            closeOutputFileKeepingPath()
         }
     }
 
