@@ -191,5 +191,9 @@ event" means one of the shapes that survived those, not a new watch per thing:
 - **Do the expensive read only while someone is subscribed**, after a quiet moment, one at a time.
   VS Code's git extension waits for its window to have focus; the panel drops its subscription while
   its page is hidden, which is the same idea.
-- **Never close a watch in the Bun process on macOS**, for the reason above; keep it for the life of
-  the process and ignore its events instead.
+- **Never close a watch in the Bun process on macOS**, for the reason above and a worse one: a
+  `close()` can park the main thread on a lock the File Watcher thread is parked on, and the process
+  runs nothing again, timers included (sampled 2026-10-19 in about one test run in 400; see
+  `BotStore`'s `watcher`). Keep it for the life of the process and ignore its events instead. That
+  rules out chokidar on a directory whose files come and go: it holds a watch per file and closes it
+  when the file goes, which is a close you never wrote.

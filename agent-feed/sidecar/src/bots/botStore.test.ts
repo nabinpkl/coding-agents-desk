@@ -2,8 +2,8 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import type { FSWatcher } from "chokidar";
 import { BotStore } from "@/bots/botStore";
+import type { TreeWatch } from "@/transcripts/catalog/watchTree";
 import { until } from "@/testing/until";
 
 const temporaryDirectories: string[] = [];
@@ -188,27 +188,32 @@ function watchedReads(store: BotStore): Promise<void>[] {
 }
 
 /**
- * Writes a probe file beside the store until its watch reports it. The watch opens asynchronously
- * and chokidar reports nothing before its first scan, so this is how a test's own write lands on a
- * watch that is already on. Beside the store's file rather than on it: chokidar drops a second
- * change to one path that comes too soon after the first, and the probe's writes would swallow the
- * test's own.
+ * Writes a probe file beside the store until its watch reports it. A new macOS watch misses what is
+ * written in its first moments, so this is how a test's own write lands on a watch that is already
+ * on. Beside the store's file rather than on it, so the probe is never mistaken for the test's write.
  */
 async function watchIsOn(store: BotStore, path: string): Promise<void> {
-  const watcher = await (store as unknown as { watcher: Promise<FSWatcher> | null }).watcher!;
   const probe = join(dirname(path), "watch-probe");
-  let heard = false;
-  const hear = (changed: string): void => {
-    if (changed === probe) heard = true;
-  };
-  watcher.on("add", hear).on("change", hear);
+  const inside = store as unknown as { heard(changed: string): void };
+  const heard = inside.heard.bind(store);
+  let reported = false;
+  const spy = spyOn(inside, "heard").mockImplementation((changed) => {
+    if (changed === probe) reported = true;
+    heard(changed);
+  });
+  let wroteAt = 0;
   try {
     await until(async () => {
-      await writeFile(probe, "x");
-      return heard;
+      // Not on every poll: the watch reports a path once it has gone quiet for a moment, so writes
+      // closer together than that would put the report off for as long as they kept coming.
+      if (Date.now() - wroteAt > 100) {
+        await writeFile(probe, "x");
+        wroteAt = Date.now();
+      }
+      return reported;
     }, "the store's watch to report a write");
   } finally {
-    watcher.off("add", hear).off("change", hear);
+    spy.mockRestore();
   }
 }
 
@@ -226,16 +231,10 @@ test("announces a write made by another process, without anyone polling for it",
 
   // Somebody else's atomic write: temp file plus rename, which is what the real `write` does and
   // why the watch is on the directory rather than on this path's inode.
-  //
-  // Repeated until announced, because chokidar drops a second change to one path within 50ms of
-  // the first, and the store's own write above can still be arriving when this one does. The same
-  // revision each time, so a store that announced it twice would show here.
   const temporary = `${path}.other`;
-  await until(async () => {
-    await writeFile(temporary, `${JSON.stringify({ version: 2, revision: 9, bots: [], idempotency: {} })}\n`);
-    await rename(temporary, path);
-    return seen.length > 0;
-  }, "the other process's write to be announced");
+  await writeFile(temporary, `${JSON.stringify({ version: 2, revision: 9, bots: [], idempotency: {} })}\n`);
+  await rename(temporary, path);
+  await until(() => seen.length > 0, "the other process's write to be announced");
   expect(seen).toEqual([9]);
   unsubscribe();
 });
@@ -258,4 +257,22 @@ test("does not re-announce a write this process just made", async () => {
 
   expect(seen).toEqual([4]);
   unsubscribe();
+});
+
+test("keeps its watch when the last listener leaves, because closing one can wedge the process", async () => {
+  // Measured 2026-10-19: a Bun watch `close()` parked the main thread on a lock the File Watcher
+  // thread was parked on too, and the process never ran again. A panel tab closing and reopening is
+  // a last listener leaving and a first arriving.
+  const { store } = await fixture();
+  const held = store as unknown as { watcher: TreeWatch | null };
+  const unsubscribe = store.subscribe(() => {});
+  const watcher = held.watcher!;
+  const closed = spyOn(watcher, "close");
+
+  unsubscribe();
+  const again = store.subscribe(() => {});
+
+  expect(held.watcher).toBe(watcher);
+  expect(closed).not.toHaveBeenCalled();
+  again();
 });

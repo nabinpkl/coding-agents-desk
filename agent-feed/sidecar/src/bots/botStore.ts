@@ -1,10 +1,10 @@
-import chokidar, { type FSWatcher } from "chokidar";
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { BotRecord } from "@agentdesk/agent-feed-wire";
 import { isAgentLogPath } from "@/bots/sessions/botSessionLogs";
 import { ensureSessionSlots } from "@/bots/sessions/botSessionSlots";
 import { acquireFileLock, writeJsonAtomically } from "@/config/lockedJsonFile";
+import { watchTree, type TreeWatch } from "@/transcripts/catalog/watchTree";
 
 export const BOT_STORE_VERSION = 3;
 
@@ -166,16 +166,18 @@ export class BotStore {
   private snapshotValue: StoredBotSnapshot = emptySnapshot();
   private mutationTail: Promise<void> = Promise.resolve();
   private readonly listeners = new Set<(snapshot: StoredBotSnapshot) => void>();
-  private watcher: Promise<FSWatcher> | null = null;
   /**
-   * The teardown of the previous watch, so the next one opens behind it.
+   * One `fs.watch` on this file's directory: opened by the first subscriber, and never closed.
    *
-   * The last reader leaving and the next arriving is the ordinary case, not an exotic one: it
-   * is a panel tab closing and reopening, or a Vite reload. Those issue a close and an open on
-   * one directory with nothing ordering them, and every watch in this process shares one
-   * watcher thread, so the two contend for the lock that thread holds against the main thread.
+   * Not chokidar, and never closed, because a Bun watch `close()` can park the main thread on a
+   * lock the File Watcher thread is parked on too, and from then on nothing runs, timers included.
+   * chokidar closed watches on its own: with `depth: 0` it held one per FILE in the directory and
+   * closed it when the file went, and every `mutate` creates and removes `bots.json.lock` and a temp
+   * file. Measured 2026-10-19 by sampling hung test runs: about one run in 400 of the registry's
+   * subscribe tests stopped inside chokidar's `_closeFile` for the lock. A process holds one store,
+   * so it holds one watch, and a change heard while nobody is listening is dropped unread.
    */
-  private closing: Promise<void> | null = null;
+  private watcher: TreeWatch | null = null;
 
   constructor(private readonly path: string) {
     this.loaded = this.load();
@@ -189,7 +191,7 @@ export class BotStore {
   }
 
   /**
-   * Watches for changes while anyone is listening, this process's own writes included.
+   * Announces changes while anyone is listening, this process's own writes included.
    *
    * `mutate` announces the writes made here, so the watch exists for the ones made ELSEWHERE --
    * another sidecar, an editor, a script. That used to be covered by a one-second poll in the
@@ -201,7 +203,6 @@ export class BotStore {
     this.startWatching();
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.stopWatching();
     };
   }
 
@@ -210,42 +211,19 @@ export class BotStore {
     // The DIRECTORY, not the file: `write` lands as a temp file plus a `rename`, so the path being
     // watched is replaced rather than modified, and a watch bound to the old inode would see one
     // change and then nothing. `depth: 0` keeps it to that directory's own entries.
-    const reload = (changed: string): void => {
-      if (changed !== this.path) return;
-      void this.announceExternalChange().catch((error) => {
-        console.error("agent feed bot store reload failed", error);
-      });
-    };
-    const opening = (this.closing ?? Promise.resolve()).then(() => {
-      const watcher = chokidar.watch(dirname(this.path), {
-        ignoreInitial: true,
-        depth: 0,
-        persistent: true,
-        awaitWriteFinish: false,
-      });
-      watcher.on("add", reload);
-      watcher.on("change", reload);
-      watcher.on("unlink", reload);
-      watcher.on("error", (error) => console.error("agent feed bot store watcher failed", error));
-      // Stopped while it was still opening: nothing else holds this watch, because
-      // `stopWatching` had no watcher to close when it ran.
-      if (this.watcher !== opening) void watcher.close();
-      return watcher;
+    this.watcher = watchTree({
+      root: dirname(this.path),
+      depth: 0,
+      onPath: (changed) => this.heard(changed),
+      onError: (error) => console.error("agent feed bot store watcher failed", error),
     });
-    this.watcher = opening;
   }
 
-  private stopWatching(): void {
-    const watcher = this.watcher;
-    if (!watcher) return;
-    this.watcher = null;
-    // Recorded rather than awaited: unsubscribing cannot block. `startWatching` is what waits.
-    const closed = watcher
-      .then((opened) => opened.close())
-      .catch((error: unknown) => console.error("agent feed bot store watcher close failed", error));
-    this.closing = closed;
-    void closed.finally(() => {
-      if (this.closing === closed) this.closing = null;
+  /** A path in the store's directory changed on disk. */
+  private heard(changed: string): void {
+    if (changed !== this.path || this.listeners.size === 0) return;
+    void this.announceExternalChange().catch((error) => {
+      console.error("agent feed bot store reload failed", error);
     });
   }
 
