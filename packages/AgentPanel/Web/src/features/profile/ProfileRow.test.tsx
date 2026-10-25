@@ -135,7 +135,7 @@ function serveBuild(mode: "auto" | "manual" = "auto") {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       asked.push({ url: String(input), method: init?.method ?? "GET" });
-      return new Response(JSON.stringify({ build: "7373cec+", mode, held: [], blocked: null, sidecars: [] }), {
+      return new Response(JSON.stringify({ build: "2cff18c+", mode, held: [], blocked: null, sidecars: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
