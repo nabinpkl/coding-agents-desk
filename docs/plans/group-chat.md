@@ -436,12 +436,54 @@ Common to all three: Effect's three bugs are rows in the failure table above, wh
 Costs of Effect in general: it spreads to every caller, people report two to eight weeks to become
 productive, and v4 renamed modules that models know by their v3 names.
 
-The lean so far is B or C: the Simplex principle says the part that guarantees the envelope should
-be small and auditable, which argues for kill code we own. C keeps that while taking Effect's
-supervision, and OpenCode shows it working on Bun. U6 is settled: Effect's spawner behaves on Bun,
-so A and C are both open, and either way the census is ours. U7 is settled too: Effect's spans reach
-the archive through a small tracer of our own, not through Effect's OpenTelemetry package. Nothing
-measured now stands in the way of any of the three; the choice is the one in the risk row.
+U6 and U7 are settled: Effect's spawner behaves on Bun, and Effect's spans reach the archive through
+a small tracer of our own. Nothing measured stands in the way of any of the three.
+
+**Decided 2026-10-25: A, Group is built on Effect, as a pilot.** The lean had been B or C, on the
+Simplex argument that the part holding the envelope should be small and ours. The reason to go
+further: Group is mostly the outside world (processes, streams, timeouts, interruption, a hub, a
+supervisor tree), which is where Effect's model of typed effects, scopes and structured concurrency
+is meant to be strongest, and the closest projects, OpenCode on Bun and t3code on Node, both build
+their harness supervision on it. Group is the place to find out whether it holds up here. If it
+does, the rest of the sidecar can move to Effect later, as those two did; if it does not, the
+damage is one feature's.
+
+What A still owes, from the spikes: the census of a lane's descendants and the start-time check are
+ours on top of Effect's spawner (it reaches nothing outside its group, U6); every stop passes
+`forceKillAfter` (without it, a process ignoring SIGTERM is waited on forever); spans go through our
+own tracer onto Sentry (U7), with its `context` hook still to do; and the process module is one
+Effect marks unstable, so its version is pinned and its changes read before each upgrade.
+
+## Where Group lives
+
+Decided 2026-10-25: a **Group** tab of its own in the panel, and a home of its own on the server
+side, so that earlier designs do not seep in. Earlier code is read for **behaviour priors**, what
+it measured and the traps it found (the tmux pipe race, Bun's poisoned second watch, the prompt
+guard's limits, the arena's lanes that time out without stopping), and never for **architecture
+priors**: Group does not import the arena, and does not take its structure from the sidecar's
+modules.
+
+The server-side home, proposed: a package of its own, `agent-feed/group/`, run as a process of its
+own under the sidecar's supervisor. There is precedent for both halves:
+
+- The messaging hub is already a package of its own (`agent-feed/hub/`, its own `package.json`).
+  Group's would hold `effect` and `@effect/platform-bun` at pinned versions, and no other part of
+  the tree would take Effect on by accident.
+- The audio process already runs as a separate child of the supervisor (`supervisor.ts`), on the
+  sidecar's port plus an offset, and the panel's dev server sends `/api/audio/` to it
+  (`vite.config.ts`). Group's would be `/api/group/` the same way. A hang or a crash in Group then
+  never takes the sidecar's streams down, and a save elsewhere in the sidecar does not restart a
+  room mid-wave.
+- What Group needs from the sidecar (sending through the hub, the session catalog, transcripts) it
+  asks for over the sidecar's own HTTP routes, as the panel does, rather than by importing them.
+
+What a home of its own costs: the repository's rules (500 lines a file, 12 files a directory, no
+relative imports, lint, format) are checked in the two live trees by path, so `agent-feed/group/`
+has to be added to those checks, and `just check` needs a leg for it, or a change there runs every
+leg. OpenCode's ast-grep rules for Effect patterns (`.reference/opencode/script/ast-grep/`, MIT) are
+the starting point for Group's own lint. The alternative, a directory inside the sidecar process,
+is cheaper to wire and shares its reload and its failure, which is what this decision exists to
+avoid.
 
 ## Libraries and runtimes considered
 
@@ -468,7 +510,8 @@ measured now stands in the way of any of the three; the choice is the one in the
 - Defaults: rounds per wave (proposed 3), the lease (proposed the arena's 10 minutes, 2 for the smoke
   run), the grace before SIGKILL (proposed 5 seconds), and a hard maximum the reader cannot exceed.
 - Whether Claude's own telemetry export may be a source, which amends an AGENTS.md rule.
-- How the kernel is built: A, B or C above, after the spike answers U6 and U7.
+- Group's server-side home: a package and process of its own under the supervisor (proposed in
+  "Where Group lives"), or a directory inside the sidecar.
 - When to restart the opencode serve with a span endpoint, to answer U4.
 - How an unaddressed message finds its member in command line mode: matching by code, a cheap
   router call, or both (proposed: code first, the router when code finds nobody).
@@ -537,3 +580,7 @@ measured now stands in the way of any of the three; the choice is the one in the
   `agentdesk-hub` mod for Claude in both modes and the adapter for opencode, under `prompt-guard`'s
   limits, which Group's command line mode works inside. `docs/agent-messaging.md` brought up to date
   with the same facts.
+- 2026-10-25: decided that Group is built on Effect (option A) as a pilot for the sidecar, with a
+  tab of its own and a home of its own; earlier code is read for behaviour priors, not
+  architecture priors. Proposed that home: `agent-feed/group/`, a package and a supervised process
+  reached at `/api/group/`, following the hub's package and the audio process.
