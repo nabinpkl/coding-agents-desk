@@ -73,9 +73,10 @@ know when building near it:
   layout viewport, which a keyboard does not shorten, so `styles.css` ends every `.fixed.inset-0`
   at the page's bottom while the keyboard is up. An overlay built some other way stays under the
   keyboard and the bar. The bar itself is drawn as a popover, inside the open modal dialog when the
-  field is in one, so neither a dialog's backdrop nor its inertness hides it. It also carries the
-  highest z-index, so a browser whose popover never opens still paints it over every layer the
-  canvas positions; without it, such a bar shows only where a session card happens to be under it.
+  field is in one, so neither a dialog's backdrop nor its inertness hides it. It carries the highest
+  z-index for a browser whose popover never opens, and a compositing layer of its own
+  (`translateZ(0)`, `will-change`): without one, the iPhone painted it only where something under
+  it was repainting, over a streaming card or after a scroll.
 
 Measured only with a stand-in keyboard in an emulated iPhone. What the real one reports, WebKit's own
 form strip above the keys included, is the open question.

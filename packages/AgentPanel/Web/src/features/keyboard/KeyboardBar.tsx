@@ -93,12 +93,15 @@ function KeyboardBarRow({ bar, field }: { bar: KeyboardBarState; field: HTMLElem
         top: bottom,
         width: width * scale,
         height: keyboardBarHeight(bar.ownKeys),
-        transform: `scale(${1 / scale}) translateY(-100%)`,
+        // `translateZ(0)` and `will-change` give it a compositing layer of its own. Without one, the
+        // iPhone's WebKit painted it only where something under it was repainting: over a session
+        // card that was streaming, or once a scroll repainted the page, and nowhere else.
+        transform: `scale(${1 / scale}) translateY(-100%) translateZ(0)`,
+        willChange: "transform",
         transformOrigin: "top left",
-        // Above everything even where it never reaches the top layer (a WebKit whose popover did
-        // not open): then it is a fixed box at the body's root, and every positioned layer the
-        // canvas draws with a z-index would otherwise paint over it, leaving it seen only where a
-        // session card happens to be under it.
+        // Above everything even where it never reaches the top layer (a browser whose popover did
+        // not open): then it is a fixed box at the body's root, under every positioned layer the
+        // canvas draws with a z-index.
         zIndex: 2147483647,
         opacity: bar.pinching ? 0 : 1,
       }}

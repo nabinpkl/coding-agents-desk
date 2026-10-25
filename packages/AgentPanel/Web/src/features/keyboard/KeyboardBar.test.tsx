@@ -58,7 +58,7 @@ describe("the keyboard bar", () => {
     show(field, { scale: 2, pinching: true });
     const bar = screen.getByRole("toolbar");
     expect(bar.style.width).toBe("780px");
-    expect(bar.style.transform).toBe("scale(0.5) translateY(-100%)");
+    expect(bar.style.transform).toBe("scale(0.5) translateY(-100%) translateZ(0)");
     expect(bar.style.opacity).toBe("0");
   });
 
