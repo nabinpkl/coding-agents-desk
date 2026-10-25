@@ -26,8 +26,18 @@ Not copied: OpenCode's `no-star-import`, which bans `import * as`, because Group
 modules as namespaces from their subpaths (`import * as Effect from "effect/Effect"`), after t3code's
 rules; and `no-drizzle-column-name`, which is about a database layer Group does not have.
 
-Group's own: `no-run-outside-edge`, which keeps `Effect.run*` and `ManagedRuntime.make` to a
-program's `*Main.ts` entry point and its tests.
+Group's own:
+
+- `no-run-outside-edge` keeps `Effect.run*` and `ManagedRuntime.make` to a program's `*Main.ts`
+  entry point and its tests.
+- `no-raw-io-outside-edge` keeps `node:fs`, `node:fs/promises`, `node:child_process`, value
+  imports from `bun`, and `Bun.spawn`, `Bun.spawnSync`, `Bun.file`, `Bun.write` and `Bun.$` there
+  too, so the rest of Group reaches files and processes through Effect's services.
+- `namespace-node-imports` takes the idea of t3code's oxlint rule of the same name
+  (`.reference/t3code/oxlint-plugin-t3code/rules/namespace-node-imports.ts`, MIT, T3 Tools Inc),
+  written anew for ast-grep: a `node:` import is one namespace whose name starts with `Node`.
+  t3code's rule also derives the exact name (`NodeFS`, `NodeFSP`); this one checks the prefix,
+  and the skill lists the names.
 
 Bring a copied rule up to date by copying it again from `.reference/opencode` and noting the commit
 above.

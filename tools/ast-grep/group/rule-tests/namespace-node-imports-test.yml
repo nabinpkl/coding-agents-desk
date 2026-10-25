@@ -1,0 +1,21 @@
+id: namespace-node-imports
+valid:
+  - |
+    import * as NodePath from "node:path"
+  - |
+    import * as NodeFSP from "node:fs/promises"
+  - |
+    import * as Effect from "effect/Effect"
+  - |
+    import { describe } from "@effect/vitest"
+invalid:
+  - |
+    import { join } from "node:path"
+  - |
+    import path from "node:path"
+  - |
+    import * as path from "node:path"
+  - |
+    import type { Stats } from "node:fs"
+  - |
+    import os, * as NodeOS from "node:os"

@@ -1,0 +1,24 @@
+id: no-raw-io-outside-edge
+language: TypeScript
+message: Reach files and processes through Effect's services from the environment (FileSystem.FileSystem, ChildProcessSpawner.ChildProcessSpawner), so the dependency shows in the type and a test layer can stand in; node:fs, node:child_process and Bun's spawn and file calls are for a *Main.ts entry point and tests (group-effect skill, "Seeing what a file depends on").
+severity: error
+ignores:
+  - "**/*Main.ts"
+  - "**/*.test.ts"
+rule:
+  any:
+    - all:
+        - kind: import_statement
+        - has:
+            field: source
+            regex: '^["'']node:(fs|fs/promises|child_process)["'']$'
+    - all:
+        - kind: import_statement
+        - has:
+            field: source
+            regex: '^["'']bun["'']$'
+        - not:
+            regex: '^import\s+type\b'
+    - all:
+        - kind: member_expression
+        - regex: '^Bun\.(spawn|spawnSync|file|write|\$)$'

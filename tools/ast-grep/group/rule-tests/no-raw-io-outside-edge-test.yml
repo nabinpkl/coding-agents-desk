@@ -1,0 +1,28 @@
+id: no-raw-io-outside-edge
+valid:
+  - |
+    const read = Effect.fn("RoomLog.read")(function* (file: string) {
+      const fs = yield* FileSystem.FileSystem
+      return yield* fs.readFileString(file)
+    })
+  - |
+    import * as NodePath from "node:path"
+  - |
+    import type { Subprocess } from "bun"
+  - |
+    const version = Bun.version
+invalid:
+  - |
+    import * as NodeFS from "node:fs"
+  - |
+    import * as NodeFSP from "node:fs/promises"
+  - |
+    import * as NodeChildProcess from "node:child_process"
+  - |
+    import { $ } from "bun"
+  - |
+    const lane = Bun.spawn(["claude", "-p"])
+  - |
+    const text = await Bun.file(path).text()
+  - |
+    await Bun.$`ps -o pid=`

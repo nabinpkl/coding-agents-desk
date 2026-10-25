@@ -1,0 +1,60 @@
+id: no-raw-io-outside-edge
+snapshots:
+  "await Bun.$`ps -o pid=`\n":
+    labels:
+    - source: Bun.$
+      style: primary
+      start: 6
+      end: 11
+  "const lane = Bun.spawn([\"claude\", \"-p\"])\n":
+    labels:
+    - source: Bun.spawn
+      style: primary
+      start: 13
+      end: 22
+  "const text = await Bun.file(path).text()\n":
+    labels:
+    - source: Bun.file
+      style: primary
+      start: 19
+      end: 27
+  "import * as NodeChildProcess from \"node:child_process\"\n":
+    labels:
+    - source: import * as NodeChildProcess from "node:child_process"
+      style: primary
+      start: 0
+      end: 54
+    - source: "\"node:child_process\""
+      style: secondary
+      start: 34
+      end: 54
+  "import * as NodeFS from \"node:fs\"\n":
+    labels:
+    - source: import * as NodeFS from "node:fs"
+      style: primary
+      start: 0
+      end: 33
+    - source: "\"node:fs\""
+      style: secondary
+      start: 24
+      end: 33
+  "import * as NodeFSP from \"node:fs/promises\"\n":
+    labels:
+    - source: import * as NodeFSP from "node:fs/promises"
+      style: primary
+      start: 0
+      end: 43
+    - source: "\"node:fs/promises\""
+      style: secondary
+      start: 25
+      end: 43
+  "import { $ } from \"bun\"\n":
+    labels:
+    - source: import { $ } from "bun"
+      style: primary
+      start: 0
+      end: 23
+    - source: "\"bun\""
+      style: secondary
+      start: 18
+      end: 23

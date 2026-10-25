@@ -40,7 +40,12 @@ skill (`.reference/opencode/.opencode/skills/effect`, MIT, opencode).
   standalone `FooShape`.
 - **Imports are namespaces from subpaths:** `import * as Effect from "effect/Effect"`, never
   `import { Effect } from "effect"`. A service module is imported the same way and used as
-  `yield* Foo.Foo` and `Foo.layer`.
+  `yield* Foo.Foo` and `Foo.layer`. The subpath is for cost: every static import loads its file
+  before the program starts, and the `effect` root re-exports all 143 modules, which Bun loads in
+  full (on Bun 1.3.13 and Effect 4.0.6, 2026-10-25: 71 ms for a script importing the root, 23 ms
+  for `effect/Effect`, 21 ms for a named import from it). The namespace is for names: `map`,
+  `filter` and `make` are in `Effect`, `Stream`, `Option` and `Layer` alike, and a namespace never
+  needs one renamed. OpenCode bans `import * as`; Group follows t3code here.
 - **Dependencies come from the environment** (`yield* FileSystem.FileSystem`), never as parameters to
   `make`, never hidden in a module global, a closure over a singleton, or a `Layer.succeed` that
   calls imperative APIs. Configuration and plain values may be parameters.
@@ -49,6 +54,29 @@ skill (`.reference/opencode/.opencode/skills/effect`, MIT, opencode).
   hub and persistence work, retries and rollback belong in the service, so the same capability is
   reachable from a route, a test and a later tool without a socket.
 - **Moving a service deletes the old file and updates every consumer.** No re-export shims.
+
+## Seeing what a file depends on
+
+An import line names modules, not the functions used from them, and Group does not try to make it
+list more. Each question has its own place to look:
+
+| Question | Where it is answered |
+| --- | --- |
+| which modules a file uses | its imports |
+| which services it needs | the requirements of its `make` and `layer`: `Layer<Room, never, Hub \| FileSystem>`, checked by the compiler |
+| which code may import which | `.oxlintrc.json`, on every gate |
+| where a function is called | a search for `Module.fn(`, which a namespace makes exact |
+
+The second row holds only while every dependency comes from the environment, so files and
+processes are reached through Effect's services (`yield* FileSystem.FileSystem`,
+`yield* ChildProcessSpawner.ChildProcessSpawner`), not `node:fs`, `node:child_process` or
+`Bun.spawn`, which a type never shows and a test layer cannot replace. Those stay in a `*Main.ts`
+entry point and in tests. That is stricter than t3code, whose server mostly yields the services
+but still imports `node:fs` in some 19 source files (2026-10-25); Group has no old code to carry,
+so it can hold the line from its first file. A Node built-in that is used is imported as one
+namespace named for it, after t3code's `namespace-node-imports` rule: `import * as NodeFS from
+"node:fs"`, `NodePath` for `node:path`, `NodeFSP` for `node:fs/promises`, `NodeChildProcess` for
+`node:child_process`, so a call says it is Node's.
 
 ## Functions and tracing
 
@@ -125,8 +153,10 @@ a review need not catch it:
   the sidecar (`@/**` except `@/group/**`), no named imports from the `effect` root, no
   `node:timers`; and outside `src/group/`, nothing in the sidecar imports `effect` or `@effect/*`.
 - **ast-grep** (`tools/ast-grep/group/`): no `Effect.run*` or `ManagedRuntime.make` outside a
-  `*Main.ts` entry point or a test, no nested service yields, no aliased value imports, no
-  `JSON.parse(...) as`, no `Effect.die` with a string, and OpenCode's five Effect simplifications.
+  `*Main.ts` entry point or a test, no `node:fs`, `node:child_process` or `Bun.spawn` and its kin
+  outside them either, Node built-ins only as `Node`-named namespaces, no nested service yields,
+  no aliased value imports, no `JSON.parse(...) as`, no `Effect.die` with a string, and OpenCode's
+  five Effect simplifications.
   The rules' own tests run every time, so each is shown failing before it is trusted.
 
 The rest (spans named with `Effect.fn`, safe error attributes, a request's scope versus the room's)

@@ -1,0 +1,52 @@
+id: namespace-node-imports
+snapshots:
+  "import * as path from \"node:path\"\n":
+    labels:
+    - source: import * as path from "node:path"
+      style: primary
+      start: 0
+      end: 33
+    - source: "\"node:path\""
+      style: secondary
+      start: 22
+      end: 33
+  "import os, * as NodeOS from \"node:os\"\n":
+    labels:
+    - source: import os, * as NodeOS from "node:os"
+      style: primary
+      start: 0
+      end: 37
+    - source: "\"node:os\""
+      style: secondary
+      start: 28
+      end: 37
+  "import path from \"node:path\"\n":
+    labels:
+    - source: import path from "node:path"
+      style: primary
+      start: 0
+      end: 28
+    - source: "\"node:path\""
+      style: secondary
+      start: 17
+      end: 28
+  "import type { Stats } from \"node:fs\"\n":
+    labels:
+    - source: import type { Stats } from "node:fs"
+      style: primary
+      start: 0
+      end: 36
+    - source: "\"node:fs\""
+      style: secondary
+      start: 27
+      end: 36
+  "import { join } from \"node:path\"\n":
+    labels:
+    - source: import { join } from "node:path"
+      style: primary
+      start: 0
+      end: 32
+    - source: "\"node:path\""
+      style: secondary
+      start: 21
+      end: 32

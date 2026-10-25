@@ -553,6 +553,16 @@ rather than by a separate install.
   and it would add a third runtime beside Bun and the Python speech process. Taken: temporary
   children never restarted, restart intensity as the breaker, shutdown then `brutal_kill`, a
   supervisor that takes its children with it.
+- **knip (unused files, exports and dependencies): with Group's first module, not before.** It
+  passes vetting (ISC, released weekly, 6.43.0 on 2026-10-24) with one caveat: a single maintainer.
+  t3code runs it. Run read-only at 6.40.0 on 2026-10-25 without configuration, it reported 28
+  unused files and 178 unused exports in the sidecar, and 5 files and 76 exports in the panel, but
+  `src/server.ts` and the other entry points were among the "unused" files, so most of that is
+  missing configuration, not findings. For Group it would be a config whose project is
+  `src/group/**` and whose entries are the `*Main.ts` files and tests, reporting files, exports and
+  types. With nothing under `src/group/` it could not be shown failing, so it lands with the first
+  module and a probe that fails it. Running it over the rest of the tree is a separate decision,
+  with its own backlog to clear.
 
 ## Open decisions
 
@@ -654,3 +664,7 @@ rather than by a separate install.
 - 2026-10-25: "Where Group lives" corrected to the home the lint was written against: its own
   process inside the sidecar package at `agent-feed/sidecar/src/group/`, not the separate package
   proposed earlier, which would have fallen outside every gate leg as the hub's does.
+- 2026-10-25: two more ast-grep rules for Group, both Group's own: files and processes are reached
+  through Effect's services except in a `*Main.ts` entry point and tests, so a file's dependencies
+  show in its type, and a Node built-in is imported as a `Node`-named namespace, after t3code. knip
+  was looked at and waits for Group's first module ("Libraries and runtimes considered").

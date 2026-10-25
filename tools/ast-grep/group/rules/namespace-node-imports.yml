@@ -1,0 +1,20 @@
+id: namespace-node-imports
+language: TypeScript
+message: Import a Node built-in as one namespace named Node plus its module (import * as NodeFS from "node:fs"), so every call says it is Node's (group-effect skill, "Seeing what a file depends on").
+severity: error
+rule:
+  all:
+    - kind: import_statement
+    - has:
+        field: source
+        regex: '^["'']node:'
+    - not:
+        has:
+          kind: import_clause
+          all:
+            - has:
+                kind: namespace_import
+                regex: '^\*\s+as\s+Node[A-Z][A-Za-z]*$'
+            - not:
+                has:
+                  kind: identifier
