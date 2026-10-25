@@ -17,7 +17,11 @@ const els = {
   chartFigure: document.getElementById("chart-figure"),
   chartLabel: document.getElementById("chart-label"),
   granularity: document.getElementById("granularity"),
+  wrap: document.getElementById("chart-wrap"),
   chart: document.getElementById("chart"),
+  calendarLayout: document.getElementById("calendar-layout"),
+  calendar: document.getElementById("calendar"),
+  calendarFacts: document.getElementById("calendar-facts"),
   months: document.getElementById("chart-months"),
   readout: document.getElementById("chart-readout"),
   clearRange: document.getElementById("clear-range"),
@@ -87,7 +91,7 @@ function applyFilters() {
   });
 }
 
-/* --- masthead and volume ------------------------------------------------ */
+/* --- masthead and chart ------------------------------------------------- */
 
 function renderMast(data) {
   document.title = `${data.repo} · commit timeline`;
@@ -143,7 +147,34 @@ function buildBuckets() {
   return { day: days, week: weeks };
 }
 
+const CHART_LABEL = { day: "Commits per day", week: "Commits per week", calendar: "Commit calendar" };
+
 function renderChart() {
+  const calendar = state.unit === "calendar";
+  els.chart.hidden = calendar;
+  els.calendarLayout.hidden = !calendar;
+  els.months.hidden = calendar;
+  els.chartFigure.classList.toggle("is-day", state.unit === "day");
+  els.chartFigure.classList.toggle("is-week", state.unit === "week");
+  els.chartFigure.classList.toggle("is-calendar", calendar);
+  els.chartLabel.textContent = CHART_LABEL[state.unit];
+  els.readout.hidden = true;
+  els.clearRange.hidden = state.range === null;
+
+  if (calendar) renderCalendar();
+  else renderBars();
+
+  requestAnimationFrame(() => {
+    if (calendar) fitCalendar();
+    markAllScrollables();
+    if (!state.range) {
+      const scroller = calendar ? els.calendar : els.chart;
+      scroller.scrollLeft = scroller.scrollWidth;
+    }
+  });
+}
+
+function renderBars() {
   const list = buckets[state.unit];
   const max = Math.max(1, ...list.map((bucket) => bucket.count));
   const selected = state.range?.unit === state.unit ? state.range.key : null;
@@ -174,17 +205,117 @@ function renderChart() {
   if (stop) stop.tabIndex = 0;
 
   els.chart.replaceChildren(...bars);
-  els.chartFigure.classList.toggle("is-day", state.unit === "day");
-  els.chartFigure.classList.toggle("is-week", state.unit === "week");
-  els.chartLabel.textContent = `Commits per ${state.unit}`;
-  els.readout.hidden = true;
-  els.clearRange.hidden = state.range === null;
   renderMonths();
+}
 
-  requestAnimationFrame(() => {
-    markAllScrollables();
-    if (!state.range) els.chart.scrollLeft = els.chart.scrollWidth;
+const addDays = (day, days) => new Date(utcDay(day) + days * DAY).toISOString().slice(0, 10);
+
+// A GitHub-shaped calendar: one square per day, weeks as columns, weekdays as rows, and a month
+// label over the week its month starts in. Squares are square, so the block stops growing at 16px
+// and scrolls instead of turning the page into a wall of colour.
+let calendarCells = new Map();
+
+function renderCalendar() {
+  const days = new Map(buckets.day.map((day) => [day.key, day]));
+  const weeks = buckets.week.map((week) => week.key);
+  const max = Math.max(1, ...buckets.day.map((day) => day.count));
+  const selected = state.range?.unit === "day" ? state.range.key : null;
+  els.calendar.style.setProperty("--weeks", String(weeks.length));
+
+  const nodes = [];
+  const months = [];
+  let column = 1;
+  for (const week of weeks) {
+    const month = monthOf(week);
+    const last = months.at(-1);
+    if (last?.month === month) last.count += 1;
+    else months.push({ month, count: 1, start: column });
+    column += 1;
+  }
+  for (const { month, count, start } of months) {
+    const label = document.createElement("span");
+    label.className = "calendar-month";
+    label.style.gridColumn = `${start + 1} / span ${count}`;
+    label.textContent = MONTHS[month];
+    nodes.push(label);
+  }
+
+  for (const [index, name] of ["Mon", "", "Wed", "", "Fri", "", ""].entries()) {
+    if (!name) continue;
+    const label = document.createElement("span");
+    label.className = "calendar-label";
+    label.style.gridRow = String(index + 2);
+    label.textContent = name;
+    nodes.push(label);
+  }
+
+  calendarCells = new Map();
+  weeks.forEach((week, weekIndex) => {
+    for (let weekday = 0; weekday < 7; weekday++) {
+      const key = addDays(week, weekday);
+      const day = days.get(key);
+      const node = document.createElement(day ? "button" : "span");
+      node.style.gridColumn = String(weekIndex + 2);
+      node.style.gridRow = String(weekday + 2);
+      if (!day) {
+        // Before the first commit or after the last one: a hole in the calendar, not a zero day.
+        node.className = "heat-outside";
+        nodes.push(node);
+        continue;
+      }
+      node.type = "button";
+      node.className = "heat-cell";
+      if (day.count) node.classList.add(`heat-${Math.min(4, Math.ceil((day.count / max) * 4))}`);
+      node.dataset.key = key;
+      node.dataset.tip = day.tip;
+      node.setAttribute("aria-pressed", String(selected === key));
+      node.setAttribute("aria-label", day.tip);
+      node.tabIndex = -1;
+      if (!day.count) node.disabled = true;
+      calendarCells.set(key, node);
+      nodes.push(node);
+    }
   });
+
+  const chosen = selected ? calendarCells.get(selected) : null;
+  const stop =
+    (chosen && !chosen.disabled ? chosen : null) ??
+    [...calendarCells.values()].reverse().find((cell) => !cell.disabled);
+  if (stop) stop.tabIndex = 0;
+
+  els.calendar.replaceChildren(...nodes);
+  renderCalendarFacts();
+}
+
+function renderCalendarFacts() {
+  const active = buckets.day.filter((day) => day.count > 0);
+  if (!active.length) {
+    els.calendarFacts.replaceChildren();
+    return;
+  }
+  const busiest = active.reduce((most, day) => (day.count > most.count ? day : most), active[0]);
+  const swatches = [0, 1, 2, 3, 4].map((level) => `<i class="heat-swatch heat-${level}"></i>`).join("");
+  els.calendarFacts.innerHTML = `
+    <div class="heat-legend"><span>Less</span>${swatches}<span>More</span></div>
+    <dl>
+      <div><dt>Days with commits</dt><dd>${active.length} of ${buckets.day.length}</dd></div>
+      <div><dt>Busiest day</dt><dd>${shortDate(busiest.key)} · ${number.format(busiest.count)}</dd></div>
+    </dl>`;
+}
+
+function fitCalendar() {
+  if (state.unit !== "calendar") return;
+  const weeks = buckets.week.length || 1;
+  const styles = getComputedStyle(els.calendar);
+  const gutter = Number.parseFloat(styles.getPropertyValue("--gutter")) || 24;
+  const gap = Number.parseFloat(styles.getPropertyValue("--gap")) || 3;
+  // The facts sit beside the grid on a wide screen and under it on a narrow one, so their width
+  // only comes off the grid when they are actually in the same row.
+  const layout = getComputedStyle(els.calendarLayout);
+  const beside = layout.flexDirection === "row" && els.calendarFacts.offsetWidth > 0;
+  const reserved = beside ? els.calendarFacts.offsetWidth + (Number.parseFloat(layout.columnGap) || 0) : 0;
+  const available = els.calendarLayout.clientWidth - reserved - gutter - weeks * gap;
+  els.calendar.style.setProperty("--cell", `${Math.max(5, Math.min(20, Math.floor(available / weeks)))}px`);
 }
 
 // A scroller only gets the edge fade when it actually overflows: a mask on a row that fits just
@@ -194,7 +325,7 @@ function markScrollable(element) {
 }
 
 function markAllScrollables() {
-  for (const element of [els.chart, els.kinds]) markScrollable(element);
+  for (const element of [els.chart, els.calendar, els.kinds]) markScrollable(element);
 }
 
 function renderMonths() {
@@ -221,14 +352,14 @@ function renderMonths() {
   );
 }
 
-function showReadout(bar) {
-  const chart = els.chart.getBoundingClientRect();
-  const rect = bar.getBoundingClientRect();
-  els.readout.textContent = bar.dataset.tip;
+function showReadout(target) {
+  const wrap = els.wrap.getBoundingClientRect();
+  const rect = target.getBoundingClientRect();
+  els.readout.textContent = target.dataset.tip;
   els.readout.hidden = false;
   const width = els.readout.offsetWidth;
-  const center = rect.left - chart.left + rect.width / 2;
-  els.readout.style.left = `${Math.round(Math.min(Math.max(center, width / 2 + 1), chart.width - width / 2 - 1))}px`;
+  const center = rect.left - wrap.left + rect.width / 2;
+  els.readout.style.left = `${Math.round(Math.min(Math.max(center, width / 2 + 1), wrap.width - width / 2 - 1))}px`;
 }
 
 function renderKinds() {
@@ -389,8 +520,10 @@ function clearFilters() {
 function setUnit(unit) {
   if (unit === state.unit) return;
   state.unit = unit;
-  // The selection names a bucket that no longer exists in the other view, so it goes with it.
-  if (state.range && state.range.unit !== unit) state.range = null;
+  // A day selection still names a bucket in the calendar, but a week selection has nowhere to be
+  // shown in it, so that one goes with the view it was made in.
+  const shown = state.range && (state.range.unit === unit || (unit === "calendar" && state.range.unit === "day"));
+  if (!shown) state.range = null;
   for (const button of els.granularity.querySelectorAll("button")) {
     button.setAttribute("aria-pressed", String(button.dataset.unit === unit));
   }
@@ -406,6 +539,22 @@ function moveChartFocus(step) {
   for (const bar of bars) bar.tabIndex = -1;
   bars[next].tabIndex = 0;
   bars[next].focus();
+}
+
+// Arrow keys walk the calendar by day and by week; a day with nothing in it is stepped over rather
+// than swallowing the key.
+function moveCalendarFocus(key, days) {
+  let target = addDays(key, days);
+  for (let i = 0; i < 9; i++) {
+    const cell = calendarCells.get(target);
+    if (cell && !cell.disabled) {
+      for (const other of calendarCells.values()) other.tabIndex = -1;
+      cell.tabIndex = 0;
+      cell.focus();
+      return;
+    }
+    target = addDays(target, days > 0 ? 1 : -1);
+  }
 }
 
 function bindEvents() {
@@ -426,34 +575,49 @@ function bindEvents() {
     if (button) setUnit(button.dataset.unit);
   });
 
-  els.chart.addEventListener("click", (event) => {
+  // Both charts are one surface to the pointer: a bar in the day or week view, a square in the
+  // calendar. A calendar square always names a day, whichever view is up.
+  els.wrap.addEventListener("click", (event) => {
     const bar = event.target.closest(".chart-bar");
-    if (!bar || bar.disabled) return;
-    const same = state.range?.unit === state.unit && state.range.key === bar.dataset.key;
-    state.range = same ? null : { unit: state.unit, key: bar.dataset.key };
+    const cell = bar ? null : event.target.closest(".heat-cell");
+    const target = bar ?? cell;
+    if (!target || target.disabled) return;
+    const unit = bar ? state.unit : "day";
+    const key = target.dataset.key;
+    const same = state.range?.unit === unit && state.range.key === key;
+    state.range = same ? null : { unit, key };
     renderChart();
     renderTimeline();
   });
 
-  els.chart.addEventListener("pointerover", (event) => {
-    const bar = event.target.closest(".chart-bar");
-    if (bar) showReadout(bar);
+  els.wrap.addEventListener("pointerover", (event) => {
+    const target = event.target.closest(".chart-bar, .heat-cell");
+    if (target) showReadout(target);
   });
-  els.chart.addEventListener("pointerleave", () => {
+  els.wrap.addEventListener("pointerleave", () => {
     els.readout.hidden = true;
   });
-  els.chart.addEventListener("focusin", (event) => {
-    const bar = event.target.closest(".chart-bar");
-    if (bar) showReadout(bar);
+  els.wrap.addEventListener("focusin", (event) => {
+    const target = event.target.closest(".chart-bar, .heat-cell");
+    if (target) showReadout(target);
   });
-  els.chart.addEventListener("focusout", () => {
+  els.wrap.addEventListener("focusout", () => {
     els.readout.hidden = true;
   });
+
   els.chart.addEventListener("keydown", (event) => {
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
     if (step === null && event.key !== "Home" && event.key !== "End") return;
     event.preventDefault();
     moveChartFocus(step ?? (event.key === "Home" ? "home" : "end"));
+  });
+
+  els.calendar.addEventListener("keydown", (event) => {
+    const cell = event.target.closest(".heat-cell");
+    const days = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 7, ArrowUp: -7 }[event.key];
+    if (!cell || days === undefined) return;
+    event.preventDefault();
+    moveCalendarFocus(cell.dataset.key, days);
   });
 
   els.clearRange.addEventListener("click", () => {
@@ -505,7 +669,14 @@ function bindEvents() {
     { rootMargin: "800px" },
   ).observe(els.sentinel);
 
-  addEventListener("resize", markAllScrollables, { passive: true });
+  addEventListener(
+    "resize",
+    () => {
+      fitCalendar();
+      markAllScrollables();
+    },
+    { passive: true },
+  );
 }
 
 /* --- theme -------------------------------------------------------------- */

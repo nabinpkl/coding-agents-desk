@@ -31,11 +31,16 @@
           <div class="segmented" id="granularity" role="group" aria-label="Chart granularity">
             <button type="button" data-unit="day" aria-pressed="true">Day</button>
             <button type="button" data-unit="week" aria-pressed="false">Week</button>
+            <button type="button" data-unit="calendar" aria-pressed="false">Calendar</button>
           </div>
         </div>
       </figcaption>
-      <div class="chart-wrap">
+      <div class="chart-wrap" id="chart-wrap">
         <div class="chart-bars" id="chart"></div>
+        <div class="calendar-layout" id="calendar-layout" hidden>
+          <div class="calendar" id="calendar"></div>
+          <div class="calendar-facts" id="calendar-facts"></div>
+        </div>
         <output class="chart-readout" id="chart-readout" hidden></output>
       </div>
       <div class="chart-months" id="chart-months" aria-hidden="true"></div>

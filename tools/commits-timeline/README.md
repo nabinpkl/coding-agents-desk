@@ -31,9 +31,11 @@ the timeline reflects what is on disk rather than a cached export. Merge commits
 because they carry no diff of their own; the branch landings are already in the history they joined.
 
 The chart counts commits per calendar day or per week (Monday start), one bucket per day including
-the quiet ones, and clicking a bar filters the list to that day or week. The two views share the
-filter state; a selection made in one view is dropped when you switch, because the bucket it names
-does not exist in the other.
+the quiet ones, and clicking a bar filters the list to that day or week. The third view is a
+calendar: one square per day, weeks as columns, weekdays as rows, shaded by that day's count, with
+the legend and two summary facts beside it. A calendar square always names a day, so a selection
+made there survives a switch to the day view and is dropped by the week view, where the bucket does
+not exist.
 
 Each subject's conventional-commit prefix becomes its kind (`feat`, `fix`, `docs`, ...). A prefix
 outside the filter row's set keeps its own word in the tag and is counted under `other` for

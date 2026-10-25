@@ -24,6 +24,13 @@
   --kind-perf: light-dark(oklch(0.55 0.11 70), oklch(0.8 0.12 70));
   --kind-other: light-dark(oklch(0.48 0.008 250), oklch(0.7 0.008 250));
 
+  /* Four steps of one hue, so a calendar cell reads as intensity and not as a category. */
+  --heat-0: light-dark(oklch(0.94 0.004 250), oklch(0.27 0.008 250));
+  --heat-1: light-dark(oklch(0.86 0.035 250), oklch(0.38 0.045 250));
+  --heat-2: light-dark(oklch(0.76 0.065 250), oklch(0.5 0.07 250));
+  --heat-3: light-dark(oklch(0.65 0.095 250), oklch(0.62 0.09 250));
+  --heat-4: light-dark(oklch(0.54 0.115 250), oklch(0.74 0.1 250));
+
   --rail: 1px solid var(--line);
   --radius: 4px;
   --sans: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
@@ -32,6 +39,12 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+}
+
+/* The page sets `display` on the elements it hides and shows, which would otherwise beat the
+   attribute's own rule. */
+[hidden] {
+  display: none !important;
 }
 
 body {
@@ -240,6 +253,134 @@ h1 {
 .chart-months span {
   overflow: hidden;
   white-space: nowrap;
+}
+
+.calendar-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+}
+.calendar {
+  --gutter: 24px;
+  --gap: 3px;
+  --cell: 12px;
+  display: grid;
+  grid-template-columns: var(--gutter) repeat(var(--weeks, 1), var(--cell));
+  grid-template-rows: 12px repeat(7, var(--cell));
+  gap: var(--gap);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.calendar::-webkit-scrollbar {
+  display: none;
+}
+.calendar.is-scrollable {
+  mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+.calendar-label {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  font: 9px/1 var(--mono);
+  color: var(--ink-3);
+}
+.calendar-month {
+  grid-row: 1;
+  align-self: start;
+  overflow: hidden;
+  white-space: nowrap;
+  font: 10px/1 var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.heat-cell {
+  width: var(--cell);
+  height: var(--cell);
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--heat-0);
+  cursor: pointer;
+}
+.heat-cell.heat-1,
+.heat-swatch.heat-1 {
+  background: var(--heat-1);
+}
+.heat-cell.heat-2,
+.heat-swatch.heat-2 {
+  background: var(--heat-2);
+}
+.heat-cell.heat-3,
+.heat-swatch.heat-3 {
+  background: var(--heat-3);
+}
+.heat-cell.heat-4,
+.heat-swatch.heat-4 {
+  background: var(--heat-4);
+}
+.heat-cell:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--ink-2);
+}
+.heat-cell:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.heat-cell[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.heat-cell:disabled {
+  cursor: default;
+}
+.heat-outside {
+  width: var(--cell);
+  height: var(--cell);
+}
+
+.calendar-facts {
+  display: grid;
+  flex: 0 0 190px;
+  gap: 16px;
+  padding-top: 14px;
+  font: 11px/1.4 var(--mono);
+}
+.calendar-facts dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.calendar-facts dt {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.calendar-facts dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+.heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+}
+.heat-legend span:first-child {
+  margin-right: 4px;
+}
+.heat-legend span:last-child {
+  margin-left: 4px;
+}
+.heat-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--heat-0);
 }
 
 .segmented {
@@ -706,7 +847,23 @@ main {
   }
   .segmented button {
     height: 28px;
-    padding: 0 10px;
+    padding: 0 8px;
+  }
+  .calendar {
+    --gutter: 24px;
+    --gap: 2px;
+  }
+  .calendar-layout {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .calendar-facts {
+    flex: none;
+    gap: 10px;
+    padding-top: 0;
+  }
+  .calendar-facts dl {
+    grid-template-columns: 1fr 1fr;
   }
   .controls {
     padding: 10px 14px;
