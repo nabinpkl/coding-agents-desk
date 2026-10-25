@@ -1,13 +1,14 @@
-// The audio channel's player: one `<audio>` element on the audio process's stream, outside React.
+// The audio channel's player, for Agent Radio (`listenPage.ts`): one `<audio>` element on the audio
+// process's stream, held by this module and handed state through `subscribeAudioChannel`.
 //
-// The stream is a bed of noise, in the color and at the level this device picks, with agents' messages over
-// it (`POST /api/audio/speak`). The noise is mixed by the audio process on the Mac, not here: iOS
-// ignores a page setting an element's volume, and a page's own Web Audio is suspended once the
-// screen locks, which is exactly when this has to keep playing.
-// Outside React so it outlives the menu that started it: closing the menu, or the screen locking,
-// must not be what stops it. One element for the whole time rather than one per connection,
-// because iOS lets an element play once a tap has started it, and the lock screen's play button
-// reaches the element already playing; a fresh element on resume would have neither.
+// The stream is a bed of noise, in the color and at the level this device picks, with agents'
+// messages over it (`POST /api/audio/speak`). The noise is mixed by the audio process on the Mac,
+// not here: iOS ignores a page setting an element's volume, and a page's own Web Audio is suspended
+// once the screen locks, which is exactly when this has to keep playing.
+//
+// One element for the whole time rather than one per connection, because iOS lets an element play
+// once a tap has started it, and the lock screen's play button reaches the element already
+// playing; a fresh element on resume would have neither.
 //
 // The stream is live, so pausing drops the connection, and resuming connects again: whatever was
 // said while paused was said to nobody here, and the audio process did not count this phone as

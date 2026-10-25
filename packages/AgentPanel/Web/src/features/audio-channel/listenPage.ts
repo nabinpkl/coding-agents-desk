@@ -1,8 +1,9 @@
 // Agent Radio's page (`public/listen.html`): the audio channel's controls on their own, with no
 // React and nothing else of the panel, so the page stays up while the panel reloads around it.
 //
-// Uses the same player as the panel's Profile menu (`audioChannelPlayer.ts`). Built with plain DOM
-// calls, once, and updated from the player's state; nothing here is torn down while the page lives.
+// The player is `audioChannelPlayer.ts`. Built with plain DOM calls, once, and updated from the
+// player's state; nothing here is torn down while the page lives. The panel's Profile menu links
+// here rather than playing anything itself.
 
 import { AUDIO_NOISE_COLORS, AUDIO_NOISE_LEVEL_MAX } from "@agentdesk/agent-feed-wire";
 import {

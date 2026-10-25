@@ -15,7 +15,7 @@ import {
 import { usePanelBuild } from "@/features/profile/panelBuild";
 import { PanelBuildStatus } from "@/features/profile/PanelBuildStatus";
 import { StaleSessionsModal } from "@/features/profile/StaleSessionsModal";
-import { AudioChannelMenuItem } from "@/features/profile/AudioChannelMenuItem";
+import { AgentRadioMenuItem } from "@/features/profile/AgentRadioMenuItem";
 import { PushMenuItems } from "@/features/profile/PushMenuItems";
 import {
   useStaleSessions,
@@ -183,7 +183,7 @@ export function ProfileRow({
             <span className="min-w-0 flex-1 truncate">Restart stale sessions</span>
           </button>
           <PushMenuItems />
-          <AudioChannelMenuItem />
+          <AgentRadioMenuItem />
           {/* Whether an edit acts on anything the moment it is saved: this page's own modules, and
               every machine's sidecar, which is the half that costs more -- a restart takes every
               stream the panel is holding with it. One switch because "stop changing under me" is

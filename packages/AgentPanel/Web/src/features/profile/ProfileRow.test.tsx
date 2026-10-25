@@ -279,7 +279,7 @@ describe("live updates", () => {
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Restart stale sessions" }));
     // The notification entries are disabled here (no push support in the test DOM) and skipped.
     fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Listen to agents" }));
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Agent Radio" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(toggle);
   });
