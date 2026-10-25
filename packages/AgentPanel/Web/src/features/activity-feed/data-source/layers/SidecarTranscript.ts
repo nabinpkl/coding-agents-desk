@@ -24,9 +24,7 @@ import type {
   SessionReference,
 } from "@/features/activity-feed/data-source/AgentDataSource";
 import { parse, SidecarError, SidecarRoutes } from "@/features/activity-feed/data-source/sidecarRoutes";
-
-/** Three missed heartbeats: one late beat is jitter, three is a connection that stopped. */
-const TIMELINE_STALL_MS = TIMELINE_HEARTBEAT_MS * 3;
+import { subscribeWithHeartbeat } from "@/features/activity-feed/transport/heartbeatStream";
 
 function timelinePath(session: SessionReference): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/timeline?mode=${session.mode}`;
@@ -100,86 +98,32 @@ export class SidecarTranscript extends SidecarRoutes {
    * be orchestrated by whoever held the connection, from a capability table it kept a copy of.
    */
   subscribeSessionEvents(session: SessionReference, _after: number, handlers: SessionEventsHandlers): () => void {
-    const path = timelinePath(session);
-    let heardAt = Date.now();
     let compaction: string | null = null;
-    // A failed stream is reopened on a short backoff rather than left to the watchdog below.
-    // `EventSource` retries a dropped connection by itself, but never one the server answered
-    // with an error status, and a sidecar that has just restarted answers 503 until its catalog
-    // has been read: a thread that reconnected inside that second sat dead for the watchdog's
-    // 45 seconds while every row it held stayed on screen looking live. Cleared by an opening
-    // stream, so a reconnect the browser managed on its own is left alone.
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    let failures = 0;
-    const reopenSoon = (): void => {
-      if (retry !== null) return;
-      const delay = Math.min(1_000 * 2 ** failures, TIMELINE_HEARTBEAT_MS);
-      failures += 1;
-      retry = setTimeout(() => {
-        retry = null;
-        close();
-        heardAt = Date.now();
-        close = open();
-      }, delay);
-    };
-    const open = (): (() => void) =>
-      this.transport.subscribe(path, {
-        onOpen: () => {
-          heardAt = Date.now();
-          failures = 0;
-          if (retry !== null) {
-            clearTimeout(retry);
-            retry = null;
-          }
-          // An opening stream says afresh whether a compaction is running, so one that ended while
-          // the connection was down must not stay on screen.
-          if (compaction !== null) {
-            compaction = null;
-            handlers.onCompacting?.(null);
-          }
-          handlers.onOpen?.();
-        },
-        onMessage: (payload) => {
-          heardAt = Date.now();
-          const message = JSON.parse(payload) as TimelineMessage;
-          if (message.type === "compacting" || message.type === "compaction-summary") {
-            compaction = nextCompaction(compaction, message);
-            handlers.onCompacting?.(compaction);
-            return;
-          }
-          this.deliver(message, handlers);
-        },
-        // An error before the stream ever opened and one after it was running are the same thing
-        // to the viewer: the thread is not live and it should say so.
-        onError: () => {
-          handlers.onError?.();
-          reopenSoon();
-        },
-      });
-    let close = open();
-    // A connection that stops delivering without closing raises nothing: `EventSource` reconnects
-    // only on an error or an end, and a stalled proxy or a path that changed under a sleeping
-    // laptop produces neither. The thread then sat still while its agent kept working, until a
-    // reload. The sidecar sends a heartbeat, so silence past a few beats is the stall itself, and
-    // reopening is the repair: the new stream opens with a snapshot of the newest window, which
-    // carries what the dead one held back as long as that is under a window's worth.
-    //
-    // Checked on the beat rather than armed per message, so a busy stream costs a timestamp write
-    // and nothing else. A throttled background tab checks late, which only delays the repair.
-    const watchdog = setInterval(() => {
-      const silentFor = Date.now() - heardAt;
-      if (silentFor < TIMELINE_STALL_MS) return;
-      console.warn(`[timeline] ${path} silent for ${Math.round(silentFor / 1000)}s, reopening`);
-      close();
-      handlers.onError?.();
-      heardAt = Date.now();
-      close = open();
-    }, TIMELINE_HEARTBEAT_MS);
-    return () => {
-      clearInterval(watchdog);
-      if (retry !== null) clearTimeout(retry);
-      close();
-    };
+    // Reopened when it fails or goes quiet, and the new stream opens with a snapshot of the newest
+    // window, which carries what the dead one held back as long as that is under a window's worth.
+    return subscribeWithHeartbeat(this.transport, timelinePath(session), TIMELINE_HEARTBEAT_MS, {
+      onOpen: () => {
+        // An opening stream says afresh whether a compaction is running, so one that ended while
+        // the connection was down must not stay on screen.
+        if (compaction !== null) {
+          compaction = null;
+          handlers.onCompacting?.(null);
+        }
+        handlers.onOpen?.();
+      },
+      onMessage: (payload) => {
+        const message = JSON.parse(payload) as TimelineMessage;
+        if (message.type === "compacting" || message.type === "compaction-summary") {
+          compaction = nextCompaction(compaction, message);
+          handlers.onCompacting?.(compaction);
+          return;
+        }
+        this.deliver(message, handlers);
+      },
+      // An error before the stream ever opened, one after it was running, and a stream gone quiet
+      // are the same thing to the viewer: the thread is not live and it should say so.
+      onError: () => handlers.onError?.(),
+    });
   }
 
   /**

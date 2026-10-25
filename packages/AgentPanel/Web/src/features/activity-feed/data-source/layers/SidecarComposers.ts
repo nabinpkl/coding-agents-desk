@@ -7,35 +7,38 @@
 // told what the box then holds, rather than tracking a local copy that would be wrong the moment
 // somebody types at the machine itself.
 
-import type {
-  ClaudeEffortLevel,
-  ClaudePermissionMode,
-  ClaudeSdkCommandOutcome,
-  ClaudeSdkDecideCommand,
-  ClaudeRunMode,
-  ClaudeSdkSessionState,
-  ClaudeSdkSwitchOutcome,
-  CliSessionStatus,
-  ComposerImageDrop,
-  ComposerKeyPress,
-  RailKey,
-  RailModifiers,
-  TmuxComposerEnvelope,
-  TmuxComposerState,
-  TmuxPermissionModeOutcome,
-  TmuxPermissionModeRequest,
-  TmuxQuestionAnswer,
-  TmuxQuestionOutcome,
-  TmuxQuestionPoint,
-  TmuxQuestionPointOutcome,
-  TmuxQuestionState,
-  WindowComposerEnvelope,
-  WindowComposerStatus,
-  WindowQuestionAction,
-  WindowQuestionStatus,
+import {
+  CLAUDE_SDK_HEARTBEAT_MS,
+  type ClaudeEffortLevel,
+  type ClaudePermissionMode,
+  type ClaudeSdkCommandOutcome,
+  type ClaudeSdkDecideCommand,
+  type ClaudeRunMode,
+  type ClaudeSdkSessionState,
+  type ClaudeSdkStreamMessage,
+  type ClaudeSdkSwitchOutcome,
+  type CliSessionStatus,
+  type ComposerImageDrop,
+  type ComposerKeyPress,
+  type RailKey,
+  type RailModifiers,
+  type TmuxComposerEnvelope,
+  type TmuxComposerState,
+  type TmuxPermissionModeOutcome,
+  type TmuxPermissionModeRequest,
+  type TmuxQuestionAnswer,
+  type TmuxQuestionOutcome,
+  type TmuxQuestionPoint,
+  type TmuxQuestionPointOutcome,
+  type TmuxQuestionState,
+  type WindowComposerEnvelope,
+  type WindowComposerStatus,
+  type WindowQuestionAction,
+  type WindowQuestionStatus,
 } from "@agentdesk/agent-feed-wire";
 import { parse, type SessionAddress } from "@/features/activity-feed/data-source/sidecarRoutes";
 import { SidecarTranscript } from "@/features/activity-feed/data-source/layers/SidecarTranscript";
+import { subscribeWithHeartbeat } from "@/features/activity-feed/transport/heartbeatStream";
 
 /** A session run through the Agent SDK, reached through its runner (ADR-0143). */
 function claudeSdkPath(
@@ -380,10 +383,15 @@ export class SidecarComposers extends SidecarTranscript {
    * starts and after it ends. Returns unsubscribe, and the caller must call it.
    */
   subscribeClaudeSdk(session: SessionAddress, onState: (state: ClaudeSdkSessionState) => void): () => void {
-    return this.transport.subscribe(claudeSdkPath(session, "stream"), {
-      onMessage: (payload) => onState(JSON.parse(payload) as ClaudeSdkSessionState),
-      // Silent for the reason the tmux stream is: `EventSource` reconnects on its own, and the
-      // panel already shows a sidecar that has stopped answering.
+    // Reopened when it fails or goes quiet: the state a stalled stream last sent stays on screen
+    // otherwise, a turn that finished still reading as running. The reopened stream's first
+    // message is the state as it is now.
+    return subscribeWithHeartbeat(this.transport, claudeSdkPath(session, "stream"), CLAUDE_SDK_HEARTBEAT_MS, {
+      onMessage: (payload) => {
+        const message = JSON.parse(payload) as ClaudeSdkStreamMessage;
+        if (!("type" in message)) onState(message);
+      },
+      // Silent otherwise: the panel already shows a sidecar that has stopped answering.
       onError: () => {},
     });
   }

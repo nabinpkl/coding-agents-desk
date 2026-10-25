@@ -30,13 +30,14 @@ export type {
   ClaudeSdkRefusal,
   ClaudeSdkRunStatus,
   ClaudeSdkSessionState,
+  ClaudeSdkStreamMessage,
   ClaudeSdkSwitchCommand,
   ClaudeSdkSwitchOutcome,
   ClaudeSdkSwitchRefusal,
   ClaudeEffortLevel,
   ClaudeSdkEffortCommand,
 } from "./claudeSdk.ts";
-export { CLAUDE_EFFORT_LEVELS, DISCONNECTED_CLAUDE_SDK_STATE } from "./claudeSdk.ts";
+export { CLAUDE_EFFORT_LEVELS, CLAUDE_SDK_HEARTBEAT_MS, DISCONNECTED_CLAUDE_SDK_STATE } from "./claudeSdk.ts";
 
 export type {
   ComposerCommand,

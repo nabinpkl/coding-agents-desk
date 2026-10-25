@@ -8,7 +8,11 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TIMELINE_HEARTBEAT_MS } from "@agentdesk/agent-feed-wire";
+import {
+  CLAUDE_SDK_HEARTBEAT_MS,
+  DISCONNECTED_CLAUDE_SDK_STATE,
+  TIMELINE_HEARTBEAT_MS,
+} from "@agentdesk/agent-feed-wire";
 import { SidecarDataSource, SidecarError } from "@/features/activity-feed/data-source/SidecarDataSource";
 import { FakeHttpTransport } from "@/features/activity-feed/transport/FakeHttpTransport";
 import type { SessionEventsHandlers } from "@/features/activity-feed/data-source/AgentDataSource";
@@ -271,6 +275,57 @@ describe("SidecarDataSource", () => {
       vi.advanceTimersByTime(TIMELINE_HEARTBEAT_MS * 10);
 
       // A watchdog outliving its thread would reopen a stream nobody is reading.
+      expect(transport.subscriptions).toEqual([]);
+    });
+  });
+
+  describe("an SDK session's state stream", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const SDK = { source: "claude", sessionId: "sid-1" };
+    const running = { ...DISCONNECTED_CLAUDE_SDK_STATE, connected: true, status: "running" as const };
+
+    it("passes the state through and keeps a quiet session's beats to itself", () => {
+      vi.useFakeTimers();
+      const transport = new FakeHttpTransport();
+      const states: unknown[] = [];
+      new SidecarDataSource(transport).subscribeClaudeSdk(SDK, (state) => states.push(state));
+      const first = transport.subscriptions[0];
+      expect(first?.path).toBe("/api/sessions/claude/sid-1/sdk/stream");
+
+      transport.deliver("sdk/stream", running);
+      for (let beat = 0; beat < 10; beat += 1) {
+        vi.advanceTimersByTime(CLAUDE_SDK_HEARTBEAT_MS);
+        transport.deliver("sdk/stream", { type: "heartbeat" });
+      }
+
+      // A beat is not a state: taken for one, it would blank the composer every fifteen seconds.
+      expect(states).toEqual([running]);
+      expect(transport.subscriptions).toEqual([first]);
+    });
+
+    // What left a finished turn offering to queue: the stream stalled after "running", and the
+    // "idle" that followed never arrived.
+    it("is reopened once it has been silent for three heartbeats, and stops when the reader leaves", () => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const transport = new FakeHttpTransport();
+      const unsubscribe = new SidecarDataSource(transport).subscribeClaudeSdk(SDK, () => {});
+      const first = transport.subscriptions[0];
+      transport.deliver("sdk/stream", running);
+
+      vi.advanceTimersByTime(CLAUDE_SDK_HEARTBEAT_MS * 3);
+
+      expect(transport.subscriptions).toHaveLength(1);
+      expect(transport.subscriptions[0]).not.toBe(first);
+      expect(transport.subscriptions[0]?.path).toBe("/api/sessions/claude/sid-1/sdk/stream");
+      expect(warn).toHaveBeenCalledOnce();
+      warn.mockRestore();
+
+      unsubscribe();
+      vi.advanceTimersByTime(CLAUDE_SDK_HEARTBEAT_MS * 10);
       expect(transport.subscriptions).toEqual([]);
     });
   });

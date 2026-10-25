@@ -13,13 +13,15 @@
 // Here rather than under `http/` for the reason `messaging/hubRoutes.ts` is: the routes are this
 // feature's surface and nothing else serves them.
 
-import type {
-  ClaudeSdkCommandOutcome,
-  ClaudeSdkSwitchOutcome,
-  ClaudeSdkRefusal,
-  TmuxQuestionAnswer,
-  TmuxQuestionOutcome,
-  TmuxQuestionRefusal,
+import {
+  CLAUDE_SDK_HEARTBEAT_MS,
+  type ClaudeSdkCommandOutcome,
+  type ClaudeSdkStreamMessage,
+  type ClaudeSdkSwitchOutcome,
+  type ClaudeSdkRefusal,
+  type TmuxQuestionAnswer,
+  type TmuxQuestionOutcome,
+  type TmuxQuestionRefusal,
 } from "@agentdesk/agent-feed-wire";
 import { NO_RUNNER, sharedClaudeSdkClient, type ClaudeSdkClient } from "@/claude-sdk/session/claudeSdkClient";
 import { isPromptImageType } from "@/claude-sdk/claudeSdkProtocol";
@@ -42,6 +44,12 @@ const SDK_ROUTE =
 /** How long `EventSource` waits before asking again once a stream ends. */
 const RETRY = new TextEncoder().encode("retry: 5000\n\n");
 
+/** A message rather than the default comment, so the panel can tell a stalled stream from a quiet session. */
+const HEARTBEAT = {
+  bytes: encodeServerSentEvent({ type: "heartbeat" } satisfies ClaudeSdkStreamMessage),
+  intervalMs: CLAUDE_SDK_HEARTBEAT_MS,
+};
+
 const MAXIMUM_BODY_BYTES = 1024 * 1024;
 /** A prompt may carry images: five of 8 MiB, base64'd, which is what `parseMessageAttachments` allows. */
 const MAXIMUM_PROMPT_BODY_BYTES = 60 * 1024 * 1024;
@@ -62,10 +70,17 @@ export function createClaudeSdkRoutes(
     const action = match[2]!.toLowerCase();
     if (action === "stream") {
       if (request.method !== "GET") return undefined;
-      return startServerSentEventStream(request, server, (write) => {
-        write(RETRY);
-        return client.observe(sessionId, (state) => write(encodeServerSentEvent(state)));
-      });
+      return startServerSentEventStream(
+        request,
+        server,
+        (write) => {
+          write(RETRY);
+          return client.observe(sessionId, (state) =>
+            write(encodeServerSentEvent(state satisfies ClaudeSdkStreamMessage)),
+          );
+        },
+        { heartbeat: HEARTBEAT },
+      );
     }
     if (request.method !== "POST") return undefined;
     if (action === "switch") return switchMode(client, request, sessionId);

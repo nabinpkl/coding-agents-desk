@@ -121,6 +121,22 @@ export interface ClaudeSdkSessionState {
   suggestion: string | null;
 }
 
+/**
+ * What `GET /api/sessions/claude/:id/sdk/stream` sends: the state, whole, on every change, and a
+ * heartbeat every `CLAUDE_SDK_HEARTBEAT_MS` that carries nothing. Only the heartbeat has a `type`.
+ */
+export type ClaudeSdkStreamMessage = ClaudeSdkSessionState | { type: "heartbeat" };
+
+/**
+ * How often the SDK stream says it is still there.
+ *
+ * A message rather than an SSE comment, as on the timeline stream: a stream that stops delivering
+ * without closing raises nothing in `EventSource`, and a composer reading it kept offering to queue
+ * behind a turn that had long finished. A reader that hears nothing for several beats reopens the
+ * stream, whose first message is the state as it is now.
+ */
+export const CLAUDE_SDK_HEARTBEAT_MS = 15_000;
+
 /** A prompt sent to an SDK session while it was busy, as the feed shows it until it is taken in. */
 export interface ClaudeSdkQueuedPrompt {
   id: string;
